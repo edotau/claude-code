@@ -23,6 +23,7 @@ type Input struct {
 	ToolName       string `json:"tool_name"`
 	HookEventName  string `json:"hook_event_name"`
 	StopHookActive bool   `json:"stop_hook_active"`
+	Prompt         string `json:"prompt"`
 
 	Raw []byte
 	doc map[string]any
@@ -92,6 +93,7 @@ var Registry = map[string]Handler{
 	"stop-format":         func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"context-checkpoint":  func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
 	"session-start":       func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
+	"memory-recall":       func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
 	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
 	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 }

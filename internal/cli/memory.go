@@ -20,6 +20,11 @@ func cmdMemory(args []string) int {
 		fmt.Fprintln(os.Stderr, memoryUsage)
 		return 2
 	}
+	if n, err := memory.MigrateLegacy(); err != nil {
+		fmt.Fprintln(os.Stderr, "memory: legacy layout migration:", err)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, "memory: moved %d legacy entries into %s\n", n, memory.GlobalDir())
+	}
 	fs := flag.NewFlagSet("memory "+args[0], flag.ContinueOnError)
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 	switch args[0] {

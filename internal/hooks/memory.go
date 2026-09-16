@@ -39,6 +39,7 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID string, now time.Time) string {
+	_, _ = memory.MigrateLegacy()
 	scaffolded := maybeAutoInit(cwd)
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := ""

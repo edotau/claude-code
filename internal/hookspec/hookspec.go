@@ -12,10 +12,11 @@ const HookBin = "$HOME/.claude/bin/claude-code"
 
 // Claude Code lifecycle event names.
 const (
-	EventPreToolUse   = "PreToolUse"
-	EventSessionStart = "SessionStart"
-	EventStop         = "Stop"
-	EventSessionEnd   = "SessionEnd"
+	EventPreToolUse       = "PreToolUse"
+	EventSessionStart     = "SessionStart"
+	EventUserPromptSubmit = "UserPromptSubmit"
+	EventStop             = "Stop"
+	EventSessionEnd       = "SessionEnd"
 )
 
 // Spec declares one `claude-code hook <Name>` invocation.
@@ -41,6 +42,8 @@ var Registry = []Spec{
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
 	{Name: "session-harvest", Event: EventStop, Timeout: 15},
 	{Name: "session-start", Event: EventSessionStart, Timeout: 10},
+	// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
+	{Name: "memory-recall", Event: EventUserPromptSubmit, Timeout: 5},
 	{Name: "session-harvest-end", Event: EventSessionEnd, Timeout: 15},
 }
 

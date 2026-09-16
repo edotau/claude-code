@@ -18,6 +18,7 @@ func bashPayload(cmd string) *strings.Reader {
 }
 
 func TestSafety(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	cases := []struct {
 		cmd  string
 		want int
@@ -55,6 +56,51 @@ func TestSafety(t *testing.T) {
 	}
 	if got := Safety(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("non-Bash tools pass")
+	}
+}
+
+// Hard rule 5: tree-writing git verbs are blocked when their target tree is the config checkout, and nowhere else.
+func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
+	home := t.TempDir()
+	harness := filepath.Join(home, ".claude")
+	_ = os.MkdirAll(filepath.Join(harness, "internal"), 0o755)
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", harness)
+	elsewhere := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(harness, link); err != nil {
+		t.Skip("symlink unsupported:", err)
+	}
+	cases := []struct {
+		cmd, cwd string
+		block    bool
+	}{
+		{"git stash", harness, true},
+		{"git checkout -- foo.go", filepath.Join(harness, "internal"), true},
+		{"git -C " + harness + " restore x", elsewhere, true},
+		{"git clean -fd", link, true},
+		{`git -C "$HOME/.claude" clean -fd`, elsewhere, true},
+		{"cd ~/.claude && git checkout .", elsewhere, true},
+		{"git --no-pager reset --hard", harness, true},
+		{"git -c core.pager=cat checkout .", harness, true},
+		{"git --git-dir=" + harness + "/.git --work-tree=" + harness + " checkout .", elsewhere, true},
+		{"git stash list && git stash pop", harness, true},
+		{"git stash list", harness, false},
+		{"git status --short", harness, false},
+		{"git checkout main", elsewhere, false},
+		{"git -C " + elsewhere + " clean -fd", harness, false},
+		{"cd " + elsewhere + " && git checkout .", harness, false},
+	}
+	for _, c := range cases {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})
+		var errb bytes.Buffer
+		want := ExitProceed
+		if c.block {
+			want = ExitBlock
+		}
+		if got := Safety(bytes.NewReader(payload), &errb); got != want {
+			t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, want, errb.String())
+		}
 	}
 }
 

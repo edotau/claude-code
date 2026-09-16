@@ -83,6 +83,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook memory-recall",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

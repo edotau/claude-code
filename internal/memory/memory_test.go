@@ -26,14 +26,27 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
+// repoRoot makes a git work-tree root (a .git dir is enough for the stat-first check).
+func repoRoot(t *testing.T, name string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	cfg := tempConfig(t)
-	root := filepath.Join(t.TempDir(), "My Repo.v2")
-	if got, want := Dir(root), filepath.Join(cfg, "docs", "memory", "my-repo.v2"); got != want {
+	root := repoRoot(t, "My Repo.v2")
+	if got, want := Dir(root), filepath.Join(cfg, "docs", "memory", "bank", "my-repo.v2"); got != want {
 		t.Errorf("Dir = %s want %s", got, want)
 	}
 	if Dir(cfg) != GlobalDir() || !IsGlobal(cfg) || IsGlobal(root) {
 		t.Error("the config dir's bank must be the global bank")
+	}
+	if plain := t.TempDir(); !IsGlobal(plain) {
+		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
 	}
 	dir, err := Init(root)
 	if err != nil {
@@ -74,7 +87,7 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
-	root := filepath.Join(t.TempDir(), "proj")
+	root := repoRoot(t, "proj")
 	dir := Dir(root)
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
 	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- keep commits small\n")
@@ -96,7 +109,7 @@ func TestSearchBanksRanking(t *testing.T) {
 
 func TestRotateAndSettle(t *testing.T) {
 	tempConfig(t)
-	root := filepath.Join(t.TempDir(), "proj")
+	root := repoRoot(t, "proj")
 	dir := Dir(root)
 	var b strings.Builder
 	b.WriteString("# Session History\n\n> newest first\n")
@@ -134,7 +147,7 @@ func mustRead(t *testing.T, p string) string {
 
 func TestSessionSurfaceOrderAndCaps(t *testing.T) {
 	tempConfig(t)
-	root := filepath.Join(t.TempDir(), "proj")
+	root := repoRoot(t, "proj")
 	dir := Dir(root)
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active\nfocus")
 	write(t, filepath.Join(dir, "progress.md"), "# Progress\nworks")
@@ -164,6 +177,11 @@ func TestSessionSurfaceOrderAndCaps(t *testing.T) {
 	if !strings.Contains(s, "- routed entry") || !strings.Contains(s, "(surface truncated)") {
 		t.Errorf("index starved or no truncation marker:\n%s", s[len(s)-400:])
 	}
+	// An indexed global bank is a pointer (memory-recall covers it), not an injected index.
+	write(t, filepath.Join(GlobalDir(), BankIndexFile), "# Memory Bank Index\n- global routed entry\n")
+	if s = SessionSurface(root); strings.Contains(s, "global routed entry") || !strings.Contains(s, "memory-recall hook") {
+		t.Errorf("global index injected instead of pointed at:\n%s", s[len(s)-400:])
+	}
 	if got := CapChars("aaaa\nbbbb", 3); got != "" {
 		t.Errorf("a cap below the marker length yields empty, got %q", got)
 	}
@@ -171,10 +189,7 @@ func TestSessionSurfaceOrderAndCaps(t *testing.T) {
 
 func TestUpdateRecordsOutcome(t *testing.T) {
 	tempConfig(t)
-	root := filepath.Join(t.TempDir(), "proj")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	root := repoRoot(t, "proj")
 	dir, _ := Init(root)
 	bin := t.TempDir()
 	ok := filepath.Join(bin, "claude-ok")
@@ -207,5 +222,28 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	stale := HarvestResult{Status: HarvestPending, Time: time.Now().Add(-20 * time.Minute)}
 	if !stale.NeedsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
+	}
+}
+
+func TestMigrateLegacyIdempotentNoOverwrite(t *testing.T) {
+	cfg := tempConfig(t)
+	legacy := filepath.Join(cfg, "docs", "memory")
+	write(t, filepath.Join(legacy, "conventions.md"), "# C\n- legacy\n")
+	write(t, filepath.Join(legacy, "proj", "progress.md"), "# P\nlegacy\n")
+	write(t, filepath.Join(legacy, "decisionLog.md"), "# D\nlegacy\n")
+	write(t, filepath.Join(GlobalDir(), "decisionLog.md"), "# D\nnew\n")
+	n, err := MigrateLegacy()
+	if err != nil || n != 2 {
+		t.Fatalf("moved %d err %v", n, err)
+	}
+	if mustRead(t, filepath.Join(GlobalDir(), "proj", "progress.md")) != "# P\nlegacy\n" ||
+		!strings.Contains(mustRead(t, filepath.Join(GlobalDir(), "conventions.md")), "legacy") {
+		t.Error("legacy entries not moved under bank/")
+	}
+	if mustRead(t, filepath.Join(GlobalDir(), "decisionLog.md")) != "# D\nnew\n" || mustRead(t, filepath.Join(legacy, "decisionLog.md")) != "# D\nlegacy\n" {
+		t.Error("an existing destination was overwritten or its legacy twin removed")
+	}
+	if n, err := MigrateLegacy(); n != 0 || err != nil {
+		t.Errorf("second run moved %d err %v", n, err)
 	}
 }

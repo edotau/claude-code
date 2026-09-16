@@ -1,5 +1,5 @@
-// Package memory is the session memory bank: six typed markdown files per repo under
-// <ConfigDir>/docs/memory/<repo-slug>, plus the shared global bank at the tree top.
+// Package memory is the session memory bank: six typed markdown files per git repo under
+// <ConfigDir>/docs/memory/bank/<repo-slug>, plus the shared global bank at that tree's top.
 package memory
 
 import (
@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -38,15 +39,61 @@ func IsHarvestChild() bool {
 	return v != "" && v != "0"
 }
 
-// GlobalDir is the shared bank at the top of the memory tree.
-func GlobalDir() string { return filepath.Join(paths.ConfigDir(), "docs", "memory") }
+// GlobalDir is the shared bank at the top of the bank tree.
+func GlobalDir() string { return filepath.Join(paths.ConfigDir(), "docs", "memory", "bank") }
 
-// Dir is root's local bank; the config dir's slug is "" so its bank IS the global one.
+// Dir is root's local bank; the config dir and any non-repo root collapse to the global one.
 func Dir(root string) string {
-	if slug := paths.RepoSlug(root); slug != "" {
+	if slug := paths.RepoSlug(root); slug != "" && inWorkTree(root) {
 		return filepath.Join(GlobalDir(), slug)
 	}
 	return GlobalDir()
+}
+
+// worktrees memoizes the git fork: Dir runs several times per hook, and a flip mid-process would split a bank.
+var worktrees sync.Map
+
+// inWorkTree is stat-first on .git (a toplevel never forks git), else `git rev-parse --is-inside-work-tree`.
+func inWorkTree(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		return true
+	}
+	if v, ok := worktrees.Load(root); ok {
+		return v.(bool)
+	}
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree").Output()
+	in := err == nil && strings.TrimSpace(string(out)) == "true"
+	worktrees.Store(root, in)
+	return in
+}
+
+// MigrateLegacy moves a pre-bank/ tree (global files and <slug>/ dirs directly under docs/memory) into
+// docs/memory/bank; idempotent, never overwrites, returns the entries moved.
+func MigrateLegacy() (int, error) {
+	legacy := filepath.Dir(GlobalDir())
+	ents, err := os.ReadDir(legacy)
+	if err != nil || (len(ents) == 1 && ents[0].Name() == "bank") {
+		return 0, nil
+	}
+	n := 0
+	err = paths.WithFileLock(filepath.Join(GlobalDir(), ".migrate"), func() error {
+		ents, _ = os.ReadDir(legacy)
+		for _, e := range ents {
+			if e.Name() == "bank" {
+				continue
+			}
+			to := filepath.Join(GlobalDir(), e.Name())
+			if _, err := os.Lstat(to); err == nil {
+				continue // destination exists: leave the legacy entry for a human
+			}
+			if err := os.Rename(filepath.Join(legacy, e.Name()), to); err != nil {
+				return err
+			}
+			n++
+		}
+		return nil
+	})
+	return n, err
 }
 
 // IsGlobal reports whether root's local bank is the global bank (read it once, not twice).

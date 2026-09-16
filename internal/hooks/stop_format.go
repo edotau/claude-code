@@ -34,17 +34,25 @@ func StopFormat(r io.Reader) int {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	if cwd == "" {
+		return ExitProceed
+	}
+	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
+	changed := changedFiles(cwd)
+	if len(changed) == 0 {
+		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
+		return ExitProceed
+	}
 	allow := map[string]bool{}
 	for _, f := range transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles) {
 		if abs, err := filepath.Abs(f); err == nil {
 			allow[abs] = true
 		}
 	}
-	if len(allow) == 0 || cwd == "" {
+	if len(allow) == 0 {
 		return ExitProceed
 	}
-	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
-	eligible, carry := selectForFormat(cwd, loadStamps(stampPath), allow)
+	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
 	for file, key := range formatAll(eligible) {
 		carry[file] = key
 	}
@@ -55,10 +63,10 @@ func StopFormat(r io.Reader) int {
 }
 
 // selectForFormat returns dirty session-written files whose stamp changed, plus stamps to carry forward.
-func selectForFormat(cwd string, prev map[string]string, allow map[string]bool) ([]string, map[string]string) {
+func selectForFormat(cwd string, changed []string, prev map[string]string, allow map[string]bool) ([]string, map[string]string) {
 	var eligible []string
 	carry := map[string]string{}
-	for _, rel := range changedFiles(cwd) {
+	for _, rel := range changed {
 		full := filepath.Join(cwd, rel)
 		if !allow[full] {
 			continue
