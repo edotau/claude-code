@@ -1,5 +1,5 @@
 ---
-description: "Run a multi-stage worktree pipeline for a task — explore, plan, (optional refine), implement, simplify, review, verify"
+description: "Run a multi-stage pipeline for a task — explore, plan, (optional refine), implement, simplify, review, verify"
 argument-hint: "[--refine] <task description>"
 ---
 
@@ -49,8 +49,8 @@ Instructions:
 
 3. Run the stages sequentially. For each stage, dispatch an `Agent` (the subagent type in the table)
    whose prompt is: "Read `.claude/docs/plans/stages/{task-id}.md` and complete the {stage} section",
-   plus the stage's own instructions. Writing stages (implement, simplify) use `isolation: "worktree"`;
-   read-only stages need none. **Skip `refine` entirely when `INCLUDE_REFINE=false`.**
+   plus the stage's own instructions. Writing stages (implement, simplify) scope each agent to
+   disjoint files in the shared tree. **Skip `refine` entirely when `INCLUDE_REFINE=false`.**
 
 4. Stages:
    | Stage | Agent | Notes |
@@ -67,8 +67,7 @@ Instructions:
    `claude-code ask --agent <leg> "<review brief with the diff range>"` from Bash (`claude-code agents`
    lists the available legs).
 
-5. Merge worktree branches in dependency order (`/workflow:worktree merge`), then update the stage
-   document status to `complete`.
+5. Update the stage document status to `complete`.
 
 6. Print a summary: what was done, issues found in review, whether verification passed, and whether
    the refine stage ran (`refinement: ran` or `refinement: skipped (not requested)`).

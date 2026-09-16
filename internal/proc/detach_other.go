@@ -6,10 +6,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"syscall"
 )
 
-func detachAttr() *syscall.SysProcAttr { return nil }
+// Detach is a no-op off unix.
+func Detach(*exec.Cmd) {}
 
 // Exec runs bin as a child and exits with its status (no execve off unix).
 func Exec(bin string, argv, env []string) error {

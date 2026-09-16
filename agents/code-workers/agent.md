@@ -15,9 +15,9 @@ description: |
   <example>
   Context: A Workflow script implements disjoint-file tasks concurrently.
   user: (internal) manager dispatches implementers for non-overlapping files.
-  assistant: "Each task → a code-workers leaf with isolation:'worktree'; the manager merges in dependency order and re-gates."
+  assistant: "Each task → a code-workers leaf scoped to its own files in the shared tree; the manager merges in dependency order and re-gates."
   <commentary>
-  Writers on disjoint files, isolated by worktree — the manager owns fan-out + merge; the leaf just executes its one task.
+  Writers on disjoint files in the shared tree — the manager owns fan-out + merge; the leaf just executes its one task.
   </commentary>
   </example>
 model: sonnet

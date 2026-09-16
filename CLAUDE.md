@@ -38,7 +38,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 6. **Live check first; scoped tests during development; the full suite once.** Run the verb or flow
    the task is about before writing tests around it. Test only the packages you touched. `make test`
    runs once, when the work is complete — state what ran and that the suite did not.
-   Every code dispatch carries a test agent in the same message. → `rules/standards/quality.md`
+   Every code dispatch carries `test-repair` in the same message. → `rules/standards/quality.md`
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 
@@ -61,7 +61,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code settings` (prints) → `make install` | hard rule 1 |
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path` | `commands/memory/end.md` |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |
-| Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`, `/workflow:worktree` | `rules/workflow/master-workflow.md` |
+| Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` | `rules/workflow/master-workflow.md` |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/test-repair` |
 
@@ -77,5 +77,5 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
 - `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own, leave them.
 - `docs/plans/` — implementation plans.
-- `docs/memory/<repo-slug>/` — session memory bank (six files, untracked; the tree top is the global bank);
-  engine `internal/memory`, hooks `session-start` / `session-harvest` / `session-harvest-end`.
+- `docs/memory/bank/<repo-slug>/` — session memory bank (six files, untracked; git roots only — the `bank/` top
+  is the global bank); engine `internal/memory`, hooks `session-start` / `memory-recall` / `session-harvest[-end]`.

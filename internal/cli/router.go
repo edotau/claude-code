@@ -80,5 +80,3 @@ func routerStatus(ctx context.Context) int {
 	}
 	return 0
 }
-
-func routerClientSecret() (string, error) { return router.ClientSecret() }

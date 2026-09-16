@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -39,10 +38,8 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	if len(plan.Overlay) > 0 {
-		if err := paths.AtomicWrite(plan.OverlayPath, plan.Overlay, 0o600); err != nil {
-			return Result{}, err
-		}
+	if err := plan.WriteOverlay(); err != nil {
+		return Result{}, err
 	}
 	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, req.Prompt)
 	cmd.Env = plan.Env(os.Environ())

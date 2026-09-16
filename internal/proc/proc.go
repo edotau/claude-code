@@ -14,7 +14,7 @@ func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
 	cmd.Stdout, cmd.Stderr = out, out
-	cmd.SysProcAttr = detachAttr()
+	Detach(cmd)
 	if cmd.Start() != nil {
 		return false
 	}

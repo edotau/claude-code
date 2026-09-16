@@ -84,3 +84,16 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 		t.Fatalf("grandchild outlived the deadline: took %v, err %v", time.Since(start), err)
 	}
 }
+
+func TestSessionFromBanner(t *testing.T) {
+	banner := "OpenAI Codex v0.154.0\n--------\nmodel: m\nsession id: 01a0aa74-a4c4\n--------\nuser\nsession id: not-this\n"
+	if got := sessionFromBanner(banner); got != "01a0aa74-a4c4" {
+		t.Errorf("sessionFromBanner = %q, want the banner id", got)
+	}
+	var h headBuffer
+	h.Write([]byte(banner))
+	h.Write(make([]byte, 8<<10))
+	if len(h.String()) != 4<<10 || sessionFromBanner(h.String()) != "01a0aa74-a4c4" {
+		t.Errorf("headBuffer kept %d bytes", len(h.String()))
+	}
+}

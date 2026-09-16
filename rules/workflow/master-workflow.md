@@ -16,7 +16,7 @@ paths:
 
 ```
 PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
-  --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (worktrees) --> MERGE --> VERIFY --> COMMIT
+  --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (shared tree) --> MERGE --> VERIFY --> COMMIT
 ```
 
 | Phase | Command / Agent | Output | Gate |
@@ -27,7 +27,7 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | 3. Research | `gh` search, WebFetch, WebSearch | Prior art links + library refs | At least 1 relevant reference |
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on `/workflow:orchestrate`** |
-| 6. Dispatch | `/workflow:orchestrate`, `/code-workers`, or `Agent` with `isolation: "worktree"` | Completed sub-tasks | Each sub-task passes local checks |
+| 6. Dispatch | `/workflow:orchestrate`, `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
 | 7. Merge | `/workflow:worktree merge` | Changes on working branch | No merge conflicts |
 | 8. Verify | `/testing:test-and-fix` + the `approval-gate` skill | All gates green | format + lint + test + security pass |
 | 9. Commit | `/github commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
@@ -141,9 +141,8 @@ Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytes
 
 **Trigger**: 2+ parallel-safe sub-tasks.
 
-- `/workflow:orchestrate` or `/code-workers parallel` — each sub-task as an `Agent` with
-  `isolation: "worktree"` (or exclusive new-file ownership); a test agent in the SAME message
-  (`standards/quality.md`).
+- `/workflow:orchestrate` or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
+  (ideally new) files in the shared tree; `test-repair` in the SAME message (`standards/quality.md`).
 - A second model family for one lane: `claude-code ask --agent <leg> "<brief>"` from Bash
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `/workflow:worktree create|list|merge|clean`.
@@ -203,7 +202,7 @@ it); never modify `migrations/` directories.
 |----------|----------|
 | Simple bug fix (LOW) | fix code -> `/testing:test-and-fix` -> `/github commit` |
 | Feature in one module (MEDIUM) | review -> plan mode -> implement -> verify -> `/github commit` |
-| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` -> `/workflow:worktree merge` -> verify -> `/github commit` |
+| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` -> verify -> `/github commit` |
 | Fix failing tests | `/testing:test-and-fix` |
 | Clean up tech debt | `/harness:techdebt scan` -> `/harness:techdebt fix` |
 | Review current changes | `/code-review` (quality) ‖ `/security` |
@@ -223,3 +222,17 @@ it); never modify `migrations/` directories.
 
 > **Security review is a skill, not an agent.** Run it via `/security` (the `security-reviewer`
 > skill), typically alongside Phase 8.
+
+## Saved Workflows (`workflows/*.js`)
+
+Deterministic templates of the phases above, runnable by name (`Workflow({name, args})`) or inline from
+another script via `workflow(name, args)`. Sequential = awaited stages, Parallel = `parallel()`/`pipeline()`,
+Loop = a bounded `while` — control flow is code, never a model decision. Agents work in the shared tree.
+
+| Workflow | Shape | Phases | args |
+|----------|-------|--------|------|
+| `gate-loop` | Loop: gate → fix in scope → re-run, ≤N | 8 | `{gate, cwd?, scope, maxIterations?}` |
+| `implement-and-verify` | Parallel intel → implementer ‖ test-repair → gate-loop | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?}` |
+| `audit-fix-verify` | Parallel auditors → refute → fix ‖ test per package → gate-loop | 2, 6, 8 | `{range \| paths, packages?, dimensions?, fix?}` |
+| `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
+| `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |
