@@ -38,13 +38,14 @@ type Input struct {
 		CurrentDir string `json:"current_dir"`
 	} `json:"workspace"`
 	Cost struct {
-		CostUSD      *float64 `json:"total_cost_usd"`
-		DurationMS   int64    `json:"total_duration_ms"`
-		LinesAdded   int      `json:"total_lines_added"`
-		LinesRemoved int      `json:"total_lines_removed"`
+		DurationMS   int64 `json:"total_duration_ms"`
+		LinesAdded   int   `json:"total_lines_added"`
+		LinesRemoved int   `json:"total_lines_removed"`
 	} `json:"cost"`
 	ContextWindow *struct {
 		Size           int      `json:"context_window_size"`
+		TotalInput     int      `json:"total_input_tokens"`
+		TotalOutput    int      `json:"total_output_tokens"`
 		UsedPercentage *float64 `json:"used_percentage"`
 	} `json:"context_window"`
 }
@@ -57,7 +58,7 @@ type values struct {
 	provider   string
 	router     string
 	branch     string
-	spend      string
+	tokens     string
 	duration   string
 	session    string
 	contextPct int
@@ -76,8 +77,8 @@ func (v values) text(key string) string {
 		return v.router
 	case "branch":
 		return v.branch
-	case "spend":
-		return v.spend
+	case "tokens":
+		return v.tokens
 	case "duration":
 		return v.duration
 	case "session":
@@ -166,8 +167,8 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)
 	}
-	if c := in.Cost.CostUSD; c != nil && *c > 0 {
-		v.spend = fmt.Sprintf("$%.2f", *c)
+	if cw := in.ContextWindow; cw != nil {
+		v.tokens = approxTokens(cw.TotalInput + cw.TotalOutput)
 	}
 	v.duration = formatDuration(in.Cost.DurationMS)
 	if id := in.SessionID; id != "" {
@@ -364,4 +365,18 @@ func shortenDir(p string) string {
 		return "~/" + rest
 	}
 	return p
+}
+
+// approxTokens renders a session token total as "~12k tok" / "~1.2M tok"; zero hides the segment.
+func approxTokens(n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n < 1_000:
+		return fmt.Sprintf("~%d tok", n)
+	case n < 1_000_000:
+		return fmt.Sprintf("~%dk tok", (n+500)/1_000)
+	default:
+		return fmt.Sprintf("~%.1fM tok", float64(n)/1_000_000)
+	}
 }

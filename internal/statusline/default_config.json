@@ -11,7 +11,7 @@
     "provider",
     "router",
     "context",
-    "spend",
+    "tokens",
     "duration",
     "session"
   ],
@@ -23,7 +23,7 @@
     "provider": true,
     "router": true,
     "context": true,
-    "spend": true,
+    "tokens": true,
     "duration": true,
     "session": false,
     "git": true,
@@ -51,7 +51,7 @@
       "model",
       "provider",
       "router",
-      "spend",
+      "tokens",
       "branch",
       "context"
     ],

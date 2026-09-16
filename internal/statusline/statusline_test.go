@@ -41,16 +41,16 @@ func hermetic(t *testing.T) string {
 
 func sample() values {
 	return values{userHost: "tester", path: "~/proj", model: "Opus 5 [1m]", provider: "openrouter",
-		router: "router:18765", branch: "main", spend: "$1.23", duration: "12m", contextPct: 42, adds: 10, dels: 3}
+		router: "router:18765", branch: "main", tokens: "~1.2M tok", duration: "12m", contextPct: 42, adds: 10, dels: 3}
 }
 
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | Opus 5 [1m] · openrouter · router:18765 ██████████ 42% · $1.23 · 12m │ main · +10 -3",
-		"powerline": "tester:~/proj |  Opus 5 [1m]  openrouter  router:18765  42%  $1.23  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( openrouter ) ( router:18765 ) ( 42% ) ( $1.23 ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  openrouter  ·  router:18765  ·  42%  ·  $1.23  ·  12m  ·   main  +10 -3",
+		"gradient":  "tester:~/proj | Opus 5 [1m] · openrouter · router:18765 ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
+		"powerline": "tester:~/proj |  Opus 5 [1m]  openrouter  router:18765  42%  ~1.2M tok  12m   main  +10 -3",
+		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( openrouter ) ( router:18765 ) ( 42% ) ( ~1.2M tok ) ( 12m ) (  main ) +10 -3",
+		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  openrouter  ·  router:18765  ·  42%  ·  ~1.2M tok  ·  12m  ·   main  +10 -3",
 	}
 	for style, want := range cases {
 		cfg := embeddedConfig()
@@ -294,12 +294,12 @@ func TestGitSegments(t *testing.T) {
 func TestRunAndConfigOverride(t *testing.T) {
 	dir := hermetic(t)
 	payload := `{"workspace":{"current_dir":"/nowhere/proj"},"model":{"id":"claude-opus-5","display_name":"Opus 5"},` +
-		`"cost":{"total_cost_usd":0.5,"total_duration_ms":3725000},"session_id":"abcdef0123456789"}`
+		`"cost":{"total_cost_usd":0.5,"total_duration_ms":3725000},"context_window":{"total_input_tokens":48000,"total_output_tokens":3400},"session_id":"abcdef0123456789"}`
 	var out bytes.Buffer
 	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  anthropic ") || !strings.Contains(got, "$0.50  ·  1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  anthropic ") || !strings.Contains(got, "~51k tok  ·  1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -313,7 +313,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( Opus 5 ) ( anthropic ) ( 0% ) ( $0.50 ) ( 1h02m ) ( abcdef01 )"
+	want := "tester:/nowhere/proj | ( Opus 5 ) ( anthropic ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -326,6 +326,14 @@ func TestFormatDuration(t *testing.T) {
 	for ms, want := range map[int64]string{0: "", 42_000: "42s", 754_000: "12m", 3_725_000: "1h02m"} {
 		if got := formatDuration(ms); got != want {
 			t.Errorf("formatDuration(%d) = %q, want %q", ms, got, want)
+		}
+	}
+}
+
+func TestApproxTokens(t *testing.T) {
+	for n, want := range map[int]string{0: "", 950: "~950 tok", 12_345: "~12k tok", 999_400: "~999k tok", 1_234_567: "~1.2M tok"} {
+		if got := approxTokens(n); got != want {
+			t.Errorf("approxTokens(%d)=%q want %q", n, got, want)
 		}
 	}
 }
