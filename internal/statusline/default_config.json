@@ -1,0 +1,60 @@
+{
+  "style": "gradient",
+  "colorMode": "auto",
+  "gradient": "gemini",
+  "powerlineTheme": "nord",
+  "charset": "text",
+  "userColor": "ansi",
+  "velocityMode": "code",
+  "order": [
+    "model",
+    "provider",
+    "router",
+    "context",
+    "spend",
+    "duration",
+    "session"
+  ],
+  "branchMax": 18,
+  "width": 0,
+  "segments": {
+    "path": true,
+    "model": true,
+    "provider": true,
+    "router": true,
+    "context": true,
+    "spend": true,
+    "duration": true,
+    "session": false,
+    "git": true,
+    "velocity": true
+  },
+  "bar": {
+    "width": 10,
+    "filledGlyph": "█",
+    "emptyGlyph": "█",
+    "percent": "after",
+    "terminalBg": "#300a24",
+    "theme": "auto",
+    "emptyContrast": 0.12
+  },
+  "separators": {
+    "minor": " · ",
+    "major": " ",
+    "git": " │ "
+  },
+  "dashboard": {
+    "width": 0,
+    "gutter": 3,
+    "columns": [
+      "workspace",
+      "model",
+      "provider",
+      "router",
+      "spend",
+      "branch",
+      "context"
+    ],
+    "headers": true
+  }
+}

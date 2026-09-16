@@ -1,0 +1,67 @@
+{
+  "_comment": "Palette library for Claude Code statuslines. Two shapes live here: 'gradients' (ordered hex stops for a per-character sweep, smoothstep-interpolated) and 'powerline' (per-segment bg/fg pairs for segmented/arrow styles). Pick a gradient for style=gradient; pick a powerline theme for style=powerline|capsule. Hex values downsample cleanly to 256/16 color.",
+
+  "gradients": {
+    "gemini":           ["#4796E4", "#847ACE", "#C3677F", "#FF6B9D"],
+    "tokyonight":       ["#7AA2F7", "#BB9AF7", "#FF6B9D"],
+    "shades-of-purple": ["#4D21FC", "#847ACE", "#FF6B9D"],
+    "dracula":          ["#8BE9FD", "#BD93F9", "#FF79C6", "#FF6B9D"],
+    "ayu-dark":         ["#39BAE6", "#FFB454", "#FF6B9D"],
+    "github-dark":      ["#79B8FF", "#B392F0", "#FF6B9D"],
+    "atom-one-dark":    ["#61AEEE", "#C678DD", "#E06C75"],
+    "nord":             ["#88C0D0", "#81A1C1", "#5E81AC", "#B48EAD"],
+    "rose-pine":        ["#9CCFD8", "#C4A7E7", "#EB6F92"],
+    "aurora":           ["#3AA6FF", "#46D9B5", "#FFD166", "#FF6B9D"],
+    "ocean":            ["#2EC5CE", "#3A86FF", "#5E60CE", "#7400B8"],
+    "sunset":           ["#FFB454", "#FF7A5C", "#E5446D", "#9D4EDD"]
+  },
+
+  "powerline": {
+    "dark": {
+      "directory": { "bg": "#3B4252", "fg": "#ECEFF4" },
+      "git":       { "bg": "#434C5E", "fg": "#A3BE8C" },
+      "model":     { "bg": "#5E81AC", "fg": "#ECEFF4" },
+      "context":   { "bg": "#4C566A", "fg": "#88C0D0" },
+      "session":   { "bg": "#2E3440", "fg": "#D8DEE9" }
+    },
+    "nord": {
+      "directory": { "bg": "#5E81AC", "fg": "#ECEFF4" },
+      "git":       { "bg": "#A3BE8C", "fg": "#2E3440" },
+      "model":     { "bg": "#B48EAD", "fg": "#2E3440" },
+      "context":   { "bg": "#88C0D0", "fg": "#2E3440" },
+      "session":   { "bg": "#4C566A", "fg": "#ECEFF4" }
+    },
+    "tokyo-night": {
+      "directory": { "bg": "#7AA2F7", "fg": "#1A1B26" },
+      "git":       { "bg": "#9ECE6A", "fg": "#1A1B26" },
+      "model":     { "bg": "#BB9AF7", "fg": "#1A1B26" },
+      "context":   { "bg": "#7DCFFF", "fg": "#1A1B26" },
+      "session":   { "bg": "#414868", "fg": "#C0CAF5" }
+    },
+    "rose-pine": {
+      "directory": { "bg": "#31748F", "fg": "#E0DEF4" },
+      "git":       { "bg": "#9CCFD8", "fg": "#191724" },
+      "model":     { "bg": "#C4A7E7", "fg": "#191724" },
+      "context":   { "bg": "#EBBCBA", "fg": "#191724" },
+      "session":   { "bg": "#26233A", "fg": "#E0DEF4" }
+    },
+    "light": {
+      "directory": { "bg": "#D8DEE9", "fg": "#2E3440" },
+      "git":       { "bg": "#A3BE8C", "fg": "#2E3440" },
+      "model":     { "bg": "#81A1C1", "fg": "#2E3440" },
+      "context":   { "bg": "#B48EAD", "fg": "#2E3440" },
+      "session":   { "bg": "#E5E9F0", "fg": "#4C566A" }
+    }
+  },
+
+  "semantic": {
+    "add":        "#1F9D57",
+    "del":        "#D63A3A",
+    "warn":       "#B26A00",
+    "danger":     "#C2185B",
+    "ok":         "#1F9D57",
+    "dim":        "#8A7E90",
+    "user":       "#8AE234",
+    "punct":      "#6B6B78"
+  }
+}
