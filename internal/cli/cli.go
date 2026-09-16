@@ -26,6 +26,7 @@ func commands() []command {
 		{"router", "loopback model router: serve | start | stop | status", cmdRouter},
 		{"ask", "one-shot task on an agent runner; --format json prints the envelope", cmdAsk},
 		{"agents", "list agent runners and whether each is available", cmdAgents},
+		{"memory", "session memory bank: init | search | index | path | update", cmdMemory},
 		{"hook", "run a lifecycle hook (invoked by settings.json)", cmdHook},
 		{"statusline", "render the status line (invoked by settings.json)", cmdStatusline},
 		{"settings", "render settings.json from the template (--out to write, backing up)", cmdSettings},

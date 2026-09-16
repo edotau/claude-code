@@ -59,6 +59,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider openrouter --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code settings` (prints) → `make install` | hard rule 1 |
+| Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path` | `commands/memory/end.md` |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |
 | Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`, `/workflow:worktree` | `rules/workflow/master-workflow.md` |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
@@ -76,3 +77,5 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
 - `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own, leave them.
 - `docs/plans/` — implementation plans.
+- `docs/memory/<repo-slug>/` — session memory bank (six files, untracked; the tree top is the global bank);
+  engine `internal/memory`, hooks `session-start` / `session-harvest` / `session-harvest-end`.

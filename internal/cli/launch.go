@@ -51,12 +51,12 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 
 func cmdHook(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: claude-code hook <safety|stop-format|context-checkpoint> < payload.json")
+		return fail("usage: claude-code hook <safety|stop-format|context-checkpoint|session-start|session-harvest|session-harvest-end> < payload.json")
 	}
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
 
-func cmdStatusline([]string) int { return statusline.Run(os.Stdin, os.Stdout) }
+func cmdStatusline(args []string) int { return statusline.Run(args, os.Stdin, os.Stdout) }
 
 func cmdSettings(args []string) int {
 	fs := flag.NewFlagSet("settings", flag.ContinueOnError)

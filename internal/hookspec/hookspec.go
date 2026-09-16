@@ -12,8 +12,10 @@ const HookBin = "$HOME/.claude/bin/claude-code"
 
 // Claude Code lifecycle event names.
 const (
-	EventPreToolUse = "PreToolUse"
-	EventStop       = "Stop"
+	EventPreToolUse   = "PreToolUse"
+	EventSessionStart = "SessionStart"
+	EventStop         = "Stop"
+	EventSessionEnd   = "SessionEnd"
 )
 
 // Spec declares one `claude-code hook <Name>` invocation.
@@ -37,6 +39,9 @@ var Registry = []Spec{
 	{Name: "safety", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
+	{Name: "session-harvest", Event: EventStop, Timeout: 15},
+	{Name: "session-start", Event: EventSessionStart, Timeout: 10},
+	{Name: "session-harvest-end", Event: EventSessionEnd, Timeout: 15},
 }
 
 // Hook and Group are the settings.json hook schema.

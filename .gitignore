@@ -33,6 +33,7 @@
 /.claude/
 /state/
 /memory/
+/docs/memory/
 /agent-memory/
 /worktrees/
 
