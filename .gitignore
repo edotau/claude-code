@@ -1,32 +1,84 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# This repo IS ~/.claude: track the harness, ignore everything Claude Code writes at runtime.
 
-# Test binary, built with `go test -c`
+# Claude Code runtime state
+/projects/
+/sessions/
+/session-env/
+/shell-snapshots/
+/history.jsonl
+/todos/
+/tasks/
+/plans/
+/file-history/
+/paste-cache/
+/ide/
+/statsig/
+/debug/
+/telemetry/
+/cache/
+/image-cache/
+/backups/
+/plugins/
+/chrome/
+/daemon/
+/jobs/
+/local/
+/logs/
+/usage-data/
+/config.json
+/stats-cache.json
+/mcp-needs-auth-cache.json
+/.last-*
+/.python-version
+/.claude/
+/state/
+/memory/
+/agent-memory/
+/worktrees/
+
+# Generated settings and credentials (settings.json is rendered by `claude-code install`)
+/settings.json
+/settings.json.bak*
+/settings.local.json
+/.credentials.json
+/.claude.json
+/providers.json
+/env.d/*.env
+!/env.d/*.example
+.env
+*.token
+
+# Build output
+/bin/
+/claude-code
 *.test
-
-# Code coverage profiles and other test artifacts
 *.out
 coverage.*
 *.coverprofile
-profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# User-installed skills (symlinks into ~/.agents; not part of the harness)
+/skills/academic-cv-builder
+/skills/career-changer-translator
+/skills/cover-letter-generator
+/skills/creative-portfolio-resume
+/skills/executive-resume-writer
+/skills/interview-prep-generator
+/skills/job-description-analyzer
+/skills/linkedin-profile-optimizer
+/skills/offer-comparison-analyzer
+/skills/portfolio-case-study-writer
+/skills/reference-list-builder
+/skills/resume-ats-optimizer
+/skills/resume-bullet-writer
+/skills/resume-formatter
+/skills/resume-quantifier
+/skills/resume-section-builder
+/skills/resume-tailor
+/skills/resume-version-manager
+/skills/salary-negotiation-prep
+/skills/tech-resume-optimizer
 
-# Go workspace file
-go.work
-go.work.sum
-
-# env file
-.env
-
-# Editor/IDE
-# .idea/
-# .vscode/
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
