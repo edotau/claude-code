@@ -49,11 +49,38 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
 	var answer strings.Builder
+	var banner headBuffer
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "")
 	cmd.Stdout = io.MultiWriter(stream, &answer)
+	cmd.Stderr = io.MultiWriter(tail, &banner)
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())
+	if id := sessionFromBanner(banner.String()); id != "" {
+		res.SessionID = id
+	}
 	return res, childErr(ctx, v.name, err, tail)
+}
+
+// headBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.
+type headBuffer struct{ buf []byte }
+
+func (h *headBuffer) Write(p []byte) (int, error) {
+	if room := 4<<10 - len(h.buf); room > 0 {
+		h.buf = append(h.buf, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func (h *headBuffer) String() string { return string(h.buf) }
+
+// sessionFromBanner reads codex exec's `session id: <id>` line, so a new run's envelope can be resumed.
+func sessionFromBanner(banner string) string {
+	for _, line := range strings.Split(banner, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "session id:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // copilotRunner drives the copilot CLI through the SDK with the BYOK block; tools are denied unless asked.

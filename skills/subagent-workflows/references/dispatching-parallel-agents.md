@@ -29,7 +29,7 @@ Ask each lane to report the exact API surface it produced, so integration needs 
 2. Give each agent one objective and its exclusive file list.
 3. Build each handoff using the contract in [SKILL.md](../SKILL.md).
 4. Issue all `Agent` calls in one message so they run concurrently.
-5. Dispatch a test agent in the SAME message (`rules/standards/quality.md` requires it; a test agent
+5. Dispatch `test-repair` in the SAME message (`rules/standards/quality.md` requires it; a test agent
    queued behind the implementers is the serial pass that rule exists to prevent).
 6. Review results, integrate, then run the combined verification yourself.
 

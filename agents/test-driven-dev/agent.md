@@ -24,7 +24,6 @@ tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
 color: green
-isolation: worktree
 ---
 
 You are a Test-Driven Development (TDD) specialist who ensures all code is developed test-first with comprehensive coverage.

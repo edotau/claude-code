@@ -17,13 +17,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 const (
-	DefaultPort   = 18765
-	shutdownDrain = 30 * time.Second
-	maxLogBytes   = 10 << 20
+	DefaultPort = 18765
+	maxLogBytes = 10 << 20
 )
+
+// shutdownDrain bounds a SIGTERM's wait on in-flight streams; a var so a test can shorten it.
+var shutdownDrain = 30 * time.Second
 
 // ErrNotRunning means no healthy router answers for router.json.
 var ErrNotRunning = errors.New("router is not running")
@@ -172,7 +175,7 @@ func spawn() error {
 	cmd := exec.Command(exe, "router", "serve")
 	cmd.Dir = paths.StateDir()
 	cmd.Stdout, cmd.Stderr = lf, lf
-	detach(cmd)
+	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -214,9 +217,15 @@ func Serve(ctx context.Context, port int) error {
 	}
 	dctx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 	defer cancel()
-	err = srv.Shutdown(dctx)
+	// A stream past the drain is closed, not an error: a slow stop is still a stop.
+	if err := srv.Shutdown(dctx); errors.Is(err, context.DeadlineExceeded) {
+		fmt.Fprintf(os.Stderr, "router: drain exceeded %s, closing the remaining streams\n", shutdownDrain)
+		_ = srv.Close()
+	} else if err != nil {
+		return err
+	}
 	<-errc
-	return err
+	return nil
 }
 
 // Stop SIGTERMs a healthy router and waits briefly for it to exit; a stale router.json is removed.
@@ -231,7 +240,8 @@ func Stop(ctx context.Context) (State, error) {
 	if err := terminate(st.PID); err != nil {
 		return st, err
 	}
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	// The wait follows the daemon's drain: a busy router is still stopping, not failing to stop.
+	for deadline := time.Now().Add(shutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if !alive(st.PID) {
 			return st, nil
 		}

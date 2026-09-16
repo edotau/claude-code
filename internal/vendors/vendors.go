@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -150,7 +151,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	}
 	if len(p.Headers) > 0 {
 		var hs [][2]string
-		for _, k := range sortedKeys(p.Headers) {
+		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
 			hs = append(hs, [2]string{tomlStr(k), tomlStr(p.Headers[k])})
 		}
 		fields = append(fields, [2]string{"http_headers", tomlInline(hs)})
@@ -188,7 +189,7 @@ func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]str
 	}
 	if len(p.Headers) > 0 {
 		var hs []string
-		for _, k := range sortedKeys(p.Headers) {
+		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
 			hs = append(hs, k+":"+p.Headers[k])
 		}
 		env = append(env, "GEMINI_CLI_CUSTOM_HEADERS="+strings.Join(hs, ","))
@@ -307,13 +308,4 @@ func tomlInline(pairs [][2]string) string {
 		parts[i] = kv[0] + " = " + kv[1]
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

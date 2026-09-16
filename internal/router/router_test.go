@@ -370,3 +370,52 @@ func TestServeStateAndEnsure(t *testing.T) {
 		t.Fatalf("router.json not removed: %v", err)
 	}
 }
+
+// A stream past the drain is closed and Serve still returns nil: exiting 1 there reported every busy stop as a failure.
+func TestServeClosesStreamsPastTheDrain(t *testing.T) {
+	old := shutdownDrain
+	shutdownDrain = 100 * time.Millisecond
+	t.Cleanup(func() { shutdownDrain = old })
+	release := make(chan struct{})
+	defer close(release)
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "event: ping\ndata: {}\n\n")
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	overlay := fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"anthropic","base_url":%q,"auth":{"type":"none"},"models":{"opus":"m"}}}}`, up.URL)
+	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(overlay), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, 0) }()
+	var st State
+	for i := 0; i < 100 && st.Port == 0; i++ {
+		st, _ = Running(context.Background())
+		time.Sleep(20 * time.Millisecond)
+	}
+	s, _ := ClientSecret()
+	req, _ := http.NewRequest(http.MethodPost, Base(st.Port)+"/p/up1/v1/messages", strings.NewReader(`{"model":"m","stream":true}`))
+	req.Header.Set("x-api-key", s)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Serve with a stream past the drain = %v, want nil", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve waited on the stream past the drain budget")
+	}
+}

@@ -2,7 +2,7 @@
 
 The recurring wins when reducing complexity. Each is behavior-preserving — you change how
 the code reads, not what it does. For the fuller over-abstraction gallery (TypeScript,
-shell, speculative features), see `anti-patterns.md`.
+shell, speculative features), see `skills/evaluate-code/references/anti-patterns.md`.
 
 ## Inline single-use abstractions
 

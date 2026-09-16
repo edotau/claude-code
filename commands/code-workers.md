@@ -15,7 +15,7 @@ with per-task review).
 
 | Arg | Shape | What runs |
 |-----|-------|-----------|
-| `parallel` | concurrent fan-out | One `code-workers` leaf per task, **all dispatched in a single message** so they run concurrently. `isolation: "worktree"` when tasks mutate files. Per `subagent-workflows/references/dispatching-parallel-agents.md`. |
+| `parallel` | concurrent fan-out | One `code-workers` leaf per task, **all dispatched in a single message** so they run concurrently, each scoped to disjoint files in the shared tree. Per `subagent-workflows/references/dispatching-parallel-agents.md`. |
 | `sequential` | one-at-a-time + review | One leaf per task in order; after each, a review gate (step 4) before the next. Per `subagent-workflows/references/subagent-driven-development.md`. |
 | *(blank)* or `auto` | infer | Independent tasks / no shared files → parallel; ordered or coupled tasks, or reading a plan → sequential. State the chosen shape and why before dispatching. |
 
@@ -67,8 +67,8 @@ Dispatch each task via the **Agent** tool with `subagent_type: "code-workers"`, 
 handoff (NOT this session's history).
 
 - **parallel** — emit **all** `Agent` calls in a **single message** so they run concurrently. Concurrency:
-  lean leaves ~8–10 in flight, deep-context leaves ≤4 (input-tokens/min is the binding cap). Use `isolation: "worktree"` for any task that
-  mutates files, so concurrent writers don't collide.
+  lean leaves ~8–10 in flight, deep-context leaves ≤4 (input-tokens/min is the binding cap). Agents share the tree on disk — scope each
+  handoff to disjoint files so concurrent writers don't collide.
 - **sequential** — dispatch **one** leaf, then run the review gate (step 4) before the next task.
   **Never** run two implementer leaves in parallel here — coupled tasks would edit shared code (the
   skill's red-flag).
@@ -91,5 +91,3 @@ consolidated report:
 
 - Per-task status table (task · leaf verdict · files · verification).
 - Overall verdict.
-- For worktree dispatches, note the merge follow-up (`/workflow:worktree merge`) — do **not** merge
-  silently.

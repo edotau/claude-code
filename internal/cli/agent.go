@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,8 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 )
-
-var errNotImplemented = errors.New("not implemented")
 
 func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)

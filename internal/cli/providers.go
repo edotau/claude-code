@@ -2,17 +2,16 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 func cmdProviders(args []string) int {
@@ -92,7 +91,7 @@ func cmdModels(args []string) int {
 			}
 			key := providers.PinModel
 			if slot != "all" {
-				if !validSlot(slot) {
+				if !slices.Contains(models.Slots, slot) {
 					return fail("unknown slot %q (opus|sonnet|haiku|fable|all)", slot)
 				}
 				key = providers.SlotPin(slot)
@@ -119,50 +118,16 @@ func cmdModels(args []string) int {
 	return 0
 }
 
-func validSlot(s string) bool {
-	for _, x := range models.Slots {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
-// listLive GETs the provider's model catalog on whichever route it has (Anthropic /v1/models, else OpenAI /models).
+// listLive prints the provider's live model catalog, one id per line.
 func listLive(p *providers.Provider) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	url := ""
-	if r, ok := p.Route(providers.DialectAnthropic); ok {
-		url = r + "/v1/models"
-	} else if r, ok := p.Route(providers.DialectOpenAI); ok {
-		url = r + "/models"
-	} else {
-		return fail("%s has no route that lists models", p.Name)
-	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err := providers.Authorize(ctx, p, req.Header); err != nil {
-		return fail("%v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
+	ids, err := providers.LiveModels(ctx, p)
 	if err != nil {
 		return fail("%v", err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode != http.StatusOK {
-		return fail("GET %s: %s: %s", url, resp.Status, strings.TrimSpace(string(body)))
-	}
-	var doc struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return fail("decode %s: %v", url, err)
-	}
-	for _, m := range doc.Data {
-		fmt.Println(m.ID)
+	for _, id := range ids {
+		fmt.Println(id)
 	}
 	return 0
 }
@@ -194,7 +159,7 @@ func cmdToken(args []string) int {
 		return 2
 	}
 	if *viaRouter {
-		s, err := routerClientSecret()
+		s, err := router.ClientSecret()
 		if err != nil {
 			return fail("%v", err)
 		}

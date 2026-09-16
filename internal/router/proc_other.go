@@ -2,12 +2,7 @@
 
 package router
 
-import (
-	"os"
-	"os/exec"
-)
-
-func detach(*exec.Cmd) {}
+import "os"
 
 func alive(pid int) bool { return pid > 0 }
 

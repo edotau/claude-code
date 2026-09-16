@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -221,7 +222,7 @@ func (p Plan) Env(base []string) []string {
 			out = append(out, kv)
 		}
 	}
-	for _, k := range sortedKeys(p.Set) {
+	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		out = append(out, k+"="+p.Set[k])
 	}
 	return out
@@ -235,7 +236,7 @@ func (p Plan) Print(w io.Writer) {
 			fmt.Fprintf(w, "unset    %s\n", k)
 		}
 	}
-	for _, k := range sortedKeys(p.Set) {
+	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		v := p.Set[k]
 		if secretKey(k) {
 			v = "<redacted>"
@@ -250,12 +251,18 @@ func (p Plan) Print(w io.Writer) {
 	}
 }
 
+// WriteOverlay writes the --settings overlay the argv names, when the plan has one.
+func (p Plan) WriteOverlay() error {
+	if len(p.Overlay) == 0 {
+		return nil
+	}
+	return paths.AtomicWrite(p.OverlayPath, p.Overlay, 0o600)
+}
+
 // Exec writes the overlay and replaces this process with the target.
 func (p Plan) Exec() error {
-	if len(p.Overlay) > 0 {
-		if err := paths.AtomicWrite(p.OverlayPath, p.Overlay, 0o600); err != nil {
-			return err
-		}
+	if err := p.WriteOverlay(); err != nil {
+		return err
 	}
 	for _, w := range p.Warnings {
 		fmt.Fprintln(os.Stderr, "claude-code: warning:", w)
@@ -274,19 +281,10 @@ func secretKey(k string) bool {
 
 func customHeaders(h map[string]string) string {
 	lines := make([]string, 0, len(h))
-	for _, k := range sortedKeys(h) {
+	for _, k := range slices.Sorted(maps.Keys(h)) {
 		lines = append(lines, k+": "+h[k])
 	}
 	return strings.Join(lines, "\n")
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // shellQuote single-quotes s when it holds shell metacharacters; apiKeyHelper runs under a shell.

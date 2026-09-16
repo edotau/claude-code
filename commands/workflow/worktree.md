@@ -9,9 +9,10 @@ argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--cle
 > Used directly or delegated to by `/workflow:orchestrate`.
 >
 > **Native overlap**: `create`/`enter` overlap the built-in `EnterWorktree`/`ExitWorktree`
-> tools and Agent `isolation: "worktree"` — prefer those inside a session. This command's
-> genuinely additive value is the **`merge`** and **`clean-all`** lifecycle (branch merge-back,
-> bulk stale-worktree pruning) that the native tools don't cover.
+> tools — prefer those inside a session. This command's genuinely additive value is the
+> **`merge`** and **`clean-all`** lifecycle (branch merge-back, bulk stale-worktree pruning)
+> that the native tools don't cover. Fan-out Agent dispatches work in the shared tree on
+> disjoint files rather than per-agent worktrees.
 
 **Input**: $ARGUMENTS
 
