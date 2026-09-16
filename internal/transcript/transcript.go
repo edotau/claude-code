@@ -114,12 +114,38 @@ var toolUseKey = []byte(`"tool_use"`)
 
 // EditedFiles returns up to limit unique paths the transcript's Edit/Write tool calls touched, sorted.
 func EditedFiles(path string, limit int) []string {
+	seen := map[string]bool{}
+	eachEdit(path, func(p string) {
+		if p != "" {
+			seen[p] = true
+		}
+	})
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// CountEdits counts every Edit/Write/MultiEdit/NotebookEdit tool_use in the whole transcript (no window:
+// re-harvest compares against an earlier count).
+func CountEdits(path string) int {
+	n := 0
+	eachEdit(path, func(string) { n++ })
+	return n
+}
+
+// eachEdit calls fn with the target path of each editor tool_use in an assistant record.
+func eachEdit(path string, fn func(filePath string)) {
 	f, err := os.Open(path)
 	if err != nil || path == "" {
-		return nil
+		return
 	}
 	defer f.Close()
-	seen := map[string]bool{}
 	eachLine(f, func(line []byte) {
 		if !bytes.Contains(line, toolUseKey) {
 			return
@@ -142,21 +168,10 @@ func EditedFiles(path string, limit int) []string {
 		}
 		for _, c := range rec.Message.Content {
 			if c.Type == "tool_use" && editTools[c.Name] {
-				if p := c.Input.FilePath + c.Input.NotebookPath; p != "" {
-					seen[p] = true
-				}
+				fn(c.Input.FilePath + c.Input.NotebookPath)
 			}
 		}
 	})
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
 }
 
 // eachLine reads with a Reader, not a Scanner: a giant tool-result line must not abort the scan.

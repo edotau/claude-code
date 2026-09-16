@@ -41,6 +41,28 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-harvest-end",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -53,6 +75,11 @@
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook stop-format",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-harvest",
+            "timeout": 15
           }
         ]
       }

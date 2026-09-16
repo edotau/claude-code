@@ -71,8 +71,8 @@ interactive `claude-code run <vendor>` launch so gateway wiring is written once.
 ## Dropped on purpose
 
 dbxcfg/dbxauth/dbxsql/databricks/apollo/identity/pki/vault/devops · U2M/SP/PAT minting · workspace env
-buckets and spill pools · model discovery cache · mux/board/agenttui cockpits · memory bank, evidence, ledger,
-knowledge corpus (Claude Code's native auto-memory covers it) · settings history/overlay sync targets ·
+buckets and spill pools · model discovery cache · mux/board/agenttui cockpits · evidence, ledger,
+knowledge corpus · settings history/overlay sync targets ·
 secretstore (Linux-only; `auth.command` covers keychain/1Password) · crossgen vendor mirrors · employer
 scripts, MCP servers, themes.
 
