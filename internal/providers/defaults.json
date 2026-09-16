@@ -1,0 +1,47 @@
+{
+  "default": "anthropic",
+  "fallback": [],
+  "providers": {
+    "anthropic": {
+      "kind": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "auth": {"type": "x-api-key", "env": "ANTHROPIC_API_KEY"},
+      "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5", "fable": "claude-fable-5-1"},
+      "one_m": true
+    },
+    "subscription": {
+      "kind": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "auth": {"type": "passthrough"},
+      "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5", "fable": "claude-fable-5-1"},
+      "one_m": true
+    },
+    "openrouter": {
+      "kind": "anthropic",
+      "base_url": "https://openrouter.ai/api",
+      "routes": {"openai": "/v1"},
+      "auth": {"type": "bearer", "env": "OPENROUTER_API_KEY"},
+      "models": {"opus": "anthropic/claude-opus-5", "sonnet": "anthropic/claude-sonnet-5", "haiku": "anthropic/claude-haiku-4-5"}
+    },
+    "openai": {
+      "kind": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "routes": {"responses": "https://api.openai.com/v1"},
+      "auth": {"type": "bearer", "env": "OPENAI_API_KEY"},
+      "models": {"opus": "gpt-5", "sonnet": "gpt-5-mini", "haiku": "gpt-5-nano"}
+    },
+    "gemini": {
+      "kind": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "routes": {"gemini": "https://generativelanguage.googleapis.com"},
+      "auth": {"type": "bearer", "env": "GEMINI_API_KEY"},
+      "models": {"opus": "gemini-2.5-pro", "sonnet": "gemini-2.5-flash", "haiku": "gemini-2.5-flash-lite"}
+    },
+    "ollama": {
+      "kind": "openai",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "auth": {"type": "none"},
+      "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}
+    }
+  }
+}
