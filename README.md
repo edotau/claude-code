@@ -154,8 +154,22 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | `safety` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, … |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |
 | `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
+| `session-start` | SessionStart | Injects the memory bank (local + global, char-capped) |
+| `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end` |
 
 To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registry`, `make install`.
+
+## Memory bank
+
+Six files per repo under `docs/memory/<repo-slug>/` (untracked): `projectContext`, `activeContext`,
+`progress`, `decisionLog`, `conventions`, `sessionHistory`; `docs/memory/` itself is the global bank.
+`claude-code memory init|search <terms>|index|path`; `/memory:init` enriches, `/memory:end` saves manually.
+
+## Status line
+
+`claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]`: model, provider (and
+cross-provider slot), router state, context %, cost, duration, git branch and diff. Persistent choice and
+palettes: `~/.claude/statusline/config.json` (+ `palettes.json`).
 
 ## Layout
 
