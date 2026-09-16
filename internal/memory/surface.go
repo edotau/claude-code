@@ -67,11 +67,12 @@ func localSurface(dir, root string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// globalSurface mirrors localSurface's durable half for the shared bank: index first, else promoted lessons.
+// globalSurface points at an indexed shared bank (memory-recall searches it per prompt), else injects promoted lessons.
 func globalSurface() string {
 	dir := GlobalDir()
-	if idx := readIndex(dir); idx != "" {
-		return "<!-- SHARED global bank index — full files under " + dir + " -->\n" + idx
+	if readIndex(dir) != "" {
+		return "<!-- SHARED global bank: " + dir + " — recalled per prompt by the memory-recall hook; " +
+			"claude-code memory search \"<q>\" for more -->"
 	}
 	if shared := ComposePromotedSurface(dir, globalCapBytes); shared != "" {
 		return "<!-- SHARED global bank (index.md missing — run `claude-code memory index`; dir: " + dir + ") -->\n" + shared

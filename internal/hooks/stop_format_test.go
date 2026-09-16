@@ -35,4 +35,14 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	if b, _ := os.ReadFile(theirs); string(b) != ugly {
 		t.Error("a file the session never wrote was formatted")
 	}
+	stamps, _ := filepath.Glob(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "stop-format", "*.json"))
+	if len(stamps) != 1 {
+		t.Fatalf("stamps after a format pass: %v", stamps)
+	}
+	_ = os.Remove(mine)
+	_ = os.Remove(theirs)
+	StopFormat(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr)))
+	if _, err := os.Stat(stamps[0]); !os.IsNotExist(err) {
+		t.Error("a clean tree must drop the stale stamp file")
+	}
 }
