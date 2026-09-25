@@ -127,7 +127,10 @@ claude-code router serve --port 18765      # foreground, for debugging
 claude --router                            # force the router for a direct-capable provider
 ```
 
-Subscription (`passthrough`) auth cannot go through the router; the launch says so.
+The built-in default is `subscription` with `fallback: ["gemini"]`, so a plain `claude` routes: a subscription
+session sends the router secret in `X-Claude-Code-Router` (via `ANTHROPIC_CUSTOM_HEADERS`, no `apiKeyHelper`) and
+keeps its OAuth login in `Authorization`, which the router forwards to `passthrough` providers only. A
+`passthrough` slot under an API-key session provider is refused — that session carries no login to forward.
 
 ## Agents
 

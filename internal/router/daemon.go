@@ -50,6 +50,9 @@ func Base(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
 // SessionBase is the ANTHROPIC_BASE_URL for a session whose default provider is provider.
 func SessionBase(base, provider string) string { return base + "/p/" + provider }
 
+// ClientHeader carries the router secret when Authorization holds the client's own login (subscription OAuth).
+const ClientHeader = "X-Claude-Code-Router"
+
 // ReadState reads router.json.
 func ReadState() (State, error) {
 	var st State

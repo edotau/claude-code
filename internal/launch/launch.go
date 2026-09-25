@@ -143,18 +143,23 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	helper := shellQuote(self) + " token --provider " + shellQuote(p.Name)
 	if o.Router || sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
-			if t.Provider.Auth.Type == providers.AuthPassthrough {
-				passthrough = true
+			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
+				return Plan{}, fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
 			}
-		}
-		if passthrough {
-			return Plan{}, fmt.Errorf("%s: subscription (passthrough) auth cannot go through the router — drop --router, cross-provider pins and registry fallback, or pick an API-key provider", p.Name)
 		}
 		base, err := ensureRouter(ctx)
 		if err != nil {
 			return Plan{}, fmt.Errorf("router: %w", err)
 		}
 		plan.Set["ANTHROPIC_BASE_URL"] = router.SessionBase(base, p.Name)
+		if passthrough {
+			// The login stays in Authorization, so the router secret rides in its own header.
+			secret, err := router.ClientSecret()
+			if err != nil {
+				return Plan{}, fmt.Errorf("router secret: %w", err)
+			}
+			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = router.ClientHeader + ": " + secret
+		}
 		helper = shellQuote(self) + " token --router"
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
 	} else {
