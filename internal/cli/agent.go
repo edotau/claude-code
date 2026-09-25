@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/crossgen"
 )
 
 func cmdAsk(args []string) int {
@@ -85,7 +86,55 @@ func cmdAsk(args []string) int {
 	return 0
 }
 
+const agentsUsage = "usage: claude-code agents | agents sync --gemini [--dry-run] [--check] [--no-prune] | agents docs [--check] [--dry-run]"
+
 func cmdAgents(args []string) int {
+	if len(args) == 0 {
+		return listRunners()
+	}
+	switch args[0] {
+	case "sync":
+		return cmdAgentsSync(args[1:])
+	case "docs":
+		return cmdAgentsDocs(args[1:])
+	case "-h", "--help":
+		fmt.Fprintln(os.Stderr, agentsUsage)
+		return 2
+	}
+	return fail("agents: unknown subcommand %q\n%s", args[0], agentsUsage)
+}
+
+// cmdAgentsSync projects agents/ + skills/ into ~/.gemini/skills; --gemini is the only target and is required.
+func cmdAgentsSync(args []string) int {
+	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
+	gemini := fs.Bool("gemini", false, "project into ~/.gemini/skills (required)")
+	dryRun := fs.Bool("dry-run", false, "report without writing")
+	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
+	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, agentsUsage)
+		return 2
+	}
+	if !*gemini {
+		fmt.Fprintln(os.Stderr, "agents sync: only --gemini is supported")
+		return 2
+	}
+	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Out: os.Stdout})
+}
+
+// cmdAgentsDocs renders AGENTS.md + GEMINI.md from CLAUDE.md and the agent roster.
+func cmdAgentsDocs(args []string) int {
+	fs := flag.NewFlagSet("agents docs", flag.ContinueOnError)
+	check := fs.Bool("check", false, "exit 1 when a generated file drifted; never writes")
+	dryRun := fs.Bool("dry-run", false, "preview without writing")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, agentsUsage)
+		return 2
+	}
+	return crossgen.RenderDocs(crossgen.DocsOptions{Check: *check, DryRun: *dryRun, Out: os.Stdout})
+}
+
+func listRunners() int {
 	for _, r := range agent.Runners() {
 		mark, reason := "✓", ""
 		if err := r.Available(); err != nil {

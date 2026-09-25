@@ -15,7 +15,9 @@
 - CLAUDE.md is the always-on tier; `rules/` is on-demand. Don't duplicate rule bodies
   into CLAUDE.md — point to them.
 - `AGENTS.md` is the cross-agent equivalent (other agent CLIs read it from the project root).
-  If a repo generates it from `CLAUDE.md`, edit the source, not the generated file.
+  If a repo generates it from `CLAUDE.md`, edit the source, not the generated file. This repo does:
+  `claude-code agents docs` renders `AGENTS.md` and `GEMINI.md` (byte-identical) from `CLAUDE.md` + `agents/`;
+  `--check` fails on drift.
 
 ## Markdown Formatting
 
