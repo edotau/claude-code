@@ -243,8 +243,11 @@ func (p Plan) Print(w io.Writer) {
 	}
 	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		v := p.Set[k]
-		if secretKey(k) {
+		switch {
+		case secretKey(k):
 			v = "<redacted>"
+		case k == "OPENCODE_CONFIG_CONTENT":
+			v = vendors.RedactConfig(v)
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
 	}

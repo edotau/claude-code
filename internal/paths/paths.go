@@ -2,6 +2,7 @@
 package paths
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,26 @@ func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
 // StateDir holds runtime state (router pid/port/secret) that must never be committed.
 func StateDir() string { return filepath.Join(ConfigDir(), "state", "harness") }
+
+// ClaudeJSON is Claude Code's ~/.claude.json (MCP servers, projects); it moves under CLAUDE_CONFIG_DIR when set.
+func ClaudeJSON() string {
+	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" {
+		return filepath.Join(ConfigDir(), ".claude.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude.json")
+}
+
+// WriteIfChanged atomically writes data unless the file already holds exactly it; reports whether it wrote.
+func WriteIfChanged(dest string, data []byte, mode os.FileMode) (bool, error) {
+	if cur, err := os.ReadFile(dest); err == nil && bytes.Equal(cur, data) {
+		return false, nil
+	}
+	return true, AtomicWrite(dest, data, mode)
+}
 
 // AtomicWrite writes via temp file + rename so readers never observe a partial file.
 func AtomicWrite(dest string, data []byte, mode os.FileMode) error {

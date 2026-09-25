@@ -188,6 +188,7 @@ func isGateway(base string) bool {
 
 // gemini: Google's own host takes the bare key; any other base is a gateway and needs the base URL too.
 // Every knob is set explicitly (empty clears) so an inherited GOOGLE_*/GEMINI_* var cannot redirect the run.
+// Interactive runs also trust the workspace (GEMINI_CLI_TRUST_WORKSPACE), equivalent to --skip-trust.
 func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
 	if err := geminiAuthConflict(); err != nil {
 		return nil, nil, err
@@ -213,7 +214,7 @@ func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]str
 		"GOOGLE_GENAI_USE_VERTEXAI=",
 	}
 	if h == nil {
-		return env, nil, nil
+		return append(env, "GEMINI_CLI_TRUST_WORKSPACE=true"), nil, nil
 	}
 	approval := "plan" // read-only, like codex's read-only sandbox
 	if h.Tools {
@@ -260,6 +261,7 @@ func geminiAuthConflict() error {
 }
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
+// Interactive runs also list every tier model and import the caller's Claude permissions + MCP servers.
 func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
 	id, err := ownedID(p)
 	if err != nil {
@@ -291,13 +293,34 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if len(headers) > 0 {
 		options["headers"] = headers
 	}
+	menu := map[string]any{model: map[string]any{"name": model}}
+	if h == nil {
+		for _, slot := range models.Slots {
+			if id := models.Strip1M(p.Models[slot]); id != "" {
+				menu[id] = map[string]any{"name": id}
+			}
+		}
+	}
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   id + "/" + model,
 		"provider": map[string]any{id: map[string]any{
 			"npm": npm, "name": p.Name + " (claude-code)", "options": options,
-			"models": map[string]any{model: map[string]any{"name": model}},
+			"models": menu,
 		}},
+	}
+	if h == nil {
+		cwd, _ := os.Getwd()
+		imp := readClaudeImport(cwd)
+		if perm := permissionBlock(imp.allow, imp.deny, imp.ask); perm != nil {
+			cfg["permission"] = perm
+		}
+		if mcp := mcpBlock(imp.mcp); len(mcp) > 0 {
+			cfg["mcp"] = mcp
+		}
+		if len(imp.skippedMCP) > 0 {
+			env = append(env, "HARNESS_OPENCODE_MCP_SKIPPED="+strings.Join(imp.skippedMCP, ","))
+		}
 	}
 	if h != nil && !h.Tools {
 		cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
@@ -351,6 +374,78 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
 		argv = append(argv, "--allow-all-tools")
 	}
 	return env, argv, nil
+}
+
+// secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., -password, ...), case-insensitive.
+var secretFlagRE = regexp.MustCompile(`(?i)^--?[a-z0-9_-]*(key|token|secret|password)(=.*)?$`)
+
+// RedactConfig blanks mcp.<name>.environment/headers values, secret-flag values in .command, and the
+// query string of .url in an OPENCODE_CONFIG_CONTENT string; returns s unchanged on any parse error.
+func RedactConfig(s string) string {
+	var cfg map[string]any
+	if json.Unmarshal([]byte(s), &cfg) != nil {
+		return s
+	}
+	mcp, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		return s
+	}
+	for _, raw := range mcp {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"environment", "headers"} {
+			if m, ok := entry[key].(map[string]any); ok {
+				for k := range m {
+					m[k] = "<redacted>"
+				}
+			}
+		}
+		redactCommandSecrets(entry)
+		redactURLQuery(entry)
+	}
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return s
+	}
+	return string(body)
+}
+
+// redactCommandSecrets blanks the value following (or after "=" on) any secret-naming flag in entry["command"].
+func redactCommandSecrets(entry map[string]any) {
+	argv, ok := entry["command"].([]any)
+	if !ok {
+		return
+	}
+	for i := 0; i < len(argv); i++ {
+		arg, ok := argv[i].(string)
+		if !ok || !secretFlagRE.MatchString(arg) {
+			continue
+		}
+		if idx := strings.IndexByte(arg, '='); idx >= 0 {
+			argv[i] = arg[:idx+1] + "<redacted>"
+			continue
+		}
+		if i+1 < len(argv) {
+			argv[i+1] = "<redacted>"
+			i++
+		}
+	}
+}
+
+// redactURLQuery strips entry["url"]'s query string, appending a marker so a redaction is visible.
+func redactURLQuery(entry map[string]any) {
+	raw, ok := entry["url"].(string)
+	if !ok {
+		return
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery == "" {
+		return
+	}
+	u.RawQuery = ""
+	entry["url"] = u.String() + "?<redacted>"
 }
 
 // positional guards a dash-led prompt from flag parsing.
