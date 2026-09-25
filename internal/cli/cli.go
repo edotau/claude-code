@@ -25,7 +25,8 @@ func commands() []command {
 		{"token", "print the credential for a provider (Claude Code apiKeyHelper)", cmdToken},
 		{"router", "loopback model router: serve | start | stop | status", cmdRouter},
 		{"ask", "one-shot task on an agent runner; --format json prints the envelope", cmdAsk},
-		{"agents", "list agent runners and whether each is available", cmdAgents},
+		{"agents", "list agent runners; sync --gemini | docs mirror the roster into ~/.gemini/skills and AGENTS.md/GEMINI.md", cmdAgents},
+		{"gemini", "gemini agent: ask <task> | bridge [--dirs|--files] <task> (one 1M-context call) | <vendor args>", cmdGemini},
 		{"memory", "session memory bank: init | search | index | path | update", cmdMemory},
 		{"hook", "run a lifecycle hook (invoked by settings.json)", cmdHook},
 		{"statusline", "render the status line (invoked by settings.json)", cmdStatusline},
@@ -39,8 +40,8 @@ func commands() []command {
 // shims maps a bare argv[0] to the verb it runs; `claude` is the launcher, vendors go through `run`.
 var shims = map[string]func([]string) int{
 	"claude":   cmdClaude,
+	"gemini":   cmdGemini,
 	"codex":    func(a []string) int { return launchVendor("codex", a) },
-	"gemini":   func(a []string) int { return launchVendor("gemini", a) },
 	"opencode": func(a []string) int { return launchVendor("opencode", a) },
 	"copilot":  func(a []string) int { return launchVendor("copilot", a) },
 }
