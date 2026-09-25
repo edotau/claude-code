@@ -143,7 +143,9 @@ claude-code run codex --print-env                    # show the env/argv wiring,
 ```
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
-gateway route written once serves both. Inside a session, the subagents in `agents/` (`code-workers`,
+gateway route written once serves both. Without `--tools`, claude and opencode get no tools, codex a read-only
+sandbox, and gemini its read-only plan mode. gemini reads the key only when `~/.gemini/settings.json` selects
+API-key auth (or none); a Google login there overrides every env var, so the runner refuses it. Inside a session, the subagents in `agents/` (`code-workers`,
 `test-driven-dev`, `test-repair`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 

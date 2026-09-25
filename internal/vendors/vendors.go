@@ -3,12 +3,15 @@
 package vendors
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -184,28 +187,76 @@ func isGateway(base string) bool {
 }
 
 // gemini: Google's own host takes the bare key; any other base is a gateway and needs the base URL too.
+// Every knob is set explicitly (empty clears) so an inherited GOOGLE_*/GEMINI_* var cannot redirect the run.
 func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
-	env := []string{"GEMINI_MODEL=" + model}
-	if cred != "" {
-		env = append(env, "GEMINI_API_KEY="+cred)
+	if err := geminiAuthConflict(); err != nil {
+		return nil, nil, err
 	}
+	baseURL, mechanism := "", "x-goog-api-key"
 	if isGateway(base) {
-		env = append(env, "GOOGLE_GEMINI_BASE_URL="+base)
+		baseURL = base
 		if p.Auth.Type == providers.AuthBearer {
-			env = append(env, "GEMINI_API_KEY_AUTH_MECHANISM=bearer")
+			mechanism = "bearer"
 		}
 	}
-	if len(p.Headers) > 0 {
-		var hs []string
-		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, k+":"+p.Headers[k])
-		}
-		env = append(env, "GEMINI_CLI_CUSTOM_HEADERS="+strings.Join(hs, ","))
+	var hs []string
+	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
+		hs = append(hs, k+":"+p.Headers[k])
+	}
+	env := []string{
+		"GEMINI_MODEL=" + model,
+		"GEMINI_API_KEY=" + cred,
+		"GOOGLE_GEMINI_BASE_URL=" + baseURL,
+		"GEMINI_API_KEY_AUTH_MECHANISM=" + mechanism,
+		"GEMINI_CLI_CUSTOM_HEADERS=" + strings.Join(hs, ","),
+		"GOOGLE_GENAI_USE_GCA=",
+		"GOOGLE_GENAI_USE_VERTEXAI=",
 	}
 	if h == nil {
 		return env, nil, nil
 	}
-	return env, []string{"-m", model, "-p", h.Prompt}, nil
+	approval := "plan" // read-only, like codex's read-only sandbox
+	if h.Tools {
+		approval = "yolo"
+	}
+	argv := []string{"--skip-trust", "-m", model, "--output-format", "stream-json", "--approval-mode", approval}
+	if h.SessionID != "" {
+		argv = append(argv, "--resume", h.SessionID)
+	}
+	return env, append(argv, "--prompt="+h.Prompt), nil
+}
+
+// geminiKeyAuth are the selectedType values that read GEMINI_API_KEY; any other one ignores the harness wiring.
+var geminiKeyAuth = map[string]bool{"": true, "gemini-api-key": true, "gateway": true}
+
+// geminiAuthConflict fails fast when ~/.gemini/settings.json picks a login auth: it beats every env var, and
+// a headless run would hang on the browser prompt (a system override file must be root-owned, so none is possible).
+func geminiAuthConflict() error {
+	home := os.Getenv("GEMINI_CLI_HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	file := filepath.Join(home, ".gemini", "settings.json")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		Legacy   string `json:"selectedAuthType"`
+		Security struct {
+			Auth struct {
+				SelectedType string `json:"selectedType"`
+			} `json:"auth"`
+		} `json:"security"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return nil // gemini-cli reports its own parse errors
+	}
+	if t := cmp.Or(cfg.Security.Auth.SelectedType, cfg.Legacy); !geminiKeyAuth[t] {
+		return fmt.Errorf("gemini: %s selects auth %q, which overrides the provider key; run `gemini`, /auth → "+
+			"\"Use Gemini API key\", or delete security.auth.selectedType", file, t)
+	}
+	return nil
 }
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.

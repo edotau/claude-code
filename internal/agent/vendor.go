@@ -20,10 +20,10 @@ type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
 
-// Caps follow each CLI's verified headless flags; gemini has no effort/session/tool channel wired.
+// Caps follow each CLI's verified headless flags; gemini has no effort flag.
 func (v vendorRunner) Caps() Caps {
 	if v.name == "gemini" {
-		return Caps{Model: true, Provider: true, WorkDir: true}
+		return Caps{Model: true, Provider: true, WorkDir: true, SessionID: true, Tools: true}
 	}
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true}
 }
@@ -57,8 +57,11 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	var banner headBuffer
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "")
 	cmd.Stderr = io.MultiWriter(tail, &banner)
-	if v.name == "opencode" {
-		return v.runOpenCode(ctx, cmd, tail, res, stream)
+	switch v.name {
+	case "opencode":
+		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
+	case "gemini":
+		return v.runStream(ctx, cmd, tail, res, stream, parseGeminiStream)
 	}
 	cmd.Stdout = io.MultiWriter(stream, &answer)
 	err = cmd.Run()
@@ -69,8 +72,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	return res, childErr(ctx, v.name, err, tail)
 }
 
-// runOpenCode reads `opencode run --format json` events: the answer, session id and usage ride in them.
-func (v vendorRunner) runOpenCode(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer) (Result, error) {
+// runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
+func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
+	parse func(io.Reader, io.Writer) (Result, error)) (Result, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return res, err
@@ -78,7 +82,7 @@ func (v vendorRunner) runOpenCode(ctx context.Context, cmd *exec.Cmd, tail *Tail
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, v.name, err, tail)
 	}
-	out, perr := parseOpenCodeStream(stdout, stream)
+	out, perr := parse(stdout, stream)
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage = out.Answer, out.Usage
@@ -209,5 +213,56 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		res.Model = out.Model
 	}
 	res.SessionID, res.Answer = out.SessionID, out.Text
+	return res, nil
+}
+
+type geminiEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Status    string `json:"status"`
+	Error     struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Stats struct {
+		Total int `json:"total_tokens"`
+		Input int `json:"input_tokens"`
+	} `json:"stats"`
+}
+
+// parseGeminiStream reads `gemini --output-format stream-json`: assistant deltas, then one result event.
+func parseGeminiStream(r io.Reader, w io.Writer) (Result, error) {
+	var res Result
+	var answer strings.Builder
+	dec := json.NewDecoder(r)
+	for {
+		var ev geminiEvent
+		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return res, fmt.Errorf("decode gemini stream-json: %w", err)
+		}
+		switch ev.Type {
+		case "init":
+			res.SessionID = ev.SessionID
+		case "message":
+			if ev.Role != "assistant" {
+				continue
+			}
+			if _, err := io.WriteString(w, ev.Content); err != nil {
+				return res, err
+			}
+			answer.WriteString(ev.Content)
+		case "result":
+			// output_tokens omits thinking; total minus input counts it, as opencode's reasoning does.
+			res.Usage = Usage{InputTokens: ev.Stats.Input, OutputTokens: max(ev.Stats.Total-ev.Stats.Input, 0)}
+			if ev.Status != "success" {
+				res.Answer = strings.TrimSpace(answer.String())
+				return res, errors.New(cmp.Or(ev.Error.Message, "gemini run "+cmp.Or(ev.Status, "failed")))
+			}
+		}
+	}
+	res.Answer = strings.TrimSpace(answer.String())
 	return res, nil
 }
