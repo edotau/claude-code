@@ -20,11 +20,11 @@
   "segments": {
     "path": true,
     "model": true,
-    "provider": true,
-    "router": true,
+    "provider": false,
+    "router": false,
     "context": true,
-    "tokens": true,
-    "duration": true,
+    "tokens": false,
+    "duration": false,
     "session": false,
     "git": true,
     "velocity": true
