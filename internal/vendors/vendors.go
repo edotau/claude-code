@@ -29,7 +29,7 @@ type Spec struct {
 var specs = []Spec{
 	{Name: "codex", Binary: "codex", Dialect: providers.DialectResponses, Dialects: []string{providers.DialectResponses}},
 	{Name: "gemini", Binary: "gemini", Dialect: providers.DialectGemini, Dialects: []string{providers.DialectGemini}},
-	{Name: "opencode", Binary: "opencode", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectOpenAI}},
+	{Name: "opencode", Binary: "opencode", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectGemini, providers.DialectOpenAI}},
 	{Name: "copilot", Binary: "copilot", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectOpenAI}},
 }
 
@@ -175,13 +175,21 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	return env, append(argv, positional(h.Prompt)...), nil
 }
 
+// googleHost is Gemini's own API host; any other gemini route is a gateway.
+const googleHost = "generativelanguage.googleapis.com"
+
+func isGateway(base string) bool {
+	u, err := url.Parse(base)
+	return err == nil && u.Host != googleHost
+}
+
 // gemini: Google's own host takes the bare key; any other base is a gateway and needs the base URL too.
 func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
 	env := []string{"GEMINI_MODEL=" + model}
 	if cred != "" {
 		env = append(env, "GEMINI_API_KEY="+cred)
 	}
-	if u, err := url.Parse(base); err == nil && u.Host != "generativelanguage.googleapis.com" {
+	if isGateway(base) {
 		env = append(env, "GOOGLE_GEMINI_BASE_URL="+base)
 		if p.Auth.Type == providers.AuthBearer {
 			env = append(env, "GEMINI_API_KEY_AUTH_MECHANISM=bearer")
@@ -213,14 +221,19 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		headers[k] = v
 	}
 	ref := "{env:" + OpenCodeKeyEnv + "}"
-	if dialect == providers.DialectAnthropic {
+	// Native SDKs keep provider-specific state (Gemini 3 thought signatures) the openai-compatible shim drops.
+	switch dialect {
+	case providers.DialectAnthropic:
 		npm, options["baseURL"] = "@ai-sdk/anthropic", base+"/v1"
+	case providers.DialectGemini:
+		npm, options["baseURL"] = "@ai-sdk/google", base+"/v1beta"
 	}
 	var env []string
 	if cred != "" {
 		env = append(env, OpenCodeKeyEnv+"="+cred)
 		options["apiKey"] = ref
-		if dialect == providers.DialectAnthropic && p.Auth.Type == providers.AuthBearer {
+		native := dialect == providers.DialectAnthropic || (dialect == providers.DialectGemini && isGateway(base))
+		if native && p.Auth.Type == providers.AuthBearer {
 			headers["Authorization"] = "Bearer " + ref
 		}
 	}
@@ -236,7 +249,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		}},
 	}
 	if h != nil && !h.Tools {
-		cfg["permission"] = map[string]any{"edit": "deny", "bash": "deny", "webfetch": "deny"}
+		cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
 	}
 	body, err := json.Marshal(cfg)
 	if err != nil {
@@ -246,7 +259,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if h == nil {
 		return env, nil, nil
 	}
-	argv := []string{"run", "-m", id + "/" + model}
+	argv := []string{"run", "--format", "json", "-m", id + "/" + model}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
