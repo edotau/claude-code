@@ -140,13 +140,31 @@ claude-code ask --agent codex "Review the diff on this branch for correctness bu
 claude-code ask --agent gemini --format json "Map every caller of providers.Select."
 claude-code run opencode --provider openrouter --model qwen/qwen3-coder
 claude-code run codex --print-env                    # show the env/argv wiring, launch nothing
+claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
+claude-code agents sync --gemini --dry-run           # mirror agents/ + skills/ into ~/.gemini/skills
+claude-code agents docs                              # AGENTS.md + GEMINI.md from CLAUDE.md + the roster
 ```
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
 gateway route written once serves both. Without `--tools`, claude and opencode get no tools, codex a read-only
 sandbox, and gemini its read-only plan mode. gemini reads the key only when `~/.gemini/settings.json` selects
-API-key auth (or none); a Google login there overrides every env var, so the runner refuses it. Inside a session, the subagents in `agents/` (`code-workers`,
-`test-driven-dev`, `test-repair`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
+API-key auth (or none); a Google login there overrides every env var, so the runner refuses it. An interactive
+`run opencode` also imports your Claude permissions (`settings.json` allow/deny/ask → opencode's `permission`
+block) and MCP servers (`~/.claude.json`, plus project `.mcp.json` entries Claude Code has approved for that
+directory — unapproved ones are named in `HARNESS_OPENCODE_MCP_SKIPPED`) and lists every tier model the provider
+serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
+
+`claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini --provider gemini`
+(drives the gemini CLI); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` inlines
+workspace files into one prompt and makes a single first-party call on the `gemini` provider (`GEMINI_API_KEY`,
+default `gemini-3.6-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the `gemini` subagent
+and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only tracked/untracked-but-not-ignored files
+are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`, `*.pem`/`*.key` are always skipped; the inlined path
+list is printed to stderr before the call. Anything else launches the gemini CLI (same as `run gemini`).
+`agents sync --gemini` mirrors `agents/` and the hand-authored `skills/` into `~/.gemini/skills` (banner-marked,
+assets symlinked, hand-authored dirs kept, `--check` gates drift); `agents docs` renders `AGENTS.md` + `GEMINI.md`
+(generated, gitignored like `settings.json`). Inside a session, the subagents in `agents/` (`code-workers`,
+`test-driven-dev`, `test-repair`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 
 ## Hooks
