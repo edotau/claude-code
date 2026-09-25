@@ -17,7 +17,7 @@ type command struct {
 
 func commands() []command {
 	return []command{
-		{"claude", "launch Claude Code on the selected provider (default when invoked as `claude`)", cmdClaude},
+		{"claude", "launch Claude Code on the selected provider (default with no command, or when invoked as `claude`)", cmdClaude},
 		{"run", "launch a vendor agent CLI (codex|gemini|opencode|copilot) routed through the registry", cmdRun},
 		{"providers", "list providers, or show one's routes and credential state", cmdProviders},
 		{"models", "show resolved tier→model slots; --pin slot=[provider:]model, --unpin, --live", cmdModels},
@@ -51,8 +51,7 @@ func Run(argv []string) int {
 		return shim(argv[1:])
 	}
 	if len(argv) < 2 {
-		usage(os.Stdout)
-		return 0
+		return cmdClaude(nil)
 	}
 	name, args := argv[1], argv[2:]
 	switch name {
@@ -64,6 +63,10 @@ func Run(argv []string) int {
 		if c.name == name {
 			return c.run(args)
 		}
+	}
+	// A leading flag with no verb is a claude flag: `claude-code --resume` == `claude-code claude --resume`.
+	if strings.HasPrefix(name, "-") {
+		return cmdClaude(argv[1:])
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
