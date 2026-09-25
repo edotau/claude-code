@@ -65,6 +65,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusUnauthorized, "router: missing or wrong client secret (apiKeyHelper: claude-code token --router)")
 		return
 	}
+	// Past auth, Authorization survives only as the client's own credential (secret sent in ClientHeader).
+	if req.Header.Get(ClientHeader) == "" {
+		req.Header.Del("Authorization")
+		req.Header.Del("X-Api-Key")
+	}
+	req.Header.Del(ClientHeader)
 	session, count, ok := parsePath(req.URL.Path)
 	if !ok || req.Method != http.MethodPost {
 		writeError(w, http.StatusNotFound, "router: unsupported route "+req.Method+" "+req.URL.Path+" (want POST /p/<provider>/v1/messages)")
@@ -105,12 +111,13 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return session, head.Model, 0
 	}
 	target := providers.ParseTarget(reg, head.Model, sess)
-	if msg := unroutable(target.Provider); msg != "" {
+	clientAuth := in.Header.Get("Authorization") != ""
+	if msg := unroutable(target.Provider, clientAuth); msg != "" {
 		writeError(w, http.StatusBadRequest, "router: "+msg)
 		return target.Provider.Name, target.Model, 0
 	}
 	clientModel := models.Strip1M(head.Model)
-	ladder := r.attempts(reg, target)
+	ladder := r.attempts(reg, target, clientAuth)
 	var lastErr error
 	for i, t := range ladder {
 		last := i == len(ladder)-1
@@ -132,9 +139,9 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 }
 
 // unroutable explains why the router cannot serve p at all, or returns "".
-func unroutable(p *providers.Provider) string {
-	if p.Auth.Type == providers.AuthPassthrough {
-		return fmt.Sprintf("provider %s uses passthrough auth, which the router cannot forward (the client's credential is the router secret); launch %s directly without cross-provider slots or fallback, or give it an API key", p.Name, p.Name)
+func unroutable(p *providers.Provider, clientAuth bool) string {
+	if p.Auth.Type == providers.AuthPassthrough && !clientAuth {
+		return fmt.Sprintf("provider %s uses passthrough auth but the request carries no client credential; launch it as the session provider (claude-code use %s) so its login reaches the router", p.Name, p.Name)
 	}
 	_, a := p.Route(providers.DialectAnthropic)
 	_, o := p.Route(providers.DialectOpenAI)
@@ -145,12 +152,12 @@ func unroutable(p *providers.Provider) string {
 }
 
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
-func (r *Router) attempts(reg *providers.Registry, target providers.Target) []providers.Target {
+func (r *Router) attempts(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
 	out := []providers.Target{target}
 	seen := map[*providers.Provider]bool{target.Provider: true}
 	for _, name := range reg.Fallback {
 		p := reg.Providers[name]
-		if p == nil || seen[p] || unroutable(p) != "" || !providers.CredentialPresent(p) {
+		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !providers.CredentialPresent(p) {
 			continue
 		}
 		if ft, ok := providers.FailoverTarget(target.Provider, target.Model, p); ok {
@@ -181,7 +188,12 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 		if err != nil {
 			return false, err
 		}
-		resp, err := r.send(in, p, url, out, func(h http.Header) { copyRequestHeaders(h, in.Header) })
+		resp, err := r.send(in, p, url, out, func(h http.Header) {
+			copyRequestHeaders(h, in.Header)
+			if p.Auth.Type == providers.AuthPassthrough {
+				h.Set("Authorization", in.Header.Get("Authorization"))
+			}
+		})
 		if err != nil {
 			return false, err
 		}
@@ -328,7 +340,10 @@ func (r *Router) registry() (*providers.Registry, error) {
 }
 
 func (r *Router) authorized(req *http.Request) bool {
-	got := req.Header.Get("X-Api-Key")
+	got := req.Header.Get(ClientHeader)
+	if got == "" {
+		got = req.Header.Get("X-Api-Key")
+	}
 	if got == "" {
 		got, _ = strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
 	}
@@ -379,7 +394,7 @@ func withModel(body []byte, model string) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
-// copyRequestHeaders forwards only wire-relevant headers; client auth (the router secret) never leaves.
+// copyRequestHeaders forwards only wire-relevant headers; client auth is added back for passthrough providers only.
 func copyRequestHeaders(dst, src http.Header) {
 	for k, vs := range src {
 		ck := http.CanonicalHeaderKey(k)

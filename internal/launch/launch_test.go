@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // hermetic isolates config, pins and seams; userProviders is an optional providers.json overlay.
@@ -49,7 +50,7 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestClaudeDirect(t *testing.T) {
-	hermetic(t, `{"providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
+	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
 		"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}, "one_m": true}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
@@ -88,7 +89,7 @@ func TestClaudeDirect(t *testing.T) {
 }
 
 func TestClaudeAnthropicDefaultOmitsBaseURL(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t, `{"fallback": []}`)
 	p, err := Claude(context.Background(), Options{Provider: "anthropic"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -113,8 +114,9 @@ func TestClaudePassthrough(t *testing.T) {
 	if slices.Contains(p.Unset, oauthKey) {
 		t.Error("passthrough must keep CLAUDE_CODE_OAUTH_TOKEN")
 	}
-	if _, err := Claude(context.Background(), Options{Provider: "subscription", Router: true}, nil); err == nil || !strings.Contains(err.Error(), "passthrough") {
-		t.Errorf("router + passthrough: %v", err)
+	// Built-in fallback routes the subscription: the login stays in Authorization, the secret rides ClientHeader.
+	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/subscription" || !strings.HasPrefix(p.Set["ANTHROPIC_CUSTOM_HEADERS"], router.ClientHeader+": ") {
+		t.Errorf("routed passthrough: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
 	}
 	if _, err := Claude(context.Background(), Options{Provider: "anthropic", Model: "subscription:claude-opus-5"}, nil); err == nil {
 		t.Error("a passthrough slot target through the router must error")

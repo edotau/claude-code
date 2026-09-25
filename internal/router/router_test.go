@@ -187,6 +187,40 @@ func TestPassthroughRefused(t *testing.T) {
 	}
 }
 
+func TestPassthroughForwardsClientLogin(t *testing.T) {
+	sub := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		if n > 1 {
+			w.WriteHeader(529)
+			return
+		}
+		ok(w, r, n)
+	})
+	gem := newUpstream(t, ok)
+	t.Setenv("GEM_KEY", "gem-key")
+	srv := setup(t, `{"default":"sub","fallback":["gem"],"providers":{
+		"sub":{"kind":"anthropic","base_url":"`+sub.URL+`","auth":{"type":"passthrough"},"models":{"opus":"m"}},
+		"gem":{"kind":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"bearer","env":"GEM_KEY"},"models":{"opus":"g"}}}}`)
+	login := map[string]string{"X-Api-Key": "", ClientHeader: secret, "Authorization": "Bearer oauth-tok"}
+
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	h := sub.last.Load().Header
+	if h.Get("Authorization") != "Bearer oauth-tok" || h.Get(ClientHeader) != "" || h.Get("X-Api-Key") != "" {
+		t.Errorf("passthrough upstream headers: %v", h)
+	}
+	// Failover to an API-key provider sends that provider's key, never the client's login.
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
+		t.Fatalf("failover status %d", resp.StatusCode)
+	}
+	if a := gem.last.Load().Header.Get("Authorization"); a != "Bearer gem-key" {
+		t.Errorf("fallback authorization = %q", a)
+	}
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, map[string]string{"X-Api-Key": "", ClientHeader: "wrong"}); resp.StatusCode != 401 {
+		t.Errorf("wrong ClientHeader secret: status %d", resp.StatusCode)
+	}
+}
+
 func failoverOverlay(up1, up2 string) string {
 	return `{"default":"up1","fallback":["up2"],"providers":{
 		"up1":` + anthropicProvider(up1, "UP1_KEY", `{"opus":"m1-opus","haiku":"m1-haiku"}`) + `,
