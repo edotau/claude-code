@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -37,6 +38,16 @@ func hermetic(t *testing.T) string {
 		t.Setenv(k, "")
 	}
 	return dir
+}
+
+// registryDefault is the built-in default provider, so the tests track defaults.json instead of a literal.
+func registryDefault(t *testing.T) string {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg.Default
 }
 
 func sample() values {
@@ -166,7 +177,7 @@ func TestContextPct(t *testing.T) {
 
 func TestProviderAndModelSegments(t *testing.T) {
 	dir := hermetic(t)
-	if name, routed := sessionProvider(); name != "anthropic" || routed {
+	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o755); err != nil {
@@ -299,7 +310,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  anthropic ") || !strings.Contains(got, "~51k tok  ·  1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  "+registryDefault(t)+" ") || !strings.Contains(got, "~51k tok  ·  1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -313,7 +324,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( Opus 5 ) ( anthropic ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"
+	want := "tester:/nowhere/proj | ( Opus 5 ) ( " + registryDefault(t) + " ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
