@@ -59,6 +59,9 @@ func TestConfigure(t *testing.T) {
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
 			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
 			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
+		{vendor: "opencode", provider: "gemini", model: "gemini-3.6-flash", h: &Headless{Prompt: "hi"},
+			wantArgv: []string{"run", "--format", "json", "-m", "harness-gemini/gemini-3.6-flash", "hi"},
+			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
 		{vendor: "copilot", provider: "anthropic", model: "claude-opus-5",
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "anthropic", "COPILOT_PROVIDER_API_KEY": secret, "COPILOT_PROVIDER_BEARER_TOKEN": "", "COPILOT_MODEL": "claude-opus-5"}},
 		{vendor: "copilot", provider: "openai", model: "gpt-5",
@@ -116,7 +119,7 @@ func TestOpenCodeConfigShape(t *testing.T) {
 	}
 	var cfg struct {
 		Model      string                    `json:"model"`
-		Permission map[string]string         `json:"permission"`
+		Permission any                       `json:"permission"`
 		Provider   map[string]map[string]any `json:"provider"`
 	}
 	if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
@@ -130,10 +133,32 @@ func TestOpenCodeConfigShape(t *testing.T) {
 	if opts["apiKey"] != "{env:"+OpenCodeKeyEnv+"}" || opts["headers"].(map[string]any)["Authorization"] != "Bearer {env:"+OpenCodeKeyEnv+"}" {
 		t.Errorf("auth must reference the env var, got %v", opts)
 	}
-	if cfg.Permission["bash"] != "deny" || cfg.Model != "harness-openrouter/anthropic/claude-opus-5" {
+	if cfg.Permission != "deny" || cfg.Model != "harness-openrouter/anthropic/claude-opus-5" {
 		t.Errorf("tools-off permission/model wrong: %+v", cfg)
 	}
 	if strings.Contains(envMap(env)["OPENCODE_CONFIG_CONTENT"], secret) || strings.Contains(strings.Join(argv, " "), secret) {
 		t.Error("secret inlined into config or argv")
+	}
+}
+
+func TestOpenCodeGeminiNative(t *testing.T) {
+	tg := target(t, "gemini", "gemini-3.6-flash")
+	env, _, err := Configure(context.Background(), "opencode", tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Provider map[string]map[string]any `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	prov := cfg.Provider["harness-gemini"]
+	opts := prov["options"].(map[string]any)
+	if prov["npm"] != "@ai-sdk/google" || opts["baseURL"] != "https://generativelanguage.googleapis.com/v1beta" {
+		t.Errorf("gemini route must use the native SDK, got %v", prov)
+	}
+	if _, ok := opts["headers"]; ok {
+		t.Errorf("Google's own host takes x-goog-api-key, not a bearer header: %v", opts["headers"])
 	}
 }
