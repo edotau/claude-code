@@ -23,6 +23,7 @@ const overlay = `{
 func load(t *testing.T) *Registry {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(PinProvider, "") // a session launched with a provider pin must not leak into the registry tests
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
