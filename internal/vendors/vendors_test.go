@@ -3,6 +3,8 @@ package vendors
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,6 +16,7 @@ const secret = "sk-SECRET-123"
 func target(t *testing.T, provider, model string) providers.Target {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, secret)
 	}
@@ -53,8 +56,11 @@ func TestConfigure(t *testing.T) {
 			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "--", "-hi"}},
 		{vendor: "codex", provider: "openrouter", model: "x", wantErr: "no responses route"},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
-			wantArgv: []string{"-m", "gemini-2.5-pro", "-p", "hi"},
-			wantEnv:  map[string]string{"GEMINI_API_KEY": secret, "GEMINI_MODEL": "gemini-2.5-pro", "GOOGLE_GEMINI_BASE_URL": ""}},
+			wantArgv: []string{"--skip-trust", "-m", "gemini-2.5-pro", "--output-format", "stream-json", "--approval-mode", "plan", "--prompt=hi"},
+			wantEnv: map[string]string{"GEMINI_API_KEY": secret, "GEMINI_MODEL": "gemini-2.5-pro", "GOOGLE_GEMINI_BASE_URL": "",
+				"GEMINI_API_KEY_AUTH_MECHANISM": "x-goog-api-key", "GOOGLE_GENAI_USE_GCA": ""}},
+		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "-hi", Tools: true, SessionID: "u1"},
+			wantArgv: []string{"--approval-mode", "yolo", "--resume", "u1", "--prompt=-hi"}},
 		{vendor: "gemini", provider: "openai", model: "gpt-5", wantErr: "no gemini route"},
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
 			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
@@ -160,5 +166,47 @@ func TestOpenCodeGeminiNative(t *testing.T) {
 	}
 	if _, ok := opts["headers"]; ok {
 		t.Errorf("Google's own host takes x-goog-api-key, not a bearer header: %v", opts["headers"])
+	}
+}
+
+func TestGeminiGateway(t *testing.T) {
+	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
+	t.Setenv("GW_KEY", secret)
+	p := &providers.Provider{Name: "gw", Kind: providers.DialectGemini, BaseURL: "https://gw.example/gemini",
+		Auth: providers.Auth{Type: providers.AuthBearer, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
+	env, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := envMap(env)
+	want := map[string]string{"GOOGLE_GEMINI_BASE_URL": "https://gw.example/gemini", "GEMINI_API_KEY_AUTH_MECHANISM": "bearer",
+		"GEMINI_CLI_CUSTOM_HEADERS": "X-Team:a", "GEMINI_API_KEY": secret}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("env %s = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+func TestGeminiAuthConflict(t *testing.T) {
+	tg := target(t, "gemini", "gemini-2.5-pro")
+	for body, wantErr := range map[string]bool{
+		`{"security":{"auth":{"selectedType":"oauth-personal"}}}`: true,
+		`{"selectedAuthType":"vertex-ai"}`:                        true,
+		`{"security":{"auth":{"selectedType":"gemini-api-key"}}}`: false,
+		`{"theme":"Default"}`:                                     false,
+	} {
+		home := t.TempDir()
+		t.Setenv("GEMINI_CLI_HOME", home)
+		if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+		if (err != nil) != wantErr || (wantErr && !strings.Contains(err.Error(), "overrides the provider key")) {
+			t.Errorf("%s: err = %v, wantErr %v", body, err, wantErr)
+		}
 	}
 }
