@@ -22,11 +22,14 @@ Failures are fail-soft: use a local Claude subagent rather than blocking the tas
 | Claude | Manager, synthesis, architecture, final decisions | Local `Agent`/`Workflow` tools |
 | Codex | Scoped implementation or adversarial diff review | `claude-code ask --agent codex "<brief>"` |
 | Gemini | Large-context repository exploration and cross-file analysis | `claude-code ask --agent gemini "<brief>"` |
+| Gemini (bridge) | One-shot 1M-context sweep over inlined workspace files, no vendor CLI | `claude-code gemini bridge --dirs <d> -- "<task>"` |
 | OpenCode / Copilot | Independent implementation or second-opinion review | `claude-code ask --agent opencode\|copilot "<brief>"` |
 
 `--format json` returns the machine envelope (agent, provider, model, answer, usage). A leg's model and
 provider come from the registry: `claude-code providers`, `claude-code models`. Interactive sessions on
 another vendor CLI: `claude-code run codex|gemini|opencode|copilot`.
+
+The Gemini bridge needs only `GEMINI_API_KEY` set (in `env.d/secrets.env`) — no `gemini` CLI on PATH.
 
 ## Team rules
 
