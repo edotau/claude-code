@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/statusline"
 )
 
 type command struct {
@@ -74,10 +77,45 @@ func Run(argv []string) int {
 }
 
 func usage(w *os.File) {
-	fmt.Fprintln(w, "claude-code — standalone Claude Code harness\n\nUsage: claude-code <command> [args]\n\nCommands:")
-	for _, c := range commands() {
-		fmt.Fprintf(w, "  %-11s %s\n", c.name, c.summary)
+	title, tagline, section := "claude-code", " — standalone Claude Code harness", func(s string) string { return s }
+	cmds := commands()
+	names := make([]string, len(cmds))
+	for i, c := range cmds {
+		names[i] = fmt.Sprintf("%-11s", c.name)
 	}
+	if colorOK(w) {
+		mode, stops, dim := statusline.Theme()
+		title = sweep(mode, stops, title)
+		tagline = ansi.Paint(mode, dim, tagline, false)
+		section = func(s string) string { return ansi.Paint(mode, dim, s, true) }
+		for i := range names {
+			names[i] = ansi.Paint(mode, ansi.GradAt(stops, float64(i)/float64(max(len(names)-1, 1))), names[i], true)
+		}
+	}
+	fmt.Fprintf(w, "%s%s\n\n%s claude-code <command> [args]\n\n%s\n", title, tagline, section("Usage:"), section("Commands:"))
+	for i, c := range cmds {
+		fmt.Fprintf(w, "  %s %s\n", names[i], c.summary)
+	}
+}
+
+// colorOK is true when w is a terminal and NO_COLOR is unset (https://no-color.org).
+func colorOK(w *os.File) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	fi, err := w.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// sweep paints s rune by rune across the gradient, bold, like the status line's path segment.
+func sweep(mode string, stops []ansi.RGB, s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	for i, r := range runes {
+		b.WriteString(ansi.FgSeq(mode, ansi.GradAt(stops, float64(i)/float64(max(len(runes)-1, 1))), true))
+		b.WriteRune(r)
+	}
+	return b.String() + ansi.Reset
 }
 
 func cmdVersion([]string) int {

@@ -158,3 +158,9 @@ func colorMode(cfg Config) string {
 	}
 	return ansi.ANSI256
 }
+
+// Theme exposes the status line's color mode, gradient stops and dim tone so other output can match it.
+func Theme() (mode string, stops []ansi.RGB, dim ansi.RGB) {
+	cfg, pal := loadConfig(), loadPalettes()
+	return colorMode(cfg), resolveGradient(cfg, pal), ansi.Hex(pal.sem("dim"))
+}
