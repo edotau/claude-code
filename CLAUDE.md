@@ -56,6 +56,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
+| Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives the gemini CLI | `commands/gemini/gemini.md`, `agents/gemini/agent.md` |
+| Mirror agents + skills into Gemini CLI; render AGENTS.md + GEMINI.md | `claude-code agents sync --gemini` (`--dry-run`, `--check`) · `claude-code agents docs [--check]` | `commands/harness/sync-agents.md`; outputs are generated — edit `agents/`, `skills/`, this file |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider openrouter --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code settings` (prints) → `make install` | hard rule 1 |
@@ -75,7 +77,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
-- `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own, leave them.
+- `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own (symlinks into `~/.agents`, which Gemini reads natively), leave them.
 - `docs/plans/` — implementation plans.
 - `docs/memory/bank/<repo-slug>/` — session memory bank (six files, untracked; git roots only — the `bank/` top
   is the global bank); engine `internal/memory`, hooks `session-start` / `memory-recall` / `session-harvest[-end]`.
