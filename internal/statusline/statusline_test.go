@@ -66,6 +66,7 @@ func TestStyleGoldens(t *testing.T) {
 	for style, want := range cases {
 		cfg := embeddedConfig()
 		cfg.Style = style
+		cfg.Segments = map[string]bool{"session": false} // every opt-in segment on, so the goldens cover their rendering
 		if got := plain(render(sample(), cfg, embeddedPalettes())); got != want {
 			t.Errorf("%s:\n got %q\nwant %q", style, got, want)
 		}
@@ -128,7 +129,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
+	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] █…" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -310,7 +311,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  "+registryDefault(t)+" ") || !strings.Contains(got, "~51k tok  ·  1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  0%") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
