@@ -88,6 +88,8 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	hermetic(t)
 	cfg := embeddedConfig()
 	cfg.Style = "dashboard"
+	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
+	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "router", "tokens", "branch", "context"}
 	lines := strings.Split(plain(render(sample(), cfg, embeddedPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)

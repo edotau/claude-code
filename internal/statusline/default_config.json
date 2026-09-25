@@ -50,8 +50,6 @@
       "workspace",
       "model",
       "provider",
-      "router",
-      "tokens",
       "branch",
       "context"
     ],

@@ -209,7 +209,7 @@ func renderDashboard(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode 
 	dash := cfg.Dashboard
 	cols := dash.Columns
 	if len(cols) == 0 {
-		cols = []string{"workspace", "model", "provider", "router", "branch", "context"}
+		cols = []string{"workspace", "model", "provider", "branch", "context"}
 	}
 	gutter := dash.Gutter
 	if gutter <= 0 {
