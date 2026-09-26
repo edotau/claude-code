@@ -12,11 +12,14 @@ const HookBin = "$HOME/.claude/bin/claude-code"
 
 // Claude Code lifecycle event names.
 const (
-	EventPreToolUse       = "PreToolUse"
-	EventSessionStart     = "SessionStart"
-	EventUserPromptSubmit = "UserPromptSubmit"
-	EventStop             = "Stop"
-	EventSessionEnd       = "SessionEnd"
+	EventPreToolUse         = "PreToolUse"
+	EventPostToolUse        = "PostToolUse"
+	EventPostToolUseFailure = "PostToolUseFailure"
+	EventSubagentStop       = "SubagentStop"
+	EventSessionStart       = "SessionStart"
+	EventUserPromptSubmit   = "UserPromptSubmit"
+	EventStop               = "Stop"
+	EventSessionEnd         = "SessionEnd"
 )
 
 // Spec declares one `claude-code hook <Name>` invocation.
@@ -38,6 +41,11 @@ func IsHarness(command string) bool {
 // Registry is the whole chain in per-event execution order.
 var Registry = []Spec{
 	{Name: "safety", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5},
+	// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.
+	{Name: "agent-inflight", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
+	{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Timeout: 5},
+	{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task", Timeout: 5},
+	{Name: "agent-inflight-post", Event: EventSubagentStop, Timeout: 5},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
 	{Name: "session-harvest", Event: EventStop, Timeout: 15},

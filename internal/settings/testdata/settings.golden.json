@@ -29,6 +29,30 @@
     "padding": 0
   },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-tag",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-post",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -36,6 +60,16 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook safety",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight",
             "timeout": 5
           }
         ]
@@ -80,6 +114,17 @@
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook session-harvest",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-post",
+            "timeout": 5
           }
         ]
       }

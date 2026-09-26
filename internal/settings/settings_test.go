@@ -92,7 +92,8 @@ func TestMergePreservesForeign(t *testing.T) {
 	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop-format") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
-	if len(cmds["SessionEnd"]) != 2 || cmds["SessionEnd"][1] != "foreign-end" || len(cmds["PreToolUse"]) != 1 {
+	// PreToolUse now carries both safety and agent-inflight (the machine-wide subagent-cap gate).
+	if len(cmds["SessionEnd"]) != 2 || cmds["SessionEnd"][1] != "foreign-end" || len(cmds["PreToolUse"]) != 2 {
 		t.Errorf("hooks: %v", cmds)
 	}
 	if strings.Contains(string(merged), "\\u0026") {
