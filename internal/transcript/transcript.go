@@ -174,11 +174,20 @@ func eachEdit(path string, fn func(filePath string)) {
 	})
 }
 
-// eachLine reads with a Reader, not a Scanner: a giant tool-result line must not abort the scan.
+// eachLine hands fn a slice valid only until it returns (ReadSlice, no per-line copy); lines longer than the
+// buffer are joined into an overflow buffer, so a giant tool-result line never aborts the scan.
 func eachLine(r io.Reader, fn func([]byte)) {
 	br := bufio.NewReaderSize(r, 1<<20)
+	var long []byte
 	for {
-		line, err := br.ReadBytes('\n')
+		line, err := br.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			long = append(long, line...)
+			continue
+		}
+		if long != nil {
+			line, long = append(long, line...), nil
+		}
 		if len(line) > 0 {
 			fn(line)
 		}
