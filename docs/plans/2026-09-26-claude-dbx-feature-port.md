@@ -33,6 +33,23 @@ Skipped: WSL clipboard stack (`scripts/wl-paste-claude.sh`, `internal/bmpfix`, `
 `hooks/promptpaths.go`, `launch/waylandenv.go`; ~820 LOC — Mac only), evidence/codex-capture (1.3k LOC, Databricks-routed codex), statusline spill (provider-specific),
 TUI bracketed paste (no TUI here), knowledge corpus (overlaps `memory search`; compare before porting).
 
+## Performance, from the user's own Go (goFish, gonomics, gopher-proteinlab)
+
+Baseline: `claude-code version` 7.1 ms, `statusline` 7.7 ms on a 5.8 MB transcript, `memory search` 11.2 ms —
+process start dominates; nothing in these repos changes that. Patterns, not code, are what transfer.
+
+| Status | Idea | Source | Target |
+| --- | --- | --- | --- |
+| done 6e48cfc | `ReadSlice` line scan with an overflow buffer | goFish `simpleio/simpleio.go:152` | `transcript.eachLine`: 14.6 → 2.2 MB, 6.5k → 2.1k allocs per Stop |
+| in review port | Byte state machine + keyword switch, indent stack, SonarSource boolean-sequence rule | goFish `bam/cigar.go:87`, proteinlab `annotation/genbank.go:50` | Python complexity estimate in `internal/review/source` |
+| next | k-gram seed index (`map[uint64][]pos`) → verify | gonomics `genomeGraph/index.go:21` (user-authored as `simpleGraph/`) | moved-block detection in `review diff`; near-duplicate check in memory harvest; trigram fallback for BM25 typos |
+| next | Ordered worker-pool fan-out (fix `heapConcur.go:52` Peek bug; likely derived from tejzpr/ordered-concurrently — keep attribution) | goFish `dataflow/heapConcur.go:28` | multi-file `review` runs |
+| later | Lazy regex (`sync.OnceValue`) for package-level `MustCompile`s | — | `agent/dispatch.go:77`, `vendors.go:133,444`, `translate/request.go:103`, `models.go:29`, `hooks/format.go:34` (<0.5 ms total) |
+
+Not ported: pgzip/gzip readers (no compressed input), goFish BWT/sorts (`slices.Sort` wins), interval tree / external
+merge sort (data too small), bwaGoFish (10X Genomics copyright — never copy). gonomics is BSD-3 multi-author:
+keep the notice on anything copied.
+
 ## Execution
 
 One item per commit, in rank order. Each: port → `make install` → live check on the real surface (a real fan-out for
