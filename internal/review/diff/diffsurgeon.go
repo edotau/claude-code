@@ -4,6 +4,7 @@ package diff
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -65,7 +66,8 @@ func runGitDiff(diffRange string, stderr io.Writer) (string, bool) {
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	out, err := cmd.Output()
-	if err != nil {
+	// Like Python's check=False: git's own non-zero exit (not a repo, bad range) is silent; only a missing git or timeout errors.
+	if err != nil && (ctx.Err() != nil || !errors.As(err, new(*exec.ExitError))) {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false
 	}
