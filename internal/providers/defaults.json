@@ -30,6 +30,12 @@
       "auth": {"type": "bearer", "env": "OPENAI_API_KEY"},
       "models": {"opus": "gpt-5", "sonnet": "gpt-5-mini", "haiku": "gpt-5-nano"}
     },
+    "chatgpt": {
+      "kind": "responses",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "auth": {"type": "passthrough"},
+      "models": {"opus": "gpt-5.5", "sonnet": "gpt-5.5", "haiku": "gpt-5.5"}
+    },
     "gemini": {
       "kind": "openai",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",

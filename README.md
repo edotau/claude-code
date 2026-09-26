@@ -6,7 +6,7 @@ Workflow scripts every session loads.
 
 What the binary adds to a stock install:
 
-- **Provider registry** — Anthropic, a Claude subscription, OpenRouter, OpenAI, Gemini, Ollama, or any
+- **Provider registry** — Anthropic, a Claude subscription, a ChatGPT subscription (codex only), OpenRouter, OpenAI, Gemini, Ollama, or any
   gateway, selected per launch or pinned; tier slots (opus/sonnet/haiku/fable) map to model ids per provider.
 - **Loopback router** — lets Claude Code talk to OpenAI-dialect upstreams (translation), mix providers per
   tier (`haiku=openai:gpt-5-nano`), and fail over on 429/5xx.
@@ -63,7 +63,7 @@ set). Start from [`providers.example.json`](providers.example.json).
 | --- | --- |
 | `kind` | Dialect `base_url` speaks: `anthropic` (`/v1/messages`), `openai` (`/chat/completions`), `responses`, `gemini` |
 | `routes` | More dialects on the same gateway — a path joined to `base_url`, or an absolute URL |
-| `auth.type` | `x-api-key` · `bearer` · `none` (local servers) · `passthrough` (Claude subscription OAuth) |
+| `auth.type` | `x-api-key` · `bearer` · `none` (local servers) · `passthrough` (Claude subscription OAuth; on `chatgpt`, codex's own `codex login` — `claude-code run codex --provider chatgpt`) |
 | `models` | slot → model id |
 | `headers` | Sent on every upstream request |
 | `one_m` | Adds the `[1m]` marker to Claude ids |
