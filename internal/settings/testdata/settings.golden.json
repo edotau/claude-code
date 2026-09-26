@@ -125,6 +125,11 @@
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook agent-inflight-post",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook simplify-after-edits",
+            "timeout": 10
           }
         ]
       }

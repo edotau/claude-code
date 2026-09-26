@@ -46,6 +46,8 @@ var Registry = []Spec{
 	{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-post", Event: EventSubagentStop, Timeout: 5},
+	// An editing subagent's first stop is sent back for one simplicity pass over the source it touched.
+	{Name: "simplify-after-edits", Event: EventSubagentStop, Timeout: 10},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
 	{Name: "session-harvest", Event: EventStop, Timeout: 15},
