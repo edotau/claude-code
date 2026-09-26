@@ -18,8 +18,8 @@ Databricks path (dbxauth, gateway, lanes/pools, UC, MLflow tracing, serving benc
 
 | # | Feature | Source | LOC | Why |
 | --- | --- | --- | --- | --- |
-| 1 | `agent-inflight` — track and cap concurrent subagent dispatches | `hooks/inflight.go` | 283 | Guards the input-tokens/min cap fan-outs hit; many fix commits = mature |
-| 2 | `simplify-after-edits` — SubagentStop gate: an editing subagent runs the simplicity skill once | `hooks/simplify_gate.go` | 112 | The skill exists here but nothing enforces it |
+| 1 | **done 6fcf3a0** `agent-inflight` — track and cap concurrent subagent dispatches | `hooks/inflight.go` | 283 | Guards the input-tokens/min cap fan-outs hit; many fix commits = mature |
+| 2 | **done** `simplify-after-edits` — SubagentStop gate: an editing subagent runs the simplicity pass once (reads `agent_transcript_path`; dbx reads the parent `transcript_path` — a dbx bug) | `hooks/simplify_gate.go` | 112 | The skill exists here but nothing enforces it |
 | 3 | `usage --workflows` — token/429 rollup per workflow phase from transcripts | `transcript/usage.go` + cmd | 207+ | Measures what the workflows actually cost |
 | 4 | `rtk-wrap` — route noisy Bash through rtk | `hooks/rtk.go` | 188+100 | Token saving; no-op without rtk |
 | 5 | VS Code Copilot Chat sync — mirror agents/skills/instructions for Copilot Chat (`agents sync --copilot`) | new, beside `internal/crossgen` | TBD | Pairs with the `github-copilot` login provider; verify VS Code's live read paths first |
