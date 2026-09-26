@@ -1,17 +1,8 @@
 # Detectors — full CLI reference
 
-All scripts live in `skills/evaluate-code/scripts/` — **except `complexity_checker.py` (#2),
-which is canonical in `skills/simplicity/scripts/`** (resolved via `$SIMP` in its section
-below). All are **stdlib-only** (no venv) and **exit 0** (advisory signals, never a hard
-gate) except where noted. All structured output is `--json`.
-
-Resolve the dirs from the Claude config dir:
-
-```bash
-ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-CR="$ROOT/skills/evaluate-code/scripts"
-SIMP="$ROOT/skills/simplicity/scripts"   # complexity_checker.py
-```
+All detectors are `claude-code review <sub>` verbs — same flags as the scripts they replaced.
+All are **advisory** and **exit 0** (never a hard gate) except where noted. All structured
+output is `--json`.
 
 ---
 
@@ -38,18 +29,14 @@ project's equivalent (`npm run lint`, `prettier --check`). Report formatting/lin
 
 ---
 
-## complexity_checker.py — Principle #2 (Simplicity First)
+## `claude-code review complexity` — Principle #2 (Simplicity First)
 
-> **Canonical home: the `simplicity` skill** (`skills/simplicity/scripts/`), not
-> `evaluate-code/scripts/`. `simplicity` owns the #2 apply-the-fix material; the path below
-> uses `$SIMP`, resolved to that skill's `scripts/` dir.
-
-Detects over-engineering. Python is analyzed with `ast` (accurate per-function metrics);
-TS/JS fall back to regex/indentation heuristics.
+Detects over-engineering. Python is analyzed via an indentation/keyword estimate (not an
+AST); TS/JS use the same heuristics as before. Go files are not analyzed.
 
 ```
-complexity_checker.py <file|dir> [--threshold strict|medium|relaxed]
-                                 [--ext py,ts,tsx,js,jsx] [--json]
+claude-code review complexity <targets...> [--threshold strict|medium|relaxed]
+                                            [--ext py,ts,tsx,js,jsx] [--json]
 ```
 
 Checks: per-function cyclomatic complexity, function length, nesting depth; per-file import
@@ -59,30 +46,29 @@ Thresholds: `strict` (new code) · `medium` (default) · `relaxed` (legacy). Ver
 `PASS` / `WARN` / `FAIL`. Each file gets a 0–100 score.
 
 ```bash
-# $SIMP resolved by the 4-step loop at the top of this file.
-python3 "$SIMP/complexity_checker.py" src/auth/ --threshold strict --json
+claude-code review complexity src/auth/ --threshold strict --json
 ```
 
 ---
 
-## diff_surgeon.py — Principle #3 (Surgical Changes)
+## `claude-code review diff` — Principle #3 (Surgical Changes)
 
 Flags changed lines that don't trace to the stated goal.
 
 ```
-diff_surgeon.py [--diff <range>] [--file <saved.diff>] [--json]
+claude-code review diff [--diff <range>] [--file <saved.diff>] [--json]
 ```
 
 Default reads `git diff --cached`. Flags: whitespace-only, comment-only, docstring
 additions, quote-style swaps. Reports a **noise ratio** → `CLEAN` (<10%) / `NOISY` (<30%) /
-`VERY_NOISY`.
+`VERY_NOISY`. Usage errors exit 2; a missing `--file` exits 1; findings themselves stay exit 0.
 
 ```bash
-python3 "$CR/diff_surgeon.py"                    # staged
-python3 "$CR/diff_surgeon.py" --diff HEAD~3..HEAD
+claude-code review diff                       # staged
+claude-code review diff --diff HEAD~3..HEAD
 ```
 
-### Manual review cues (things the script can't flag)
+### Manual review cues (things the detector can't flag)
 
 Two recurring "change doesn't trace to the goal" failure modes that no automated detector
 catches — check them by hand on any diff:
@@ -107,12 +93,12 @@ catches — check them by hand on any diff:
 
 ---
 
-## assumption_linter.py — Principle #1 (Think Before Coding)
+## `claude-code review assumptions` — Principle #1 (Think Before Coding)
 
 Reads a markdown plan (or stdin) and flags hidden assumptions.
 
 ```
-assumption_linter.py <plan.md|-> [--json]
+claude-code review assumptions [plan.md|-] [--json]
 ```
 
 Flags: minimizing language ("just", "simply"), unstated assumptions ("obviously"), hopeful
@@ -122,21 +108,21 @@ unscoped subjects ("the user"), numbered plan blocks with no verification step. 
 a conversation about assumptions before coding.
 
 ```bash
-echo "I'll just export all user data" | python3 "$CR/assumption_linter.py" -
+echo "I'll just export all user data" | claude-code review assumptions -
 ```
 
 **Consumer: the `planning` skill** — its Self-Review Checklist pipes drafted plans through
-this linter and `goal_verifier.py`. Both analyze **plan text via stdin (`-`) or a plan .md**,
+this detector and `review goals`. Both analyze **plan text via stdin (`-`) or a plan .md**,
 never code files — don't point them at source files.
 
 ---
 
-## goal_verifier.py — Principle #4 (Goal-Driven Execution)
+## `claude-code review goals` — Principle #4 (Goal-Driven Execution)
 
 Scores each plan step 0–3 on verification quality.
 
 ```
-goal_verifier.py <plan.md|-> [--json]
+claude-code review goals [plan.md|-] [--json]
 ```
 
 Scoring: `3` concrete runnable check (assert/pytest/exit 0/status 200/curl/grep) · `2`
@@ -144,37 +130,36 @@ manual check (verify/confirm/inspect) · `1` vague ("should work") · `0` none. 
 for a final/end-to-end step. Verdict: `STRONG` (≥70%) / `WEAK` (≥40%) / `MISSING`.
 
 ```bash
-python3 "$CR/goal_verifier.py" implementation-plan.md --json
+claude-code review goals implementation-plan.md --json
 ```
 
 ---
 
-## code_quality_checker.py — quality (smells + SOLID)
+## `claude-code review quality` — quality (smells + SOLID)
 
-Multi-language smells, SOLID violations, and a 0–100 quality score. Thin CLI over
-`quality_core.py`.
+Multi-language smells, SOLID violations, and a 0–100 quality score.
 
 ```
-code_quality_checker.py <file|dir> [--recursive] [--language python|typescript|javascript|go|swift|kotlin]
-                                    [--json] [--output FILE]
+claude-code review quality <file|dir> [--recursive] [--language python|typescript|javascript|go|swift|kotlin]
+                                       [--json] [--output FILE]
 ```
 
 Smells: long functions, too many parameters, high complexity, god classes, magic numbers,
 commented-out code. SOLID: OCP (type-checking), LSP/ISP (NotImplementedError), DIP
 (import-heavy). **Exit code 1** if the target path does not exist (else 0).
 
-> For precise per-function Python metrics prefer `complexity_checker.py` (AST). This script
-> is regex-based across 6 languages — better breadth, lower per-function precision.
+> For precise per-function Python metrics prefer `review complexity`. `review quality` is
+> regex-based across 6 languages — better breadth, lower per-function precision.
 
 ---
 
-## pr_analyzer.py — triage
+## `claude-code review pr` — triage
 
 Risk-categorizes a PR's changed files and lints commit messages. **Requires a git repo**
 (exit 1 if not).
 
 ```
-pr_analyzer.py [repo_path] [--base main] [--head HEAD] [--json] [--output FILE]
+claude-code review pr [repo_path] [--base main] [--head HEAD] [--json] [--output FILE]
 ```
 
 Categorizes files critical/high/medium/low by path (auth/security → critical), scans added
@@ -184,13 +169,12 @@ score with a suggested review order.
 
 ---
 
-## review_report_generator.py — orchestration
+## `claude-code review report` — orchestration
 
-Combines `pr_analyzer.py` + `code_quality_checker.py` into one report. Resolves both
-sibling scripts via `Path(__file__).parent`, so it works wherever the bundle lives.
+Combines `review pr` + `review quality` into one report.
 
 ```
-review_report_generator.py [repo_path] [--format text|markdown|json]
+claude-code review report [repo_path] [--format text|markdown|json]
                            [--pr-analysis pr.json] [--quality-analysis quality.json]
                            [--output FILE]
 ```

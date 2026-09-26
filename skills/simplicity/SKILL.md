@@ -58,29 +58,20 @@ from the signature. Before/after pairs + the public-API exception: `references/d
 
 ## Automated first pass
 
-Run the stdlib detectors first. `simplicity` is the **canonical owner** of the #2 Simplicity
-detector `complexity_checker.py` (it lives in this skill's `scripts/`). The #3 Surgical
-detector `diff_surgeon.py` stays canonical in `evaluate-code`. Resolve the Claude config dir once,
-then each dir under it:
+Run the detectors first. `claude-code review complexity` is the #2 Simplicity detector;
+`claude-code review diff` is the #3 Surgical detector (canonical in `evaluate-code`).
 
 ```bash
-# Resolve skill roots from the Claude config dir.
-ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-# #2 Simplicity — canonical here in simplicity/scripts/
-SIMP="$ROOT/skills/simplicity/scripts"
-# #3 Surgical — canonical in evaluate-code/scripts/
-CR="$ROOT/skills/evaluate-code/scripts"
-
 # Multi-commit changes: set BASE_SHA and use "$BASE_SHA..HEAD" in place of HEAD~1 below.
 CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
 # #2 Simplicity — per-function complexity, length, nesting, premature abstractions
-[ -n "$CHANGED" ] && python3 "$SIMP/complexity_checker.py" $CHANGED --threshold medium
+[ -n "$CHANGED" ] && claude-code review complexity $CHANGED --threshold medium
 # #3 Surgical — diff noise that doesn't trace to the task
-python3 "$CR/diff_surgeon.py" --diff HEAD~1..HEAD
+claude-code review diff --diff HEAD~1..HEAD
 ```
 
-`complexity_checker.py` is stdlib-only (AST for Python; regex/indentation heuristics for
-TS/JS). Checks per-function cyclomatic complexity, function length, nesting depth; per-file
+`claude-code review complexity` estimates via indentation/keywords for Python and uses heuristics
+for TS/JS (Go is not analyzed). Checks per-function cyclomatic complexity, function length, nesting depth; per-file
 import count, class density, premature ABC/Protocol, file length. Thresholds `strict` (new
 code) · `medium` (default) · `relaxed` (legacy); verdict `PASS`/`WARN`/`FAIL`, 0–100 score
 per file. All detectors are advisory (exit 0) — use findings as leads, verify each by
@@ -121,7 +112,6 @@ it** — leave that call to the human.
 ## References
 
 Local to this skill:
-- `scripts/complexity_checker.py` — the #2 Simplicity detector (canonical home; stdlib-only).
 - `references/docstring-style.md` — the ≤120-char / 2-line rule, rationale, before/after.
 - `references/simplification-patterns.md` — recurring wins: inline, consolidate, de-nest.
 - `references/extract-method.md` — reduce a method's cognitive complexity by extracting focused helpers.
@@ -129,4 +119,4 @@ Local to this skill:
 Shared with `evaluate-code` (canonical owner — read from `skills/evaluate-code/references/`):
 - `anti-patterns.md` — over-abstraction gallery across Python, TS, shell.
 - `karpathy-principles.md` — source attribution + when to relax each principle.
-- `detectors.md` — full CLI reference for all detectors (incl. `complexity_checker.py`).
+- `detectors.md` — full CLI reference for all detectors (incl. `claude-code review complexity`).

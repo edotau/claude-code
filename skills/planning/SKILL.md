@@ -60,10 +60,8 @@ plan-text detectors (stdin; they analyze PLAN TEXT, never code files — full CL
 `skills/evaluate-code/references/detectors.md`):
 
 ```bash
-ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-CR="$ROOT/skills/evaluate-code/scripts"
-cat .claude/docs/plans/<slug>.md | python3 "$CR/assumption_linter.py" - --json   # #1 hidden assumptions
-cat .claude/docs/plans/<slug>.md | python3 "$CR/goal_verifier.py" - --json      # #4 verification quality
+cat .claude/docs/plans/<slug>.md | claude-code review assumptions - --json   # #1 hidden assumptions
+cat .claude/docs/plans/<slug>.md | claude-code review goals - --json         # #4 verification quality
 ```
 
 A `CLARIFY` (assumptions) or `MISSING` (verification) verdict means strengthen the plan

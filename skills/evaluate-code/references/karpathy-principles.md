@@ -22,7 +22,7 @@ ships against the wrong assumption.
 **In review:** a change that picked an interpretation without surfacing it is a
 **question**, not a defect — ask which interpretation was intended.
 
-**Detector:** `assumption_linter.py` on the plan. Flags minimizing language, hopeful
+**Detector:** `claude-code review assumptions` on the plan. Flags minimizing language, hopeful
 phrasing, absolute scope, and plan blocks with no verification step.
 
 ---
@@ -39,8 +39,8 @@ adds surface area and reading cost for flexibility that never pays off.
 **In review:** *would a senior engineer call this overcomplicated?* If yes → **should-fix**.
 The bar is "minimum code that solves the actual problem", not the imagined future one.
 
-**Detector:** `complexity_checker.py`. Per-function complexity/length/nesting (AST for
-Python), class density, and premature ABC/Protocol in small files.
+**Detector:** `claude-code review complexity`. Per-function complexity/length/nesting
+(estimate for Python, heuristics for TS/JS; Go not analyzed), class density, and premature ABC/Protocol in small files.
 
 ---
 
@@ -55,7 +55,7 @@ and make review and `git blame` harder.
 **In review:** diff noise is a **nit** — or **should-fix** when it hides the substantive
 change. The test: can each changed line be traced to the stated task?
 
-**Detector:** `diff_surgeon.py`. Reports a noise ratio over whitespace/comment churn,
+**Detector:** `claude-code review diff`. Reports a noise ratio over whitespace/comment churn,
 docstring adds, and quote-style swaps.
 
 ---
@@ -71,7 +71,7 @@ command run, no observable criterion. It passes review on vibes and fails in pro
 **In review:** missing verification is **should-fix**. Ask for the concrete check: a test,
 an assertion, an exit code, a status code, a metric threshold.
 
-**Detector:** `goal_verifier.py`. Scores each plan step 0–3 on verification quality and
+**Detector:** `claude-code review goals`. Scores each plan step 0–3 on verification quality and
 flags a missing final/end-to-end check.
 
 ---

@@ -2,14 +2,14 @@
 CODE QUALITY REPORT
 ============================================================
 
-Directory: /Users/edotau/.claude/internal/review/source/testdata/quality
+Directory: @TESTDATA@/quality
 Files Analyzed: 2
 Average Score: 100.0/100 (A)
 Total Code Smells: 0
 Total SOLID Violations: 0
 
 --- FILES BY QUALITY ---
-  100/100 [A] /Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js
-  100/100 [A] /Users/edotau/.claude/internal/review/source/testdata/quality/paths.go
+  100/100 [A] @TESTDATA@/quality/gate-loop.js
+  100/100 [A] @TESTDATA@/quality/paths.go
 
 ============================================================

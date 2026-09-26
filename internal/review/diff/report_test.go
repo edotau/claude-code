@@ -31,7 +31,7 @@ func readReportGolden(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", name, err)
 	}
-	return string(b)
+	return expandGolden(string(b))
 }
 
 func TestRunReportMatchesGolden(t *testing.T) {

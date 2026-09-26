@@ -8,7 +8,7 @@ detector that catches it. These are the patterns to flag in review.
 ## #1 Think Before Coding
 
 ### A1. Silent interpretation of "export the data"
-`assumption_linter.py` → `vague-action`, `unscoped-subject`
+`review assumptions` → `vague-action`, `unscoped-subject`
 
 > "I'll just add a function to export all user data."
 
@@ -17,7 +17,7 @@ where* are all unstated. **Fix:** surface the choices — "Export the authentica
 profile rows to CSV; PII columns excluded. Confirm scope?"
 
 ### A2. "Should work" plan step
-`assumption_linter.py` → `hopeful` · `goal_verifier.py` → `vague`
+`review assumptions` → `hopeful` · `review goals` → `vague`
 
 > "3. Wire the new endpoint — should work with the existing auth middleware."
 
@@ -29,7 +29,7 @@ Hopeful, not verified. **Fix:** "3. Wire the endpoint. verify: `curl -H 'Authori
 ## #2 Simplicity First
 
 ### A3. Factory for a single product
-`complexity_checker.py` → `premature-abstraction`, `class-density`
+`review complexity` → `premature-abstraction`, `class-density`
 
 ```python
 # BEFORE — abstraction with one implementer
@@ -44,7 +44,7 @@ def export_csv(rows: list[dict]) -> str: ...
 ```
 
 ### A4. Error handling for impossible states
-`complexity_checker.py` → `cyclomatic-complexity`
+`review complexity` → `cyclomatic-complexity`
 
 ```python
 # BEFORE — enum has two members; the else is dead
@@ -62,13 +62,13 @@ match status:
 ```
 
 ### A5. 200 lines that should be 50
-`complexity_checker.py` → `function-length`, `nesting-depth`
+`review complexity` → `function-length`, `nesting-depth`
 
 A function that validates, transforms, persists, and notifies in one body nesting 5 levels
 deep. **Fix:** four named functions, early returns, one orchestrator.
 
 ### A6. Config knob nobody turns
-`complexity_checker.py` → `import-count` (often drags in a config lib)
+`review complexity` → `import-count` (often drags in a config lib)
 
 A `timeout` parameter threaded through six layers, always called with the default. **Fix:**
 inline the constant until a second caller actually needs to vary it (YAGNI).
@@ -78,14 +78,14 @@ inline the constant until a second caller actually needs to vary it (YAGNI).
 ## #3 Surgical Changes
 
 ### A7. Drive-by reformat
-`diff_surgeon.py` → high noise ratio
+`review diff` → high noise ratio
 
 A one-line bug fix whose diff also reflows 80 unrelated lines because the formatter ran on
 save over the whole file. **Fix:** commit the fix alone; reformat in a separate, clearly
 labeled commit if it's wanted at all.
 
 ### A8. Quote-style swap
-`diff_surgeon.py` → `quote-style-swap`
+`review diff` → `quote-style-swap`
 
 ```diff
 - name = 'widget'
@@ -95,7 +95,7 @@ labeled commit if it's wanted at all.
 No behavior change; pure churn that hides the real edit. **Fix:** revert it from this diff.
 
 ### A9. Docstring/comment churn on untouched code
-`diff_surgeon.py` → `docstring-addition`, `comment-only`
+`review diff` → `docstring-addition`, `comment-only`
 
 Adding docstrings to functions the task never touched. Worthwhile as its own change — noise
 inside a feature diff. **Fix:** separate commit.
@@ -105,7 +105,7 @@ inside a feature diff. **Fix:** separate commit.
 ## #4 Goal-Driven Execution
 
 ### A10. "Done" with no check
-`goal_verifier.py` → `none`
+`review goals` → `none`
 
 > "Implemented the retry logic." (no test, no command, no criterion)
 
@@ -113,13 +113,13 @@ inside a feature diff. **Fix:** separate commit.
 then surfaces a 503; `test_retry_exhausted` covers it."
 
 ### A11. Plan with no final verification
-`goal_verifier.py` → missing-final
+`review goals` → missing-final
 
 Six well-specified steps, no end-to-end step. Each unit can pass while the integration is
 broken. **Fix:** add "7. Run the full suite + smoke the happy path end-to-end."
 
 ### A12. Metric claim without a number
-`goal_verifier.py` → `vague` · `assumption_linter.py` → `vague-action`
+`review goals` → `vague` · `review assumptions` → `vague-action`
 
 > "Optimized the query."
 

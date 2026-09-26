@@ -1,5 +1,5 @@
 {
-  "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js",
+  "file": "@TESTDATA@/quality/gate-loop.js",
   "language": "javascript",
   "metrics": {
     "lines": {

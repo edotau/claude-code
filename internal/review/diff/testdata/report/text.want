@@ -3,7 +3,7 @@ CODE REVIEW REPORT
 ============================================================
 
 Generated: 2026-09-26T18:20:04.448038
-Repository: /Users/edotau/.claude/internal/review/diff/testdata/report/repo
+Repository: @TESTDATA@/report/repo
 
 VERDICT: BLOCK
 SCORE: 74/100

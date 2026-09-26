@@ -1,5 +1,5 @@
 {
-  "directory": "/Users/edotau/.claude/internal/review/source/testdata/quality",
+  "directory": "@TESTDATA@/quality",
   "files_analyzed": 2,
   "average_score": 100.0,
   "overall_grade": "A",
@@ -7,7 +7,7 @@
   "total_solid_violations": 0,
   "files": [
     {
-      "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js",
+      "file": "@TESTDATA@/quality/gate-loop.js",
       "language": "javascript",
       "metrics": {
         "lines": {
@@ -28,7 +28,7 @@
       "class_details": []
     },
     {
-      "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/paths.go",
+      "file": "@TESTDATA@/quality/paths.go",
       "language": "go",
       "metrics": {
         "lines": {
