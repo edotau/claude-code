@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ConfigDir is CLAUDE_CONFIG_DIR, else ~/.claude — the harness repo is the config dir.
@@ -92,4 +93,21 @@ func WithFileLock(path string, fn func() error) error {
 	}
 	defer unlock(f)
 	return fn()
+}
+
+// TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
+// For work that must not run unserialized (counting a shared marker dir), unlike the fail-open WithFileLock.
+func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	for deadline := time.Now().Add(wait); !tryLock(f); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+	}
+	defer unlock(f)
+	return true, fn()
 }

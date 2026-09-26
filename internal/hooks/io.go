@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,13 +18,15 @@ const (
 
 // Input is the parsed hook stdin; nested tool fields resolve through the raw document.
 type Input struct {
-	SessionID      string `json:"session_id"`
-	CWD            string `json:"cwd"`
-	TranscriptPath string `json:"transcript_path"`
-	ToolName       string `json:"tool_name"`
-	HookEventName  string `json:"hook_event_name"`
-	StopHookActive bool   `json:"stop_hook_active"`
-	Prompt         string `json:"prompt"`
+	SessionID           string `json:"session_id"`
+	CWD                 string `json:"cwd"`
+	TranscriptPath      string `json:"transcript_path"`
+	ToolName            string `json:"tool_name"`
+	HookEventName       string `json:"hook_event_name"`
+	StopHookActive      bool   `json:"stop_hook_active"`
+	Prompt              string `json:"prompt"`
+	AgentID             string `json:"agent_id"`
+	AgentTranscriptPath string `json:"agent_transcript_path"`
 
 	Raw []byte
 	doc map[string]any
@@ -62,6 +65,33 @@ func (in *Input) ToolCommand() string {
 	return in.nested("command")
 }
 
+// SubagentID names the subagent a SubagentStop belongs to: agent_id, else the id in agent-<id>.jsonl.
+func (in *Input) SubagentID() string {
+	if in.AgentID != "" {
+		return in.AgentID
+	}
+	if id := in.nested("agentId"); id != "" {
+		return id
+	}
+	base := strings.TrimSuffix(filepath.Base(in.AgentTranscriptPath), ".jsonl")
+	for _, p := range []string{"agent-", "agent_"} {
+		if rest, ok := strings.CutPrefix(base, p); ok {
+			return strings.TrimSuffix(rest, "_transcript")
+		}
+	}
+	return ""
+}
+
+// ToolResponseText is tool_response as text: a bare string for most tools, an object with a text leaf for some.
+func (in *Input) ToolResponseText() string {
+	for _, path := range [][]string{{"tool_response"}, {"tool_response", "output"}, {"tool_response", "content"}} {
+		if s := in.nested(path...); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // contextCapChars stays under Claude Code's 10,000-char additionalContext ceiling (larger payloads are dropped).
 const contextCapChars = 9500
 
@@ -96,6 +126,9 @@ var Registry = map[string]Handler{
 	"memory-recall":       func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
 	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
 	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
+	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
+	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
+	"agent-inflight-post": func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
 }
 
 // Run dispatches a hook by name; an unknown name is a non-blocking error.
