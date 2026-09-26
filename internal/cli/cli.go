@@ -30,6 +30,7 @@ func commands() []command {
 		{"ask", "one-shot task on an agent runner; --format json prints the envelope", cmdAsk},
 		{"agents", "list agent runners; sync --gemini | docs mirror the roster into ~/.gemini/skills and AGENTS.md/GEMINI.md", cmdAgents},
 		{"gemini", "gemini agent: ask <task> | bridge [--dirs|--files] <task> (one 1M-context call) | <vendor args>", cmdGemini},
+		{"science", "launch Claude for Life Sciences (claude-science) without the harness env; --print-env shows it", cmdScience},
 		{"memory", "session memory bank: init | search | index | path | update", cmdMemory},
 		{"hook", "run a lifecycle hook (invoked by settings.json)", cmdHook},
 		{"statusline", "render the status line (invoked by settings.json)", cmdStatusline},
