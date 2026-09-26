@@ -8,8 +8,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/statusline"
+	usagecmd "github.com/edotau/claude-code/internal/usage"
 )
 
 func cmdClaude(args []string) int {
@@ -37,6 +39,8 @@ func launchVendor(name string, args []string) int {
 	plan, err := launch.Vendor(context.Background(), name, opts, rest)
 	return runPlan(plan, opts, err)
 }
+
+func cmdUsage(args []string) int { return usagecmd.Run(args, paths.ConfigDir(), os.Stdout, os.Stderr) }
 
 // cmdScience takes only a leading --print-env; every other flag is claude-science's own.
 func cmdScience(args []string) int {

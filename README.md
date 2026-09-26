@@ -143,6 +143,7 @@ claude-code ask --agent gemini --format json "Map every caller of providers.Sele
 claude-code run opencode --provider openrouter --model qwen/qwen3-coder
 claude-code run codex --print-env                    # show the env/argv wiring, launch nothing
 claude-code science serve                            # Claude for Life Sciences on its own login, harness env stripped
+claude-code usage --days 7 [--workflows]             # subagent tokens (one count per API response) + peak ITPM
 claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
 claude-code agents sync --gemini --dry-run           # mirror agents/ + skills/ into ~/.gemini/skills
 claude-code agents docs                              # AGENTS.md + GEMINI.md from CLAUDE.md + the roster

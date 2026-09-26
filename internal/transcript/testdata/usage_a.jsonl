@@ -1,0 +1,4 @@
+{"type":"assistant","timestamp":"2026-07-19T06:36:00.000Z","message":{"model":"claude-sonnet-5","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":0,"output_tokens":10}}}
+{"type":"assistant","timestamp":"2026-07-19T06:36:30.000Z","message":{"model":"claude-sonnet-5","usage":{"input_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":5,"output_tokens":20}}}
+{"type":"assistant","timestamp":"2026-07-19T06:37:00.000Z","message":{"model":"claude-sonnet-5", "broken json line — must be skipped, not fatal
+{"type":"user","message":{"content":"ok"}}
