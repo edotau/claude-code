@@ -33,8 +33,14 @@
     "chatgpt": {
       "kind": "responses",
       "base_url": "https://chatgpt.com/backend-api/codex",
-      "auth": {"type": "passthrough"},
+      "auth": {"type": "passthrough", "login": "codex"},
       "models": {"opus": "gpt-5.5", "sonnet": "gpt-5.5", "haiku": "gpt-5.5"}
+    },
+    "github-copilot": {
+      "kind": "openai",
+      "base_url": "https://api.githubcopilot.com",
+      "auth": {"type": "passthrough", "login": "copilot"},
+      "models": {"opus": "claude-opus-5.5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4.5"}
     },
     "gemini": {
       "kind": "openai",

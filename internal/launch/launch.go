@@ -122,8 +122,8 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	}
 	p := sel.Provider
 	passthrough := p.Auth.Type == providers.AuthPassthrough
-	if _, ok := p.Route(providers.DialectAnthropic); passthrough && !ok {
-		return Plan{}, fmt.Errorf("provider %s is a vendor login (passthrough, no anthropic route) and cannot back Claude Code; use it with claude-code run codex --provider %s", p.Name, p.Name)
+	if p.Auth.Login != "" {
+		return Plan{}, fmt.Errorf("provider %s is the %s sign-in and cannot back Claude Code; use claude-code run %s --provider %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
 	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
 	if !passthrough {

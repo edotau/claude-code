@@ -201,8 +201,12 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
+	var model string
+	if t.Provider.Auth.Login != "" {
+		model = t.Model // no BYOK block, so the session takes the catalog id itself
+	}
 	out, err := copilotsdk.Ask(ctx, copilotsdk.Options{
-		CLIPath: bin, Env: env, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
+		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true,
 	}, req.Prompt)
 	if err != nil {
