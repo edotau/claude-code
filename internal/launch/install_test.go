@@ -42,6 +42,13 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	if link, _ := os.Readlink(filepath.Join(filepath.Dir(file), "bin", "codex")); link != "claude-code" {
 		t.Errorf("codex shim -> %q", link)
 	}
+	onPath := filepath.Join(userBinDir(), "claude-code")
+	if link, _ := os.Readlink(onPath); link != filepath.Join(filepath.Dir(file), "bin", "claude-code") {
+		t.Errorf("%s -> %q, want the installed binary", onPath, link)
+	}
+	if _, err := os.Lstat(filepath.Join(userBinDir(), "codex")); err == nil {
+		t.Error("only claude-code may be linked onto PATH")
+	}
 	baks, _ := filepath.Glob(file + ".bak-*")
 	if len(baks) != 1 {
 		t.Errorf("backups %v", baks)

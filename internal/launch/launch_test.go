@@ -26,6 +26,10 @@ func hermetic(t *testing.T, userProviders string) {
 			t.Fatal(err)
 		}
 	}
+	userBin := filepath.Join(dir, "localbin")
+	oldUserBin := userBinDir
+	userBinDir = func() string { return userBin }
+	t.Cleanup(func() { userBinDir = oldUserBin })
 	oldFind, oldSelf, oldEnsure := findClaude, selfBinary, ensureRouter
 	findClaude = func() (string, error) { return "/opt/claude", nil }
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }

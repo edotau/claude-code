@@ -19,13 +19,14 @@ What the binary adds to a stock install:
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude   # or into an existing ~/.claude
 cd ~/.claude
-make install                        # builds bin/claude-code, links shims, renders settings.json
-export PATH="$HOME/.claude/bin:$PATH"   # in your shell rc — the shims must come first
+make install                        # builds bin/claude-code, links shims + ~/.local/bin/claude-code, renders settings.json
 claude-code doctor
+export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claude/codex/... go through the shims
 ```
 
 `make install` runs `claude-code install`: it copies the binary into `~/.claude/bin`, symlinks the shims
-`claude codex gemini opencode copilot` → `claude-code`, and merges the harness hooks/permissions/statusLine
+`claude codex gemini opencode copilot` → `claude-code`, links `~/.local/bin/claude-code` (only that name, so
+the bare CLIs stay untouched unless you add `~/.claude/bin` to `PATH`), and merges the harness hooks/permissions/statusLine
 into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
 `claude-code install --dry-run`; print the render alone with `claude-code settings`.
 

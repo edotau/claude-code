@@ -23,6 +23,12 @@ import (
 // ShimNames are the bare names install links to the harness binary.
 var ShimNames = []string{"claude", "codex", "gemini", "opencode", "copilot"}
 
+// userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
+var userBinDir = func() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "bin")
+}
+
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
 
@@ -56,6 +62,9 @@ func Install(w io.Writer, dryRun bool) error {
 			}
 		}
 	}
+	if err := linkOnPath(w, target, dryRun); err != nil {
+		return err
+	}
 	file := SettingsFile()
 	existing, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -84,6 +93,33 @@ func Install(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
 	return err
+}
+
+// linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare
+// claude/codex/... shims never shadow the real CLIs. A real file there is left alone.
+func linkOnPath(w io.Writer, target string, dryRun bool) error {
+	dir := userBinDir()
+	link := filepath.Join(dir, "claude-code")
+	if cur, err := os.Readlink(link); err == nil && cur == target {
+		return nil
+	}
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
+		fmt.Fprintf(w, "skip     %s (a real file is there)\n", link)
+		return nil
+	}
+	fmt.Fprintf(w, "link     %s → %s\n", link, target)
+	if !strings.Contains(string(os.PathListSeparator)+os.Getenv("PATH")+string(os.PathListSeparator),
+		string(os.PathListSeparator)+dir+string(os.PathListSeparator)) {
+		fmt.Fprintf(w, "warning  %s is not on PATH; add it in your shell profile\n", dir)
+	}
+	if dryRun {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(link)
+	return os.Symlink(target, link)
 }
 
 // sameFile is true when target already is, or holds the same bytes as, self.
