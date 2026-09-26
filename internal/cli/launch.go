@@ -38,6 +38,16 @@ func launchVendor(name string, args []string) int {
 	return runPlan(plan, opts, err)
 }
 
+// cmdScience takes only a leading --print-env; every other flag is claude-science's own.
+func cmdScience(args []string) int {
+	var opts launch.Options
+	if len(args) > 0 && args[0] == "--print-env" {
+		opts.PrintEnv, args = true, args[1:]
+	}
+	plan, err := launch.ScienceEnv(args)
+	return runPlan(plan, opts, err)
+}
+
 func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 	if err != nil {
 		return fail("%v", err)
