@@ -1,0 +1,46 @@
+{
+  "status": "ok",
+  "source": "plan-standalone-harness.md",
+  "steps_found": 6,
+  "score": 3,
+  "max_score": 18,
+  "percentage": 16.7,
+  "has_final_verification": false,
+  "verdict": "MISSING",
+  "step_results": [
+    {
+      "title": "1. authenticates the client secret (`x-api-key` or bearer), validates Host is loopback;",
+      "score": 0,
+      "level": "none"
+    },
+    {
+      "title": "2. parses `model` from the body \u2192 `providers.ParseTarget` (session provider from the `/p/<name>` path prefix);",
+      "score": 0,
+      "level": "none"
+    },
+    {
+      "title": "3. strips `[1m]`, rewrites `model` to the wire id;",
+      "score": 0,
+      "level": "none"
+    },
+    {
+      "title": "4. anthropic route \u2192 byte passthrough with `providers.Authorize`; else openai route \u2192 `translate`;",
+      "score": 0,
+      "level": "none"
+    },
+    {
+      "title": "5. on 401/403 \u2192 `providers.Refresh` + replay once; on 429/5xx/connect error **before any byte is written** \u2192",
+      "score": 0,
+      "level": "none"
+    },
+    {
+      "title": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated legs.",
+      "score": 3,
+      "level": "concrete"
+    }
+  ],
+  "recommendations": [
+    "5 step(s) have no verification. Add 'verify: [check]' to each.",
+    "No final / end-to-end verification step. Add one at the end."
+  ]
+}

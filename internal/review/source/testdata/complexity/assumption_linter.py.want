@@ -1,0 +1,7 @@
+Complexity Check — 1 files, threshold medium
+Average score: 85/100   Findings: 1
+
+  assumption_linter.py  (score 85/100)
+    [WARN] function-length  line 109: 'main' is 52 lines (max 50). Split it.
+
+Verdict: WARN

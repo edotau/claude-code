@@ -1,0 +1,29 @@
+Assumption Linter — simplicity-skill.md
+Findings: 9   Verdict: CLARIFY
+
+  [vague-action] (4)
+    L8: Vague action verb. What specifically changes? What's the measurable result?
+      -> "fix" in: The **apply-the-fix** lens for two code-discipline principles — **Simplicity Fir
+    L26: Vague action verb. What specifically changes? What's the measurable result?
+      -> "refactor" in: re-comment untouched code, don't "while I'm here" a refactor, and remove only wh
+    L113: Vague action verb. What specifically changes? What's the measurable result?
+      -> "fix" in: [Scope] diff | extended   (extended = fix landed outside the diff; name file + b
+    L118: Vague action verb. What specifically changes? What's the measurable result?
+      -> "fix" in: If a fix would change behavior or its blast radius is unverifiable, **flag it, d
+
+  [absolute-scope] (1)
+    L12: Absolute scope. Is that really the case for every input?
+      -> "never" in: **The lane:** behavior is preserved — you change *how* code is structured, never
+
+  [explicit-assumption] (1)
+    L36: Explicit — good — but have you verified it?
+      -> "assuming" in: Behavior preservation is the contract — but the trap is *assuming* you already k
+
+  [missing-verification] (3)
+    Plan block has no verification step. Add a 'verify:' check to each step.
+      -> "1. Run the automated first pass to find the hot spots. 2. Read each changed file" in: 1. Run the automated first pass to find the hot spots. 2. Read each changed file
+    Plan block has no verification step. Add a 'verify:' check to each step.
+      -> "4. Apply the simplest fixes first, highest impact first. Preserve behavior; resp" in: 4. Apply the simplest fixes first, highest impact first. Preserve behavior; resp
+    Plan block has no verification step. Add a 'verify:' check to each step.
+      -> "5. Report what changed in this format:" in: 5. Report what changed in this format:
+

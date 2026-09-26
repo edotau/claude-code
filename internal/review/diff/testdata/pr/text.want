@@ -1,0 +1,31 @@
+============================================================
+PR ANALYSIS REPORT
+============================================================
+
+Complexity: 2/10 (Simple)
+Files Changed: 2
+Lines: +7 / -0
+Commits: 2
+
+--- RISK SUMMARY ---
+Critical: 1
+High: 1
+Medium: 1
+Low: 1
+
+--- CRITICAL RISKS ---
+  [src/auth.js] Potential hardcoded secret detected (x1)
+
+--- HIGH RISKS ---
+  [src/auth.js] Debugger statement found (x1)
+
+--- COMMIT MESSAGE ISSUES ---
+  2b3d15f: Does not follow conventional commit format
+  2b3d15f: Commit message exceeds 72 characters
+  31f820c: Does not follow conventional commit format
+
+--- SUGGESTED REVIEW ORDER ---
+  1. [CRITICAL] src/auth.js
+  2. [MEDIUM] src/app.js
+
+============================================================

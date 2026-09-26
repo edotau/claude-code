@@ -1,0 +1,117 @@
+{
+  "status": "analyzed",
+  "summary": {
+    "files_changed": 2,
+    "total_additions": 7,
+    "total_deletions": 0,
+    "complexity_score": 2,
+    "complexity_label": "Simple",
+    "commits": 2
+  },
+  "risks": {
+    "critical": [
+      {
+        "name": "hardcoded_secrets",
+        "severity": "critical",
+        "message": "Potential hardcoded secret detected",
+        "file": "src/auth.js",
+        "count": 1
+      }
+    ],
+    "high": [
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "src/auth.js",
+        "count": 1
+      }
+    ],
+    "medium": [
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Console statement found (remove for production)",
+        "file": "src/app.js",
+        "count": 1
+      }
+    ],
+    "low": [
+      {
+        "name": "todo_fixme",
+        "severity": "low",
+        "message": "TODO/FIXME comment found",
+        "file": "src/app.js",
+        "count": 1
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "src/auth.js",
+      "status": "added",
+      "category": "critical",
+      "priority_weight": 5,
+      "additions": 5,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "hardcoded_secrets",
+          "severity": "critical",
+          "message": "Potential hardcoded secret detected",
+          "file": "src/auth.js",
+          "count": 1
+        },
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "src/auth.js",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "src/app.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 2,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "todo_fixme",
+          "severity": "low",
+          "message": "TODO/FIXME comment found",
+          "file": "src/app.js",
+          "count": 1
+        },
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Console statement found (remove for production)",
+          "file": "src/app.js",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "commit_issues": [
+    {
+      "commit": "2b3d15f",
+      "issue": "Does not follow conventional commit format"
+    },
+    {
+      "commit": "2b3d15f",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "31f820c",
+      "issue": "Does not follow conventional commit format"
+    }
+  ],
+  "review_order": [
+    "src/auth.js",
+    "src/app.js"
+  ]
+}

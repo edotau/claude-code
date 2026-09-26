@@ -1,0 +1,27 @@
+Assumption Linter — plan-standalone-harness.md
+Findings: 8   Verdict: CLARIFY
+
+  [unscoped-subject] (2)
+    L3: Which user(s)? All? A specific role? Authenticated only?
+      -> "Users" in: Status: in progress · 2026-09-16 · source: `/Users/edotau/claude-dbx` (read-only
+    L15: Which user(s)? All? A specific role? Authenticated only?
+      -> "the user" in: preserves foreign (non-harness) hooks when the user runs it.
+
+  [absolute-scope] (3)
+    L6: Absolute scope. Is that really the case for every input?
+      -> "every" in: routing/gateway/agent features and drops every Databricks, Apollo, employer, coc
+    L14: Absolute scope. Is that really the case for every input?
+      -> "never" in: - `settings.json`: build only — the live file is never touched by development; `
+    L83: Absolute scope. Is that really the case for every input?
+      -> "never" in: (never written). Full `make test` once at the end.
+
+  [minimizing] (1)
+    L42: Minimizing language often hides complexity. What's being skipped?
+      -> "just" in: (LiteLLM, OpenRouter, a corporate AI gateway) is just a provider with several `r
+
+  [missing-verification] (2)
+    Plan block has no verification step. Add a 'verify:' check to each step.
+      -> "1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo" in: 1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo
+    Plan block has no verification step. Add a 'verify:' check to each step.
+      -> "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local" in: 6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local
+

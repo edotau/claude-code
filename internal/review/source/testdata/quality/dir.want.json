@@ -1,0 +1,101 @@
+{
+  "directory": "/Users/edotau/.claude/internal/review/source/testdata/quality",
+  "files_analyzed": 2,
+  "average_score": 100.0,
+  "overall_grade": "A",
+  "total_code_smells": 0,
+  "total_solid_violations": 0,
+  "files": [
+    {
+      "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js",
+      "language": "javascript",
+      "metrics": {
+        "lines": {
+          "total": 68,
+          "code": 60,
+          "blank": 5,
+          "comment": 3
+        },
+        "functions": 0,
+        "classes": 0,
+        "avg_complexity": 0.0
+      },
+      "quality_score": 100,
+      "grade": "A",
+      "smells": [],
+      "solid_violations": [],
+      "function_details": [],
+      "class_details": []
+    },
+    {
+      "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/paths.go",
+      "language": "go",
+      "metrics": {
+        "lines": {
+          "total": 96,
+          "code": 77,
+          "blank": 10,
+          "comment": 9
+        },
+        "functions": 8,
+        "classes": 0,
+        "avg_complexity": 3.2
+      },
+      "quality_score": 100,
+      "grade": "A",
+      "smells": [],
+      "solid_violations": [],
+      "function_details": [
+        {
+          "name": "ConfigDir",
+          "parameters": 0,
+          "lines": 13,
+          "complexity": 4
+        },
+        {
+          "name": "EnvDir",
+          "parameters": 0,
+          "lines": 4,
+          "complexity": 3
+        },
+        {
+          "name": "BinDir",
+          "parameters": 0,
+          "lines": 4,
+          "complexity": 1
+        },
+        {
+          "name": "StateDir",
+          "parameters": 0,
+          "lines": 4,
+          "complexity": 1
+        },
+        {
+          "name": "ClaudeJSON",
+          "parameters": 0,
+          "lines": 13,
+          "complexity": 3
+        },
+        {
+          "name": "WriteIfChanged",
+          "parameters": 3,
+          "lines": 9,
+          "complexity": 3
+        },
+        {
+          "name": "AtomicWrite",
+          "parameters": 3,
+          "lines": 29,
+          "complexity": 7
+        },
+        {
+          "name": "WithFileLock",
+          "parameters": 2,
+          "lines": 16,
+          "complexity": 4
+        }
+      ],
+      "class_details": []
+    }
+  ]
+}

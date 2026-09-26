@@ -1,0 +1,10 @@
+{
+  "files_analyzed": 2,
+  "average_score": 88.0,
+  "total_code_smells": 2,
+  "total_solid_violations": 0,
+  "files": [
+    {"file": "auth.js", "quality_score": 80, "smells": [{"type": "magic_number", "severity": "low", "message": "Magic number 12345 should be a named constant", "location": "line 10"}], "solid_violations": []},
+    {"file": "app.js", "quality_score": 96, "smells": [{"type": "commented_code", "severity": "low", "message": "Commented-out code should be removed", "location": "line 3"}], "solid_violations": []}
+  ]
+}

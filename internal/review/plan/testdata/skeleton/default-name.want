@@ -1,0 +1,23 @@
+export const meta = {
+  name: 'new-workflow',
+  description: 'Pipeline: each item through ordered stages, no barrier',
+  phases: [{ title: 'Work' }, { title: 'Verify' }],
+}
+
+const ITEMS = args ?? []   // pass the work-list via Workflow `args`
+const results = await pipeline(
+  ITEMS,
+  (item) => agent(`Do the work for: ${JSON.stringify(item)}`, {phase: 'Work', schema: WORK_SCHEMA}),
+  (work, item) => agent(`Adversarially verify: ${work.summary}`, {phase: 'Verify', schema: VERDICT_SCHEMA})
+    .then(v => ({...work, verdict: v})),
+)
+return results.filter(Boolean).filter(r => r.verdict?.ok)
+
+// ── Fill in before running ──
+//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).
+//  • Every agent() payload needs a self-contained handoff (objective + constraints + artifacts
+//    + acceptance + verify command) — see references/choosing-a-pattern.md. Cold-start test:
+//    a fresh agent with zero context can execute it.
+//  • Pipeline is the default (no barrier). Use parallel() only when a step needs ALL prior results.
+//  • 'router' isn't a Workflow shape — it's an inline branch on the input, then dispatch. No skeleton.
+

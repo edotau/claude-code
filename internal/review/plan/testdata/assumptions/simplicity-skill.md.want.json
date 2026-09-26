@@ -1,0 +1,77 @@
+{
+  "status": "ok",
+  "source": "simplicity-skill.md",
+  "total_findings": 9,
+  "by_category": {
+    "vague-action": 4,
+    "absolute-scope": 1,
+    "explicit-assumption": 1,
+    "missing-verification": 3
+  },
+  "verdict": "CLARIFY",
+  "findings": [
+    {
+      "line": 8,
+      "category": "vague-action",
+      "matched": "fix",
+      "message": "Vague action verb. What specifically changes? What's the measurable result?",
+      "context": "The **apply-the-fix** lens for two code-discipline principles \u2014 **Simplicity First (#2)** and"
+    },
+    {
+      "line": 12,
+      "category": "absolute-scope",
+      "matched": "never",
+      "message": "Absolute scope. Is that really the case for every input?",
+      "context": "**The lane:** behavior is preserved \u2014 you change *how* code is structured, never *what* it does."
+    },
+    {
+      "line": 26,
+      "category": "vague-action",
+      "matched": "refactor",
+      "message": "Vague action verb. What specifically changes? What's the measurable result?",
+      "context": "re-comment untouched code, don't \"while I'm here\" a refactor, and remove only what *your*"
+    },
+    {
+      "line": 36,
+      "category": "explicit-assumption",
+      "matched": "assuming",
+      "message": "Explicit \u2014 good \u2014 but have you verified it?",
+      "context": "Behavior preservation is the contract \u2014 but the trap is *assuming* you already know the"
+    },
+    {
+      "line": 113,
+      "category": "vague-action",
+      "matched": "fix",
+      "message": "Vague action verb. What specifically changes? What's the measurable result?",
+      "context": "[Scope] diff | extended   (extended = fix landed outside the diff; name file + blast radius)"
+    },
+    {
+      "line": 118,
+      "category": "vague-action",
+      "matched": "fix",
+      "message": "Vague action verb. What specifically changes? What's the measurable result?",
+      "context": "If a fix would change behavior or its blast radius is unverifiable, **flag it, don't apply"
+    },
+    {
+      "line": 0,
+      "category": "missing-verification",
+      "matched": "1. Run the automated first pass to find the hot spots. 2. Read each changed file",
+      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
+      "context": "1. Run the automated first pass to find the hot spots. 2. Read each changed file (the detectors point; you decide). 3. I"
+    },
+    {
+      "line": 0,
+      "category": "missing-verification",
+      "matched": "4. Apply the simplest fixes first, highest impact first. Preserve behavior; resp",
+      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
+      "context": "4. Apply the simplest fixes first, highest impact first. Preserve behavior; respect existing"
+    },
+    {
+      "line": 0,
+      "category": "missing-verification",
+      "matched": "5. Report what changed in this format:",
+      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
+      "context": "5. Report what changed in this format:"
+    }
+  ]
+}
