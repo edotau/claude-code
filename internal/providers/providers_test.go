@@ -58,6 +58,10 @@ func TestOverlayAndRoutes(t *testing.T) {
 	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).Validate(); err == nil {
 		t.Error("dangling default must fail validation")
 	}
+	keyedLogin := &Provider{Kind: DialectOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthBearer, Login: "codex"}}
+	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).Validate(); err == nil {
+		t.Error("auth.login without passthrough must fail validation")
+	}
 }
 
 func TestSelectPinsAndCrossProvider(t *testing.T) {

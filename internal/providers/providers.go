@@ -46,6 +46,7 @@ type Auth struct {
 	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
+	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
 }
 
 // Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
@@ -138,6 +139,9 @@ func (r *Registry) Validate() error {
 		case AuthAPIKey, AuthBearer, AuthNone, AuthPassthrough:
 		default:
 			errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
+		}
+		if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
+			errs = append(errs, fmt.Sprintf("%s: auth.login needs auth.type passthrough", n))
 		}
 	}
 	for _, n := range append([]string{r.Default}, r.Fallback...) {

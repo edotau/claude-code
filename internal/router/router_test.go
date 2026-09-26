@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
 )
 
@@ -451,5 +452,12 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Serve waited on the stream past the drain budget")
+	}
+}
+
+func TestUnroutableLogin(t *testing.T) {
+	p := &providers.Provider{Name: "github-copilot", Kind: providers.DialectOpenAI, BaseURL: "https://x", Auth: providers.Auth{Type: providers.AuthPassthrough, Login: "copilot"}}
+	if why := unroutable(p, true); !strings.Contains(why, "copilot sign-in") {
+		t.Errorf("a vendor login must never receive a forwarded client credential: %q", why)
 	}
 }

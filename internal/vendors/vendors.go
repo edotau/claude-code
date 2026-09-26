@@ -95,6 +95,9 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 	if p == nil || t.Model == "" {
 		return nil, nil, fmt.Errorf("%s: no provider/model resolved", name)
 	}
+	if p.Auth.Login != "" {
+		return login(name, p, models.Strip1M(t.Model), h)
+	}
 	dialect, base := "", ""
 	for _, d := range spec.Dialects {
 		if r, ok := p.Route(d); ok {
@@ -106,17 +109,14 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 		return nil, nil, fmt.Errorf("%s: provider %s serves no %s route (it has %s)", name, p.Name,
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
-	model := models.Strip1M(t.Model)
 	cred, err := providers.Credential(ctx, p)
-	if errors.Is(err, providers.ErrPassthrough) && name == "codex" {
-		return codexLogin(model, h)
-	}
 	if errors.Is(err, providers.ErrPassthrough) {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
+	model := models.Strip1M(t.Model)
 	switch name {
 	case "codex":
 		return codex(p, base, model, cred, h)
@@ -165,6 +165,19 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	argv := []string{"-c", "model_provider=" + tomlStr(id), "-c", "model=" + tomlStr(model),
 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
 	return env, codexHeadless(argv, h), nil
+}
+
+// login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
+func login(name string, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+	switch {
+	case p.Auth.Login != name:
+		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+	case name == "codex":
+		return codexLogin(model, h)
+	case name == "copilot":
+		return copilotLogin(model, h)
+	}
+	return nil, nil, fmt.Errorf("%s: no subscription sign-in support", name)
 }
 
 // codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
@@ -385,6 +398,15 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 const copilotMaxOutputTokens = 32_000
 
 // copilot BYOK: COPILOT_PROVIDER_* in the env; COPILOT_OFFLINE keeps it off GitHub's own model path.
+// copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
+func copilotLogin(model string, h *Headless) ([]string, []string, error) {
+	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
+	if h == nil {
+		return env, nil, nil
+	}
+	return env, copilotHeadless(h), nil
+}
+
 func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
 	typ := "openai"
 	if dialect == providers.DialectAnthropic {
@@ -407,11 +429,15 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
 	if h == nil {
 		return env, nil, nil
 	}
+	return env, copilotHeadless(h), nil
+}
+
+func copilotHeadless(h *Headless) []string {
 	argv := []string{"--prompt", h.Prompt}
 	if h.Tools {
 		argv = append(argv, "--allow-all-tools")
 	}
-	return env, argv, nil
+	return argv
 }
 
 // secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., -password, ...), case-insensitive.

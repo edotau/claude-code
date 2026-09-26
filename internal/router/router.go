@@ -140,6 +140,9 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 
 // unroutable explains why the router cannot serve p at all, or returns "".
 func unroutable(p *providers.Provider, clientAuth bool) string {
+	if p.Auth.Login != "" {
+		return fmt.Sprintf("provider %s is the %s sign-in; only claude-code run %s can use it", p.Name, p.Auth.Login, p.Auth.Login)
+	}
 	if p.Auth.Type == providers.AuthPassthrough && !clientAuth {
 		return fmt.Sprintf("provider %s uses passthrough auth but the request carries no client credential; launch it as the session provider (claude-code use %s) so its login reaches the router", p.Name, p.Name)
 	}

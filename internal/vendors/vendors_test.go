@@ -139,8 +139,28 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	if len(env) != 0 || !slices.Equal(argv, want) {
 		t.Errorf("env %q argv %q, want no env and %q", env, argv, want)
 	}
-	if _, _, err := Configure(context.Background(), "gemini", tg, ""); err == nil {
-		t.Error("only codex may use the chatgpt login")
+	if _, _, err := Configure(context.Background(), "gemini", tg, ""); err == nil || !strings.Contains(err.Error(), "codex sign-in") {
+		t.Errorf("only codex may use the chatgpt login: %v", err)
+	}
+}
+
+func TestCopilotLogin(t *testing.T) {
+	tg := target(t, "github-copilot", "claude-opus-5.5")
+	env, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := envMap(env)
+	for k, v := range map[string]string{"COPILOT_MODEL": "claude-opus-5.5", "COPILOT_PROVIDER_BASE_URL": "", "COPILOT_OFFLINE": ""} {
+		if w, ok := got[k]; !ok || w != v {
+			t.Errorf("env %s = %q (set %v), want %q", k, w, ok, v)
+		}
+	}
+	if want := []string{"--prompt", "hi", "--allow-all-tools"}; !slices.Equal(argv, want) {
+		t.Errorf("argv %q, want %q", argv, want)
+	}
+	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "copilot sign-in") {
+		t.Errorf("codex must refuse the copilot login: %v", err)
 	}
 }
 
