@@ -1,0 +1,24 @@
+export const meta = {
+  name: 'gen-verify',
+  description: 'Generate, then adversarially verify before accepting',
+  phases: [{ title: 'Generate' }, { title: 'Verify' }],
+}
+
+phase('Generate')
+const draft = await agent('Produce the artifact.', {schema: DRAFT_SCHEMA})
+phase('Verify')
+// N independent skeptics, each prompted to REFUTE; accept only if a majority can't.
+const votes = (await parallel(['correctness', 'security', 'repro'].map(lens => () =>
+  agent(`Try to refute the ${lens} of: ${draft.summary}. Default refuted=true if unsure.`,
+        {schema: VERDICT_SCHEMA})))).filter(Boolean)
+const accepted = votes.filter(v => !v.refuted).length >= 2
+return {draft, accepted, votes}
+
+// ── Fill in before running ──
+//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).
+//  • Every agent() payload needs a self-contained handoff (objective + constraints + artifacts
+//    + acceptance + verify command) — see references/choosing-a-pattern.md. Cold-start test:
+//    a fresh agent with zero context can execute it.
+//  • Pipeline is the default (no barrier). Use parallel() only when a step needs ALL prior results.
+//  • 'router' isn't a Workflow shape — it's an inline branch on the input, then dispatch. No skeleton.
+

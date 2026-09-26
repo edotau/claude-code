@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-26T18:20:04.496882",
+    "repository": "/Users/edotau/.claude/internal/review/diff/testdata/report/repo",
+    "version": "1.0.0"
+  },
+  "summary": {
+    "score": 74,
+    "verdict": "block",
+    "rationale": "Critical issues must be resolved before merge",
+    "issue_counts": {
+      "critical": 1,
+      "high": 1,
+      "medium": 0,
+      "low": 3
+    }
+  },
+  "findings": [
+    {
+      "source": "pr_analysis",
+      "severity": "critical",
+      "category": "hardcoded_secrets",
+      "message": "Potential hardcoded secret detected",
+      "file": "auth.js",
+      "count": 1
+    },
+    {
+      "source": "pr_analysis",
+      "severity": "high",
+      "category": "debugger",
+      "message": "Debugger statement found",
+      "file": "app.js",
+      "count": 1
+    },
+    {
+      "source": "pr_analysis",
+      "severity": "low",
+      "category": "todo_fixme",
+      "message": "TODO/FIXME comment found",
+      "file": "app.js",
+      "count": 2
+    },
+    {
+      "source": "quality_analysis",
+      "severity": "low",
+      "category": "magic_number",
+      "message": "Magic number 12345 should be a named constant",
+      "file": "auth.js",
+      "line": "line 10"
+    },
+    {
+      "source": "quality_analysis",
+      "severity": "low",
+      "category": "commented_code",
+      "message": "Commented-out code should be removed",
+      "file": "app.js",
+      "line": "line 3"
+    }
+  ],
+  "action_items": [
+    {
+      "priority": "P0",
+      "action": "Remove hardcoded credentials and use environment variables or a secrets manager",
+      "severity": "critical",
+      "files_affected": [
+        "auth.js"
+      ]
+    },
+    {
+      "priority": "P1",
+      "action": "Remove debugger statements before merging",
+      "severity": "high",
+      "files_affected": [
+        "app.js"
+      ]
+    },
+    {
+      "priority": "P2",
+      "action": "Address TODO/FIXME comments or create tracking issues",
+      "severity": "low",
+      "files_affected": [
+        "app.js"
+      ]
+    },
+    {
+      "priority": "P2",
+      "action": "Replace magic numbers with named constants",
+      "severity": "low",
+      "files_affected": [
+        "auth.js"
+      ]
+    },
+    {
+      "priority": "P2",
+      "action": "Remove commented-out code (version control preserves history)",
+      "severity": "low",
+      "files_affected": [
+        "app.js"
+      ]
+    }
+  ],
+  "pr_summary": {
+    "files_changed": 2,
+    "total_additions": 12,
+    "total_deletions": 3,
+    "complexity_score": 4,
+    "complexity_label": "Moderate",
+    "commits": 2
+  },
+  "review_order": [
+    "auth.js",
+    "app.js"
+  ],
+  "quality_summary": {
+    "files_analyzed": 2,
+    "average_score": 88.0,
+    "total_code_smells": 2,
+    "total_solid_violations": 0
+  }
+}

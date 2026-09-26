@@ -1,0 +1,31 @@
+{
+  "status": "ok",
+  "source": "stdin",
+  "steps_found": 3,
+  "score": 4,
+  "max_score": 9,
+  "percentage": 44.4,
+  "has_final_verification": true,
+  "verdict": "WEAK",
+  "step_results": [
+    {
+      "title": "1. Implement the parser",
+      "score": 3,
+      "level": "concrete"
+    },
+    {
+      "title": "2. Update the docs",
+      "score": 1,
+      "level": "vague"
+    },
+    {
+      "title": "3. Final end-to-end regression pass",
+      "score": 0,
+      "level": "none"
+    }
+  ],
+  "recommendations": [
+    "1 step(s) have no verification. Add 'verify: [check]' to each.",
+    "1 step(s) have vague criteria. Replace 'should work' with a concrete check."
+  ]
+}

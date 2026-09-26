@@ -1,0 +1,21 @@
+{
+  "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js",
+  "language": "javascript",
+  "metrics": {
+    "lines": {
+      "total": 68,
+      "code": 60,
+      "blank": 5,
+      "comment": 3
+    },
+    "functions": 0,
+    "classes": 0,
+    "avg_complexity": 0.0
+  },
+  "quality_score": 100,
+  "grade": "A",
+  "smells": [],
+  "solid_violations": [],
+  "function_details": [],
+  "class_details": []
+}

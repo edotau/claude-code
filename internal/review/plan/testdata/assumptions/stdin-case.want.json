@@ -1,0 +1,50 @@
+{
+  "status": "ok",
+  "source": "stdin",
+  "total_findings": 5,
+  "by_category": {
+    "minimizing": 1,
+    "unstated-assumption": 1,
+    "hopeful": 1,
+    "absolute-scope": 1,
+    "unscoped-subject": 1
+  },
+  "verdict": "CLARIFY",
+  "findings": [
+    {
+      "line": 1,
+      "category": "minimizing",
+      "matched": "just",
+      "message": "Minimizing language often hides complexity. What's being skipped?",
+      "context": "I'll just export the user data. It should work fine. Obviously all users are affected."
+    },
+    {
+      "line": 1,
+      "category": "unstated-assumption",
+      "matched": "Obviously",
+      "message": "Signals an unstated assumption. Is it really obvious?",
+      "context": "I'll just export the user data. It should work fine. Obviously all users are affected."
+    },
+    {
+      "line": 1,
+      "category": "hopeful",
+      "matched": "should work",
+      "message": "Hopeful, not verified. How will you confirm?",
+      "context": "I'll just export the user data. It should work fine. Obviously all users are affected."
+    },
+    {
+      "line": 1,
+      "category": "absolute-scope",
+      "matched": "all users",
+      "message": "Absolute scope. Is that really the case for every input?",
+      "context": "I'll just export the user data. It should work fine. Obviously all users are affected."
+    },
+    {
+      "line": 1,
+      "category": "unscoped-subject",
+      "matched": "the user",
+      "message": "Which user(s)? All? A specific role? Authenticated only?",
+      "context": "I'll just export the user data. It should work fine. Obviously all users are affected."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "source": "noplan.txt",
+  "steps_found": 0,
+  "verdict": "NO_PLAN",
+  "score": 0,
+  "max_score": 0,
+  "step_results": [],
+  "recommendations": [
+    "No numbered/bulleted steps found. Is this a plan?"
+  ]
+}

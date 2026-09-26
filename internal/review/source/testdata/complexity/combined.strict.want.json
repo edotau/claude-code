@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "threshold": "strict",
+  "files_analyzed": 2,
+  "total_findings": 2,
+  "average_score": 85.0,
+  "verdict": "WARN",
+  "results": [
+    {
+      "file": "assumption_linter.py",
+      "language": "python",
+      "lines": 164,
+      "score": 70,
+      "findings": [
+        {
+          "rule": "function-length",
+          "severity": "warn",
+          "line": 109,
+          "message": "'main' is 52 lines (max 40). Split it."
+        },
+        {
+          "rule": "cyclomatic-complexity",
+          "severity": "warn",
+          "line": 109,
+          "message": "'main' has cyclomatic complexity 10 (max 8). Flatten branching."
+        }
+      ]
+    },
+    {
+      "file": "gate-loop.js",
+      "language": "typescript",
+      "lines": 67,
+      "score": 100,
+      "findings": []
+    }
+  ]
+}

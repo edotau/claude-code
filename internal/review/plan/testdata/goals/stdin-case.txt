@@ -1,0 +1,5 @@
+1. Implement the parser
+   verify: pytest tests/test_parser.py passes
+2. Update the docs
+   should work
+3. Final end-to-end regression pass

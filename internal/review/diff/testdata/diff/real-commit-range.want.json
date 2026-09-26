@@ -1,0 +1,106 @@
+{
+  "status": "ok",
+  "files_in_diff": 13,
+  "total_change_lines": 213,
+  "noise_lines": 19,
+  "noise_ratio": 0.09,
+  "verdict": "CLEAN",
+  "file_results": [
+    {
+      "file": "internal/launch/install.go",
+      "findings": [
+        {
+          "category": "comment-only",
+          "line": "+// userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention)."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// claude/codex/... shims never shadow the real CLIs. A real file there is left alone."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        }
+      ]
+    },
+    {
+      "file": "internal/router/router_test.go",
+      "findings": [
+        {
+          "category": "whitespace",
+          "line": "+"
+        }
+      ]
+    },
+    {
+      "file": "internal/vendors/vendors.go",
+      "findings": [
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them)."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "comment-only",
+          "line": "+// codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch."
+        },
+        {
+          "category": "comment-only",
+          "line": "+// copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it."
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        }
+      ]
+    },
+    {
+      "file": "internal/vendors/vendors_test.go",
+      "findings": [
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "whitespace",
+          "line": "+"
+        }
+      ]
+    }
+  ]
+}

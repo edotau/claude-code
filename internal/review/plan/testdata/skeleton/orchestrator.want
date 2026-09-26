@@ -1,0 +1,28 @@
+export const meta = {
+  name: 'plan-then-build',
+  description: 'Planner decomposes, then pipeline over the work-list',
+  phases: [{ title: 'Plan' }, { title: 'Build' }],
+}
+
+phase('Plan')
+// Discover the work-list at runtime, then fan out over it (don't hardcode the shape).
+const plan = await agent(`Break down this goal into parallel-safe tasks: ${args?.goal ?? ''}`,
+                         {schema: PLAN_SCHEMA})
+phase('Build')
+// isolation:'worktree' ONLY if tasks mutate files in parallel (else drop it — it's expensive).
+const done = await pipeline(
+  plan.tasks,
+  (task) => agent(task.brief, {phase: 'Build', isolation: 'worktree', schema: RESULT_SCHEMA}),
+  (result) => agent(`Review for spec + quality: ${result.summary}`, {phase: 'Build', schema: REVIEW_SCHEMA})
+    .then(r => ({...result, review: r})),
+)
+return done.filter(Boolean)
+
+// ── Fill in before running ──
+//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).
+//  • Every agent() payload needs a self-contained handoff (objective + constraints + artifacts
+//    + acceptance + verify command) — see references/choosing-a-pattern.md. Cold-start test:
+//    a fresh agent with zero context can execute it.
+//  • Pipeline is the default (no barrier). Use parallel() only when a step needs ALL prior results.
+//  • 'router' isn't a Workflow shape — it's an inline branch on the input, then dispatch. No skeleton.
+

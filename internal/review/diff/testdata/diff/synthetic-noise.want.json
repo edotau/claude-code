@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "files_in_diff": 1,
+  "total_change_lines": 8,
+  "noise_lines": 6,
+  "noise_ratio": 0.75,
+  "verdict": "VERY_NOISY",
+  "file_results": [
+    {
+      "file": "example.py",
+      "findings": [
+        {
+          "category": "whitespace",
+          "line": "+"
+        },
+        {
+          "category": "whitespace",
+          "line": "+    "
+        },
+        {
+          "category": "comment-only",
+          "line": "+# a comment"
+        },
+        {
+          "category": "docstring-addition",
+          "line": "+\"\"\"a new docstring\"\"\""
+        },
+        {
+          "category": "comment-only",
+          "line": "-    # TODO old"
+        },
+        {
+          "category": "comment-only",
+          "line": "+    # TODO new"
+        }
+      ]
+    }
+  ]
+}

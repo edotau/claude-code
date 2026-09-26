@@ -1,0 +1,17 @@
+{
+  "status": "ok",
+  "threshold": "medium",
+  "files_analyzed": 1,
+  "total_findings": 0,
+  "average_score": 100.0,
+  "verdict": "PASS",
+  "results": [
+    {
+      "file": "gate-loop.js",
+      "language": "typescript",
+      "lines": 67,
+      "score": 100,
+      "findings": []
+    }
+  ]
+}

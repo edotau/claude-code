@@ -1,0 +1,32 @@
+Diff Surgeon — 13 files, 213 changed lines
+Noise ratio: 9% (19 noise lines)
+Verdict: CLEAN
+
+  internal/launch/install.go:
+    [comment-only] 3 instance(s)
+      +// userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
+      +// linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare
+      +// claude/codex/... shims never shadow the real CLIs. A real file there is left alone.
+    [whitespace] 2 instance(s)
+      +
+      +
+  internal/router/router_test.go:
+    [whitespace] 1 instance(s)
+      +
+  internal/vendors/vendors.go:
+    [whitespace] 6 instance(s)
+      +
+      +
+      +
+      ... and 3 more
+    [comment-only] 5 instance(s)
+      +// login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
+      +// codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
+      +// codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).
+      ... and 2 more
+  internal/vendors/vendors_test.go:
+    [whitespace] 2 instance(s)
+      +
+      +
+
+Recommendation: review flagged lines. Remove changes that don't trace to your task.

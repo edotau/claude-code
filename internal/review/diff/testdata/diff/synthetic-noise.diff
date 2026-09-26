@@ -1,0 +1,15 @@
+diff --git a/example.py b/example.py
+index 1111111..2222222 100644
+--- a/example.py
++++ b/example.py
+@@ -1,8 +1,12 @@
+ def greet(name):
+-    return "hi " + name
++    return 'hi ' + name
++
++    
++# a comment
++"""a new docstring"""
+     print(greet("world"))
+-    # TODO old
++    # TODO new

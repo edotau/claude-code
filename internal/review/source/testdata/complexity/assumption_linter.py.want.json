@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "threshold": "medium",
+  "files_analyzed": 1,
+  "total_findings": 1,
+  "average_score": 85.0,
+  "verdict": "WARN",
+  "results": [
+    {
+      "file": "assumption_linter.py",
+      "language": "python",
+      "lines": 164,
+      "score": 85,
+      "findings": [
+        {
+          "rule": "function-length",
+          "severity": "warn",
+          "line": 109,
+          "message": "'main' is 52 lines (max 50). Split it."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+Goal Verifier — stdin
+Steps: 3   Score: 4/9 (44.4%)
+Verdict: WEAK
+
+  [+] 1. Implement the parser  (concrete, 3/3)
+  [?] 2. Update the docs  (vague, 1/3)
+  [!] 3. Final end-to-end regression pass  (none, 0/3)
+
+  -> 1 step(s) have no verification. Add 'verify: [check]' to each.
+  -> 1 step(s) have vague criteria. Replace 'should work' with a concrete check.

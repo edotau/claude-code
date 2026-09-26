@@ -1,0 +1,23 @@
+Assumption Linter — stdin
+Findings: 5   Verdict: CLARIFY
+
+  [minimizing] (1)
+    L1: Minimizing language often hides complexity. What's being skipped?
+      -> "just" in: I'll just export the user data. It should work fine. Obviously all users are aff
+
+  [unstated-assumption] (1)
+    L1: Signals an unstated assumption. Is it really obvious?
+      -> "Obviously" in: I'll just export the user data. It should work fine. Obviously all users are aff
+
+  [hopeful] (1)
+    L1: Hopeful, not verified. How will you confirm?
+      -> "should work" in: I'll just export the user data. It should work fine. Obviously all users are aff
+
+  [absolute-scope] (1)
+    L1: Absolute scope. Is that really the case for every input?
+      -> "all users" in: I'll just export the user data. It should work fine. Obviously all users are aff
+
+  [unscoped-subject] (1)
+    L1: Which user(s)? All? A specific role? Authenticated only?
+      -> "the user" in: I'll just export the user data. It should work fine. Obviously all users are aff
+

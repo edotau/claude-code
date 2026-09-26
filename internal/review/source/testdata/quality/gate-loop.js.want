@@ -1,0 +1,13 @@
+============================================================
+CODE QUALITY REPORT
+============================================================
+
+File: /Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js
+Language: javascript
+Quality Score: 100/100 (A)
+
+Lines: 68 (60 code, 3 comments)
+Functions: 0   Classes: 0
+Avg Complexity: 0.0
+
+============================================================

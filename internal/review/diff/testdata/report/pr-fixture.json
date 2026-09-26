@@ -1,0 +1,23 @@
+{
+  "status": "analyzed",
+  "summary": {
+    "files_changed": 2,
+    "total_additions": 12,
+    "total_deletions": 3,
+    "complexity_score": 4,
+    "complexity_label": "Moderate",
+    "commits": 2
+  },
+  "risks": {
+    "critical": [{"name": "hardcoded_secrets", "severity": "critical", "message": "Potential hardcoded secret detected", "file": "auth.js", "count": 1}],
+    "high": [{"name": "debugger", "severity": "high", "message": "Debugger statement found", "file": "app.js", "count": 1}],
+    "medium": [],
+    "low": [{"name": "todo_fixme", "severity": "low", "message": "TODO/FIXME comment found", "file": "app.js", "count": 2}]
+  },
+  "files": [
+    {"path": "auth.js", "status": "modified", "category": "critical", "priority_weight": 5, "additions": 6, "deletions": 1, "risks": []},
+    {"path": "app.js", "status": "modified", "category": "medium", "priority_weight": 3, "additions": 6, "deletions": 2, "risks": []}
+  ],
+  "commit_issues": [{"commit": "abc123", "issue": "Does not follow conventional commit format"}],
+  "review_order": ["auth.js", "app.js"]
+}

@@ -1,0 +1,70 @@
+{
+  "status": "ok",
+  "source": "plan-standalone-harness.md",
+  "total_findings": 8,
+  "by_category": {
+    "unscoped-subject": 2,
+    "absolute-scope": 3,
+    "minimizing": 1,
+    "missing-verification": 2
+  },
+  "verdict": "CLARIFY",
+  "findings": [
+    {
+      "line": 3,
+      "category": "unscoped-subject",
+      "matched": "Users",
+      "message": "Which user(s)? All? A specific role? Authenticated only?",
+      "context": "Status: in progress \u00b7 2026-09-16 \u00b7 source: `/Users/edotau/claude-dbx` (read-only reference)"
+    },
+    {
+      "line": 6,
+      "category": "absolute-scope",
+      "matched": "every",
+      "message": "Absolute scope. Is that really the case for every input?",
+      "context": "routing/gateway/agent features and drops every Databricks, Apollo, employer, cockpit and research subsystem."
+    },
+    {
+      "line": 14,
+      "category": "absolute-scope",
+      "matched": "never",
+      "message": "Absolute scope. Is that really the case for every input?",
+      "context": "- `settings.json`: build only \u2014 the live file is never touched by development; `install` backs up and"
+    },
+    {
+      "line": 15,
+      "category": "unscoped-subject",
+      "matched": "the user",
+      "message": "Which user(s)? All? A specific role? Authenticated only?",
+      "context": "preserves foreign (non-harness) hooks when the user runs it."
+    },
+    {
+      "line": 42,
+      "category": "minimizing",
+      "matched": "just",
+      "message": "Minimizing language often hides complexity. What's being skipped?",
+      "context": "(LiteLLM, OpenRouter, a corporate AI gateway) is just a provider with several `routes`."
+    },
+    {
+      "line": 83,
+      "category": "absolute-scope",
+      "matched": "never",
+      "message": "Absolute scope. Is that really the case for every input?",
+      "context": "(never written). Full `make test` once at the end."
+    },
+    {
+      "line": 0,
+      "category": "missing-verification",
+      "matched": "1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo",
+      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
+      "context": "1. authenticates the client secret (`x-api-key` or bearer), validates Host is loopback;   2. parses `model` from the bod"
+    },
+    {
+      "line": 0,
+      "category": "missing-verification",
+      "matched": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local",
+      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
+      "context": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated legs."
+    }
+  ]
+}

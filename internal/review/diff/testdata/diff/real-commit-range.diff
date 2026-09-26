@@ -1,0 +1,440 @@
+diff --git a/README.md b/README.md
+index 3dcbd70..32c35b0 100644
+--- a/README.md
++++ b/README.md
+@@ -6,7 +6,7 @@ Workflow scripts every session loads.
+ 
+ What the binary adds to a stock install:
+ 
+-- **Provider registry** — Anthropic, a Claude subscription, OpenRouter, OpenAI, Gemini, Ollama, or any
++- **Provider registry** — Anthropic, a Claude subscription, ChatGPT and GitHub Copilot subscriptions (via their own CLIs), OpenRouter, OpenAI, Gemini, Ollama, or any
+   gateway, selected per launch or pinned; tier slots (opus/sonnet/haiku/fable) map to model ids per provider.
+ - **Loopback router** — lets Claude Code talk to OpenAI-dialect upstreams (translation), mix providers per
+   tier (`haiku=openai:gpt-5-nano`), and fail over on 429/5xx.
+@@ -19,13 +19,14 @@ What the binary adds to a stock install:
+ ```bash
+ git clone https://github.com/edotau/claude-code ~/.claude   # or into an existing ~/.claude
+ cd ~/.claude
+-make install                        # builds bin/claude-code, links shims, renders settings.json
+-export PATH="$HOME/.claude/bin:$PATH"   # in your shell rc — the shims must come first
++make install                        # builds bin/claude-code, links shims + ~/.local/bin/claude-code, renders settings.json
+ claude-code doctor
++export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claude/codex/... go through the shims
+ ```
+ 
+ `make install` runs `claude-code install`: it copies the binary into `~/.claude/bin`, symlinks the shims
+-`claude codex gemini opencode copilot` → `claude-code`, and merges the harness hooks/permissions/statusLine
++`claude codex gemini opencode copilot` → `claude-code`, links `~/.local/bin/claude-code` (only that name, so
++the bare CLIs stay untouched unless you add `~/.claude/bin` to `PATH`), and merges the harness hooks/permissions/statusLine
+ into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
+ `claude-code install --dry-run`; print the render alone with `claude-code settings`.
+ 
+@@ -64,6 +65,7 @@ set). Start from [`providers.example.json`](providers.example.json).
+ | `kind` | Dialect `base_url` speaks: `anthropic` (`/v1/messages`), `openai` (`/chat/completions`), `responses`, `gemini` |
+ | `routes` | More dialects on the same gateway — a path joined to `base_url`, or an absolute URL |
+ | `auth.type` | `x-api-key` · `bearer` · `none` (local servers) · `passthrough` (Claude subscription OAuth) |
++| `auth.login` | passthrough only: the vendor CLI whose own sign-in serves the provider — `chatgpt` → `codex login` (ChatGPT plan), `github-copilot` → `copilot login` / `GH_TOKEN` (Copilot plan); `claude-code run codex --provider chatgpt` · `ask --agent copilot --provider github-copilot`. Never routed or used by Claude Code. |
+ | `models` | slot → model id |
+ | `headers` | Sent on every upstream request |
+ | `one_m` | Adds the `[1m]` marker to Claude ids |
+diff --git a/internal/agent/vendor.go b/internal/agent/vendor.go
+index 80480a4..91ff774 100644
+--- a/internal/agent/vendor.go
++++ b/internal/agent/vendor.go
+@@ -201,8 +201,12 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
+ 	if err != nil {
+ 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+ 	}
++	var model string
++	if t.Provider.Auth.Login != "" {
++		model = t.Model // no BYOK block, so the session takes the catalog id itself
++	}
+ 	out, err := copilotsdk.Ask(ctx, copilotsdk.Options{
+-		CLIPath: bin, Env: env, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
++		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
+ 		AllowAllTools: req.Tools, UseLoggedInUser: true,
+ 	}, req.Prompt)
+ 	if err != nil {
+diff --git a/internal/launch/install.go b/internal/launch/install.go
+index e4075b0..ee56e4f 100644
+--- a/internal/launch/install.go
++++ b/internal/launch/install.go
+@@ -23,6 +23,12 @@ import (
+ // ShimNames are the bare names install links to the harness binary.
+ var ShimNames = []string{"claude", "codex", "gemini", "opencode", "copilot"}
+ 
++// userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
++var userBinDir = func() string {
++	home, _ := os.UserHomeDir()
++	return filepath.Join(home, ".local", "bin")
++}
++
+ // SettingsFile is the live Claude Code settings.json under the config dir.
+ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
+ 
+@@ -56,6 +62,9 @@ func Install(w io.Writer, dryRun bool) error {
+ 			}
+ 		}
+ 	}
++	if err := linkOnPath(w, target, dryRun); err != nil {
++		return err
++	}
+ 	file := SettingsFile()
+ 	existing, err := os.ReadFile(file)
+ 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+@@ -86,6 +95,33 @@ func Install(w io.Writer, dryRun bool) error {
+ 	return err
+ }
+ 
++// linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare
++// claude/codex/... shims never shadow the real CLIs. A real file there is left alone.
++func linkOnPath(w io.Writer, target string, dryRun bool) error {
++	dir := userBinDir()
++	link := filepath.Join(dir, "claude-code")
++	if cur, err := os.Readlink(link); err == nil && cur == target {
++		return nil
++	}
++	if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
++		fmt.Fprintf(w, "skip     %s (a real file is there)\n", link)
++		return nil
++	}
++	fmt.Fprintf(w, "link     %s → %s\n", link, target)
++	if !strings.Contains(string(os.PathListSeparator)+os.Getenv("PATH")+string(os.PathListSeparator),
++		string(os.PathListSeparator)+dir+string(os.PathListSeparator)) {
++		fmt.Fprintf(w, "warning  %s is not on PATH; add it in your shell profile\n", dir)
++	}
++	if dryRun {
++		return nil
++	}
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		return err
++	}
++	_ = os.Remove(link)
++	return os.Symlink(target, link)
++}
++
+ // sameFile is true when target already is, or holds the same bytes as, self.
+ func sameFile(self, target string) bool {
+ 	if real, _ := filepath.EvalSymlinks(target); real == self {
+diff --git a/internal/launch/install_test.go b/internal/launch/install_test.go
+index 7dac815..c0a665f 100644
+--- a/internal/launch/install_test.go
++++ b/internal/launch/install_test.go
+@@ -42,6 +42,13 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
+ 	if link, _ := os.Readlink(filepath.Join(filepath.Dir(file), "bin", "codex")); link != "claude-code" {
+ 		t.Errorf("codex shim -> %q", link)
+ 	}
++	onPath := filepath.Join(userBinDir(), "claude-code")
++	if link, _ := os.Readlink(onPath); link != filepath.Join(filepath.Dir(file), "bin", "claude-code") {
++		t.Errorf("%s -> %q, want the installed binary", onPath, link)
++	}
++	if _, err := os.Lstat(filepath.Join(userBinDir(), "codex")); err == nil {
++		t.Error("only claude-code may be linked onto PATH")
++	}
+ 	baks, _ := filepath.Glob(file + ".bak-*")
+ 	if len(baks) != 1 {
+ 		t.Errorf("backups %v", baks)
+diff --git a/internal/launch/launch.go b/internal/launch/launch.go
+index 4a6cc4e..cdfb236 100644
+--- a/internal/launch/launch.go
++++ b/internal/launch/launch.go
+@@ -122,6 +122,9 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
+ 	}
+ 	p := sel.Provider
+ 	passthrough := p.Auth.Type == providers.AuthPassthrough
++	if p.Auth.Login != "" {
++		return Plan{}, fmt.Errorf("provider %s is the %s sign-in and cannot back Claude Code; use claude-code run %s --provider %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
++	}
+ 	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
+ 	if !passthrough {
+ 		plan.Unset = append(plan.Unset, oauthKey)
+diff --git a/internal/launch/launch_test.go b/internal/launch/launch_test.go
+index 67ac3c7..5e165af 100644
+--- a/internal/launch/launch_test.go
++++ b/internal/launch/launch_test.go
+@@ -26,6 +26,10 @@ func hermetic(t *testing.T, userProviders string) {
+ 			t.Fatal(err)
+ 		}
+ 	}
++	userBin := filepath.Join(dir, "localbin")
++	oldUserBin := userBinDir
++	userBinDir = func() string { return userBin }
++	t.Cleanup(func() { userBinDir = oldUserBin })
+ 	oldFind, oldSelf, oldEnsure := findClaude, selfBinary, ensureRouter
+ 	findClaude = func() (string, error) { return "/opt/claude", nil }
+ 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }
+@@ -121,6 +125,9 @@ func TestClaudePassthrough(t *testing.T) {
+ 	if _, err := Claude(context.Background(), Options{Provider: "anthropic", Model: "subscription:claude-opus-5"}, nil); err == nil {
+ 		t.Error("a passthrough slot target through the router must error")
+ 	}
++	if _, err := Claude(context.Background(), Options{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "run codex") {
++		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
++	}
+ }
+ 
+ func TestClaudeRouter(t *testing.T) {
+diff --git a/internal/providers/defaults.json b/internal/providers/defaults.json
+index 7143558..bf3e301 100644
+--- a/internal/providers/defaults.json
++++ b/internal/providers/defaults.json
+@@ -30,6 +30,18 @@
+       "auth": {"type": "bearer", "env": "OPENAI_API_KEY"},
+       "models": {"opus": "gpt-5", "sonnet": "gpt-5-mini", "haiku": "gpt-5-nano"}
+     },
++    "chatgpt": {
++      "kind": "responses",
++      "base_url": "https://chatgpt.com/backend-api/codex",
++      "auth": {"type": "passthrough", "login": "codex"},
++      "models": {"opus": "gpt-5.5", "sonnet": "gpt-5.5", "haiku": "gpt-5.5"}
++    },
++    "github-copilot": {
++      "kind": "openai",
++      "base_url": "https://api.githubcopilot.com",
++      "auth": {"type": "passthrough", "login": "copilot"},
++      "models": {"opus": "claude-opus-5.5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4.5"}
++    },
+     "gemini": {
+       "kind": "openai",
+       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+diff --git a/internal/providers/providers.go b/internal/providers/providers.go
+index 612f42b..fc69815 100644
+--- a/internal/providers/providers.go
++++ b/internal/providers/providers.go
+@@ -46,6 +46,7 @@ type Auth struct {
+ 	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
+ 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
+ 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
++	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
+ }
+ 
+ // Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
+@@ -139,6 +140,9 @@ func (r *Registry) Validate() error {
+ 		default:
+ 			errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
+ 		}
++		if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
++			errs = append(errs, fmt.Sprintf("%s: auth.login needs auth.type passthrough", n))
++		}
+ 	}
+ 	for _, n := range append([]string{r.Default}, r.Fallback...) {
+ 		if _, ok := r.Providers[n]; n != "" && !ok {
+diff --git a/internal/providers/providers_test.go b/internal/providers/providers_test.go
+index 72fd3ba..8526493 100644
+--- a/internal/providers/providers_test.go
++++ b/internal/providers/providers_test.go
+@@ -58,6 +58,10 @@ func TestOverlayAndRoutes(t *testing.T) {
+ 	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).Validate(); err == nil {
+ 		t.Error("dangling default must fail validation")
+ 	}
++	keyedLogin := &Provider{Kind: DialectOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthBearer, Login: "codex"}}
++	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).Validate(); err == nil {
++		t.Error("auth.login without passthrough must fail validation")
++	}
+ }
+ 
+ func TestSelectPinsAndCrossProvider(t *testing.T) {
+diff --git a/internal/router/router.go b/internal/router/router.go
+index 8119196..196862f 100644
+--- a/internal/router/router.go
++++ b/internal/router/router.go
+@@ -140,6 +140,9 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count
+ 
+ // unroutable explains why the router cannot serve p at all, or returns "".
+ func unroutable(p *providers.Provider, clientAuth bool) string {
++	if p.Auth.Login != "" {
++		return fmt.Sprintf("provider %s is the %s sign-in; only claude-code run %s can use it", p.Name, p.Auth.Login, p.Auth.Login)
++	}
+ 	if p.Auth.Type == providers.AuthPassthrough && !clientAuth {
+ 		return fmt.Sprintf("provider %s uses passthrough auth but the request carries no client credential; launch it as the session provider (claude-code use %s) so its login reaches the router", p.Name, p.Name)
+ 	}
+diff --git a/internal/router/router_test.go b/internal/router/router_test.go
+index 08d0575..8c79058 100644
+--- a/internal/router/router_test.go
++++ b/internal/router/router_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/edotau/claude-code/internal/providers"
+ 	"github.com/edotau/claude-code/internal/translate"
+ )
+ 
+@@ -453,3 +454,10 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
+ 		t.Fatal("Serve waited on the stream past the drain budget")
+ 	}
+ }
++
++func TestUnroutableLogin(t *testing.T) {
++	p := &providers.Provider{Name: "github-copilot", Kind: providers.DialectOpenAI, BaseURL: "https://x", Auth: providers.Auth{Type: providers.AuthPassthrough, Login: "copilot"}}
++	if why := unroutable(p, true); !strings.Contains(why, "copilot sign-in") {
++		t.Errorf("a vendor login must never receive a forwarded client credential: %q", why)
++	}
++}
+diff --git a/internal/vendors/vendors.go b/internal/vendors/vendors.go
+index b08d8dc..18019f9 100644
+--- a/internal/vendors/vendors.go
++++ b/internal/vendors/vendors.go
+@@ -95,6 +95,9 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
+ 	if p == nil || t.Model == "" {
+ 		return nil, nil, fmt.Errorf("%s: no provider/model resolved", name)
+ 	}
++	if p.Auth.Login != "" {
++		return login(name, p, models.Strip1M(t.Model), h)
++	}
+ 	dialect, base := "", ""
+ 	for _, d := range spec.Dialects {
+ 		if r, ok := p.Route(d); ok {
+@@ -161,8 +164,56 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
+ 	}
+ 	argv := []string{"-c", "model_provider=" + tomlStr(id), "-c", "model=" + tomlStr(model),
+ 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
++	return env, codexHeadless(argv, h), nil
++}
++
++// login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
++func login(name string, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
++	switch {
++	case p.Auth.Login != name:
++		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
++	case name == "codex":
++		return codexLogin(model, h)
++	case name == "copilot":
++		return copilotLogin(model, h)
++	}
++	return nil, nil, fmt.Errorf("%s: no subscription sign-in support", name)
++}
++
++// codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
++func codexLogin(model string, h *Headless) ([]string, []string, error) {
++	if err := codexChatGPTLogin(); err != nil {
++		return nil, nil, err
++	}
++	argv := []string{"-c", "model_provider=" + tomlStr("openai"), "-c", "model=" + tomlStr(model)}
++	return nil, codexHeadless(argv, h), nil
++}
++
++// codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).
++func codexChatGPTLogin() error {
++	home := os.Getenv("CODEX_HOME")
++	if home == "" {
++		dir, _ := os.UserHomeDir()
++		home = filepath.Join(dir, ".codex")
++	}
++	file := filepath.Join(home, "auth.json")
++	var auth struct {
++		Tokens json.RawMessage `json:"tokens"`
++	}
++	b, err := os.ReadFile(file)
++	if err == nil {
++		err = json.Unmarshal(b, &auth)
++	}
++	if err != nil || len(auth.Tokens) == 0 || string(auth.Tokens) == "null" {
++		return fmt.Errorf("codex: no ChatGPT sign-in in %s; run `codex login` and choose \"Sign in with ChatGPT\"", file)
++	}
++	return nil
++}
++
++// codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
++func codexHeadless(argv []string, h *Headless) []string {
+ 	if h == nil {
+-		return env, argv, nil
++		return argv
+ 	}
+ 	if h.Effort != "" {
+ 		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(h.Effort))
+@@ -175,7 +226,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
+ 	if h.SessionID != "" {
+ 		argv = append(argv, "resume", h.SessionID)
+ 	}
+-	return env, append(argv, positional(h.Prompt)...), nil
++	return append(argv, positional(h.Prompt)...)
+ }
+ 
+ // googleHost is Gemini's own API host; any other gemini route is a gateway.
+@@ -347,6 +398,15 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
+ const copilotMaxOutputTokens = 32_000
+ 
+ // copilot BYOK: COPILOT_PROVIDER_* in the env; COPILOT_OFFLINE keeps it off GitHub's own model path.
++// copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
++func copilotLogin(model string, h *Headless) ([]string, []string, error) {
++	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
++	if h == nil {
++		return env, nil, nil
++	}
++	return env, copilotHeadless(h), nil
++}
++
+ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
+ 	typ := "openai"
+ 	if dialect == providers.DialectAnthropic {
+@@ -369,11 +429,15 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
+ 	if h == nil {
+ 		return env, nil, nil
+ 	}
++	return env, copilotHeadless(h), nil
++}
++
++func copilotHeadless(h *Headless) []string {
+ 	argv := []string{"--prompt", h.Prompt}
+ 	if h.Tools {
+ 		argv = append(argv, "--allow-all-tools")
+ 	}
+-	return env, argv, nil
++	return argv
+ }
+ 
+ // secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., -password, ...), case-insensitive.
+diff --git a/internal/vendors/vendors_test.go b/internal/vendors/vendors_test.go
+index 8468657..7a9af75 100644
+--- a/internal/vendors/vendors_test.go
++++ b/internal/vendors/vendors_test.go
+@@ -121,6 +121,49 @@ func TestConfigure(t *testing.T) {
+ 	}
+ }
+ 
++func TestCodexChatGPTLogin(t *testing.T) {
++	home := t.TempDir()
++	t.Setenv("CODEX_HOME", home)
++	tg := target(t, "chatgpt", "gpt-5.5")
++	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
++		t.Fatalf("no auth.json: err = %v, want a codex login hint", err)
++	}
++	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"OPENAI_API_KEY":null,"tokens":{"id_token":"x"}}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	env, argv, err := ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []string{"exec", "-c", `model_provider="openai"`, "-c", `model="gpt-5.5"`, "--skip-git-repo-check", "--sandbox", "read-only", "hi"}
++	if len(env) != 0 || !slices.Equal(argv, want) {
++		t.Errorf("env %q argv %q, want no env and %q", env, argv, want)
++	}
++	if _, _, err := Configure(context.Background(), "gemini", tg, ""); err == nil || !strings.Contains(err.Error(), "codex sign-in") {
++		t.Errorf("only codex may use the chatgpt login: %v", err)
++	}
++}
++
++func TestCopilotLogin(t *testing.T) {
++	tg := target(t, "github-copilot", "claude-opus-5.5")
++	env, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
++	if err != nil {
++		t.Fatal(err)
++	}
++	got := envMap(env)
++	for k, v := range map[string]string{"COPILOT_MODEL": "claude-opus-5.5", "COPILOT_PROVIDER_BASE_URL": "", "COPILOT_OFFLINE": ""} {
++		if w, ok := got[k]; !ok || w != v {
++			t.Errorf("env %s = %q (set %v), want %q", k, w, ok, v)
++		}
++	}
++	if want := []string{"--prompt", "hi", "--allow-all-tools"}; !slices.Equal(argv, want) {
++		t.Errorf("argv %q, want %q", argv, want)
++	}
++	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "copilot sign-in") {
++		t.Errorf("codex must refuse the copilot login: %v", err)
++	}
++}
++
+ func TestOpenCodeConfigShape(t *testing.T) {
+ 	tg := target(t, "openrouter", "anthropic/claude-opus-5")
+ 	env, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})

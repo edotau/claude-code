@@ -1,0 +1,3 @@
+usage: workflow_skeleton.py [-h] [--name NAME]
+                            {evaluator,orchestrator,parallel,pipeline}
+workflow_skeleton.py: error: argument pattern: invalid choice: 'bogus' (choose from evaluator, orchestrator, parallel, pipeline)
