@@ -32,6 +32,7 @@ func commands() []command {
 		{"gemini", "gemini agent: ask <task> | bridge [--dirs|--files] <task> (one 1M-context call) | <vendor args>", cmdGemini},
 		{"review", "code-review detectors: quality | complexity | assumptions | goals | diff | pr | report | gate", cmdReview},
 		{"workflow", "workflow skeleton <pattern> [--name n]: scaffold a Workflow tool script", cmdWorkflow},
+		{"usage", "subagent token totals + peak input tokens/min: [--session id] [--days N] [--json] [--workflows]", cmdUsage},
 		{"science", "launch Claude for Life Sciences (claude-science) without the harness env; --print-env shows it", cmdScience},
 		{"memory", "session memory bank: init | search | index | path | update", cmdMemory},
 		{"hook", "run a lifecycle hook (invoked by settings.json)", cmdHook},
