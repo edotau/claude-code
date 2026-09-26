@@ -37,20 +37,19 @@ detector: `references/anti-patterns.md`.
 
 ## Detectors
 
-Stdlib-only Python, all support `--json`, all exit 0 (advisory signal — never a hard gate).
-**Run the mechanical gate first** (`make fmt && make lint`) — that one *can* fail, and a
-non-zero result is a must-fix before review proceeds. Full CLI reference + the resolver that
-locates `scripts/` across config/project/checkout/global roots: `references/detectors.md`.
+`claude-code review <sub>` verbs, all support `--json`, all exit 0 (advisory signal — never a
+hard gate). **Run the mechanical gate first** (`make fmt && make lint`) — that one *can* fail, and a
+non-zero result is a must-fix before review proceeds. Full CLI reference: `references/detectors.md`.
 
-| Tool (`scripts/`) | Principle / role | Flags |
+| Verb (`claude-code review …`) | Principle / role | Flags |
 |---|---|---|
-| `complexity_checker.py` *(in `simplicity`)* | #2 Simplicity | complexity/length/nesting, class density, premature ABC/Protocol |
-| `diff_surgeon.py` | #3 Surgical | whitespace/comment churn, docstring adds, quote-style swaps |
-| `assumption_linter.py` | #1 Think | minimizing language, hopeful phrasing, absolute scope, missing verification |
-| `goal_verifier.py` | #4 Goal | plan steps scored 0–3 on verification quality; missing final check |
-| `code_quality_checker.py` (+ `quality_core.py`) | quality | smells, SOLID violations, 0–100 score (6 languages) |
-| `pr_analyzer.py` | triage | file-risk categorization, commit-message lint, complexity score |
-| `review_report_generator.py` | orchestration | combines pr + quality into one report (text/md/json) |
+| `complexity` | #2 Simplicity | complexity/length/nesting, class density, premature ABC/Protocol |
+| `diff` | #3 Surgical | whitespace/comment churn, docstring adds, quote-style swaps |
+| `assumptions` | #1 Think | minimizing language, hopeful phrasing, absolute scope, missing verification |
+| `goals` | #4 Goal | plan steps scored 0–3 on verification quality; missing final check |
+| `quality` | quality | smells, SOLID violations, 0–100 score (6 languages) |
+| `pr` | triage | file-risk categorization, commit-message lint, complexity score |
+| `report` | orchestration | combines pr + quality into one report (text/md/json) |
 
 ## Performance lens
 
@@ -124,6 +123,6 @@ Reply in the GitHub comment **thread**
 ## Enforcement
 
 Four levels — passive (skill loads) → active (`/code-review`) → opt-in gate
-(`hooks/code-review-gate.sh` via git pre-commit or PreToolUse) → CI. The gate is **opt-in by
+(`claude-code review gate` via git pre-commit or PreToolUse) → CI. The gate is **opt-in by
 design** — it is not wired into the generated `settings.json`. Setup for each:
 `references/enforcement-patterns.md`.

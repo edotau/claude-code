@@ -2,7 +2,7 @@
 CODE QUALITY REPORT
 ============================================================
 
-File: /Users/edotau/.claude/internal/review/source/testdata/quality/gate-loop.js
+File: @TESTDATA@/quality/gate-loop.js
 Language: javascript
 Quality Score: 100/100 (A)
 

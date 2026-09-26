@@ -30,6 +30,10 @@ func cmdReview(args []string) int {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Printf("usage: claude-code review <%s> [args...]  (each takes -h)\n", strings.Join(names, "|"))
+		return 0
+	}
 	if len(args) == 0 || reviewTools[args[0]] == nil {
 		fmt.Fprintf(os.Stderr, "usage: claude-code review <%s> [args...]  (each takes -h)\n", strings.Join(names, "|"))
 		return 2
@@ -38,6 +42,10 @@ func cmdReview(args []string) int {
 }
 
 func cmdWorkflow(args []string) int {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println("usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]")
+		return 0
+	}
 	if len(args) == 0 || args[0] != "skeleton" {
 		fmt.Fprintln(os.Stderr, "usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]")
 		return 2

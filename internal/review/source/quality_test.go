@@ -17,7 +17,7 @@ func readGolden(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", name, err)
 	}
-	return string(b)
+	return expandGolden(string(b))
 }
 
 func TestRunQualityMatchesGolden(t *testing.T) {
@@ -46,8 +46,8 @@ func TestRunQualityMatchesGolden(t *testing.T) {
 				t.Fatalf("read golden: %v", err)
 			}
 			// Python's print() adds a trailing newline; the golden capture already has it.
-			if stdout.String() != string(want) {
-				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), string(want))
+			if stdout.String() != expandGolden(string(want)) {
+				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), expandGolden(string(want)))
 			}
 		})
 	}

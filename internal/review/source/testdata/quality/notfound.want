@@ -1,1 +1,1 @@
-Error: Path does not exist: /Users/edotau/.claude/internal/review/source/testdata/quality/nonexistent.go
+Error: Path does not exist: @TESTDATA@/quality/nonexistent.go

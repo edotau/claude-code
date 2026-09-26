@@ -7,7 +7,7 @@ much friction the team will accept. Higher levels catch more but cost more.
 |-------|-----------|---------|----------|
 | 1 Passive | skill loads as context | self-review awareness | none |
 | 2 Active | `/code-review` before commit | quality + security, on demand | a command |
-| 3 Opt-in gate | `code-review-gate.sh` pre-commit | mechanical violations at commit time | one symlink |
+| 3 Opt-in gate | `claude-code review gate` pre-commit | mechanical violations at commit time | one line |
 | 4 CI | detectors in PR checks | every PR, no human in the loop | CI config |
 
 ---
@@ -25,16 +25,17 @@ quality reviewer + a subagent running the `security-reviewer` skill in
 parallel, and synthesizes a SHIP / FIX REQUIRED / BLOCK verdict. This is the recommended
 default — explicit, on demand, no standing config.
 
-## Level 3 — Opt-in gate (`hooks/code-review-gate.sh`)
+## Level 3 — Opt-in gate (`claude-code review gate`)
 
 A non-blocking advisory that runs the simplicity + surgical detectors on staged files and
 prints findings. **Always exits 0** — it never blocks the commit; the goal is awareness. It
 is deliberately **not** wired into the generated `settings.json`.
 
-**Option A — git pre-commit (per repo):**
+**Option A — git pre-commit (per repo):** a one-line hook containing `exec claude-code review gate`:
 
 ```bash
-ln -s "$HOME/.claude/skills/evaluate-code/hooks/code-review-gate.sh" .git/hooks/pre-commit
+printf '#!/bin/sh\nexec claude-code review gate\n' > .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
 # or call it from an existing husky / pre-commit chain
 ```
 
@@ -44,7 +45,7 @@ re-render `settings.json` with `claude-code install` (never hand-edit the genera
 ```json
 { "matcher": "Bash",
   "hooks": [ { "type": "command",
-    "command": "bash ~/.claude/skills/evaluate-code/hooks/code-review-gate.sh" } ] }
+    "command": "claude-code review gate" } ] }
 ```
 
 Because the gate exits 0, even at this level it is awareness, not a block. To actually
@@ -59,18 +60,13 @@ failing the job yourself.
 # .github/workflows/code-review.yml (sketch)
 - name: complexity
   run: |
-    # complexity_checker.py is canonical in simplicity
-    ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    SIMP="$ROOT/skills/simplicity/scripts"
-    out=$(python3 "$SIMP/complexity_checker.py" $(git diff --name-only origin/main...HEAD) \
+    out=$(claude-code review complexity $(git diff --name-only origin/main...HEAD) \
             --threshold medium --json)
     echo "$out"
-    [ "$(echo "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["verdict"])')" != "FAIL" ]
+    [ "$(echo "$out" | jq -r .verdict)" != "FAIL" ]
 - name: surgical
   run: |
-    ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    CR="$ROOT/skills/evaluate-code/scripts"
-    python3 "$CR/diff_surgeon.py" --diff origin/main...HEAD --json
+    claude-code review diff --diff origin/main...HEAD --json
 ```
 
 Tune which verdicts fail the build (`FAIL` only, or `WARN` too) to the team's tolerance.

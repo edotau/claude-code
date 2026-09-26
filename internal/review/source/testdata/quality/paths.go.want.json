@@ -1,5 +1,5 @@
 {
-  "file": "/Users/edotau/.claude/internal/review/source/testdata/quality/paths.go",
+  "file": "@TESTDATA@/quality/paths.go",
   "language": "go",
   "metrics": {
     "lines": {

@@ -17,7 +17,7 @@ Match the dependency shape; do not add orchestration by default.
 Use ad hoc `Agent` calls when the manager should decide tasks during the session. Use `Workflow` when the structure must be repeatable. Generate a starting script with:
 
 ```bash
-scripts/workflow_skeleton.py pipeline|parallel|evaluator|orchestrator --name <name>
+claude-code workflow skeleton pipeline|parallel|evaluator|orchestrator --name <name>
 ```
 
 ## Barrier rule
