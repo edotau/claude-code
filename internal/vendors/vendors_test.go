@@ -121,6 +121,29 @@ func TestConfigure(t *testing.T) {
 	}
 }
 
+func TestCodexChatGPTLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	tg := target(t, "chatgpt", "gpt-5.5")
+	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
+		t.Fatalf("no auth.json: err = %v, want a codex login hint", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"OPENAI_API_KEY":null,"tokens":{"id_token":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env, argv, err := ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"exec", "-c", `model_provider="openai"`, "-c", `model="gpt-5.5"`, "--skip-git-repo-check", "--sandbox", "read-only", "hi"}
+	if len(env) != 0 || !slices.Equal(argv, want) {
+		t.Errorf("env %q argv %q, want no env and %q", env, argv, want)
+	}
+	if _, _, err := Configure(context.Background(), "gemini", tg, ""); err == nil {
+		t.Error("only codex may use the chatgpt login")
+	}
+}
+
 func TestOpenCodeConfigShape(t *testing.T) {
 	tg := target(t, "openrouter", "anthropic/claude-opus-5")
 	env, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})

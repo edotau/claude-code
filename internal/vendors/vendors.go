@@ -106,14 +106,17 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 		return nil, nil, fmt.Errorf("%s: provider %s serves no %s route (it has %s)", name, p.Name,
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
+	model := models.Strip1M(t.Model)
 	cred, err := providers.Credential(ctx, p)
+	if errors.Is(err, providers.ErrPassthrough) && name == "codex" {
+		return codexLogin(model, h)
+	}
 	if errors.Is(err, providers.ErrPassthrough) {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
-	model := models.Strip1M(t.Model)
 	switch name {
 	case "codex":
 		return codex(p, base, model, cred, h)
@@ -161,8 +164,43 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	}
 	argv := []string{"-c", "model_provider=" + tomlStr(id), "-c", "model=" + tomlStr(model),
 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
+	return env, codexHeadless(argv, h), nil
+}
+
+// codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
+func codexLogin(model string, h *Headless) ([]string, []string, error) {
+	if err := codexChatGPTLogin(); err != nil {
+		return nil, nil, err
+	}
+	argv := []string{"-c", "model_provider=" + tomlStr("openai"), "-c", "model=" + tomlStr(model)}
+	return nil, codexHeadless(argv, h), nil
+}
+
+// codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).
+func codexChatGPTLogin() error {
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		dir, _ := os.UserHomeDir()
+		home = filepath.Join(dir, ".codex")
+	}
+	file := filepath.Join(home, "auth.json")
+	var auth struct {
+		Tokens json.RawMessage `json:"tokens"`
+	}
+	b, err := os.ReadFile(file)
+	if err == nil {
+		err = json.Unmarshal(b, &auth)
+	}
+	if err != nil || len(auth.Tokens) == 0 || string(auth.Tokens) == "null" {
+		return fmt.Errorf("codex: no ChatGPT sign-in in %s; run `codex login` and choose \"Sign in with ChatGPT\"", file)
+	}
+	return nil
+}
+
+// codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
+func codexHeadless(argv []string, h *Headless) []string {
 	if h == nil {
-		return env, argv, nil
+		return argv
 	}
 	if h.Effort != "" {
 		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(h.Effort))
@@ -175,7 +213,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if h.SessionID != "" {
 		argv = append(argv, "resume", h.SessionID)
 	}
-	return env, append(argv, positional(h.Prompt)...), nil
+	return append(argv, positional(h.Prompt)...)
 }
 
 // googleHost is Gemini's own API host; any other gemini route is a gateway.

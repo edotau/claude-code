@@ -121,6 +121,9 @@ func TestClaudePassthrough(t *testing.T) {
 	if _, err := Claude(context.Background(), Options{Provider: "anthropic", Model: "subscription:claude-opus-5"}, nil); err == nil {
 		t.Error("a passthrough slot target through the router must error")
 	}
+	if _, err := Claude(context.Background(), Options{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "run codex") {
+		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
+	}
 }
 
 func TestClaudeRouter(t *testing.T) {
