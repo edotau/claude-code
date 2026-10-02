@@ -119,17 +119,17 @@ type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
 
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"safety":               func(in io.Reader, _, errw io.Writer) int { return Safety(in, errw) },
-	"stop-format":          func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
-	"context-checkpoint":   func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
-	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
-	"memory-recall":        func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
-	"session-harvest":      func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
-	"session-harvest-end":  func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
-	"agent-inflight":       func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
-	"agent-inflight-tag":   func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
-	"agent-inflight-post":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
-	"simplify-after-edits": func(in io.Reader, _, errw io.Writer) int { return SimplifyAfterEdits(in, errw) },
+	"safety":              func(in io.Reader, _, errw io.Writer) int { return Safety(in, errw) },
+	"stop-format":         func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
+	"context-checkpoint":  func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
+	"session-start":       func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
+	"memory-recall":       func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
+	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
+	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
+	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
+	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
+	"agent-inflight-post": func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
+	"subagent-stop":       func(in io.Reader, _, errw io.Writer) int { return SubagentStop(in, errw) },
 }
 
 // Run dispatches a hook by name; an unknown name is a non-blocking error.
