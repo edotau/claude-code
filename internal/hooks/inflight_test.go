@@ -483,3 +483,29 @@ func TestAgentInflightMarkerNameCarriesToolUseID(t *testing.T) {
 		t.Errorf("marker name must carry the tool_use_id: %v", names)
 	}
 }
+
+// A SubagentStop the simplify gate blocks keeps the subagent running, so its slot must stay counted
+// until the stop that actually ends it — the regression of running the two as parallel hooks.
+func TestSubagentStopKeepsSlotWhileSimplifyBlocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	AgentInflight("pre", strings.NewReader(agentPayload("t1")), &bytes.Buffer{})
+	AgentInflight("tag", strings.NewReader(tagPayload("t1", "a1")), &bytes.Buffer{})
+	tr := writeTranscript(t, t.TempDir(), editToolUseLine(t, "a1", "Edit", "/r/a.go"))
+	stop := func(active bool) int {
+		return SubagentStop(strings.NewReader(buildSubagentStopPayload(t, subagentStopFields{
+			agentID: "a1", agentType: "code-workers", stopHookActive: active, agentTranscriptPath: tr,
+		})), &bytes.Buffer{})
+	}
+	if code := stop(false); code != ExitBlock {
+		t.Fatalf("first stop after a source edit must block, got %d", code)
+	}
+	if !hasMarkerSuffix(markerNames(t), "-t1@a1") {
+		t.Fatalf("a blocked stop must keep the slot: %v", markerNames(t))
+	}
+	if code := stop(true); code != ExitProceed {
+		t.Fatalf("second stop must proceed, got %d", code)
+	}
+	if n := len(markerNames(t)); n != 0 {
+		t.Errorf("the ending stop must retire the slot, %d markers left", n)
+	}
+}

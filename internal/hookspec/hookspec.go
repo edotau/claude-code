@@ -45,9 +45,9 @@ var Registry = []Spec{
 	{Name: "agent-inflight", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task", Timeout: 5},
-	{Name: "agent-inflight-post", Event: EventSubagentStop, Timeout: 5},
-	// An editing subagent's first stop is sent back for one simplicity pass over the source it touched.
-	{Name: "simplify-after-edits", Event: EventSubagentStop, Timeout: 10},
+	// One SubagentStop hook, run in order: an editing subagent's first stop is sent back for one simplicity
+	// pass, and its inflight slot retires only on the stop that actually ends it.
+	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
 	{Name: "session-harvest", Event: EventStop, Timeout: 15},
