@@ -25,11 +25,15 @@ func planPayload(t *testing.T, cwd, plan, planFilePath string) string {
 
 func savedPlans(t *testing.T, cfg string) []string {
 	t.Helper()
-	entries, _ := os.ReadDir(filepath.Join(cfg, "docs", "plans"))
 	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
+	root := filepath.Join(cfg, "docs", "plans")
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(root, p)
+			names = append(names, filepath.ToSlash(rel))
+		}
+		return nil
+	})
 	return names
 }
 
@@ -50,11 +54,11 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	save(plan) // a repeat approval of the same text is not a new version
 	save(plan + "more\n")
 	date := time.Now().Format("2006-01-02")
-	want := []string{date + "-my-repo-port-the-thing-2.md", date + "-my-repo-port-the-thing.md"}
+	want := []string{"my-repo/" + date + "-port-the-thing-2.md", "my-repo/" + date + "-port-the-thing.md"}
 	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("saved = %v, want %v", got, want)
 	}
-	if got, _ := os.ReadFile(filepath.Join(cfg, "docs", "plans", want[1])); string(got) != plan {
+	if got, _ := os.ReadFile(filepath.Join(cfg, "docs", "plans", filepath.FromSlash(want[1]))); string(got) != plan {
 		t.Errorf("saved plan must be the approved text verbatim, got %q", got)
 	}
 }
