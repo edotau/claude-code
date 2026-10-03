@@ -13,7 +13,8 @@ export const meta = {
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-if (!a.task) throw new Error('implement-and-verify needs args.task')
+// The registry imports the script to read its meta, so a missing arg must not throw at module top level.
+if (!a.task) return { error: 'implement-and-verify needs args.task' }
 const TASK = a.task
 const CWD = a.cwd || ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : []
