@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deterministic git fixture for pr_analyzer tests — fixed dates/author so commit
+# Deterministic git fixture for pr_analyzer tests — fixed UTC dates/author so commit
 # hashes are reproducible; usage: build_repo.sh <dest-dir>
 set -euo pipefail
 DEST="$1"
@@ -11,8 +11,8 @@ export GIT_AUTHOR_NAME="Test Author"
 export GIT_AUTHOR_EMAIL="test@example.com"
 export GIT_COMMITTER_NAME="Test Author"
 export GIT_COMMITTER_EMAIL="test@example.com"
-export GIT_AUTHOR_DATE="2026-01-01T00:00:00"
-export GIT_COMMITTER_DATE="2026-01-01T00:00:00"
+export GIT_AUTHOR_DATE="2026-01-01T00:00:00+00:00"
+export GIT_COMMITTER_DATE="2026-01-01T00:00:00+00:00"
 
 git init -q -b main
 git config user.name "Test Author"
@@ -45,13 +45,13 @@ cat >> src/app.js <<'EOF'
 console.log("debug line")
 // TODO: clean this up
 EOF
-export GIT_AUTHOR_DATE="2026-01-01T00:05:00"
-export GIT_COMMITTER_DATE="2026-01-01T00:05:00"
+export GIT_AUTHOR_DATE="2026-01-01T00:05:00+00:00"
+export GIT_COMMITTER_DATE="2026-01-01T00:05:00+00:00"
 git add src/auth.js src/app.js
 git commit -q -m "add auth"
 
-export GIT_AUTHOR_DATE="2026-01-01T00:10:00"
-export GIT_COMMITTER_DATE="2026-01-01T00:10:00"
+export GIT_AUTHOR_DATE="2026-01-01T00:10:00+00:00"
+export GIT_COMMITTER_DATE="2026-01-01T00:10:00+00:00"
 cat >> src/auth.js <<'EOF'
 debugger
 EOF

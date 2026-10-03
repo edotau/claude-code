@@ -98,15 +98,15 @@
   ],
   "commit_issues": [
     {
-      "commit": "2b3d15f",
+      "commit": "fecefd6",
       "issue": "Does not follow conventional commit format"
     },
     {
-      "commit": "2b3d15f",
+      "commit": "fecefd6",
       "issue": "Commit message exceeds 72 characters"
     },
     {
-      "commit": "31f820c",
+      "commit": "46ce642",
       "issue": "Does not follow conventional commit format"
     }
   ],
