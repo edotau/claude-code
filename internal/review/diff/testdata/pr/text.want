@@ -20,9 +20,9 @@ Low: 1
   [src/auth.js] Debugger statement found (x1)
 
 --- COMMIT MESSAGE ISSUES ---
-  2b3d15f: Does not follow conventional commit format
-  2b3d15f: Commit message exceeds 72 characters
-  31f820c: Does not follow conventional commit format
+  fecefd6: Does not follow conventional commit format
+  fecefd6: Commit message exceeds 72 characters
+  46ce642: Does not follow conventional commit format
 
 --- SUGGESTED REVIEW ORDER ---
   1. [CRITICAL] src/auth.js
