@@ -39,6 +39,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook save-plan",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
