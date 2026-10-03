@@ -56,7 +56,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
-| Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives the gemini CLI | `commands/gemini/gemini.md`, `agents/gemini/agent.md` |
+| Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives the gemini CLI | `commands/gemini/gemini.md`, `agents/gemini.md` |
 | Mirror agents + skills into Gemini CLI; render AGENTS.md + GEMINI.md | `claude-code agents sync --gemini` (`--dry-run`, `--check`) · `claude-code agents docs [--check]` | `commands/harness/sync-agents.md`; outputs are generated — edit `agents/`, `skills/`, this file |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider openrouter --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
@@ -73,7 +73,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; `~/.claude/providers.json` overlays by name.
 - `env.d/` — `provider.env` (pins, written by `use`/`models`) and `secrets.env` (credentials); untracked.
-- `agents/<name>/agent.md` — subagents; `name:` frontmatter **must equal the directory name**.
+- `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).

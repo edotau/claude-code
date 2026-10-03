@@ -4,7 +4,7 @@ paths:
   - "commands/testing/*.md"
   - "commands/github.md"
   - "commands/code-workers.md"
-  - "agents/*/agent.md"
+  - "agents/*.md"
   - "workflows/*.js"
 ---
 # Master Workflow — End-to-End Development Pipeline

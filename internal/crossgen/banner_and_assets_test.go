@@ -14,14 +14,14 @@ func TestGeneratedBannerMustBeFirstBodyLine(t *testing.T) {
 
 	hand := filepath.Join(dir, "x")
 	writeFile(t, filepath.Join(hand, "SKILL.md"), "---\nname: x\ndescription: d\n---\n\n"+
-		"Some hand-written prose.\n\nIt later quotes: "+agentSkillBannerPrefix+"agents/x/agent.md; do not edit by hand. -->\n")
+		"Some hand-written prose.\n\nIt later quotes: "+agentSkillBannerPrefix+"agents/x.md; do not edit by hand. -->\n")
 	if isGeneratedSkillDir(hand) {
 		t.Error("banner quoted later in the body must not be recognised as generated (would KEEP)")
 	}
 
 	gen := filepath.Join(dir, "y")
 	writeFile(t, filepath.Join(gen, "SKILL.md"), "---\nname: y\ndescription: d\n---\n\n"+
-		agentSkillBannerPrefix+"agents/y/agent.md; do not edit by hand. -->\n\nBody.\n")
+		agentSkillBannerPrefix+"agents/y.md; do not edit by hand. -->\n\nBody.\n")
 	if !isGeneratedSkillDir(gen) {
 		t.Error("banner as the first body line must be recognised as generated")
 	}

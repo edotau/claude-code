@@ -14,7 +14,7 @@ func newDocsHarness(t *testing.T) string {
 	t.Helper()
 	_, claude := isolate(t)
 	writeFile(t, filepath.Join(claude, "CLAUDE.md"), "# CLAUDE.md\n\nBody.\n\n\n")
-	writeFile(t, filepath.Join(claude, "agents", "demo-agent", "agent.md"),
+	writeFile(t, filepath.Join(claude, "agents", "demo-agent.md"),
 		"---\nname: demo-agent\ndescription: demo agent for the docs test. More words.\nmodel: sonnet\n---\n\nBody.\n")
 	return claude
 }

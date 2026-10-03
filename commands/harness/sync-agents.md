@@ -11,7 +11,7 @@ Project `agents/` and real `skills/` into the Gemini CLI's native skill discover
 
 ## What syncs
 
-- **Every agent** in `agents/<name>/agent.md` — Gemini has no agent concept, so each agent is
+- **Every agent** in `agents/<name>.md` — Gemini has no agent concept, so each agent is
   projected as a description-matched skill (`name` + `description`, cleaned of `<example>` blocks).
 - **Every real skill** in `skills/<name>/SKILL.md` whose directory is a real dir (not a symlink) with
   a regular `SKILL.md` — cited assets (`scripts/`, `references/`, `hooks/`, loose `.md`) are symlinked

@@ -49,7 +49,7 @@ Rank on the diff, never on the leaf's own summary of it.
 
 - Competitors never see or read each other's branches. Independence is the whole measurement.
 - Never rebase or force-push a competitor branch — the losing approaches stay auditable via their tags.
-- Leaves are terminal: a competitor cannot spawn its own tournament (`agents/code-workers/agent.md`).
+- Leaves are terminal: a competitor cannot spawn its own tournament (`agents/code-workers.md`).
 - Cross-provider variant: when the point is comparing **model families**, run each competitor as
   `claude-code ask --agent <leg> --format json "<the same handoff>"` in its own worktree; the JSON
   envelope is its report (see `cross-model-agent-teams.md`).
