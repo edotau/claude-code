@@ -233,6 +233,6 @@ Loop = a bounded `while` — control flow is code, never a model decision. Agent
 |----------|-------|--------|------|
 | `gate-loop` | Loop: gate → fix in scope → re-run, ≤N | 8 | `{gate, cwd?, scope, maxIterations?}` |
 | `implement-and-verify` | Parallel intel → implementer ‖ test-repair → gate-loop | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?}` |
-| `audit-fix-verify` | Parallel auditors → refute → fix ‖ test per package → gate-loop | 2, 6, 8 | `{range \| paths, packages?, dimensions?, fix?}` |
+| `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop | 2, 6, 8 | `{range \| paths \| findings, packages?, dimensions?, fix?, minFix?}` |
 | `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
 | `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |
