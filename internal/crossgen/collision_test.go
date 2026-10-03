@@ -102,7 +102,7 @@ func TestSyncProjectsAgentsAndRealSkillsWithSkillWinningCollisions(t *testing.T)
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
 	root := filepath.Join(home, ".gemini", "skills")
-	assertFileContains(t, filepath.Join(root, "unique-agent", "SKILL.md"), agentSkillBannerPrefix+"unique-agent/agent.md")
+	assertFileContains(t, filepath.Join(root, "unique-agent", "SKILL.md"), agentSkillBannerPrefix+"unique-agent.md")
 	assertFileContains(t, filepath.Join(root, "shared", "SKILL.md"), realSkillBannerPrefix+"shared-skill/SKILL.md")
 	assertFileContains(t, filepath.Join(root, "real-only", "SKILL.md"), realSkillBannerPrefix)
 }

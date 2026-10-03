@@ -57,7 +57,7 @@ func transformAgentSkill(agent Source) (string, string) {
 	if truthy(agent.frontmatter["readonly"]) {
 		body = "**Note: this skill describes a read-only workflow; do not modify files.**\n\n" + body
 	}
-	banner := agentSkillBannerPrefix + agent.dirName + "/agent.md; do not edit by hand. -->\n\n"
+	banner := agentSkillBannerPrefix + agent.dirName + ".md; do not edit by hand. -->\n\n"
 	return name, buildFrontmatterFile(fields, banner+body)
 }
 

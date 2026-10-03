@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
-// Source is a parsed agent (agents/<dir>/agent.md) or skill (skills/<dir>/SKILL.md); Name() prefers frontmatter `name`.
+// Source is a parsed agent (agents/<name>.md) or skill (skills/<dir>/SKILL.md); dirName is the file stem or skill dir.
 type Source struct {
 	dirName     string
 	frontmatter map[string]any
@@ -23,13 +24,29 @@ func (s Source) Name() string {
 	return s.dirName
 }
 
-// DiscoverAgents reads agents/<dir>/agent.md sorted by dir; a frontmatter `name` that differs from the dir is an error.
+// DiscoverAgents reads the flat agents/<name>.md layout Claude Code and VS Code both read, sorted by name;
+// a frontmatter `name` that differs from the file stem is an error. Symlinks are skipped, as for skills.
 func DiscoverAgents(agentsDir string) ([]Source, error) {
-	agents := discoverSources(agentsDir, "agent.md")
-	for _, a := range agents {
-		if a.Name() != a.dirName {
-			return nil, fmt.Errorf("agents/%s/agent.md: frontmatter name %q != directory name", a.dirName, a.Name())
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil, nil
+	}
+	var agents []Source
+	for _, e := range entries {
+		stem, ok := strings.CutSuffix(e.Name(), ".md")
+		if !ok || !e.Type().IsRegular() || stem == "README" {
+			continue
 		}
+		text, err := os.ReadFile(filepath.Join(agentsDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		fm, body := ParseFrontmatter(string(text))
+		a := Source{dirName: stem, frontmatter: fm, body: body}
+		if a.Name() != stem {
+			return nil, fmt.Errorf("agents/%s.md: frontmatter name %q != file name", stem, a.Name())
+		}
+		agents = append(agents, a)
 	}
 	return agents, nil
 }

@@ -29,18 +29,18 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func sourceFilename(kind string) string {
+// sourcePath is where a source lives: agents/<dir>.md (flat) or skills/<dir>/SKILL.md.
+func sourcePath(claude, kind, dir string) string {
 	if kind == "agents" {
-		return "agent.md"
+		return filepath.Join(claude, kind, dir+".md")
 	}
-	return "SKILL.md"
+	return filepath.Join(claude, kind, dir, "SKILL.md")
 }
 
-// writeSource writes <claude>/<kind>/<dir>/<agent.md|SKILL.md> declaring `name`.
+// writeSource writes the agent or skill source at sourcePath declaring `name`.
 func writeSource(t *testing.T, claude, kind, dir, name string) {
 	t.Helper()
-	writeFile(t, filepath.Join(claude, kind, dir, sourceFilename(kind)),
-		"---\nname: "+name+"\ndescription: test source.\n---\n\nbody\n")
+	writeFile(t, sourcePath(claude, kind, dir), "---\nname: "+name+"\ndescription: test source.\n---\n\nbody\n")
 }
 
 func assertFileContains(t *testing.T, path, want string) {

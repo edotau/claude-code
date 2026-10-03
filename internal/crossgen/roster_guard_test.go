@@ -25,7 +25,7 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// Every agents/<dir>/agent.md must declare `name:` equal to its dir — the invariant memory routing depends on.
+// Every agents/<name>.md must declare `name:` equal to its file stem — the invariant memory routing depends on.
 func TestRosterNamesMatchDirs(t *testing.T) {
 	agents, err := DiscoverAgents(filepath.Join(repoRoot(t), "agents"))
 	if err != nil {
@@ -36,7 +36,7 @@ func TestRosterNamesMatchDirs(t *testing.T) {
 	}
 	for _, a := range agents {
 		if a.frontmatter["name"] != a.dirName {
-			t.Errorf("agents/%s/agent.md: name = %v, want %q", a.dirName, a.frontmatter["name"], a.dirName)
+			t.Errorf("agents/%s.md: name = %v, want %q", a.dirName, a.frontmatter["name"], a.dirName)
 		}
 	}
 }
@@ -55,7 +55,7 @@ func TestRosterModelTiersAreValid(t *testing.T) {
 			continue // no model: key means inherit
 		}
 		if s, _ := tier.(string); !valid[s] {
-			t.Errorf("agents/%s/agent.md: model %v is not a tier (opus|sonnet|haiku|fable|inherit)", a.dirName, tier)
+			t.Errorf("agents/%s.md: model %v is not a tier (opus|sonnet|haiku|fable|inherit)", a.dirName, tier)
 		}
 		checked++
 	}
