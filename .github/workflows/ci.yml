@@ -1,0 +1,40 @@
+# Go correctness gate (gofmt/vet/test/build + generated-docs smoke) — mirrors claude-dbx's ci.yml.
+# Free tier: one job, module+build cache, cancel-in-progress, and it runs only on main + PRs.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l cmd internal)
+          if [ -n "$out" ]; then echo "unformatted:"; echo "$out"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -timeout 300s ./...
+      - name: build
+        run: go build ./...
+      - name: generated projections (render smoke test)
+        run: |
+          # AGENTS.md/GEMINI.md and ~/.gemini/skills are untracked derived state: prove generation works, not drift.
+          CLAUDE_CONFIG_DIR="$PWD" go run ./cmd/claude-code agents docs --dry-run > /dev/null
+          CLAUDE_CONFIG_DIR="$PWD" go run ./cmd/claude-code agents sync --gemini --dry-run > /dev/null
