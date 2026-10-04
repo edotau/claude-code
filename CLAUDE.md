@@ -78,6 +78,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
 - `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own (symlinks into `~/.agents`, which Gemini reads natively), leave them.
+- `skills/synced/` — claude.ai account skills Claude Code re-downloads each sync round; untracked, edit them on claude.ai.
 - `docs/plans/` — implementation plans.
 - `docs/memory/bank/<repo-slug>/` — session memory bank (six files, untracked; git roots only — the `bank/` top
   is the global bank); engine `internal/memory`, hooks `session-start` / `memory-recall` / `session-harvest[-end]`.

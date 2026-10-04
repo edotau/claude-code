@@ -38,6 +38,9 @@
 /docs/plans/*/
 /agent-memory/
 /worktrees/
+# claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
+/skills/synced/
+/skills/.trash/
 
 # Generated settings and credentials (settings.json is rendered by `claude-code install`)
 /settings.json
