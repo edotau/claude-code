@@ -94,3 +94,6 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# Home-network scripts (UniFi gateway) — personal, kept out of the public repo
+scripts/unifi-*.sh
