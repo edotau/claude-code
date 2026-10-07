@@ -247,3 +247,47 @@ func TestMigrateLegacyIdempotentNoOverwrite(t *testing.T) {
 		t.Errorf("second run moved %d err %v", n, err)
 	}
 }
+
+func TestNativeTopicsJoinSearch(t *testing.T) {
+	cfg := tempConfig(t)
+	root := repoRoot(t, "proj")
+	if got := projectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
+		t.Errorf("projectSlug = %q", got)
+	}
+	native := filepath.Join(cfg, "projects", projectSlug(root), "memory")
+	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
+	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
+	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
+	hits := SearchBanks(root, "gateway ssh status", 0)
+	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
+		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
+	}
+	if !strings.HasPrefix(hits[0].Block, "gateway — home gateway over ssh\n") {
+		t.Errorf("topic block %q", hits[0].Block)
+	}
+}
+
+func TestSeenSetTracksInjectedBlocks(t *testing.T) {
+	tempConfig(t)
+	root := t.TempDir()
+	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	ResetSeen("s1", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	seen := SeenBlocks("s1")
+	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
+		t.Fatalf("seen after reset: %v", seen)
+	}
+	MarkSeen("s1", []SearchHit{{Block: "- other rule"}})
+	if !SeenBlocks("s1")[BlockKey("- other rule")] {
+		t.Error("MarkSeen did not record the hit")
+	}
+	ResetSeen("s1", root, "")
+	if len(SeenBlocks("s1")) != 0 {
+		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
+	}
+	for _, bad := range []string{"", ".."} {
+		MarkSeen(bad, []SearchHit{{Block: "x"}})
+		if len(SeenBlocks(bad)) != 0 {
+			t.Errorf("session id %q must be a no-op", bad)
+		}
+	}
+}
