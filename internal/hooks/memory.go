@@ -61,6 +61,10 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 		}
 		out = note + "\n\n" + bank
 	}
+	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
+	if !memory.IsHarvestChild() {
+		memory.ResetSeen(sessionID, cwd, out)
+	}
 	// A harvest worker is a session too; it must not become the "previous session" of the user's next one.
 	if sessionID != "" && !memory.IsHarvestChild() {
 		_ = paths.AtomicWrite(chain, []byte(sessionID+"\n"), 0o600)

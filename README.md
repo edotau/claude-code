@@ -182,7 +182,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |
 | `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); an indexed global bank is a one-line pointer |
-| `memory-recall` | UserPromptSubmit | Injects the top 3 bank blocks matching the prompt (≥4 terms, ≤1,500 chars; else silent) |
+| `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context (≥4 terms, ≤1,500 chars; else silent) |
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end` |
 
 To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registry`, `make install`.
