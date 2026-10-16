@@ -80,7 +80,8 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 
 // Prose that only starts like a key carries no digits; a minted token always does.
 func TestTokenShaped(t *testing.T) {
-	cases := map[string]bool{"": false, "sk-before-changing-appearance-here": false, "sk" + "-abcdefghijklmnopqrstuvwxyz0123": true}
+	jwt := "eyJ" + strings.Repeat("a", 12) + "." + strings.Repeat("b", 12) + "." + strings.Repeat("c", 12)
+	cases := map[string]bool{"": false, "sk-before-changing-appearance-here": false, "sk" + "-abcdefghijklmnopqrstuvwxyz0123": true, jwt: true}
 	for in, want := range cases {
 		if got := tokenShaped(in); got != want {
 			t.Errorf("tokenShaped(%q) = %v, want %v", in, got, want)
