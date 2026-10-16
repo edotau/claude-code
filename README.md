@@ -62,8 +62,10 @@ error while someone is at the terminal.
 imported), gemini `~/.gemini/settings.json` (never over a Google login), copilot reported as launch-time env —
 as banner-marked blocks with foreign keys untouched and one `.backup` per file. `vscode` does the same for VS
 Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
-Copilot extensions pointed at the shims, the terminal profile, `--dest` to retarget; that scope is not
-Settings-Synced, so each box renders its own.
+Copilot extensions pointed at the shims, the terminal profile, right-click = paste in the integrated terminal
+(the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
+box renders its own. Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences →
+Pointer → "Right button single click" → Paste from clipboard; Terminal.app has no right-click paste.
 
 ## Providers
 
