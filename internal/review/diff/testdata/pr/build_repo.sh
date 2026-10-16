@@ -17,6 +17,7 @@ export GIT_COMMITTER_DATE="2026-01-01T00:00:00+00:00"
 git init -q -b main
 git config user.name "Test Author"
 git config user.email "test@example.com"
+git config commit.gpgsign false # a signing key in the global config would change every hash
 
 mkdir -p src
 cat > README.md <<'EOF'

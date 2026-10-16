@@ -129,6 +129,29 @@ today's names stay as hidden aliases where a contract depends on them (`token` i
 each with `--print-env`. Item 18 (`secrets`) lands before item 17.
 
 
+## Round 3 (2026-10-16) — what dbx still had that this repo lacked
+
+Gap scan: dbx hook registry vs `hookspec.Registry`, dbx verb table vs `commands()`, `commands/` · `rules/` ·
+`workflows/` trees. Provider-agnostic leftovers, one commit each, live-checked on the real surface:
+
+| # | Feature | Status |
+| --- | --- | --- |
+| 23 | `access-trace` hook — PostToolUse(Read) of a typed bank file (or its index) logs `bank:<file> -- read` to the owning bank's `access.log`, so `memory doctor`'s hot/cold nominations count model reads, not only recall injections | **done** — global + local bank, every other path ignored |
+| 24 | Idle-harvest watcher — the Stop gate's first dispatch claims one detached `memory watch` per session (claim file in `state/harness/memory`, released on a failed spawn); the watcher polls the transcript mtime, exits with its owner pid or a vanished transcript, and after 10 quiet minutes with uncovered edits runs the same `memory update` worker | **done** — a crash/kill fires no SessionEnd; this covers it. `clean` sweeps `watch-*`; every harvest test stubs BOTH detached seams (the old stub leaked a real watcher) |
+| 25 | `stop-format` formatter chain — the repo's `make format\|fmt` target first when its recipe reads a per-file variable and a dry run names the file and provisions nothing; python runs every tool the pyproject declares (ruff check --fix, autoflake, isort, black) from the project dir, else ruff | **done** — live: a session-written `.go` went through `make format TARGET=…` |
+| 26 | `workflow lint [<root>]` — agent() calls without `model:`/`agentType:` or `effort:`, `// lint:opus-ok` exception, registry-hiding meta (`+`/template literal) and top-level throw; `TestShippedWorkflowsAreClean` gates `workflows/*.js` in `make test` | **done** — found and fixed two shipped defects (review-funnel's verifier lacked the marker; implement-and-verify's `meta.whenToUse` was a concatenation) |
+| 27 | `rules/harness/docs-placement.md` (the gate shipped without its rule), `rules/standards/README.md`, `harness/` tier in `rules/README.md` | **done** |
+| — | PR golden fixture: `commit.gpgsign false` in the fixture repo — a box with a global signing key changed every hash | **done** (found by `make test` here) |
+
+Still not ported, on purpose: `agent-rules-guard` (needs per-agent native memory), `env` verb + knob registry (this
+repo has two env knobs, `HARNESS_DOCS_PLACEMENT` and `HARNESS_RTK_BIN`; a registry earns its keep at ~5), the
+knowledge corpus (`docs search`, `/knowledge:*` — overlaps `memory search`; revisit if concept pages appear),
+`workspace` (sibling-link layout), `codemap`, `team-check`/`bench` (Databricks legs), codex capture/dream/reflect.
+
+Fresh-box gate notes: `make lint` → `generate --check` reports DRIFT for `AGENTS.md`/`GEMINI.md` (gitignored
+renders; run `claude-code agents docs` once) and `opencode-tui: drift` until `~/.config/opencode/tui.json` exists
+(`make install` seeds it). Both pre-date this round.
+
 ### Auto-configure before an error (2026-10-16, owner)
 
 A vendor verb (`claude-code codex|copilot|opencode|gemini`) never ends on a bare error while a human is there.
