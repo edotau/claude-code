@@ -78,10 +78,7 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 		return ExitProceed // not a spawn: nothing to count
 	}
 	id := dispatchID(in)
-	transcriptDir := ""
-	if in.TranscriptPath != "" {
-		transcriptDir = filepath.Dir(in.TranscriptPath)
-	}
+	transcriptDir := subagentDir(in.TranscriptPath)
 	code := ExitProceed
 	// TryFileLock, not WithFileLock: the latter is fail-open, and counting markers unlocked races a
 	// sibling's write into a wrong total. Under contention: write first, then count (see below).
@@ -224,6 +221,14 @@ func markerOwner(name string) (int, bool) {
 // treating every pid as dead there would silently disable both this and the idle-harvest watcher.
 func ownerDead(pid int) bool {
 	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
+}
+
+// subagentDir is where Claude Code writes this session's agent-<id>.jsonl: <project>/<session>/subagents.
+func subagentDir(parentTranscript string) string {
+	if parentTranscript == "" {
+		return ""
+	}
+	return filepath.Join(strings.TrimSuffix(parentTranscript, ".jsonl"), "subagents")
 }
 
 // pruneAndCountMarkers removes markers whose owner is PROVABLY gone — or, when the owner cannot be

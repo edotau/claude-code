@@ -222,7 +222,10 @@ func TestAgentInflightTranscriptPruning(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !c.missing {
-				transcript := filepath.Join(transcriptDir, "agent-a1.jsonl")
+				transcript := filepath.Join(transcriptDir, "parent", "subagents", "agent-a1.jsonl")
+				if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+					t.Fatal(err)
+				}
 				if err := os.WriteFile(transcript, nil, 0o600); err != nil {
 					t.Fatal(err)
 				}

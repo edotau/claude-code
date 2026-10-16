@@ -340,11 +340,24 @@ func codexOwnModel() string {
 		if strings.HasPrefix(line, "[") {
 			return "" // top-level keys end at the first table header
 		}
-		if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == "model" {
-			return strings.Trim(strings.TrimSpace(v), `"`)
+		if k, v, ok := strings.Cut(line, "="); ok && strings.Trim(strings.TrimSpace(k), `"'`) == "model" {
+			return tomlString(v)
 		}
 	}
 	return ""
+}
+
+// tomlString reads one basic or literal TOML string value, dropping a trailing comment; bare values are kept.
+func tomlString(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
+		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
+			return v[1 : end+1]
+		}
+		return strings.Trim(v, `"'`)
+	}
+	v, _, _ = strings.Cut(v, "#")
+	return strings.TrimSpace(v)
 }
 
 // codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).

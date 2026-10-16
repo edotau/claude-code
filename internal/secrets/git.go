@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -60,7 +61,7 @@ func ScanGit(out io.Writer, dir string, since int) int {
 				file = b
 			}
 		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			if !isTestFixture(file) && tokenShaped(secretPattern.FindString(line)) {
+			if !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
 				findings = append(findings, fmt.Sprintf("%s %s", commit, file))
 			}
 		}
@@ -106,8 +107,8 @@ func isTestFixture(p string) bool {
 	return false
 }
 
-// tokenShaped rejects prose that merely starts like a key (`sk-before-changing-appearance`): a minted token always
-// mixes digits in; a match with none is a false positive.
+// tokenShaped rejects prose that merely starts like a key (`sk-before-changing-appearance`): a minted prefixed
+// key always mixes digits in. A JWT (eyJ…) is base64url and may legitimately carry none, so it always counts.
 func tokenShaped(match string) bool {
-	return match != "" && strings.ContainsAny(match, "0123456789")
+	return strings.HasPrefix(match, "eyJ") || strings.ContainsAny(match, "0123456789")
 }

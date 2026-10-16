@@ -23,12 +23,12 @@ import (
 const ownLoginProvider = "own-login"
 
 // vendorTarget mirrors the shim (launch.Vendor): the session target when it can serve the vendor, else the
-// vendor's own login or first keyed provider — only when the caller named neither --provider nor --model.
-// own is true when the vendor runs on its own stored login and no harness route is injected.
+// vendor's own login or first keyed provider. Only --provider (or a provider:model) is the caller's provider
+// choice; a slot name or model id is re-applied to the fallback provider. own is true when the vendor runs
+// on its own stored login and no harness route is injected.
 func vendorTarget(req Request, name string) (t providers.Target, own bool, err error) {
 	reg, t, err := resolveTarget(req)
-	slot := slices.Contains(models.Slots, req.Model) // a bare slot name is a tier choice, not a provider choice
-	if err != nil || req.Provider != "" || (req.Model != "" && !slot) {
+	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		return t, false, err
 	}
 	sel, err := providers.Select(reg, "")
@@ -42,12 +42,29 @@ func vendorTarget(req Request, name string) (t providers.Target, own bool, err e
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		return ft, true, nil
 	}
-	if slot && err == nil && ft.Provider != nil && ft.Provider != sel.Provider {
+	if err != nil || ft.Provider == t.Provider {
+		return t, false, err // no fallback: the caller's slot or model id stands
+	}
+	switch {
+	case req.Model == "":
+	case slices.Contains(models.Slots, req.Model):
 		if m := ft.Provider.Models[req.Model]; m != "" {
 			ft.Model = m
 		}
+	default:
+		ft.Model = req.Model
 	}
-	return ft, false, err
+	return ft, false, nil
+}
+
+// namesProvider is true for the provider:model form, where the prefix is a registered provider.
+func namesProvider(reg *providers.Registry, spec string) bool {
+	if reg == nil {
+		return false
+	}
+	name, _, ok := strings.Cut(spec, ":")
+	_, found := reg.Providers[name]
+	return ok && found
 }
 
 // vendorRunner execs a vendor CLI's headless mode wired by vendors.ConfigureHeadless.
