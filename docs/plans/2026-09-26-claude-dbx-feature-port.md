@@ -77,7 +77,9 @@ on. Bugs found while porting are fixed in this repo, never there.
 | 17 | **`generate` + `configure`** — see below | **done** — generate renders codex/opencode/gemini configs (banner blocks, `--check`); configure sections provider/keys/models/agents/router/doctor, TTY login offers, piped report; vendor verbs fall back to their own login, then offer configure, then pass through to the plain CLI |
 | 18 | `secrets` set\|get\|status\|scan\|git\|doctor\|all | **done** — live-checked, scan exits 1 |
 | 19 | bash tab-completion (`completion [--install]`, `__complete`) | **done** — verbs, subverbs, flags, provider/palette values; launchers never probed |
-| 20 | Makefile parity (grouped help, audit/verify/bootstrap/…) | in flight |
+| 20 | Makefile parity (grouped help, audit = CI gate, bootstrap, verify) | **done** — narrowed to build/install; `make lint`/`audit` green |
+| 21 | `configure` picker + prompts (`internal/tui`, stdlib termios), `vscode` verb (embedded template, right-click = paste) | **done** — pty-driven live check |
+| 22 | Safety hook: hard-block patterns match inside one shell segment; the download-into-shell pattern still spans the pipe | **done** |
 
 Skipped on purpose: `agent-rules-guard` (needs the per-agent native-memory RULES region + seeding, a subsystem this
 repo does not have), dream/reflect codex passes, knowledge corpus, handoff beacons, ledger.
