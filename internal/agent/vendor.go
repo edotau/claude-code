@@ -7,13 +7,48 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
 )
+
+// ownLoginProvider is the Result.Provider for a vendor run on the credentials its own CLI stores.
+const ownLoginProvider = "own-login"
+
+// vendorTarget mirrors the shim (launch.Vendor): the session target when it can serve the vendor, else the
+// vendor's own login or first keyed provider — only when the caller named neither --provider nor --model.
+// own is true when the vendor runs on its own stored login and no harness route is injected.
+func vendorTarget(req Request, name string) (t providers.Target, own bool, err error) {
+	reg, t, err := resolveTarget(req)
+	slot := slices.Contains(models.Slots, req.Model) // a bare slot name is a tier choice, not a provider choice
+	if err != nil || req.Provider != "" || (req.Model != "" && !slot) {
+		return t, false, err
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		return t, false, err
+	}
+	ft, note, err := vendors.ResolveTarget(reg, name, sel, false)
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	if errors.Is(err, vendors.ErrOwnLogin) {
+		return ft, true, nil
+	}
+	if slot && err == nil && ft.Provider != nil && ft.Provider != sel.Provider {
+		if m := ft.Provider.Models[req.Model]; m != "" {
+			ft.Model = m
+		}
+	}
+	return ft, false, err
+}
 
 // vendorRunner execs a vendor CLI's headless mode wired by vendors.ConfigureHeadless.
 type vendorRunner struct{ name string }
@@ -35,16 +70,24 @@ func (v vendorRunner) Available() error {
 }
 
 func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
-	_, t, err := resolveTarget(req)
+	t, own, err := vendorTarget(req, v.name)
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: t.Provider.Name, Model: t.Model, SessionID: req.SessionID}
+	res := Result{Provider: ownLoginProvider, Model: t.Model, SessionID: req.SessionID}
+	if !own {
+		res.Provider = t.Provider.Name
+	}
 	if len(req.Prompt) > MaxPromptBytes {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(req.Prompt))}
 	}
-	env, argv, err := vendors.ConfigureHeadless(ctx, v.name, t, vendors.Headless{
-		Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools})
+	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools}
+	var env, argv []string
+	if own {
+		env, argv, err = vendors.OwnLoginHeadless(v.name, h)
+	} else {
+		env, argv, err = vendors.ConfigureHeadless(ctx, v.name, t, h)
+	}
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
@@ -188,7 +231,7 @@ func (copilotRunner) Caps() Caps {
 func (copilotRunner) Available() error { _, err := paths.LookPathReal("copilot"); return err }
 
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
-	_, t, err := resolveTarget(req)
+	t, _, err := vendorTarget(req, "copilot")
 	if err != nil {
 		return Result{}, err
 	}

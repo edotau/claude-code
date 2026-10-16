@@ -121,7 +121,12 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 	switch name {
 	case "codex":
 		if p, ok := loginProvider(reg, "chatgpt", "codex"); ok && codexChatGPTLogin() == nil {
-			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "chatgpt (codex login)", true
+			// codex's own config.toml model beats the catalog: the ChatGPT account only serves what codex itself lists.
+			model := p.Models[models.Opus]
+			if own := codexOwnModel(); own != "" {
+				model = own
+			}
+			return providers.Target{Provider: p, Model: model}, "chatgpt (codex login)", true
 		}
 	case "copilot":
 		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok && copilotLoginPresent() {
@@ -315,14 +320,36 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 	return nil, codexHeadless(argv, h), nil
 }
 
+// codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
+func codexHome() string {
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return home
+	}
+	dir, _ := os.UserHomeDir()
+	return filepath.Join(dir, ".codex")
+}
+
+// codexOwnModel is the top-level `model = "..."` in codex's config.toml, or "" (a flat scan; sections are skipped).
+func codexOwnModel() string {
+	data, err := os.ReadFile(filepath.Join(codexHome(), "config.toml"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			return "" // top-level keys end at the first table header
+		}
+		if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == "model" {
+			return strings.Trim(strings.TrimSpace(v), `"`)
+		}
+	}
+	return ""
+}
+
 // codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).
 func codexChatGPTLogin() error {
-	home := os.Getenv("CODEX_HOME")
-	if home == "" {
-		dir, _ := os.UserHomeDir()
-		home = filepath.Join(dir, ".codex")
-	}
-	file := filepath.Join(home, "auth.json")
+	file := filepath.Join(codexHome(), "auth.json")
 	var auth struct {
 		Tokens json.RawMessage `json:"tokens"`
 	}
@@ -511,6 +538,28 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		return env, nil, nil
 	}
 	argv := []string{"run", "--format", "json", "-m", id + "/" + model}
+	if h.SessionID != "" {
+		argv = append(argv, "--session", h.SessionID)
+	}
+	if h.Effort != "" {
+		argv = append(argv, "--variant", h.Effort)
+	}
+	return env, append(argv, positional(h.Prompt)...), nil
+}
+
+// OwnLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
+// harness route injected. Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
+func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
+	if strings.TrimSpace(h.Prompt) == "" {
+		return nil, nil, errors.New("vendors: empty prompt")
+	}
+	if name != "opencode" {
+		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
+	}
+	if !h.Tools {
+		env = append(env, `OPENCODE_CONFIG_CONTENT={"permission":"deny"}`)
+	}
+	argv = []string{"run", "--format", "json"}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
