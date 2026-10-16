@@ -1,8 +1,6 @@
 module github.com/edotau/claude-code
 
-go 1.25.0
-
-toolchain go1.26.1
+go 1.27.2
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.57.0
