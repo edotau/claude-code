@@ -212,3 +212,30 @@ func TestDryRunWritesNothing(t *testing.T) {
 		t.Fatal("expected --dry-run to print the rendered blocks")
 	}
 }
+
+func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
+	home := scratch(t)
+	path := filepath.Join(home, ".config", "opencode", "tui.json")
+	if _, err := Run(Options{Home: home, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var cfg map[string]any
+	raw, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg["theme"] != "system" {
+		t.Fatalf("tui.json = %s (err %v), want theme system", raw, err)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"theme":"tokyonight","keybinds":{"leader":"ctrl+x"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drift, err := Run(Options{Home: home, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
+	if err != nil {
+		t.Fatalf("Run --check: %v", err)
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "tokyonight") {
+		t.Fatalf("user theme overwritten: %s", got)
+	}
+	if drift {
+		t.Fatal("a user-chosen theme must not count as drift")
+	}
+}

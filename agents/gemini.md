@@ -88,7 +88,7 @@ claude-code gemini bridge --dirs <d> --index -- "<TASK>"
 ```
 
 Runs in-process against Google's API (`gemini` provider) using `GEMINI_API_KEY` — no vendor CLI, no
-node/python at runtime. Default model is the provider's sonnet tier (`gemini-3.6-flash`); override
+node/python at runtime. Default model is the provider's sonnet tier (`gemini-3.8-flash`); override
 only when the caller explicitly asks (resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` →
 `GEMINI_MODEL` → default).
 

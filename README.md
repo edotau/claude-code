@@ -203,7 +203,7 @@ serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
 `claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini --provider gemini`
 (drives the gemini CLI); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` inlines
 workspace files into one prompt and makes a single first-party call on the `gemini` provider (`GEMINI_API_KEY`,
-default `gemini-3.6-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the `gemini` subagent
+default `gemini-3.8-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the `gemini` subagent
 and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only tracked/untracked-but-not-ignored files
 are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`, `*.pem`/`*.key` are always skipped; the inlined path
 list is printed to stderr before the call. Anything else launches the gemini CLI (same as `run gemini`).

@@ -147,8 +147,8 @@ Keep the bridge context lean — reference files/lines, don't paste large snippe
 - **Routing**: one chat-completions call to Google's API via the `gemini` provider (registry entry,
   `kind: openai`), authenticated with `GEMINI_API_KEY` from `env.d/secrets.env`. No vendor CLI at
   runtime, so a broken `gemini` install can't take the bridge offline.
-- Model tiers: `opus` = `gemini-3.1-pro-preview` (reasoning; use for second-opinion review),
-  `sonnet` = `gemini-3.6-flash` (default), `haiku` = `gemini-3.5-flash-lite`.
+- Model tiers: `opus` = `gemini-4-argon` (reasoning; use for second-opinion review),
+  `sonnet` = `gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`.
 - Model resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet
   tier. `--model` accepts a tier name (`opus`/`sonnet`/`haiku`) or a bare model id.
 - `--rubric <file>` takes a file path (e.g. `skills/simplicity/SKILL.md`), not a skill name.
