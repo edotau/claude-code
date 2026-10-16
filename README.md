@@ -228,7 +228,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home (`~/.claude/docs/plans\|reports\|handoffs`); root anchors and tracked files pass. `HARNESS_DOCS_PLACEMENT=0` disables |
 | `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet); an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |
-| `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
+| `stop-format` | Stop | Formats files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); an indexed global bank is a one-line pointer |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context (≥4 terms, ≤1,500 chars; else silent) |
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end`; the first dispatch also claims one `memory watch` per session, which harvests the final state once the transcript has been quiet 10 min (a crash or kill fires no SessionEnd) |
