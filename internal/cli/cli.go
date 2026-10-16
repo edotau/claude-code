@@ -72,7 +72,7 @@ func commands() []command {
 		{name: "models", hidden: true, summary: "tier→model slots; --pin slot=[provider:]model, --live", run: cmdModels},
 		{name: "router", hidden: true, summary: "loopback model router: serve | start | stop | status", run: cmdRouter},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
-		{name: "workflow", hidden: true, summary: "workflow skeleton <pattern> [--name n]", run: cmdWorkflow},
+		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
 		{name: "statusline", hidden: true, summary: "render the status line (invoked by settings.json)", run: cmdStatusline},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
