@@ -134,7 +134,7 @@ func TestAgentInflightTTLPruningIsOwnerAware(t *testing.T) {
 	alive := touch("agent-" + strconv.Itoa(os.Getpid()) + "-alive")
 	zero := touch("agent-0-zero")
 
-	if n := pruneAndCountMarkers(dir, time.Now()); n != 1 {
+	if n := pruneAndCountMarkers(dir, os.Getpid(), "", time.Now()); n != 1 {
 		t.Fatalf("pruneAndCountMarkers = %d, want 1 (only the alive-owner marker survives)", n)
 	}
 	if _, err := os.Stat(alive); err != nil {
@@ -164,11 +164,95 @@ func TestAgentInflightPrunesDeadOwnerRegardlessOfAge(t *testing.T) {
 	} else {
 		f.Close()
 	}
-	if n := pruneAndCountMarkers(dir, time.Now()); n != 0 {
+	if n := pruneAndCountMarkers(dir, os.Getpid(), "", time.Now()); n != 0 {
 		t.Errorf("pruneAndCountMarkers = %d, want 0: a dead owner must be pruned regardless of the marker's age", n)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Error("marker for a dead owner must be removed")
+	}
+}
+
+func TestAgentInflightTranscriptPruning(t *testing.T) {
+	cases := []struct {
+		name          string
+		markerAge     time.Duration
+		transcriptAge time.Duration
+		missing       bool
+		noParentPath  bool
+		untagged      bool
+		sibling       bool // owned by another live session: its transcripts are elsewhere, never prune on "missing"
+		wantPruned    bool
+	}{
+		{name: "idle transcript", transcriptAge: 11 * time.Minute, wantPruned: true},
+		{name: "fresh transcript", markerAge: 3 * time.Minute, transcriptAge: time.Minute},
+		{name: "missing transcript within grace", markerAge: time.Minute, missing: true},
+		{name: "missing transcript after grace", markerAge: 3 * time.Minute, missing: true, wantPruned: true},
+		{name: "no parent path", transcriptAge: 11 * time.Minute, noParentPath: true},
+		{name: "untagged marker", markerAge: 3 * time.Minute, missing: true, untagged: true},
+		{name: "sibling session marker", markerAge: 3 * time.Minute, missing: true, sibling: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			transcriptDir := t.TempDir()
+			now := time.Now()
+			if code := AgentInflight("pre", strings.NewReader(agentPayload("original")), &bytes.Buffer{}); code != ExitProceed {
+				t.Fatal("first dispatch must proceed")
+			}
+			if !c.untagged {
+				if code := AgentInflight("tag", strings.NewReader(tagPayload("original", "a1")), &bytes.Buffer{}); code != ExitProceed {
+					t.Fatal("tag must proceed")
+				}
+			}
+			names := markerNames(t)
+			if len(names) != 1 {
+				t.Fatalf("want one original marker, got %v", names)
+			}
+			marker := filepath.Join(inflightDir(), names[0])
+			if c.sibling {
+				// Re-own the marker to this test binary: alive, but not the session owner (its parent process).
+				renamed := filepath.Join(inflightDir(), strings.Replace(names[0], strconv.Itoa(sessionOwnerPid()), strconv.Itoa(os.Getpid()), 1))
+				if err := os.Rename(marker, renamed); err != nil {
+					t.Fatal(err)
+				}
+				marker = renamed
+			}
+			mtime := now.Add(-c.markerAge)
+			if err := os.Chtimes(marker, mtime, mtime); err != nil {
+				t.Fatal(err)
+			}
+			if !c.missing {
+				transcript := filepath.Join(transcriptDir, "agent-a1.jsonl")
+				if err := os.WriteFile(transcript, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				mtime := now.Add(-c.transcriptAge)
+				if err := os.Chtimes(transcript, mtime, mtime); err != nil {
+					t.Fatal(err)
+				}
+			}
+			payload := agentPayload("next")
+			if !c.noParentPath {
+				payload = fmt.Sprintf(`{"tool_name":"Agent","tool_use_id":"next","transcript_path":%q}`,
+					filepath.Join(transcriptDir, "parent.jsonl"))
+			}
+			if code := AgentInflight("pre", strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed {
+				t.Fatal("next dispatch must proceed")
+			}
+			wantCount := 2
+			if c.wantPruned {
+				wantCount = 1
+			}
+			if names := markerNames(t); len(names) != wantCount {
+				t.Errorf("marker count = %d, want %d: %v", len(names), wantCount, names)
+			}
+			_, err := os.Stat(marker)
+			if c.wantPruned && !os.IsNotExist(err) {
+				t.Errorf("finished agent's marker must be removed, stat error: %v", err)
+			} else if !c.wantPruned && err != nil {
+				t.Errorf("active agent's marker must survive: %v", err)
+			}
+		})
 	}
 }
 
