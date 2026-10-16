@@ -23,12 +23,14 @@ Add `paths:` to any new rule unless it must apply to every turn.
 |------|-----------|--------|
 | `standards/` | Coding doctrine — how code is written, reviewed, committed, documented, secured | always-on (portable, short) |
 | `workflow/` | Process — the end-to-end development pipeline | scoped to commands/agents/workflows |
+| `harness/` | This repo's own machinery — hooks, gates, settings generation, docs placement, change protocol | scoped to `internal/**` and the files each governs |
 | `software/<lang>/` | Language overlays that **extend** `standards/` where idioms differ | scoped to that language's files |
 
 ```
 rules/
-├── standards/        communication · quality · git · documentation · security
-├── workflow/         master-workflow
+├── standards/        communication · quality · git · documentation · security · performance
+├── workflow/         master-workflow · agents · memory-bank · memory-consolidation
+├── harness/          hooks · guardrails · settings-management · docs-placement · change-protocol
 └── software/python/  coding-style · testing · patterns · security   (extend ../../standards/*)
 ```
 
