@@ -17,6 +17,7 @@ guidelines are prose — these hooks are their enforcement layer. The pattern ev
 | Gate | Event | Trigger | Evidence that releases it |
 |---|---|---|---|
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | Enough file edits in the transcript | memory-bank mtime after the prompt (`activeContext`/`progress`/`sessionHistory.md`), or an explicit receipt |
+| `memory watch` (spawned by `session-harvest`) | detached, per session | Transcript quiet ≥10 min with edits no dispatch covered | the session stamp (`state/harness/memory/stamp-<id>`) carries the covered count; exits when the owner pid or transcript is gone |
 | `context-checkpoint` | Stop | Context usage ≥ 85% of the model's real window | once-per-session (the model runs `/harness:adapt`, then stops) |
 | `safety` | PreToolUse (Bash) | A destructive command shape (`rm -rf /`, `sudo`, `curl \| sh`, `git stash/checkout/reset/restore/clean` aimed at the harness checkout, …) | n/a — blocks the call outright |
 | `rtk-wrap` | PreToolUse (Bash) | A noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) with `rtk` on PATH | n/a — never blocks; rewrites argv to pipe through `rtk` (`HARNESS_RTK_BIN` overrides the binary) |

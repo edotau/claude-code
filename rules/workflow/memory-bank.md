@@ -33,7 +33,9 @@ paths:
   activeContext + progress; decisions → decisionLog; patterns → conventions.
 - **`session-harvest` / `session-harvest-end` hooks** (Stop / SessionEnd): after enough file
   edits, dispatch a worker that runs `claude-code memory update` (the headless `/memory:end`
-  pass) so a session that forgets to save still gets persisted.
+  pass) so a session that forgets to save still gets persisted. The first dispatch also claims one
+  detached `claude-code memory watch` per session: once the transcript has been quiet 10 min with
+  edits no dispatch covered, it runs the same worker — a crash or kill fires no SessionEnd.
 - **`claude-code memory index`**: regenerates the bank's routing index; rotates
   `sessionHistory.md` past its cap into `archive/`. GENERATED — never hand-edit.
 - **`claude-code memory doctor`**: reports cap usage, staleness, and cross-tier duplication.

@@ -22,12 +22,15 @@ func writeEdits(t *testing.T, path string, n int) {
 	}
 }
 
+// stubSpawn replaces BOTH detached seams: a successful harvest dispatch also claims an idle watcher, and a
+// test must never start a real one.
 func stubSpawn(t *testing.T, ok bool) *int {
 	t.Helper()
 	calls := 0
-	orig := spawnHarvest
+	orig, origWatch := spawnHarvest, spawnWatcher
 	spawnHarvest = func(string, string, string) bool { calls++; return ok }
-	t.Cleanup(func() { spawnHarvest = orig })
+	spawnWatcher = func([]string, string) bool { return true }
+	t.Cleanup(func() { spawnHarvest, spawnWatcher = orig, origWatch })
 	return &calls
 }
 
