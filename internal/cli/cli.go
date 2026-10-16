@@ -60,6 +60,7 @@ func commands() []command {
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
 		{name: "usage", group: groupDiagnostics, summary: "subagent token totals + peak input tokens/min (--days N)", run: cmdUsage},
 		{name: "mcp", group: groupDiagnostics, summary: "doctor: MCP server health, scope drift, inline secrets", run: cmdMCP},
+		{name: "describe", group: groupDiagnostics, summary: "machine-readable map: verbs, providers, runners, hooks", run: cmdDescribe},
 		// SETTINGS
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
