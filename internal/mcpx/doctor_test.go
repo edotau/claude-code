@@ -275,3 +275,19 @@ func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 		t.Errorf("text report missing the secret finding:\n%s", out.String())
 	}
 }
+
+// A serverDef marshals redacted at the type, so no JSON path can forget redact(); has_secrets says one existed.
+func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
+	tok := "ghp" + "_abcdefghijklmnopqrstuvwxyz0123"
+	d := Def{Server: "x", Scope: "user", D: serverDef{URL: "https://h/?token=" + tok, Env: map[string]string{"T": tok}}}
+	b, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), tok) || !strings.Contains(string(b), `"has_secrets":true`) {
+		t.Errorf("marshal leaked or unflagged: %s", b)
+	}
+	if b, _ := json.Marshal(Def{D: serverDef{Command: "npx"}}); strings.Contains(string(b), "has_secrets") {
+		t.Errorf("clean def must not carry has_secrets: %s", b)
+	}
+}
