@@ -47,6 +47,10 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
+| Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--vendor v] [--check]` · `make bootstrap` | `README.md` → Setup |
+| Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
+| Sync VS Code's Machine settings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f]` | `README.md` → Setup |
+| Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |
 | Check binaries, providers, credentials, router | `claude-code doctor` | — |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider>` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |

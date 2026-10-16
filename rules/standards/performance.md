@@ -48,7 +48,7 @@ either never hits or silently serves stale context.
 ## Agent Concurrency
 
 **Cap concurrency by context weight, not raw count** (`rules/workflow/agents.md`): deep-context
-agents (large context / many files each) stay ≤4 concurrent; lean/fresh subagents (one-file
+agents (large context / many files each) stay ≤8 concurrent; lean/fresh subagents (one-file
 reads, single-target fixes) can run ~8–10 at once. A provider's own rate limit, if it has one,
 is the practical ceiling beyond that — `claude-code doctor` reports the router/fallback state
 before you assume more headroom exists than there is.

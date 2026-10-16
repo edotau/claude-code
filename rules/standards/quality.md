@@ -119,7 +119,7 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 
 **Sizing.** One test agent minimum; scale with the implementation fan-out (roughly one per
 distinct suite or module under change). Test agents are lean leaves — `test-driven-dev`,
-`test-repair`, or `code-workers` for a scoped suite — so they sit outside the ≤4 deep-context tier.
+`test-repair`, or `code-workers` for a scoped suite — so they sit outside the ≤8 deep-context tier.
 
 **Not satisfied by:**
 

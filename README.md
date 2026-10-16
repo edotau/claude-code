@@ -34,6 +34,37 @@ With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selec
 `codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found
 past the shims.
 
+`make bootstrap` is the fresh-box path: it checks `go`, runs `make install`, installs bash tab-completion
+(`claude-code completion --install`; `source <(claude-code completion)` for the current shell) and then
+`claude-code configure`. `make help` lists every target; `make audit` is the CI gate.
+
+## Setup
+
+```bash
+claude-code configure                 # every section, in order: provider → keys → models → agents → router → doctor
+claude-code configure keys            # one section; --vendor codex scopes it
+claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
+claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift
+claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings template into the Machine settings
+```
+
+`configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
+OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
+reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is
+offered and run attached, an API key is read with echo off into `env.d/secrets.env`; piped, every repair
+prints the exact command and the run continues. The vendor verbs do the same on demand: `claude-code codex`
+first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only then runs the plain
+`codex` CLI untouched (so `gemini auth login` always works) — the harness never ends a vendor launch on a bare
+error while someone is at the terminal.
+
+`generate` renders what `install` renders plus each vendor's config from the registry — codex
+`~/.codex/config.toml`, opencode `~/.config/opencode/opencode.json` (with your Claude permissions and MCPs
+imported), gemini `~/.gemini/settings.json` (never over a Google login), copilot reported as launch-time env —
+as banner-marked blocks with foreign keys untouched and one `.backup` per file. `vscode` does the same for VS
+Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
+Copilot extensions pointed at the shims, the terminal profile, `--dest` to retarget; that scope is not
+Settings-Synced, so each box renders its own.
+
 ## Providers
 
 Built-ins live in `internal/providers/defaults.json`. `~/.claude/providers.json` overlays them **by name**
