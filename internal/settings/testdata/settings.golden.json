@@ -90,6 +90,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook access-trace",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
