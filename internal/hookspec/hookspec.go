@@ -56,6 +56,8 @@ var Registry = []Spec{
 	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
 	// An approved plan is filed under docs/plans, tagged with its repo.
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
+	// A model read of a bank file is traced to that bank's access log (memory doctor's hot/cold signal).
+	{Name: "access-trace", Event: EventPostToolUse, Matcher: "Read", Timeout: 5},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},
 	{Name: "session-harvest", Event: EventStop, Timeout: 15},

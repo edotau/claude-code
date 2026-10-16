@@ -24,6 +24,7 @@ guidelines are prose — these hooks are their enforcement layer. The pattern ev
 | `agent-effort` | PreToolUse (Agent) | A subagent dispatch with no `model:` set | n/a — never blocks; fills the model from a local prompt classifier (an explicit `model:` always wins) |
 | `memory-recall` | UserPromptSubmit | Prompt carries ≥2 distinct terms of ≥3 chars matching a bank/native-memory block | n/a — never blocks; injects `additionalContext` only |
 | `stop-format` | Stop | Any file edited this turn that a known formatter covers | n/a — never blocks; formats and continues |
+| `access-trace` | PostToolUse (Read) | The read path is a typed bank file or its index | n/a — never blocks; appends one `access.log` line |
 
 ## Authoring a new gate
 
