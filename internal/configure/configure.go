@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -176,6 +177,26 @@ func runProvider(d *dialog) bool {
 		fmt.Fprintf(out, "pinned: %s; to change: claude-code switch <provider>\n", cur)
 		return true
 	}
+	if isStdinTTY() {
+		rows := make([][2]string, len(names))
+		start := 0
+		for i, n := range names {
+			cred := "cred:missing"
+			if providers.CredentialPresent(reg.Providers[n]) {
+				cred = "cred:ok"
+			}
+			rows[i] = [2]string{n, cred + "  " + reg.Providers[n].Kind}
+			if n == cur {
+				start = i
+			}
+		}
+		if idx, err := tui.Pick("provider — pick the session provider", rows, start); err == nil {
+			if idx < 0 || names[idx] == cur {
+				return true
+			}
+			return applyProvider(d, names[idx])
+		}
+	}
 	fmt.Fprint(out, "pick a provider by number or name (blank = keep current): ")
 	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
@@ -319,8 +340,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 func resolveKey(d *dialog, kt keyTarget) bool {
 	switch {
 	case len(kt.loginArgv) > 0:
-		fmt.Fprintf(d.out, "Log in to %s now? [Y/n] ", kt.label)
-		if !yes(d.br) {
+		if !confirm(d, "Log in to "+kt.label+" now?") {
 			return false
 		}
 		if err := runLogin(kt.loginArgv); err != nil {
@@ -330,9 +350,7 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 		fmt.Fprintf(d.out, "%-10s logged in\n", kt.label)
 		return true
 	case kt.envVar != "":
-		fmt.Fprintf(d.out, "Paste a value for %s (input hidden, Enter when done): ", kt.envVar)
-		val, err := readSecret(d.br)
-		fmt.Fprintln(d.out)
+		val, err := secretLine(d, "Paste a value for "+kt.envVar+" (input hidden, Enter when done): ")
 		if err != nil || strings.TrimSpace(val) == "" {
 			fmt.Fprintf(d.out, "%s: no value entered\n", kt.envVar)
 			return false
@@ -461,4 +479,24 @@ func runRouter(d *dialog) bool {
 	}
 	fmt.Fprintf(d.out, "router running: %s\n", base)
 	return true
+}
+
+// confirm asks a [Y/n] question: tui.Confirm on the controlling terminal, the dialogue reader otherwise (tests).
+func confirm(d *dialog, question string) bool {
+	if isStdinTTY() && d.o.In == os.Stdin {
+		return tui.Confirm(question, true)
+	}
+	fmt.Fprintf(d.out, "%s [Y/n] ", question)
+	return yes(d.br)
+}
+
+// secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
+func secretLine(d *dialog, prompt string) (string, error) {
+	if isStdinTTY() && d.o.In == os.Stdin {
+		return tui.Secret(prompt)
+	}
+	fmt.Fprint(d.out, prompt)
+	val, err := readSecret(d.br)
+	fmt.Fprintln(d.out)
+	return val, err
 }

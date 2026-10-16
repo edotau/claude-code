@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/tui"
 )
 
 const configureUsage = "usage: claude-code configure [--provider p] [--vendor codex|copilot|opencode|gemini|claude] [--dry-run] [--check] [provider|keys|models|agents|router|doctor]"
@@ -53,12 +54,8 @@ func init() {
 		if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
 			return false
 		}
-		fmt.Fprintf(os.Stderr, "%v\nSet up %s now? [Y/n] ", reason, vendor)
-		var answer string
-		if _, err := fmt.Fscanln(os.Stdin, &answer); err != nil && answer == "" {
-			answer = "y" // a bare Enter accepts the default
-		}
-		if answer != "" && answer[0] != 'y' && answer[0] != 'Y' {
+		fmt.Fprintln(os.Stderr, reason)
+		if !tui.Confirm("Set up "+vendor+" now?", true) {
 			return false
 		}
 		changed, err := configure.Vendor(vendor, true, os.Stderr)
