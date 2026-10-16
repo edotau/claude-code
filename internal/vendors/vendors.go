@@ -175,15 +175,15 @@ func firstKeyedProvider(reg *providers.Registry) (*providers.Provider, bool) {
 	return nil, false
 }
 
-// copilotLoginPresent checks GH_TOKEN first, then a short `gh auth status` probe (copilot's own
-// sign-in surface); never run for Claude Code itself, only to decide a vendor fallback.
+// copilotLoginPresent checks GH_TOKEN first, then `gh auth token` (copilot's own sign-in surface) — the
+// offline form: `gh auth status` validates over the network and blew its 2 s budget, dropping the fallback.
 func copilotLoginPresent() bool {
 	if strings.TrimSpace(os.Getenv("GH_TOKEN")) != "" {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "gh", "auth", "status").Run() == nil
+	return exec.CommandContext(ctx, "gh", "auth", "token").Run() == nil
 }
 
 // ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
