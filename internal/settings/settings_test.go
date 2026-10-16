@@ -38,8 +38,8 @@ func TestRenderGolden(t *testing.T) {
 
 const existing = `{
   "env": {"KEEP_ME": "1"},
-  "theme": "dark",
-  "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Read(~/.ssh/**)"], "defaultMode": "plan"},
+  "spinnerTipsEnabled": false,
+  "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Read(~/.ssh/**)"], "additionalDirectories": ["/x"]},
   "statusLine": {"type": "command", "command": "mine"},
   "hooks": {
     "Stop": [{"hooks": [
@@ -48,7 +48,7 @@ const existing = `{
     ]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "foreign-end"}]}]
   },
-  "enabledPlugins": {"x@y": true}
+  "outputStyle": "Concise"
 }`
 
 func TestMergePreservesForeign(t *testing.T) {
@@ -59,11 +59,11 @@ func TestMergePreservesForeign(t *testing.T) {
 	}
 	var doc struct {
 		Env         map[string]string           `json:"env"`
-		Theme       string                      `json:"theme"`
+		Tips        *bool                       `json:"spinnerTipsEnabled"`
 		Permissions map[string]json.RawMessage  `json:"permissions"`
 		StatusLine  map[string]any              `json:"statusLine"`
 		Hooks       map[string][]hookspec.Group `json:"hooks"`
-		Plugins     map[string]bool             `json:"enabledPlugins"`
+		Output      string                      `json:"outputStyle"`
 	}
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("%v\n%s", err, merged)
@@ -71,10 +71,10 @@ func TestMergePreservesForeign(t *testing.T) {
 	if doc.Env["KEEP_ME"] != "1" || doc.Env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] == "" {
 		t.Errorf("env not unioned: %v", doc.Env)
 	}
-	if doc.Theme != "dark" || !doc.Plugins["x@y"] {
+	if doc.Tips == nil || *doc.Tips || doc.Output != "Concise" {
 		t.Error("foreign top-level keys dropped")
 	}
-	if string(doc.Permissions["defaultMode"]) != `"plan"` || !strings.Contains(string(doc.Permissions["allow"]), "Bash(ls:*)") {
+	if !strings.Contains(string(doc.Permissions["additionalDirectories"]), "/x") || !strings.Contains(string(doc.Permissions["allow"]), "Bash(ls:*)") {
 		t.Errorf("permissions not merged: %s", merged)
 	}
 	if strings.Count(string(doc.Permissions["deny"]), "Read(~/.ssh/**)") != 1 {
@@ -108,7 +108,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if sum.ForeignHooks != 2 || sum.HarnessHooks != len(hookspec.Registry) {
 		t.Errorf("summary %+v", sum)
 	}
-	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "theme,enabledPlugins") {
+	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "spinnerTipsEnabled,outputStyle") {
 		t.Errorf("kept %v", sum.Kept)
 	}
 	again, _, err := Merge(merged, rendered)

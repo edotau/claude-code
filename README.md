@@ -296,3 +296,7 @@ make test                          # go vet + full suite, once, before pushing
 ```
 
 `settings.json` is generated — edit `internal/settings/settings.tmpl.json` and re-run `make install`.
+The template is the default: keys it sets (model, effort, theme, tui, plugins, `permissions.defaultMode`, …)
+are reset on every install, so a `/config` change lasts until then — fold it into the template to keep it. Permission
+lists are unioned, so a rule removed from the template must also be removed from `settings.json` by hand.
+Install also seeds `~/.tmux.conf` from `internal/launch/tmux.conf` when no tmux config exists; an existing one is kept.

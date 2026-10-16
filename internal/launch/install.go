@@ -76,6 +76,7 @@ func Install(w io.Writer, dryRun bool) error {
 			fmt.Fprintf(w, "completion %s\n", path)
 		}
 	}
+	seedTmuxConf(w, dryRun)
 	if err := linkOnPath(w, target, dryRun); err != nil {
 		return err
 	}
