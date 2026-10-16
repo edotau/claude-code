@@ -76,6 +76,11 @@ func Run(o Options) (drift bool, err error) {
 			d, err = renderCodex(reg, sel, home, o, out)
 		case "opencode":
 			d, err = renderOpenCode(reg, sel, home, o, out)
+			if err == nil {
+				var td bool
+				td, err = renderOpenCodeTUI(home, o, out)
+				d = d || td
+			}
 		case "gemini":
 			d, err = renderGemini(sel, home, o, out)
 		case "copilot":
@@ -315,6 +320,35 @@ func renderOpenCode(reg *providers.Registry, sel providers.Selection, home strin
 	}
 	body = append(body, '\n')
 	return commitFile(path, raw, body, existed, o, out, "opencode")
+}
+
+// openCodeDefaultTheme draws on the terminal's own colors, so opencode inherits the VS Code terminal background.
+const openCodeDefaultTheme = "system"
+
+// renderOpenCodeTUI seeds theme in ~/.config/opencode/tui.json (1.18+ moves it out of opencode.json); a set theme is kept.
+func renderOpenCodeTUI(home string, o Options, out io.Writer) (bool, error) {
+	path := filepath.Join(home, ".config", "opencode", "tui.json")
+	raw, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	cfg := map[string]any{}
+	if existed {
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			fmt.Fprintf(out, "opencode-tui: skipped: %s is not plain JSON: %v\n", path, err)
+			return false, nil
+		}
+	}
+	if _, ok := cfg["theme"]; ok {
+		fmt.Fprintf(out, "opencode-tui: %s unchanged (theme already set)\n", path)
+		return false, nil
+	}
+	next := map[string]any{"$schema": "https://opencode.ai/tui.json"}
+	maps.Copy(next, cfg)
+	next["theme"] = openCodeDefaultTheme
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("opencode-tui: %w", err)
+	}
+	return commitFile(path, raw, append(body, '\n'), existed, o, out, "opencode-tui")
 }
 
 // --- gemini: ~/.gemini/settings.json, auth-type selection only; a Google login is never overwritten ---

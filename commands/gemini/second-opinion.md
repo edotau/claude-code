@@ -6,7 +6,7 @@ allowed-tools: Bash, Glob, Read
 
 # /gemini:second-opinion — Long-Context Module Review
 
-Packs whole modules (`--dirs`) into a single Gemini **opus-tier** call (`gemini-3.1-pro-preview`) and
+Packs whole modules (`--dirs`) into a single Gemini **opus-tier** call (`gemini-4-argon`) and
 asks for an architecture/consistency review. The niche: Gemini's context window holds an entire module
 at once, so it sees cross-file drift — inconsistent naming, duplicated logic, layering violations —
 that per-file review misses. Costs zero Claude token budget.
