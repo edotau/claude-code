@@ -22,7 +22,7 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 | `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home. `HARNESS_DOCS_PLACEMENT=0` disables |
 | `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet). No env override — an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off (via `/harness:adapt`) before compaction |
-| `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
+| `stop-format` | Stop | Formats files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); the global bank is read alongside it |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context |
 | `access-trace` | PostToolUse (Read) | Logs a model read of a bank file (or its index) to that bank's `access.log`, the hot/cold signal `memory doctor` nominates from; never blocks |
