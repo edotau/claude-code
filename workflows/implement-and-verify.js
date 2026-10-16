@@ -2,8 +2,7 @@ export const meta = {
   name: 'implement-and-verify',
   description: 'The house dispatch: parallel Explore intel → implementer ‖ test-repair (same message) → gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. ' +
-    'args: {task: "...", cwd, scope: ["internal/x", …], packages: ["./internal/x/"], gate?, maxIterations?}. The main session still owns the live check.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task: "...", cwd, scope: ["internal/x", …], packages: ["./internal/x/"], gate?, maxIterations?}. The main session still owns the live check.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files) ‖ test-repair (test files) in one parallel step' },

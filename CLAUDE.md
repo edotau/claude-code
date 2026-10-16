@@ -73,6 +73,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |
 | Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` | `rules/workflow/master-workflow.md` |
+| Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/test-repair` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |

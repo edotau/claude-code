@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/plan"
 	"github.com/edotau/claude-code/internal/review/source"
@@ -41,14 +42,27 @@ func cmdReview(args []string) int {
 	return reviewTools[args[0]](args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
+const workflowUsage = "usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]\n" +
+	"       claude-code workflow lint [<root>]    flag unpinned model/effort agent() calls + registry-hiding meta/throw"
+
 func cmdWorkflow(args []string) int {
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Println("usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]")
+		fmt.Println(workflowUsage)
 		return 0
 	}
-	if len(args) == 0 || args[0] != "skeleton" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]")
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, workflowUsage)
 		return 2
 	}
-	return plan.RunSkeleton(args[1:], os.Stdout, os.Stderr)
+	switch args[0] {
+	case "skeleton":
+		return plan.RunSkeleton(args[1:], os.Stdout, os.Stderr)
+	case "lint":
+		if len(args) == 1 {
+			return plan.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+		}
+		return plan.RunWorkflowLint(args[1:], os.Stdout, os.Stderr)
+	}
+	fmt.Fprintln(os.Stderr, workflowUsage)
+	return 2
 }

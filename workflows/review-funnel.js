@@ -186,7 +186,7 @@ const funneled = await pipeline(
                     phase: "Verify",
                     schema: VERDICT_SCHEMA,
                     effort: "high",
-                  }, // funnel stage 2 is the one deliberate reasoning-tier call
+                  }, // lint:opus-ok — funnel stage 2 is the one deliberate reasoning-tier call
                 ).then((v) => ({ finding: f, dimension: d.key, verdict: v })),
           ),
       ),

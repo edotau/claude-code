@@ -41,7 +41,7 @@ var subVerbs = map[string][]string{
 	"mcp":      {"doctor"},
 	"agents":   {"sync", "docs"},
 	"review":   {"quality", "complexity", "assumptions", "goals", "diff", "pr", "report", "gate"},
-	"workflow": {"skeleton"},
+	"workflow": {"skeleton", "lint"},
 	"gemini":   {"ask", "bridge"},
 }
 

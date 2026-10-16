@@ -228,6 +228,10 @@ it); never modify `migrations/` directories.
 Deterministic templates of the phases above, runnable by name (`Workflow({name, args})`) or inline from
 another script via `workflow(name, args)`. Sequential = awaited stages, Parallel = `parallel()`/`pipeline()`,
 Loop = a bounded `while` — control flow is code, never a model decision. Agents work in the shared tree.
+Every `agent()` call pins `model:` (or `agentType:`) AND `effort:` — an unpinned leaf inherits the session's
+reasoning tier; the one deliberate exception carries `// lint:opus-ok` on the line the call closes on. `meta`
+is a pure literal and nothing throws at top level, or the saved-workflow registry skips the script silently.
+`claude-code workflow lint` checks all three; `make test` gates the shipped scripts on it.
 
 | Workflow | Shape | Phases | args |
 |----------|-------|--------|------|
