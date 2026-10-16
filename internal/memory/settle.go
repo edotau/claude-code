@@ -74,23 +74,57 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 // lockPath serializes bank writers (the harvest worker's headless pass, then its settle).
 func lockPath(dir string) string { return filepath.Join(dir, ".postharvest") }
 
-// SettleBank rotates root's sessionHistory and refreshes the local (and global) index under the bank lock.
-func SettleBank(root string, now time.Time) (rotated int, err error) {
+// BankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
+// the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.
+type BankSettlement struct {
+	Rotated  int  // sessionHistory entries moved to <bank>/archive/sessionHistory-<yyyy-mm>.md
+	Promoted int  // blocks moved local → global, deduped
+	Archived int  // blocks moved to <bank>/archive — the relief valve when local IS global
+	Indexed  bool // the routing index was rewritten
+}
+
+// Moved is the promote+archive total.
+func (s BankSettlement) Moved() int { return s.Promoted + s.Archived }
+
+// Any reports whether the pass changed anything at all.
+func (s BankSettlement) Any() bool { return s.Moved() > 0 || s.Rotated > 0 }
+
+// SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
+// local (and global) index — all under the bank lock. Deletes nothing.
+func SettleBank(root string, now time.Time) (BankSettlement, error) {
 	dir := Dir(root)
-	err = paths.WithFileLock(lockPath(dir), func() error {
+	var s BankSettlement
+	err := paths.WithFileLock(lockPath(dir), func() error {
 		n, rerr := RotateSessionHistory(dir, now)
-		rotated = n
-		if _, ierr := WriteBankIndex(dir, now); rerr == nil {
-			rerr = ierr
+		s.Rotated = n
+		if rerr != nil {
+			return rerr
 		}
-		return rerr
+		p, perr := PromoteLocalToGlobal(root, now)
+		s.Promoted = p
+		if perr != nil {
+			return perr
+		}
+		a, aerr := ArchiveSettledOverflow(root, now)
+		s.Archived += a
+		if aerr != nil {
+			return aerr
+		}
+		_, ierr := WriteBankIndex(dir, now)
+		s.Indexed = ierr == nil
+		return ierr
 	})
 	if !IsGlobal(root) {
+		// Promotion appends to the global tier from every project, so its settled overflow must
+		// archive from everywhere too, or the global bank grows unbounded.
+		if a, _ := ArchiveSettledOverflow(GlobalDir(), now); a > 0 {
+			s.Archived += a
+		}
 		if _, gerr := WriteBankIndex(GlobalDir(), now); err == nil {
 			err = gerr
 		}
 	}
-	return rotated, err
+	return s, err
 }
 
 // NewestMtime is the newest mtime across dir's six typed files — the "did the harvest write?" probe.

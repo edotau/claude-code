@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -173,9 +174,18 @@ func Doctor(w io.Writer) bool {
 		}
 	}
 	check(true, false, "router: %s", routerStatus())
+	check(true, false, "rtk compressor: %s", rtkDoctorStatus())
 	has, err := settingsHasHooks(SettingsFile())
 	check(has, false, "settings.json harness hooks: %s", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return ok
+}
+
+// rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
+func rtkDoctorStatus() string {
+	if bin := hooks.RTKBinary(); bin != "" {
+		return bin + " (" + hooks.RTKCommandList() + ")"
+	}
+	return "not on PATH — rtk-wrap no-ops"
 }
 
 func routerStatus() string {

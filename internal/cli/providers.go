@@ -134,7 +134,7 @@ func listLive(p *providers.Provider) int {
 
 func cmdUse(args []string) int {
 	if len(args) != 1 {
-		return fail("usage: claude-code use <provider>")
+		return fail("usage: claude-code switch <provider>")
 	}
 	reg, err := providers.Load()
 	if err != nil {

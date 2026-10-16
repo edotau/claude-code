@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -97,6 +98,30 @@ func (c Config) sep(key, def string) string {
 
 // ConfigDir holds the optional config.json / palettes.json overrides.
 func ConfigDir() string { return filepath.Join(paths.ConfigDir(), "statusline") }
+
+// DefaultConfigJSON returns the embedded statusline/config.json default, for callers (the `theme`
+// verb) that must seed an absent override file rather than render one from scratch.
+func DefaultConfigJSON() []byte { return embeddedConfigJSON }
+
+// GradientNames returns every named gradient ramp the resolved palette carries, sorted.
+func GradientNames() []string {
+	pal := loadPalettes()
+	names := make([]string, 0, len(pal.Gradients))
+	for n := range pal.Gradients {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// GradientStops returns name's RGB stops from the resolved palette, or nil if name is unknown.
+func GradientStops(name string) []ansi.RGB {
+	hexes, ok := loadPalettes().Gradients[name]
+	if !ok {
+		return nil
+	}
+	return hexStops(hexes)
+}
 
 // loadConfig overlays config.json onto the embedded theme; maps the file omits keep the embedded ones.
 func loadConfig() Config {

@@ -28,7 +28,7 @@ export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claud
 `claude codex gemini opencode copilot` → `claude-code`, links `~/.local/bin/claude-code` (only that name, so
 the bare CLIs stay untouched unless you add `~/.claude/bin` to `PATH`), and merges the harness hooks/permissions/statusLine
 into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
-`claude-code install --dry-run`; print the render alone with `claude-code settings`.
+`claude-code install --dry-run`; print the render alone with `claude-code generate` (alias: `settings`).
 
 With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selected provider and
 `codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found
@@ -71,9 +71,9 @@ set). Start from [`providers.example.json`](providers.example.json).
 | `one_m` | Adds the `[1m]` marker to Claude ids |
 
 ```bash
-claude-code providers                      # * = default, credential state, dialects, fallback ladder
-claude-code providers litellm              # routes, auth, models
-claude-code use litellm                    # pin the session provider (env.d/provider.env)
+claude-code profile                        # * = default, credential state, dialects, fallback ladder (alias: providers)
+claude-code profile litellm                # routes, auth, models
+claude-code switch litellm                 # pin the session provider (env.d/provider.env) (alias: use)
 claude-code models                         # resolved slots and whether the router is needed
 claude-code models --pin haiku=openai:gpt-5-nano --pin opus=claude-opus-5
 claude-code models --unpin
@@ -103,6 +103,13 @@ A provider's credential resolves through a ladder; the first non-empty source wi
 Other commands that fit: `op read op://Private/openrouter/credential`, `pass show openrouter`, or a
 script that mints a short-lived gateway token. `claude-code token --provider <p>` prints the resolved
 credential — it is the `apiKeyHelper` Claude Code calls, so no key is stored in `settings.json`.
+
+`claude-code secrets` owns the `env.d/secrets.env` plane: `secrets set <KEY>` reads the value on stdin and
+writes it at 0600 (`--keyring` stores it in the OS keyring instead); `secrets get <KEY>` reads it back
+(`--export` prints an eval-able line); `secrets status` reports which provider is served by which source
+without ever printing a value; `secrets scan` and `secrets git` audit the config surface and git history for a
+leaked credential and exit 1 on a finding; `secrets doctor` checks perms and key names; `secrets all` runs
+every audit. `/harness:secrets-scan` wraps the audits.
 
 ## Routing
 
@@ -142,6 +149,8 @@ claude-code ask --agent codex "Review the diff on this branch for correctness bu
 claude-code ask --agent gemini --format json "Map every caller of providers.Select."
 claude-code run opencode --provider openrouter --model qwen/qwen3-coder
 claude-code run codex --print-env                    # show the env/argv wiring, launch nothing
+claude-code codex ask "Review the diff on this branch for correctness bugs."   # top-level: codex|copilot|opencode
+claude-code codex --print-env                         # bare verb = `run codex`; `ask` = one-shot task
 claude-code science serve                            # Claude for Life Sciences on its own login, harness env stripped
 claude-code usage --days 7 [--workflows]             # subagent tokens (one count per API response) + peak ITPM
 claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
@@ -179,6 +188,9 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | Hook | Event | What it does |
 | --- | --- | --- |
 | `safety` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, … |
+| `rtk-wrap` | PreToolUse (Bash) | Routes noisy commands (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the [rtk](https://github.com/rtk-ai/rtk) output compressor when it is on PATH; machine-readable flags (`--porcelain`, `--json`, …) and value subcommands (`rev-parse`, …) bypass it. `HARNESS_RTK_BIN` overrides the binary |
+| `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home (`~/.claude/docs/plans\|reports\|handoffs`); root anchors and tracked files pass. `HARNESS_DOCS_PLACEMENT=0` disables |
+| `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet); an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |
 | `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); an indexed global bank is a one-line pointer |
@@ -192,7 +204,38 @@ To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registr
 Six files per git repo under `docs/memory/bank/<repo-slug>/` (untracked): `projectContext`, `activeContext`,
 `progress`, `decisionLog`, `conventions`, `sessionHistory`; `docs/memory/bank/` itself is the global bank, used
 by any non-repo cwd. A pre-`bank/` tree moves in place on the next session start or `memory` verb.
-`claude-code memory init|search <terms>|index|path`; `/memory:init` enriches, `/memory:end` saves manually.
+
+What a session pays for: SessionStart injects `activeContext` + `progress` in full and the bank's generated
+`index.md` (one routing line per durable entry, ≤8,500 chars total); everything else is found per prompt by the
+`memory-recall` hook (BM25 over local, global, archive and native topics, ≤3 blocks, skipping what is already in
+context) and by `claude-code memory search`. Every settle (`memory index`, the background harvest) keeps the bank
+small: `sessionHistory` rotates past 30 entries to `archive/`, local `decisionLog`/`conventions` overflow past
+their line caps is promoted to the global bank, global overflow is archived, and `index.md` is regenerated.
+
+```bash
+claude-code memory init | path | index              # scaffold, locate, settle + reindex
+claude-code memory search <terms> [--k 8] [--json]  # BM25 over every tier
+claude-code memory doctor [--stale-days 90]         # cap offenders, staleness, credential-shaped lines, hot/cold topics
+claude-code memory stats | timeline [-n 20] | promote
+```
+
+**Native auto-memory** (Claude Code's own `MEMORY.md` + topic files under `projects/<slug>/memory/`) is injected
+whole every session, so `claude-code memory archive` governs its size: the audit reports injected bytes, orphans
+and dangling pointers; `--split 20 --apply` keeps a 20-line core in `MEMORY.md` and moves older pointer lines to
+`SEARCHABLE.md` (indexed by recall, never injected; a `<!-- keep -->` marker pins a line); `--dupes` clusters
+near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer lines recorded verbatim) and
+`--restore` brings it back. `access.log` beside each bank records every recall, which is what makes a topic
+"hot" (a pointer is suggested) or "cold" (an archive candidate) in `memory doctor`.
+`/memory:init` enriches, `/memory:end` saves manually.
+
+## Housekeeping
+
+- `claude-code clean [--what <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
+  run dirs, backups); dry-run by default, `--apply` deletes. Credentials and settings are never a target.
+- `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
+  `state/harness/history`; `env.d/secrets.env` is never snapshotted.
+- `claude-code theme [--preview]` — pick the statusline color palette.
+- `claude-code mcp doctor [--json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
 
 ## Status line
 
