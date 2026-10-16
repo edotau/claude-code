@@ -49,7 +49,7 @@ type Router struct {
 }
 
 func newRouter(secret string) *Router {
-	return &Router{secret: secret, client: &http.Client{}, log: os.Stderr, now: time.Now, cool: map[string]time.Time{}}
+	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now, cool: map[string]time.Time{}}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
