@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.md"
+---
+
 # Documentation Standards
 
 ## Core Principles
