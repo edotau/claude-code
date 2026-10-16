@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,10 +85,17 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 		return t, "", nil
 	}
 	if ft, fallbackNote, ok := fallbackTarget(reg, name); ok {
-		return ft, fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote), nil
+		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
+		if ft.Provider == nil {
+			return ft, note, ErrOwnLogin // the vendor's own stored login: launch it plain, nothing to inject
+		}
+		return ft, note, nil
 	}
 	return t, "", nil
 }
+
+// ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
+var ErrOwnLogin = errors.New("vendor runs on its own login")
 
 // canServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
 // of the dialects the vendor speaks.
@@ -124,8 +132,11 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
 		}
 	case "opencode":
-		// github-copilot is passthrough, and opencode has no subscription sign-in (see login() below);
-		// the only working fallback is a plain keyed provider.
+		// opencode keeps its own provider logins (`opencode auth login` → auth.json); those come first, then
+		// a plain keyed registry provider. A nil Provider tells the launcher to run opencode untouched.
+		if names := OpencodeLogins(); len(names) > 0 {
+			return providers.Target{}, "opencode auth login (" + strings.Join(names, ", ") + ")", true
+		}
 		if p, ok := firstKeyedProvider(reg); ok {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, p.Name + " (first keyed provider)", true
 		}
@@ -653,3 +664,31 @@ func CopilotLoginPresent() bool { return copilotLoginPresent() }
 
 // GeminiLoginPresent reports whether ~/.gemini/settings.json selects a Google login (which beats any key).
 func GeminiLoginPresent() bool { return geminiAuthConflict() != nil }
+
+// OpencodeLogins lists the providers opencode's own `auth login` stored (auth.json under its data dir), sorted.
+func OpencodeLogins() []string {
+	data, err := os.ReadFile(opencodeAuthFile())
+	if err != nil {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), where `opencode auth login` writes.
+func opencodeAuthFile() string {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "opencode", "auth.json")
+}

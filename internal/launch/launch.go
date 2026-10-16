@@ -4,6 +4,7 @@ package launch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -209,6 +210,10 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	// Only --provider is explicit: the session pin (env or file) is Claude Code's default, not a per-vendor choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
+	if errors.Is(err, vendors.ErrOwnLogin) {
+		fmt.Fprintln(os.Stderr, note)
+		return plainPlan(spec, args)
+	}
 	if err != nil {
 		return Plan{}, err
 	}
@@ -346,10 +351,18 @@ var OfferConfigure func(vendor string, reason error) bool
 // passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
 // that CLI and it carries its own login, so refusing to run it would only hide `gemini auth login` itself.
 func passthrough(spec vendors.Spec, name string, reason error, args []string) (Plan, error) {
-	bin, err := lookPath(spec.Binary)
-	if err != nil {
-		return Plan{}, reason
+	if _, err := lookPath(spec.Binary); err != nil {
+		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story
 	}
 	fmt.Fprintf(os.Stderr, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
+	return plainPlan(spec, args)
+}
+
+// plainPlan is the vendor's own CLI with the user's argv and no harness env.
+func plainPlan(spec vendors.Spec, args []string) (Plan, error) {
+	bin, err := lookPath(spec.Binary)
+	if err != nil {
+		return Plan{}, err
+	}
 	return Plan{Binary: bin, Set: map[string]string{}, Argv: args}, nil
 }

@@ -302,7 +302,16 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY"}
 		}
 		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", fixCmd: "claude-code secrets set GEMINI_API_KEY"}
-	default: // opencode: no subscription sign-in; only a keyed provider can serve it
+	case "opencode":
+		if names := vendors.OpencodeLogins(); len(names) > 0 {
+			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", ")}
+		}
+		kt := fallback()
+		if !kt.present {
+			kt.loginArgv = []string{"opencode", "auth", "login"}
+		}
+		return kt
+	default:
 		return fallback()
 	}
 }
