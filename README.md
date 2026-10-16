@@ -60,7 +60,10 @@ error while someone is at the terminal.
 `generate` renders what `install` renders plus each vendor's config from the registry — codex
 `~/.codex/config.toml`, opencode `~/.config/opencode/opencode.json` (with your Claude permissions and MCPs
 imported), gemini `~/.gemini/settings.json` (never over a Google login), copilot reported as launch-time env —
-as banner-marked blocks with foreign keys untouched and one `.backup` per file. `vscode` does the same for VS
+as banner-marked blocks with foreign keys untouched and one `.backup` per file. The rendered codex and opencode
+blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only the shims
+export: run `codex`/`opencode` through `~/.claude/bin` (or `claude-code run <vendor>`), not the bare binary, or
+the block resolves to no key. `vscode` does the same for VS
 Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
 Copilot extensions pointed at the shims, the terminal profile, right-click = paste in the integrated terminal
 (the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
