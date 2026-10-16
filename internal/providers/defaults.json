@@ -34,7 +34,7 @@
       "kind": "responses",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "auth": {"type": "passthrough", "login": "codex"},
-      "models": {"opus": "gpt-5.5", "sonnet": "gpt-5.5", "haiku": "gpt-5.5"}
+      "models": {"opus": "gpt-6-astra", "sonnet": "gpt-6-astra", "haiku": "gpt-6-astra"}
     },
     "github-copilot": {
       "kind": "openai",
