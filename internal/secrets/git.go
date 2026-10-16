@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"strings"
 	"time"
 )
@@ -59,7 +60,7 @@ func ScanGit(out io.Writer, dir string, since int) int {
 				file = b
 			}
 		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			if secretPattern.MatchString(line) {
+			if !isTestFixture(file) && tokenShaped(secretPattern.FindString(line)) {
 				findings = append(findings, fmt.Sprintf("%s %s", commit, file))
 			}
 		}
@@ -87,4 +88,26 @@ func ScanGit(out io.Writer, dir string, since int) int {
 	}
 	fmt.Fprintf(out, "secrets git: %d finding(s).\n", len(findings))
 	return ExitFindings
+}
+
+// isTestFixture reports test/testdata paths, whose synthetic keys are noise (GitHub push protection skips them too).
+func isTestFixture(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "testdata" {
+			return true
+		}
+	}
+	base := path.Base(p)
+	for _, suf := range []string{"_test.go", "_test.py", ".test.ts", ".test.js", ".spec.ts", ".spec.js"} {
+		if strings.HasSuffix(base, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenShaped rejects prose that merely starts like a key (`sk-before-changing-appearance`): a minted token always
+// mixes digits in; a match with none is a false positive.
+func tokenShaped(match string) bool {
+	return match != "" && strings.ContainsAny(match, "0123456789")
 }
