@@ -36,7 +36,10 @@ func fakeBin(t *testing.T, dir, name, script string) string {
 
 // TestCollectDefs: user, local, project, and settings scopes all land; duplicate project files dedupe.
 func TestCollectDefs(t *testing.T) {
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir()) // macOS: /var -> /private/var, and CollectDefs reports resolved paths
+	if err != nil {
+		t.Fatal(err)
+	}
 	userJSON := filepath.Join(dir, ".claude.json")
 	write(t, userJSON, `{
 		"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"]}},
