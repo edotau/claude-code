@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/secretshape"
 )
 
 // listTimeout bounds `claude mcp list`; without it a cold-starting npx server hangs Run() forever.
@@ -30,6 +32,21 @@ type serverDef struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// MarshalJSON redacts at the type: a serverDef can reach any JSON dump (report, describe, a future debug
+// verb) only with credential-shaped env/header values scrubbed and a has_secrets flag in their place.
+func (d serverDef) MarshalJSON() ([]byte, error) {
+	type plain serverDef // no MarshalJSON, so the alias cannot recurse
+	v := plain(d)
+	v.Env, v.Headers = secretshape.RedactMap(d.Env), secretshape.RedactMap(d.Headers)
+	if v.URL != "" {
+		v.URL = queryParamSecret.ReplaceAllString(v.URL, "${1}REDACTED")
+	}
+	return json.Marshal(struct {
+		plain
+		HasSecrets bool `json:"has_secrets,omitempty"`
+	}{v, secretshape.Any(d.Env) || secretshape.Any(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
 }
 
 // display renders the "command args" / url / type / "?" column.
@@ -223,48 +240,12 @@ type SecretFinding struct {
 }
 
 // bearerToken matches an Authorization-style "Bearer <40+ chars>" value.
-var bearerToken = regexp.MustCompile(`(?i)bearer\s+\S{40,}`)
-
 // queryParamSecret matches a plaintext token=/key= query parameter in a URL; group 1 keeps the
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&](?:token|key)=)[^&\s]+`)
 
-// looksLikeSecret is the credential-shape heuristic: known token prefixes, a bearer-style value, or
-// base64-ish noise; ${ENV} references, file paths, and obvious placeholders are never flagged.
-func looksLikeSecret(val string) bool {
-	switch {
-	case val == "":
-		return false
-	case strings.HasPrefix(val, "$"): // ${ENV} reference
-		return false
-	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
-		return false
-	case strings.Contains(val, "PLACEHOLDER") || strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx"):
-		return false
-	case strings.HasPrefix(val, "ghp_") || strings.HasPrefix(val, "github_pat_") || strings.HasPrefix(val, "gho_"):
-		return true
-	case matchSlack(val):
-		return true
-	case strings.HasPrefix(val, "AKIA"): // AWS
-		return true
-	case strings.HasPrefix(val, "dapi"): // Databricks PAT
-		return true
-	case strings.HasPrefix(val, "sk-"): // OpenAI-style
-		return true
-	case bearerToken.MatchString(val):
-		return true
-	default:
-		return false
-	}
-}
-
-// matchSlack matches a Slack bot/user token (xoxb-/xoxp-).
-func matchSlack(v string) bool {
-	if !strings.HasPrefix(v, "xox") || len(v) < 5 || v[4] != '-' {
-		return false
-	}
-	return v[3] == 'b' || v[3] == 'p'
-}
+// looksLikeSecret is the shared credential-shape heuristic (internal/secretshape).
+func looksLikeSecret(val string) bool { return secretshape.Looks(val) }
 
 // FindSecrets scans every server's env, headers, and url for inline plaintext credentials.
 func FindSecrets(defs []Def) []SecretFinding {
@@ -295,19 +276,7 @@ func redact(defs []Def) []Def {
 	return out
 }
 
-func redactMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		if looksLikeSecret(v) {
-			v = "REDACTED"
-		}
-		out[k] = v
-	}
-	return out
-}
+func redactMap(m map[string]string) map[string]string { return secretshape.RedactMap(m) }
 
 func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	var keys []string

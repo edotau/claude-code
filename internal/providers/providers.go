@@ -3,10 +3,13 @@
 package providers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/secretshape"
 )
 
 // Wire dialects a provider route can speak.
@@ -37,6 +40,18 @@ type Provider struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	// OneM opts the provider's Claude ids into the [1m] marker; only true where the upstream serves 1M context.
 	OneM bool `json:"one_m,omitempty"`
+}
+
+// MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
+// has_secret_headers says one exists. A writer that wants the raw map must not go through Marshal.
+func (p Provider) MarshalJSON() ([]byte, error) {
+	type plain Provider // no MarshalJSON, so the alias cannot recurse
+	v := plain(p)
+	v.Headers = secretshape.RedactMap(p.Headers)
+	return json.Marshal(struct {
+		plain
+		HasSecretHeaders bool `json:"has_secret_headers,omitempty"`
+	}{v, secretshape.Any(p.Headers)})
 }
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).

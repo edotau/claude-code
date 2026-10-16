@@ -2,9 +2,11 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -135,5 +137,19 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	h = http.Header{"Authorization": {"Bearer oauth"}}
 	if err := Authorize(context.Background(), sub, h); err != nil || h.Get("Authorization") != "Bearer oauth" {
 		t.Errorf("passthrough must keep client auth: %v %v", err, h)
+	}
+}
+
+// A Provider marshals its Headers redacted at the type; an inline gateway token never reaches a dump.
+func TestProviderMarshalRedactsHeaders(t *testing.T) {
+	tok := "sk" + "-abcdefghijklmnopqrstuvwxyz0123"
+	p := Provider{Kind: DialectOpenAI, BaseURL: "https://gw", Headers: map[string]string{"X-Key": tok, "X-Plain": "v"}}
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if strings.Contains(s, tok) || !strings.Contains(s, `"has_secret_headers":true`) || !strings.Contains(s, `"X-Plain":"v"`) {
+		t.Errorf("marshal: %s", s)
 	}
 }
