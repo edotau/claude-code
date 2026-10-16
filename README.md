@@ -157,10 +157,6 @@ Otherwise it launches through the **loopback router** (started on demand, `127.0
 `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/p/<provider>` and `apiKeyHelper` = `claude-code token --router`,
 a per-install client secret the router requires. Per request the router:
 
-Upstream dials are guarded: a provider hostname that resolves into the local network (loopback, link-local,
-RFC1918) is refused before the connect, so DNS cannot turn a `base_url` into a pivot onto the router itself. A
-literal IP or `localhost` in `base_url` (Ollama, a dev gateway) is your own choice and dials unguarded.
-
 
 1. checks the client secret and a loopback `Host`;
 2. resolves `model` — a plain id on the session provider, or `provider:model` — and strips `[1m]`;
@@ -170,6 +166,11 @@ literal IP or `localhost` in `base_url` (Ollama, a dev gateway) is your own choi
 4. on 401/403 refreshes the credential and replays once;
 5. on 429/5xx/connect error **before any byte reaches the client**, moves to the next provider in
    `fallback`, mapping the model to the same slot there (429s honor `Retry-After` as a cooldown).
+
+Upstream dials are guarded: a provider hostname that resolves into the local network (loopback, link-local,
+RFC1918) is refused before the connect, so DNS cannot turn a `base_url` into a pivot onto the router itself. A
+literal IP or `localhost` in `base_url` (Ollama, a dev gateway) is your own choice and dials unguarded.
+
 
 ```bash
 claude-code router start | status | stop

@@ -66,6 +66,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--json]` | `/harness:mcp-doctor` |
+| Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes) | credentials/settings never swept |
 | Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
 | Pick the statusline color palette | `claude-code theme [--preview]` | — |

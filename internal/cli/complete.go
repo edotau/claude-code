@@ -69,6 +69,7 @@ var flagsFor = map[string][]flagInfo{
 	"history diff":     {{name: "memory", isBool: true}},
 	"generate":         {{name: "out"}},
 	"usage":            {{name: "session"}, {name: "days"}, {name: "json", isBool: true}, {name: "workflows", isBool: true}},
+	"describe":         {{name: "format", values: func() []string { return []string{"json", "text"} }}},
 	"mcp doctor":       {{name: "json", isBool: true}},
 	"install":          {{name: "dry-run", isBool: true}},
 	"theme":            {{name: "preview", isBool: true}},
