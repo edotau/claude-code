@@ -42,7 +42,7 @@ model: inherit
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 memory: user
-maxTurns: 30
+maxTurns: 60
 ---
 
 # claude
