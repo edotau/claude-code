@@ -231,7 +231,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | `stop-format` | Stop | Formats files edited this turn (gofmt, ruff, prettier, shfmt when installed) |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); an indexed global bank is a one-line pointer |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context (≥4 terms, ≤1,500 chars; else silent) |
-| `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end` |
+| `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end`; the first dispatch also claims one `memory watch` per session, which harvests the final state once the transcript has been quiet 10 min (a crash or kill fires no SessionEnd) |
 | `access-trace` | PostToolUse (Read) | Logs a model read of a bank file (or its index) to that bank's `access.log`, the signal behind `memory doctor`'s hot/cold nominations |
 
 To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registry`, `make install`.

@@ -40,11 +40,12 @@ func targets() []target {
 	s := func(parts ...string) string { return filepath.Join(append([]string{paths.StateDir()}, parts...)...) }
 	return []target{
 		{
-			name: "memory-state", doc: "state/harness/memory: harvest logs, session stamps, harvest receipts, recall-seen sets",
+			name: "memory-state", doc: "state/harness/memory: harvest logs, session stamps, harvest receipts, recall-seen sets, watcher claims",
 			globs: func() []string {
 				return []string{
 					s("memory", "harvest-*.log"), s("memory", "stamp-*"),
 					s("memory", "harvest-result-*"), s("memory", "recall-seen", "*"),
+					s("memory", "watch-*"),
 				}
 			},
 		},

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,6 +20,7 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
+       claude-code memory watch --session S --transcript T --cwd C [--owner PID] [--idle 10m]
        claude-code memory doctor [--stale-days 90] [--notice]
        claude-code memory stats
        claude-code memory timeline [--repo R] [-n 20]
@@ -116,6 +118,8 @@ func cmdMemory(args []string) int {
 			return fail("memory update: %v", err)
 		}
 		return 0
+	case "watch":
+		return hooks.IdleHarvestWatch(args[1:], os.Stderr) // spawned detached by the Stop gate; its own flag set
 	case "doctor":
 		staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 		notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")

@@ -124,6 +124,7 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		}
 		if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 			writeStamp(stamp, now, "bg", edits)
+			spawnIdleWatcher(in) // the session is harvest-worthy: its final state gets a watcher too
 			return ExitProceed
 		}
 		writeStamp(stamp, now, "1", edits)
@@ -135,6 +136,7 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		if edits := transcript.CountEdits(in.TranscriptPath); edits >= st.edits+harvestRearmEdits &&
 			spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 			writeStamp(stamp, now, "bg", edits)
+			spawnIdleWatcher(in)
 		}
 		return ExitProceed
 	case memory.NewestMtime(memory.Dir(in.CWD)).After(st.at):
