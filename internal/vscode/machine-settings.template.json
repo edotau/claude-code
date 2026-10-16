@@ -40,6 +40,7 @@
   "terminal.integrated.shellIntegration.decorationsEnabled": "never",
   "terminal.integrated.inheritEnv": false,
   "terminal.integrated.copyOnSelection": true,
+  "terminal.integrated.rightClickBehavior": "paste",
   "terminal.integrated.sendKeybindingsToShell": false,
   "terminal.integrated.enableMultiLinePasteWarning": "never",
   "terminal.integrated.environmentChangesRelaunch": true,

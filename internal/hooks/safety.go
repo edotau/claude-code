@@ -24,8 +24,12 @@ var hardBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])sudo(\s|$)`,
 	`git\s+push\s+.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
 	`git\s+push\s+.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
-	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
+)
+
+// pipeBlocks span a pipe by design (a download piped into a shell), so they match the WHOLE command line.
+var pipeBlocks = lazyCompile(
+	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
 )
 
 // sqlDestructive runs against the lowercased command.
@@ -69,10 +73,19 @@ func Safety(r io.Reader, stderr io.Writer) int {
 	if cmd == "" {
 		return ExitProceed
 	}
-	for _, re := range hardBlocks() {
+	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
 			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
 			return ExitBlock
+		}
+	}
+	// Each other pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
+	for _, seg := range shellSegments(cmd) {
+		for _, re := range hardBlocks() {
+			if re.MatchString(seg) {
+				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
+				return ExitBlock
+			}
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
