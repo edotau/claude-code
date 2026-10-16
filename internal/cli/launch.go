@@ -90,7 +90,9 @@ func cmdSettings(args []string) int {
 		return fail("%v", err)
 	}
 	if *out == "" {
-		os.Stdout.Write(data)
+		if !*check { // --check reports drift only; the render itself is noise there
+			os.Stdout.Write(data)
+		}
 	} else {
 		backup, err := settings.WriteWithBackup(*out, data)
 		if err != nil {
@@ -107,7 +109,9 @@ func cmdSettings(args []string) int {
 	if *agents != "" {
 		vendorAgents = strings.Split(*agents, ",")
 	}
-	drift, err := generate.Run(generate.Options{Agents: vendorAgents, DryRun: *dryRun, Check: *check, Out: os.Stdout})
+	// Without --out the settings render is a preview, so the vendor configs preview too: nothing is written.
+	preview := *dryRun || (*out == "" && !*check)
+	drift, err := generate.Run(generate.Options{Agents: vendorAgents, DryRun: preview, Check: *check, Out: os.Stdout})
 	if err != nil {
 		return fail("%v", err)
 	}
