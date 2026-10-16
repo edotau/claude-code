@@ -157,7 +157,6 @@ Otherwise it launches through the **loopback router** (started on demand, `127.0
 `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/p/<provider>` and `apiKeyHelper` = `claude-code token --router`,
 a per-install client secret the router requires. Per request the router:
 
-
 1. checks the client secret and a loopback `Host`;
 2. resolves `model` — a plain id on the session provider, or `provider:model` — and strips `[1m]`;
 3. `anthropic` route → byte passthrough with the upstream credential injected; `openai` route →
@@ -170,7 +169,6 @@ a per-install client secret the router requires. Per request the router:
 Upstream dials are guarded: a provider hostname that resolves into the local network (loopback, link-local,
 RFC1918) is refused before the connect, so DNS cannot turn a `base_url` into a pivot onto the router itself. A
 literal IP or `localhost` in `base_url` (Ollama, a dev gateway) is your own choice and dials unguarded.
-
 
 ```bash
 claude-code router start | status | stop
