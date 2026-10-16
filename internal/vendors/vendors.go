@@ -11,11 +11,13 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -68,6 +70,116 @@ const (
 	CodexKeyEnv    = "HARNESS_CODEX_API_KEY"
 	OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
 )
+
+// ResolveTarget picks the target a vendor launch uses: sel's target when it can serve the vendor
+// (a login provider naming it, or a route on one of its dialects), else — only when the caller named
+// no provider itself (explicit is false) — the vendor's own subscription login or first keyed
+// provider with a resolvable credential. note is a one-line explanation to print on fallback.
+func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+	t, ok := sel.Slots[models.Opus]
+	if !ok {
+		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
+	}
+	if explicit || canServe(name, t.Provider) {
+		return t, "", nil
+	}
+	if ft, fallbackNote, ok := fallbackTarget(reg, name); ok {
+		return ft, fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote), nil
+	}
+	return t, "", nil
+}
+
+// canServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
+// of the dialects the vendor speaks.
+func canServe(name string, p *providers.Provider) bool {
+	// A passthrough provider carries a login only its own vendor can forward; a dialect match is not enough.
+	if p.Auth.Login != "" || p.Auth.Type == "passthrough" {
+		return p.Auth.Login == name
+	}
+	spec, ok := Lookup(name)
+	if !ok {
+		return false
+	}
+	for _, d := range spec.Dialects {
+		if _, ok := p.Route(d); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// fallbackTarget is each vendor's own route to a working credential when the session provider has none.
+func fallbackTarget(reg *providers.Registry, name string) (providers.Target, string, bool) {
+	switch name {
+	case "codex":
+		if p, ok := loginProvider(reg, "chatgpt", "codex"); ok && codexChatGPTLogin() == nil {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "chatgpt (codex login)", true
+		}
+	case "copilot":
+		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok && copilotLoginPresent() {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "github-copilot (GH_TOKEN/gh auth)", true
+		}
+	case "gemini":
+		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
+		}
+	case "opencode":
+		// github-copilot is passthrough, and opencode has no subscription sign-in (see login() below);
+		// the only working fallback is a plain keyed provider.
+		if p, ok := firstKeyedProvider(reg); ok {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, p.Name + " (first keyed provider)", true
+		}
+	}
+	return providers.Target{}, "", false
+}
+
+func loginProvider(reg *providers.Registry, providerName, vendor string) (*providers.Provider, bool) {
+	p, ok := reg.Providers[providerName]
+	if !ok || p.Auth.Login != vendor {
+		return nil, false
+	}
+	return p, true
+}
+
+// firstKeyedProvider is the first registered provider (by name, sorted) with a non-passthrough,
+// non-none auth type whose credential actually resolves.
+func firstKeyedProvider(reg *providers.Registry) (*providers.Provider, bool) {
+	for _, n := range reg.Names() {
+		p := reg.Providers[n]
+		if p.Auth.Type == providers.AuthPassthrough || p.Auth.Type == providers.AuthNone {
+			continue
+		}
+		if providers.CredentialPresent(p) {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+// copilotLoginPresent checks GH_TOKEN first, then a short `gh auth status` probe (copilot's own
+// sign-in surface); never run for Claude Code itself, only to decide a vendor fallback.
+func copilotLoginPresent() bool {
+	if strings.TrimSpace(os.Getenv("GH_TOKEN")) != "" {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "gh", "auth", "status").Run() == nil
+}
+
+// ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
+func ConfigureHint(name string) string {
+	switch name {
+	case "codex":
+		return "run `codex login` (ChatGPT) or `claude-code configure keys`"
+	case "copilot":
+		return "run `copilot login` (or set GH_TOKEN) or `claude-code configure keys`"
+	case "gemini":
+		return "run `claude-code configure keys` to set GEMINI_API_KEY, or sign in with `gemini`"
+	default:
+		return "run `claude-code configure agents`"
+	}
+}
 
 // Configure returns extra env (KEY=VALUE) and leading argv that point the vendor CLI at target.
 // headlessPrompt != "" asks for the non-interactive form (the runner path).

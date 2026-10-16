@@ -31,11 +31,11 @@ func cmdReview(args []string) int {
 	}
 	sort.Strings(names)
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Printf("usage: claude-code review <%s> [args...]  (each takes -h)\n", strings.Join(names, "|"))
+		fmt.Printf("usage: claude-code review <%s>\n       [args...]  (each takes -h)\n", strings.Join(names, "|"))
 		return 0
 	}
 	if len(args) == 0 || reviewTools[args[0]] == nil {
-		fmt.Fprintf(os.Stderr, "usage: claude-code review <%s> [args...]  (each takes -h)\n", strings.Join(names, "|"))
+		fmt.Fprintf(os.Stderr, "usage: claude-code review <%s>\n       [args...]  (each takes -h)\n", strings.Join(names, "|"))
 		return 2
 	}
 	return reviewTools[args[0]](args[1:], os.Stdin, os.Stdout, os.Stderr)

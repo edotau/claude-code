@@ -134,8 +134,13 @@ func resolveGradient(cfg Config, pal Palettes) []ansi.RGB {
 	if len(stops) == 0 {
 		stops = embeddedPalettes().Gradients["gemini"]
 	}
-	out := make([]ansi.RGB, len(stops))
-	for i, h := range stops {
+	return hexStops(stops)
+}
+
+// hexStops converts a palette's hex ramp to RGB stops (shared by resolveGradient and GradientStops).
+func hexStops(hexes []string) []ansi.RGB {
+	out := make([]ansi.RGB, len(hexes))
+	for i, h := range hexes {
 		out[i] = ansi.Hex(h)
 	}
 	return out

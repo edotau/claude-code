@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
@@ -25,7 +27,8 @@ func cmdClaude(args []string) int {
 
 func cmdRun(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p] [--model [provider:]model] [--print-env] [args...]")
+		fmt.Fprintln(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p]\n"+
+			"       claude-code run [--model [provider:]model] [--print-env] [args...]")
 		return 2
 	}
 	return launchVendor(args[0], args[1:])
@@ -65,7 +68,8 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 
 func cmdHook(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: claude-code hook <safety|stop-format|context-checkpoint|session-start|memory-recall|session-harvest|session-harvest-end> < payload.json")
+		return fail("usage: claude-code hook <safety|stop-format|context-checkpoint|session-start|\n" +
+			"        memory-recall|session-harvest|session-harvest-end> < payload.json")
 	}
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
@@ -75,6 +79,9 @@ func cmdStatusline(args []string) int { return statusline.Run(args, os.Stdin, os
 func cmdSettings(args []string) int {
 	fs := flag.NewFlagSet("settings", flag.ContinueOnError)
 	out := fs.String("out", "", "write the render here (atomically, after a timestamped backup)")
+	agents := fs.String("agents", "", "comma-separated vendors to render (default codex,opencode,gemini,copilot)")
+	dryRun := fs.Bool("dry-run", false, "print every rendered block (settings.json and vendor configs); write nothing")
+	check := fs.Bool("check", false, "exit 1 if any rendered file has drifted; write nothing")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -84,17 +91,29 @@ func cmdSettings(args []string) int {
 	}
 	if *out == "" {
 		os.Stdout.Write(data)
-		return 0
+	} else {
+		backup, err := settings.WriteWithBackup(*out, data)
+		if err != nil {
+			return fail("%v", err)
+		}
+		fmt.Printf("wrote %s", *out)
+		if backup != "" {
+			fmt.Printf(" (backup %s)", backup)
+		}
+		fmt.Println()
 	}
-	backup, err := settings.WriteWithBackup(*out, data)
+
+	var vendorAgents []string
+	if *agents != "" {
+		vendorAgents = strings.Split(*agents, ",")
+	}
+	drift, err := generate.Run(generate.Options{Agents: vendorAgents, DryRun: *dryRun, Check: *check, Out: os.Stdout})
 	if err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("wrote %s", *out)
-	if backup != "" {
-		fmt.Printf(" (backup %s)", backup)
+	if *check && drift {
+		return 1
 	}
-	fmt.Println()
 	return 0
 }
 

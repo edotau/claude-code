@@ -86,7 +86,9 @@ func cmdAsk(args []string) int {
 	return 0
 }
 
-const agentsUsage = "usage: claude-code agents | agents sync --gemini [--dry-run] [--check] [--no-prune] | agents docs [--check] [--dry-run]"
+const agentsUsage = `usage: claude-code agents
+       claude-code agents sync --gemini [--dry-run] [--check] [--no-prune]
+       claude-code agents docs [--check] [--dry-run]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {

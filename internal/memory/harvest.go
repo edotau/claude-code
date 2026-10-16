@@ -127,6 +127,10 @@ func Update(o UpdateOptions) error {
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}
+	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
+	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
+		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
+	}
 	if err := errors.Join(lockErr, runErr); err != nil {
 		record(HarvestFailed, updated)
 		return fmt.Errorf("headless harvest: %w", err)

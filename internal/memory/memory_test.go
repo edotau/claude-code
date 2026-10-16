@@ -118,9 +118,9 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	n, err := SettleBank(root, now)
-	if err != nil || n != 5 {
-		t.Fatalf("rotated %d err %v", n, err)
+	s, err := SettleBank(root, now)
+	if err != nil || s.Rotated != 5 {
+		t.Fatalf("rotated %d err %v", s.Rotated, err)
 	}
 	_, kept := splitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
 	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))

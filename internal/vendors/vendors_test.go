@@ -750,3 +750,89 @@ func TestProjectMCPApprovalGate(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
+	t.Setenv("GH_TOKEN", "")
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+
+	// codex: subscription can't serve it, no ChatGPT login present -> target unchanged, no note.
+	target, note, err := ResolveTarget(reg, "codex", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note != "" {
+		t.Fatalf("expected no fallback without a codex login, got %q", note)
+	}
+	if target.Provider != sub {
+		t.Fatalf("expected unchanged target, got %s", target.Provider.Name)
+	}
+
+	// With a ChatGPT login present, codex falls back to the chatgpt provider.
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, "codex", "auth.json")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "codex", "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target, note, err = ResolveTarget(reg, "codex", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Provider == nil || target.Provider.Name != "chatgpt" {
+		t.Fatalf("expected fallback to chatgpt, got %v", target.Provider)
+	}
+	if !strings.Contains(note, "chatgpt") {
+		t.Fatalf("expected a note naming chatgpt, got %q", note)
+	}
+
+	// An explicit provider choice is never overridden by a fallback.
+	target, note, err = ResolveTarget(reg, "codex", sel, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note != "" || target.Provider != sub {
+		t.Fatalf("explicit provider must not fall back, got target=%v note=%q", target.Provider, note)
+	}
+}
+
+func TestResolveTargetGeminiFallsBackToKeyedGemini(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("GEMINI_API_KEY", secret)
+	for _, k := range []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	target, note, err := ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Provider == nil || target.Provider.Name != "gemini" {
+		t.Fatalf("expected fallback to the gemini provider, got %v", target.Provider)
+	}
+	if !strings.Contains(note, "GEMINI_API_KEY") {
+		t.Fatalf("expected a note naming GEMINI_API_KEY, got %q", note)
+	}
+}

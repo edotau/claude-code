@@ -59,6 +59,16 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 				note += " NOTE: the previous session's memory harvest did not complete (" + res.Status + ")" + hint + " — run /memory:end to recover it."
 			}
 		}
+		// The doctor line comes from the cache `memory update`'s settle path maintains — a full Doctor
+		// pass tokenizes the global bank + access log, which has no place on the launch path.
+		if data, err := os.ReadFile(memory.DoctorNoticePath()); err == nil {
+			if notice := strings.TrimSpace(string(data)); notice != "" {
+				if len(notice) > 200 {
+					notice = notice[:200]
+				}
+				note += " memory doctor: " + notice + "."
+			}
+		}
 		out = note + "\n\n" + bank
 	}
 	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.

@@ -120,6 +120,14 @@ func truncateLine(s string) string {
 	return cut + "…"
 }
 
+// lineCount counts lines in s (0 for empty) — the budget unit promote/archive split on.
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
+}
+
 // NewestHeadingBlocks returns up to n "## " blocks from the top of a newest-first file; nil when absent.
 func NewestHeadingBlocks(path string, n int) []string {
 	data, err := os.ReadFile(path)

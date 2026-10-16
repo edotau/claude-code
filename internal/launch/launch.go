@@ -179,6 +179,12 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	}
 	if passthrough {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
+		// A long-lived setup-token in secrets.env outlives the /login session in .credentials.json.
+		if os.Getenv(oauthKey) == "" {
+			if tok := strings.TrimSpace(providers.ReadEnvFile(providers.SecretsFile())[oauthKey]); tok != "" {
+				plan.Set[oauthKey] = tok
+			}
+		}
 	} else {
 		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
 		plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
@@ -188,19 +194,30 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	return plan, nil
 }
 
-// Vendor resolves `claude-code run <vendor>`: the opus target wired through vendors.Configure.
+// Vendor resolves `claude-code run <vendor>`: the opus target wired through vendors.Configure, falling
+// back to the vendor's own subscription login or a keyed provider when the session provider cannot
+// serve it and the caller named no provider explicitly.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	spec, ok := vendors.Lookup(name)
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
 	}
-	_, sel, err := selection(o)
+	reg, sel, err := selection(o)
 	if err != nil {
 		return Plan{}, err
 	}
-	env, prefix, err := vendors.Configure(ctx, name, sel.Slots[models.Opus], "")
+	// Only --provider is explicit: the session pin (env or file) is Claude Code's default, not a per-vendor choice.
+	explicit := o.Provider != ""
+	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
 	if err != nil {
 		return Plan{}, err
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	env, prefix, err := vendors.Configure(ctx, name, target, "")
+	if err != nil {
+		return Plan{}, fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
 	}
 	bin, err := lookPath(spec.Binary)
 	if err != nil {

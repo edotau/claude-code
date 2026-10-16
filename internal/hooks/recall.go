@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
@@ -48,12 +49,14 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	}
 	var b strings.Builder
 	b.WriteString("<!-- memory-recall: bank blocks matching this prompt; more: claude-code memory search -->")
+	now := time.Now()
 	for _, h := range hits {
 		line := strings.Join(strings.Fields(h.Block), " ")
 		if rs := []rune(line); len(rs) > recallHitCapRunes {
 			line = string(rs[:recallHitCapRunes]) + "…"
 		}
 		fmt.Fprintf(&b, "\n- [%s/%s] %s", h.Bank, h.File, line)
+		memory.LogAccess(logDirFor(root, h.Bank), now, h.Bank+":"+h.File, "prompt-recall inject")
 	}
 	memory.MarkSeen(in.SessionID, hits)
 	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}); out != "" {
@@ -84,6 +87,16 @@ func relevantHits(sessionID, q string, ranked []memory.SearchHit) []memory.Searc
 		}
 	}
 	return out
+}
+
+// logDirFor is the access-log dir for a recall hit's bank: local hits log beside the local bank
+// (a per-repo audit trail); global and native hits log beside the shared global bank, since that is
+// the one access log AccessNominations reads.
+func logDirFor(root, bank string) string {
+	if bank == "local" {
+		return memory.Dir(root)
+	}
+	return memory.GlobalDir()
 }
 
 // distinctTerms counts distinct tokens of ≥3 chars — a coarse gate on whether to search, never on ranking.

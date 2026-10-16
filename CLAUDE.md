@@ -48,31 +48,41 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
 | Check binaries, providers, credentials, router | `claude-code doctor` | — |
-| See providers and credential state | `claude-code providers` · `claude-code providers <name>` | `README.md` → Providers |
-| Switch the session provider | `claude-code use <provider>` (relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
+| See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
+| Switch the session provider | `claude-code switch <provider>` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
 | Pin models | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Add a gateway provider (LiteLLM, OpenRouter, corporate) | add it to `~/.claude/providers.json` with `routes` per dialect; copy `providers.example.json` | `README.md` → Providers |
-| Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command` | `README.md` → Credentials |
+| Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command`; `claude-code secrets set\|get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives the gemini CLI | `commands/gemini/gemini.md`, `agents/gemini.md` |
 | Mirror agents + skills into Gemini CLI; render AGENTS.md + GEMINI.md | `claude-code agents sync --gemini` (`--dry-run`, `--check`) · `claude-code agents docs [--check]` | `commands/harness/sync-agents.md`; outputs are generated — edit `agents/`, `skills/`, this file |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider openrouter --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
-| Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code settings` (prints) → `make install` | hard rule 1 |
-| Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path` | `commands/memory/end.md` |
+| Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
+| Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--json]` | `/harness:mcp-doctor` |
+| Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes) | credentials/settings never swept |
+| Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
+| Pick the statusline color palette | `claude-code theme [--preview]` | — |
+| Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote` | `README.md` → Memory bank |
+| Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |
 | Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` | `rules/workflow/master-workflow.md` |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/test-repair` |
+| Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
+| Audit / extract / promote / save agent memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/reflection.md` |
+| Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
+| Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
+| Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |
 
 ## Where things live
 
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; `~/.claude/providers.json` overlays by name.
-- `env.d/` — `provider.env` (pins, written by `use`/`models`) and `secrets.env` (credentials); untracked.
+- `env.d/` — `provider.env` (pins, written by `switch`/`models`) and `secrets.env` (credentials); untracked.
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`

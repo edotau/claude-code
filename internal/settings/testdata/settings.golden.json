@@ -71,12 +71,32 @@
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook safety",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook rtk-wrap",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook docs-placement",
+            "timeout": 5
           }
         ]
       },
       {
         "matcher": "Agent|Task",
         "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-effort",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook agent-inflight",

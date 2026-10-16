@@ -38,6 +38,9 @@
 /docs/plans/*/
 /agent-memory/
 /worktrees/
+# claude-dbx debris while it still runs against this tree (its dream/clean logs, handoff beacon)
+/session-data/
+/docs/handoffs/
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/
 /skills/.trash/
