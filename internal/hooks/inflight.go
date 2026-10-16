@@ -25,6 +25,12 @@ const AgentMaxInflight = 8
 // never reported stops counting after this long. Where the probe works, a dead owner retires it at once.
 const inflightTTL = 30 * time.Minute
 
+// inflightIdle: a tagged marker whose agent transcript is untouched this long stopped without a SubagentStop.
+const inflightIdle = 10 * time.Minute
+
+// inflightGrace: how long a tagged marker may wait for its agent transcript to appear before it is abandoned.
+const inflightGrace = 2 * time.Minute
+
 // inflightLockWait bounds the wait for the marker-dir lock; the hook itself is killed at 5 s.
 const inflightLockWait = 2 * time.Second
 
@@ -72,11 +78,15 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 		return ExitProceed // not a spawn: nothing to count
 	}
 	id := dispatchID(in)
+	transcriptDir := ""
+	if in.TranscriptPath != "" {
+		transcriptDir = filepath.Dir(in.TranscriptPath)
+	}
 	code := ExitProceed
 	// TryFileLock, not WithFileLock: the latter is fail-open, and counting markers unlocked races a
 	// sibling's write into a wrong total. Under contention: write first, then count (see below).
 	ran, _ := paths.TryFileLock(filepath.Join(dir, ".lock"), inflightLockWait, func() error {
-		n := pruneAndCountMarkers(dir, time.Now())
+		n := pruneAndCountMarkers(dir, owner, transcriptDir, time.Now())
 		if n >= AgentMaxInflight {
 			fmt.Fprintf(stderr, "agent-inflight: %d Agent dispatches already in flight (cap %d, machine-wide) — "+
 				"wait for one to finish or run this task sequentially.\n", n, AgentMaxInflight)
@@ -92,7 +102,7 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 			id = strconv.FormatInt(time.Now().UnixNano(), 36) // pin the name so the over-cap Remove hits this marker
 		}
 		writeMarker(dir, owner, id)
-		if n := pruneAndCountMarkers(dir, time.Now()); n > AgentMaxInflight {
+		if n := pruneAndCountMarkers(dir, owner, transcriptDir, time.Now()); n > AgentMaxInflight {
 			_ = os.Remove(filepath.Join(dir, markerName(owner, id)))
 			fmt.Fprintf(stderr, "agent-inflight: %d Agent dispatches already in flight (cap %d, machine-wide) — "+
 				"wait for one to finish or run this task sequentially.\n", n-1, AgentMaxInflight)
@@ -217,8 +227,10 @@ func ownerDead(pid int) bool {
 }
 
 // pruneAndCountMarkers removes markers whose owner is PROVABLY gone — or, when the owner cannot be
-// probed at all, whose TTL expired — and returns the live count. Non-marker entries never count.
-func pruneAndCountMarkers(dir string, now time.Time) int {
+// probed at all, whose TTL expired — and, for self's own TAGGED markers, whose agent transcript under
+// transcriptDir is idle past inflightIdle or absent past inflightGrace (a turn-capped agent sends no
+// SubagentStop). Returns the live count. Non-marker entries never count.
+func pruneAndCountMarkers(dir string, self int, transcriptDir string, now time.Time) int {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
@@ -242,6 +254,16 @@ func pruneAndCountMarkers(dir string, now time.Time) int {
 		if (trusted && !proc.Alive(owner)) || (!trusted && stale) {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 			continue
+		}
+		// Only self's markers: a sibling session's transcripts live elsewhere and would read as "missing".
+		if _, agentID, tagged := strings.Cut(e.Name(), markerAgentSep); tagged && agentID != "" && owner == self && transcriptDir != "" {
+			transcript, err := os.Stat(filepath.Join(transcriptDir, "agent-"+agentID+".jsonl"))
+			missing := os.IsNotExist(err) && now.Sub(fi.ModTime()) > inflightGrace
+			idle := err == nil && now.Sub(transcript.ModTime()) > inflightIdle
+			if missing || idle {
+				_ = os.Remove(filepath.Join(dir, e.Name()))
+				continue
+			}
 		}
 		n++
 	}
