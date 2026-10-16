@@ -239,3 +239,28 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 		t.Fatal("a user-chosen theme must not count as drift")
 	}
 }
+
+func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
+	home := scratch(t)
+	overlay := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "providers.json")
+	if err := os.WriteFile(overlay, []byte(`{"default": "chatgpt"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexHome := os.Getenv("CODEX_HOME")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"id_token":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "codex: skipped") {
+		t.Fatalf("want a codex skip line, got:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("own-login codex must not get a config.toml block, stat err = %v", err)
+	}
+}

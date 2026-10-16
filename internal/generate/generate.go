@@ -137,6 +137,10 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
+	if target.Provider != nil && target.Provider.Auth.Type == providers.AuthPassthrough {
+		fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
+		return false, nil
+	}
 	_, argv, err := vendors.Configure(ctx, "codex", target, "")
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)

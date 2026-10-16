@@ -137,6 +137,9 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 		if names := OpencodeLogins(); len(names) > 0 {
 			return providers.Target{}, "opencode auth login (" + strings.Join(names, ", ") + ")", true
 		}
+		if m := opencodeOwnModel(); m != "" {
+			return providers.Target{}, "opencode's own config (" + m + ")", true
+		}
 		if p, ok := firstKeyedProvider(reg); ok {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, p.Name + " (first keyed provider)", true
 		}
@@ -681,6 +684,26 @@ func OpencodeLogins() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// opencodeOwnModel is the "model" the user set in ~/.config/opencode/opencode.jsonc (comment-free JSON only), else "".
+func opencodeOwnModel() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".config")
+	}
+	data, err := os.ReadFile(filepath.Join(base, "opencode", "opencode.jsonc"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return ""
+	}
+	return cfg.Model
 }
 
 // opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), where `opencode auth login` writes.
