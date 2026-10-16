@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
@@ -61,6 +62,18 @@ func Install(w io.Writer, dryRun bool) error {
 			if err := os.Symlink("claude-code", link); err != nil {
 				return err
 			}
+		}
+	}
+	// Bash tab-completion: best-effort — an unwritable completions dir (no bash-completion package,
+	// read-only $HOME) must never fail the install that got the binary and shims in place.
+	switch {
+	case dryRun:
+		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
+	default:
+		if path, err := completion.Install("claude-code", ShimNames); err != nil {
+			fmt.Fprintf(w, "completion skip  %v\n", err)
+		} else {
+			fmt.Fprintf(w, "completion %s\n", path)
 		}
 	}
 	if err := linkOnPath(w, target, dryRun); err != nil {
