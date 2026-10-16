@@ -217,7 +217,23 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
 	if err != nil {
-		return Plan{}, fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
+		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
+		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
+		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
+			reg, sel, err = selection(o)
+			if err == nil {
+				target, note, err = vendors.ResolveTarget(reg, name, sel, explicit)
+			}
+			if err == nil {
+				if note != "" {
+					fmt.Fprintln(os.Stderr, note)
+				}
+				env, prefix, err = vendors.Configure(ctx, name, target, "")
+			}
+		}
+		if err != nil {
+			return passthrough(spec, name, reason, args)
+		}
 	}
 	bin, err := lookPath(spec.Binary)
 	if err != nil {
@@ -321,4 +337,19 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// OfferConfigure is the interactive seam `configure` installs: asked once when a vendor cannot be routed, it
+// may set up that vendor (login or key) and returns true when the launch should re-resolve. nil = no offer.
+var OfferConfigure func(vendor string, reason error) bool
+
+// passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
+// that CLI and it carries its own login, so refusing to run it would only hide `gemini auth login` itself.
+func passthrough(spec vendors.Spec, name string, reason error, args []string) (Plan, error) {
+	bin, err := lookPath(spec.Binary)
+	if err != nil {
+		return Plan{}, reason
+	}
+	fmt.Fprintf(os.Stderr, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
+	return Plan{Binary: bin, Set: map[string]string{}, Argv: args}, nil
 }

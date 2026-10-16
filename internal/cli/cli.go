@@ -64,6 +64,7 @@ func commands() []command {
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
+		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
@@ -75,6 +76,8 @@ func commands() []command {
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
 		{name: "statusline", hidden: true, summary: "render the status line (invoked by settings.json)", run: cmdStatusline},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
+		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion},
+		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},
 	}
 }
 

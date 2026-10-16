@@ -1,0 +1,70 @@
+package cli
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/launch"
+)
+
+const configureUsage = "usage: claude-code configure [--provider p] [--vendor codex|copilot|opencode|gemini|claude] [--dry-run] [--check] [provider|keys|models|agents|router|doctor]"
+
+// cmdConfigure is the guided setup: every section in order, or the one named.
+func cmdConfigure(args []string) int {
+	fs := flag.NewFlagSet("configure", flag.ContinueOnError)
+	provider := fs.String("provider", "", "pick this provider non-interactively")
+	vendor := fs.String("vendor", "", "scope keys/agents to one vendor")
+	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
+	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, configureUsage) }
+	// `configure agents --vendor codex`: a leading section word precedes the flags, so lift it out first.
+	section := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		section, args = args[0], args[1:]
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if section == "" && fs.NArg() > 0 {
+		section = fs.Arg(0)
+	}
+	return configure.Run(configure.Options{
+		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
+	}, section)
+}
+
+// isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).
+func isTTY(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+func init() {
+	configureRun = cmdConfigure
+	// A vendor the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
+	launch.OfferConfigure = func(vendor string, reason error) bool {
+		if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
+			return false
+		}
+		fmt.Fprintf(os.Stderr, "%v\nSet up %s now? [Y/n] ", reason, vendor)
+		var answer string
+		if _, err := fmt.Fscanln(os.Stdin, &answer); err != nil && answer == "" {
+			answer = "y" // a bare Enter accepts the default
+		}
+		if answer != "" && answer[0] != 'y' && answer[0] != 'Y' {
+			return false
+		}
+		changed, err := configure.Vendor(vendor, true, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "configure %s: %v\n", vendor, err)
+		}
+		return changed
+	}
+}

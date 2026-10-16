@@ -86,6 +86,10 @@ func Run(o Options) (drift bool, err error) {
 		}
 		drift = drift || d
 	}
+	if _, statErr := os.Stat(filepath.Join(paths.ConfigDir(), "CLAUDE.md")); statErr != nil {
+		fmt.Fprintln(out, "docs: skipped (no CLAUDE.md in "+paths.ConfigDir()+")") // a bare box renders no roster docs
+		return drift, nil
+	}
 	if rc := crossgen.RenderDocs(crossgen.DocsOptions{Check: o.Check, DryRun: o.DryRun, Out: out}); rc != 0 {
 		if o.Check {
 			drift = true

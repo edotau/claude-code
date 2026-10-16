@@ -644,3 +644,12 @@ func tomlInline(pairs [][2]string) string {
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
+
+// CodexChatGPTLoginPresent reports whether codex's own ChatGPT sign-in (~/.codex/auth.json) is on disk.
+func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
+
+// CopilotLoginPresent reports a usable GitHub login for copilot: GH_TOKEN or an authenticated `gh`.
+func CopilotLoginPresent() bool { return copilotLoginPresent() }
+
+// GeminiLoginPresent reports whether ~/.gemini/settings.json selects a Google login (which beats any key).
+func GeminiLoginPresent() bool { return geminiAuthConflict() != nil }
