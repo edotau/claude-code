@@ -75,14 +75,14 @@ ALWAYS use parallel Agent calls for independent operations — launch in a **sin
 
 > **Tier by context weight, not raw count.**
 > - **Deep-context agents** (large context / many files each — e.g. whole-module audits): keep
->   **≤4** concurrent.
+>   **≤8** concurrent.
 > - **Lean/fresh subagents** (small context — one-file reads, single-target fixes): up to
 >   **~8–10** is fine; they start cheap.
 > - **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
 >   An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
 >   parent's tier — dispatch fan-out leaves as `code-workers` (frontmatter `model: sonnet`),
 >   NOT as `inherit` managers. Reserve `model: 'opus'` for a single leaf that demonstrably
->   failed on Sonnet (capability escalation), counted against the ≤4 tier.
+>   failed on Sonnet (capability escalation), counted against the ≤8 tier.
 > - A provider with its own rate limit may throttle a wide fan-out before either cap bites —
 >   `claude-code doctor` reports provider/router health; drop to sequential if a shared
 >   provider starts throwing sustained errors.
@@ -101,7 +101,7 @@ First agent 1, then agent 2, then agent 3
 
 - Leaves never auto-fallback — a leaf runs the `model:` it was dispatched with, success or fail.
 - On capability shortfall, the **manager** re-dispatches the leaf with `model: 'opus'` (counted
-  against the ≤4 deep-context tier). Escalate after ONE failed high-effort Sonnet attempt —
+  against the ≤8 deep-context tier). Escalate after ONE failed high-effort Sonnet attempt —
   repeat Sonnet retries on a capability-bound task are pure token burn.
 - Read-only sweeps that failed cheaply may be re-dispatched as `haiku` instead.
 - Managers tune `effort` per dispatch: low for mechanical leaves, medium default, high only

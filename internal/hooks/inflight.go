@@ -17,8 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// AgentMaxInflight is the machine-wide cap on concurrent Agent dispatches (the input-tokens/min 429 risk).
-const AgentMaxInflight = 4
+// AgentMaxInflight is the machine-wide cap on concurrent Agent dispatches. The 4 it inherited was a Databricks
+// input-tokens/min ceiling; first-party accounts take more, so it sits at 8 until a 429 says otherwise.
+const AgentMaxInflight = 8
 
 // inflightTTL is the backstop for a marker whose owner cannot be probed (or parsed): a dispatch that
 // never reported stops counting after this long. Where the probe works, a dead owner retires it at once.

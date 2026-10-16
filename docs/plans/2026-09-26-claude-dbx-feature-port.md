@@ -65,16 +65,19 @@ on. Bugs found while porting are fixed in this repo, never there.
 | --- | --- | --- |
 | 8 | `docs-placement` hook | **done** — `internal/hooks/docsplacement.go`, registered, live-checked (root `.md` blocked, `docs/plans/` passes) |
 | 4 | `rtk-wrap` hook + doctor line | **done** — `internal/hooks/rtk.go`, `HARNESS_RTK_BIN` override, `--porcelain`/value subcommands bypass |
-| 11 | **Memory, native store**: MEMORY.md ≤20-line injected core, overflow pointers → `SEARCHABLE.md` (recall-only), archive/restore cold topics, `memory archive [--dupes\|--apply\|--restore\|--split N]` | in flight |
-| 12 | **Memory, bank**: `memory doctor\|stats\|timeline\|promote`, caps → promote local→global → archive overflow (in `SettleBank`), `access.log` + hot/cold nominations, cached doctor notice at SessionStart | in flight |
-| 13 | Agents (`claude`, `codex`, `copilot`, `documentation`, `reflection`), commands (`harness/*`, `reflection/*`, `workflow/route\|workflow`, `codex/*`, `memory/promote`), rules (`performance`, `workflow/*`, `harness/*` — all `paths:`-scoped) | in flight |
-| 10a | `agent-effort` local classifier (unset spawn model → haiku/sonnet by task tier; roster `model:` pin wins) | queued |
-| 10b | `clean` verb (dry-run, `--apply`, `--list`, `--older-than`) over this repo's own state dirs | queued |
-| 10c | config `history` (shadow git of settings.json / providers.json / vendor configs: `snapshot\|log\|diff`) | queued |
-| 14 | `mcp doctor` (connect health via `claude mcp list`, cross-scope drift, inline plaintext secrets) + `/harness:mcp-doctor` | queued |
-| 15 | `theme` verb (pick the statusline palette; `--preview`) | queued |
-| 16 | **Help rewrite** — the dbx menu exactly (`~/.claude/internal/cli/help.go` + the `Group:` field in `registry.go`: `usage:` header with the `<command> -h` line, UPPERCASE group headings, name column + one-line summary, hidden machine verbs), MINUS the GATEWAYS group (no databricks/apollo, and one anthropic entry is not a section). Groups: AGENTS (claude run ask agents gemini) · PROVIDERS (providers models use token router) · MEMORY (memory) · SESSION (clean history science usage review workflow) · DIAGNOSTICS (doctor) · SETTINGS (settings install generate configure theme). Every summary ≤60 chars so no row wraps at 80 cols; `hook`/`statusline`/`version` listed under the trailing "Machine helpers" note like dbx, not as rows; per-verb `-h` trimmed the same way. Runs LAST, once every verb above has landed | queued, last |
-| 17 | **`generate` + `configure`** — see below | planned |
+| 11 | **Memory, native store**: MEMORY.md ≤20-line injected core, overflow pointers → `SEARCHABLE.md` (recall-only), archive/restore cold topics, `memory archive [--dupes\|--apply\|--restore\|--split N]` | **done** — live-checked; restore honors the 20-line core; `memory` root ignores a non-repo CLAUDE_PROJECT_DIR |
+| 12 | **Memory, bank**: `memory doctor\|stats\|timeline\|promote`, caps → promote local→global → archive overflow (in `SettleBank`), `access.log` + hot/cold nominations, cached doctor notice at SessionStart | **done** — doctor covers the LOCAL bank too (was global-only); promote→archive proven live |
+| 13 | Agents (`claude`, `codex`, `copilot`, `documentation`, `reflection`), commands (`harness/*`, `reflection/*`, `workflow/route\|workflow`, `codex/*`, `memory/promote`), rules (`performance`, `workflow/*`, `harness/*` — all `paths:`-scoped) | **done** |
+| 10a | `agent-effort` local classifier (unset spawn model → haiku/sonnet by task tier; roster `model:` pin wins) | **done** — registered, live-checked |
+| 10b | `clean` verb (dry-run, `--apply`, `--list`, `--older-than`) over this repo's own state dirs | **done** — 6 targets, dry-run live-checked |
+| 10c | config `history` (shadow git of settings.json / providers.json / vendor configs: `snapshot\|log\|diff`) | **done** — secrets never snapshotted (verified), absent files one line |
+| 14 | `mcp doctor` (connect health via `claude mcp list`, cross-scope drift, inline plaintext secrets) + `/harness:mcp-doctor` | **done** — live against the real ~/.claude.json |
+| 15 | `theme` verb (pick the statusline palette; `--preview`) | **done** |
+| 16 | **Help rewrite** — the dbx menu exactly (`~/.claude/internal/cli/help.go` + the `Group:` field in `registry.go`: `usage:` header with the `<command> -h` line, UPPERCASE group headings, name column + one-line summary, hidden machine verbs), MINUS the GATEWAYS group (no databricks/apollo, and one anthropic entry is not a section). Groups: AGENTS (claude run ask agents gemini) · PROVIDERS (providers models use token router) · MEMORY (memory) · SESSION (clean history science usage review workflow) · DIAGNOSTICS (doctor) · SETTINGS (settings install generate configure theme). Every summary ≤60 chars so no row wraps at 80 cols; `hook`/`statusline`/`version` listed under the trailing "Machine helpers" note like dbx, not as rows; per-verb `-h` trimmed the same way. Runs LAST, once every verb above has landed | **done** — menu + hidden aliases + ≤60-char test |
+| 17 | **`generate` + `configure`** — see below | **done** — generate renders codex/opencode/gemini configs (banner blocks, `--check`); configure sections provider/keys/models/agents/router/doctor, TTY login offers, piped report; vendor verbs fall back to their own login, then offer configure, then pass through to the plain CLI |
+| 18 | `secrets` set\|get\|status\|scan\|git\|doctor\|all | **done** — live-checked, scan exits 1 |
+| 19 | bash tab-completion (`completion [--install]`, `__complete`) | **done** — verbs, subverbs, flags, provider/palette values; launchers never probed |
+| 20 | Makefile parity (grouped help, audit/verify/bootstrap/…) | in flight |
 
 Skipped on purpose: `agent-rules-guard` (needs the per-agent native-memory RULES region + seeding, a subsystem this
 repo does not have), dream/reflect codex passes, knowledge corpus, handoff beacons, ledger.
