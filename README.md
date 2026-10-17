@@ -263,7 +263,7 @@ Six files per git repo under `docs/memory/bank/<repo-slug>/` (untracked): `proje
 `progress`, `decisionLog`, `conventions`, `sessionHistory`; `docs/memory/bank/` itself is the global bank, used
 by any non-repo cwd. A pre-`bank/` tree moves in place on the next session start or `memory` verb.
 
-What a session pays for: SessionStart injects `activeContext` + `progress` in full and the bank's generated
+What a session pays for: SessionStart injects `activeContext` (minus its `## Parked` section) + `progress` and the bank's generated
 `index.md` (one routing line per durable entry, ≤8,500 chars total); everything else is found per prompt by the
 `memory-recall` hook (BM25 over local, global, archive and native topics, ≤3 blocks, skipping what is already in
 context) and by `claude-code memory search`. Every settle (`memory index`, the background harvest) keeps the bank

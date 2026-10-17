@@ -25,8 +25,8 @@ paths:
 
 ## Who writes what
 
-- **`session-start` hook** (`internal/hooks/`): read-only — injects activeContext + progress +
-  the newest sessionHistory entry.
+- **`session-start` hook** (`internal/hooks/`): read-only — injects activeContext (minus its
+  `## Parked` section, which memory-recall surfaces by topic) + progress + the newest sessionHistory entry.
 - **`memory-recall` hook** (UserPromptSubmit): injects up to a few matching bank/native-memory
   blocks for prompts with enough distinct terms; silent otherwise.
 - **`/memory:end`**: the primary writer at session close — summary → sessionHistory; rewrite
