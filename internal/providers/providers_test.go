@@ -153,3 +153,17 @@ func TestProviderMarshalRedactsHeaders(t *testing.T) {
 		t.Errorf("marshal: %s", s)
 	}
 }
+
+// PinDiff previews only real changes and never writes the pin file.
+func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := SetPins(map[string]string{PinProvider: "gemini"}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(PinFile())
+	got := PinDiff(map[string]string{PinProvider: "gemini", SlotPin("opus"): "x"})
+	after, _ := os.ReadFile(PinFile())
+	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || string(before) != string(after) {
+		t.Fatalf("PinDiff = %q (file changed: %v)", got, string(before) != string(after))
+	}
+}

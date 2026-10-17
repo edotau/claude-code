@@ -99,3 +99,21 @@ func SetPins(kv map[string]string) error {
 		return nil
 	})
 }
+
+// PinDiff previews SetPins(kv): one "KEY: old → new" line per key whose value would change, sorted.
+func PinDiff(kv map[string]string) []string {
+	cur := ReadEnvFile(PinFile())
+	keys := make([]string, 0, len(kv))
+	for k := range kv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		if cur[k] == kv[k] {
+			continue
+		}
+		out = append(out, k+": "+cmp.Or(cur[k], "(unset)")+" → "+cmp.Or(kv[k], "(unset)"))
+	}
+	return out
+}

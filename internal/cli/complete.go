@@ -60,7 +60,8 @@ var noComplete = map[string]bool{
 var flagsFor = map[string][]flagInfo{
 	"resolve":          {{name: "provider", values: providerNames}, {name: "router", isBool: true}},
 	"clean":            {{name: "what"}, {name: "older-than"}, {name: "apply", isBool: true}, {name: "list", isBool: true}},
-	"secrets set":      {{name: "keyring", isBool: true}},
+	"secrets set":      {{name: "keyring", isBool: true}, {name: "dry-run", isBool: true}},
+	"switch":           {{name: "dry-run", isBool: true}},
 	"secrets get":      {{name: "export", isBool: true}},
 	"secrets git":      {{name: "since"}},
 	"secrets all":      {{name: "since"}}, // forwards its args to `secrets git`
@@ -94,7 +95,7 @@ var flagsFor = map[string][]flagInfo{
 		{name: "timeout"}, {name: "format"}, {name: "rubric"}},
 	"agents sync": {{name: "gemini", isBool: true}, {name: "dry-run", isBool: true}, {name: "check", isBool: true}, {name: "no-prune", isBool: true}},
 	"agents docs": {{name: "check", isBool: true}, {name: "dry-run", isBool: true}},
-	"models":      {{name: "provider", values: providerNames}, {name: "unpin", isBool: true}, {name: "live", isBool: true}, {name: "pin"}},
+	"models":      {{name: "provider", values: providerNames}, {name: "unpin", isBool: true}, {name: "live", isBool: true}, {name: "pin"}, {name: "dry-run", isBool: true}},
 	"gemini bridge": {{name: "task"}, {name: "model"}, {name: "provider", values: providerNames}, {name: "effort"},
 		{name: "dirs"}, {name: "files"}, {name: "format"}, {name: "max-files"}, {name: "max-file-bytes"},
 		{name: "timeout"}, {name: "print-command", isBool: true}, {name: "rubric"}, {name: "index", isBool: true}, {name: "diff", isBool: true}},

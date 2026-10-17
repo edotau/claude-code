@@ -100,6 +100,7 @@ func cmdModels(args []string) int {
 	provider := fs.String("provider", "", "provider to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the provider serves (GET /models)")
+	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the pin-file change, write nothing")
 	var pins []string
 	fs.Func("pin", "slot=[provider:]model, or all=[provider:]model (repeatable)", func(v string) error {
 		pins = append(pins, v)
@@ -133,6 +134,9 @@ func cmdModels(args []string) int {
 				key = providers.SlotPin(slot)
 			}
 			kv[key] = spec
+		}
+		if *dryRun {
+			return printPinDiff(kv)
 		}
 		if err := providers.SetPins(kv); err != nil {
 			return fail("%v", err)
@@ -169,8 +173,9 @@ func listLive(p *providers.Provider) int {
 }
 
 func cmdUse(args []string) int {
+	dryRun, args := extractBool(args, "dry-run")
 	if len(args) != 1 {
-		return fail("usage: claude-code switch <provider>")
+		return fail("usage: claude-code switch <provider> [--dry-run]")
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -178,6 +183,9 @@ func cmdUse(args []string) int {
 	}
 	if _, err := reg.Get(args[0]); err != nil {
 		return fail("%v", err)
+	}
+	if dryRun {
+		return printPinDiff(map[string]string{providers.PinProvider: args[0]})
 	}
 	if err := providers.SetPins(map[string]string{providers.PinProvider: args[0]}); err != nil {
 		return fail("%v", err)
@@ -215,5 +223,19 @@ func cmdToken(args []string) int {
 		return fail("%v", err)
 	}
 	fmt.Fprintln(os.Stdout, tok)
+	return 0
+}
+
+// printPinDiff is the shared --dry-run body for switch and models: the change, or that there is none.
+func printPinDiff(kv map[string]string) int {
+	diff := providers.PinDiff(kv)
+	if len(diff) == 0 {
+		fmt.Println("no change to", providers.PinFile())
+		return 0
+	}
+	fmt.Println("would write", providers.PinFile()+":")
+	for _, l := range diff {
+		fmt.Println("  " + l)
+	}
 	return 0
 }
