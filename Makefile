@@ -20,7 +20,13 @@ C_OK   := \033[1;32mOK\033[0m$(C_SP)
 C_NOTE := \033[33mnote:\033[0m$(C_SP)
 endif
 
-GO              ?= go
+# Go toolchain: a `go` on PATH wins; otherwise the user-local install at ~/.local/go (no sudo).
+# GO_VERSION follows go.mod's `go` line so bootstrap and CI (setup-go go-version-file) agree.
+GO_LOCAL_ROOT   ?= $(HOME)/.local/go
+GO              ?= $(shell command -v go 2>/dev/null || echo $(GO_LOCAL_ROOT)/bin/go)
+GO_VERSION      := $(shell awk '/^go /{print $$2; exit}' go.mod)
+# Recipes see the local toolchain and GOPATH/bin (govulncheck) even when the caller's PATH lacks them.
+export PATH     := $(GO_LOCAL_ROOT)/bin:$(HOME)/go/bin:$(PATH)
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
 PKGS            := ./...
@@ -40,7 +46,7 @@ compile:  ## Compile bin/claude-code, no install
 	$(GO) build -o $(BIN) ./cmd/claude-code
 
 .PHONY: build
-build: install  ## Compile + install + audit (SKIP_AUDIT=1)
+build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP_AUDIT=1)
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
@@ -64,7 +70,7 @@ clean:  ## Remove bin/claude-code
 test: audit  ## Full gate (= audit)
 
 .PHONY: vet
-vet:  ## go vet
+vet:  # (dev recipe, hidden from help) go vet
 	$(GO) vet $(PKGS)
 
 ##@ Setup
@@ -83,21 +89,36 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
 
 .PHONY: bootstrap
-bootstrap:  ## Fresh box: install, then configure (CHECK=1 = check only)
-	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found on PATH — install the Go toolchain first"; exit 1; }
+bootstrap:  ## Fresh box: go toolchain, install, then configure (CHECK=1 = check only)
+	@$(MAKE) go-toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
+.PHONY: go-toolchain
+go-toolchain:  ## Install go.mod's Go into ~/.local/go when no go is on PATH (no sudo)
+	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; exit 0; fi; \
+	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
+	case "$$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac; \
+	tgz="go$(GO_VERSION).$$os-$$arch.tar.gz"; url="https://dl.google.com/go/$$tgz"; tmp=$$(mktemp -d); \
+	echo "downloading $$url"; \
+	curl -fsSL -o "$$tmp/$$tgz" "$$url" && curl -fsSL -o "$$tmp/$$tgz.sha256" "$$url.sha256"; \
+	got=$$( (sha256sum "$$tmp/$$tgz" 2>/dev/null || shasum -a 256 "$$tmp/$$tgz") | cut -d' ' -f1 ); \
+	[ "$$got" = "$$(cat "$$tmp/$$tgz.sha256")" ] || { echo "sha256 mismatch for $$tgz"; rm -rf "$$tmp"; exit 1; }; \
+	tar -C "$$tmp" -xzf "$$tmp/$$tgz" && mkdir -p "$(dir $(GO_LOCAL_ROOT))" && mv "$$tmp/go" "$(GO_LOCAL_ROOT)"; \
+	rm -rf "$$tmp"; \
+	echo -e "$(C_OK)installed $$($(GO_LOCAL_ROOT)/bin/go version) -> $(GO_LOCAL_ROOT)"; \
+	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"
+
 .PHONY: setup-env
 setup-env:  ## Print the PATH line (APPLY=1 writes it to the shell rc)
-	@line='export PATH="$$HOME/.claude/bin:$$HOME/.local/bin:$$PATH"'; \
+	@line='export PATH="$$HOME/.claude/bin:$$HOME/.local/bin:$$HOME/.local/go/bin:$$HOME/go/bin:$$PATH"'; \
 	echo "$$line"; \
 	if [ -n "$(APPLY)" ]; then \
 		rc="$$HOME/.bashrc"; case "$${SHELL:-}" in */zsh) rc="$$HOME/.zshrc";; esac; \
 		if grep -qxF "$$line" "$$rc" 2>/dev/null; then \
 			echo -e "$(C_NOTE)already present in $$rc"; \
 		else \
-			printf '\n# claude-code: ~/.claude/bin + ~/.local/bin on PATH\n%s\n' "$$line" >> "$$rc"; \
+			printf '\n# claude-code: ~/.claude/bin, ~/.local/bin, ~/.local/go/bin, ~/go/bin on PATH\n%s\n' "$$line" >> "$$rc"; \
 			echo -e "$(C_OK)appended to $$rc"; \
 		fi; \
 	fi
