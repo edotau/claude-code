@@ -191,11 +191,6 @@ func usage(w *os.File) {
 			fmt.Fprintf(w, "  %s%s\n", paintName(fmt.Sprintf("%-*s", nameWidth, c.name), frac), c.summary)
 		}
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Drill into a command's verbs with `claude-code <command> -h` (e.g. memory -h).")
-	fmt.Fprintln(w, "A provider name launches Claude Code on it (claude-code openrouter); verbs win a name clash.")
-	fmt.Fprintln(w, "Hidden verbs: models, router, ask, agents, review, workflow, run.")
-	fmt.Fprintln(w, "Machine helpers (hook, statusline) run from settings.json, not by hand.")
 }
 
 // colorOK is true when w is a terminal and NO_COLOR is unset (https://no-color.org).
