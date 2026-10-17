@@ -2,7 +2,7 @@
 // every subcommand inside each verb's run func instead of building a registry Sub tree, and has no
 // cliutil.OnFlagSet hook — so candidates come from static tables (subverbs, flags, value domains)
 // kept beside the verbs they describe, never from probing a verb's own flagset. That also means a
-// launcher verb (claude/codex/copilot/opencode/gemini/run/science — see noComplete) is never at risk
+// launcher verb (opus/sonnet/haiku/fable/codex/copilot/opencode/gemini/run/science — see noComplete) is never at risk
 // of being dispatched: nothing here ever calls a command's run func.
 package cli
 
@@ -50,7 +50,7 @@ var subVerbs = map[string][]string{
 // this binary never inspects. A safe subword under one of these (gemini ask, gemini bridge) is
 // unaffected — see the len(path)==1 guard in flagLookup/remainingFlags.
 var noComplete = map[string]bool{
-	"claude": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,
+	"opus": true, "sonnet": true, "haiku": true, "fable": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,
 	"run": true, "science": true,
 }
 

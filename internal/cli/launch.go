@@ -17,13 +17,22 @@ import (
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 )
 
-func cmdClaude(args []string) int {
+func cmdClaude(args []string) int { return launchClaude("", args) }
+
+// launchClaude launches Claude Code with tier as the main-loop model ("" = the opus slot).
+func launchClaude(tier string, args []string) int {
 	opts, rest, err := launch.ParseArgs(args, true)
 	if err != nil {
 		return fail("%v", err)
 	}
+	opts.Tier = tier
 	plan, err := launch.Claude(context.Background(), opts, rest)
 	return runPlan(plan, opts, err)
+}
+
+// tierVerb is `claude-code <tier>`: Claude Code on the session provider with that tier as the main model.
+func tierVerb(tier string) func([]string) int {
+	return func(a []string) int { return launchClaude(tier, a) }
 }
 
 func cmdRun(args []string) int {

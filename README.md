@@ -34,6 +34,17 @@ With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selec
 `codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found
 past the shims.
 
+`claude-code` with no arguments prints the menu. The first word picks what to launch:
+
+```bash
+claude-code opus        # Claude Code, opus as the main model (also sonnet | haiku | fable); args pass to claude
+claude-code codex       # a vendor CLI through the registry (also gemini | opencode | copilot)
+claude-code openrouter  # Claude Code on that registered provider; a verb wins a name clash (gemini is the CLI)
+claude-code --resume    # a leading flag is a claude flag: Claude Code on the session provider
+```
+
+A tier word sets only the main-loop model; subagent slots keep their own pins.
+
 `make bootstrap` is the fresh-box path: it checks `go`, runs `make install`, installs bash tab-completion
 (`claude-code completion --install`; `source <(claude-code completion)` for the current shell) and then
 `claude-code configure`. `make help` lists every target; `make audit` is the CI gate.

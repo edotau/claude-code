@@ -25,6 +25,7 @@ import (
 type Options struct {
 	Provider string
 	Model    string // [provider:]model for the opus slot, this launch only
+	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	Router   bool
 	PrintEnv bool
 }
@@ -135,7 +136,14 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = m
 		}
 	}
-	opus := sel.ClientModel(models.Opus)
+	main := models.Opus
+	if o.Tier != "" {
+		main = o.Tier
+	}
+	opus := sel.ClientModel(main)
+	if opus == "" {
+		return Plan{}, fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, main, main)
+	}
 	plan.Set["ANTHROPIC_MODEL"] = opus
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
 		plan.Set["MAX_THINKING_TOKENS"] = maxTok

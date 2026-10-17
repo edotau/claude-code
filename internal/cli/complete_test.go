@@ -169,7 +169,7 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // flags belong to a process this binary never inspects, so completing them must offer nothing — and,
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
-	for _, name := range []string{"claude", "codex", "copilot", "opencode", "gemini", "run", "science"} {
+	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "run", "science"} {
 		if _, ok := flagsFor[name]; ok {
 			t.Errorf("flagsFor must not carry a bare-launcher entry for %q", name)
 		}
