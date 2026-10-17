@@ -3,11 +3,13 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,6 +121,17 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		out.Agent, out.Dropped = res.Agent, res.Dropped
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
+		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.
+		if e != nil && e.Kind == KindRateLimit && providers.HardQuota(e.Err.Error()) && r.Caps().Model &&
+			(req.Model == "" || slices.Contains(models.Slots, req.Model)) {
+			cur := cmp.Or(req.Model, models.Opus)
+			if next := models.NextSlot(cur); next != "" {
+				if notify != nil {
+					notify(fmt.Sprintf("%s: the %s slot is quota-dead on this key; retrying on the %s slot", r.Name(), cur, next))
+				}
+				req.Model, e.RetryAfter = next, 0
+			}
+		}
 		// A tools-on run that timed out may already have edited files: re-running it would be a second writer.
 		if e != nil && req.Tools && actx.Err() == context.DeadlineExceeded {
 			e.Kind = KindFatal

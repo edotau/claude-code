@@ -182,7 +182,11 @@ a per-install client secret the router requires. Per request the router:
    (`count_tokens` is answered locally);
 4. on 401/403 refreshes the credential and replays once;
 5. on 429/5xx/connect error **before any byte reaches the client**, moves to the next provider in
-   `fallback`, mapping the model to the same slot there (429s honor `Retry-After` as a cooldown).
+   `fallback`, mapping the model to the same slot there (429s honor `Retry-After` as a cooldown);
+6. on a **hard-quota 429** (the key cannot use that model at all — Gemini free tier's `limit: 0`, OpenAI's
+   `insufficient_quota`) demotes to the same provider's next slot (opus → sonnet → haiku) before leaving the
+   provider, and remembers the dead model for 30 minutes so later requests skip it. `claude-code ask` does the
+   same for its runners: a slot that is quota-dead on the key is retried one slot down, announced on stderr.
 
 Upstream dials are guarded: a provider hostname that resolves into the local network (loopback, link-local,
 RFC1918) is refused before the connect, so DNS cannot turn a `base_url` into a pivot onto the router itself. A

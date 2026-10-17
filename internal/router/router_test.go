@@ -461,3 +461,51 @@ func TestUnroutableLogin(t *testing.T) {
 		t.Errorf("a vendor login must never receive a forwarded client credential: %q", why)
 	}
 }
+
+// A hard-quota 429 (the key cannot use that model at all) demotes to the provider's next slot instead of failing
+// the ladder, and the dead model is skipped up front on the next request.
+func TestQuotaDeadModelDemotesWithinProvider(t *testing.T) {
+	var up *upstream
+	up = newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		if (*up.body.Load())["model"] == "m1-opus" {
+			w.WriteHeader(429)
+			io.WriteString(w, `{"error":{"code":429,"message":"You exceeded your current quota. Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: m1-opus"}}`)
+			return
+		}
+		ok(w, r, n)
+	})
+	t.Setenv("UP1_KEY", "k1")
+	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet","haiku":"m1-haiku"}`)+`}}`)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d %s", resp.StatusCode, b)
+	}
+	if m := (*up.body.Load())["model"]; m != "m1-sonnet" || up.hits.Load() != 2 {
+		t.Fatalf("demoted model = %v after %d hits, want m1-sonnet after 2", m, up.hits.Load())
+	}
+	// The dead model is remembered: the second request goes straight to the demoted slot.
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("second status %d", resp.StatusCode)
+	}
+	if m := (*up.body.Load())["model"]; m != "m1-sonnet" || up.hits.Load() != 3 {
+		t.Fatalf("second request model = %v after %d hits, want m1-sonnet after 3 (no retry of the dead model)", m, up.hits.Load())
+	}
+}
+
+// A transient 429 (no quota marker) on a provider with lower slots must not demote: same model, provider cooled.
+func TestTransientRateLimitDoesNotDemote(t *testing.T) {
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+	})
+	t.Setenv("UP1_KEY", "k1")
+	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet"}`)+`}}`)
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 429 || !strings.Contains(string(b), "slow down") || up.hits.Load() != 1 {
+		t.Fatalf("transient 429 must be relayed untouched: %d %s hits=%d", resp.StatusCode, b, up.hits.Load())
+	}
+}

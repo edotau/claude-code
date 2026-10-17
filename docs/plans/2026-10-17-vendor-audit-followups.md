@@ -48,4 +48,4 @@ the Go wiring for their own CLI (`claude-code ask --agent <v>` fed `internal/ven
 | MED | copilotHeadless | `--prompt` only: no model/resume/silent; `vendorRunner` path for copilot is dead | Confirm dead, delete or complete |
 | MED | copilot BYOK | `COPILOT_MODEL` may be ignored in SDK/server mode; pass model + provider via `copilotsdk.Options` | Verify with a BYOK route first |
 | LOW | copilotLoginPresent | A `ghp_` classic PAT passes but lacks Copilot entitlement | Reject `ghp_` prefix |
-| — | gemini provider | Opus slot `gemini-4-argon` unusable on the free-tier key | Routing follow-up: probe per-slot quota, fall to the next slot |
+| — | gemini provider | Opus slot `gemini-4-argon` unusable on the free-tier key | FIXED: hard-quota 429 demotes to the next slot in the router (dead model remembered 30 min) and in `ask` runners |

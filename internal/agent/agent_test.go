@@ -97,3 +97,24 @@ func TestSessionFromBanner(t *testing.T) {
 		t.Errorf("headBuffer kept %d bytes", len(h.String()))
 	}
 }
+
+// A hard-quota 429 (this key cannot use the model) demotes the slot for the retry instead of waiting it out.
+func TestRunDemotesSlotOnHardQuota(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
+	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{hard, nil}}
+	var notes []string
+	res, err := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { notes = append(notes, s) })
+	if err != nil || len(f.seen) != 2 || f.seen[0].Model != "" || f.seen[1].Model != "sonnet" {
+		t.Fatalf("err=%v seen=%+v res=%+v", err, f.seen, res)
+	}
+	if len(notes) == 0 || !strings.Contains(strings.Join(notes, " "), "quota-dead") {
+		t.Errorf("demotion must be announced: %v", notes)
+	}
+
+	// A transient 429 keeps the model: nothing to demote.
+	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
+	if _, err := Run(context.Background(), f, Request{Prompt: "p", Model: "opus"}, io.Discard, nil); err != nil || f.seen[1].Model != "opus" {
+		t.Fatalf("transient 429 must retry the same slot: err=%v seen=%+v", err, f.seen)
+	}
+}
