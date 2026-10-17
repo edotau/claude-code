@@ -166,14 +166,84 @@ func TestWorkflowLintSavedMissingOnDiskProceeds(t *testing.T) {
 	}
 }
 
-func TestWorkflowLintSavedByNameProceeds(t *testing.T) {
+func TestWorkflowLintByNameUnknownProceeds(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // empty config dir — gate-loop.js does not exist here
 	payload := wfLintPayload(t, map[string]any{"name": "gate-loop", "args": map[string]any{}})
 	code, out, errb := runWorkflowLint(payload)
 	if code != ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	if out != "" || errb != "" {
-		t.Fatalf("stdout=%q stderr=%q, want both empty for a saved-by-name run", out, errb)
+		t.Fatalf("stdout=%q stderr=%q, want both empty for an unknown by-name run", out, errb)
+	}
+}
+
+func TestWorkflowLintByNameResolvesAndFillsScriptPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	wfDir := filepath.Join(dir, "workflows")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(wfDir, "gate-loop.js")
+	if err := os.WriteFile(path, []byte("agent('x', { model: 'sonnet' });\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := wfLintPayload(t, map[string]any{"name": "gate-loop", "args": map[string]any{"k": 1}})
+	code, out, errb := runWorkflowLint(payload)
+	if code != ExitProceed {
+		t.Fatalf("exit = %d, want ExitProceed (stderr=%q)", code, errb)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 1 || lines[0] == "" {
+		t.Fatalf("stdout = %q, want exactly one JSON line", out)
+	}
+	var doc struct {
+		HSO struct {
+			AdditionalContext string         `json:"additionalContext"`
+			UpdatedInput      map[string]any `json:"updatedInput"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &doc); err != nil {
+		t.Fatalf("invalid JSON (%v): %q", err, lines[0])
+	}
+	gotPath, _ := doc.HSO.UpdatedInput["scriptPath"].(string)
+	if gotPath != path {
+		t.Errorf("updatedInput.scriptPath = %q, want %q", gotPath, path)
+	}
+	if _, ok := doc.HSO.UpdatedInput["name"]; ok {
+		t.Errorf("updatedInput still carries %q, want name removed", "name")
+	}
+	args, ok := doc.HSO.UpdatedInput["args"].(map[string]any)
+	if !ok || args["k"] != float64(1) {
+		t.Errorf("updatedInput.args = %v, want {k:1} echoed back", doc.HSO.UpdatedInput["args"])
+	}
+	if !strings.Contains(doc.HSO.AdditionalContext, "gate-loop") || !strings.Contains(doc.HSO.AdditionalContext, path) {
+		t.Errorf("additionalContext = %q, want it to mention the name and resolved path", doc.HSO.AdditionalContext)
+	}
+}
+
+func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	wfDir := filepath.Join(dir, "workflows")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(wfDir, "gate-loop.js")
+	if err := os.WriteFile(path, []byte("agent('x');\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := wfLintPayload(t, map[string]any{"name": "gate-loop"})
+	code, out, errb := runWorkflowLint(payload)
+	if code != ExitBlock {
+		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want empty on block", out)
+	}
+	if !strings.Contains(errb, path) {
+		t.Errorf("stderr = %q, want it to name %q", errb, path)
 	}
 }
 
