@@ -115,7 +115,11 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	var answer strings.Builder
 	var banner headBuffer
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "")
+	stdin := ""
+	if v.name == "codex" {
+		stdin = req.Prompt // codex exec reads the prompt from stdin behind its `-` operand
+	}
+	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin)
 	cmd.Stderr = io.MultiWriter(tail, &banner)
 	switch v.name {
 	case "opencode":
@@ -129,7 +133,15 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if id := sessionFromBanner(banner.String()); id != "" {
 		res.SessionID = id
 	}
+	if err == nil && res.Answer == "" {
+		return res, emptyAnswer(v.name)
+	}
 	return res, childErr(ctx, v.name, err, tail)
+}
+
+// emptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
+func emptyAnswer(name string) error {
+	return &Error{Kind: KindFatal, Agent: name, Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
 }
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
@@ -151,6 +163,9 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 	}
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, v.name, errors.Join(werr, perr), tail)
+	}
+	if perr == nil && res.Answer == "" {
+		return res, emptyAnswer(v.name)
 	}
 	return res, perr
 }
@@ -252,7 +267,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: t.Provider.Name, Model: t.Model}
+	res := Result{Provider: t.Provider.Name, Model: models.Strip1M(t.Model)}
 	env, _, err := vendors.Configure(ctx, "copilot", t, "")
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
@@ -263,7 +278,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	}
 	var model string
 	if t.Provider.Auth.Login != "" {
-		model = t.Model // no BYOK block, so the session takes the catalog id itself
+		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	out, err := copilotsdk.Ask(ctx, copilotsdk.Options{
 		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,

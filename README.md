@@ -63,6 +63,9 @@ claude-code generate                  # preview settings.json + every vendor con
 claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings template into the Machine settings
 ```
 
+`configure keys` and `doctor` probe every stored key with one catalog GET, so a key that is present but rejected
+(401) reads `REJECTED`, not `present`; on a TTY a rejected key is offered for re-entry. A vendor running on its own
+login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
 `configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
 OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
 reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is

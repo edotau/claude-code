@@ -110,10 +110,10 @@ func Update(o UpdateOptions) error {
 		return errors.New("claude binary not found")
 	}
 	dir := Dir(o.CWD)
-	var before time.Time
+	var before, beforeGlobal time.Time
 	var runErr error
 	lockErr := paths.WithFileLock(lockPath(dir), func() error {
-		before = NewestMtime(dir)
+		before, beforeGlobal = NewestMtime(dir), NewestMtime(GlobalDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript), "--max-turns", "40")
@@ -123,7 +123,8 @@ func Update(o UpdateOptions) error {
 		runErr = cmd.Run()
 		return nil
 	})
-	updated := NewestMtime(dir).After(before)
+	// A harvest may legitimately write only the shared global bank (cross-repo facts), so watch both tiers.
+	updated := NewestMtime(dir).After(before) || NewestMtime(GlobalDir()).After(beforeGlobal)
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}

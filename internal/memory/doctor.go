@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -78,7 +79,30 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("global", GlobalStat(), staleDays, now)...)
+	problems = append(problems, harvestProblems(now)...)
 	return append(problems, AccessNominations(now)...)
+}
+
+// harvestProblems surfaces receipts that need a human: a failed harvest, or one still "pending" past the
+// grace window (the worker died before reporting) — otherwise `memory stats` counts them forever.
+func harvestProblems(now time.Time) []string {
+	var problems []string
+	matches, _ := filepath.Glob(filepath.Join(StateDir(), "harvest-result-*"))
+	for _, p := range matches {
+		id := strings.TrimPrefix(filepath.Base(p), "harvest-result-")
+		r, ok := ReadHarvestResult(id)
+		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
+		if !ok || !r.NeedsAttention(now) || (r.Status == HarvestFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+			continue
+		}
+		short := id
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		problems = append(problems, "harvest "+short+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
+			" — see "+r.Log+" (claude-code memory stats)")
+	}
+	return problems
 }
 
 // bankProblems is one bank's advisories, each prefixed with the bank's tier so a reader knows which file to open.

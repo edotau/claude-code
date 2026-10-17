@@ -40,9 +40,6 @@
 /worktrees/
 # Orca worktrees it parks inside this checkout
 /workspaces/
-# claude-dbx debris while it still runs against this tree (its dream/clean logs, handoff beacon)
-/session-data/
-/docs/handoffs/HANDOFF.md
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/
 /skills/.trash/

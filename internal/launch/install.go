@@ -141,11 +141,18 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	}
 }
 
-// syncVendors projects agents/ + skills/ into every vendor home so they track the repo; best-effort, like completion.
+// syncVendors projects agents/ + skills/ into every vendor home and re-renders AGENTS.md/GEMINI.md so both
+// track the repo; best-effort, like completion.
 func syncVendors(w io.Writer, dryRun bool) {
 	fmt.Fprintln(w, "agents   sync agents/ + skills/ into vendor homes (claude-code agents sync)")
 	if rc := crossgen.Sync(crossgen.SyncOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
+	}
+	if _, err := os.Stat(filepath.Join(paths.ConfigDir(), "CLAUDE.md")); err == nil {
+		fmt.Fprintln(w, "docs     AGENTS.md + GEMINI.md from CLAUDE.md + agents/ (claude-code agents docs)")
+		if rc := crossgen.RenderDocs(crossgen.DocsOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
+			fmt.Fprintf(w, "  agents docs exit %d — run `claude-code agents docs` for details\n", rc)
+		}
 	}
 }
 
@@ -227,7 +234,23 @@ func DoctorChecks() (checks []Check, ok bool) {
 			if session {
 				label += " (session provider)"
 			}
-			check(providers.CredentialPresent(p), session, "credential "+n, label)
+			present := providers.CredentialPresent(p)
+			if present {
+				pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+				status, detail := providers.ProbeCredential(pctx, p)
+				cancel()
+				switch status {
+				case "login":
+				case "verified":
+					label += " · verified"
+				case "rejected":
+					present = false // stored, but the provider refuses it: as unusable as a missing key
+					label += " · REJECTED: " + detail
+				default:
+					label += " · " + status + ": " + detail
+				}
+			}
+			check(present, session, "credential "+n, label)
 		}
 	}
 	check(true, false, "router", routerStatus())

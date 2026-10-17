@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -177,9 +178,12 @@ func firstKeyedProvider(reg *providers.Registry) (*providers.Provider, bool) {
 
 // copilotLoginPresent checks GH_TOKEN first, then `gh auth token` (copilot's own sign-in surface) — the
 // offline form: `gh auth status` validates over the network and blew its 2 s budget, dropping the fallback.
+// copilotLoginPresent: copilot's token precedence is COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, then `gh`.
 func copilotLoginPresent() bool {
-	if strings.TrimSpace(os.Getenv("GH_TOKEN")) != "" {
-		return true
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		if strings.TrimSpace(os.Getenv(k)) != "" {
+			return true
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -360,8 +364,25 @@ func tomlString(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// codexChatGPTLogin fails fast unless $CODEX_HOME/auth.json holds ChatGPT tokens (`codex login` writes them).
+// codexChatGPTLogin fails fast unless codex reports a ChatGPT sign-in. `codex login status` is authoritative (it
+// also sees keyring-stored logins); $CODEX_HOME/auth.json is the fallback when the binary is not on PATH.
 func codexChatGPTLogin() error {
+	if bin, err := paths.LookPathReal("codex"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
+		if ctx.Err() == nil {
+			text := strings.TrimSpace(string(out))
+			switch {
+			case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):
+				return nil
+			case err == nil:
+				return fmt.Errorf("codex: signed in with an API key, not ChatGPT (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
+			default:
+				return fmt.Errorf("codex: not signed in (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
+			}
+		}
+	}
 	file := filepath.Join(codexHome(), "auth.json")
 	var auth struct {
 		Tokens json.RawMessage `json:"tokens"`
@@ -392,7 +413,8 @@ func codexHeadless(argv []string, h *Headless) []string {
 	if h.SessionID != "" {
 		argv = append(argv, "resume", h.SessionID)
 	}
-	return append(argv, positional(h.Prompt)...)
+	// The prompt rides stdin behind the `-` operand: a positional prompt like "help" is a codex subcommand.
+	return append(argv, "-")
 }
 
 // googleHost is Gemini's own API host; any other gemini route is a gateway.
@@ -604,15 +626,29 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
 		"COPILOT_PROVIDER_BASE_URL=" + base,
 		"COPILOT_PROVIDER_TYPE=" + typ,
 		"COPILOT_MODEL=" + model,
-		"COPILOT_PROVIDER_MAX_PROMPT_TOKENS=" + strconv.Itoa(models.ContextWindow(model)),
 		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(copilotMaxOutputTokens),
 		"COPILOT_OFFLINE=true",
+		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
+		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
+	}
+	// Prompt budget = window minus the output cap, so prompt + output never overshoot the model's context.
+	if w := models.ContextWindow(model); w > copilotMaxOutputTokens {
+		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(w-copilotMaxOutputTokens))
 	}
 	if cred != "" {
-		env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
+		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
 		if p.Auth.Type == providers.AuthBearer {
 			env = append(env, "COPILOT_PROVIDER_BEARER_TOKEN="+cred)
+		} else {
+			env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
 		}
+	}
+	if len(p.Headers) > 0 {
+		var hs []string
+		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
+			hs = append(hs, k+": "+p.Headers[k])
+		}
+		env = append(env, "COPILOT_PROVIDER_HEADERS="+strings.Join(hs, "\n"))
 	}
 	if h == nil {
 		return env, nil, nil
