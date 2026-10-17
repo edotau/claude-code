@@ -99,6 +99,15 @@ gate detection on pyrepo, on this repo (`internal/review/plan` → NOT full `mak
 **Note on provenance:** the synthesizer's `plan` text opens by answering the Fable-routing question — the resumed run
 inherited that user message as its "governing request" (known issue, `progress.md`). The plan content is unaffected.
 
+**Critic gaps** (`…critic.json`, 7 edits — all citations verified against the tree): the two bank codex-line edits
+are already done (skip); settle who owns the settings-golden regen + `make install` (Go lane vs test agent — one
+owner, not both); decide whether `implement-and-verify` chains into `audit-fix-verify` so goal 2 holds for all three
+loops (document either way in meta/Not-doing); add one demonstrated `vendor-leg` call per named role (gemini sweep,
+copilot commit) or state they are undemonstrated; the `': error'` arm in gate-loop's new `exit` ternary is unreachable
+— drop or comment it; the "3 retries × ≤3m fit in the Bash 10-min cap" rationale is wrong (ask never retries a
+tools-on run; rewrite the sentence); have the implementer re-confirm the Workflow PreToolUse payload shape
+(`tool_name == 'Workflow'`, `tool_input.script|scriptPath`) from a live hook capture before relying on it.
+
 **Open questions it raised** (Eric decides before Part A/B land): keep Fable as the main-session model now that leaves
 can't inherit it? hook = block (planned) vs auto-fill like `agent-effort`? keep `// lint:opus-ok` exempting a missing
 `model:`? `rounds: 2` + `refuters: []` defaults (codex opt-in)? implementer `sonnet` with manual `implModel:'opus'` vs
