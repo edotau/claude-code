@@ -30,6 +30,10 @@ func NestedConfig() Nested {
 	user := readJSON(filepath.Join(paths.ConfigDir(), "settings.json"))
 	for _, e := range entries {
 		n.Files = append(n.Files, e.Name())
+		if e.IsDir() && e.Name() == "worktrees" {
+			n.Keep = append(n.Keep, "worktrees (linked git worktrees — never swept)")
+			continue
+		}
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "settings") || filepath.Ext(e.Name()) != ".json" {
 			n.Keep = append(n.Keep, e.Name()+" (not a settings file)")
 			continue

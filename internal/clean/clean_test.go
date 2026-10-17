@@ -306,6 +306,26 @@ func TestNestedConfig(t *testing.T) {
 	}
 }
 
+// TestNestedConfigKeepsWorktrees: a linked git worktree under the nested dir is never swept,
+// and is reported with its own reason rather than the generic "not a settings file" wording.
+func TestNestedConfigKeepsWorktrees(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise"}`)
+	gitFile := filepath.Join(dir, ".claude", "worktrees", "x", ".git")
+	write(t, gitFile, "gitdir: /elsewhere/.git/worktrees/x")
+
+	if n := NestedConfig(); len(n.Keep) != 1 || n.Keep[0] != "worktrees (linked git worktrees — never swept)" {
+		t.Fatalf("worktrees entry not kept with its own reason: %v", n.Keep)
+	}
+
+	var out, errw bytes.Buffer
+	Run([]string{"--apply"}, &out, &errw)
+	if !exists(t, gitFile) {
+		t.Error("--apply removed a linked worktree's .git pointer")
+	}
+}
+
 // TestBackupsAgeless: settings backups go on any --apply, however fresh.
 func TestBackupsAgeless(t *testing.T) {
 	dir := t.TempDir()

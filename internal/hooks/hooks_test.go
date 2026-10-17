@@ -62,11 +62,14 @@ func TestSafety(t *testing.T) {
 	}
 }
 
-// Hard rule 5: tree-writing git verbs are blocked when their target tree is the config checkout, and nowhere else.
+// Hard rule 4: tree-writing git verbs are blocked when their target tree is the config checkout, and nowhere else.
 func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 	home := t.TempDir()
 	harness := filepath.Join(home, ".claude")
 	_ = os.MkdirAll(filepath.Join(harness, "internal"), 0o755)
+	// A linked worktree is its own checkout (exempt); its parent dir "worktrees" itself is not.
+	worktree := filepath.Join(harness, ".claude", "worktrees", "x")
+	_ = os.MkdirAll(worktree, 0o755)
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)
 	elsewhere := t.TempDir()
@@ -93,6 +96,11 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		{"git checkout main", elsewhere, false},
 		{"git -C " + elsewhere + " clean -fd", harness, false},
 		{"cd " + elsewhere + " && git checkout .", harness, false},
+		{"git checkout .", worktree, false},
+		{"git -C " + worktree + " reset --hard", elsewhere, false},
+		{"cd " + worktree + " && git stash", elsewhere, false},
+		{"git stash", filepath.Join(harness, ".claude"), true},
+		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), true},
 	}
 	for _, c := range cases {
 		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})

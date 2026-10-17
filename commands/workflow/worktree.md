@@ -73,7 +73,9 @@ Create a new worktree for a parallel Claude Code session.
    ```
 
 6. Print: path, branch, base SHA, and the follow-ups — launch via `cd .claude/worktrees/$SLUG && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
-   `/workflow:worktree clean $SLUG`.
+   `/workflow:worktree clean $SLUG`. Inside the harness repo (`~/.claude`) itself, the banned git verbs
+   (hard rule 4) are allowed inside this worktree — it is a separate checkout — but `make install` and
+   `claude-code` verbs there still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it.
 
 ---
 
@@ -126,6 +128,7 @@ Flags:
    git merge wt/$SLUG --no-ff -m "Merge wt/$SLUG into $(git branch --show-current)"
    ```
    If the merge exits non-zero (conflicts), skip to the **Merge conflict** block at the end — do NOT run Step 5, 6, or 7.
+   This merge runs from the live checkout — it brings the worktree's commits in, never `checkout`/`reset`s the live tree to it.
 
 5. **Verify** — run the project's fast test target after merge (discover it from the Makefile /
    `pyproject.toml` / `go.mod`), e.g.:

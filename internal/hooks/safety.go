@@ -127,6 +127,7 @@ var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "-
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
 	harness := canonPath(paths.ConfigDir())
+	worktrees := canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees")) // linked worktrees are separate checkouts
 	for _, seg := range shellSegments(cmd) {
 		toks := shellTokens(seg)
 		if len(toks) == 0 {
@@ -145,6 +146,9 @@ func harnessGitBlocked(cmd, cwd string) bool {
 				continue
 			}
 			if tp := canonPath(target); tp == harness || strings.HasPrefix(tp, harness+string(filepath.Separator)) {
+				if strings.HasPrefix(tp, worktrees+string(filepath.Separator)) {
+					continue // inside a linked worktree: its own checkout, the live tree is untouched
+				}
 				return true
 			}
 		}
