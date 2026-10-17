@@ -92,7 +92,7 @@ func Safety(r io.Reader, stderr io.Writer) int {
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 5)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
+		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
 		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
 		return ExitBlock
 	}
@@ -116,7 +116,7 @@ func Safety(r io.Reader, stderr io.Writer) int {
 	return ExitProceed
 }
 
-// bannedGitVerbs are the tree-writing verbs hard rule 5 bans inside the shared config checkout.
+// bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true}
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.

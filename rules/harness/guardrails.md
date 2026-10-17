@@ -23,6 +23,7 @@ guidelines are prose — these hooks are their enforcement layer. The pattern ev
 | `rtk-wrap` | PreToolUse (Bash) | A noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) with `rtk` on PATH | n/a — never blocks; rewrites argv to pipe through `rtk` (`HARNESS_RTK_BIN` overrides the binary) |
 | `docs-placement` | PreToolUse (Write\|Edit) | A new `.md` targets a repo root or a git-ignored `docs/` dir | n/a — blocks the call, names the canonical home (`HARNESS_DOCS_PLACEMENT=0` disables) |
 | `agent-effort` | PreToolUse (Agent) | A subagent dispatch with no `model:` set | n/a — never blocks; fills the model from a local prompt classifier (an explicit `model:` always wins) |
+| `workflow-lint` | PreToolUse (Workflow) | An inline script with an `agent()` that pins no `model:`/`agentType:`, or a `scriptPath` whose script does | fills `model: 'sonnet'` via `updatedInput` (an explicit pin always wins); blocks only an options argument it cannot rewrite, a bad pin literal, or an unpinned `scriptPath` file; saved-by-name runs pass through |
 | `memory-recall` | UserPromptSubmit | Prompt carries ≥2 distinct terms of ≥3 chars matching a bank/native-memory block | n/a — never blocks; injects `additionalContext` only |
 | `stop-format` | Stop | Any file edited this turn that a known formatter covers | n/a — never blocks; formats and continues |
 | `access-trace` | PostToolUse (Read) | The read path is a typed bank file or its index | n/a — never blocks; appends one `access.log` line |

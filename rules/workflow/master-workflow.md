@@ -167,7 +167,9 @@ For each completed worktree, in dependency order:
 
 ## Phase 8: Verify
 
-**Trigger**: After all code changes, before commit. Loop (max 5 iterations):
+**Trigger**: After all code changes, before commit. Loop: `Workflow gate-loop {cwd, scope, maxIterations: 3}` —
+the gate is detected from Makefile/go.mod/pyproject/package.json/Cargo.toml when not passed, and `exit`
+(`green\|stalled\|capped\|error`) says why it stopped. The gates it runs:
 
 ```
 Gate 1: <format>          -- auto-fix formatting
@@ -183,7 +185,9 @@ Gate 4: security scan     -- hardcoded secrets, injection, unsafe logging (/secu
 **Escalation**: skip a gate after 2 failed fix attempts; stop if a migration is needed (the user runs
 it); never modify `migrations/` directories.
 
-**Alternatives**: `/testing:test-and-fix` for targeted test fixing, `/harness:techdebt scan` for debt.
+**Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
+`approval-gate` skill is the pre-completion checklist, not the loop; `/testing:test-and-fix` for targeted
+test fixing, `/harness:techdebt scan` for debt.
 
 ---
 
@@ -235,8 +239,10 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 
 | Workflow | Shape | Phases | args |
 |----------|-------|--------|------|
-| `gate-loop` | Loop: gate → fix in scope → re-run, ≤N | 8 | `{gate, cwd?, scope, maxIterations?}` |
-| `implement-and-verify` | Parallel intel → implementer ‖ sonnet → gate-loop | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?}` |
-| `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop | 2, 6, 8 | `{range \| paths \| findings, packages?, dimensions?, fix?, minFix?}` |
+| `gate-loop` | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error` | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
+| `implement-and-verify` | Parallel intel → implementer ‖ sonnet → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
+| `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings, cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
 | `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |
+| `dag` | Step graph: deps, skip, when; skips propagate | 6 | `{steps, maxConcurrent?}` |
+| `vendor-leg` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
