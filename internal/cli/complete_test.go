@@ -95,8 +95,8 @@ func TestCompletionFlagValues(t *testing.T) {
 	if got := completionCandidates([]string{"switch", ""}); !slices.Equal(got, providerNames()) {
 		t.Errorf("switch values = %v, want %v", got, providerNames())
 	}
-	if got := completionCandidates([]string{"theme", ""}); !slices.Equal(got, statusline.GradientNames()) {
-		t.Errorf("theme values = %v, want %v", got, statusline.GradientNames())
+	if got := completionCandidates([]string{"theme", ""}); !slices.Equal(got, append([]string{"apply"}, statusline.GradientNames()...)) {
+		t.Errorf("theme values = %v, want apply + %v", got, statusline.GradientNames())
 	}
 	if got := completionCandidates([]string{"ask", "--agent", ""}); !slices.Equal(got, agentNames()) {
 		t.Errorf("ask --agent values = %v, want %v", got, agentNames())

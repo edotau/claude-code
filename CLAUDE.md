@@ -70,7 +70,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes) | credentials/settings never swept |
 | See what acted: provider switches, pins, secret sets, safety blocks, router failovers | `claude-code audit [--days 7] [--format json]` (`state/harness/audit.jsonl`; `doctor` shows the 7-day count) | names only, never a value or a blocked command |
 | Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
-| Pick the statusline color palette | `claude-code theme [--preview]` | — |
+| Pick the statusline color palette · apply the whole look (VS Code, statusline, opencode, copilot, gemini) | `claude-code theme [--preview] [<palette>]` · `claude-code theme apply [--dry-run]` | `theme/README.md` — one JSON per tool, merged over its config |
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote` | `README.md` → Memory bank |
 | Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |

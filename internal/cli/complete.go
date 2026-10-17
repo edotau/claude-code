@@ -42,6 +42,7 @@ var subVerbs = map[string][]string{
 	"agents":   {"sync", "docs"},
 	"review":   {"quality", "complexity", "assumptions", "goals", "diff", "pr", "report", "gate"},
 	"workflow": {"skeleton", "lint"},
+	"theme":    {"apply"},
 	"gemini":   {"ask", "bridge"},
 }
 
@@ -76,6 +77,7 @@ var flagsFor = map[string][]flagInfo{
 	"mcp doctor":       {{name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"install":          {{name: "dry-run", isBool: true}},
 	"theme":            {{name: "preview", isBool: true}},
+	"theme apply":      {{name: "dry-run", isBool: true}},
 	// memory's flagset is built once per subcommand and always carries --repo (declared ahead of the
 	// switch in cmdMemory), even on arms like stats/update that never read it back out.
 	"memory init":     {{name: "repo"}},
@@ -268,10 +270,8 @@ func completionCandidates(words []string) []string {
 		cands = topLevelCandidates(cur)
 	case len(rest) == 0:
 		cands = subWordsFor(path)
-		if len(cands) == 0 {
-			if pos := positionalsFor(path); pos != nil {
-				cands = pos()
-			}
+		if pos := positionalsFor(path); pos != nil {
+			cands = append(cands, pos()...) // a verb with both (theme: apply + palette names) offers both
 		}
 	}
 	var out []string
