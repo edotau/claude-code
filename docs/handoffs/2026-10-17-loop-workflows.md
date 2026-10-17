@@ -108,8 +108,15 @@ copilot commit) or state they are undemonstrated; the `': error'` arm in gate-lo
 tools-on run; rewrite the sentence); have the implementer re-confirm the Workflow PreToolUse payload shape
 (`tool_name == 'Workflow'`, `tool_input.script|scriptPath`) from a live hook capture before relying on it.
 
-**Open questions it raised** (Eric decides before Part A/B land): keep Fable as the main-session model now that leaves
-can't inherit it? hook = block (planned) vs auto-fill like `agent-effort`? keep `// lint:opus-ok` exempting a missing
+**DECIDED 2026-10-17 (Eric):** the main session keeps whatever model is in use — Fable by default (template `model:
+fable`), Opus when switched via `/model`; the template default does NOT change. **Every Workflow leaf defaults to
+`sonnet`**: unpinned `agent()` calls must never inherit the session tier. Implication for Part A: the
+`workflow-lint` hook should AUTO-FILL `model: 'sonnet'` on an unpinned inline `agent()` (the `agent-effort`
+`updatedInput` shape) rather than only block — block only when the rewrite is ambiguous; `opus` stays an explicit
+per-call escalation (`implModel:'opus'`, a confirmed high in audit-fix-verify's Fix, review-funnel's verifier).
+
+**Open questions it raised** (Eric decides before Part A/B land): ~~keep Fable as the main-session model?~~ decided
+above; hook = auto-fill (per the decision) with block as the fallback; keep `// lint:opus-ok` exempting a missing
 `model:`? `rounds: 2` + `refuters: []` defaults (codex opt-in)? implementer `sonnet` with manual `implModel:'opus'` vs
 auto-retry on `blocked`? wire gemini/copilot/opencode as default stages (no: quota/latency/--tools)?
 
