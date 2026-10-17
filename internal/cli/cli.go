@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -40,7 +42,10 @@ const (
 func commands() []command {
 	return []command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "claude", group: groupAgents, summary: "launch Claude Code on the selected provider; args pass", run: cmdClaude},
+		{name: "opus", group: groupAgents, summary: "Claude Code, opus main model; args pass to claude", run: tierVerb(models.Opus)},
+		{name: "sonnet", group: groupAgents, summary: "Claude Code, sonnet main model; args pass to claude", run: tierVerb(models.Sonnet)},
+		{name: "haiku", group: groupAgents, summary: "Claude Code, haiku main model; args pass to claude", run: tierVerb(models.Haiku)},
+		{name: "fable", group: groupAgents, summary: "Claude Code, fable main model; args pass to claude", run: tierVerb(models.Fable)},
 		{name: "copilot", group: groupAgents, summary: "launch GitHub Copilot CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("copilot", a) }},
 		{name: "codex", group: groupAgents, summary: "launch Codex CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("codex", a) }},
 		{name: "gemini", group: groupAgents, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
@@ -120,7 +125,8 @@ func Run(argv []string) int {
 		return shim(argv[1:])
 	}
 	if len(argv) < 2 {
-		return cmdClaude(nil)
+		usage(os.Stdout)
+		return 0
 	}
 	name, args := argv[1], argv[2:]
 	switch name {
@@ -131,9 +137,15 @@ func Run(argv []string) int {
 	if c := lookup(name); c != nil {
 		return c.run(args)
 	}
-	// A leading flag with no verb is a claude flag: `claude-code --resume` == `claude-code claude --resume`.
+	// A leading flag with no verb is a claude flag: `claude-code --resume` launches Claude Code.
 	if strings.HasPrefix(name, "-") {
 		return cmdClaude(argv[1:])
+	}
+	// A provider name no verb shadows launches Claude Code on it: `claude-code openrouter`.
+	if reg, err := providers.Load(); err == nil {
+		if _, ok := reg.Providers[name]; ok {
+			return cmdClaude(append([]string{"--provider", name}, args...))
+		}
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
@@ -180,6 +192,7 @@ func usage(w *os.File) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Drill into a command's verbs with `claude-code <command> -h` (e.g. memory -h).")
+	fmt.Fprintln(w, "A provider name launches Claude Code on it (claude-code openrouter); verbs win a name clash.")
 	fmt.Fprintln(w, "Hidden verbs: models, router, ask, agents, review, workflow, run.")
 	fmt.Fprintln(w, "Machine helpers (hook, statusline) run from settings.json, not by hand.")
 }
