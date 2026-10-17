@@ -2,6 +2,9 @@ package vscode
 
 // stripJSONC removes // and /* */ comments and trailing commas so VS Code's own settings.json
 // dialect (JSONC) parses as plain JSON. String contents are left untouched either pass.
+// StripJSONC is stripJSONC for other packages that read a tool's JSONC config.
+func StripJSONC(data []byte) []byte { return stripJSONC(data) }
+
 func stripJSONC(data []byte) []byte {
 	return stripTrailingCommas(stripComments(data))
 }

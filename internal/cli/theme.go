@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/theme"
 )
 
 // cmdTheme picks the statusline's gradient palette persistently. No argument (or --preview) lists
@@ -29,6 +30,9 @@ func cmdTheme(args []string) int {
 	if *preview || len(fs.Args()) == 0 {
 		printPalettes(os.Stdout, colorOK(os.Stdout))
 		return 0
+	}
+	if fs.Args()[0] == "apply" {
+		return themeApply(fs.Args()[1:])
 	}
 	name := fs.Args()[0]
 	names := statusline.GradientNames()
@@ -82,4 +86,36 @@ func setGradient(name string) error {
 		return err
 	}
 	return paths.AtomicWrite(path, append(out, '\n'), 0o644)
+}
+
+// themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json into that tool's config.
+func themeApply(args []string) int {
+	fs := flag.NewFlagSet("theme apply", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fail("theme apply: %v", err)
+	}
+	out, err := theme.Apply(theme.Dir(), home, *dryRun)
+	for _, o := range out {
+		switch {
+		case o.Skipped != "":
+			fmt.Printf("  -  %-10s skipped: %s\n", o.Name, o.Skipped)
+		case !o.Changed:
+			fmt.Printf("  =  %-10s %s (already applied)\n", o.Name, o.Dest)
+		case *dryRun:
+			fmt.Printf("  ~  %-10s would update %s\n", o.Name, o.Dest)
+		case o.Backup == "":
+			fmt.Printf("  ✓  %-10s created %s\n", o.Name, o.Dest)
+		default:
+			fmt.Printf("  ✓  %-10s updated %s (backup %s)\n", o.Name, o.Dest, filepath.Base(o.Backup))
+		}
+	}
+	if err != nil {
+		return fail("theme apply: %v", err)
+	}
+	return 0
 }
