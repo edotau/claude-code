@@ -1,6 +1,7 @@
 ---
 name: "codex"
 description: "Adversarial reviewer, verification gate, harness optimizer, and harness-artifact validator — five modes over one \"audit\" role. REVIEW mode: challenges a task request BEFORE implementation (missing scope, unclear acceptance criteria, security surface, CLAUDE.md violations) or gives a diff a ship/block verdict. VERIFY mode: runs the full project gate suite — format → lint → tests → security — in a max-5-iteration loop, fixing failures between iterations, AFTER a feature is implemented. OPTIMIZE mode: audits and tunes the local harness (settings.json, hooks, agent definitions, model routing) with small reversible config changes. SKILL mode: reviews a skill's quality (description triggering / CSO, progressive disclosure, structure) — trigger on \"review my skill\", \"check skill quality\". PLUGIN mode: validates a plugin's structure (manifest, component layout, hooks, security) — trigger on \"validate my plugin\". Runs at the inherited session tier; tune reasoning depth per dispatch via effort. Invoke as a one-shot leg with `claude-code ask --agent codex \"<task>\"`."
+tools: ["read_file", "write_file", "replace", "run_shell_command", "grep_search", "glob"]
 ---
 
 <!-- Synced from .claude/agents/codex.md; do not edit by hand. -->

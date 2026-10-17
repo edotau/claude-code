@@ -1,6 +1,7 @@
 ---
 name: "test-repair"
 description: "Owns the EXISTING tests a change breaks or makes stale — the repair half of the test surface. Dispatched in the SAME message as an implementation agent, never after it. Use when a change renames a symbol, moves a module, alters a signature, changes a fixture, or when a suite that passed before the change now fails. For NEW coverage of new behavior use `test-driven-dev` (it is forward-only RED → GREEN → REFACTOR); for the pre-completion gate chain use the `approval-gate` skill."
+tools: ["read_file", "write_file", "replace", "run_shell_command", "grep_search", "glob"]
 ---
 
 <!-- Synced from .claude/agents/test-repair.md; do not edit by hand. -->

@@ -1,6 +1,7 @@
 ---
 name: "code-workers"
 description: "A dispatched leaf worker for parallel fan-out — pinned to the Sonnet tier for fast, cost-bounded execution of a single well-scoped task; the manager tunes effort per dispatch and escalates a leaf to Opus only on proven capability failure. NOT an ambiently-triggered agent: a manager (the main session or a Workflow script) dispatches N of these concurrently via subagent_type/agentType, one per independent task. It does the whole task in-context and cannot fan out further (it is a leaf)."
+tools: ["read_file", "write_file", "replace", "grep_search", "glob", "run_shell_command"]
 ---
 
 <!-- Synced from .claude/agents/code-workers.md; do not edit by hand. -->

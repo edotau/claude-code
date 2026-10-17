@@ -38,6 +38,8 @@
 /docs/plans/*/
 /agent-memory/
 /worktrees/
+# Orca worktrees it parks inside this checkout
+/workspaces/
 # claude-dbx debris while it still runs against this tree (its dream/clean logs, handoff beacon)
 /session-data/
 /docs/handoffs/HANDOFF.md
@@ -90,6 +92,7 @@ coverage.*
 /skills/resume-version-manager
 /skills/salary-negotiation-prep
 /skills/tech-resume-optimizer
+/skills/orca-linear
 
 # Editors / OS
 .DS_Store

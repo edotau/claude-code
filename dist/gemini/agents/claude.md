@@ -1,6 +1,7 @@
 ---
 name: "claude"
 description: "Full-lifecycle coding agent — explores the codebase, designs an approach, implements it, simplifies the result, and reviews quality before handing off. Use for MEDIUM+ coding tasks from \"how should we build this\" to \"ready to verify\". Operationalizes CLAUDE.md discipline (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) across architecture, implementation, simplification, and quality review."
+tools: ["read_file", "write_file", "replace", "grep_search", "glob", "run_shell_command"]
 ---
 
 <!-- Synced from .claude/agents/claude.md; do not edit by hand. -->

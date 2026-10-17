@@ -16,7 +16,7 @@ git-tracked `dist/<vendor>/agents/` and installed byte-identical into the vendor
 | --- | --- | --- |
 | codex | `~/.codex/agents/<name>.toml` | `name`, `description`, `model_reasoning_effort` (from `effort:`), `developer_instructions` |
 | copilot | `~/.copilot/agents/<name>.md` | Claude-style frontmatter (`name`, `description`, `tools` passed through) |
-| gemini | `~/.gemini/agents/<name>.md` | `name` + `description` only (strict schema; Claude tool names would fail validation) |
+| gemini | `~/.gemini/agents/<name>.md` | `name`, `description`, `tools` translated to Gemini names (Read→read_file, Bash→run_shell_command, …; unmappable ones dropped — strict schema) |
 | opencode | `~/.config/opencode/agents/<name>.md` | `description`, `mode: subagent` |
 
 Descriptions are cleaned of `<example>` blocks; the `## Memory` section is stripped from the body. Skills are

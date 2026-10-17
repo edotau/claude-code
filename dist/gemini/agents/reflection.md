@@ -1,6 +1,7 @@
 ---
 name: "reflection"
 description: "The auto-memory reflection agent — three modes over the same substrate (Claude Code's native memory layer plus the harness's own session memory bank). ANALYZE (dispatched by /reflection:review) produces a read-only, prioritized memory-health report by reading `claude-code memory doctor` and `claude-code memory archive` audit output. EXTRACT (dispatched by /reflection:extract) turns a proven recurring pattern into a portable skill under skills/<name>/SKILL.md. PERSIST (dispatched by the session-harvest Stop gate, or /memory:end) writes the session into the memory bank by driving the deterministic `claude-code memory *` verbs. The dispatching command picks the mode; if invoked directly, infer it from the ask (audit/triage → ANALYZE, \"turn this into a skill\" → EXTRACT, \"persist/save this session\" → PERSIST)."
+tools: ["read_file", "write_file", "replace", "grep_search", "glob", "run_shell_command"]
 ---
 
 <!-- Synced from .claude/agents/reflection.md; do not edit by hand. -->

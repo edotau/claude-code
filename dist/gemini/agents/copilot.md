@@ -1,6 +1,7 @@
 ---
 name: "copilot"
 description: "Owns the last mile of already-verified work: merging worktree branches in dependency order, staging precisely, and writing the conventional commit. Use AFTER the gates are green. Does NOT verify — that is `codex` (VERIFY mode) — and does NOT consolidate memory, which is `reflection` via `/reflection:consolidate`."
+tools: ["read_file", "run_shell_command", "grep_search", "glob"]
 ---
 
 <!-- Synced from .claude/agents/copilot.md; do not edit by hand. -->

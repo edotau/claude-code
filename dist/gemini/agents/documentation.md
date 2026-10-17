@@ -1,6 +1,7 @@
 ---
 name: "documentation"
 description: "Documentation specialist. Two modes: (1) updating existing READMEs and guides from the current codebase; (2) finding current library/framework documentation through web search for API and setup questions. Use after major architecture changes, or when a user asks \"how do I use X\" for any library."
+tools: ["read_file", "write_file", "replace", "run_shell_command", "grep_search", "glob", "google_web_search", "web_fetch"]
 ---
 
 <!-- Synced from .claude/agents/documentation.md; do not edit by hand. -->
