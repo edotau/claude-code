@@ -1,6 +1,9 @@
 package ansi
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestHex(t *testing.T) {
 	cases := []struct {
@@ -147,5 +150,21 @@ func TestModeConstsAreTheWireStrings(t *testing.T) {
 		if got != want {
 			t.Errorf("mode const = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestStatusPaintsTokensOnlyWhenEnabled(t *testing.T) {
+	line := "codex      present (ChatGPT login) · cred:ok · ABSENT"
+	if got := Status(false, line); got != line {
+		t.Errorf("Status(off) changed the text: %q", got)
+	}
+	got := Status(true, line)
+	for _, want := range []string{Green + "present" + Reset, Green + "cred:ok" + Reset, Red + "ABSENT" + Reset} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Status(on) missing %q in %q", want, got)
+		}
+	}
+	if Style(true, Bold+Cyan, "x") != Bold+Cyan+"x"+Reset || Style(false, Red, "x") != "x" {
+		t.Error("Style wraps only when on")
 	}
 }

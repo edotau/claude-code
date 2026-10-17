@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
@@ -57,10 +58,22 @@ func (o Options) writer() io.Writer {
 // dialog carries one Run's shared state: a single buffered reader so sequential prompts don't lose
 // each other's buffered-ahead bytes, and the loaded registry.
 type dialog struct {
-	o   Options
-	reg *providers.Registry
-	br  *bufio.Reader
-	out io.Writer
+	o     Options
+	reg   *providers.Registry
+	br    *bufio.Reader
+	out   io.Writer
+	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
+}
+
+// printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
+func (d *dialog) printf(format string, args ...any) {
+	fmt.Fprint(d.out, ansi.Status(d.color, fmt.Sprintf(format, args...)))
+}
+
+func (d *dialog) println(args ...any) { d.printf("%s\n", fmt.Sprint(args...)) }
+
+func (d *dialog) header(section string) {
+	d.println(ansi.Style(d.color, ansi.Bold+ansi.Cyan, "== "+section+" =="))
 }
 
 // Run executes the named section (empty = every section in Sections order); returns the CLI exit code.
@@ -79,10 +92,10 @@ func Run(o Options, section string) int {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return 1
 	}
-	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.reader()), out: out}
+	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.reader()), out: out, color: ansi.Enabled(out)}
 	allOK := true
 	for _, s := range want {
-		fmt.Fprintf(out, "== %s ==\n", s)
+		d.header(s)
 		var ok bool
 		switch s {
 		case "provider":
@@ -118,11 +131,11 @@ func Vendor(name string, interactive bool, out io.Writer) (changed bool, err err
 	}
 	d := &dialog{
 		o:   Options{Vendor: name, Interactive: interactive, Out: out, In: os.Stdin},
-		reg: reg, br: bufio.NewReader(os.Stdin), out: out,
+		reg: reg, br: bufio.NewReader(os.Stdin), out: out, color: ansi.Enabled(out),
 	}
-	fmt.Fprintln(out, "== keys ==")
+	d.header("keys")
 	_, changed = runKeysChanged(d)
-	fmt.Fprintln(out, "== agents ==")
+	d.header("agents")
 	runAgents(d)
 	return changed, nil
 }
@@ -150,55 +163,56 @@ func yes(br *bufio.Reader) bool {
 // --- provider ---
 
 func runProvider(d *dialog) bool {
-	reg, out := d.reg, d.out
+	reg := d.reg
 	names := reg.Names()
 	cur := providers.Pin(providers.PinProvider)
 	if cur == "" {
 		cur = reg.Default
+	}
+	cred := func(n string) string {
+		if providers.CredentialPresent(reg.Providers[n]) {
+			return "cred:ok"
+		}
+		return "cred:missing"
+	}
+	if d.o.Provider != "" {
+		if _, err := reg.Get(d.o.Provider); err != nil {
+			d.println(err)
+			return false
+		}
+		return applyProvider(d, d.o.Provider)
+	}
+	// On a terminal the picker is the list; printing it twice is what made the old dialogue look doubled.
+	// --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
+	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+		rows := make([][2]string, len(names))
+		start := 0
+		for i, n := range names {
+			rows[i] = [2]string{n, cred(n) + "  " + reg.Providers[n].Kind}
+			if n == cur {
+				start = i
+			}
+		}
+		if idx, err := tui.Pick("provider — pick the session provider (current: "+cur+")", rows, start); err == nil {
+			if idx < 0 || names[idx] == cur {
+				d.printf("provider   pinned %s (kept)\n", cur)
+				return true
+			}
+			return applyProvider(d, names[idx])
+		}
 	}
 	for i, n := range names {
 		mark := " "
 		if n == cur {
 			mark = "*"
 		}
-		cred := "cred:missing"
-		if providers.CredentialPresent(reg.Providers[n]) {
-			cred = "cred:ok"
-		}
-		fmt.Fprintf(out, "%s %d) %-13s %s\n", mark, i+1, n, cred)
+		d.printf("%s %d) %-13s %s\n", mark, i+1, n, cred(n))
 	}
-	if d.o.Provider != "" {
-		if _, err := reg.Get(d.o.Provider); err != nil {
-			fmt.Fprintln(out, err)
-			return false
-		}
-		return applyProvider(d, d.o.Provider)
-	}
-	if !d.o.Interactive {
-		fmt.Fprintf(out, "pinned: %s; to change: claude-code switch <provider>\n", cur)
+	if !d.o.Interactive || d.o.Check || d.o.DryRun {
+		d.printf("pinned: %s; to change: claude-code switch <provider>\n", cur)
 		return true
 	}
-	if isStdinTTY() {
-		rows := make([][2]string, len(names))
-		start := 0
-		for i, n := range names {
-			cred := "cred:missing"
-			if providers.CredentialPresent(reg.Providers[n]) {
-				cred = "cred:ok"
-			}
-			rows[i] = [2]string{n, cred + "  " + reg.Providers[n].Kind}
-			if n == cur {
-				start = i
-			}
-		}
-		if idx, err := tui.Pick("provider — pick the session provider", rows, start); err == nil {
-			if idx < 0 || names[idx] == cur {
-				return true
-			}
-			return applyProvider(d, names[idx])
-		}
-	}
-	fmt.Fprint(out, "pick a provider by number or name (blank = keep current): ")
+	fmt.Fprint(d.out, "pick a provider by number or name (blank = keep current): ")
 	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
 		return true
@@ -207,7 +221,7 @@ func runProvider(d *dialog) bool {
 		line = names[idx-1]
 	}
 	if _, err := reg.Get(line); err != nil {
-		fmt.Fprintln(out, err)
+		d.println(err)
 		return false
 	}
 	return applyProvider(d, line)
@@ -215,14 +229,14 @@ func runProvider(d *dialog) bool {
 
 func applyProvider(d *dialog, name string) bool {
 	if d.o.Check || d.o.DryRun {
-		fmt.Fprintf(d.out, "would pin provider: %s\n", name)
+		d.printf("would pin provider: %s\n", name)
 		return true
 	}
 	if err := providers.SetPins(map[string]string{providers.PinProvider: name}); err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
-	fmt.Fprintf(d.out, "provider pinned: %s\n", name)
+	d.printf("provider pinned: %s\n", name)
 	return true
 }
 
@@ -330,7 +344,7 @@ func runKeys(d *dialog) (allOK bool, changed bool) {
 func runKeysChanged(d *dialog) (allOK, changed bool) {
 	targets, err := keyTargets(d.reg, d.o.Vendor)
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false, false
 	}
 	allOK = true
@@ -338,7 +352,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 		if kt.present {
 			status, detail := probe(kt)
 			if status == "rejected" {
-				fmt.Fprintf(d.out, "%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
+				d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
 				if d.o.Interactive && !d.o.Check && kt.envVar != "" && resolveKey(d, kt) {
 					changed = true
 					continue
@@ -347,10 +361,10 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 				continue
 			}
 			if status != "" && status != "login" {
-				fmt.Fprintf(d.out, "%-10s present (%s; %s)\n", kt.label, kt.source, status)
+				d.printf("%-10s present (%s; %s)\n", kt.label, kt.source, status)
 				continue
 			}
-			fmt.Fprintf(d.out, "%-10s present (%s)\n", kt.label, kt.source)
+			d.printf("%-10s present (%s)\n", kt.label, kt.source)
 			continue
 		}
 		if d.o.Interactive && !d.o.Check {
@@ -360,7 +374,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 			}
 		}
 		allOK = false
-		fmt.Fprintf(d.out, "%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
+		d.printf("%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
 	}
 	return allOK, changed
 }
@@ -391,22 +405,22 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 			return false
 		}
 		if err := runLogin(kt.loginArgv); err != nil {
-			fmt.Fprintf(d.out, "%s: %v\n", kt.label, err)
+			d.printf("%s: %v\n", kt.label, err)
 			return false
 		}
-		fmt.Fprintf(d.out, "%-10s logged in\n", kt.label)
+		d.printf("%-10s logged in\n", kt.label)
 		return true
 	case kt.envVar != "":
 		val, err := secretLine(d, "Paste a value for "+kt.envVar+" (input hidden, Enter when done): ")
 		if err != nil || strings.TrimSpace(val) == "" {
-			fmt.Fprintf(d.out, "%s: no value entered\n", kt.envVar)
+			d.printf("%s: no value entered\n", kt.envVar)
 			return false
 		}
 		if err := secrets.SetFile(kt.envVar, strings.TrimSpace(val)); err != nil {
-			fmt.Fprintf(d.out, "%s: %v\n", kt.envVar, err)
+			d.printf("%s: %v\n", kt.envVar, err)
 			return false
 		}
-		fmt.Fprintf(d.out, "wrote %s to %s\n", kt.envVar, secrets.EnvFile())
+		d.printf("wrote %s to %s\n", kt.envVar, secrets.EnvFile())
 		return true
 	default:
 		return false
@@ -445,15 +459,15 @@ func isStdinTTY() bool {
 func runModels(d *dialog) bool {
 	sel, err := providers.Select(d.reg, "")
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
 	for _, s := range models.Slots {
 		if t, ok := sel.Slots[s]; ok {
-			fmt.Fprintf(d.out, "  %-7s %-40s -> %s\n", s, sel.ClientModel(s), t.Spec())
+			d.printf("  %-7s %-40s -> %s\n", s, sel.ClientModel(s), t.Spec())
 		}
 	}
-	fmt.Fprintln(d.out, "live catalog: claude-code models --live")
+	d.println("live catalog: claude-code models --live")
 	return true
 }
 
@@ -468,32 +482,32 @@ func runAgents(d *dialog) bool {
 		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
 	})
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
 	sel, err := providers.Select(d.reg, "")
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
 	ok := true
 	for _, name := range agentList {
 		target, note, rerr := vendors.ResolveTarget(d.reg, name, sel, false)
 		if errors.Is(rerr, vendors.ErrOwnLogin) {
-			fmt.Fprintf(d.out, "%-10s runs on %s\n", name, afterUsing(note))
+			d.printf("%-10s runs on %s\n", name, afterUsing(note))
 			continue
 		}
 		if rerr != nil {
-			fmt.Fprintf(d.out, "%-10s FIX: %v; %s\n", name, rerr, vendors.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, rerr, vendors.ConfigureHint(name))
 			ok = false
 			continue
 		}
 		if _, _, cerr := vendors.Configure(context.Background(), name, target, ""); cerr != nil {
-			fmt.Fprintf(d.out, "%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))
 			ok = false
 			continue
 		}
-		fmt.Fprintf(d.out, "%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
+		d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
 	}
 	return ok
 }
@@ -503,29 +517,29 @@ func runAgents(d *dialog) bool {
 func runRouter(d *dialog) bool {
 	sel, err := providers.Select(d.reg, "")
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
 	if !sel.NeedsRouter(d.reg) {
-		fmt.Fprintln(d.out, "not needed: the session provider serves every slot directly")
+		d.println("not needed: the session provider serves every slot directly")
 		return true
 	}
 	if d.o.Check || d.o.DryRun {
-		fmt.Fprintln(d.out, "needed: a cross-provider slot or fallback ladder is configured; would start it")
+		d.println("needed: a cross-provider slot or fallback ladder is configured; would start it")
 		return true
 	}
 	if !d.o.Interactive {
-		fmt.Fprintln(d.out, "needed: run `claude-code router start`, or relaunch with --router")
+		d.println("needed: run `claude-code router start`, or relaunch with --router")
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	base, err := router.Ensure(ctx)
 	if err != nil {
-		fmt.Fprintln(d.out, err)
+		d.println(err)
 		return false
 	}
-	fmt.Fprintf(d.out, "router running: %s\n", base)
+	d.printf("router running: %s\n", base)
 	return true
 }
 

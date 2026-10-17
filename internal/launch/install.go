@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/crossgen"
@@ -258,12 +259,13 @@ func DoctorChecks() (checks []Check, ok bool) {
 // Doctor prints DoctorChecks as ✓/✗ lines and reports whether every hard check passed.
 func Doctor(w io.Writer) bool {
 	checks, ok := DoctorChecks()
+	color := ansi.Enabled(w)
 	for _, c := range checks {
-		mark := "✓"
+		mark := ansi.Style(color, ansi.Green, "✓")
 		if !c.OK {
-			mark = "✗"
+			mark = ansi.Style(color, ansi.Red, "✗")
 		}
-		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, c.Detail)
+		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, ansi.Status(color, c.Detail))
 	}
 	return ok
 }
