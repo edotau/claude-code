@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/clean"
 	"io"
 	"io/fs"
 	"net/http"
@@ -258,6 +259,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	has, err := settingsHasHooks(SettingsFile())
+	nested := clean.NestedConfig()
+	check(nested.Dir == "", false, "nested config", nestedDetail(nested))
 	check(true, false, "audit (7d)", auditSummary())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
@@ -275,6 +278,18 @@ func Doctor(w io.Writer) bool {
 		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, ansi.Status(color, c.Detail))
 	}
 	return ok
+}
+
+// nestedDetail says whether <config dir>/.claude exists and what keeps clean from removing it.
+func nestedDetail(n clean.Nested) string {
+	switch {
+	case n.Dir == "":
+		return "none"
+	case len(n.Keep) > 0:
+		return n.Dir + " layers over user settings; move " + strings.Join(n.Keep, ", ") + " into the template first"
+	default:
+		return n.Dir + " is redundant (claude-code clean --apply)"
+	}
 }
 
 // auditSummary counts the last week's audited actions, e.g. "2 hook_blocked, 1 provider_switch".

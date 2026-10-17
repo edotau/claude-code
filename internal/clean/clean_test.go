@@ -272,3 +272,34 @@ func TestStalePluginVersions(t *testing.T) {
 		t.Fatalf("stale = %v, want [%s]", got, old)
 	}
 }
+
+// TestNestedConfig: the nested dir goes only when user settings already carry every key it sets.
+func TestNestedConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise"}`)
+	nested := filepath.Join(dir, ".claude")
+	write(t, filepath.Join(nested, "settings.local.json"), `{"outputStyle": "Concise", "prefersReducedMotion": true}`)
+
+	var out, errw bytes.Buffer
+	Run([]string{"--apply"}, &out, &errw)
+	if !strings.Contains(errw.String(), "settings.local.json:prefersReducedMotion") {
+		t.Fatalf("uncovered key not reported: %s", errw.String())
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Fatal("nested dir removed while a key was uncovered")
+	}
+
+	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise", "prefersReducedMotion": true}`)
+	write(t, filepath.Join(nested, "agents", "x.md"), "x")
+	if n := NestedConfig(); len(n.Keep) != 1 || n.Keep[0] != "agents (not a settings file)" {
+		t.Fatalf("non-settings entry not kept: %v", n.Keep)
+	}
+
+	os.RemoveAll(filepath.Join(nested, "agents"))
+	errw.Reset()
+	Run([]string{"--apply"}, &out, &errw)
+	if _, err := os.Stat(nested); !os.IsNotExist(err) {
+		t.Fatalf("covered nested dir not removed: %s", errw.String())
+	}
+}

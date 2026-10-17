@@ -38,7 +38,7 @@ func TestRenderGolden(t *testing.T) {
 
 const existing = `{
   "env": {"KEEP_ME": "1"},
-  "spinnerTipsEnabled": false,
+  "cleanupPeriodDays": 9,
   "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Read(~/.ssh/**)"], "additionalDirectories": ["/x"]},
   "statusLine": {"type": "command", "command": "mine"},
   "hooks": {
@@ -48,7 +48,7 @@ const existing = `{
     ]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "foreign-end"}]}]
   },
-  "outputStyle": "Concise"
+  "autoUpdates": false
 }`
 
 func TestMergePreservesForeign(t *testing.T) {
@@ -108,7 +108,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if sum.ForeignHooks != 2 || sum.HarnessHooks != len(hookspec.Registry) {
 		t.Errorf("summary %+v", sum)
 	}
-	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "spinnerTipsEnabled,outputStyle") {
+	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "cleanupPeriodDays,autoUpdates") {
 		t.Errorf("kept %v", sum.Kept)
 	}
 	again, _, err := Merge(merged, rendered)
