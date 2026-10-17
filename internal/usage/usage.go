@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -22,7 +23,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs.SetOutput(errw)
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "scope to sessions modified within the last N days (ignored with --session)")
-	jsonFlag := fs.Bool("json", false, "emit JSON instead of a table")
+	formatFlag := outfmt.Flag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "one per-phase block per Workflow run, newest first")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -30,9 +31,13 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		}
 		return 2
 	}
-	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *jsonFlag, *workflowsFlag
+	if err := outfmt.Check(*formatFlag); err != nil {
+		fmt.Fprintln(errw, "usage:", err)
+		return 2
+	}
+	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *formatFlag == outfmt.JSON, *workflowsFlag
 	if workflowsOut && jsonOut {
-		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --json (the per-model aggregate does)")
+		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --format json (the per-model aggregate does)")
 		return 2
 	}
 	if workflowsOut {

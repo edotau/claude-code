@@ -84,8 +84,8 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
 		t.Errorf("theme -- = %v, want [--preview]", got)
 	}
-	if got := completionCandidates([]string{"doctor", "--"}); len(got) != 0 {
-		t.Errorf("doctor -- = %v, want no candidates (doctor has no flags)", got)
+	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--format"}) {
+		t.Errorf("doctor -- = %v, want [--format]", got)
 	}
 }
 
@@ -128,14 +128,14 @@ func TestCompletionPositionals(t *testing.T) {
 }
 
 // TestCompletionAfterBoolFlagOffersNextFlag: the word after a boolean flag (no value slot) falls back
-// to the remaining flags, across two different verbs that each define a flag named "json".
+// to the remaining flags, across two different verbs.
 func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 	for _, tc := range []struct {
 		words []string
 		typed string
 	}{
 		{[]string{"clean", "--apply", ""}, "--apply"},
-		{[]string{"usage", "--json", ""}, "--json"},
+		{[]string{"usage", "--workflows", ""}, "--workflows"},
 	} {
 		got := completionCandidates(tc.words)
 		if len(got) == 0 {
@@ -154,13 +154,13 @@ func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 
 // TestCompletionSkipsTypedFlags: a flag already on the line is not offered again.
 func TestCompletionSkipsTypedFlags(t *testing.T) {
-	got := completionCandidates([]string{"usage", "--json", "--"})
-	if slices.Contains(got, "--json") {
-		t.Errorf("typed --json must drop out: %v", got)
+	got := completionCandidates([]string{"usage", "--workflows", "--"})
+	if slices.Contains(got, "--workflows") {
+		t.Errorf("typed --workflows must drop out: %v", got)
 	}
-	for _, want := range []string{"--days", "--session", "--workflows"} {
+	for _, want := range []string{"--days", "--session", "--format"} {
 		if !slices.Contains(got, want) {
-			t.Errorf("usage --json -- candidates %v missing %q", got, want)
+			t.Errorf("usage --workflows -- candidates %v missing %q", got, want)
 		}
 	}
 }

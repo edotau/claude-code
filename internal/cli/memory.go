@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -12,11 +11,12 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 const memoryUsage = `usage: claude-code memory init [--repo R]
-       claude-code memory search [--repo R] [--k 8] [--json] <terms>
+       claude-code memory search [--repo R] [--k 8] [--format text|json] <terms>
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
@@ -55,17 +55,21 @@ func cmdMemory(args []string) int {
 		return 0
 	case "search":
 		k := fs.Int("k", 8, "maximum hits")
-		asJSON := fs.Bool("json", false, "print hits as JSON")
-		if fs.Parse(args[1:]) != nil {
+		format := outfmt.Flag(fs)
+		terms, err := outfmt.Parse(fs, args[1:])
+		if err != nil {
 			return 2
 		}
-		if fs.NArg() == 0 {
+		if err := outfmt.Check(*format); err != nil {
+			fail("memory search: %v", err)
+			return 2
+		}
+		if len(terms) == 0 {
 			return fail("memory search: no query (%s)", memoryUsage)
 		}
-		hits := memory.SearchBanks(memoryRoot(*repo), strings.Join(fs.Args(), " "), *k)
-		if *asJSON {
-			b, _ := json.Marshal(hits)
-			fmt.Println(string(b))
+		hits := memory.SearchBanks(memoryRoot(*repo), strings.Join(terms, " "), *k)
+		if *format == outfmt.JSON {
+			_ = outfmt.Write(os.Stdout, hits)
 			return 0
 		}
 		if len(hits) == 0 {

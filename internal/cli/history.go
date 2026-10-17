@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/history"
+	"github.com/edotau/claude-code/internal/outfmt"
 )
 
 const historyUsage = `usage: claude-code history snapshot [--note N]
@@ -86,28 +87,55 @@ func historyLog(args []string) int {
 	n := fs.Int("n", 20, "commits per plane")
 	memOnly := fs.Bool("memory", false, "the memory bank only")
 	cfgOnly := fs.Bool("config", false, "the config files only")
+	format := outfmt.Flag(fs)
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fmt.Fprintln(os.Stderr, "history:", err)
 		return 2
 	}
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0
-	if !*memOnly {
-		lines, err := store.Log(*n, "config")
+	planes := map[string][]logEntry{}
+	for _, plane := range []string{"config", "memory"} {
+		if (plane == "config" && *memOnly) || (plane == "memory" && *cfgOnly) {
+			continue
+		}
+		lines, err := store.Log(*n, plane)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "history: config:", err)
+			fmt.Fprintf(os.Stderr, "history: %s: %v\n", plane, err)
 			rc = 1
 		}
-		printLog("config", lines)
+		if *format == outfmt.JSON {
+			planes[plane] = parseLog(lines)
+			continue
+		}
+		printLog(plane, lines)
 	}
-	if !*cfgOnly {
-		lines, err := store.Log(*n, "memory")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "history: memory:", err)
-			rc = 1
-		}
-		printLog("memory", lines)
+	if *format == outfmt.JSON {
+		_ = outfmt.Write(os.Stdout, planes)
 	}
 	return rc
+}
+
+// logEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M <plane>: <subject>".
+type logEntry struct {
+	Rev     string `json:"rev"`
+	Date    string `json:"date"`
+	Subject string `json:"subject"`
+}
+
+func parseLog(lines []string) []logEntry {
+	out := []logEntry{}
+	for _, l := range lines {
+		f := strings.SplitN(l, " ", 4)
+		if len(f) < 4 {
+			continue
+		}
+		out = append(out, logEntry{Rev: f[0], Date: f[1] + " " + f[2], Subject: f[3]})
+	}
+	return out
 }
 
 // printLog prints one plane's header and lines; an empty history says so rather than printing nothing.

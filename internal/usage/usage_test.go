@@ -97,13 +97,13 @@ func TestUsageCmdSessionScope(t *testing.T) {
 		usageRecordLine("claude-opus-4-8", 999, 99, "2026-07-19T06:36:00.000Z"))
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--session", "target-session", "--json"}, claudeDir, &out, &errw); code != 0 {
+	if code := Run([]string{"--session", "target-session", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
 	}
 
 	var agg transcript.UsageAggregate
 	if err := json.Unmarshal(out.Bytes(), &agg); err != nil {
-		t.Fatalf("--json output not valid JSON: %v\n%s", err, out.String())
+		t.Fatalf("--format json output not valid JSON: %v\n%s", err, out.String())
 	}
 	if _, ok := agg.Models["claude-sonnet-5"]; !ok {
 		t.Errorf("json output missing target session's model: %+v", agg.Models)
@@ -131,12 +131,12 @@ func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 		usageRecordLine("claude-opus-4-8", 700, 70, "2026-07-19T06:37:00.000Z"))
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--session", "target-session", "--json"}, claudeDir, &out, &errw); code != 0 {
+	if code := Run([]string{"--session", "target-session", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
 	}
 	var agg transcript.UsageAggregate
 	if err := json.Unmarshal(out.Bytes(), &agg); err != nil {
-		t.Fatalf("--json output not valid JSON: %v\n%s", err, out.String())
+		t.Fatalf("--format json output not valid JSON: %v\n%s", err, out.String())
 	}
 	if _, ok := agg.Models["claude-sonnet-5"]; !ok {
 		t.Errorf("json output missing plain subagent's model: %+v", agg.Models)
@@ -211,13 +211,13 @@ func TestUsageCmdWorkflowsNewestFirst(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsRejectsJSON: --workflows has no JSON form, so --workflows --json is a usage
+// TestUsageCmdWorkflowsRejectsJSON: --workflows has no JSON form, so --workflows --format json is a usage
 // error rather than silently falling back to the per-model aggregate JSON.
 func TestUsageCmdWorkflowsRejectsJSON(t *testing.T) {
 	claudeDir := t.TempDir()
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--workflows", "--json"}, claudeDir, &out, &errw); code == 0 {
-		t.Errorf("Run --workflows --json = %d, want nonzero", code)
+	if code := Run([]string{"--workflows", "--format", "json"}, claudeDir, &out, &errw); code == 0 {
+		t.Errorf("Run --workflows --format json = %d, want nonzero", code)
 	}
 }
 
