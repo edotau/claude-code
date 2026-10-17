@@ -18,6 +18,18 @@ const (
 // Slots lists every tier in precedence order (the opus slot is the session default).
 var Slots = []string{Opus, Sonnet, Haiku, Fable}
 
+// NextSlot is the demotion ladder a quota-dead model falls down: opus → sonnet → haiku → "" (none). Fable sits
+// outside it: a distinct family, not a cheaper tier of the same one.
+func NextSlot(slot string) string {
+	switch slot {
+	case Opus:
+		return Sonnet
+	case Sonnet:
+		return Haiku
+	}
+	return ""
+}
+
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000

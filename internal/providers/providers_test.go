@@ -167,3 +167,29 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 		t.Fatalf("PinDiff = %q (file changed: %v)", got, string(before) != string(after))
 	}
 }
+
+func TestHardQuotaAndDemote(t *testing.T) {
+	for text, want := range map[string]bool{
+		`{"error":{"code":429,"message":"You exceeded your current quota ... limit: 0, model: gemini-4-argon"}}`: true,
+		`insufficient_quota`:                 true,
+		`429 Too Many Requests, retry in 2s`: false,
+		`rate limit exceeded`:                false,
+	} {
+		if got := HardQuota(text); got != want {
+			t.Errorf("HardQuota(%q) = %v, want %v", text, got, want)
+		}
+	}
+	p := &Provider{Name: "g", Models: map[string]string{"opus": "big", "sonnet": "mid", "haiku": "small", "fable": "other"}}
+	if d, ok := Demote(p, "big"); !ok || d.Model != "mid" {
+		t.Errorf("Demote(big) = %v %v, want mid", d.Model, ok)
+	}
+	if d, ok := Demote(p, "mid"); !ok || d.Model != "small" {
+		t.Errorf("Demote(mid) = %v %v, want small", d.Model, ok)
+	}
+	if _, ok := Demote(p, "small"); ok {
+		t.Error("Demote(small) must stop at the bottom of the ladder")
+	}
+	if _, ok := Demote(&Provider{Name: "one", Models: map[string]string{"opus": "x", "sonnet": "x"}}, "x"); ok {
+		t.Error("Demote must not return the same model under another slot")
+	}
+}

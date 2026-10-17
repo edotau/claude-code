@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,10 +48,15 @@ type Router struct {
 	reg      *providers.Registry
 	regStamp time.Time
 	cool     map[string]time.Time // provider → cooling-down until (after a 429)
+	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 }
 
+// quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
+const quotaDeadFor = 30 * time.Minute
+
 func newRouter(secret string) *Router {
-	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now, cool: map[string]time.Time{}}
+	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -87,6 +93,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 type fallbackError struct {
 	error
 	status int
+	hard   bool // a 429 that denies the model outright (quota 0), not a transient rate limit
 }
 
 func (e *fallbackError) Unwrap() error { return e.error }
@@ -128,7 +135,8 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	clientModel := models.Strip1M(head.Model)
 	ladder := r.attempts(reg, target, clientAuth)
 	var lastErr error
-	for i, t := range ladder {
+	for i := 0; i < len(ladder); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
+		t := ladder[i]
 		last := i == len(ladder)-1
 		done, err := r.try(w, in, body, t, clientModel, count, last)
 		if done {
@@ -138,10 +146,19 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		if in.Context().Err() != nil {
 			return t.Provider.Name, t.Model, i + 1
 		}
-		if !last {
+		var failure *fallbackError
+		isFailure := errors.As(err, &failure)
+		if isFailure && failure.hard {
+			if d, ok := r.demotion(t); ok {
+				ladder = slices.Insert(ladder, i+1, d)
+				fmt.Fprintf(r.log, "router: %s %s is quota-dead for this key, demoting to %s\n", t.Provider.Name, t.Model, d.Model)
+				audit.Log(audit.RouterFallback, t.Provider.Name, fmt.Sprintf("status=429 quota; demoted to %s", d.Model))
+				continue
+			}
+		}
+		if i < len(ladder)-1 {
 			fmt.Fprintf(r.log, "router: %s %s failed, failing over: %v\n", t.Provider.Name, t.Model, err)
-			var failure *fallbackError
-			if errors.As(err, &failure) {
+			if isFailure {
 				detail := "connect error"
 				if failure.status != 0 {
 					detail = fmt.Sprintf("status=%d", failure.status)
@@ -185,12 +202,42 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 			out = append(out, ft)
 		}
 	}
+	// A model this key cannot use at all is replaced by its provider's next slot up front.
+	for i, t := range out {
+		if r.isDead(t) {
+			if d, ok := r.demotion(t); ok {
+				out[i] = d
+			}
+		}
+	}
 	now := r.now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cooling := func(t providers.Target) bool { return now.Before(r.cool[t.Provider.Name]) }
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
 	return out
+}
+
+// demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
+func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
+	for d, ok := providers.Demote(t.Provider, t.Model); ok; d, ok = providers.Demote(t.Provider, d.Model) {
+		if !r.isDead(d) {
+			return d, true
+		}
+	}
+	return providers.Target{}, false
+}
+
+func (r *Router) isDead(t providers.Target) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.now().Before(r.dead[t.Provider.Name+":"+t.Model])
+}
+
+func (r *Router) markDead(t providers.Target) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dead[t.Provider.Name+":"+t.Model] = r.now().Add(quotaDeadFor)
 }
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
@@ -217,8 +264,8 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 		if err != nil {
 			return false, err
 		}
-		if r.failover(resp, p, last) {
-			return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode}
+		if moveOn, hard := r.failover(resp, t, last); moveOn {
+			return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 		}
 		relay(w, resp)
 		return true, nil
@@ -245,8 +292,8 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 	if err != nil {
 		return false, err
 	}
-	if r.failover(resp, p, last) {
-		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode}
+	if moveOn, hard := r.failover(resp, t, last); moveOn {
+		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -315,19 +362,35 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 	return resp, nil
 }
 
-// failover records a 429 cooldown and reports (after draining) whether the caller should move on.
-func (r *Router) failover(resp *http.Response, p *providers.Provider, last bool) bool {
+// failover classifies a failed response: a hard-quota 429 marks the model dead (and moves on even on the last
+// attempt when the provider has a lower slot); a transient 429 cools the provider; retryable statuses move on
+// unless this was the last attempt. moveOn means the response was drained and the caller may try the next target.
+func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (moveOn, hard bool) {
+	p := t.Provider
 	if resp.StatusCode == http.StatusTooManyRequests {
-		d := retryAfter(resp.Header.Get("Retry-After"), r.now())
-		r.mu.Lock()
-		r.cool[p.Name] = r.now().Add(d)
-		r.mu.Unlock()
+		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+		if hard = providers.HardQuota(string(peek)); hard {
+			r.markDead(t)
+			if _, ok := r.demotion(t); ok {
+				drain(resp)
+				return true, true
+			}
+		} else {
+			d := retryAfter(resp.Header.Get("Retry-After"), r.now())
+			r.mu.Lock()
+			r.cool[p.Name] = r.now().Add(d)
+			r.mu.Unlock()
+		}
 	}
 	if last || !retryable[resp.StatusCode] {
-		return false
+		return false, hard
 	}
 	drain(resp)
-	return true
+	return true, hard
 }
 
 func retryAfter(v string, now time.Time) time.Duration {
