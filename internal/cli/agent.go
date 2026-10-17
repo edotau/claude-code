@@ -13,6 +13,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/secretshape"
 )
 
 func cmdAsk(args []string) int {
@@ -27,13 +29,30 @@ func cmdAsk(args []string) int {
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
 	format := fs.String("format", "text", "text streams the answer; json prints the Result envelope")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
+	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
+	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *format != "text" && *format != "json" {
 		return fail("ask: --format %q unknown (text|json)", *format)
 	}
+	if *showLog {
+		return printDispatchLog(*format)
+	}
 	prompt := strings.Join(fs.Args(), " ")
+	if *retry != "" {
+		rec, err := agent.LoadRecord(*retry)
+		if err != nil {
+			return fail("ask: %v", err)
+		}
+		// The logged request wins; only flags typed on this command line override it.
+		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
+		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
+		_ = fs.Parse(args) // re-apply explicit flags over the record
+		prompt, *rubric = rec.Request.Prompt, ""
+		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	}
 	if prompt == "" || prompt == "-" {
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -63,7 +82,12 @@ func cmdAsk(args []string) int {
 	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
+	rec := agent.NewRecord(r.Name(), req, time.Now())
+	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	start := time.Now()
 	res, err := agent.Run(ctx, r, req, stream, func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+	rec.Finish(res, err, time.Since(start))
+	_ = rec.Save()
 	for _, d := range res.Dropped {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, r.Name())
 	}
@@ -80,6 +104,7 @@ func cmdAsk(args []string) int {
 	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
+	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
 	}
@@ -153,6 +178,36 @@ func listRunners() int {
 			}
 		}
 		fmt.Printf("%s %-9s %-44s %s\n", mark, r.Name(), strings.Join(caps, ","), reason)
+	}
+	return 0
+}
+
+// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
+func printDispatchLog(format string) int {
+	recs := agent.RecentRecords(20)
+	if format == "json" {
+		_ = outfmt.Write(os.Stdout, recs)
+		return 0
+	}
+	if len(recs) == 0 {
+		fmt.Println("no dispatches logged yet")
+		return 0
+	}
+	for _, r := range recs {
+		preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
+		for _, w := range strings.Fields(preview) {
+			if secretshape.Looks(w) {
+				preview = strings.ReplaceAll(preview, w, "REDACTED")
+			}
+		}
+		if len(preview) > 60 {
+			preview = preview[:60] + "…"
+		}
+		tools := ""
+		if r.Request.Tools {
+			tools = " tools"
+		}
+		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, r.Agent, r.Duration, tools, preview)
 	}
 	return 0
 }

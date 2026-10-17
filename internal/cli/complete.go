@@ -92,7 +92,7 @@ var flagsFor = map[string][]flagInfo{
 	"router serve":    {{name: "port"}},
 	"ask": {{name: "agent", values: agentNames}, {name: "provider", values: providerNames}, {name: "model"},
 		{name: "effort"}, {name: "workdir"}, {name: "session"}, {name: "tools", isBool: true},
-		{name: "timeout"}, {name: "format"}, {name: "rubric"}},
+		{name: "timeout"}, {name: "format"}, {name: "rubric"}, {name: "retry"}, {name: "log", isBool: true}},
 	"agents sync": {{name: "gemini", isBool: true}, {name: "dry-run", isBool: true}, {name: "check", isBool: true}, {name: "no-prune", isBool: true}},
 	"agents docs": {{name: "check", isBool: true}, {name: "dry-run", isBool: true}},
 	"models":      {{name: "provider", values: providerNames}, {name: "unpin", isBool: true}, {name: "live", isBool: true}, {name: "pin"}, {name: "dry-run", isBool: true}},
