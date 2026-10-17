@@ -2,19 +2,24 @@ export const meta = {
   name: 'gate-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations',
   whenToUse:
-    'The verify tail of any dispatch (ADK LoopAgent shape). args: {gate: "go build ./... && go vet ./... && go test ./internal/x/", cwd, scope: ["internal/x"], maxIterations: 3}. Also called inline by implement-and-verify and audit-fix-verify via workflow("gate-loop", …).',
-  phases: [{ title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' }],
+    '{gate?: auto-detected when absent, cwd, scope: ["dir"], maxIterations: 3, fixesPerIteration?: 3}. Returns {status, exit: green|stalled|capped|error, gate, gateSource, iterations, filesChanged, residual, history}.',
+  phases: [
+    { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
+    { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },
+  ],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────
 // Every field has a default so the workflow runs bare; scope is the ONLY place the fixer may edit.
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-const GATE = a.gate || 'go build ./... && go vet ./...'
+let GATE = a.gate || ''
+let GATE_SOURCE = a.gate ? 'args' : ''
 const CD = a.cwd ? `cwd: ${a.cwd}. Prefix every command with \`cd ${a.cwd} &&\` (the shell cwd resets).\n` : ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : ['(whole repo — scope not given; prefer the smallest fix)']
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
+const FIXES = Number.isInteger(a.fixesPerIteration) && a.fixesPerIteration > 0 ? a.fixesPerIteration : 3
 const RULES = a.rules ||
-  'Never run git stash|checkout|reset|restore|clean|commit, never make install|test, never edit settings.json. ' +
+  'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. ' +
   'Fix the implementation, not the test, unless the test is provably wrong. One root cause per edit; re-run only the gate.'
 
 const GATE_SCHEMA = {
@@ -31,10 +36,40 @@ const GATE_SCHEMA = {
   },
 }
 
+const DETECT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['gate', 'source'],
+  properties: {
+    gate: { type: 'string', description: 'exact command, empty when nothing matches' },
+    source: { type: 'string', enum: ['Makefile', 'go.mod', 'pyproject', 'package.json', 'Cargo.toml', 'none'] },
+  },
+}
+
+// ── Detect (ADK leaf: pick the verify gate when the caller didn't pass one) ─────────────────
+if (!GATE) {
+  phase('Detect')
+  const d = await agent(
+    `${CD}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
+    `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${SCOPE.join(' ') || '(repo root)'}. ` +
+    `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
+    `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
+    `(3) package.json → "npm run lint && npm test" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test". ` +
+    `If a Makefile has a lint (or fmt/vet) target, return "make lint && " + that command and source "Makefile"; never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
+    `(5) Makefile only, no toolchain file → its fastest test/check target. Nothing matches → gate "" and source "none".`,
+    { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: 'haiku', effort: 'low' }
+  )
+  GATE = (d && d.gate) || ''
+  GATE_SOURCE = (d && d.source) || 'none'
+  log(`gate detected (${GATE_SOURCE}): ${GATE || 'none'}`)
+  if (!GATE) return { status: 'error', exit: 'error', gate: null, gateSource: GATE_SOURCE, iterations: 0, filesChanged: [], residual: ['no gate detected under ' + (a.cwd || 'cwd') + '; pass args.gate'], history: [] }
+}
+
 // ── Loop (ADK LoopAgent: sub-agent per iteration, exit on the escalation signal or the cap) ────
 phase('Gate')
 const history = []
 let last = null
+let stalled = false
 for (let i = 1; i <= MAX_ITER; i++) {
   const prior = last && last.residual.length ? `\nStill red after iteration ${i - 1}:\n- ${last.residual.join('\n- ')}\n` : ''
   last = await agent(
@@ -43,7 +78,7 @@ for (let i = 1; i <= MAX_ITER; i++) {
     `Edit ONLY under: ${SCOPE.join(', ')}\n` +
     `Rules: ${RULES}\n${prior}\n` +
     `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise take the FIRST failure, read the code it names, ` +
-    `make the minimal fix inside scope, re-run the gate; repeat within this iteration for at most 3 distinct failures, then report. ` +
+    `make the minimal fix inside scope, re-run the gate; repeat within this iteration for at most ${FIXES} distinct failures, then report (the rest go into residual verbatim). ` +
     `Never widen scope; a failure outside scope goes into residual verbatim.`,
     { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: 'sonnet', effort: 'medium' }
   )
@@ -51,7 +86,8 @@ for (let i = 1; i <= MAX_ITER; i++) {
   history.push({ iteration: i, ...last })
   log(`gate ${i}/${MAX_ITER}: ${last.status} (${last.failuresBefore} → ${last.failuresAfter}) changed=${last.filesChanged.length}`)
   if (last.status === 'green') break
-  if (last.status === 'red' && last.failuresBefore === last.failuresAfter && i > 1 && history[i - 2].failuresAfter === last.failuresAfter) {
+  if (i > 1 && last.status !== 'green' && last.status === history[i - 2].status && last.failuresBefore === last.failuresAfter && history[i - 2].failuresAfter === last.failuresAfter) {
+    stalled = true
     log('no progress across two iterations — escalating instead of burning the cap')
     break
   }
@@ -60,6 +96,9 @@ if (last.status !== 'green') log(`gate still ${last.status} after ${history.leng
 
 return {
   status: last.status,
+  exit: last.status === 'green' ? 'green' : stalled ? 'stalled' : 'capped', // 'error' normalizes upstream; stall/cap always close the loop first
+  gate: GATE,
+  gateSource: GATE_SOURCE,
   iterations: history.length,
   filesChanged: [...new Set(history.flatMap(h => h.filesChanged))],
   residual: last.residual,
