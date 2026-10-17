@@ -18,7 +18,7 @@ beside it.
 | claude | Full-lifecycle coding: architect → plan → implement → simplify → review (incl. plan-only path) | Architectural decisions, MEDIUM+ changes, plan writing, post-write review |
 | code-workers | Sonnet-tier fan-out leaf: one well-scoped task in-context, effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
 | test-driven-dev | Test-driven development (forward-only: new behavior) | New features, bug fixes |
-| test-repair | The EXISTING tests a change breaks or makes stale | Renames/signature changes; a suite that was green before the change. Dispatch WITH the implementer, not after |
+| sonnet | The EXISTING tests a change breaks or makes stale | Renames/signature changes; a suite that was green before the change. Dispatch WITH the implementer, not after |
 | copilot | Last mile: merge branches in dependency order, then stage + commit | After the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
 | documentation | Documentation + library lookup | Updating docs, API reference |
