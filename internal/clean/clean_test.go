@@ -40,6 +40,8 @@ func seedDebris(t *testing.T) string {
 		"state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log",
 		"settings.json.bak-20260101-000000",
+		"settings.json.bak",
+		"backups/.claude.json.backup.1700000000000",
 		"jobs/job-aaa/output.log",
 		"file-history/f-aaa/v1",
 		"session-env/sess-aaa.json",
@@ -301,5 +303,22 @@ func TestNestedConfig(t *testing.T) {
 	Run([]string{"--apply"}, &out, &errw)
 	if _, err := os.Stat(nested); !os.IsNotExist(err) {
 		t.Fatalf("covered nested dir not removed: %s", errw.String())
+	}
+}
+
+// TestBackupsAgeless: settings backups go on any --apply, however fresh.
+func TestBackupsAgeless(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	fresh := []string{filepath.Join(dir, "settings.json.bak"), filepath.Join(dir, "backups", ".claude.json.backup.1")}
+	for _, p := range fresh {
+		write(t, p, "x")
+	}
+	var out, errw bytes.Buffer
+	Run([]string{"--apply"}, &out, &errw)
+	for _, p := range fresh {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("fresh backup kept: %s", p)
+		}
 	}
 }
