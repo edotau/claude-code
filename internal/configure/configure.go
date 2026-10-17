@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -92,7 +93,8 @@ func Run(o Options, section string) int {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return 1
 	}
-	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.reader()), out: out, color: ansi.Enabled(out)}
+	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
+	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
 	allOK := true
 	for _, s := range want {
 		d.header(s)
@@ -154,9 +156,14 @@ func readLine(br *bufio.Reader) string {
 	return strings.TrimRight(line, "\r\n")
 }
 
-// yes defaults to true (the prompts are always "[Y/n]"): blank or anything starting with 'y'/'Y'.
+// yes defaults to true (the prompts are always "[Y/n]"): blank or anything starting with 'y'/'Y'. End of input
+// is a decline, never a default yes — a piped dialogue that runs dry must not start a login or a paste.
 func yes(br *bufio.Reader) bool {
-	line := strings.ToLower(strings.TrimSpace(readLine(br)))
+	raw, err := br.ReadString('\n')
+	if err != nil && raw == "" {
+		return false
+	}
+	line := strings.ToLower(strings.TrimSpace(raw))
 	return line == "" || strings.HasPrefix(line, "y")
 }
 
@@ -253,6 +260,37 @@ type keyTarget struct {
 	provider  *providers.Provider // present + keyed: probed live so a stored-but-rejected key is not "present"
 }
 
+// consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
+var consoleURLs = map[string]string{
+	"ANTHROPIC_API_KEY":  "https://console.anthropic.com/settings/keys",
+	"GEMINI_API_KEY":     "https://aistudio.google.com/apikey",
+	"OPENAI_API_KEY":     "https://platform.openai.com/api-keys",
+	"OPENROUTER_API_KEY": "https://openrouter.ai/settings/keys",
+}
+
+// authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.
+type authOption struct {
+	label string
+	argv  []string // login CLI to run attached to the terminal
+	env   string   // env var a pasted key is stored under (env.d/secrets.env)
+}
+
+// authOptions lists every way kt can be satisfied, browser login first; the dialog shows them all.
+func authOptions(kt keyTarget) []authOption {
+	var opts []authOption
+	if len(kt.loginArgv) > 0 {
+		opts = append(opts, authOption{label: "Sign in via browser (" + strings.Join(kt.loginArgv, " ") + ")", argv: kt.loginArgv})
+	}
+	if kt.envVar != "" {
+		label := "Paste an API key (" + kt.envVar + ")"
+		if u := consoleURLs[kt.envVar]; u != "" {
+			label += " — create one at " + u
+		}
+		opts = append(opts, authOption{label: label, env: kt.envVar})
+	}
+	return opts
+}
+
 func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, error) {
 	var out []keyTarget
 	if vendorFilter == "" {
@@ -265,10 +303,15 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 		if p.Auth.Env != "" {
 			fix = "claude-code secrets set " + p.Auth.Env
 		}
-		out = append(out, keyTarget{
+		kt := keyTarget{
 			label: "claude", present: providers.CredentialPresent(p), source: secrets.Resolve(p).Source,
 			envVar: p.Auth.Env, fixCmd: fix, provider: p,
-		})
+		}
+		if p.Auth.Type == providers.AuthPassthrough {
+			kt.loginArgv = []string{"claude", "auth", "login"} // the subscription signs in through Claude Code itself
+			kt.fixCmd = "claude auth login"
+		}
+		out = append(out, kt)
 	}
 	for _, name := range vendors.Names() {
 		if vendorFilter != "" && name != vendorFilter {
@@ -321,7 +364,8 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY", envVar: "GEMINI_API_KEY", provider: p}
 		}
-		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", fixCmd: "claude-code secrets set GEMINI_API_KEY"}
+		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", loginArgv: []string{"gemini"},
+			fixCmd: "claude-code secrets set GEMINI_API_KEY, or `gemini` → /auth → Login with Google"}
 	case "opencode":
 		if names := vendors.OpencodeLogins(); len(names) > 0 {
 			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", ")}
@@ -397,34 +441,75 @@ func afterUsing(note string) string {
 	return "its own login"
 }
 
-// resolveKey offers kt's login or prompts for its key; false means declined, empty, or it failed.
+// resolveKey presents every way to satisfy kt — browser/device login and pasted key side by side — as a picker
+// on a terminal, or one [Y/n] per option when piped; false means skipped, empty, or failed.
 func resolveKey(d *dialog, kt keyTarget) bool {
-	switch {
-	case len(kt.loginArgv) > 0:
-		if !confirm(d, "Log in to "+kt.label+" now?") {
+	opts := authOptions(kt)
+	if len(opts) == 0 {
+		return false
+	}
+	chosen := -1
+	if isStdinTTY() && d.o.In == os.Stdin {
+		rows := make([][2]string, 0, len(opts)+1)
+		for i, o := range opts {
+			rows = append(rows, [2]string{fmt.Sprintf("%d)", i+1), o.label})
+		}
+		rows = append(rows, [2]string{"-", "Skip for now (" + kt.fixCmd + ")"})
+		idx, err := tui.Pick(kt.label+" — no credential found; how do you want to authenticate?", rows, 0)
+		if err == nil {
+			if idx < 0 || idx >= len(opts) {
+				return false
+			}
+			chosen = idx
+		}
+	}
+	if chosen < 0 {
+		for i, o := range opts {
+			if confirm(d, o.label+"?") {
+				chosen = i
+				break
+			}
+		}
+		if chosen < 0 {
 			return false
 		}
-		if err := runLogin(kt.loginArgv); err != nil {
+	}
+	return runAuthOption(d, kt, opts[chosen])
+}
+
+// runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + secrets.env.
+func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
+	if len(o.argv) > 0 {
+		if err := runLogin(o.argv); err != nil {
 			d.printf("%s: %v\n", kt.label, err)
 			return false
 		}
 		d.printf("%-10s logged in\n", kt.label)
 		return true
-	case kt.envVar != "":
-		val, err := secretLine(d, "Paste a value for "+kt.envVar+" (input hidden, Enter when done): ")
-		if err != nil || strings.TrimSpace(val) == "" {
-			d.printf("%s: no value entered\n", kt.envVar)
-			return false
-		}
-		if err := secrets.SetFile(kt.envVar, strings.TrimSpace(val)); err != nil {
-			d.printf("%s: %v\n", kt.envVar, err)
-			return false
-		}
-		d.printf("wrote %s to %s\n", kt.envVar, secrets.EnvFile())
-		return true
-	default:
+	}
+	if u := consoleURLs[o.env]; u != "" && confirm(d, "Open "+u+" in your browser to create the key?") {
+		openBrowser(u)
+	}
+	val, err := secretLine(d, "Paste a value for "+o.env+" (input hidden, Enter when done): ")
+	if err != nil || strings.TrimSpace(val) == "" {
+		d.printf("%s: no value entered\n", o.env)
 		return false
 	}
+	if err := secrets.SetFile(o.env, strings.TrimSpace(val)); err != nil {
+		d.printf("%s: %v\n", o.env, err)
+		return false
+	}
+	d.printf("wrote %s to %s\n", o.env, secrets.EnvFile())
+	return true
+}
+
+// openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
+func openBrowser(url string) {
+	bin := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		bin = "open"
+	}
+	_ = exec.Command(bin, url).Start()
 }
 
 // runLogin execs a vendor's own login CLI attached to the real terminal.

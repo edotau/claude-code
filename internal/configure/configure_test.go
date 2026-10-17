@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"bufio"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -75,5 +76,35 @@ func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
 	rc := Run(Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
 	if rc != 0 || !strings.Contains(out.String(), "opencode   present (opencode's own config (google/gemini-3.8-flash))") {
 		t.Errorf("rc = %d; own-config vendor must read present:\n%s", rc, out.String())
+	}
+}
+
+// An absent credential offers BOTH the browser login and a pasted key; piped, each is one [Y/n], so declining
+// the login and accepting the key writes it to env.d/secrets.env without ever opening a browser.
+func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	kt := keyTarget{label: "gemini", envVar: "GEMINI_API_KEY", loginArgv: []string{"gemini"}, fixCmd: "x"}
+	opts := authOptions(kt)
+	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "GEMINI_API_KEY" || !strings.Contains(opts[1].label, "aistudio") {
+		t.Fatalf("authOptions = %+v, want browser login then key with its console URL", opts)
+	}
+	in := strings.NewReader("n\ny\nn\n  sk-test-value \n")
+	var out bytes.Buffer
+	d := &dialog{o: Options{Interactive: true, In: in, Out: &out}, br: bufio.NewReader(in), out: &out}
+	if !resolveKey(d, kt) {
+		t.Fatalf("resolveKey = false\n%s", out.String())
+	}
+	got, err := os.ReadFile(filepath.Join(cfg, "env.d", "secrets.env"))
+	if err != nil || !strings.Contains(string(got), "GEMINI_API_KEY=sk-test-value") {
+		t.Errorf("secrets.env = %q (%v)", got, err)
+	}
+	if strings.Contains(out.String(), "logged in") {
+		t.Error("login must not have run after being declined")
+	}
+	for _, want := range []string{"Sign in via browser (gemini)? [Y/n]", "Paste an API key (GEMINI_API_KEY)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("dialog lacks %q:\n%s", want, out.String())
+		}
 	}
 }
