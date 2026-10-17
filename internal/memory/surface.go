@@ -39,7 +39,11 @@ func localSurface(dir, root string) string {
 	var pair []string
 	for _, name := range []string{"activeContext.md", "progress.md"} {
 		if data, err := os.ReadFile(filepath.Join(dir, name)); err == nil && len(data) > 0 {
-			pair = append(pair, "<!-- "+name+" -->\n"+strings.TrimSpace(string(data)))
+			body := string(data)
+			if name == "activeContext.md" {
+				body = dropParked(body)
+			}
+			pair = append(pair, "<!-- "+name+" -->\n"+strings.TrimSpace(body))
 		}
 	}
 	var durable string
@@ -148,4 +152,31 @@ func CapChars(s string, max int) string {
 		cut = cut[:i]
 	}
 	return cut + truncatedNotice
+}
+
+// dropParked removes activeContext's "## Parked" section from the injected surface: parked items are not
+// this session's work, and memory-recall still finds each one by topic (it indexes the file per bullet).
+func dropParked(body string) string {
+	lines := strings.Split(body, "\n")
+	var out []string
+	parked, items := false, 0
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, "## ") {
+			parked = strings.TrimSpace(ln) == "## Parked"
+			if parked {
+				continue
+			}
+		}
+		if parked {
+			if strings.HasPrefix(ln, "- ") {
+				items++
+			}
+			continue
+		}
+		out = append(out, ln)
+	}
+	if items > 0 {
+		out = append(out, fmt.Sprintf("\n<!-- %d parked item(s) omitted; memory-recall surfaces them by topic -->", items))
+	}
+	return strings.Join(out, "\n")
 }
