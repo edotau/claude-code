@@ -69,6 +69,21 @@ func TestUnreadableFileIsAHit(t *testing.T) {
 	if hits := registryHidingDefects(missing); len(hits) != 1 || !strings.Contains(hits[0], "cannot read file") {
 		t.Errorf("registryHidingDefects(missing) = %v, want one 'cannot read file' hit", hits)
 	}
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root and windows read mode-000 files")
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := writeScript(t, filepath.Join(root, "workflows"), "locked.js", "await agent('x', { model: 'sonnet', effort: 'low' })\n")
+	if err := os.Chmod(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := RunWorkflowLint([]string{root}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "cannot read file") {
+		t.Fatalf("RunWorkflowLint(unreadable) = %d, stderr %q; want 1 and a 'cannot read file' line", code, errb.String())
+	}
 }
 
 // A non-literal meta and a top-level throw both make the saved-workflow registry skip a script silently;
