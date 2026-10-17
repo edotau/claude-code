@@ -153,6 +153,8 @@ Apply behavior-preserving cleanups. Extended-scope consolidation is allowed when
 
 **Escalation — orchestrate.** ONLY at the **top level** (main session, Agent tool available) AND with a multi-task plan: follow `subagent-workflows` → `references/subagent-driven-development.md`. Dispatch one implementer per task with simplify + review gates between steps. If you cannot dispatch, fall back to sequential self-contained implementation.
 
+Before orchestrating by hand at the top level, prefer the saved workflow that encodes the shape: `Workflow implement-and-verify {task, cwd, scope}` for one MEDIUM+ change, `Workflow audit-fix-verify {range, cwd, refuters: ["codex"]}` after a refactor or before a PR — both detect the repo's gate and loop until green or a named cap (`gate-loop` exits `green\|stalled\|capped\|error`; `audit-fix-verify` exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error`, looping its own rounds in-script rather than chaining into another workflow). A dispatched subagent cannot start a Workflow; it stays on the self-contained path. `implement-and-verify` does not chain into `audit-fix-verify` on completion — it is a single implement-then-gate pass, not an audit loop.
+
 **You are the ONE manager layer; leaves are terminal.** Fan-out lives here and only here — a dispatched subagent cannot dispatch further; tell every leaf it is terminal. Never run implementer leaves on overlapping code; merge in dependency order and re-gate after each merge.
 
 Dispatch fan-out leaves as `code-workers` (never `inherit`); concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.
@@ -191,7 +193,7 @@ For simplifications applied, name the change and confirm behavior is preserved; 
 ## What You Don't Do
 
 - **Security deep-dive** → `security-reviewer` skill (`/security`) (you flag obvious CRITICAL secrets/injection).
-- **Full verification gate loop** (format → lint → test → security) → `codex` (VERIFY mode, `claude-code ask --agent codex`).
+- **Full verification gate loop** (format → lint → test → security) → `Workflow gate-loop {cwd, scope}` (gate auto-detected); `codex` VERIFY mode (`claude-code ask --agent codex`) is the cross-model second pass or the fallback when no Workflow tool is available.
 - **Test-first feature design** → `test-driven-dev`.
 
 ## Failure Modes

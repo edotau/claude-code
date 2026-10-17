@@ -24,6 +24,18 @@ Failures are fail-soft: use a local Claude subagent rather than blocking the tas
 | Gemini | Large-context repository exploration and cross-file analysis | `claude-code ask --agent gemini "<brief>"` |
 | Gemini (bridge) | One-shot 1M-context sweep over inlined workspace files, no vendor CLI | `claude-code gemini bridge --dirs <d> -- "<task>"` |
 | OpenCode / Copilot | Independent implementation or second-opinion review | `claude-code ask --agent opencode\|copilot "<brief>"` |
+| Any leg as a Workflow stage | Smoke-tested, JSON envelope relayed, sonnet fallback | `workflow("vendor-leg", {leg, cwd, task})` or `audit-fix-verify {refuters: ["codex"]}` |
+
+Demonstrated calls per named role:
+
+- **Codex adversarial refuter** — `workflow("audit-fix-verify", {range: "main..HEAD", cwd, refuters: ["codex"]})`;
+  codex refutes each finding before fix ‖ test runs per package.
+- **Gemini 1M sweep as a stage** — `workflow("vendor-leg", {leg: "gemini", cwd, task: "<sweep brief>"})`, one
+  call per round inside a loop — never the opus tier.
+- **Copilot commit tail** — `workflow("vendor-leg", {leg: "copilot", cwd, tools: true, task: "stage and commit
+  <files> with <message>"})` — `tools: true` runs never fall back; call this only after the gates are green.
+- **OpenCode second opinion** — `workflow("vendor-leg", {leg: "opencode", cwd, task: "<review brief>"})`, roughly
+  1.5–3 min per call.
 
 `--format json` returns the machine envelope (agent, provider, model, answer, usage). A leg's model and
 provider come from the registry: `claude-code providers`, `claude-code models`. Interactive sessions on
