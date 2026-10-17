@@ -10,14 +10,29 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
 func cmdProviders(args []string) int {
-	reg, err := providers.Load()
+	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
+	format := outfmt.Flag(fs)
+	args, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: profile:", err)
+		return 2
+	}
+	var reg *providers.Registry
+	reg, err = providers.Load()
 	if err != nil {
 		return fail("%v", err)
+	}
+	if *format == outfmt.JSON {
+		return profileJSON(reg, args)
 	}
 	if len(args) == 0 {
 		for _, n := range reg.Names() {
@@ -54,6 +69,27 @@ func cmdProviders(args []string) int {
 	for _, s := range models.Slots {
 		if id := p.Models[s]; id != "" {
 			fmt.Printf("  %-10s %s\n", s, id)
+		}
+	}
+	return 0
+}
+
+// profileJSON emits the describe provider view: all providers, or the one named, never a credential.
+func profileJSON(reg *providers.Registry, args []string) int {
+	d, err := describe()
+	if err != nil {
+		return fail("profile: %v", err)
+	}
+	if len(args) == 0 {
+		_ = outfmt.Write(os.Stdout, d.Providers)
+		return 0
+	}
+	if _, err := reg.Get(args[0]); err != nil {
+		return fail("%v", err)
+	}
+	for _, p := range d.Providers.List {
+		if p.Name == args[0] {
+			_ = outfmt.Write(os.Stdout, p)
 		}
 	}
 	return 0

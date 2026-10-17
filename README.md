@@ -255,7 +255,7 @@ their line caps is promoted to the global bank, global overflow is archived, and
 
 ```bash
 claude-code memory init | path | index              # scaffold, locate, settle + reindex
-claude-code memory search <terms> [--k 8] [--json]  # BM25 over every tier
+claude-code memory search <terms> [--k 8] [--format json]  # BM25 over every tier
 claude-code memory doctor [--stale-days 90]         # cap offenders, staleness, credential-shaped lines, hot/cold topics
 claude-code memory stats | timeline [-n 20] | promote
 ```
@@ -276,7 +276,7 @@ near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
   `state/harness/history`; `env.d/secrets.env` is never snapshotted.
 - `claude-code theme [--preview]` — pick the statusline color palette.
-- `claude-code mcp doctor [--json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
+- `claude-code mcp doctor [--format json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
 
 ## Status line
 

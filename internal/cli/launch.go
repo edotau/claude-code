@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/statusline"
@@ -133,8 +134,28 @@ func cmdInstall(args []string) int {
 	return 0
 }
 
-func cmdDoctor([]string) int {
-	if !launch.Doctor(os.Stdout) {
+func cmdDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	format := outfmt.Flag(fs)
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fail("doctor: %v", err)
+		return 2
+	}
+	ok := true
+	if *format == outfmt.JSON {
+		var checks []launch.Check
+		checks, ok = launch.DoctorChecks()
+		_ = outfmt.Write(os.Stdout, struct {
+			OK     bool           `json:"ok"`
+			Checks []launch.Check `json:"checks"`
+		}{ok, checks})
+	} else {
+		ok = launch.Doctor(os.Stdout)
+	}
+	if !ok {
 		return 1
 	}
 	return 0

@@ -155,23 +155,27 @@ func copyBinary(src, dst string) error {
 	return paths.AtomicWrite(dst, data, 0o755)
 }
 
-// Doctor prints ✓/✗ checks and returns false on a hard failure.
-func Doctor(w io.Writer) bool {
-	ok := true
-	check := func(pass, hard bool, format string, a ...any) {
-		mark := "✓"
-		if !pass {
-			mark = "✗"
-			if hard {
-				ok = false
-			}
+// Check is one doctor line: Hard failures make the run fail; soft ones only report.
+type Check struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Hard   bool   `json:"hard,omitempty"`
+	Detail string `json:"detail"`
+}
+
+// DoctorChecks runs every read-only health check; ok is false when any hard check failed.
+func DoctorChecks() (checks []Check, ok bool) {
+	ok = true
+	check := func(pass, hard bool, name, detail string) {
+		checks = append(checks, Check{Name: name, OK: pass, Hard: hard, Detail: detail})
+		if !pass && hard {
+			ok = false
 		}
-		fmt.Fprintf(w, "%s %s\n", mark, fmt.Sprintf(format, a...))
 	}
 	bin, err := ClaudeBinary()
-	check(err == nil, true, "claude binary: %s", orErr(bin, err))
+	check(err == nil, true, "claude binary", orErr(bin, err))
 	reg, err := providers.Load()
-	check(err == nil, true, "provider registry: %s", orErr(providers.UserFile(), err))
+	check(err == nil, true, "provider registry", orErr(providers.UserFile(), err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, n := range reg.Names() {
@@ -184,13 +188,26 @@ func Doctor(w io.Writer) bool {
 			if session {
 				label += " (session provider)"
 			}
-			check(providers.CredentialPresent(p), session, "credential %-12s %s", n, label)
+			check(providers.CredentialPresent(p), session, "credential "+n, label)
 		}
 	}
-	check(true, false, "router: %s", routerStatus())
-	check(true, false, "rtk compressor: %s", rtkDoctorStatus())
+	check(true, false, "router", routerStatus())
+	check(true, false, "rtk compressor", rtkDoctorStatus())
 	has, err := settingsHasHooks(SettingsFile())
-	check(has, false, "settings.json harness hooks: %s", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
+	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
+	return checks, ok
+}
+
+// Doctor prints DoctorChecks as ✓/✗ lines and reports whether every hard check passed.
+func Doctor(w io.Writer) bool {
+	checks, ok := DoctorChecks()
+	for _, c := range checks {
+		mark := "✓"
+		if !c.OK {
+			mark = "✗"
+		}
+		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, c.Detail)
+	}
 	return ok
 }
 
