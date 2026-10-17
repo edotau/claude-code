@@ -2,10 +2,10 @@ export const meta = {
   name: 'implement-and-verify',
   description: 'The house dispatch: parallel Explore intel → implementer ‖ sonnet (same message) → gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task: "...", cwd, scope: ["internal/x", …], packages: ["./internal/x/"], gate?, maxIterations?}. The main session still owns the live check.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into audit-fix-verify (workflow() nests one level); run audit-fix-verify as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
-    { title: 'Build', detail: 'implementer (non-test files) ‖ sonnet (test files) in one parallel step' },
+    { title: 'Build', detail: 'implementer (non-test files) ‖ sonnet test agent (test files)' },
     { title: 'Gate', detail: 'gate-loop workflow over the touched packages' },
   ],
 }
@@ -17,11 +17,12 @@ if (!a.task) return { error: 'implement-and-verify needs args.task' }
 const TASK = a.task
 const CWD = a.cwd || ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : []
-const PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : SCOPE.map(s => './' + s.replace(/^\.\//, '') + '/')
-const GATE = a.gate || `go build ./... && go vet ${PKGS.join(' ') || './...'} && go test ${PKGS.join(' ') || './...'}`
-const MAX_ITER = a.maxIterations || 3
+const PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : SCOPE
+const GATE = a.gate // undefined → gate-loop detects it from the repo
+const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
+const TEST_GLOBS = '*_test.go, testdata/, test_*.py, *_test.py, tests/, conftest.py, *.test.*, *.spec.*, __tests__/, fixtures/'
 const SHARED_TREE =
-  'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make install|test, never edit settings.json. ' +
+  'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never run install/deploy/release targets or edit tool config. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
 const BRIEF_SCHEMA = {
@@ -49,8 +50,8 @@ const RESULT_SCHEMA = {
 // ── Phase 1: Intel (ADK ParallelAgent; read-only, two lenses, barrier because Build needs both) ─
 phase('Intel')
 const LENSES = [
-  { key: 'seams', prompt: 'the call graph: every caller, registry row, completion table and doc that names the symbols involved' },
-  { key: 'guards', prompt: 'the tests and guard tests (grep *_test.go for pinned filenames, goldens, walk-the-tree guards) that constrain it' },
+  { key: 'seams', prompt: 'the call graph: every caller, registration/config table and doc that names the symbols involved' },
+  { key: 'guards', prompt: 'the tests and guard tests (grep the test files (' + TEST_GLOBS + ') for pinned filenames, goldens, fixtures) that constrain it' },
 ]
 const briefs = (await parallel(LENSES.map(l => () =>
   agent(
@@ -59,8 +60,9 @@ const briefs = (await parallel(LENSES.map(l => () =>
     { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', effort: 'low' }
   )
 ))).filter(Boolean)
+if (!briefs.length) log('intel: both Explore readers returned nothing — building blind from the task text')
 const brief = {
-  files: [...new Set(briefs.flatMap(b => b.files))],
+  files: [...new Set([...briefs.flatMap(b => b.files), ...SCOPE])],
   seams: [...new Set(briefs.flatMap(b => b.seams))],
   risks: [...new Set(briefs.flatMap(b => b.risks))],
 }
@@ -71,14 +73,14 @@ phase('Build')
 const context = `Task: ${TASK}\nFiles: ${brief.files.join(', ')}\nSeams:\n- ${brief.seams.join('\n- ')}\nRisks:\n- ${brief.risks.join('\n- ')}\n${SHARED_TREE}`
 const [impl, tests] = await parallel([
   () => agent(
-    `${context}\nYou are the IMPLEMENTER. Edit non-test Go/other source files only — never *_test.go or testdata/ (a concurrent test agent owns them). ` +
-    `Surgical: touch only what the task requires, match existing style. Run gofmt -l and go vet on each package you touch. Report files changed and anything left undone.`,
-    { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: 'opus', effort: 'high' }
+    `${context}\nYou are the IMPLEMENTER. Edit non-test source files only — never test files or fixtures (` + TEST_GLOBS + `); a concurrent test agent owns them. ` +
+    `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report files changed and anything left undone.`,
+    { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: a.implModel || 'sonnet', effort: 'high' }
   ),
   () => agent(
-    `${context}\nYou are the TEST-REPAIR agent. Edit *_test.go and testdata/ only — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
+    `${context}\nYou are the TEST agent (sonnet). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
     `Repair existing tests the change breaks or makes stale, regenerate goldens by their documented procedure, add coverage sized to the change. ` +
-    `Run only the scoped tests: ${PKGS.join(' ') || 'the touched packages'}. Report tests added/repaired and anything the implementation left inconsistent.`,
+    `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
     { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }
   ),
 ])
@@ -86,6 +88,7 @@ log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : '
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved gate-loop workflow) ─────────────────────────
 phase('Gate')
+if (impl && impl.status === 'blocked') return { brief, impl, tests, gate: null, status: 'blocked' }
 const gate = await workflow('gate-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
 
-return { brief, impl, tests, gate }
+return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
