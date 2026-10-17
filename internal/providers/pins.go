@@ -2,11 +2,13 @@ package providers
 
 import (
 	"bufio"
+	"cmp"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -83,6 +85,17 @@ func SetPins(kv map[string]string) error {
 		for _, k := range keys {
 			b.WriteString(k + "=" + cur[k] + "\n")
 		}
-		return paths.AtomicWrite(file, []byte(b.String()), 0o600)
+		if err := paths.AtomicWrite(file, []byte(b.String()), 0o600); err != nil {
+			return err
+		}
+		for k, v := range kv {
+			switch {
+			case k == PinProvider:
+				audit.Log(audit.ProviderSwitch, v, "")
+			case k == PinModel || (strings.HasPrefix(k, "HARNESS_") && strings.HasSuffix(k, "_MODEL")):
+				audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
+			}
+		}
+		return nil
 	})
 }

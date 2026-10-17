@@ -68,6 +68,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `/harness:mcp-doctor` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes) | credentials/settings never swept |
+| See what acted: provider switches, pins, secret sets, safety blocks, router failovers | `claude-code audit [--days 7] [--format json]` (`state/harness/audit.jsonl`; `doctor` shows the 7-day count) | names only, never a value or a blocked command |
 | Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
 | Pick the statusline color palette | `claude-code theme [--preview]` | — |
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote` | `README.md` → Memory bank |

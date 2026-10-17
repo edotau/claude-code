@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
@@ -82,6 +83,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts, time.Since(start).Round(time.Millisecond))
 }
 
+// fallbackError keeps audit metadata separate from upstream error text, which may contain credentials.
+type fallbackError struct {
+	error
+	status int
+}
+
+func (e *fallbackError) Unwrap() error { return e.error }
+
 // route resolves the target and walks the attempt ladder; it returns what the log line names.
 func (r *Router) route(w *statusWriter, in *http.Request, session string, count bool) (string, string, int) {
 	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
@@ -131,6 +140,14 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		}
 		if !last {
 			fmt.Fprintf(r.log, "router: %s %s failed, failing over: %v\n", t.Provider.Name, t.Model, err)
+			var failure *fallbackError
+			if errors.As(err, &failure) {
+				detail := "connect error"
+				if failure.status != 0 {
+					detail = fmt.Sprintf("status=%d", failure.status)
+				}
+				audit.Log(audit.RouterFallback, t.Provider.Name, detail)
+			}
 		}
 	}
 	t := ladder[len(ladder)-1]
@@ -201,7 +218,7 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 			return false, err
 		}
 		if r.failover(resp, p, last) {
-			return false, errors.New(resp.Status)
+			return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode}
 		}
 		relay(w, resp)
 		return true, nil
@@ -229,7 +246,7 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 		return false, err
 	}
 	if r.failover(resp, p, last) {
-		return false, errors.New(resp.Status)
+		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -274,7 +291,11 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 		if err := providers.Authorize(ctx, p, req.Header); err != nil {
 			return nil, err
 		}
-		return r.client.Do(req)
+		resp, err := r.client.Do(req)
+		if err != nil {
+			return resp, &fallbackError{error: err}
+		}
+		return resp, nil
 	}
 	resp, err := do()
 	if err != nil {
