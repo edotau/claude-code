@@ -23,40 +23,46 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 Run in order. A failure blocks subsequent gates until fixed.
 
 ```
-Gate 1: FORMAT/LINT — formatters + linters clean
-Gate 2: TESTS       — full test suite green
-Gate 3: AUDIT       — full project gate (deps, static analysis, vuln, drift)
-Gate 4: AUTH/SEC    — auth verification (auth changes only); no hardcoded secrets
-Gate 5: DIFF REVIEW — diff matches intent, no unrelated changes?
+Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
+Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
+Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE, after an iteration is clean
+Gate 4: AUTH/SEC      — auth verification (auth changes only); no hardcoded secrets — part of the final pass
+Gate 5: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
 ```
 
-This harness: `make lint` → `make test`. If `internal/settings/settings.tmpl.json` was touched, also
-render it (`claude-code settings`) and diff the output against the live `settings.json`.
+This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `make test` only in Gate 3.
+If `internal/settings/settings.tmpl.json` was touched, also render it (`claude-code settings`) and diff
+the output against the live `settings.json` as part of Gate 3.
 
 ## Gate Loop (max 5 iterations)
 
-On any failure: fix it, then re-run from Gate 1. After 5 iterations, stop and escalate to
-the user with the remaining failures.
+Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing
+failures minimally. Once an iteration is clean, run Gates 3-5 (the full build + full test suite +
+security scan + diff review) exactly ONCE as the final pass. Only a failing final pass sends the
+loop back to Gate 1; after 5 iterations total, stop and escalate to the user with the remaining
+failures. This mirrors `codex` VERIFY mode and matches `rules/standards/quality.md`'s Verification
+Order — the expensive run happens once, never per iteration.
 
 Per-gate fix strategy:
 
 - **Format** — auto-fix and re-run.
 - **Lint** — fix only the flagged lines.
-- **Tests** — fix the code, not the tests (unless the test itself is wrong).
-- **Audit** — read the failing check's rule first, then fix.
+- **Scoped tests** — fix the code, not the tests (unless the test itself is wrong).
+- **Final pass** — if it fails, trace the failure to its package and fix minimally, then re-run
+  from Gate 1; do not re-run the full suite again until the next iteration is clean.
 
 ## Report Format
 
 ```
 VERIFICATION REPORT (iteration N/5)
 
-| Gate        | Status    | Details                |
-|-------------|-----------|------------------------|
-| Format/Lint | PASS/FAIL | <output summary>       |
-| Tests       | PASS/FAIL | N passed, N failed     |
-| Audit       | PASS/FAIL | <output summary>       |
-| Auth/Sec    | PASS/SKIP | <findings>             |
-| Diff        | PASS/FAIL | <scope check>          |
+| Gate         | Status             | Details                                   |
+|--------------|--------------------|--------------------------------------------|
+| Format/Lint  | PASS/FAIL          | <output summary>                          |
+| Scoped Tests | PASS/FAIL          | <packages>: N passed, N failed            |
+| Final Pass   | PASS/FAIL/PENDING  | full build + full test suite + security scan |
+| Auth/Sec     | PASS/SKIP          | <findings>                                |
+| Diff         | PASS/FAIL          | <scope check>                             |
 
 Verdict: PASS / FAIL (Gate N)
 ```

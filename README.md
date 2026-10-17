@@ -261,7 +261,7 @@ after settings, and also renders CLAUDE.md + the roster into the vendors' global
 `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (tracked as `dist/<vendor>/…`); nothing is rendered at the harness root,
 since Claude Code would load a root AGENTS.md as a second CLAUDE.md in every session (OpenCode reads CLAUDE.md
 itself; Copilot has no user-level instruction file). Inside a session, the subagents in `agents/` (`code-workers`,
-`test-driven-dev`, `sonnet`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
+`sonnet`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 
 ## Hooks

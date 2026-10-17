@@ -220,8 +220,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | `Plan` (built-in) | Task vetting, plan-only architecture | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-workers` | Parallel fan-out leaf — one scoped sub-task | 6 |
-| `test-driven-dev` | New coverage, test-first | 6 |
-| `sonnet` | Existing tests a change breaks — dispatched WITH the implementer | 6 |
+| `sonnet` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check) | 6 |
 | `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
 
 > **Security review is a skill, not an agent.** Run it via `/security` (the `security-reviewer`

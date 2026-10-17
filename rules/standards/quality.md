@@ -91,7 +91,7 @@ tests wait for the live check.
 6. Verify coverage (80%+)
 ```
 
-Reach for **test-driven-dev** once the live check has landed, or immediately where there is no surface to
+Reach for **sonnet** once the live check has landed, or immediately where there is no surface to
 run. On failures: check test isolation, verify mocks, fix the implementation (not the test, unless the
 test is wrong).
 
@@ -118,8 +118,8 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 | Test agent(s) | Everything else about tests: new coverage (edge cases, table rows, regression guards) **and** the EXISTING tests the change breaks or makes stale. Sized to the change, written after the live check, run scoped to the touched packages. |
 
 **Sizing.** One test agent minimum; scale with the implementation fan-out (roughly one per
-distinct suite or module under change). Test agents are lean leaves — `test-driven-dev`,
-`sonnet`, or `code-workers` for a scoped suite — so they sit outside the ≤8 deep-context tier.
+distinct suite or module under change). Test agents are lean leaves — `sonnet`, or
+`code-workers` for a scoped suite — so they sit outside the ≤8 deep-context tier.
 
 **Not satisfied by:**
 
