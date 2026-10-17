@@ -53,8 +53,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider>` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
-| Pin models | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
+| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
+| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Add a gateway provider (LiteLLM, OpenRouter, corporate) | add it to `~/.claude/providers.json` with `routes` per dialect; copy `providers.example.json` | `README.md` → Providers |
 | Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command`; `claude-code secrets set\|get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |

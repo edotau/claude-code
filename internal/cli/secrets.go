@@ -98,8 +98,9 @@ func extractInt(args []string, name string, def int) (int, []string, error) {
 
 func cmdSecretsSet(args []string) int {
 	useKeyring, rest := extractBool(args, "keyring")
+	dryRun, rest := extractBool(rest, "dry-run")
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set <NAME> [--keyring]   (value on stdin)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set <NAME> [--keyring] [--dry-run]   (value on stdin)")
 		return 2
 	}
 	name := rest[0]
@@ -110,6 +111,16 @@ func cmdSecretsSet(args []string) int {
 	value := strings.TrimSpace(string(raw))
 	if value == "" {
 		return fail("secrets set: empty value on stdin")
+	}
+	if dryRun {
+		plane, verb := secrets.EnvFile(), "add"
+		if useKeyring {
+			plane = "the OS keyring"
+		} else if _, ok := secrets.ReadAll()[name]; ok {
+			verb = "replace"
+		}
+		fmt.Printf("would %s %s in %s (%d chars); nothing written\n", verb, name, plane, len(value))
+		return 0
 	}
 	if useKeyring {
 		if err := secrets.KeyringSet(name, value); err != nil {
