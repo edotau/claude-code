@@ -96,7 +96,8 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 			return true
 		}
 	}
-	return len(reg.Fallback) > 0
+	// A login session stays direct even with a fallback ladder: a loopback ANTHROPIC_BASE_URL disables Remote Control.
+	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthPassthrough
 }
 
 // FailoverTarget maps a request that failed on from/model to the equivalent model on next: same slot

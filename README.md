@@ -182,6 +182,8 @@ every audit. `/harness:secrets-scan` wraps the audits.
 `claude` launches **direct** when the provider has an `anthropic` route, every slot stays on that provider,
 and no `fallback` is configured: `ANTHROPIC_BASE_URL` points at the route and `apiKeyHelper` is
 `claude-code token --provider <p>` (omitted for `passthrough`, so subscription login keeps working).
+A `passthrough` login also launches direct when only a `fallback` ladder would route it — the loopback
+`ANTHROPIC_BASE_URL` disables Remote Control; `claude --router` forces the router for one launch.
 
 Otherwise it launches through the **loopback router** (started on demand, `127.0.0.1:18765` by default):
 `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/p/<provider>` and `apiKeyHelper` = `claude-code token --router`,
