@@ -142,7 +142,7 @@ Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytes
 **Trigger**: 2+ parallel-safe sub-tasks.
 
 - `/workflow:orchestrate` or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
-  (ideally new) files in the shared tree; `test-repair` in the SAME message (`standards/quality.md`).
+  (ideally new) files in the shared tree; `sonnet` in the SAME message (`standards/quality.md`).
 - A second model family for one lane: `claude-code ask --agent <leg> "<brief>"` from Bash
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `/workflow:worktree create|list|merge|clean`.
@@ -217,7 +217,7 @@ it); never modify `migrations/` directories.
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-workers` | Parallel fan-out leaf — one scoped sub-task | 6 |
 | `test-driven-dev` | New coverage, test-first | 6 |
-| `test-repair` | Existing tests a change breaks — dispatched WITH the implementer | 6 |
+| `sonnet` | Existing tests a change breaks — dispatched WITH the implementer | 6 |
 | `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
 
 > **Security review is a skill, not an agent.** Run it via `/security` (the `security-reviewer`
@@ -236,7 +236,7 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | Workflow | Shape | Phases | args |
 |----------|-------|--------|------|
 | `gate-loop` | Loop: gate → fix in scope → re-run, ≤N | 8 | `{gate, cwd?, scope, maxIterations?}` |
-| `implement-and-verify` | Parallel intel → implementer ‖ test-repair → gate-loop | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?}` |
+| `implement-and-verify` | Parallel intel → implementer ‖ sonnet → gate-loop | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?}` |
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop | 2, 6, 8 | `{range \| paths \| findings, packages?, dimensions?, fix?, minFix?}` |
 | `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
 | `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |

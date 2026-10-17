@@ -43,7 +43,7 @@ A fresh agent must be able to act from the handoff alone.
 - Keep the manager responsible for decisions, integration, and final verification.
 - Treat agent reports as claims: inspect outputs and run the integrated checks yourself. A test that
   has never been watched to fail is not yet a guard.
-- Dispatch `test-repair` in the SAME message as the implementers (`rules/standards/quality.md`).
+- Dispatch `sonnet` in the SAME message as the implementers (`rules/standards/quality.md`).
 - Use `claude-code workflow skeleton` only for repeatable `Workflow` structures.
 
 ## In this repo

@@ -1,6 +1,6 @@
 ---
 name: "test-driven-dev"
-description: "TDD specialist enforcing write-tests-first methodology (RED → GREEN → REFACTOR). Ensures 80%+ coverage. Use when BUILDING new features or fixing bugs — writes the test, then the implementation. For the existing tests a change breaks, use `test-repair`; for the pre-completion gate chain (lint + tests + security), use the `approval-gate` skill."
+description: "TDD specialist enforcing write-tests-first methodology (RED → GREEN → REFACTOR). Ensures 80%+ coverage. Use when BUILDING new features or fixing bugs — writes the test, then the implementation. For the existing tests a change breaks, use `sonnet`; for the pre-completion gate chain (lint + tests + security), use the `approval-gate` skill."
 tools: ["read_file", "write_file", "replace", "run_shell_command", "grep_search", "glob"]
 ---
 

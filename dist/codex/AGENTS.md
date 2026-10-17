@@ -38,7 +38,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 6. **Live check first; scoped tests during development; the full suite once.** Run the verb or flow
    the task is about before writing tests around it. Test only the packages you touched. `make test`
    runs once, when the work is complete — state what ran and that the suite did not.
-   Every code dispatch carries `test-repair` in the same message. → `rules/standards/quality.md`
+   Every code dispatch carries the `sonnet` test agent in the same message. → `rules/standards/quality.md`
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 
@@ -77,7 +77,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` · `dag` (step graph: deps, skip, when) | `rules/workflow/master-workflow.md` |
 | Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
-| Fix failing tests | `/testing:test-and-fix` | `agents/test-repair` |
+| Fix failing tests | `/testing:test-and-fix` | `agents/sonnet` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
 | Audit / extract / promote / save agent memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/reflection.md` |
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
@@ -109,5 +109,5 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - **documentation** (`haiku`) — Documentation specialist.
 - **gemini** (`sonnet`) — Dual-backend read-only codebase scanner.
 - **reflection** (`sonnet`) — The auto-memory reflection agent — three modes over the same substrate (Claude Code's native memory layer plus the harness's own session memory bank).
+- **sonnet** (`sonnet`) — Owns the EXISTING tests a change breaks or makes stale — the repair half of the test surface.
 - **test-driven-dev** (`sonnet`) — TDD specialist enforcing write-tests-first methodology (RED → GREEN → REFACTOR).
-- **test-repair** (`sonnet`) — Owns the EXISTING tests a change breaks or makes stale — the repair half of the test surface.
