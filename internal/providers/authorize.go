@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -72,4 +73,35 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 		ids[i] = m.ID
 	}
 	return ids, nil
+}
+
+// ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one:
+// "login" (passthrough: not probeable here), "verified", "rejected" (401/403), "unreachable" (no connection),
+// or "unverified" with the error. Never fatal; callers surface the status next to the credential.
+func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
+	if p.Auth.Type == AuthPassthrough || p.Auth.Login != "" {
+		return "login", ""
+	}
+	_, err := LiveModels(ctx, p)
+	switch {
+	case err == nil:
+		return "verified", ""
+	case strings.Contains(err.Error(), " 401 ") || strings.Contains(err.Error(), " 403 ") ||
+		strings.Contains(err.Error(), ": 401") || strings.Contains(err.Error(), ": 403"):
+		return "rejected", firstLine(err.Error())
+	default:
+		var ne net.Error
+		if errors.As(err, &ne) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+			return "unreachable", firstLine(err.Error())
+		}
+		return "unverified", firstLine(err.Error())
+	}
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(s, "\n")
+	if len(s) > 160 {
+		s = s[:160] + "…"
+	}
+	return s
 }

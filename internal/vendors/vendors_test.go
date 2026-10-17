@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"strconv"
 )
 
 const secret = "sk-SECRET-123"
@@ -55,7 +57,7 @@ func TestConfigure(t *testing.T) {
 			wantArgv: []string{`model_provider="harness-openai"`, `model="gpt-5"`, `base_url = "https://api.openai.com/v1"`, `wire_api = "responses"`, `env_key = "HARNESS_CODEX_API_KEY"`},
 			wantEnv:  map[string]string{CodexKeyEnv: secret}},
 		{vendor: "codex", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "-hi", Effort: "high", SessionID: "s1"},
-			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "--", "-hi"}},
+			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "-"}},
 		{vendor: "codex", provider: "openrouter", model: "x", wantErr: "no responses route"},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
 			wantArgv: []string{"--skip-trust", "-m", "gemini-2.5-pro", "--output-format", "stream-json", "--approval-mode", "plan", "--prompt=hi"},
@@ -124,6 +126,7 @@ func TestConfigure(t *testing.T) {
 func TestCodexChatGPTLogin(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
+	t.Setenv("PATH", t.TempDir()) // no real codex: the auth.json fallback is what this test exercises
 	tg := target(t, "chatgpt", "gpt-5.5")
 	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
 		t.Fatalf("no auth.json: err = %v, want a codex login hint", err)
@@ -135,7 +138,7 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"exec", "-c", `model_provider="openai"`, "-c", `model="gpt-5.5"`, "--skip-git-repo-check", "--sandbox", "read-only", "hi"}
+	want := []string{"exec", "-c", `model_provider="openai"`, "-c", `model="gpt-5.5"`, "--skip-git-repo-check", "--sandbox", "read-only", "-"}
 	if len(env) != 0 || !slices.Equal(argv, want) {
 		t.Errorf("env %q argv %q, want no env and %q", env, argv, want)
 	}
@@ -752,6 +755,7 @@ func TestProjectMCPApprovalGate(t *testing.T) {
 }
 
 func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no real codex: login detection falls back to the auth.json fixture
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
@@ -850,5 +854,44 @@ func TestTomlString(t *testing.T) {
 		if got := tomlString(in); got != want {
 			t.Errorf("tomlString(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// copilot's own token precedence: COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, then an authenticated gh.
+func TestCopilotLoginPresentHonoursEveryTokenVar(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no gh on PATH
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	if copilotLoginPresent() {
+		t.Fatal("no token and no gh must read as not logged in")
+	}
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GITHUB_TOKEN"} {
+		t.Setenv(k, "tok")
+		if !copilotLoginPresent() {
+			t.Errorf("%s must count as a copilot login", k)
+		}
+		t.Setenv(k, "")
+	}
+}
+
+// BYOK on copilot: headers ride COPILOT_PROVIDER_HEADERS, a bearer route sets only the bearer var, and the
+// prompt budget leaves room for the output cap.
+func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
+	tg := target(t, "openai", "gpt-5")
+	tg.Provider.Headers = map[string]string{"X-Tenant": "t1", "Authorization-Extra": "z"}
+	env, _, err := Configure(context.Background(), "copilot", tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := envMap(env)
+	if got["COPILOT_PROVIDER_HEADERS"] != "Authorization-Extra: z\nX-Tenant: t1" {
+		t.Errorf("headers = %q", got["COPILOT_PROVIDER_HEADERS"])
+	}
+	if got["COPILOT_PROVIDER_API_KEY"] != "" || got["COPILOT_PROVIDER_BEARER_TOKEN"] == "" {
+		t.Errorf("bearer route must set only the bearer var: key=%q bearer=%q", got["COPILOT_PROVIDER_API_KEY"], got["COPILOT_PROVIDER_BEARER_TOKEN"])
+	}
+	if v, ok := got["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"]; ok && v == strconv.Itoa(models.ContextWindow("gpt-5")) {
+		t.Errorf("prompt budget must leave room for %d output tokens, got %s", copilotMaxOutputTokens, v)
 	}
 }

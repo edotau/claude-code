@@ -6,6 +6,7 @@ package configure
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -231,10 +232,11 @@ func applyProvider(d *dialog, name string) bool {
 type keyTarget struct {
 	label     string
 	present   bool
-	source    string   // present: which plane/login answered
-	loginArgv []string // absent + a login CLI exists: offer/run this
-	envVar    string   // absent + API-key based: prompt writes this var
-	fixCmd    string   // piped: the exact command to run instead
+	source    string              // present: which plane/login answered
+	loginArgv []string            // absent + a login CLI exists: offer/run this
+	envVar    string              // absent + API-key based: prompt writes this var
+	fixCmd    string              // piped: the exact command to run instead
+	provider  *providers.Provider // present + keyed: probed live so a stored-but-rejected key is not "present"
 }
 
 func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, error) {
@@ -251,7 +253,7 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 		}
 		out = append(out, keyTarget{
 			label: "claude", present: providers.CredentialPresent(p), source: secrets.Resolve(p).Source,
-			envVar: p.Auth.Env, fixCmd: fix,
+			envVar: p.Auth.Env, fixCmd: fix, provider: p,
 		})
 	}
 	for _, name := range vendors.Names() {
@@ -267,10 +269,14 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
 	fallback := func() keyTarget {
 		if err == nil {
+			target, note, rerr := vendors.ResolveTarget(reg, name, sel, false)
+			// The vendor's own stored config/login is a working setup, not a missing key.
+			if errors.Is(rerr, vendors.ErrOwnLogin) {
+				return keyTarget{label: name, present: true, source: afterUsing(note)}
+			}
 			// A passthrough provider carries another vendor's login, never a key this vendor can use.
-			if target, _, rerr := vendors.ResolveTarget(reg, name, sel, false); rerr == nil &&
-				target.Provider.Auth.Type != "passthrough" && providers.CredentialPresent(target.Provider) {
-				return keyTarget{label: name, present: true, source: target.Provider.Name + " key"}
+			if rerr == nil && target.Provider.Auth.Type != "passthrough" && providers.CredentialPresent(target.Provider) {
+				return keyTarget{label: name, present: true, source: target.Provider.Name + " key", provider: target.Provider}
 			}
 		}
 		return keyTarget{label: name, present: false, fixCmd: vendors.ConfigureHint(name)}
@@ -299,7 +305,7 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 			return keyTarget{label: name, present: true, source: "Google login (~/.gemini/settings.json)"}
 		}
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
-			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY"}
+			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY", envVar: "GEMINI_API_KEY", provider: p}
 		}
 		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", fixCmd: "claude-code secrets set GEMINI_API_KEY"}
 	case "opencode":
@@ -330,6 +336,20 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	allOK = true
 	for _, kt := range targets {
 		if kt.present {
+			status, detail := probe(kt)
+			if status == "rejected" {
+				fmt.Fprintf(d.out, "%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
+				if d.o.Interactive && !d.o.Check && kt.envVar != "" && resolveKey(d, kt) {
+					changed = true
+					continue
+				}
+				allOK = false
+				continue
+			}
+			if status != "" && status != "login" {
+				fmt.Fprintf(d.out, "%-10s present (%s; %s)\n", kt.label, kt.source, status)
+				continue
+			}
 			fmt.Fprintf(d.out, "%-10s present (%s)\n", kt.label, kt.source)
 			continue
 		}
@@ -343,6 +363,24 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 		fmt.Fprintf(d.out, "%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
 	}
 	return allOK, changed
+}
+
+// probe live-checks a present keyed credential (4s cap); "" when there is nothing to probe.
+func probe(kt keyTarget) (status, detail string) {
+	if kt.provider == nil {
+		return "", ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	return providers.ProbeCredential(ctx, kt.provider)
+}
+
+// afterUsing extracts the fallback description from a ResolveTarget note ("…; using <this>").
+func afterUsing(note string) string {
+	if _, after, ok := strings.Cut(note, "using "); ok {
+		return after
+	}
+	return "its own login"
 }
 
 // resolveKey offers kt's login or prompts for its key; false means declined, empty, or it failed.
@@ -441,13 +479,14 @@ func runAgents(d *dialog) bool {
 	ok := true
 	for _, name := range agentList {
 		target, note, rerr := vendors.ResolveTarget(d.reg, name, sel, false)
+		if errors.Is(rerr, vendors.ErrOwnLogin) {
+			fmt.Fprintf(d.out, "%-10s runs on %s\n", name, afterUsing(note))
+			continue
+		}
 		if rerr != nil {
 			fmt.Fprintf(d.out, "%-10s FIX: %v; %s\n", name, rerr, vendors.ConfigureHint(name))
 			ok = false
 			continue
-		}
-		if note != "" {
-			fmt.Fprintln(d.out, note)
 		}
 		if _, _, cerr := vendors.Configure(context.Background(), name, target, ""); cerr != nil {
 			fmt.Fprintf(d.out, "%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))

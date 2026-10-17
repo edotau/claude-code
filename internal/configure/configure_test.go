@@ -54,3 +54,26 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 		t.Errorf("codex row should name `codex login` as the fix:\n%s", out.String())
 	}
 }
+
+// A vendor running on its own stored config (opencode.jsonc sets `model`) is configured, not ABSENT: the runner
+// launches it untouched, so `--check` must not demand a key for it.
+func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
+	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HARNESS_PROVIDER", "subscription")
+	t.Setenv("PATH", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(xdg, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "opencode", "opencode.jsonc"), []byte(`{"model": "google/gemini-3.8-flash"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	rc := Run(Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
+	if rc != 0 || !strings.Contains(out.String(), "opencode   present (opencode's own config (google/gemini-3.8-flash))") {
+		t.Errorf("rc = %d; own-config vendor must read present:\n%s", rc, out.String())
+	}
+}

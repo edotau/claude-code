@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -31,11 +32,36 @@ func Slug(s, keep string, max int, fallback string) string {
 }
 
 // RepoSlug is root's tag for repo-scoped artifacts; the config dir itself is "" so its artifacts sit untagged.
+// A linked worktree is tagged by its main checkout, so every worktree of a repo shares one bank instead of each
+// branch directory ("main", "fix-x") minting its own and colliding across repos.
 func RepoSlug(root string) string {
 	if root == "" || SamePath(root, ConfigDir()) {
 		return ""
 	}
-	return Slug(filepath.Base(filepath.Clean(root)), "._-", 0, "")
+	return Slug(filepath.Base(filepath.Clean(MainCheckout(root))), "._-", 0, "")
+}
+
+// MainCheckout resolves a linked worktree's `gitdir: <main>/.git/worktrees/<id>` pointer file to <main>; any
+// other root (a primary checkout, a plain dir) is returned unchanged.
+func MainCheckout(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, ".git"))
+	if err != nil {
+		return root
+	}
+	ptr, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return root
+	}
+	ptr = strings.TrimSpace(ptr)
+	if !filepath.IsAbs(ptr) {
+		ptr = filepath.Join(root, ptr)
+	}
+	ptr = filepath.Clean(ptr)
+	marker := string(filepath.Separator) + filepath.Join(".git", "worktrees") + string(filepath.Separator)
+	if i := strings.Index(ptr, marker); i > 0 {
+		return ptr[:i]
+	}
+	return root
 }
 
 // SamePath compares two paths after Clean and symlink resolution (unresolvable paths compare cleaned).
