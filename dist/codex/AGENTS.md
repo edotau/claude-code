@@ -20,9 +20,12 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `providers.json`, `settings.json`, a commit, or a log line.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
-4. **Never `git stash` / `checkout` / `reset` / `restore` in this tree.** `~/.claude` is one checkout
-   shared by parallel subagents and every live session. Build a scoped target and diff your own
-   files to attribute a failure; commit each verified subset early.
+4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
+   one checkout shared by parallel subagents and every live session. A linked worktree
+   (`.claude/worktrees/<slug>`, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
+   branch there freely, merge back from the live tree (`git merge wt/<slug>`), never `checkout`/`reset`
+   the live tree to it. `make install` and `claude-code` verbs still write to `~/.claude` from a
+   worktree unless `CLAUDE_CONFIG_DIR` points at it.
 
 ## Behavioral guidelines
 

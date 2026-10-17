@@ -17,7 +17,7 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, … |
+| `safety` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, …; a linked worktree under `.claude/worktrees/` is exempt |
 | `rtk-wrap` | PreToolUse (Bash) | Routes noisy commands (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the `rtk` output compressor when it's on PATH; machine-readable flags/value subcommands bypass it. `HARNESS_RTK_BIN` overrides the binary |
 | `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home. `HARNESS_DOCS_PLACEMENT=0` disables |
 | `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet). No env override — an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
