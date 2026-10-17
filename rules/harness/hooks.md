@@ -32,8 +32,8 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 
 - Hook exit codes and stdin/stdout follow the Claude Code hook contract; an async hook does not
   block the turn.
-- Never use `--dangerously-skip-permissions`. Permission guardrails live in the template's
-  `permissions` block (`ask` beats `allow`), regenerated into `settings.json`.
+- Permission guardrails live in the template's `permissions` block (`ask` beats `allow`),
+  regenerated into `settings.json`.
 - Every blocking gate has a bounded fail-open cap (see `guardrails.md`) so a stuck gate can't
   trap a session.
 
