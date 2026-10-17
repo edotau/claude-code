@@ -17,8 +17,7 @@ beside it.
 | Explore (built-in) | Fast codebase scanning | **First step** — before planning or coding |
 | claude | Full-lifecycle coding: architect → plan → implement → simplify → review (incl. plan-only path) | Architectural decisions, MEDIUM+ changes, plan writing, post-write review |
 | code-workers | Sonnet-tier fan-out leaf: one well-scoped task in-context, effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
-| test-driven-dev | Test-driven development (forward-only: new behavior) | New features, bug fixes |
-| sonnet | The EXISTING tests a change breaks or makes stale | Renames/signature changes; a suite that was green before the change. Dispatch WITH the implementer, not after |
+| sonnet | The test surface: repairs EXISTING tests a change breaks or makes stale, and writes NEW coverage after the live check | Renames/signature changes; a suite that was green before the change; new behavior once the live check confirms it. Dispatch WITH the implementer, not after |
 | copilot | Last mile: merge branches in dependency order, then stage + commit | After the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
 | documentation | Documentation + library lookup | Updating docs, API reference |
@@ -56,7 +55,7 @@ No user prompt needed — trigger automatically:
 1. Non-trivial task received — run the **Codebase Intelligence Protocol** first
 2. Complex feature requests — use **claude** agent (architect/plan phase; feed it the context brief)
 3. Code just written/modified — use **claude** agent (review phase)
-4. Bug fix or new feature — use **test-driven-dev** agent
+4. Bug fix or new feature — new coverage is **sonnet**'s job, dispatched with the implementer, written after the live check
 5. Architectural decision — use **claude** agent (architect phase)
 6. **Implementation starting** — dispatch the test-surface agent in the SAME message as the
    first implementation step, never after the code lands. It plans the additions AND finds

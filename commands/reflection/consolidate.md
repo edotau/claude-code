@@ -153,7 +153,7 @@ Session Summary: [written / skipped (dream-only)]
 
 Agent Memories:
   claude  89 -> 71 lines  (-18 merged related items)
-  [unchanged]    codex, gemini, test-driven-dev, ...
+  [unchanged]    codex, gemini, sonnet, ...
 
 Bank:
   activeContext.md: [updated/unchanged]

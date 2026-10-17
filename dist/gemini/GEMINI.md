@@ -112,5 +112,5 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - **documentation** (`haiku`) — Documentation specialist.
 - **gemini** (`sonnet`) — Dual-backend read-only codebase scanner.
 - **reflection** (`sonnet`) — The auto-memory reflection agent — three modes over the same substrate (Claude Code's native memory layer plus the harness's own session memory bank).
-- **sonnet** (`sonnet`) — Owns the EXISTING tests a change breaks or makes stale — the repair half of the test surface.
+- **sonnet** (`sonnet`) — Owns the test surface: repairs the EXISTING tests a change breaks or makes stale, dispatched in the SAME message as the implementer, never after it; and writes NEW coverage for the changed behavior once the main session's live check has confirmed it (`rules/standards/quality.md`).
 - **test-driven-dev** (`sonnet`) — TDD specialist enforcing write-tests-first methodology (RED → GREEN → REFACTOR).
