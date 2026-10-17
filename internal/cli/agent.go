@@ -112,8 +112,7 @@ func cmdAsk(args []string) int {
 }
 
 const agentsUsage = `usage: claude-code agents
-       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]
-       claude-code agents docs [--check] [--dry-run]`
+       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
@@ -122,8 +121,6 @@ func cmdAgents(args []string) int {
 	switch args[0] {
 	case "sync":
 		return cmdAgentsSync(args[1:])
-	case "docs":
-		return cmdAgentsDocs(args[1:])
 	case "-h", "--help":
 		fmt.Fprintln(os.Stderr, agentsUsage)
 		return 2
@@ -131,8 +128,8 @@ func cmdAgents(args []string) int {
 	return fail("agents: unknown subcommand %q\n%s", args[0], agentsUsage)
 }
 
-// cmdAgentsSync renders agents/ into dist/<vendor>/agents, installs each vendor's copy, and links skills/ into
-// ~/.agents/skills; --vendor narrows the run to one target.
+// cmdAgentsSync renders agents/ into dist/<vendor>/agents plus each vendor's global instruction file, installs the
+// copies into the vendor homes, and links skills/ into ~/.agents/skills; --vendor narrows the run to one target.
 func cmdAgentsSync(args []string) int {
 	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
 	vendor := fs.String("vendor", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
@@ -144,18 +141,6 @@ func cmdAgentsSync(args []string) int {
 		return 2
 	}
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
-}
-
-// cmdAgentsDocs renders AGENTS.md + GEMINI.md from CLAUDE.md and the agent roster.
-func cmdAgentsDocs(args []string) int {
-	fs := flag.NewFlagSet("agents docs", flag.ContinueOnError)
-	check := fs.Bool("check", false, "exit 1 when a generated file drifted; never writes")
-	dryRun := fs.Bool("dry-run", false, "preview without writing")
-	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, agentsUsage)
-		return 2
-	}
-	return crossgen.RenderDocs(crossgen.DocsOptions{Check: *check, DryRun: *dryRun, Out: os.Stdout})
 }
 
 func listRunners() int {

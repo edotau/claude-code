@@ -1,5 +1,5 @@
 ---
-description: "Project agents/ into every vendor CLI (codex, copilot, gemini, opencode) via tracked dist/, link skills/ into ~/.agents/skills, regenerate AGENTS.md/GEMINI.md"
+description: "Project agents/ + CLAUDE.md into every vendor CLI (codex, copilot, gemini, opencode) via tracked dist/, link skills/ into ~/.agents/skills"
 argument-hint: "[--vendor <v>] [--dry-run | --check | --no-prune]"
 ---
 
@@ -8,7 +8,9 @@ argument-hint: "[--vendor <v>] [--dry-run | --check | --no-prune]"
 One roster, every agent CLI. `agents/<name>.md` is rendered into each vendor's native subagent format under the
 git-tracked `dist/<vendor>/agents/` and installed byte-identical into the vendor home; the hand-authored
 `skills/<name>/` dirs are symlinked into `~/.agents/skills`, the one skills directory all four CLIs read natively.
-`AGENTS.md`/`GEMINI.md` are rendered at the config root from the same roster.
+CLAUDE.md + the roster are rendered into the vendors' global instruction files, `~/.codex/AGENTS.md` and
+`~/.gemini/GEMINI.md` (tracked as `dist/codex/AGENTS.md`, `dist/gemini/GEMINI.md`). Nothing is written at the harness
+root: Claude Code loads a root `AGENTS.md` as a second copy of CLAUDE.md in every session.
 
 ## What syncs
 
@@ -41,14 +43,12 @@ an empty roster refuses to prune.
 
 ```bash
 claude-code agents sync $ARGUMENTS
-claude-code agents docs [--check|--dry-run from $ARGUMENTS]
 gemini skills list 2>&1 | grep -c 'Skill conflict'    # expect 0
 git -C ~/.claude status --short dist/                  # commit the tracked rendering
 ```
 
 `agents sync` honours `--vendor`, `--dry-run`, `--check` (exit 1 on drift in `dist/` or a home) and `--no-prune`.
-`agents docs` takes only `--check`/`--dry-run`: forward one of those verbatim, drop the others, run bare otherwise.
-`claude-code install` runs the sync after settings, so a fresh box tracks the repo. Commit `dist/` with the agent
-change that produced it.
+`claude-code install` runs it after settings, so a fresh box tracks the repo. Commit `dist/` with the agent or
+CLAUDE.md change that produced it.
 
 Report the output.

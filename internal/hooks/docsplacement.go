@@ -18,8 +18,8 @@ import (
 // docsPlacementDisableEnv is the sole knob: set to "0" to let every markdown write through unchecked.
 const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
 
-// rootAnchors are the root-level markdown files tooling requires THERE: GitHub/OSS conventions plus
-// the cross-tool instruction renders (other agent CLIs read AGENTS.md/GEMINI.md from the root only).
+// rootAnchors are the root-level markdown files tooling requires THERE: GitHub/OSS conventions plus the
+// cross-tool instruction files a repo may keep (Codex/Gemini/Copilot read AGENTS.md/GEMINI.md from a project root).
 var rootAnchors = map[string]bool{
 	"readme.md": true, "claude.md": true, "agents.md": true, "gemini.md": true,
 	"license.md": true, "licence.md": true, "notice.md": true, "changelog.md": true,

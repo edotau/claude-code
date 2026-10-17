@@ -1,6 +1,6 @@
 // Package generate renders every vendor agent's own config from the provider registry — codex
 // ~/.codex/config.toml, opencode ~/.config/opencode/opencode.json, gemini ~/.gemini/settings.json
-// (auth-type only), copilot (report-only, launch-time env) — plus AGENTS.md/GEMINI.md, in one pass,
+// (auth-type only), copilot (report-only, launch-time env), in one pass,
 // with no launch. internal/cli's `generate`/`settings` verb renders settings.json itself; this
 // package is the vendor-config half called alongside it.
 package generate
@@ -18,7 +18,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -36,7 +35,7 @@ type Options struct {
 	Out    io.Writer // status lines; nil -> os.Stdout
 }
 
-// Run renders every selected vendor's config plus AGENTS.md/GEMINI.md and reports whether anything
+// Run renders every selected vendor's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).
 func Run(o Options) (drift bool, err error) {
 	agents := o.Agents
@@ -90,17 +89,6 @@ func Run(o Options) (drift bool, err error) {
 			return drift, err
 		}
 		drift = drift || d
-	}
-	if _, statErr := os.Stat(filepath.Join(paths.ConfigDir(), "CLAUDE.md")); statErr != nil {
-		fmt.Fprintln(out, "docs: skipped (no CLAUDE.md in "+paths.ConfigDir()+")") // a bare box renders no roster docs
-		return drift, nil
-	}
-	if rc := crossgen.RenderDocs(crossgen.DocsOptions{Check: o.Check, DryRun: o.DryRun, Out: out}); rc != 0 {
-		if o.Check {
-			drift = true
-		} else {
-			return drift, errors.New("generate: agents docs render failed")
-		}
 	}
 	return drift, nil
 }

@@ -1,5 +1,5 @@
 // Package crossgen projects agents/ into every vendor's native subagent dir (tracked under dist/), links skills/
-// into ~/.agents/skills, and renders AGENTS.md/GEMINI.md.
+// into ~/.agents/skills, and renders each vendor's global instruction file (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
 package crossgen
 
 import (

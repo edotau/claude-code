@@ -101,6 +101,11 @@ func Sync(opts SyncOptions) int {
 		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
 	}
 
+	docs, hasDocs, err := renderDocs(root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sync:", err)
+		return 1
+	}
 	var res syncResult
 	pruned := 0
 	for _, vendor := range vendors {
@@ -108,6 +113,14 @@ func Sync(opts SyncOptions) int {
 		r, p := syncVendor(out, targets[vendor], agents, DistDir(root, vendor), targets[vendor].home(home), dryRun, prune)
 		res.add(r)
 		pruned += p
+		if rel, ok := instructionFiles[vendor]; ok && hasDocs {
+			if !dryRun {
+				_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)
+				_ = os.MkdirAll(filepath.Join(root, "dist", vendor), 0o755)
+			}
+			res.record(writeProjection(out, filepath.Join(root, "dist", vendor, filepath.Base(rel)), docs, dryRun))
+			res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
+		}
 	}
 	fmt.Fprintln(out, "== skills ==")
 	agentsSkills := AgentsSkillsDir(home)

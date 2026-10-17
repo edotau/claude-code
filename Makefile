@@ -69,7 +69,7 @@ vet:  ## go vet
 
 ##@ Setup
 # Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
-# installed + the same two agents docs/sync --dry-run smoke tests ci.yml runs. Exact superset.
+# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
 .PHONY: audit
 audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
@@ -79,9 +79,8 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (go install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION))"; fi
-	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents docs --dry-run >/dev/null
 	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
-	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + docs/sync smoke)"
+	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
 
 .PHONY: bootstrap
 bootstrap:  ## Fresh box: install, then configure (CHECK=1 = check only)
@@ -126,7 +125,7 @@ lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell sc
 	else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi
 
 .PHONY: lint-settings
-lint-settings: compile  # (folded into `lint`) vendor-config + AGENTS.md/GEMINI.md render drift, against THIS checkout
+lint-settings: compile  # (folded into `lint`) vendor-config render drift, against THIS checkout
 	CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) generate --check
 
 .PHONY: verify

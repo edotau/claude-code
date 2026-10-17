@@ -1,7 +1,6 @@
 package crossgen
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,87 +9,82 @@ import (
 )
 
 // newDocsHarness builds a minimal harness (CLAUDE.md + one agent) under an isolated CLAUDE_CONFIG_DIR.
-func newDocsHarness(t *testing.T) string {
+func newDocsHarness(t *testing.T) (home, claude string) {
 	t.Helper()
-	_, claude := isolate(t)
+	home, claude = isolate(t)
 	writeFile(t, filepath.Join(claude, "CLAUDE.md"), "# CLAUDE.md\n\nBody.\n\n\n")
 	writeFile(t, filepath.Join(claude, "agents", "demo-agent.md"),
 		"---\nname: demo-agent\ndescription: demo agent for the docs test. More words.\nmodel: sonnet\n---\n\nBody.\n")
-	return claude
+	return home, claude
 }
 
-// Foreign tools read AGENTS.md / GEMINI.md from the root only, and both must be the same bytes.
-func TestRenderDocsWritesBothRootFilesByteIdentical(t *testing.T) {
-	claude := newDocsHarness(t)
-	if code := RenderDocs(DocsOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("RenderDocs exit = %d, want 0", code)
+// The instruction render lands in each vendor's GLOBAL file (what its CLI reads from $HOME) plus the tracked dist
+// copy, byte-identical, and never at the harness root — Claude Code would load a root AGENTS.md twice.
+func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
+	home, claude := newDocsHarness(t)
+	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	var contents [][]byte
-	for _, name := range outputFiles {
-		data, err := os.ReadFile(filepath.Join(claude, name))
-		if err != nil {
-			t.Fatalf("%s missing from the harness root: %v", name, err)
-		}
-		contents = append(contents, data)
-	}
-	if !bytes.Equal(contents[0], contents[1]) {
-		t.Error("AGENTS.md and GEMINI.md differ")
-	}
-	got := string(contents[0])
 	want := DocsBanner + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
-	if got != want {
-		t.Errorf("render mismatch\n got: %q\nwant: %q", got, want)
+	for vendor, rel := range instructionFiles {
+		dist := filepath.Join(DistDir(claude, vendor), "..", filepath.Base(rel))
+		for _, p := range []string{filepath.Join(home, rel), dist} {
+			got, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatalf("%s: %v", p, err)
+			}
+			if string(got) != want {
+				t.Errorf("%s mismatch\n got: %q\nwant: %q", p, got, want)
+			}
+		}
+	}
+	for _, name := range []string{"AGENTS.md", "GEMINI.md"} {
+		if _, err := os.Stat(filepath.Join(claude, name)); err == nil {
+			t.Errorf("%s was rendered at the harness root", name)
+		}
+	}
+	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code != 0 {
+		t.Errorf("--check after a full sync = %d, want 0", code)
 	}
 }
 
-// --check must gate on the root copies, or a hand-deleted/stale AGENTS.md passes CI silently.
-func TestRenderDocsCheckGatesRootCopy(t *testing.T) {
-	claude := newDocsHarness(t)
-	if code := RenderDocs(DocsOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("RenderDocs exit = %d, want 0", code)
+// A hand-authored global file is kept; editing CLAUDE.md is drift --check reports in both dist and the home.
+func TestInstructionRenderKeepsHandAuthoredAndGatesDrift(t *testing.T) {
+	home, claude := newDocsHarness(t)
+	hand := filepath.Join(home, ".codex", "AGENTS.md")
+	writeFile(t, hand, "# my own codex instructions\n")
+	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	if code := RenderDocs(DocsOptions{Check: true, Out: io.Discard}); code != 0 {
-		t.Fatalf("--check on a fresh render = %d, want 0", code)
+	if got, _ := os.ReadFile(hand); !strings.HasPrefix(string(got), "# my own") {
+		t.Errorf("hand-authored ~/.codex/AGENTS.md was overwritten: %q", got)
 	}
-	if err := os.Remove(filepath.Join(claude, outputFiles[0])); err != nil {
-		t.Fatal(err)
-	}
-	if code := RenderDocs(DocsOptions{Check: true, Out: io.Discard}); code == 0 {
-		t.Errorf("--check passed with %s deleted; drift went undetected", outputFiles[0])
-	}
-	if _, err := os.Stat(filepath.Join(claude, outputFiles[0])); err == nil {
-		t.Error("--check must not write")
+	writeFile(t, filepath.Join(claude, "CLAUDE.md"), "# CLAUDE.md\n\nChanged.\n")
+	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code == 0 {
+		t.Error("--check after a CLAUDE.md edit = 0, want drift")
 	}
 }
 
-// An unchanged re-render must go through the no-op path: identical content, untouched mtime.
-func TestRenderDocsSkipsRewriteWhenUnchanged(t *testing.T) {
-	claude := newDocsHarness(t)
-	if code := RenderDocs(DocsOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("RenderDocs exit = %d, want 0", code)
+// A bare box (no CLAUDE.md) still syncs agents and skills, just without instruction renders.
+func TestSyncWithoutClaudeMDSkipsInstructionRender(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "demo", "demo")
+	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	p := filepath.Join(claude, outputFiles[0])
-	before, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "GEMINI.md")); err == nil {
+		t.Error("GEMINI.md rendered without a CLAUDE.md source")
 	}
-	if code := RenderDocs(DocsOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("second RenderDocs exit = %d, want 0", code)
-	}
-	after, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !after.ModTime().Equal(before.ModTime()) {
-		t.Errorf("%s was rewritten with identical content", outputFiles[0])
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "agents", "demo.md")); err != nil {
+		t.Errorf("agent projection missing: %v", err)
 	}
 }
 
 // The render must never target CLAUDE.md itself — that would overwrite the source with its own derivative.
-func TestRenderDocsNeverTargetsConventionsSource(t *testing.T) {
-	for _, name := range outputFiles {
-		if strings.EqualFold(name, "CLAUDE.md") {
-			t.Fatalf("outputFiles contains %s — the render would clobber its own source", name)
+func TestInstructionFilesNeverTargetConventionsSource(t *testing.T) {
+	for vendor, rel := range instructionFiles {
+		if strings.EqualFold(filepath.Base(rel), "CLAUDE.md") {
+			t.Fatalf("%s instruction file is %s — the render would clobber its own source", vendor, rel)
 		}
 	}
 }
