@@ -1,5 +1,5 @@
 // `workflow-lint` — PreToolUse on Workflow: an inline script's unpinned agent() leaves are pinned to
-// sonnet; ambiguous ones block.
+// sonnet; ambiguous ones block; a by-name call is redirected to its on-disk script and linted there.
 package hooks
 
 import (
@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/plan"
 )
 
@@ -17,7 +19,10 @@ const workflowLintName = "inline workflow"
 // WorkflowLint rewrites every unpinned agent() leaf in an inline script to pin model:'sonnet', or
 // blocks when a leaf's options argument can't be rewritten safely or a pin's literal value is bad. A
 // saved script given by scriptPath can't be rewritten, so it only blocks (on a model/agentType/value
-// problem, never a missing effort — that's a `workflow lint` concern, not this hook's).
+// problem, never a missing effort — that's a `workflow lint` concern, not this hook's). A by-name call
+// is redirected to scriptPath pointing at the on-disk file (the by-name registry is read once at
+// session start, so an edit made mid-session would otherwise run the stale copy) and linted the same
+// way; a name with no matching file (a built-in, or a bogus name) proceeds untouched.
 func WorkflowLint(r io.Reader, stdout, errw io.Writer) int {
 	in := ParseInput(r)
 	if in.ToolName != "Workflow" {
@@ -29,7 +34,10 @@ func WorkflowLint(r io.Reader, stdout, errw io.Writer) int {
 	if path := in.nested("tool_input", "scriptPath"); path != "" {
 		return workflowLintSaved(path, errw)
 	}
-	return ExitProceed // saved by name — nothing to lint
+	if name := in.nested("tool_input", "name"); name != "" {
+		return workflowLintByName(in, name, stdout, errw)
+	}
+	return ExitProceed
 }
 
 func workflowLintInline(in *Input, script string, stdout, errw io.Writer) int {
@@ -67,14 +75,60 @@ func workflowLintInline(in *Input, script string, stdout, errw io.Writer) int {
 }
 
 func workflowLintSaved(path string, errw io.Writer) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ExitProceed // fail open — the hook cannot rewrite a file anyway
-	}
-	hits := withoutEffortOnly(plan.LintPins(path, data))
+	hits := lintSavedFile(path)
 	if len(hits) == 0 {
 		return ExitProceed
 	}
+	return blockSavedLint(path, hits, errw)
+}
+
+// workflowLintByName redirects a saved-by-name call to its on-disk script via updatedInput.scriptPath,
+// then lints that file exactly as a direct scriptPath call would. A path-shaped name, an empty config
+// dir, or no matching file on disk all fail open to ExitProceed, untouched.
+func workflowLintByName(in *Input, name string, stdout, errw io.Writer) int {
+	if filepath.Base(name) != name {
+		return ExitProceed // path-shaped, not a plain registry name — refuse to touch the dispatch
+	}
+	dir := paths.ConfigDir()
+	if dir == "" {
+		return ExitProceed
+	}
+	path := filepath.Join(dir, "workflows", name+".js")
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return ExitProceed // no on-disk script for this name — built-in or bogus, pass through
+	}
+	if hits := lintSavedFile(path); len(hits) > 0 {
+		return blockSavedLint(path, hits, errw)
+	}
+	updated := agentToolInput(in)
+	if updated == nil {
+		return ExitProceed
+	}
+	delete(updated, "name")
+	updated["scriptPath"] = path
+	note := fmt.Sprintf("workflow-lint: name → scriptPath %s (the by-name registry is read at session"+
+		" start; the file on disk is current)", path)
+	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
+	enc, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})
+	if err != nil {
+		return ExitProceed
+	}
+	fmt.Fprintln(stdout, string(enc))
+	return ExitProceed
+}
+
+// lintSavedFile reads path and returns the pin problems worth blocking on; a read error returns nil
+// (fail open — the hook cannot rewrite a file anyway).
+func lintSavedFile(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return withoutEffortOnly(plan.LintPins(path, data))
+}
+
+// blockSavedLint writes the saved-script block message naming path and its pin problems.
+func blockSavedLint(path string, hits []string, errw io.Writer) int {
 	fmt.Fprintf(errw, "workflow-lint: blocked — %d agent() pin problem(s) in %s; edit the file and re-run:\n%s\n",
 		len(hits), path, strings.Join(hits, "\n"))
 	return ExitBlock
