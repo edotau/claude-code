@@ -47,6 +47,8 @@ var Registry = []Spec{
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
+	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
+	{Name: "workflow-lint", Event: EventPreToolUse, Matcher: "Workflow", Timeout: 5},
 	// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.
 	{Name: "agent-inflight", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Timeout: 5},
