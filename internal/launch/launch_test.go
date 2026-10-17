@@ -123,9 +123,17 @@ func TestClaudePassthrough(t *testing.T) {
 	if slices.Contains(p.Unset, oauthKey) {
 		t.Error("passthrough must keep CLAUDE_CODE_OAUTH_TOKEN")
 	}
-	// Built-in fallback routes the subscription: the login stays in Authorization, the secret rides ClientHeader.
-	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/subscription" || !strings.HasPrefix(p.Set["ANTHROPIC_CUSTOM_HEADERS"], router.ClientHeader+": ") {
-		t.Errorf("routed passthrough: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
+	// The built-in fallback does not route a login: a loopback base URL would disable Remote Control.
+	if _, ok := p.Set["ANTHROPIC_BASE_URL"]; ok || p.Set["ANTHROPIC_CUSTOM_HEADERS"] != "" {
+		t.Errorf("passthrough must launch direct: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
+	}
+	// --router still forces it: the login stays in Authorization, the secret rides ClientHeader.
+	r, err := Claude(context.Background(), Options{Provider: "subscription", Router: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/subscription" || !strings.HasPrefix(r.Set["ANTHROPIC_CUSTOM_HEADERS"], router.ClientHeader+": ") {
+		t.Errorf("routed passthrough: base %q headers %q", r.Set["ANTHROPIC_BASE_URL"], r.Set["ANTHROPIC_CUSTOM_HEADERS"])
 	}
 	if _, err := Claude(context.Background(), Options{Provider: "anthropic", Model: "subscription:claude-opus-5"}, nil); err == nil {
 		t.Error("a passthrough slot target through the router must error")

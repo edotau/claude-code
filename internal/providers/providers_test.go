@@ -97,6 +97,21 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	}
 }
 
+// A passthrough (login) session never routes on the fallback ladder alone: the router's base URL disables Remote Control.
+func TestNeedsRouterPassthroughFallback(t *testing.T) {
+	reg := &Registry{Fallback: []string{"gw"}, Providers: map[string]*Provider{
+		"sub": {Name: "sub", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthPassthrough}, Models: map[string]string{"opus": "o"}},
+		"key": {Name: "key", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: "x-api-key", Env: "K"}, Models: map[string]string{"opus": "o"}},
+	}}
+	for name, want := range map[string]bool{"sub": false, "key": true} {
+		p := reg.Providers[name]
+		sel := Selection{Provider: p, Slots: map[string]Target{"opus": {Provider: p, Model: "o"}}}
+		if got := sel.NeedsRouter(reg); got != want {
+			t.Errorf("%s: NeedsRouter = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestFailoverTarget(t *testing.T) {
 	reg := load(t)
 	gw, _ := reg.Get("gw")
