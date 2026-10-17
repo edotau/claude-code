@@ -57,7 +57,7 @@ const briefs = (await parallel(LENSES.map(l => () =>
   agent(
     `Read-only scouting for a code change${CWD ? ' in ' + CWD : ''}. Task: ${TASK}\nScope hint: ${SCOPE.join(', ') || 'none given'}\n` +
     `Your lens: ${l.prompt}. Return files, seams (file:line) and risks. Do not edit anything.`,
-    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', effort: 'low' }
+    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', model: 'sonnet', effort: 'low' } // Explore alone runs opus
   )
 ))).filter(Boolean)
 if (!briefs.length) log('intel: both Explore readers returned nothing — building blind from the task text')

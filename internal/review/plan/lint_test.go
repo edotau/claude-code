@@ -32,10 +32,9 @@ const d = await subagent('not the primitive')
 	}
 }
 
-// Unpinned agent() is flagged; model:/agentType: calls are skipped, and word-prefixed calls
-// (subagent(), x.agent()) are never the primitive. lint:opus-ok exempts ONLY the effort check
-// (TestEffortlessAgentCalls) — a marked call missing model:/agentType: is still a hit, so a
-// reviewer can't wave away the actual reasoning-tier leak with the marker meant for effort.
+// Unpinned agent() is flagged; only a model: pin satisfies it — agentType alone does not (a built-in
+// Explore leaf ran opus under an agentType-only "pin"), and word-prefixed calls (subagent(), x.agent())
+// are never the primitive. lint:opus-ok exempts ONLY the effort check (TestEffortlessAgentCalls).
 func TestUnpinnedAgentCalls(t *testing.T) {
 	p := writeScript(t, t.TempDir(), "wf.js", `const a = await agent('task one', { label: 'x', schema: S })
 const b = await agent('task two', { label: 'y', model: 'sonnet' })
@@ -44,8 +43,8 @@ const d = await agent('judge', { label: 'j' }) // lint:opus-ok
 const e = await subagent('not the primitive')
 `)
 	hits := unpinnedAgentCalls(p, readScript(t, p))
-	if len(hits) != 2 || hits[0] != p+":1" || hits[1] != p+":4" {
-		t.Fatalf("hits = %v, want lines 1 and 4 (opus-ok no longer exempts a missing model:)", hits)
+	if len(hits) != 3 || hits[0] != p+":1" || hits[1] != p+":3" || hits[2] != p+":4" {
+		t.Fatalf("hits = %v, want lines 1, 3 and 4 (agentType alone and opus-ok do not pin a model)", hits)
 	}
 }
 
@@ -165,7 +164,7 @@ func TestLintPinsBytes(t *testing.T) {
 	if len(hits) != 2 {
 		t.Fatalf("hits = %v, want exactly 2 messages", hits)
 	}
-	if !strings.HasPrefix(hits[0], "inline:1") || !strings.Contains(hits[0], "model:/agentType:") {
+	if !strings.HasPrefix(hits[0], "inline:1") || !strings.Contains(hits[0], "without model:") {
 		t.Errorf("hits[0] = %q, want the model-missing message first", hits[0])
 	}
 	if !strings.HasPrefix(hits[1], "inline:1") || !strings.Contains(hits[1], "effort:") {
@@ -183,7 +182,7 @@ func TestOpusOKExemptsEffortOnly(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("hits = %v, want exactly 1 (model hit, no effort hit)", hits)
 	}
-	if !strings.Contains(hits[0], "model:/agentType:") {
+	if !strings.Contains(hits[0], "without model:") {
 		t.Errorf("hits[0] = %q, want the model-missing message", hits[0])
 	}
 	if strings.Contains(hits[0], "effort:") {
@@ -249,7 +248,7 @@ func TestFillModel(t *testing.T) {
 	t.Run("already pinned calls are left unchanged", func(t *testing.T) {
 		for _, src := range []string{
 			"agent('p', { model: 'opus' })\n",
-			"agent('p', { agentType: 'code-workers' })\n",
+			"agent('p', { agentType: 'code-workers', model: 'sonnet' })\n",
 		} {
 			out, ambiguous := FillModel(src, model)
 			if out != src {

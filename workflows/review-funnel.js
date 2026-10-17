@@ -147,7 +147,7 @@ const funneled = await pipeline(
         label: `find:${d.key}`,
         phase: "Find",
         schema: FINDINGS_SCHEMA,
-        agentType: "code-workers",
+        agentType: "code-workers", model: "sonnet",
         effort: "medium",
       },
     ),
@@ -165,7 +165,7 @@ const funneled = await pipeline(
               label: `refute:${d.key}:${f.file}`,
               phase: "Refute",
               schema: REFUTE_SCHEMA,
-              agentType: "code-workers",
+              agentType: "code-workers", model: "sonnet",
               effort: "medium",
             },
           ).then((r) =>

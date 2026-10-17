@@ -4,7 +4,7 @@ export const meta = {
   whenToUse:
     'A task whose sub-agents form a dependency graph rather than a straight pipeline (port of the harness triggerer dag.go). Usually called inline: workflow("dag", {steps: [...]}). args: {steps: [{name, prompt, deps?: [names], model? | agentType?, effort: "low|medium|high|xhigh|max", schema?, skip?: true, when?: {step, equals}}], maxConcurrent?}. Prompts may reference a dep result as {{depName}}; when.step must be a dep. Returns {order, results, skipped, failed} or {error} before any agent spawns.',
   phases: [
-    { title: 'Validate', detail: 'names unique, deps exist, no cycles, every step pinned (model or agentType, plus effort), templates reference deps only' },
+    { title: 'Validate', detail: 'names unique, deps exist, no cycles, every step pinned (model, plus effort; agentType optional), templates reference deps only' },
     { title: 'Steps', detail: 'one phase per step name; event-driven: a step starts as soon as all of its deps settle, no barrier waves' },
   ],
 }
@@ -13,7 +13,7 @@ export const meta = {
 // The registry imports the script to read its meta, so bad args return {error}, never throw.
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 const STEPS = Array.isArray(a.steps) ? a.steps : []
-if (!STEPS.length) return { error: 'dag needs args.steps: [{name, prompt, deps?, model|agentType, effort}]' }
+if (!STEPS.length) return { error: 'dag needs args.steps: [{name, prompt, deps?, model, agentType?, effort}]' }
 const MAX_CONC = Number.isInteger(a.maxConcurrent) && a.maxConcurrent > 0 ? a.maxConcurrent : STEPS.length
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 const TEMPLATE = /\{\{\s*([^{}]+?)\s*\}\}/g
@@ -32,7 +32,7 @@ const validate = () => {
     if (!Array.isArray(deps)) return `step "${s.name}": deps must be an array of step names`
     for (const d of deps) if (!byName.has(d)) return `step "${s.name}" depends on unknown step "${d}"`
     if (typeof s.prompt !== 'string' || !s.prompt.trim()) return `step "${s.name}" has no prompt`
-    if (!s.model && !s.agentType) return `step "${s.name}" pins neither model nor agentType (same cost discipline as workflow lint)`
+    if (!s.model) return `step "${s.name}" pins no model (agentType alone keeps a built-in\'s own tier; same discipline as workflow lint)`
     if (!EFFORTS.includes(s.effort)) return `step "${s.name}" effort must be one of ${EFFORTS.join('|')}, got ${JSON.stringify(s.effort)}`
     for (const m of s.prompt.matchAll(TEMPLATE)) {
       if (!deps.includes(m[1])) return `step "${s.name}" prompt references {{${m[1]}}}, which is not one of its deps`
@@ -115,7 +115,7 @@ const runStep = async s => {
   log(`start ${name}`)
   let out = null
   try {
-    // Pins are per-step variables; validate() already enforced model|agentType and effort on every step.
+    // Pins are per-step variables; validate() already enforced model and effort on every step.
     out = await agent(prompt, { label: name, phase: name, schema: s.schema, model: s.model, agentType: s.agentType, effort: s.effort })
   } catch (e) {
     log(`fail ${name}: ${e && e.message ? e.message : e}`)
