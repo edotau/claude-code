@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -32,7 +33,11 @@ func SetFile(name, value string) error {
 		for _, k := range keys {
 			b.WriteString(k + "=" + cur[k] + "\n")
 		}
-		return paths.AtomicWrite(file, []byte(b.String()), 0o600)
+		if err := paths.AtomicWrite(file, []byte(b.String()), 0o600); err != nil {
+			return err
+		}
+		audit.Log(audit.SecretSet, name, "file") // the name only, never the value
+		return nil
 	})
 }
 

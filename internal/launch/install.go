@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -194,6 +195,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	has, err := settingsHasHooks(SettingsFile())
+	check(true, false, "audit (7d)", auditSummary())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
 }
@@ -209,6 +211,25 @@ func Doctor(w io.Writer) bool {
 		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, c.Detail)
 	}
 	return ok
+}
+
+// auditSummary counts the last week's audited actions, e.g. "2 hook_blocked, 1 provider_switch".
+func auditSummary() string {
+	ev, err := audit.Read(time.Now().AddDate(0, 0, -7))
+	if err != nil {
+		return err.Error()
+	}
+	sum := audit.Summary(ev)
+	var parts []string
+	for _, a := range audit.Actions {
+		if n := sum[a]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, a))
+		}
+	}
+	if len(parts) == 0 {
+		return "no audited actions (claude-code audit)"
+	}
+	return strings.Join(parts, ", ") + " (claude-code audit)"
 }
 
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.

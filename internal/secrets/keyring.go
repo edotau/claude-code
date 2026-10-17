@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/audit"
 )
 
 // keyringService labels every account this harness stores (the service name for secret-tool, the
@@ -108,5 +110,6 @@ func KeyringSet(name, value string) error {
 		}
 		return fmt.Errorf("secrets: keyring store %s: %w", name, err)
 	}
+	audit.Log(audit.SecretSet, name, "keyring") // the name only, never the value
 	return nil
 }

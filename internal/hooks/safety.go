@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -76,6 +77,7 @@ func Safety(r io.Reader, stderr io.Writer) int {
 	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
 			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
+			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
 	}
@@ -84,21 +86,25 @@ func Safety(r io.Reader, stderr io.Writer) int {
 		for _, re := range hardBlocks() {
 			if re.MatchString(seg) {
 				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
+				audit.Log(audit.HookBlocked, "safety", re.String())
 				return ExitBlock
 			}
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
 		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 5)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
+		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
 		return ExitBlock
 	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
 		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", cmd)
+		audit.Log(audit.HookBlocked, "safety", "destructive SQL")
 		return ExitBlock
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(cmd) {
 			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, cmd)
+			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
 	}
