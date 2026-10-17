@@ -179,3 +179,28 @@ change to `internal/clean/nested.go` or `commands/workflow/worktree.md`, with a 
 - Whether `audit-fix-verify` may fix lows (`minFix`) when run recursively — current floor is `medium`.
 - Whether the copilot leg should ever commit inside a workflow or only stage and report.
 - Keep `fallback: ["gemini"]` in the registry now that subscription ignores it, or drop it.
+
+## Outcome — 2026-10-17 (session 1854c0b4, Fable 5.1, ultracode)
+
+Landed on `main` as `059af4a` (A: hook + lint), `d1038be` (B: loops + vendor-leg), `df3b0f2` (C: docs + dist),
+`1fc23fb` (self-audit's one deferred low). Live checks that passed, in order: hook fills `model:'sonnet'` through the
+real `Workflow` tool (additionalContext seen) and blocks an identifier options arg; gate detection → pyrepo
+`pytest -q tests`, this repo `make lint && go build ./... && go vet ./internal/review/plan/... && go test …`, empty dir
+`exit: error`; `audit-fix-verify {paths:['src'], rounds:2}` on a scratch Python repo found the planted off-by-one (+2
+more), fixed it, test agent added two tests, pytest gate green, round 2 `dry`; `vendor-leg {leg:'codex'}` → `ok:true`;
+self-audit over `2c772a1..HEAD` → `dry` with one low (fixed in `1fc23fb`).
+
+Deviations from the plan: recursion is an in-script round loop (the host nests `workflow()` one level, and a child
+cannot call `gate-loop`/`vendor-leg`); `implement-and-verify` therefore does not chain into `audit-fix-verify`; the
+hook auto-fills (Eric's decision) instead of blocking; `lint:opus-ok` waives only the effort check; the Detect leaf
+lets the toolchain file decide and a Makefile only prepends `make lint` (haiku kept picking `make test`/`make audit`).
+
+Gotchas: the Workflow tool's by-name registry is read at session start — a new or edited `workflows/*.js` runs by
+`scriptPath` until the next session (`vendor-leg` by name was "not found" all session; `audit-fix-verify` by name ran
+the pre-edit copy). `agent(` inside a string/comment is not a call (bit the first hook probe via the meta description).
+
+Open for Eric: hard rule 4 for worktrees — the investigator found the `safety` hook blocks the banned git verbs in
+ANY path under `~/.claude`, so a worktree at `.claude/worktrees/<slug>` cannot use them either; relocating harness
+worktrees outside `~/.claude` fixes that and the `clean`/`doctor` nested-dir mislabel at once. Proposed rule text and
+the `nested.go` label change are in the implementation run's journal (`wf_88793a6c-0b1`, label
+`investigate:rule-4-worktrees`). Not applied.
