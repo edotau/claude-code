@@ -49,9 +49,11 @@ claude-code --resume    # a leading flag is a claude flag: Claude Code on the se
 
 A tier word sets only the main-loop model; subagent slots keep their own pins.
 
-`make bootstrap` is the fresh-box path: it checks `go`, runs `make install`, installs bash tab-completion
+`make bootstrap` is the fresh-box path: it installs the Go toolchain from go.mod's version into `~/.local/go`
+when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, installs bash tab-completion
 (`claude-code completion --install`; `source <(claude-code completion)` for the current shell) and then
-`claude-code configure`. `make help` lists every target; `make audit` is the CI gate.
+`claude-code configure`. `make setup-env APPLY=1` puts `~/.local/go/bin` and `~/go/bin` on your shell's
+`PATH` alongside the shims. `make help` lists every target; `make audit` is the CI gate.
 
 ## Setup
 
@@ -64,7 +66,10 @@ claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings 
 ```
 
 `configure keys` and `doctor` probe every stored key with one catalog GET, so a key that is present but rejected
-(401) reads `REJECTED`, not `present`; on a TTY a rejected key is offered for re-entry. A vendor running on its own
+(401) reads `REJECTED`, not `present`. For an absent or rejected credential the TTY dialog offers every way to
+fix it side by side — the vendor's browser/device login (`claude auth login`, `codex login`, `copilot login`,
+`opencode auth login`, `gemini` → Login with Google) and pasting an API key (opening the provider's key console
+first, if you want), stored in `env.d/secrets.env`. Piped, each option is one `[Y/n]`. A vendor running on its own
 login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
 `configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
 OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
