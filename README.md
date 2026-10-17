@@ -34,7 +34,11 @@ With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selec
 `codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found
 past the shims.
 
-`claude-code` with no arguments prints the menu. The first word picks what to launch:
+`claude-code` with no arguments prints the menu.
+
+![claude-code help menu](docs/images/cli-menu.svg)
+
+The first word picks what to launch:
 
 ```bash
 claude-code opus        # Claude Code, opus as the main model (also sonnet | haiku | fable); args pass to claude
