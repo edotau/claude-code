@@ -69,6 +69,24 @@ func writeWorkflowScript(t *testing.T, claudeDir, project, session, name, runID 
 	writeFile(t, p, "// stub")
 }
 
+// readTestdata returns the real-byte fixture content at internal/usage/testdata/<name>.
+func readTestdata(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("read testdata %s: %v", name, err)
+	}
+	return string(raw)
+}
+
+// writeMainTranscript writes the session's own <session>.jsonl (sibling to the projects/<proj>/<session>
+// dir) from real-byte pair content — the scriptPath run-name fallback scans this file.
+func writeMainTranscript(t *testing.T, claudeDir, project, session, content string) {
+	t.Helper()
+	p := filepath.Join(claudeDir, "projects", project, session+".jsonl")
+	writeFile(t, p, content)
+}
+
 func TestUsageCmdDaysScope(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeUsageFixture(t, claudeDir, "-home-edotau-repoA", "session-recent", time.Hour,
@@ -245,5 +263,223 @@ func TestWorkflowPhaseFromMetaMalformed(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "usage: warning: skipping meta for") {
 		t.Errorf("workflowPhaseFromMeta on malformed meta printed no warning, got:\n%s", errw.String())
+	}
+}
+
+// TestUsageCmdWorkflowsModelColumnSingleModel: a one-model phase (real haiku-only bytes) prints the
+// short name (date suffix stripped), not the raw model id, and the TOTAL row carries it too.
+func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
+		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "haiku-4-5") {
+		t.Errorf("MODEL column missing short name haiku-4-5:\n%s", got)
+	}
+	if strings.Contains(got, "claude-haiku-4-5-20251001") {
+		t.Errorf("MODEL column must print the short name, not the raw model id:\n%s", got)
+	}
+}
+
+// TestUsageCmdWorkflowsModelColumnMixed: a phase folding two real agents on different models (haiku
+// + sonnet, same "▸ gate-loop" phase from the live wf_529c9ef1-350 run) joins them with '+'.
+func TestUsageCmdWorkflowsModelColumnMixed(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
+		readTestdata(t, "wf_529c9ef1-350-agent-a1f2df362eb625d28.jsonl"))
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
+		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	phaseLine := findLineContaining(got, "gate-loop")
+	if phaseLine == "" {
+		t.Fatalf("no phase row for gate-loop:\n%s", got)
+	}
+	if !strings.Contains(phaseLine, "haiku-4-5") || !strings.Contains(phaseLine, "sonnet-5") {
+		t.Errorf("mixed phase row must list both short names, got: %q", phaseLine)
+	}
+	if !strings.Contains(phaseLine, "haiku-4-5+sonnet-5") && !strings.Contains(phaseLine, "sonnet-5+haiku-4-5") {
+		t.Errorf("mixed phase row must '+'-join the short names, got: %q", phaseLine)
+	}
+}
+
+// TestUsageCmdWorkflowsPerRunRollup: after the TOTAL row, one rollup block per run with the fixed
+// header, one row per model, sorted by cache-read desc (sonnet's real cache-read total here beats
+// haiku's).
+func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
+		readTestdata(t, "wf_529c9ef1-350-agent-a1f2df362eb625d28.jsonl"))
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
+		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	const header = "MODEL AGENTS TURNS INPUT CACHE-READ CACHE-CREATE OUTPUT"
+	headerIdx := indexOfFields(got, header)
+	if headerIdx < 0 {
+		t.Fatalf("missing rollup header %q in:\n%s", header, got)
+	}
+	sonnetIdx := strings.Index(got, "sonnet-5")
+	haikuIdx := strings.Index(got, "haiku-4-5")
+	rollupSonnetIdx := strings.Index(got[headerIdx:], "sonnet-5")
+	rollupHaikuIdx := strings.Index(got[headerIdx:], "haiku-4-5")
+	if rollupSonnetIdx < 0 || rollupHaikuIdx < 0 {
+		t.Fatalf("rollup block missing a model row, got:\n%s", got[headerIdx:])
+	}
+	if rollupSonnetIdx > rollupHaikuIdx {
+		t.Errorf("rollup must sort by cache-read desc (sonnet's cache-read total is larger): sonnet@%d haiku@%d in:\n%s",
+			rollupSonnetIdx, rollupHaikuIdx, got[headerIdx:])
+	}
+	_ = sonnetIdx
+	_ = haikuIdx
+}
+
+// TestUsageCmdWorkflowsOneModelOneRollupRow: a run that used exactly one model prints exactly one
+// rollup row under the rollup header.
+func TestUsageCmdWorkflowsOneModelOneRollupRow(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
+		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	const header = "MODEL AGENTS TURNS INPUT CACHE-READ CACHE-CREATE OUTPUT"
+	headerIdx := indexOfFields(got, header)
+	if headerIdx < 0 {
+		t.Fatalf("missing rollup header %q in:\n%s", header, got)
+	}
+	rest := got[headerIdx+len(header):]
+	n := strings.Count(rest, "haiku-4-5")
+	if n != 1 {
+		t.Errorf("single-model run must print exactly one rollup row, found %d occurrences of haiku-4-5 after the header:\n%s", n, rest)
+	}
+}
+
+// TestUsageCmdWorkflowsAllRunsByModel: after every per-run block, one "ALL RUNS BY MODEL" block sums
+// token/agent/turn counts across the listed runs, printed exactly once.
+func TestUsageCmdWorkflowsAllRunsByModel(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
+		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
+	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", 2*time.Hour,
+		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	if n := strings.Count(got, "ALL RUNS BY MODEL"); n != 1 {
+		t.Fatalf("want exactly one ALL RUNS BY MODEL block, got %d in:\n%s", n, got)
+	}
+	allIdx := strings.Index(got, "ALL RUNS BY MODEL")
+	rest := got[allIdx:]
+	if !strings.Contains(rest, "haiku-4-5") || !strings.Contains(rest, "sonnet-5") {
+		t.Errorf("ALL RUNS BY MODEL block must list every model across both runs:\n%s", rest)
+	}
+	if strings.Count(rest, "wf_65ae8cee-79a") > 0 || strings.Count(rest, "wf_529c9ef1-350") > 0 {
+		t.Errorf("ALL RUNS BY MODEL block must be keyed by model, not repeat run ids:\n%s", rest)
+	}
+}
+
+// TestUsageCmdWorkflowsNoRunsNoAllRunsBlock: with no matching runs, no ALL RUNS BY MODEL block prints.
+func TestUsageCmdWorkflowsNoRunsNoAllRunsBlock(t *testing.T) {
+	claudeDir := t.TempDir()
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--workflows", "--days", "1"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run --workflows on empty dir = %d, want 0", code)
+	}
+	if strings.Contains(out.String(), "ALL RUNS BY MODEL") {
+		t.Errorf("empty run set must not print an ALL RUNS BY MODEL block:\n%s", out.String())
+	}
+}
+
+// TestWorkflowNameForRunScriptPathFallback: a {scriptPath} run has no scripts/*-<runId>.js (that glob
+// only matches inline/by-name runs), so the name comes from the main transcript's tool_use/tool_result
+// pair (real bytes from this session's own launch of implement-and-verify.js as wf_c877ead7-adf).
+func TestWorkflowNameForRunScriptPathFallback(t *testing.T) {
+	claudeDir := t.TempDir()
+	project, session, runID := "-home-edotau-repoA", "target-session", "wf_c877ead7-adf"
+	writeMainTranscript(t, claudeDir, project, session, readTestdata(t, "session-scriptpath-pair.jsonl"))
+	runDir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	name := workflowNameForRun(runDir, runID)
+	if name != "implement-and-verify" {
+		t.Errorf("workflowNameForRun scriptPath fallback = %q, want %q", name, "implement-and-verify")
+	}
+}
+
+// TestWorkflowNameForRunNoFallbackMatch: when neither the script glob nor the transcript scan finds
+// anything, the run id itself is the name (today's behavior, unchanged).
+func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
+	claudeDir := t.TempDir()
+	project, session, runID := "-home-edotau-repoA", "target-session", "wf_no_such_run"
+	runDir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	name := workflowNameForRun(runDir, runID)
+	if name != runID {
+		t.Errorf("workflowNameForRun with no match = %q, want runID %q", name, runID)
+	}
+}
+
+// findLineContaining returns the first line of s containing substr, or "".
+func findLineContaining(s, substr string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	return ""
+}
+
+// indexOfFields finds header somewhere in got allowing arbitrary whitespace between its fields
+// (the real column widths are the implementation's choice), returning the byte index of the match
+// start or -1.
+func indexOfFields(got, header string) int {
+	fields := strings.Fields(header)
+	searchFrom := 0
+	for {
+		idx := strings.Index(got[searchFrom:], fields[0])
+		if idx < 0 {
+			return -1
+		}
+		start := searchFrom + idx
+		pos := start
+		ok := true
+		for _, f := range fields {
+			rest := got[pos:]
+			fi := strings.Index(rest, f)
+			if fi < 0 || fi > 40 { // field must appear soon after the previous one, same line/row
+				ok = false
+				break
+			}
+			pos += fi + len(f)
+		}
+		if ok {
+			return start
+		}
+		searchFrom = start + 1
 	}
 }
