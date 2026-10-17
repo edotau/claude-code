@@ -315,6 +315,8 @@ near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer
 
 - `claude-code clean [--what <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
   run dirs, backups); dry-run by default, `--apply` deletes. Credentials and settings are never a target.
+  Every run also checks for a nested `.claude/` inside the config dir (project scope layered over user
+  settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
   `state/harness/history`; `env.d/secrets.env` is never snapshotted.
 - `claude-code theme [--preview]` — pick the statusline color palette.

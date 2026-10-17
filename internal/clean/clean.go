@@ -136,6 +136,20 @@ func Run(args []string, out, errw io.Writer) int {
 	cutoff := time.Now().Add(-age)
 	var totalFiles int
 	var totalBytes int64
+	// The nested config dir is wrong at any age, so it is checked on every run, outside --what/--older-than.
+	if n := NestedConfig(); n.Dir != "" {
+		if len(n.Keep) > 0 {
+			fmt.Fprintf(errw, "%-16s kept %s: move %s into internal/settings/settings.tmpl.json, make install, re-run\n",
+				"nested-config", n.Dir, strings.Join(n.Keep, ", "))
+		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), *apply); len(hits) > 0 {
+			totalFiles, totalBytes = len(hits), size
+			verb := "would remove"
+			if *apply {
+				verb = "removed"
+			}
+			fmt.Fprintf(errw, "%-16s %s %s\n", "nested-config", verb, n.Dir)
+		}
+	}
 	for _, t := range selected {
 		hits, size := pruneAged(t.globs(), cutoff, *apply)
 		if len(hits) == 0 {
@@ -154,7 +168,7 @@ func Run(args []string, out, errw io.Writer) int {
 		return 0
 	}
 	if *apply {
-		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, settings, and the memory bank were not touched.\n",
+		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, user settings, and the memory bank were not touched.\n",
 			humanBytes(totalBytes), totalFiles)
 		return 0
 	}
