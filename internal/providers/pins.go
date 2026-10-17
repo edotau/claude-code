@@ -117,3 +117,15 @@ func PinDiff(kv map[string]string) []string {
 	}
 	return out
 }
+
+// OAuthTokenEnv is the env var Claude Code reads a long-lived Max-plan token from (`claude setup-token` mints one).
+const OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
+
+// HeadlessOAuthToken is the stored setup-token for unattended `claude -p` runs: the process env first, then
+// env.d/secrets.env. "" when neither has one — the run then depends on the interactive /login session.
+func HeadlessOAuthToken() string {
+	if tok := strings.TrimSpace(os.Getenv(OAuthTokenEnv)); tok != "" {
+		return tok
+	}
+	return strings.TrimSpace(ReadEnvFile(SecretsFile())[OAuthTokenEnv])
+}

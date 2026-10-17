@@ -190,7 +190,7 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
 		// A long-lived setup-token in secrets.env outlives the /login session in .credentials.json.
 		if os.Getenv(oauthKey) == "" {
-			if tok := strings.TrimSpace(providers.ReadEnvFile(providers.SecretsFile())[oauthKey]); tok != "" {
+			if tok := providers.HeadlessOAuthToken(); tok != "" {
 				plan.Set[oauthKey] = tok
 			}
 		}

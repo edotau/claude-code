@@ -5,12 +5,15 @@ package configure
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -258,6 +261,57 @@ type keyTarget struct {
 	envVar    string              // absent + API-key based: prompt writes this var
 	fixCmd    string              // piped: the exact command to run instead
 	provider  *providers.Provider // present + keyed: probed live so a stored-but-rejected key is not "present"
+	mintArgv  []string            // Max plan: the CLI that mints a long-lived headless token (claude setup-token)
+	headless  bool                // Max plan: a setup-token is stored, so unattended runs survive /login expiry
+}
+
+// setupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
+var setupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
+
+// maxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
+// reported by `claude auth status`, plus whether a long-lived setup-token is stored for unattended runs.
+func maxPlanTarget(kt keyTarget) keyTarget {
+	kt.loginArgv = []string{"claude", "auth", "login"}
+	kt.mintArgv = []string{"claude", "setup-token"}
+	kt.envVar = providers.OAuthTokenEnv
+	kt.fixCmd = "claude auth login (interactive) · claude setup-token → claude-code secrets set " + providers.OAuthTokenEnv + " (headless)"
+	kt.headless = providers.HeadlessOAuthToken() != ""
+	loggedIn, plan := claudeLoginStatus()
+	kt.present = loggedIn || kt.headless
+	switch {
+	case loggedIn && kt.headless:
+		kt.source = "claude.ai login" + plan + "; headless token set"
+	case loggedIn:
+		kt.source = "claude.ai login" + plan + "; no headless token"
+	case kt.headless:
+		kt.source = "headless token (" + providers.OAuthTokenEnv + "); not logged in interactively"
+	}
+	return kt
+}
+
+// claudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
+func claudeLoginStatus() (loggedIn bool, plan string) {
+	bin, err := exec.LookPath("claude")
+	if err != nil {
+		return false, ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "auth", "status").Output()
+	if err != nil {
+		return false, ""
+	}
+	var st struct {
+		LoggedIn         bool   `json:"loggedIn"`
+		SubscriptionType string `json:"subscriptionType"`
+	}
+	if json.Unmarshal(out, &st) != nil {
+		return false, ""
+	}
+	if st.SubscriptionType != "" {
+		plan = " (" + st.SubscriptionType + ")"
+	}
+	return st.LoggedIn, plan
 }
 
 // consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
@@ -272,7 +326,8 @@ var consoleURLs = map[string]string{
 type authOption struct {
 	label string
 	argv  []string // login CLI to run attached to the terminal
-	env   string   // env var a pasted key is stored under (env.d/secrets.env)
+	mint  []string // CLI that prints a long-lived token; captured and stored under env
+	env   string   // env var a pasted (or minted) key is stored under (env.d/secrets.env)
 }
 
 // authOptions lists every way kt can be satisfied, browser login first; the dialog shows them all.
@@ -280,6 +335,10 @@ func authOptions(kt keyTarget) []authOption {
 	var opts []authOption
 	if len(kt.loginArgv) > 0 {
 		opts = append(opts, authOption{label: "Sign in via browser (" + strings.Join(kt.loginArgv, " ") + ")", argv: kt.loginArgv})
+	}
+	if len(kt.mintArgv) > 0 {
+		opts = append(opts, authOption{label: "Mint a long-lived token for unattended runs (" + strings.Join(kt.mintArgv, " ") +
+			" → secrets.env " + kt.envVar + ")", mint: kt.mintArgv, env: kt.envVar})
 	}
 	if kt.envVar != "" {
 		label := "Paste an API key (" + kt.envVar + ")"
@@ -308,8 +367,7 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 			envVar: p.Auth.Env, fixCmd: fix, provider: p,
 		}
 		if p.Auth.Type == providers.AuthPassthrough {
-			kt.loginArgv = []string{"claude", "auth", "login"} // the subscription signs in through Claude Code itself
-			kt.fixCmd = "claude auth login"
+			kt = maxPlanTarget(kt)
 		}
 		out = append(out, kt)
 	}
@@ -409,6 +467,12 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 				continue
 			}
 			d.printf("%-10s present (%s)\n", kt.label, kt.source)
+			if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
+				confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
+				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}) {
+					changed = true
+				}
+			}
 			continue
 		}
 		if d.o.Interactive && !d.o.Check {
@@ -487,6 +551,12 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 		d.printf("%-10s logged in\n", kt.label)
 		return true
 	}
+	if len(o.mint) > 0 {
+		if tok := runMint(o.mint); tok != "" {
+			return storeSecret(d, o.env, tok)
+		}
+		d.printf("%s: no token found in the output; paste it instead\n", o.env)
+	}
 	if u := consoleURLs[o.env]; u != "" && confirm(d, "Open "+u+" in your browser to create the key?") {
 		openBrowser(u)
 	}
@@ -495,12 +565,27 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 		d.printf("%s: no value entered\n", o.env)
 		return false
 	}
-	if err := secrets.SetFile(o.env, strings.TrimSpace(val)); err != nil {
-		d.printf("%s: %v\n", o.env, err)
+	return storeSecret(d, o.env, strings.TrimSpace(val))
+}
+
+// storeSecret writes one credential to env.d/secrets.env and reports where it went (never the value).
+func storeSecret(d *dialog, env, val string) bool {
+	if err := secrets.SetFile(env, val); err != nil {
+		d.printf("%s: %v\n", env, err)
 		return false
 	}
-	d.printf("wrote %s to %s\n", o.env, secrets.EnvFile())
+	d.printf("wrote %s to %s\n", env, secrets.EnvFile())
 	return true
+}
+
+// runMint runs the token-minting CLI on the real terminal with stdout tee'd, and returns the token it printed.
+func runMint(argv []string) string {
+	var buf bytes.Buffer
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	_ = cmd.Run()
+	return setupTokenRE.FindString(buf.String())
 }
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
