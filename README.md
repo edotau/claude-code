@@ -201,6 +201,8 @@ keeps its OAuth login in `Authorization`, which the router forwards to `passthro
 ```bash
 claude-code agents                                   # runners and whether each is available
 claude-code ask --agent codex "Review the diff on this branch for correctness bugs."
+claude-code ask --log                                 # recent dispatches: id, status, agent, duration, prompt preview
+claude-code ask --retry <id> [--timeout 20m]          # replay one exactly; flags typed here override the record
 claude-code ask --agent gemini --format json "Map every caller of providers.Select."
 claude-code run opencode --provider openrouter --model qwen/qwen3-coder
 claude-code run codex --print-env                    # show the env/argv wiring, launch nothing

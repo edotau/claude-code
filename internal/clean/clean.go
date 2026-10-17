@@ -40,6 +40,10 @@ func targets() []target {
 	s := func(parts ...string) string { return filepath.Join(append([]string{paths.StateDir()}, parts...)...) }
 	return []target{
 		{
+			name: "dispatch-log", doc: "state/harness/dispatch: ask records kept for --log/--retry (newest 200 already kept)",
+			globs: func() []string { return []string{s("dispatch", "*.json")} },
+		},
+		{
 			name: "memory-state", doc: "state/harness/memory: harvest logs, session stamps, harvest receipts, recall-seen sets, watcher claims",
 			globs: func() []string {
 				return []string{
