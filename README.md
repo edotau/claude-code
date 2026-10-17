@@ -322,8 +322,11 @@ docs/plans/          implementation plans
 ```bash
 go test ./internal/<pkg>           # while developing — only what you touched
 make lint                          # gofmt check
-make test                          # go vet + full suite, once, before pushing
+make test                          # go vet + full suite, once, before pushing (= make audit, the CI gate)
 ```
+
+`git push` runs `make audit` first: `install` sets `core.hooksPath` to `.githooks/`, whose `pre-push` hook is the
+same gate `ci.yml` runs, so a red push is caught locally. `git push --no-verify` bypasses it.
 
 `settings.json` is generated — edit `internal/settings/settings.tmpl.json` and re-run `make install`.
 The template is the default: keys it sets (model, effort, theme, tui, plugins, `permissions.defaultMode`, …)

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -100,11 +101,13 @@ func Install(w io.Writer, dryRun bool) error {
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
 		syncVendors(w, dryRun)
+		installGitHooks(w, dryRun)
 		return nil
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
 		syncVendors(w, dryRun)
+		installGitHooks(w, dryRun)
 		return nil
 	}
 	backup, err := settings.WriteWithBackup(file, merged)
@@ -115,7 +118,27 @@ func Install(w io.Writer, dryRun bool) error {
 		return err
 	}
 	syncVendors(w, dryRun)
+	installGitHooks(w, dryRun)
 	return nil
+}
+
+// installGitHooks points core.hooksPath at the repo's .githooks (pre-push runs the CI gate); best-effort.
+func installGitHooks(w io.Writer, dryRun bool) {
+	root := paths.ConfigDir()
+	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
+		return
+	}
+	cur, _ := exec.Command("git", "-C", root, "config", "--get", "core.hooksPath").Output()
+	if strings.TrimSpace(string(cur)) == ".githooks" {
+		return
+	}
+	fmt.Fprintln(w, "githooks core.hooksPath → .githooks (pre-push runs make audit)")
+	if dryRun {
+		return
+	}
+	if out, err := exec.Command("git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
+		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
+	}
 }
 
 // syncVendors projects agents/ + skills/ into every vendor home so they track the repo; best-effort, like completion.
