@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
@@ -98,17 +99,31 @@ func Install(w io.Writer, dryRun bool) error {
 		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
+		syncVendors(w, dryRun)
 		return nil
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
+		syncVendors(w, dryRun)
 		return nil
 	}
 	backup, err := settings.WriteWithBackup(file, merged)
 	if backup != "" {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	syncVendors(w, dryRun)
+	return nil
+}
+
+// syncVendors projects agents/ + skills/ into every vendor home so they track the repo; best-effort, like completion.
+func syncVendors(w io.Writer, dryRun bool) {
+	fmt.Fprintln(w, "agents   sync agents/ + skills/ into vendor homes (claude-code agents sync)")
+	if rc := crossgen.Sync(crossgen.SyncOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
+		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
+	}
 }
 
 // linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare

@@ -10,11 +10,12 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// SyncOptions configures a sync run; Check implies DryRun and exits 1 on any pending write or prune.
+// SyncOptions configures a sync run; Check implies DryRun and exits 1 on any pending write, link or prune.
 type SyncOptions struct {
 	DryRun  bool
 	NoPrune bool
 	Check   bool
+	Vendor  string    // one of VendorNames(); "" = every vendor
 	Out     io.Writer // status lines; nil → os.Stdout
 }
 
@@ -47,21 +48,35 @@ func (r *syncResult) record(w writeResult) {
 	}
 }
 
-// Sync projects agents/ and skills/ under paths.ConfigDir() into GeminiSkillsDir(), then prunes orphans.
-// Exit code: 0 ok, 1 write error or stale under --check.
+func (r *syncResult) add(o syncResult) {
+	r.synced += o.synced
+	r.skipped += o.skipped
+	r.errored += o.errored
+	r.pending += o.pending
+}
+
+// Sync renders agents/ into the tracked dist/<vendor>/agents tree, installs each vendor's copy into its home,
+// links skills/ into ~/.agents/skills, and prunes what the roster no longer owns. Exit 0 ok, 1 error or stale (--check).
 func Sync(opts SyncOptions) int {
 	out := opts.Out
 	if out == nil {
 		out = os.Stdout
 	}
 	dryRun := opts.DryRun || opts.Check
-	root := paths.ConfigDir()
-	agentsDir, skillsDir := filepath.Join(root, "agents"), filepath.Join(root, "skills")
-	outRoot := GeminiSkillsDir()
-	if outRoot == "" {
+	root, home := paths.ConfigDir(), userHome()
+	if home == "" {
 		fmt.Fprintln(os.Stderr, "sync: HOME is not set")
 		return 1
 	}
+	vendors := VendorNames()
+	if opts.Vendor != "" {
+		if _, ok := targets[opts.Vendor]; !ok {
+			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Vendor, strings.Join(vendors, ", "))
+			return 2
+		}
+		vendors = []string{opts.Vendor}
+	}
+	agentsDir, skillsDir := filepath.Join(root, "agents"), filepath.Join(root, "skills")
 	if !isDir(agentsDir) {
 		fmt.Fprintf(os.Stderr, "sync: agents directory not found: %s\n", agentsDir)
 		return 1
@@ -81,10 +96,26 @@ func Sync(opts SyncOptions) int {
 			return 1
 		}
 	}
+	prune := !opts.NoPrune && len(agents)+len(skills) > 0
+	if !opts.NoPrune && !prune {
+		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
+	}
 
-	projected := projectedNames(agents, skills)
-	res := syncGemini(out, agents, skills, skillsDir, outRoot, dryRun)
-	pruned := runPrune(out, agents, skills, projected, outRoot, dryRun, opts.NoPrune)
+	var res syncResult
+	pruned := 0
+	for _, vendor := range vendors {
+		fmt.Fprintf(out, "== %s ==\n", vendor)
+		r, p := syncVendor(out, targets[vendor], agents, DistDir(root, vendor), targets[vendor].home(home), dryRun, prune)
+		res.add(r)
+		pruned += p
+	}
+	fmt.Fprintln(out, "== skills ==")
+	agentsSkills := AgentsSkillsDir(home)
+	res.add(linkSkills(out, skills, skillsDir, agentsSkills, dryRun))
+	if prune {
+		pruned += pruneSkillLinks(out, agentsSkills, skillsDir, projectedSkillNames(skills), dryRun)
+		pruned += pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(home), dryRun)
+	}
 
 	verb := ""
 	if dryRun {
@@ -96,89 +127,63 @@ func Sync(opts SyncOptions) int {
 	}
 	fmt.Fprintln(out, summary)
 	if res.errored > 0 {
-		fmt.Fprintf(os.Stderr, "sync: %d file(s) failed to write — projection is incomplete\n", res.errored)
+		fmt.Fprintf(os.Stderr, "sync: %d file(s) failed — projection is incomplete\n", res.errored)
 		return 1
 	}
 	if opts.Check && (res.pending > 0 || pruned > 0) {
-		fmt.Fprintf(os.Stderr, "projection is stale (%d to write, %d to prune) — run `claude-code agents sync --gemini`\n",
-			res.pending, pruned)
+		fmt.Fprintf(os.Stderr, "projection is stale (%d to write, %d to prune) — run `claude-code agents sync`\n", res.pending, pruned)
 		return 1
 	}
 	return 0
 }
 
-// runPrune prunes orphaned projections unless disabled or nothing was discovered; returns the count pruned.
-func runPrune(out io.Writer, agents, skills []Source, projected map[string]bool, outRoot string, dryRun, noPrune bool) int {
-	if noPrune {
-		return 0
-	}
-	fmt.Fprintln(out, "\n== prune ==")
-	if len(agents)+len(skills) == 0 {
-		fmt.Fprintln(os.Stderr, "  SKIP — no agents/skills discovered; refusing to prune")
-		return 0
-	}
-	pruned := pruneOrphans(out, agents, skills, projected, outRoot, dryRun)
-	if pruned == 0 {
-		fmt.Fprintln(out, "  (no orphans)")
-	}
-	return pruned
-}
-
-// syncGemini writes agent projections then real skills; the skip rules mirror projectedNames exactly.
-func syncGemini(out io.Writer, agents, skills []Source, skillsDir, outRoot string, dryRun bool) syncResult {
-	if !dryRun {
-		_ = os.MkdirAll(outRoot, 0o755)
-	}
+// syncVendor renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes
+// generated files in both that the roster no longer produces.
+func syncVendor(out io.Writer, t vendorTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
 	var res syncResult
-	realSkill := realSkillNames(skills)
+	rendered := make(map[string]bool, len(agents))
 	for _, agent := range agents {
 		if skipNames[agent.dirName] {
 			fmt.Fprintf(out, "  SKIP  %s (Claude-Code-only)\n", agent.dirName)
 			res.skipped++
 			continue
 		}
-		name, content := transformAgentSkill(agent)
-		if realSkill[name] {
-			fmt.Fprintf(out, "  SKIP  %s (name owned by a real skill)\n", name)
-			res.skipped++
+		name := agent.Name()
+		if !safeName(name) {
+			fmt.Fprintf(os.Stderr, "  ERROR unsafe agent name %q (must be a plain path component)\n", name)
+			res.errored++
 			continue
 		}
-		res.record(writeSkillDir(out, outRoot, name, content, dryRun))
-	}
-	for _, skill := range skills {
-		if skipNames[skill.dirName] {
-			fmt.Fprintf(out, "  SKIP  %s (Claude-Code-only skill)\n", skill.dirName)
-			res.skipped++
-			continue
+		file := name + t.ext
+		content := t.render(agent)
+		rendered[file] = true
+		if !dryRun {
+			_ = os.MkdirAll(distDir, 0o755)
+			_ = os.MkdirAll(homeDir, 0o755)
 		}
-		name, content := transformRealSkill(skill)
-		w := writeSkillDir(out, outRoot, name, content, dryRun)
-		res.record(w)
-		// The body cites its own scripts/ and references/, so the projection must carry them.
-		if w == written || w == unchanged {
-			res.pending += linkSkillAssets(out, filepath.Join(skillsDir, skill.dirName), filepath.Join(outRoot, name), dryRun)
-		}
+		res.record(writeProjection(out, filepath.Join(distDir, file), content, dryRun))
+		res.record(writeOwnedFile(out, filepath.Join(homeDir, file), content, dryRun))
 	}
-	return res
+	if !prune {
+		return res, 0
+	}
+	pruned := pruneGeneratedFiles(out, distDir, t.ext, rendered, dryRun)
+	pruned += pruneGeneratedFiles(out, homeDir, t.ext, rendered, dryRun)
+	return res, pruned
 }
 
-// writeSkillDir writes <outRoot>/<name>/SKILL.md, keeping any symlink entry or bannerless (hand-authored) dir.
-func writeSkillDir(out io.Writer, outRoot, name, content string, dryRun bool) writeResult {
-	if !safeName(name) {
-		fmt.Fprintf(os.Stderr, "  ERROR unsafe skill name %q (must be a plain path component)\n", name)
-		return failed
-	}
-	outputDir := filepath.Join(outRoot, name)
-	info, err := os.Lstat(outputDir)
+// writeOwnedFile writes a vendor-home copy, keeping any symlink or bannerless (hand-authored) file at that path.
+func writeOwnedFile(out io.Writer, path, content string, dryRun bool) writeResult {
+	info, err := os.Lstat(path)
 	switch {
 	case err == nil && info.Mode()&os.ModeSymlink != 0:
-		fmt.Fprintf(out, "  KEEP  %s (hand-authored symlink)\n", displayPath(outputDir))
+		fmt.Fprintf(out, "  KEEP  %s (hand-authored symlink)\n", displayPath(path))
 		return kept
-	case err == nil && !isGeneratedSkillDir(outputDir):
-		fmt.Fprintf(out, "  KEEP  %s (hand-authored skill)\n", displayPath(outputDir))
+	case err == nil && !isGeneratedFile(path):
+		fmt.Fprintf(out, "  KEEP  %s (hand-authored; remove it to let the harness own it)\n", displayPath(path))
 		return kept
 	}
-	return writeProjection(out, filepath.Join(outputDir, "SKILL.md"), content, dryRun)
+	return writeProjection(out, path, content, dryRun)
 }
 
 // writeProjection compares against disk (so --check fires only on real change), writes on change, reports.
@@ -203,47 +208,4 @@ func writeProjection(out io.Writer, outputFile, content string, dryRun bool) wri
 	}
 	fmt.Fprintf(out, "  WRITE %s\n", rel)
 	return written
-}
-
-// linkSkillAssets symlinks source entries (except SKILL.md, dotfiles, __pycache__) into the projection dir.
-func linkSkillAssets(out io.Writer, srcDir, outDir string, dryRun bool) int {
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return 0
-	}
-	stale := 0
-	for _, e := range entries {
-		if e.Name() == "SKILL.md" || strings.HasPrefix(e.Name(), ".") || e.Name() == "__pycache__" {
-			continue
-		}
-		target := filepath.Join(srcDir, e.Name())
-		link := filepath.Join(outDir, e.Name())
-		switch info, lerr := os.Lstat(link); {
-		case lerr == nil && info.Mode()&os.ModeSymlink != 0:
-			if dest, rerr := os.Readlink(link); rerr == nil && dest == target {
-				continue
-			}
-			if !dryRun {
-				if rerr := os.Remove(link); rerr != nil {
-					fmt.Fprintf(os.Stderr, "  ERROR %s: %v\n", displayPath(link), rerr)
-					continue
-				}
-			}
-		case lerr == nil:
-			fmt.Fprintf(out, "  KEEP  %s (hand-authored asset)\n", displayPath(link))
-			continue
-		}
-		stale++
-		if dryRun {
-			fmt.Fprintf(out, "  DRY   %s -> %s\n", displayPath(link), displayPath(target))
-			continue
-		}
-		if serr := os.Symlink(target, link); serr != nil {
-			fmt.Fprintf(os.Stderr, "  ERROR %s: %v\n", displayPath(link), serr)
-			stale--
-			continue
-		}
-		fmt.Fprintf(out, "  LINK  %s -> %s\n", displayPath(link), displayPath(target))
-	}
-	return stale
 }

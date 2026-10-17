@@ -1,4 +1,5 @@
-// Package crossgen projects agents/ and skills/ into Gemini CLI's skill tree and renders AGENTS.md/GEMINI.md.
+// Package crossgen projects agents/ into every vendor's native subagent dir (tracked under dist/), links skills/
+// into ~/.agents/skills, and renders AGENTS.md/GEMINI.md.
 package crossgen
 
 import (
@@ -6,15 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 )
-
-// GeminiSkillsDir is where Gemini CLI reads user skills: $HOME/.gemini/skills ("" when HOME is unresolvable).
-func GeminiSkillsDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".gemini", "skills")
-}
 
 // safeName accepts only a plain path component: no separators, no dot-prefix, no "." / "..".
 func safeName(name string) bool {
