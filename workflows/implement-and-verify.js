@@ -42,7 +42,7 @@ const RESULT_SCHEMA = {
   properties: {
     status: { type: 'string', enum: ['done', 'partial', 'blocked'] },
     filesChanged: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
+    summary: { type: 'string', minLength: 60, description: 'what changed, what you ran and its last lines — a one-word summary is a defect' },
     leftUndone: { type: 'array', items: { type: 'string' } },
   },
 }
