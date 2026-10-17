@@ -32,6 +32,8 @@ type target struct {
 	// globs are absolute filepath.Glob patterns. A match may be a file or a directory; a directory is
 	// removed whole, aged by the newest mtime anywhere under it.
 	globs func() []string
+	// ageless targets go at any age: --older-than does not gate them.
+	ageless bool
 }
 
 // targets are the harness's own debris plus the Claude Code CLI's per-session runtime state — this
@@ -69,8 +71,9 @@ func targets() []target {
 			globs: func() []string { return []string{s("router.log")} },
 		},
 		{
-			name: "settings-backups", doc: "settings.json.bak-<timestamp>, written before every settings merge",
-			globs: func() []string { return []string{g("settings.json.bak-*")} },
+			name: "settings-backups", doc: "settings.json.bak[-<timestamp>] (settings merges) and backups/.claude.json.backup.* (Claude Code CLI)",
+			globs:   func() []string { return []string{g("settings.json.bak*"), g("backups", ".claude.json.backup.*")} },
+			ageless: true, // regenerable from the git-tracked template; nothing in them needs aging out
 		},
 		{
 			// Every plugin update leaves the previous version dir behind; only the installPath in
@@ -151,7 +154,11 @@ func Run(args []string, out, errw io.Writer) int {
 		}
 	}
 	for _, t := range selected {
-		hits, size := pruneAged(t.globs(), cutoff, *apply)
+		tcut := cutoff
+		if t.ageless {
+			tcut = time.Now().Add(time.Hour)
+		}
+		hits, size := pruneAged(t.globs(), tcut, *apply)
 		if len(hits) == 0 {
 			continue
 		}
