@@ -31,8 +31,7 @@ Codex import item-types table: `{SESSIONS, AGENTS_MD, CONFIG, SKILLS, PLUGINS, M
    from ~/.gemini/skills (banner-marked only). Skill assets need no linking anymore.
 2. **Agents: tracked rendering + per-vendor install.** Render `dist/<vendor>/agents/<name>.<ext>` in the repo (tracked,
    banner-marked, `--check` gates drift in CI), then install into the vendor home as a real file copy (Gemini skips
-   symlinked agent files; copying everywhere is uniform). Gemini agents: omit `tools`/`model` (strict schema, Claude
-   tool names would fail validation); codex: name/description/developer_instructions/model_reasoning_effort from `effort:`.
+   symlinked agent files; copying everywhere is uniform). Gemini agents: `tools` translated via geminiToolNames (render.go), `model` omitted; codex: name/description/developer_instructions/model_reasoning_effort from `effort:`.
    Drop the Gemini agent-as-skill projection (native subagents now exist).
 3. **Verb:** `claude-code agents sync [--vendor v] [--dry-run] [--check] [--no-prune]` — `--gemini` removed (clean
    break; fix callers: CLAUDE.md:64, README.md:214/234, Makefile:83 audit target, commands/harness/sync-agents.md,

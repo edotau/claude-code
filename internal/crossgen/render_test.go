@@ -70,12 +70,20 @@ func TestRenderCodexAgent(t *testing.T) {
 	}
 }
 
-// Gemini's agent schema is strict: only name + description may appear, never Claude tool names or tier words.
+// Gemini's agent schema is strict: name, description and translated tools only — never tier words, colors, or a
+// Claude tool name Gemini would reject; an agent with only unmappable tools omits the key (inherit all).
 func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
-	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read", "model": "sonnet", "color": "cyan"}, body: "body\n"}
+	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Agent, Bash", "model": "sonnet", "color": "cyan"}, body: "body\n"}
 	fm, body := ParseFrontmatter(renderGeminiAgent(agent))
-	if len(fm) != 2 || fm["name"] != "demo" || fm["description"] != "d" {
-		t.Errorf("gemini frontmatter = %v, want exactly name + description", fm)
+	if len(fm) != 3 || fm["name"] != "demo" || fm["description"] != "d" {
+		t.Errorf("gemini frontmatter = %v, want exactly name + description + tools", fm)
+	}
+	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "read_file,run_shell_command" {
+		t.Errorf("gemini tools = %v, want [read_file run_shell_command] (Agent dropped)", fm["tools"])
+	}
+	fm, _ = ParseFrontmatter(renderGeminiAgent(Source{dirName: "x", frontmatter: map[string]any{"name": "x", "description": "d", "tools": "Agent"}}))
+	if _, has := fm["tools"]; has {
+		t.Errorf("all-unmappable tools must omit the key, got %v", fm["tools"])
 	}
 	if !strings.HasPrefix(body, agentSkillBannerPrefix) {
 		t.Errorf("gemini body must open with the banner: %q", body)

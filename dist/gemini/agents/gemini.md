@@ -1,6 +1,7 @@
 ---
 name: "gemini"
 description: "Dual-backend read-only codebase scanner. Runs on Sonnet for targeted scope (Read/Grep/Glob in-process), or delegates to Gemini via `claude-code gemini bridge` for large-context sweeps (1M tokens across many files). Backend is selected from the prompt or defaulted by scope — see \"Backend Selection\" below. Use before architecture decisions, when context is stale, or as input to claude."
+tools: ["read_file", "grep_search", "glob", "run_shell_command"]
 ---
 
 <!-- Synced from .claude/agents/gemini.md; do not edit by hand. -->

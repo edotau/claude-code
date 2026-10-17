@@ -19,11 +19,31 @@ func agentBody(agent Source) string {
 	return strings.TrimRight(body, "\n") + "\n"
 }
 
-// renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema, so only name + description are emitted
-// (Claude tool names and tier words would fail validation); the body is the system prompt.
+// renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, and tools translated to
+// Gemini's built-in names (an unknown name fails validation, so unmapped tools are dropped); body = system prompt.
 func renderGeminiAgent(agent Source) string {
 	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
+	if tools := geminiTools(toolList(agent.frontmatter["tools"])); len(tools) > 0 {
+		fields = append(fields, orderedField{"tools", tools})
+	}
 	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+agentBody(agent))
+}
+
+// geminiToolNames maps Claude Code tool names onto Gemini CLI's built-in tool names (bundle *_TOOL_NAME constants).
+var geminiToolNames = map[string]string{
+	"Read": "read_file", "Write": "write_file", "Edit": "replace", "Bash": "run_shell_command",
+	"Grep": "grep_search", "Glob": "glob", "LS": "list_directory", "WebFetch": "web_fetch", "WebSearch": "google_web_search",
+}
+
+// geminiTools translates a Claude tool list; names Gemini has no equivalent for (Agent, NotebookEdit, MCP) are dropped.
+func geminiTools(claude []string) []string {
+	var out []string
+	for _, name := range claude {
+		if g, ok := geminiToolNames[name]; ok {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // renderCopilotAgent: ~/.copilot/agents/<name>.md — Claude-style frontmatter loads as-is; tools pass through.
