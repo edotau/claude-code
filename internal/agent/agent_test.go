@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -27,20 +28,31 @@ func TestApplyCaps(t *testing.T) {
 
 // fakeRunner fails with errs[attempt] and records the request it saw.
 type fakeRunner struct {
-	caps  Caps
-	errs  []error
-	write string
-	seen  []Request
+	name        string // defaults to "fake"
+	caps        Caps
+	errs        []error
+	write       string
+	emptyAnswer bool // forces Result.Answer to "" instead of the default "a"
+	seen        []Request
 }
 
-func (f *fakeRunner) Name() string     { return "fake" }
+func (f *fakeRunner) Name() string {
+	if f.name != "" {
+		return f.name
+	}
+	return "fake"
+}
 func (f *fakeRunner) Caps() Caps       { return f.caps }
 func (f *fakeRunner) Available() error { return nil }
 func (f *fakeRunner) Run(_ context.Context, req Request, w io.Writer) (Result, error) {
 	f.seen = append(f.seen, req)
 	io.WriteString(w, f.write)
 	err := f.errs[len(f.seen)-1]
-	return Result{Answer: "a"}, err
+	ans := "a"
+	if f.emptyAnswer {
+		ans = ""
+	}
+	return Result{Answer: ans}, err
 }
 
 func TestRunDropsAndProgressVeto(t *testing.T) {
@@ -117,4 +129,144 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	if _, err := Run(context.Background(), f, Request{Prompt: "p", Model: "opus"}, io.Discard, nil); err != nil || f.seen[1].Model != "opus" {
 		t.Fatalf("transient 429 must retry the same slot: err=%v seen=%+v", err, f.seen)
 	}
+}
+
+// TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
+// serving provider, or an exec failure with no answer) should fall back; everything else must not.
+func TestCodexUnavailable(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
+	deadline := &Error{Kind: KindFatal, Err: context.DeadlineExceeded}
+	canceled := &Error{Kind: KindFatal, Err: context.Canceled}
+	tooLarge := &Error{Kind: KindFatal, Err: fmt.Errorf("prompt: %w", ErrPromptTooLarge)}
+	progressed := &Error{Kind: KindTransient, Progressed: true, Err: genericErr}
+
+	cases := []struct {
+		name string
+		r    Runner
+		req  Request
+		res  Result
+		err  error
+		want bool
+	}{
+		{"nil error", &fakeRunner{name: "codex"}, Request{}, Result{}, nil, false},
+		{"not codex", &fakeRunner{name: "fake"}, Request{}, Result{}, genericErr, false},
+		{"non-empty answer", &fakeRunner{name: "codex"}, Request{}, Result{Answer: "partial"}, genericErr, false},
+		{"explicit provider", &fakeRunner{name: "codex"}, Request{Provider: "openai"}, Result{}, genericErr, false},
+		{"explicit non-claude model", &fakeRunner{name: "codex"}, Request{Model: "openai:gpt-4"}, Result{}, genericErr, false},
+		{"deadline exceeded", &fakeRunner{name: "codex"}, Request{}, Result{}, deadline, false},
+		{"canceled", &fakeRunner{name: "codex"}, Request{}, Result{}, canceled, false},
+		{"prompt too large", &fakeRunner{name: "codex"}, Request{}, Result{}, tooLarge, false},
+		{"progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, progressed, false},
+		{"binary missing", &fakeRunner{name: "codex"}, Request{}, Result{}, genericErr, true},
+		{"claude model slot stays eligible", &fakeRunner{name: "codex"}, Request{Model: "opus"}, Result{}, genericErr, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := codexUnavailable(c.r, c.req, c.res, c.err); got != c.want {
+				t.Errorf("codexUnavailable() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
+// fallback runner with Fallback set, while a successful or excluded-class codex run must not.
+func TestRunWithFallback(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	unavailable := errors.New(`exec: "codex": executable file not found in $PATH`)
+
+	t.Run("falls back and reports it", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
+			t.Fatalf("res=%+v err=%v", res, err)
+		}
+		if len(claude.seen) != 1 || claude.seen[0].Prompt != "p" {
+			t.Fatalf("fallback did not see the original request: %+v", claude.seen)
+		}
+	})
+
+	t.Run("success needs no fallback", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{nil}}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
+			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
+		}
+	})
+
+	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
+			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
+		}
+	})
+
+	t.Run("explicit non-claude model is never overridden", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		req := Request{Prompt: "p", Model: "openai:gpt-4"}
+		res, err := RunWithFallback(context.Background(), codex, claude, req, io.Discard, nil)
+		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
+			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
+		}
+	})
+
+	t.Run("model mapping onto the fallback", func(t *testing.T) {
+		mapping := []struct{ in, want string }{
+			{"", "sonnet"},
+			{"opus", "opus"},
+			{"claude-sonnet-4-5", "claude-sonnet-4-5"},
+			{"gpt-5", "sonnet"},
+		}
+		for _, m := range mapping {
+			codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
+			claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
+			req := Request{Prompt: "p", Model: m.in}
+			if _, err := RunWithFallback(context.Background(), codex, claude, req, io.Discard, nil); err != nil {
+				t.Fatalf("model=%q err=%v", m.in, err)
+			}
+			if len(claude.seen) != 1 || claude.seen[0].Model != m.want {
+				t.Errorf("model=%q: fallback saw Model=%q, want %q", m.in, claude.seen[0].Model, m.want)
+			}
+		}
+	})
+}
+
+// TestRunWithFallback_TimeoutAndCancelNotRetried proves the two context-based exclusions against a real
+// expiring context, since Run's own tools-on special-case only fires on an actual ctx.Err().
+func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	claude := &fakeRunner{name: "claude", errs: []error{nil}}
+
+	codex := &codexHang{}
+	_, err := RunWithFallback(context.Background(), codex, claude,
+		Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)
+	if err == nil || len(claude.seen) != 0 {
+		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	codex = &codexHang{}
+	_, err = RunWithFallback(ctx, codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+	if err == nil || len(claude.seen) != 0 {
+		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
+	}
+}
+
+// codexHang blocks until its context is done, named "codex" so RunWithFallback's class check applies.
+type codexHang struct{ calls int }
+
+func (h *codexHang) Name() string     { return "codex" }
+func (h *codexHang) Caps() Caps       { return Caps{Tools: true} }
+func (h *codexHang) Available() error { return nil }
+func (h *codexHang) Run(ctx context.Context, _ Request, _ io.Writer) (Result, error) {
+	h.calls++
+	<-ctx.Done()
+	return Result{}, ctx.Err()
 }
