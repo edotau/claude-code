@@ -171,7 +171,7 @@ for (let round = 1; round <= ROUNDS; round++) {
           `with path and bytes. Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`
         : `${CD}run ONE command: git diff --numstat ${RANGE || 'HEAD~1..HEAD'} -- ${g.join(' ') || '.'} — and return each file as an entry with path ` +
           `(the new path for a rename) and bytes = (added + deleted) * 80 (binary "-" counts as 0). Do not read the diff; the auditors run it for their chunk. At most 2 tool calls.`,
-      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: 'sonnet', effort: 'low' }
+      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: 'haiku', effort: 'low' } // file listing: schema-checked, haiku is enough
     )
   ))
   // Pack files into ≤ CHUNK_CHARS chunks so no auditor sees a truncated view and agent count follows diff size.
