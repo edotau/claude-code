@@ -24,6 +24,7 @@ type Record struct {
 	Model     string    `json:"model,omitempty"`
 	SessionID string    `json:"session_id,omitempty"`
 	Duration  string    `json:"duration,omitempty"`
+	Fallback  string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 }
 
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
@@ -55,7 +56,7 @@ func (r Record) Save() error {
 
 // Finish records the outcome of the run.
 func (r *Record) Finish(res Result, err error, took time.Duration) {
-	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
+	r.Status, r.Provider, r.Model, r.SessionID, r.Fallback = "ok", res.Provider, res.Model, res.SessionID, res.Fallback
 	r.Duration = took.Round(time.Millisecond).String()
 	if err != nil {
 		r.Status, r.Error = "error", err.Error()

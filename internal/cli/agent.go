@@ -19,7 +19,7 @@ import (
 
 func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot")
+	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (codex falls back to claude if codex is unavailable)")
 	provider := fs.String("provider", "", "provider (default: pin, then registry default)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
@@ -27,7 +27,7 @@ func cmdAsk(args []string) int {
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
-	format := fs.String("format", "text", "text streams the answer; json prints the Result envelope")
+	format := fs.String("format", "text", "text streams the answer; json prints the Result envelope (fallback set when codex ran as claude instead)")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
@@ -83,13 +83,17 @@ func cmdAsk(args []string) int {
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
-	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	_ = rec.Save()                    // fail-open: the log is for replay and forensics, never a gate on the run
+	fb, err := agent.Lookup("claude") // codex's generalized fallback target; "claude" always resolves
+	if err != nil {
+		return fail("ask: %v", err)
+	}
 	start := time.Now()
-	res, err := agent.Run(ctx, r, req, stream, func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+	res, err := agent.RunWithFallback(ctx, r, fb, req, stream, func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	for _, d := range res.Dropped {
-		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, r.Name())
+		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if *format == "json" {
 		env := struct {
@@ -189,7 +193,11 @@ func printDispatchLog(format string) int {
 		if r.Request.Tools {
 			tools = " tools"
 		}
-		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, r.Agent, r.Duration, tools, preview)
+		agentCol := r.Agent
+		if r.Fallback != "" {
+			agentCol = r.Fallback + "→claude"
+		}
+		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Duration, tools, preview)
 	}
 	return 0
 }

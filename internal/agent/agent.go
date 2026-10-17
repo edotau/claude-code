@@ -5,6 +5,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,6 +41,7 @@ type Result struct {
 	Usage     Usage         `json:"usage"`
 	Duration  time.Duration `json:"duration_ns"`
 	Dropped   []string      `json:"dropped,omitempty"`
+	Fallback  string        `json:"fallback,omitempty"` // set to the original runner's name when it ran instead
 }
 
 // Caps declares which Request fields a runner honors; Prompt and Timeout are always honored.
@@ -219,6 +221,63 @@ func childErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 	return fmt.Errorf("%s: %w", name, err)
 }
 
+// ErrPromptTooLarge is the sentinel behind errPromptTooLarge, so callers can exclude it with errors.Is.
+var ErrPromptTooLarge = errors.New("prompt too large")
+
 func errPromptTooLarge(n int) error {
-	return fmt.Errorf("prompt is %d bytes, over the %d limit for one argv element", n, MaxPromptBytes)
+	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
+}
+
+// RunWithFallback runs r; when r is codex and codex itself turns out unavailable — binary missing, no
+// provider can serve it, or it exited with no answer — it reruns the same request on fb and reports the
+// swap on the result, never on a timeout, cancellation, an oversized prompt, a partial answer, or an
+// explicit non-Claude --provider/--model.
+func RunWithFallback(ctx context.Context, r, fb Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
+	res, err := Run(ctx, r, req, stream, notify)
+	if !codexUnavailable(r, req, res, err) {
+		return res, err
+	}
+	if notify != nil {
+		notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", r.Name(), err, fb.Name()))
+	}
+	fbReq := req
+	fbReq.Provider = ""
+	// An unset model would take the session default (opus); the fallback leg is a sonnet leg unless told otherwise.
+	if fbReq.Model == "" {
+		fbReq.Model = models.Sonnet
+	} else if !slices.Contains(models.Slots, fbReq.Model) {
+		if _, _, _, ok := models.ParseClaudeID(fbReq.Model); !ok {
+			fbReq.Model = models.Sonnet
+		}
+	}
+	fres, ferr := Run(ctx, fb, fbReq, stream, notify)
+	fres.Fallback = r.Name()
+	return fres, ferr
+}
+
+// codexUnavailable narrows "codex failed" to "codex itself is unreachable": the binary, the resolved
+// target, or the exec all failed before producing an answer — excluding timeouts, cancellation, an
+// oversized prompt, a partial answer, and an explicit non-Claude provider/model pin.
+func codexUnavailable(r Runner, req Request, res Result, err error) bool {
+	if err == nil || r.Name() != "codex" || res.Answer != "" || explicitNonClaude(req) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrPromptTooLarge) {
+		return false
+	}
+	var e *Error
+	if errors.As(err, &e) && e.Progressed {
+		return false
+	}
+	return true
+}
+
+// explicitNonClaude is true when --provider, or a "provider:model" --model, names a provider outright;
+// the fallback must never override a caller's explicit choice of backend.
+func explicitNonClaude(req Request) bool {
+	if req.Provider != "" {
+		return true
+	}
+	reg, _ := providers.Load()
+	return namesProvider(reg, req.Model)
 }
