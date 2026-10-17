@@ -8,7 +8,7 @@
     "CLAUDE_CODE_SCROLL_SPEED": "1"
   },
   "permissions": {
-    "defaultMode": "acceptEdits",
+    "defaultMode": "auto",
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
@@ -34,11 +34,6 @@
     "padding": 0
   },
   "model": "fable",
-  "modelSettings": {
-    "claude-fable-5-1": {
-      "effortLevel": "high"
-    }
-  },
   "effortLevel": "high",
   "alwaysThinkingEnabled": true,
   "theme": "auto",
