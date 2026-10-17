@@ -4,17 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-)
 
-// colorEnabled follows the project's https://no-color.org convention: on only when stdout is a
-// terminal and NO_COLOR is unset (the same gate internal/cli's usage() applies).
-func colorEnabled() bool {
-	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	fi, err := os.Stdout.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
+	"github.com/edotau/claude-code/internal/ansi"
+)
 
 const (
 	pickNone = iota
@@ -64,24 +56,34 @@ func layoutRows(rows [][2]string) []string {
 	return out
 }
 
-// render draws the title, one row per option (▸ plus reverse video on the highlighted row when
-// color is on), and the key hint; redraws in place via cursor-home + clear-to-end-of-line.
+// panelLines is how many terminal lines render emits: title, blank, rows, blank, hint.
+func panelLines(s pickState) int { return len(s.rows) + 4 }
+
+// render draws the panel at the cursor: title, one row per option (▸ plus reverse video on the highlighted
+// row), status tokens painted on the others, then the key hint. Each line clears to its end so a redraw
+// over the previous frame leaves no residue. It never homes the cursor — the panel lives where the
+// dialogue already is, below earlier output, not over the top of the screen.
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
-	b.WriteString("\x1b[H" + title + "\x1b[K\r\n\x1b[K\r\n")
+	b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n\x1b[K\r\n")
 	for i, row := range s.rows {
-		prefix, line := "  ", row
+		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
-			prefix = "▸ "
-			if color {
-				line = "\x1b[7m" + row + "\x1b[0m"
-			}
+			prefix = ansi.Style(color, ansi.Cyan, "▸") + " "
+			line = ansi.Style(color, "\x1b[7m", row)
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
-	b.WriteString("\x1b[K\r\n↑↓/j k move · Enter pick · Esc cancel\x1b[K")
+	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, "↑↓/j k move · Enter pick · Esc cancel") + "\x1b[K")
 	return b.String()
 }
+
+// rewind moves the cursor back to the panel's first line so the next render overdraws the last frame.
+func rewind(s pickState) string { return fmt.Sprintf("\r\x1b[%dA", panelLines(s)-1) }
+
+// erase removes the panel once a choice is made, so the dialogue continues with one result line instead
+// of leaving the whole menu in the scrollback.
+func erase(s pickState) string { return rewind(s) + "\x1b[J" }
 
 // Pick runs an arrow-key single-choice panel titled title over rows (name, detail pairs), opening on
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
@@ -96,8 +98,9 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 	if start >= 0 && start < len(s.rows) {
 		s.sel = start
 	}
-	color := colorEnabled()
+	color := ansi.Enabled(os.Stdout)
 	fmt.Fprint(os.Stdout, render(title, s, color))
+	defer func() { fmt.Fprint(os.Stdout, erase(s)) }()
 	for k := range t.Keys() {
 		var act int
 		s, act = handlePickKey(s, k)
@@ -107,7 +110,7 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 		case pickChoose:
 			return s.sel, nil
 		}
-		fmt.Fprint(os.Stdout, render(title, s, color))
+		fmt.Fprint(os.Stdout, rewind(s)+render(title, s, color))
 	}
 	return -1, nil
 }

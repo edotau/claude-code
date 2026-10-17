@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A fake key stream drives handlePickKey directly, so the panel's transitions test without a TTY.
 func TestHandlePickKeyNavigatesAndClamps(t *testing.T) {
@@ -67,5 +70,28 @@ func TestLayoutRowsAligns(t *testing.T) {
 	}
 	if got, want := rows[1], "longname  y"; got != want {
 		t.Errorf("rows[1] = %q, want %q", got, want)
+	}
+}
+
+// The panel draws where the cursor is and redraws by rewinding its own height; it must never home the cursor,
+// which painted the menu over the top of the screen while the dialogue continued below.
+func TestRenderDrawsInPlaceAndRewindsItsOwnHeight(t *testing.T) {
+	s := pickState{rows: layoutRows([][2]string{{"a", "cred:ok x"}, {"b", "cred:missing y"}}), sel: 1}
+	out := render("title", s, false)
+	if strings.Contains(out, "\x1b[H") {
+		t.Error("render must not home the cursor")
+	}
+	if strings.Count(out, "\r\n") != panelLines(s)-1 {
+		t.Errorf("render emits %d line breaks, want %d (panelLines-1)", strings.Count(out, "\r\n"), panelLines(s)-1)
+	}
+	if rewind(s) != "\r\x1b[5A" || erase(s) != "\r\x1b[5A\x1b[J" {
+		t.Errorf("rewind/erase = %q / %q", rewind(s), erase(s))
+	}
+	if strings.Contains(out, "\x1b[") && strings.Contains(out, "\x1b[32m") {
+		t.Error("color off must paint nothing")
+	}
+	colored := render("title", s, true)
+	if !strings.Contains(colored, "\x1b[32mcred:ok") || !strings.Contains(colored, "\x1b[7m") {
+		t.Errorf("color on must paint status tokens and reverse the selected row:\n%q", colored)
 	}
 }
