@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -260,7 +261,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	has, err := settingsHasHooks(SettingsFile())
 	nested := clean.NestedConfig()
-	check(nested.Dir == "", false, "nested config", nestedDetail(nested))
+	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	check(true, false, "audit (7d)", auditSummary())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
@@ -285,8 +286,11 @@ func nestedDetail(n clean.Nested) string {
 	switch {
 	case n.Dir == "":
 		return "none"
+	case n.OnlyWorktrees():
+		return n.Dir + " holds only linked worktrees"
 	case len(n.Keep) > 0:
-		return n.Dir + " layers over user settings; move " + strings.Join(n.Keep, ", ") + " into the template first"
+		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == clean.KeepWorktrees })
+		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into the template first"
 	default:
 		return n.Dir + " is redundant (claude-code clean --apply)"
 	}

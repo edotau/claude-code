@@ -315,7 +315,7 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	gitFile := filepath.Join(dir, ".claude", "worktrees", "x", ".git")
 	write(t, gitFile, "gitdir: /elsewhere/.git/worktrees/x")
 
-	if n := NestedConfig(); len(n.Keep) != 1 || n.Keep[0] != "worktrees (linked git worktrees — never swept)" {
+	if n := NestedConfig(); !n.OnlyWorktrees() {
 		t.Fatalf("worktrees entry not kept with its own reason: %v", n.Keep)
 	}
 

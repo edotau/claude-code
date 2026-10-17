@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/clean"
 )
 
 func TestInstallMergesIntoConfigDir(t *testing.T) {
@@ -58,5 +60,17 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	}
 	if has, err := settingsHasHooks(file); !has || err != nil {
 		t.Errorf("doctor hook check: %v %v", has, err)
+	}
+}
+
+// A nested dir that holds only Claude Code's own worktrees is fine; other Keep reasons still ask for a move.
+func TestNestedDetailWorktrees(t *testing.T) {
+	only := clean.Nested{Dir: "/x/.claude", Files: []string{"worktrees"}, Keep: []string{clean.KeepWorktrees}}
+	if !only.OnlyWorktrees() || !strings.Contains(nestedDetail(only), "holds only linked worktrees") {
+		t.Fatalf("only-worktrees nested dir: %q", nestedDetail(only))
+	}
+	mixed := clean.Nested{Dir: "/x/.claude", Files: []string{"worktrees", "settings.json"}, Keep: []string{"settings.json:model", clean.KeepWorktrees}}
+	if d := nestedDetail(mixed); mixed.OnlyWorktrees() || !strings.Contains(d, "move settings.json:model into") || strings.Contains(d, "worktrees") {
+		t.Fatalf("mixed nested dir: %q", d)
 	}
 }
