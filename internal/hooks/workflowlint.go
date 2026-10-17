@@ -166,7 +166,7 @@ func filledModelLines(script string, ambiguous []string) []string {
 	}
 	var lines []string
 	for _, m := range plan.LintPins(workflowLintName, []byte(script)) {
-		if !strings.Contains(m, "without model:/agentType:") {
+		if !strings.Contains(m, "without model:") {
 			continue
 		}
 		rest := strings.TrimPrefix(m, workflowLintName+":")

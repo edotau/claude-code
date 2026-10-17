@@ -64,8 +64,8 @@ func LintPins(name string, src []byte) []string {
 	s := string(src)
 	var out []string
 	for _, hit := range unpinnedAgentCalls(name, s) {
-		out = append(out, fmt.Sprintf("%s: agent() without model:/agentType: — the leaf inherits the"+
-			" session reasoning tier; pin model:'sonnet' or use agentType:'code-workers'", hit))
+		out = append(out, fmt.Sprintf("%s: agent() without model: — the leaf runs on the session tier, or on a"+
+			" built-in agentType's own tier (Explore is opus); pin model:'sonnet' even with agentType", hit))
 	}
 	for _, hit := range effortlessAgentCalls(name, s) {
 		out = append(out, fmt.Sprintf("%s: agent() without effort: — pin effort:'low' for mechanical"+
@@ -75,12 +75,10 @@ func LintPins(name string, src []byte) []string {
 	return out
 }
 
-// unpinnedAgentCalls returns "name:line" for each agent( call missing a model/agentType pin. D1: the
-// opus-ok marker does NOT exempt this check — it only waives the effort pin below.
+// unpinnedAgentCalls returns "name:line" for each agent( call missing a model: pin. agentType alone is not
+// one (a built-in type such as Explore carries its own tier); the opus-ok marker never exempts this check.
 func unpinnedAgentCalls(name, src string) []string {
-	return agentCallsMissingSrc(name, src, func(window string) bool {
-		return strings.Contains(window, "model:") || strings.Contains(window, "agentType:")
-	}, false)
+	return agentCallsMissingSrc(name, src, func(window string) bool { return strings.Contains(window, "model:") }, false)
 }
 
 // effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin — effort is the
@@ -371,8 +369,8 @@ func FillModel(src, model string) (string, []string) {
 		}
 		window := callWindow(src, i)
 		stripped := stripStrings(window)
-		if strings.Contains(stripped, "model:") || strings.Contains(stripped, "agentType:") {
-			continue // already pinned
+		if strings.Contains(stripped, "model:") {
+			continue // already pinned (agentType alone is not a pin — Explore runs opus)
 		}
 		line := 1 + strings.Count(src[:i], "\n")
 		if len(window) < 6 || window[len(window)-1] != ')' {
