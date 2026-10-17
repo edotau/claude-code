@@ -98,3 +98,4 @@ coverage.*
 
 # Home-network scripts (UniFi gateway) — personal, kept out of the public repo
 scripts/unifi-*.sh
+/statusline/
