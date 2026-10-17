@@ -51,7 +51,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
 | Sync VS Code's Machine settings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f]` | `README.md` → Setup |
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |
-| Check binaries, providers, credentials, router | `claude-code doctor` | — |
+| Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider>` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
 | Pin models | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
@@ -65,7 +65,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider openrouter --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
-| Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--json]` | `/harness:mcp-doctor` |
+| Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `/harness:mcp-doctor` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes) | credentials/settings never swept |
 | Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
@@ -73,7 +73,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote` | `README.md` → Memory bank |
 | Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end |
-| Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` | `rules/workflow/master-workflow.md` |
+| Run a multi-stage task | `/workflow:orchestrate`, `/code-workers`; saved workflows `implement-and-verify` · `audit-fix-verify` · `gate-loop` · `dag` (step graph: deps, skip, when) | `rules/workflow/master-workflow.md` |
 | Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/test-repair` |
