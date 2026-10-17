@@ -247,3 +247,28 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 		}
 	}
 }
+
+// Only plugin version dirs absent from installed_plugins.json are stale; the live installPath is never a target,
+// and a missing manifest makes the whole cache off-limits.
+func TestStalePluginVersions(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	live := filepath.Join(cfg, "plugins", "cache", "mkt", "plug", "v2")
+	old := filepath.Join(cfg, "plugins", "cache", "mkt", "plug", "v1")
+	for _, d := range []string{live, old} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := stalePluginVersions(); len(got) != 0 {
+		t.Fatalf("no manifest must mean nothing stale, got %v", got)
+	}
+	manifest := `{"version":1,"plugins":{"plug@mkt":[{"installPath":"` + live + `"}]}}`
+	if err := os.WriteFile(filepath.Join(cfg, "plugins", "installed_plugins.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := stalePluginVersions()
+	if len(got) != 1 || got[0] != old {
+		t.Fatalf("stale = %v, want [%s]", got, old)
+	}
+}

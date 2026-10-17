@@ -219,7 +219,6 @@ claude-code science serve                            # Claude for Life Sciences 
 claude-code usage --days 7 [--workflows]             # subagent tokens (one count per API response) + peak ITPM
 claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
 claude-code agents sync --dry-run                    # agents/ → dist/<vendor>/agents + vendor homes; skills/ → ~/.agents/skills
-claude-code agents docs                              # AGENTS.md + GEMINI.md from CLAUDE.md + the roster
 ```
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
@@ -244,7 +243,10 @@ git-tracked rendering under `dist/<vendor>/agents/` (the home copy is a byte-ide
 hand-authored `skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a
 skill twice). Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are
 kept and reported; `--check` gates drift in both `dist/` and the homes; `--vendor <v>` narrows a run. `install` runs it
-after settings. `agents docs` renders `AGENTS.md` + `GEMINI.md` (generated, gitignored like `settings.json`). Inside a session, the subagents in `agents/` (`code-workers`,
+after settings, and also renders CLAUDE.md + the roster into the vendors' global instruction files —
+`~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (tracked as `dist/<vendor>/…`); nothing is rendered at the harness root,
+since Claude Code would load a root AGENTS.md as a second CLAUDE.md in every session (OpenCode reads CLAUDE.md
+itself; Copilot has no user-level instruction file). Inside a session, the subagents in `agents/` (`code-workers`,
 `test-driven-dev`, `test-repair`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 

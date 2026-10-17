@@ -75,7 +75,7 @@ func commands() []command {
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
-		{name: "agents", hidden: true, summary: "list runners; sync roster into vendor homes | docs", run: cmdAgents},
+		{name: "agents", hidden: true, summary: "list runners; sync roster + instructions into vendor homes", run: cmdAgents},
 		{name: "models", hidden: true, summary: "tier→model slots; --pin slot=[provider:]model, --live", run: cmdModels},
 		{name: "router", hidden: true, summary: "loopback model router: serve | start | stop | status", run: cmdRouter},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},

@@ -10,6 +10,7 @@
 package clean
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -70,6 +71,12 @@ func targets() []target {
 		{
 			name: "settings-backups", doc: "settings.json.bak-<timestamp>, written before every settings merge",
 			globs: func() []string { return []string{g("settings.json.bak-*")} },
+		},
+		{
+			// Every plugin update leaves the previous version dir behind; only the installPath in
+			// installed_plugins.json is live, so the rest is rebuildable debris (a reinstall re-fetches it).
+			name: "plugin-versions", doc: "plugins/cache/<marketplace>/<plugin>/<version> dirs no longer named by installed_plugins.json",
+			globs: stalePluginVersions,
 		},
 		{
 			// jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/ are the Claude
@@ -297,4 +304,36 @@ func pluralWord(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// stalePluginVersions lists plugin cache version dirs that installed_plugins.json no longer points at. An unreadable
+// manifest yields nothing: with no record of what is live, nothing in the cache may be called stale.
+func stalePluginVersions() []string {
+	root := filepath.Join(paths.ConfigDir(), "plugins")
+	raw, err := os.ReadFile(filepath.Join(root, "installed_plugins.json"))
+	if err != nil {
+		return nil
+	}
+	var manifest struct {
+		Plugins map[string][]struct {
+			InstallPath string `json:"installPath"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(raw, &manifest) != nil || len(manifest.Plugins) == 0 {
+		return nil
+	}
+	live := map[string]bool{}
+	for _, entries := range manifest.Plugins {
+		for _, e := range entries {
+			live[filepath.Clean(e.InstallPath)] = true
+		}
+	}
+	versions, _ := filepath.Glob(filepath.Join(root, "cache", "*", "*", "*"))
+	var stale []string
+	for _, v := range versions {
+		if fi, err := os.Stat(v); err == nil && fi.IsDir() && !live[filepath.Clean(v)] {
+			stale = append(stale, v)
+		}
+	}
+	return stale
 }

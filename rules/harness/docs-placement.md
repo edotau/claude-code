@@ -27,9 +27,11 @@ resolves to `""`, so its own plans and handoffs sit untagged at the top of each 
 ## What stays out of the docs tree
 
 - **Root anchors** — `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `LICENSE.md`,
-  `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. The
-  cross-tool renders in particular are **required** at the root: Codex/Gemini/Cursor read
-  `AGENTS.md`/`GEMINI.md` from the project root only.
+  `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. A repo's own
+  `AGENTS.md`/`GEMINI.md` belong at its root (Codex/Gemini/Copilot read them there). The harness itself keeps
+  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into `~/.codex/AGENTS.md` and
+  `~/.gemini/GEMINI.md` (tracked under `dist/`), because Claude Code would load a root copy as a second
+  CLAUDE.md in every session.
 - **A repo's own documentation** — `docs/` pages a project owns. Tracked pages always pass, and a
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
