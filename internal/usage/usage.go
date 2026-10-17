@@ -1,5 +1,6 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
-// (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase.
+// (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
+// per-model (MODEL column) split and a per-run plus cross-run model rollup.
 package usage
 
 import (
@@ -24,7 +25,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "scope to sessions modified within the last N days (ignored with --session)")
 	formatFlag := outfmt.Flag(fs)
-	workflowsFlag := fs.Bool("workflows", false, "one per-phase block per Workflow run, newest first")
+	workflowsFlag := fs.Bool("workflows", false, "one per-phase block per Workflow run, newest first, with a MODEL split and per-run/cross-run model rollups")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0

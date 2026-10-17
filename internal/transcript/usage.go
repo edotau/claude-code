@@ -28,11 +28,12 @@ func (m *ModelUsage) add(o ModelUsage) {
 
 // FileSummary is one transcript: per-model totals, API responses (Turns) and the timestamp span.
 type FileSummary struct {
-	Models map[string]*ModelUsage
-	Turns  int
-	First  time.Time // zero when no counted record had an RFC3339 timestamp
-	Last   time.Time
-	perMin map[int64]int64 // unix minute → input tokens, feeds the aggregate's peak
+	Models     map[string]*ModelUsage
+	Turns      int
+	ModelTurns map[string]int // model id -> turn count, same dedupe-by-message.id as Models
+	First      time.Time      // zero when no counted record had an RFC3339 timestamp
+	Last       time.Time
+	perMin     map[int64]int64 // unix minute → input tokens, feeds the aggregate's peak
 }
 
 // Totals sums every model in the file.
@@ -89,7 +90,7 @@ func SummarizeFile(path string) (*FileSummary, error) {
 		byID[rec.Message.ID] = len(resps)
 		resps = append(resps, r)
 	})
-	s := &FileSummary{Models: map[string]*ModelUsage{}, Turns: len(resps), perMin: map[int64]int64{}}
+	s := &FileSummary{Models: map[string]*ModelUsage{}, Turns: len(resps), ModelTurns: map[string]int{}, perMin: map[int64]int64{}}
 	for _, r := range resps {
 		s.count(r)
 	}
@@ -103,6 +104,7 @@ func (s *FileSummary) count(r response) {
 		s.Models[r.model] = m
 	}
 	m.add(r.usage)
+	s.ModelTurns[r.model]++
 	ts, err := time.Parse(time.RFC3339, r.ts)
 	if err != nil {
 		return
