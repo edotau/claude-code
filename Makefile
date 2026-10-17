@@ -80,7 +80,7 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (go install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION))"; fi
 	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents docs --dry-run >/dev/null
-	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --gemini --dry-run >/dev/null
+	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + docs/sync smoke)"
 
 .PHONY: bootstrap

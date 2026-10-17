@@ -13,7 +13,7 @@ import (
 func TestSyncCheckGatesStaleProjection(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "demo-agent", "demo-agent")
-	projection := filepath.Join(home, ".gemini", "skills", "demo-agent", "SKILL.md")
+	projection := filepath.Join(home, ".codex", "agents", "demo-agent.toml")
 
 	if code := Sync(SyncOptions{Check: true, DryRun: true, Out: io.Discard}); code == 0 {
 		t.Error("--check on a missing projection = 0, want non-zero")
@@ -27,6 +27,15 @@ func TestSyncCheckGatesStaleProjection(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code != 0 {
 		t.Errorf("--check on a current projection = %d, want 0", code)
 	}
+	// Editing the source must surface as drift in the tracked copy AND the installed copy.
+	writeFile(t, sourcePath(claude, "agents", "demo-agent"), "---\nname: demo-agent\ndescription: changed.\n---\n\nnew body\n")
+	var out bytes.Buffer
+	if code := Sync(SyncOptions{Check: true, Out: &out}); code == 0 {
+		t.Error("--check after a source edit = 0, want non-zero")
+	}
+	if !strings.Contains(out.String(), "DRY   ~/.claude/dist/codex/agents/demo-agent.toml") {
+		t.Errorf("drift in the tracked dist copy not reported:\n%s", out.String())
+	}
 }
 
 // Check implies DryRun inside Sync itself; a caller setting Check alone must never trigger a real write.
@@ -37,70 +46,95 @@ func TestSyncCheckAloneNeverWrites(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code == 0 {
 		t.Error("--check on a missing projection = 0, want non-zero")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".gemini", "skills", "demo-agent")); err == nil {
-		t.Error("Check alone (DryRun unset) must not write")
+	for _, p := range []string{filepath.Join(home, ".gemini"), filepath.Join(claude, "dist")} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("Check alone (DryRun unset) wrote %s", p)
+		}
 	}
 }
 
-// An agents dir that exists but holds no valid sources must not let prune wipe ~/.gemini/skills.
+// An agents dir that exists but holds no valid sources must not let prune wipe any vendor surface.
 func TestSyncRefusesPruneOnEmptyDiscovery(t *testing.T) {
 	home, claude := isolate(t)
 	if err := os.MkdirAll(filepath.Join(claude, "agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	victim := filepath.Join(home, ".gemini", "skills", "real-skill")
-	writeFile(t, filepath.Join(victim, "SKILL.md"), realSkillBannerPrefix+"real-skill/SKILL.md; do not edit by hand. -->\n\nbody\n")
+	legacy := filepath.Join(home, ".gemini", "skills", "real-skill")
+	writeFile(t, filepath.Join(legacy, "SKILL.md"), realSkillBannerPrefix+"real-skill/SKILL.md; do not edit by hand. -->\n\nbody\n")
+	agentFile := filepath.Join(home, ".copilot", "agents", "ghost.md")
+	writeFile(t, agentFile, agentSkillBannerPrefix+"ghost.md; do not edit by hand. -->\n\nbody\n")
 
 	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	if _, err := os.Stat(victim); err != nil {
-		t.Errorf("prune wiped the projection on empty discovery: %v", err)
-	}
-}
-
-// A projected skill's body cites its own scripts/ and references/, so the projection must carry them —
-// linked, idempotent, and removed with the projection once the source is gone.
-func TestRealSkillProjectionCarriesAssetDirs(t *testing.T) {
-	home, claude := isolate(t)
-	if err := os.MkdirAll(filepath.Join(claude, "agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	src := filepath.Join(claude, "skills", "demo-skill")
-	writeFile(t, filepath.Join(src, "SKILL.md"), "---\nname: demo-skill\ndescription: cites scripts/checker.py\n---\n\nRun `scripts/checker.py`.\n")
-	writeFile(t, filepath.Join(src, "scripts", "checker.py"), "print('hi')\n")
-	writeFile(t, filepath.Join(src, "references", "detectors.md"), "# detectors\n")
-	writeFile(t, filepath.Join(src, "extra.md"), "# extra\n")
-
-	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("Sync exit = %d, want 0", code)
-	}
-	proj := filepath.Join(home, ".gemini", "skills", "demo-skill")
-	for _, rel := range []string{"scripts/checker.py", "references/detectors.md", "extra.md"} {
-		if _, err := os.Stat(filepath.Join(proj, rel)); err != nil {
-			t.Errorf("projection missing %s: %v", rel, err)
+	for _, p := range []string{legacy, agentFile} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("prune wiped %s on empty discovery: %v", p, err)
 		}
 	}
-	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code != 0 {
-		t.Fatalf("--check after a full sync = %d, want 0 (asset links must be idempotent)", code)
-	}
+}
 
-	if err := os.RemoveAll(src); err != nil {
+// Orphaned generated files are pruned from dist and every vendor home; hand-authored files at the same paths stay.
+func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "keeper", "keeper")
+	writeSource(t, claude, "agents", "doomed", "doomed")
+	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
+	}
+	if err := os.Remove(sourcePath(claude, "agents", "doomed")); err != nil {
 		t.Fatal(err)
 	}
-	writeSource(t, claude, "skills", "keeper", "keeper")
-	if code := Sync(SyncOptions{Out: io.Discard}); code != 0 {
-		t.Fatalf("prune Sync exit = %d, want 0", code)
+	hand := filepath.Join(home, ".codex", "agents", "mine.toml")
+	writeFile(t, hand, "name = \"mine\"\n")
+	legacy := filepath.Join(home, ".gemini", "skills", "old-skill")
+	writeFile(t, filepath.Join(legacy, "SKILL.md"), realSkillBannerPrefix+"old-skill/SKILL.md; do not edit by hand. -->\n\nbody\n")
+
+	var out bytes.Buffer
+	if code := Sync(SyncOptions{Out: &out}); code != 0 {
+		t.Fatalf("prune Sync exit = %d, want 0\n%s", code, out.String())
 	}
-	if _, err := os.Lstat(proj); !os.IsNotExist(err) {
-		t.Errorf("orphaned projection survived prune: %v", err)
+	for _, vendor := range VendorNames() {
+		tg := targets[vendor]
+		for _, p := range []string{filepath.Join(DistDir(claude, vendor), "doomed"+tg.ext), filepath.Join(tg.home(home), "doomed"+tg.ext)} {
+			if _, err := os.Lstat(p); !os.IsNotExist(err) {
+				t.Errorf("orphan survived prune: %s", p)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(tg.home(home), "keeper"+tg.ext)); err != nil {
+			t.Errorf("%s: keeper pruned: %v", vendor, err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(claude, "skills", "keeper", "SKILL.md")); err != nil {
-		t.Errorf("prune must never reach through a link into the source tree: %v", err)
+	if _, err := os.Stat(hand); err != nil {
+		t.Errorf("hand-authored codex agent pruned: %v", err)
+	}
+	if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy ~/.gemini/skills projection survived: %v", err)
+	}
+	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code != 0 {
+		t.Errorf("--check after prune = %d, want 0", code)
 	}
 }
 
-// skills/<x> symlinks point into ~/.agents/skills, which Gemini CLI already reads: projecting them duplicates names.
+// A hand-authored file in a vendor home is never overwritten, even under a projected name.
+func TestSyncKeepsHandAuthoredVendorFile(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "shadowed", "shadowed")
+	hand := filepath.Join(home, ".gemini", "agents", "shadowed.md")
+	writeFile(t, hand, "---\nname: shadowed\ndescription: mine\n---\n\nhand-made\n")
+
+	var out bytes.Buffer
+	if code := Sync(SyncOptions{Out: &out}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "KEEP  ~/.gemini/agents/shadowed.md (hand-authored") {
+		t.Errorf("hand-authored vendor file not KEEP'd:\n%s", out.String())
+	}
+	assertFileContains(t, hand, "hand-made")
+	assertFileContains(t, filepath.Join(DistDir(claude, "gemini"), "shadowed.md"), agentSkillBannerPrefix)
+}
+
+// skills/<x> symlinks point into ~/.agents/skills already, so they are the user's and never re-linked.
 func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
 	_, claude := isolate(t)
 	writeSource(t, claude, "skills", "real", "real")
@@ -123,20 +157,25 @@ func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
 	}
 }
 
-// A symlink entry in ~/.gemini/skills is never written through or pruned, even when it shadows a projected name.
-func TestSyncKeepsSymlinkEntriesInGeminiSkills(t *testing.T) {
+// ~/.agents/skills: a real dir or a foreign symlink under a projected name is kept; a stale harness link is
+// re-pointed; an orphaned harness link is pruned; the skip-listed skill is never linked.
+func TestSkillLinksRespectOwnership(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "keeper", "keeper")
-	writeSource(t, claude, "skills", "shadowed", "shadowed")
-	root := filepath.Join(home, ".gemini", "skills")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	external := filepath.Join(home, "vendor-skills")
-	writeFile(t, filepath.Join(external, "shadowed", "SKILL.md"), "hand-made\n")
-	writeFile(t, filepath.Join(external, "foreign", "SKILL.md"), realSkillBannerPrefix+"foreign/SKILL.md -->\n")
-	for _, n := range []string{"shadowed", "foreign"} {
-		if err := os.Symlink(filepath.Join(external, n), filepath.Join(root, n)); err != nil {
+	writeSource(t, claude, "skills", "mine-dir", "mine")
+	writeSource(t, claude, "skills", "foreign-dir", "foreign")
+	writeSource(t, claude, "skills", "moved-new", "moved")
+	writeSource(t, claude, "skills", "approval-gate", "approval-gate")
+	agentsSkills := AgentsSkillsDir(home)
+	writeFile(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy\n")
+	vendor := filepath.Join(home, "vendor", "foreign")
+	writeFile(t, filepath.Join(vendor, "SKILL.md"), "vendor copy\n")
+	for link, target := range map[string]string{
+		"foreign": vendor,
+		"moved":   filepath.Join(claude, "skills", "moved-old"),
+		"gone":    filepath.Join(claude, "skills", "gone"),
+	} {
+		if err := os.Symlink(target, filepath.Join(agentsSkills, link)); err != nil {
 			t.Skipf("symlink unsupported: %v", err)
 		}
 	}
@@ -145,14 +184,38 @@ func TestSyncKeepsSymlinkEntriesInGeminiSkills(t *testing.T) {
 	if code := Sync(SyncOptions{Out: &out}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "KEEP  ~/.gemini/skills/shadowed (hand-authored symlink)") {
-		t.Errorf("shadowing symlink not KEEP'd:\n%s", out.String())
+	if fi, err := os.Lstat(filepath.Join(agentsSkills, "mine")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Error("user's real skill dir was replaced")
 	}
-	for _, n := range []string{"shadowed", "foreign"} {
-		info, err := os.Lstat(filepath.Join(root, n))
-		if err != nil || info.Mode()&os.ModeSymlink == 0 {
-			t.Errorf("symlink entry %q did not survive as a symlink: %v", n, err)
-		}
+	if dest, _ := os.Readlink(filepath.Join(agentsSkills, "foreign")); dest != vendor {
+		t.Errorf("foreign symlink re-pointed to %q", dest)
 	}
-	assertFileContains(t, filepath.Join(external, "shadowed", "SKILL.md"), "hand-made")
+	if dest, _ := os.Readlink(filepath.Join(agentsSkills, "moved")); dest != filepath.Join(claude, "skills", "moved-new") {
+		t.Errorf("stale harness link not re-pointed: %q", dest)
+	}
+	if _, err := os.Lstat(filepath.Join(agentsSkills, "gone")); !os.IsNotExist(err) {
+		t.Error("orphaned harness link not pruned")
+	}
+	if _, err := os.Lstat(filepath.Join(agentsSkills, "approval-gate")); !os.IsNotExist(err) {
+		t.Error("skip-listed skill was linked")
+	}
+	assertFileContains(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy")
+}
+
+// --vendor narrows the run: only that vendor's dist + home are touched, skills still link.
+func TestSyncVendorFilter(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "demo", "demo")
+	if code := Sync(SyncOptions{Vendor: "nope", Out: io.Discard}); code != 2 {
+		t.Errorf("unknown vendor exit = %d, want 2", code)
+	}
+	if code := Sync(SyncOptions{Vendor: "codex", Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "agents", "demo.toml")); err != nil {
+		t.Errorf("codex projection missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".gemini")); err == nil {
+		t.Error("--vendor codex touched ~/.gemini")
+	}
 }

@@ -44,7 +44,7 @@ made directly in `settings.json` that is silently erased on the next `make insta
 
 4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate the
    cross-tool mirrors: `claude-code agents docs` (AGENTS.md/GEMINI.md) and, if Gemini-specific
-   skill mirroring is affected, `claude-code agents sync --gemini`.
+   skill mirroring is affected, `claude-code agents sync` (then commit `dist/`).
 
 5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
    what was intentionally left for a later pass.

@@ -5,9 +5,18 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
+
+// isGeneratedFile reports whether path is a regular file (not a symlink) whose first body line is a sync banner.
+func isGeneratedFile(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	text, ok := readTextNoFollow(path)
+	return ok && hasGeneratedBanner(text)
+}
 
 // isGeneratedSkillDir reports whether path is a real dir (not a symlink) whose SKILL.md carries a generated banner.
 func isGeneratedSkillDir(path string) bool {
@@ -20,14 +29,11 @@ func isGeneratedSkillDir(path string) bool {
 		return false
 	}
 	text, ok := readTextNoFollow(skillFile)
-	if !ok {
-		return false
-	}
-	return hasGeneratedBanner(text)
+	return ok && hasGeneratedBanner(text)
 }
 
 // hasGeneratedBanner reports whether a banner is the first non-empty line after the closing frontmatter
-// delimiter (or the first line with no frontmatter) — the exact shape buildFrontmatterFile writes.
+// delimiter (or the first line with no frontmatter) — the exact shape every renderer writes.
 func hasGeneratedBanner(text string) bool {
 	body := text
 	if m := fmRes().split.FindStringSubmatch(text); m != nil {
@@ -48,7 +54,31 @@ func hasGeneratedBanner(text string) bool {
 	return false
 }
 
-// removeGeneratedSkillDir deletes a generated skill dir: its symlinks, then SKILL.md, then the dir itself.
+// pruneGeneratedFiles removes banner-marked <name><ext> files in dir not in keep; anything else is left alone.
+func pruneGeneratedFiles(out io.Writer, dir, ext string, keep map[string]bool, dryRun bool) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	pruned := 0
+	for _, e := range sortedEntries(entries) {
+		path := filepath.Join(dir, e.Name())
+		if keep[e.Name()] || !strings.HasSuffix(e.Name(), ext) || !isGeneratedFile(path) {
+			continue
+		}
+		if !dryRun {
+			if err := os.Remove(path); err != nil {
+				fmt.Fprintf(os.Stderr, "  prune error: %v\n", err)
+				continue
+			}
+		}
+		fmt.Fprintf(out, "  PRUNE %s (orphaned: no agent source)\n", displayPath(path))
+		pruned++
+	}
+	return pruned
+}
+
+// removeGeneratedSkillDir deletes a legacy generated skill dir: its symlinks, then SKILL.md, then the dir itself.
 // Never RemoveAll; refuses any path that is not a direct child of root.
 func removeGeneratedSkillDir(path, root string) error {
 	resolved, err := filepath.Abs(path)
@@ -79,50 +109,4 @@ func removeGeneratedSkillDir(path, root string) error {
 		}
 	}
 	return os.Remove(path)
-}
-
-// pruneOrphans removes banner-marked dirs under root whose name is not in projected; returns the count.
-// A dir whose SOURCE still exists (skip-listed) is reported as not-projected, not orphaned.
-func pruneOrphans(out io.Writer, agents, skills []Source, projected map[string]bool, root string, dryRun bool) int {
-	skipOutputs := make(map[string]bool, len(agents)+len(skills))
-	for _, s := range skills {
-		if skipNames[s.dirName] {
-			skipOutputs[s.Name()] = true
-		}
-	}
-	for _, a := range agents {
-		if skipNames[a.dirName] {
-			skipOutputs[a.Name()] = true
-		}
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return 0
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-
-	removed := 0
-	for _, n := range names {
-		entry := filepath.Join(root, n)
-		if projected[n] || !isGeneratedSkillDir(entry) {
-			continue
-		}
-		reason := fmt.Sprintf("orphaned: no source '%s'", n) // a name a skill owns is projected, so it is rewritten, not pruned
-		if skipOutputs[n] {
-			reason = fmt.Sprintf("not projected to gemini: '%s' is Claude-Code-only", n)
-		}
-		if !dryRun {
-			if err := removeGeneratedSkillDir(entry, root); err != nil {
-				fmt.Fprintf(os.Stderr, "  prune error: %v\n", err)
-				continue
-			}
-		}
-		fmt.Fprintf(out, "  PRUNE %s (%s)\n", displayPath(entry), reason)
-		removed++
-	}
-	return removed
 }

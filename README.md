@@ -211,7 +211,7 @@ claude-code codex --print-env                         # bare verb = `run codex`;
 claude-code science serve                            # Claude for Life Sciences on its own login, harness env stripped
 claude-code usage --days 7 [--workflows]             # subagent tokens (one count per API response) + peak ITPM
 claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
-claude-code agents sync --gemini --dry-run           # mirror agents/ + skills/ into ~/.gemini/skills
+claude-code agents sync --dry-run                    # agents/ → dist/<vendor>/agents + vendor homes; skills/ → ~/.agents/skills
 claude-code agents docs                              # AGENTS.md + GEMINI.md from CLAUDE.md + the roster
 ```
 
@@ -231,9 +231,13 @@ default `gemini-3.8-flash`, `--model opus` for the reasoning tier) — the 1M-co
 and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only tracked/untracked-but-not-ignored files
 are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`, `*.pem`/`*.key` are always skipped; the inlined path
 list is printed to stderr before the call. Anything else launches the gemini CLI (same as `run gemini`).
-`agents sync --gemini` mirrors `agents/` and the hand-authored `skills/` into `~/.gemini/skills` (banner-marked,
-assets symlinked, hand-authored dirs kept, `--check` gates drift); `agents docs` renders `AGENTS.md` + `GEMINI.md`
-(generated, gitignored like `settings.json`). Inside a session, the subagents in `agents/` (`code-workers`,
+`agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
+`~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`, `~/.config/opencode/agents/<name>.md` — via a
+git-tracked rendering under `dist/<vendor>/agents/` (the home copy is a byte-identical install of it), and links the
+hand-authored `skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a
+skill twice). Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are
+kept and reported; `--check` gates drift in both `dist/` and the homes; `--vendor <v>` narrows a run. `install` runs it
+after settings. `agents docs` renders `AGENTS.md` + `GEMINI.md` (generated, gitignored like `settings.json`). Inside a session, the subagents in `agents/` (`code-workers`,
 `test-driven-dev`, `test-repair`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 

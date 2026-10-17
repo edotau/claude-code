@@ -112,7 +112,7 @@ func cmdAsk(args []string) int {
 }
 
 const agentsUsage = `usage: claude-code agents
-       claude-code agents sync --gemini [--dry-run] [--check] [--no-prune]
+       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]
        claude-code agents docs [--check] [--dry-run]`
 
 func cmdAgents(args []string) int {
@@ -131,10 +131,11 @@ func cmdAgents(args []string) int {
 	return fail("agents: unknown subcommand %q\n%s", args[0], agentsUsage)
 }
 
-// cmdAgentsSync projects agents/ + skills/ into ~/.gemini/skills; --gemini is the only target and is required.
+// cmdAgentsSync renders agents/ into dist/<vendor>/agents, installs each vendor's copy, and links skills/ into
+// ~/.agents/skills; --vendor narrows the run to one target.
 func cmdAgentsSync(args []string) int {
 	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
-	gemini := fs.Bool("gemini", false, "project into ~/.gemini/skills (required)")
+	vendor := fs.String("vendor", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
@@ -142,11 +143,7 @@ func cmdAgentsSync(args []string) int {
 		fmt.Fprintln(os.Stderr, agentsUsage)
 		return 2
 	}
-	if !*gemini {
-		fmt.Fprintln(os.Stderr, "agents sync: only --gemini is supported")
-		return 2
-	}
-	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Out: os.Stdout})
+	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
 // cmdAgentsDocs renders AGENTS.md + GEMINI.md from CLAUDE.md and the agent roster.
