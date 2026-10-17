@@ -48,7 +48,7 @@ history.
    deliberately excluded.
 3. Decide the logical change boundaries; stage each set by explicit path.
 4. **Verify the staged set builds and tests on its own** where the project allows it: a SCOPED
-   build and test over the staged paths, never `git stash` (CLAUDE.md hard rule 5: this tree is
+   build and test over the staged paths, never `git stash` (CLAUDE.md hard rule 4: this tree is
    shared, and a stash reverts other sessions' work). A commit that only compiles alongside
    unstaged work is a broken commit.
 5. Write the message: subject in the imperative, body explaining WHY and the failure mode it

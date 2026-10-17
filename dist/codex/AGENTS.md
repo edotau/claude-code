@@ -20,9 +20,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `providers.json`, `settings.json`, a commit, or a log line.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
-4. **Never use `--dangerously-skip-permissions`.** Guardrails live in the template's `permissions`
-   block and the `safety` hook.
-5. **Never `git stash` / `checkout` / `reset` / `restore` in this tree.** `~/.claude` is one checkout
+4. **Never `git stash` / `checkout` / `reset` / `restore` in this tree.** `~/.claude` is one checkout
    shared by parallel subagents and every live session. Build a scoped target and diff your own
    files to attribute a failure; commit each verified subset early.
 
