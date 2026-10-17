@@ -185,8 +185,9 @@ const funneled = await pipeline(
                     label: `verify:${d.key}:${f.file}`,
                     phase: "Verify",
                     schema: VERDICT_SCHEMA,
+                    model: "opus",
                     effort: "high",
-                  }, // lint:opus-ok — funnel stage 2 is the one deliberate reasoning-tier call
+                  }, // funnel stage 2: the one reasoning-tier call — pinned opus so it never inherits the session model
                 ).then((v) => ({ finding: f, dimension: d.key, verdict: v })),
           ),
       ),

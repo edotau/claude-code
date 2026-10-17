@@ -145,7 +145,22 @@
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook agent-effort",
             "timeout": 5
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook workflow-lint",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook agent-inflight",
