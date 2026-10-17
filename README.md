@@ -69,7 +69,14 @@ claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings 
 (401) reads `REJECTED`, not `present`. For an absent or rejected credential the TTY dialog offers every way to
 fix it side by side — the vendor's browser/device login (`claude auth login`, `codex login`, `copilot login`,
 `opencode auth login`, `gemini` → Login with Google) and pasting an API key (opening the provider's key console
-first, if you want), stored in `env.d/secrets.env`. Piped, each option is one `[Y/n]`. A vendor running on its own
+first, if you want), stored in `env.d/secrets.env`. Piped, each option is one `[Y/n]`.
+
+The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
+`claude setup-token` mints a long-lived OAuth token for unattended runs. `configure keys` reports both states
+(`claude.ai login (max); headless token set`), offers to mint the token when it is missing, captures it from the
+CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in `env.d/secrets.env`; the launcher, `ask --agent claude`
+and the memory harvest inject it so they keep working after the /login session expires. It is a Claude Code
+credential only — it does not authenticate raw Anthropic API calls (that is `ANTHROPIC_API_KEY`). A vendor running on its own
 login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
 `configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
 OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is

@@ -236,6 +236,13 @@ func DoctorChecks() (checks []Check, ok bool) {
 				cancel()
 				switch status {
 				case "login":
+					if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
+						if providers.HeadlessOAuthToken() != "" {
+							label += " · headless token set"
+						} else {
+							label += " · no headless token (claude-code configure keys mints one)"
+						}
+					}
 				case "verified":
 					label += " · verified"
 				case "rejected":

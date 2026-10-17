@@ -108,3 +108,27 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 		}
 	}
 }
+
+// The Max-plan row offers three ways in: browser login, minting a headless token, pasting one; the minted token
+// is recognised in the CLI's output by its sk-ant-oat prefix.
+func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no claude binary: status reads as not logged in
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	kt := maxPlanTarget(keyTarget{label: "claude"})
+	if kt.present || kt.headless {
+		t.Fatalf("no login and no token must read absent: %+v", kt)
+	}
+	opts := authOptions(kt)
+	if len(opts) != 3 || opts[0].argv == nil || opts[1].mint == nil || opts[1].env != "CLAUDE_CODE_OAUTH_TOKEN" || opts[2].env != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("authOptions = %+v, want login, mint, paste", opts)
+	}
+	out := "Opening browser...\nPaste the code here:\n\nYour token: sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
+	if got := setupTokenRE.FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
+		t.Errorf("token capture = %q", got)
+	}
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
+	if kt := maxPlanTarget(keyTarget{label: "claude"}); !kt.present || !kt.headless || !strings.Contains(kt.source, "headless token") {
+		t.Errorf("a stored token must read present/headless: %+v", kt)
+	}
+}

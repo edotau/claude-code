@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // HarvestPrompt is the headless harvest instruction; the tail bound keeps a multi-MB transcript from eating the turns.
@@ -119,6 +120,12 @@ func Update(o UpdateOptions) error {
 		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript), "--max-turns", "40")
 		cmd.Dir = o.CWD
 		cmd.Env = append(os.Environ(), HarvestChildEnv+"=1")
+		// A stored setup-token keeps the unattended harvest working after the interactive /login session expires.
+		if os.Getenv(providers.OAuthTokenEnv) == "" {
+			if tok := providers.HeadlessOAuthToken(); tok != "" {
+				cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
+			}
+		}
 		cmd.Stdout, cmd.Stderr = o.Out, o.Out
 		runErr = cmd.Run()
 		return nil
