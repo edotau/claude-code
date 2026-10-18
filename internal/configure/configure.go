@@ -518,10 +518,6 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 				}
 				continue
 			}
-			if d.o.Interactive && !d.o.Check && len(rotateOptions(kt)) > 0 &&
-				!confirm(d, "Keep "+kt.label+"'s current credential as-is?") && runRotate(d, kt) {
-				changed = true
-			}
 			continue
 		}
 		if d.o.Interactive && !d.o.Check {
