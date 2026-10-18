@@ -1,0 +1,13 @@
+{
+    "runId": "wf_fake0001-abc",
+    "timestamp": "2026-10-17T02:26:13.984Z",
+    "taskId": "fake0001",
+    "script": "export const meta = { name: 'gate-loop', description: 'LoopAgent' }",
+    "scriptPath": "/Users/fake/demo-repo/.claude/workflows/scripts/gate-loop-wf_fake0001-abc.js",
+    "args": { "cwd": "/Users/fake/demo-repo", "scope": ["src"], "maxIterations": 1 },
+    "result": { "status": "green", "exit": "green", "gate": "go test ./...", "gateSource": "go.mod", "iterations": 1, "filesChanged": [], "residual": [] },
+    "agentCount": 2,
+    "logs": ["gate detected (go.mod): go test ./...", "gate 1/1: green (0 -> 0) changed=0"],
+    "durationMs": 35954,
+    "summary": "LoopAgent: run a gate command, fix what fails inside a scope, re-run"
+}

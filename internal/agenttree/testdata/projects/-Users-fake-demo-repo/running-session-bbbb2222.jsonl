@@ -1,0 +1,2 @@
+{"type": "last-prompt", "leafUuid": "44444444-0df0-4562-931b-fc920946c988", "sessionId": "running-session-bbbb2222"}
+{"parentUuid":null,"isSidechain":false,"promptId":"p-0002","type":"user","message":{"role":"user","content":"Add a new feature."},"uuid":"55555555-af18-4e0e-a587-927b5eaca5de","timestamp":"2026-10-18T02:52:24.153Z","cwd":"/Users/fake/demo-repo","sessionId":"running-session-bbbb2222","gitBranch":"feature/x"}

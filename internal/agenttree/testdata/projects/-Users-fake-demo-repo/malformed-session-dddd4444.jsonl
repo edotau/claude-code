@@ -1,0 +1,3 @@
+{"type": "last-prompt", "leafUuid": "88888888-0df0-4562-931b-fc920946c988", "sessionId": "malformed-session-dddd4444"}
+{"parentUuid":null,"isSidechain":false,"promptId":"p-0004","type":"user","message":{"role":"user","content":"Do something risky."},"uuid":"99999999-af18-4e0e-a587-927b5eaca5de","timestamp":"2026-10-18T03:00:00.000Z","cwd":"/Users/fake/demo-repo","sessionId":"malformed-session-dddd4444","gitBranch":"main"}
+{"parentUuid":"99999999-af18-4e0e-a587-927b5eaca5de","isSidechain":false,"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Working on

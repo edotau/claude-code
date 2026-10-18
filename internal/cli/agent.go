@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -116,7 +118,8 @@ func cmdAsk(args []string) int {
 }
 
 const agentsUsage = `usage: claude-code agents
-       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]`
+       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]
+       claude-code agents tree [--days N] [--session ID] [--running] [--watch [--interval D]] [--format text|json]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
@@ -125,6 +128,8 @@ func cmdAgents(args []string) int {
 	switch args[0] {
 	case "sync":
 		return cmdAgentsSync(args[1:])
+	case "tree":
+		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "-h", "--help":
 		fmt.Fprintln(os.Stderr, agentsUsage)
 		return 2
