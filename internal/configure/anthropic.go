@@ -20,20 +20,6 @@ const (
 // isAnthropicBilling reports a provider name that is one of the anthropic row's billing modes.
 func isAnthropicBilling(name string) bool { return name == anthropicRow || name == subscriptionName }
 
-// pickerNames is the provider list with anthropic first and the subscription provider folded into it.
-func pickerNames(reg *providers.Registry) []string {
-	var out []string
-	if _, ok := reg.Providers[anthropicRow]; ok {
-		out = append(out, anthropicRow)
-	}
-	for _, n := range reg.Names() {
-		if !isAnthropicBilling(n) {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
 // firstParty memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
 // CredentialPresent a keyring call — so the row detail and the billing picker pay for each at most once.
 type firstParty struct {

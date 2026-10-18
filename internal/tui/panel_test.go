@@ -96,6 +96,25 @@ func TestRenderDrawsInPlaceAndRewindsItsOwnHeight(t *testing.T) {
 	}
 }
 
+// A header line draws in place of the blank line under the title — panelLines (and so render's own
+// line count) must not change whether a header is set or not, or PickTable's redraw would overdraw
+// the wrong number of lines and leave residue from the previous frame.
+func TestRenderHeaderLineCountUnchanged(t *testing.T) {
+	plain := pickState{rows: layoutRows([][2]string{{"a", "x"}, {"b", "y"}})}
+	withHeader := pickState{rows: plain.rows, header: "ID    Model"}
+	outPlain := render("title", plain, false)
+	outHeader := render("title", withHeader, false)
+	if got, want := strings.Count(outHeader, "\r\n"), strings.Count(outPlain, "\r\n"); got != want {
+		t.Errorf("header line count = %d, want %d (unchanged from no-header)", got, want)
+	}
+	if panelLines(withHeader) != panelLines(plain) {
+		t.Errorf("panelLines(header) = %d, want %d", panelLines(withHeader), panelLines(plain))
+	}
+	if !strings.Contains(outHeader, "ID    Model") {
+		t.Errorf("render with a header must draw it:\n%q", outHeader)
+	}
+}
+
 // PickBack's own index remap ("Back" row, appended at len(rows), maps to -1; every other index passes
 // through unchanged) only runs past Pick's TTY gate, so it can't be driven with a fake key stream the
 // way handlePickKey is above (no injectable seam on Open/isTerminal here). What IS testable without a
