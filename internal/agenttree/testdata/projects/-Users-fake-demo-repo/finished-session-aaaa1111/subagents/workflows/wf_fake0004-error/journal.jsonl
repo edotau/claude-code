@@ -1,0 +1,3 @@
+{"type":"launched"}
+{"type":"started","key":"v2:fake0004err","agentId":"fakewfagent030","label":"doomed probe","phase":"Doomed"}
+{"type":"result","key":"v2:fake0004err","agentId":"fakewfagent030","result":null}

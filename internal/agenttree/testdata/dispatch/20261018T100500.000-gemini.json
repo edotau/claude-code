@@ -1,0 +1,16 @@
+{
+  "id": "20261018T100500.000-gemini",
+  "time": "2026-10-18T10:05:00.000000Z",
+  "agent": "gemini",
+  "request": {
+    "Prompt": "double-check the fix",
+    "Model": "",
+    "Provider": "",
+    "Effort": "",
+    "WorkDir": "/Users/fake/demo-repo",
+    "SessionID": "",
+    "Tools": false,
+    "Timeout": 300000000000
+  },
+  "status": "running"
+}

@@ -43,11 +43,38 @@ type Subagent struct {
 	ID          string    `json:"id"`
 	Type        string    `json:"type"`
 	Description string    `json:"description"`
-	Status      string    `json:"status"` // running|finished|stale
+	Status      string    `json:"status"` // running|finished|error|stale
 	Depth       int       `json:"depth"`
 	Tokens      Tokens    `json:"tokens"`
 	LastTool    string    `json:"lastTool"`
 	Updated     time.Time `json:"updated"`
+	Activity    *Activity `json:"activity,omitempty"` // newest tool/text signal; nil when none seen yet
+	Legs        []Leg     `json:"legs,omitempty"`     // vendor dispatches this relay agent launched via `ask`
+}
+
+// Activity is the newest tool_use and newest assistant text seen in a subagent transcript's tail —
+// the "what is it doing right now" signal. At is the timestamp of whichever record set it last;
+// Subagent carries Activity behind a pointer (omitempty there), so At needs no zero-value tag of its
+// own — "activity,omitempty" on encoding/json's struct-typed omitempty is a no-op (never omits).
+type Activity struct {
+	Tool string    `json:"tool,omitempty"`
+	Arg  string    `json:"arg,omitempty"`
+	At   time.Time `json:"at"`
+	Text string    `json:"text,omitempty"`
+}
+
+// Leg is one vendor dispatch (`claude-code ask`) a relay subagent launched, read from
+// state/harness/dispatch/<id>.json via internal/agent.
+type Leg struct {
+	ID             string `json:"id"`
+	Agent          string `json:"agent"`
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Status         string `json:"status"` // running|ok|error, mirroring agent.Record
+	Duration       string `json:"duration,omitempty"`
+	Fallback       string `json:"fallback,omitempty"`
+	FallbackReason string `json:"fallbackReason,omitempty"`
+	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 }
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
@@ -61,7 +88,7 @@ type WorkflowPhase struct {
 type WorkflowRun struct {
 	ID      string          `json:"id"`
 	Name    string          `json:"name"`
-	Status  string          `json:"status"` // the manifest's result.status ("" when still running, no manifest yet)
+	Status  string          `json:"status"` // the manifest's result.status when its result carries one (e.g. "green"), else journal-derived running|finished
 	Updated time.Time       `json:"updated"`
 	Phases  []WorkflowPhase `json:"phases"`
 }
@@ -153,6 +180,7 @@ const (
 	statusIdle     = "idle"
 	statusRunning  = "running"
 	statusFinished = "finished"
+	statusError    = "error"
 	statusStale    = "stale"
 )
 
@@ -213,13 +241,13 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	}
 
 	for _, agentFile := range subagentFiles(sessionDir) {
-		sub := buildSubagent(agentFile, now)
+		sub := buildSubagent(agentFile, now, s.Cwd)
 		s.Tokens.add(sub.Tokens)
 		s.Subagents = append(s.Subagents, sub)
 	}
 	slices.SortStableFunc(s.Subagents, func(a, b Subagent) int { return b.Updated.Compare(a.Updated) })
 
-	for _, run := range buildWorkflowRuns(sessionDir, now) {
+	for _, run := range buildWorkflowRuns(sessionDir, now, s.Cwd) {
 		for _, phase := range run.Phases {
 			for _, sub := range phase.Agents {
 				s.Tokens.add(sub.Tokens)
@@ -249,13 +277,15 @@ func subagentFiles(sessionDir string) []string {
 	return matches
 }
 
-// buildSubagent reads one agent transcript's sidecar meta + its own tail for tokens/last-tool/mtime.
+// buildSubagent reads one agent transcript's sidecar meta + its own tail for tokens/activity/mtime.
 // Token totals come from this file alone: transcript.LastUsage/usageFromLine skip isSidechain
 // records, and every subagent transcript line IS a sidechain, so the per-model aggregate the main
-// session reads would silently see zero — transcript.SummarizeFile has no such filter.
-func buildSubagent(transcriptPath string, now time.Time) Subagent {
+// session reads would silently see zero — transcript.SummarizeFile has no such filter. cwd is the
+// owning session's cwd, used to strip the repo root from Activity.Arg and to match a vendor leg's
+// own WorkDir.
+func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	meta := readSubagentMeta(transcriptPath)
-	id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(transcriptPath), "agent-"), ".jsonl")
+	id := subagentIDFromPath(transcriptPath)
 
 	var updated time.Time
 	if info, err := os.Stat(transcriptPath); err == nil {
@@ -268,16 +298,29 @@ func buildSubagent(transcriptPath string, now time.Time) Subagent {
 		tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
 	}
 
-	return Subagent{
+	act := lastActivity(transcriptPath, cwd)
+	sub := Subagent{
 		ID:          id,
 		Type:        meta.AgentType,
 		Description: meta.Description,
 		Status:      subagentStatus(meta.Finished, updated, now),
 		Depth:       meta.SpawnDepth,
 		Tokens:      tok,
-		LastTool:    lastToolName(transcriptPath),
+		LastTool:    act.Tool,
 		Updated:     updated,
+		Legs:        buildLegs(transcriptPath, cwd, now, act),
 	}
+	if act.Tool != "" || act.Text != "" {
+		a := act
+		sub.Activity = &a
+	}
+	return sub
+}
+
+// subagentIDFromPath extracts the bare id from agent-<id>.jsonl, shared by buildSubagent and the
+// journal/vendor-leg lookups that key on the same id.
+func subagentIDFromPath(transcriptPath string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(transcriptPath), "agent-"), ".jsonl")
 }
 
 // subagentStatus: finished wins outright; otherwise running within subagentActiveWindow of now, else stale.
@@ -294,7 +337,7 @@ func subagentStatus(finished bool, updated, now time.Time) string {
 // buildWorkflowRuns reads one session's workflows/wf_*.json manifests (run id, name, result status)
 // and folds in the matching subagents/workflows/<runId>/agent-*.jsonl transcripts by workflowPhase,
 // via internal/usage's exported helpers — one run id links both halves.
-func buildWorkflowRuns(sessionDir string, now time.Time) []WorkflowRun {
+func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowRun {
 	manifests := workflowManifests(sessionDir)
 	runDirs := usage.WorkflowRunDirs(sessionDir)
 	seen := map[string]bool{}
@@ -305,7 +348,7 @@ func buildWorkflowRuns(sessionDir string, now time.Time) []WorkflowRun {
 			return
 		}
 		seen[runID] = true
-		runs = append(runs, buildOneWorkflowRun(sessionDir, runID, manifests[runID], now))
+		runs = append(runs, buildOneWorkflowRun(sessionDir, runID, manifests[runID], now, cwd))
 	}
 	for id := range manifests {
 		addRun(id)
@@ -318,21 +361,23 @@ func buildWorkflowRuns(sessionDir string, now time.Time) []WorkflowRun {
 }
 
 // buildOneWorkflowRun folds one run's manifest (possibly absent, for a run still writing) with its
-// agent-*.jsonl transcripts grouped by workflowPhase.
-func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time) WorkflowRun {
+// agent-*.jsonl transcripts grouped by workflowPhase; journal.jsonl in the run dir overrides each
+// agent's status (finished/error once it has a result line) and backfills a missing description.
+func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time, cwd string) WorkflowRun {
 	run := WorkflowRun{ID: runID, Name: runID}
 	if m != nil {
 		run.Name = cmpOr(m.name(), runID)
-		run.Status = m.Result.Status
 		run.Updated = m.timestamp()
 	}
 
 	runDir := filepath.Join(sessionDir, "subagents", "workflows", runID)
+	journal := readJournal(runDir)
 	files := usage.WorkflowAgentFiles(runDir)
 	byPhase := map[string]*WorkflowPhase{}
 	var order []string
 	for _, f := range files {
-		sub := buildSubagent(f, now)
+		sub := buildSubagent(f, now, cwd)
+		sub = applyJournalEntry(sub, journal[sub.ID])
 		phaseName := cmpOr(usage.WorkflowPhaseFromMeta(f), "(none)")
 		phase := byPhase[phaseName]
 		if phase == nil {
@@ -348,7 +393,48 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 	for _, name := range order {
 		run.Phases = append(run.Phases, *byPhase[name])
 	}
+	run.Status = workflowRunStatus(m, journal, run.Updated, now)
 	return run
+}
+
+// applyJournalEntry overrides a workflow subagent's status/description from its journal entry: a
+// result line wins outright (finished, or error when that result was JSON null); started-only
+// leaves today's mtime-driven running/stale read in place. A zero-value entry (not found) is a no-op.
+func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
+	if sub.Description == "" && j.Label != "" {
+		sub.Description = j.Label
+	}
+	if j.Resulted {
+		sub.Status = statusFinished
+		if j.Errored {
+			sub.Status = statusError
+		}
+	}
+	return sub
+}
+
+// workflowRunStatus prefers the manifest's own result status (e.g. a gate-loop's "green"/"red" when
+// its script returned an object carrying one); otherwise it's journal-derived: finished once every
+// started agent has a result and nothing has touched the run dir for subagentActiveWindow, else running.
+func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, updated, now time.Time) string {
+	if m != nil {
+		if s := m.resultStatus(); s != "" {
+			return s
+		}
+	}
+	started, resulted := 0, 0
+	for _, j := range journal {
+		if j.Started {
+			started++
+		}
+		if j.Resulted {
+			resulted++
+		}
+	}
+	if started > 0 && started == resulted && now.Sub(updated) > subagentActiveWindow {
+		return statusFinished
+	}
+	return statusRunning
 }
 
 // FilterIdleSessions is filterIdleSessions, exported for callers outside this package (e.g. the
