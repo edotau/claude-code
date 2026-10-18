@@ -40,12 +40,12 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID string, now time.Time) string {
 	guard := memory.StartupGuard()
-	if guard.Migrated && !guard.Paused && !memory.IsHarvestChild() {
-		memory.LinkNativeFor(cwd) // keep this project's native memory pointed at its store dir
-	}
 	prefix := guard.Notice // paused: the notice ("" otherwise); else a fresh-scaffold notice or ""
 	if !guard.Paused {
 		prefix = maybeAutoInit(cwd)
+	}
+	if guard.Migrated && !guard.Paused && !memory.IsHarvestChild() {
+		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (with its .origin)
 	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
