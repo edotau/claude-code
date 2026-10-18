@@ -1,9 +1,7 @@
-// Bash tab-completion, ported from claude-dbx's internal/cli/complete.go. This repo hand-dispatches
-// every subcommand inside each verb's run func instead of building a registry Sub tree, and has no
-// cliutil.OnFlagSet hook — so candidates come from static tables (subverbs, flags, value domains)
-// kept beside the verbs they describe, never from probing a verb's own flagset. That also means a
-// launcher verb (opus/sonnet/haiku/fable/codex/copilot/opencode/gemini/run/science — see noComplete) is never at risk
-// of being dispatched: nothing here ever calls a command's run func.
+// Bash tab-completion. Every verb/subverb/flag/positional lives in one spec tree (buildSpecTree in
+// complete_spec.go; domain functions in complete_domains.go), keyed from commands() so every verb is
+// represented — a launcher verb (opus/sonnet/haiku/fable/codex/copilot/opencode/gemini/run/science, see
+// noComplete) still offers nothing beyond its own subwords, since nothing here ever calls a run func.
 package cli
 
 import (
@@ -12,203 +10,77 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/statusline"
 )
 
 // completionBin is the installed binary name the completion script registers against.
 const completionBin = "claude-code"
 
 // flagInfo is one completable flag: name (no leading --), whether it takes no value (bool), and an
-// optional source for the candidates offered for the word that follows it.
+// optional source for the candidates offered for the word that follows it (or after "=").
 type flagInfo struct {
 	name   string
 	isBool bool
 	values func() []string
 }
 
-// subVerbs lists a verb's hand-dispatched subcommand words, keyed by the verb's canonical name (the
-// command.name a command dispatches under — see knownPath). Only two levels deep: nothing in this
-// repo hand-dispatches a third word.
-var subVerbs = map[string][]string{
-	"secrets":   {"set", "get", "delete", "status", "scan", "git", "doctor", "all"},
-	"history":   {"snapshot", "log", "diff"},
-	"web":       {"browsers", "setup", "view"},
-	"memory":    {"init", "search", "show", "digest", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate"},
-	"router":    {"serve", "start", "stop", "status"},
-	"mcp":       {"doctor"},
-	"agents":    {"sync", "tree"},
-	"review":    {"quality", "complexity", "assumptions", "goals", "diff", "pr", "report", "gate"},
-	"workflow":  {"skeleton", "lint"},
-	"theme":     {"apply"},
-	"gemini":    {"ask", "bridge"},
-	"tailscale": {"status", "machines", "connect", "key", "exit-node"},
-	"setup":     {"adopt", "nuke", "workspace"},
-	"worktree":  {"list", "create", "merge", "clean", "clean-all"},
+// compNode is one point in the completion spec tree: a verb or one of its subcommand words.
+type compNode struct {
+	sub   map[string]*compNode // subcommand words, keyed by the literal word
+	flags []flagInfo           // this node's own flags
+	args  []func() []string    // positional slot domains, in order; a nil entry means no domain
+	rest  func() []string      // domain for positions beyond len(args); nil = free text (no completion)
 }
 
 // noComplete names the verbs that forward argv to a launched agent CLI (or, for science, exec a
-// child with argv): a bare "<verb> --<TAB>" must offer nothing, since their flags belong to a process
-// this binary never inspects. A safe subword under one of these (gemini ask, gemini bridge) is
-// unaffected — see the len(path)==1 guard in flagLookup/remainingFlags.
+// child with argv): a bare "<verb> --<TAB>" must offer nothing, since their flags belong to a
+// process this binary never inspects. A chosen subword (gemini ask, gemini bridge) is unaffected —
+// noComplete only gates flag lookups at depth 1 (see flagLookup/remainingFlags).
 var noComplete = map[string]bool{
 	"opus": true, "sonnet": true, "haiku": true, "fable": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,
 	"run": true, "science": true,
 }
 
-// flagsFor lists a path's own flags, keyed by the space-joined canonical path ("memory search",
-// "ask"). Hand-maintained from each verb's flag.NewFlagSet/extract* calls — keep it in sync with the
-// verb body it describes when either changes.
-var flagsFor = map[string][]flagInfo{
-	"resolve":          {{name: "provider", values: providerNames}, {name: "router", isBool: true}},
-	"clean":            {{name: "target"}, {name: "older-than"}, {name: "dry-run", isBool: true}, {name: "yes", isBool: true}, {name: "list", isBool: true}},
-	"secrets set":      {{name: "file", isBool: true}, {name: "dry-run", isBool: true}},
-	"switch":           {{name: "dry-run", isBool: true}},
-	"secrets get":      {{name: "export", isBool: true}},
-	"secrets git":      {{name: "since"}},
-	"secrets all":      {{name: "since"}}, // forwards its args to `secrets git`
-	"history snapshot": {{name: "note"}},
-	"history log":      {{name: "n"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"generate":         {{name: "out"}},
-	"usage":            {{name: "session"}, {name: "days"}, {name: "format", values: func() []string { return []string{"text", "json"} }}, {name: "workflows", isBool: true}},
-	"describe":         {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"doctor":           {{name: "audit", isBool: true}, {name: "days"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"mcp doctor":       {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"install":          {{name: "dry-run", isBool: true}},
-	"theme":            {{name: "preview", isBool: true}},
-	"theme apply":      {{name: "dry-run", isBool: true}},
-	// memory's flagset is built once per subcommand and always carries --repo (declared ahead of the
-	// switch in cmdMemory), even on arms like stats/update that never read it back out.
-	"memory init":     {{name: "repo"}},
-	"memory search":   {{name: "repo"}, {name: "all", isBool: true}, {name: "k"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"memory index":    {{name: "repo"}},
-	"memory path":     {{name: "repo"}},
-	"memory update":   {{name: "repo"}, {name: "transcript"}, {name: "cwd"}, {name: "session"}},
-	"memory watch":    {{name: "session"}, {name: "transcript"}, {name: "cwd"}, {name: "owner"}, {name: "idle"}},
-	"memory doctor":   {{name: "repo"}, {name: "stale-days"}, {name: "notice", isBool: true}},
-	"memory stats":    {{name: "repo"}},
-	"memory timeline": {{name: "repo"}, {name: "n"}},
-	"memory promote":  {{name: "repo"}},
-	"memory archive":  {{name: "repo"}, {name: "dupes", isBool: true}, {name: "split"}, {name: "apply", isBool: true}, {name: "restore", isBool: true}},
-	"memory migrate":  {{name: "dry-run", isBool: true}, {name: "manifest"}, {name: "supersede", isBool: true}, {name: "origin"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"router serve":    {{name: "port"}},
-	"ask": {{name: "agent", values: agentNames}, {name: "provider", values: providerNames}, {name: "model"},
-		{name: "effort"}, {name: "workdir"}, {name: "session"}, {name: "tools", isBool: true},
-		{name: "timeout"}, {name: "format"}, {name: "rubric"}, {name: "retry"}, {name: "log", isBool: true}},
-	"agents sync": {{name: "vendor"}, {name: "dry-run", isBool: true}, {name: "check", isBool: true}, {name: "no-prune", isBool: true}},
-	"agents tree": {{name: "days"}, {name: "session"}, {name: "running", isBool: true}, {name: "all", isBool: true},
-		{name: "watch", isBool: true}, {name: "interval"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"models": {{name: "provider", values: providerNames}, {name: "unpin", isBool: true}, {name: "live", isBool: true}, {name: "pin"}, {name: "dry-run", isBool: true}},
-	"gemini bridge": {{name: "task"}, {name: "model"}, {name: "provider", values: providerNames}, {name: "effort"},
-		{name: "dirs"}, {name: "files"}, {name: "format"}, {name: "max-files"}, {name: "max-file-bytes"},
-		{name: "timeout"}, {name: "print-command", isBool: true}, {name: "rubric"}, {name: "index", isBool: true}, {name: "diff", isBool: true}},
-	"workflow skeleton":  {{name: "name"}},
-	"tailscale status":   {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"tailscale machines": {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"tailscale connect":  {{name: "auth-key"}, {name: "key-env"}, {name: "exit-node", isBool: true}},
-	"tailscale key": {{name: "ephemeral", isBool: true}, {name: "preauthorized", isBool: true}, {name: "reusable", isBool: true},
-		{name: "tags"}, {name: "expiry"}, {name: "description"}},
-	"tailscale exit-node": {{name: "enable", isBool: true}, {name: "disable", isBool: true}, {name: "approve", isBool: true}},
-	"setup adopt":         {{name: "from"}, {name: "into"}, {name: "dry-run", isBool: true}, {name: "label"}},
-	"setup nuke": {{name: "dir"}, {name: "apply", isBool: true}, {name: "keep-memory", isBool: true},
-		{name: "account", isBool: true}, {name: "cli", isBool: true}},
-	"setup workspace": {{name: "with"}, {name: "dry-run", isBool: true}},
-	"dispatch": {{name: "host"}, {name: "dir"}, {name: "agent", values: func() []string { return dispatch.Agents }},
-		{name: "name"}, {name: "dry-run", isBool: true}, {name: "list", isBool: true}, {name: "attach", isBool: true},
-		{name: "status", isBool: true}, {name: "interval"},
-		{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"web":             {{name: "addr"}, {name: "hosts"}, {name: "days"}, {name: "dry-run-dispatch", isBool: true}},
-	"web browsers":    {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"web view":        {{name: "session"}, {name: "days"}, {name: "n"}, {name: "follow", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"web setup":       {{name: "browser", values: func() []string { return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"} }}, {name: "dry-run", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"worktree list":   {{name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"worktree create": {{name: "branch"}},
-	"worktree merge": {{name: "dry-run", isBool: true}, {name: "target"}, {name: "no-clean", isBool: true},
-		{name: "resolve-agent", values: func() []string { return []string{"claude", "codex"} }}, {name: "resume", isBool: true}},
-	"worktree clean":     {{name: "dry-run", isBool: true}},
-	"worktree clean-all": {{name: "dry-run", isBool: true}, {name: "yes", isBool: true}},
-}
-
-// "gemini ask" is `ask` with --agent/--provider pre-filled; the flags it accepts are the same ones.
-func init() { flagsFor["gemini ask"] = flagsFor["ask"] }
-
-// positionals complete a path's first bare argument, keyed by the canonical path.
-var positionals = map[string]func() []string{
-	"switch":            providerNames,
-	"profile":           providerNames,
-	"theme":             statusline.GradientNames,
-	"run":               vendorNames,
-	"hook":              hookNames,
-	"workflow skeleton": workflowPatterns,
-	"setup workspace":   setupWorkspaceSubwords,
-}
-
-func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
-
-func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
-
-func hookNames() []string {
-	return []string{"safety", "stop-format", "context-checkpoint", "session-start",
-		"memory-recall", "session-harvest", "session-harvest-end"}
-}
-
-func workflowPatterns() []string {
-	return []string{"pipeline", "parallel", "evaluator", "orchestrator"}
-}
-
-// providerNames reads the provider registry straight off disk (no network): the same file
-// `claude-code profile`/`switch` already read.
-func providerNames() []string {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	return reg.Names()
-}
-
-// agentNames lists the `ask --agent` runner names; agent.Runners() only builds the roster, it never
-// dials a runner.
-func agentNames() []string {
-	var out []string
-	for _, r := range agent.Runners() {
-		out = append(out, r.Name())
-	}
-	return out
-}
-
-// knownPath splits the typed words into the known verb path (canonical name, plus a subVerbs word)
-// and the rest (flags/values/positionals). nil path ⇒ the first word is not a command.
-func knownPath(words []string) (path, rest []string) {
+// knownPath splits words into the known node path (canonical verb name, plus any resolved subwords)
+// and the rest (flags/values/positionals already typed). nil path ⇒ the first word is not a command.
+func knownPath(words []string) (path []string, node *compNode, rest []string) {
 	if len(words) == 0 {
-		return nil, words
+		return nil, nil, words
 	}
 	cmd := lookup(words[0])
 	if cmd == nil {
-		return nil, words
+		return nil, nil, words
+	}
+	tree := specTree()
+	n := tree[cmd.name]
+	if n == nil {
+		n = &compNode{}
 	}
 	path = []string{cmd.name} // canonical: an alias (use/token) resolves to switch/resolve here
-	if len(words) > 1 && isSubWord(cmd.name, words[1]) {
-		path = append(path, words[1])
+	i := 1
+	for i < len(words) && n.sub != nil {
+		next, ok := n.sub[words[i]]
+		if !ok || strings.HasPrefix(words[i], "-") {
+			break
+		}
+		n, path = next, append(path, words[i])
+		i++
 	}
-	return path, words[len(path):]
+	return path, n, words[i:]
 }
 
-func isSubWord(verb, w string) bool {
-	return !strings.HasPrefix(w, "-") && slices.Contains(subVerbs[verb], w)
-}
-
-// flagLookup resolves a typed "--name" against path's own flags; false when path is a bare launcher
+// flagLookup resolves a typed "--name" against node's own flags; false when node is a bare launcher
 // (no subword chosen yet) or the flag is unknown.
-func flagLookup(path []string, flagWord string) (flagInfo, bool) {
+func flagLookup(path []string, node *compNode, flagWord string) (flagInfo, bool) {
 	if len(path) == 1 && noComplete[path[0]] {
 		return flagInfo{}, false
 	}
 	name := strings.TrimLeft(flagWord, "-")
-	for _, f := range flagsFor[strings.Join(path, " ")] {
+	if node == nil {
+		return flagInfo{}, false
+	}
+	for _, f := range node.flags {
 		if f.name == name {
 			return f, true
 		}
@@ -216,42 +88,64 @@ func flagLookup(path []string, flagWord string) (flagInfo, bool) {
 	return flagInfo{}, false
 }
 
-func flagIsBool(path []string, flagWord string) bool {
-	f, ok := flagLookup(path, flagWord)
+func flagIsBool(path []string, node *compNode, flagWord string) bool {
+	f, ok := flagLookup(path, node, flagWord)
 	return ok && f.isBool
 }
 
 // flagValues completes the word after flagWord: nil when it's boolean, unknown, or has no domain.
-func flagValues(path []string, flagWord string) []string {
-	f, ok := flagLookup(path, flagWord)
+func flagValues(path []string, node *compNode, flagWord string) []string {
+	f, ok := flagLookup(path, node, flagWord)
 	if !ok || f.isBool || f.values == nil {
 		return nil
 	}
 	return f.values()
 }
 
-// remainingFlags lists path's own flags minus the ones already typed (rest); nil for a bare launcher.
-func remainingFlags(path, rest []string) []string {
+// remainingFlags lists node's own flags minus the ones already typed (rest); nil for a bare launcher.
+func remainingFlags(path []string, node *compNode, rest []string) []string {
 	if len(path) == 1 && noComplete[path[0]] {
 		return nil
 	}
+	if node == nil {
+		return nil
+	}
 	var out []string
-	for _, f := range flagsFor[strings.Join(path, " ")] {
+	for _, f := range node.flags {
 		out = append(out, "--"+f.name)
 	}
 	slices.Sort(out)
 	return slices.DeleteFunc(out, func(f string) bool { return slices.Contains(rest, f) })
 }
 
-func subWordsFor(path []string) []string {
-	if len(path) != 1 {
-		return nil
+// positionalInfo walks rest (the words after the resolved node, all already typed) and reports how
+// many positional slots they satisfied, skipping values consumed by a non-bool flag.
+func positionalInfo(path []string, node *compNode, rest []string) (count int) {
+	for i := 0; i < len(rest); i++ {
+		w := rest[i]
+		if !strings.HasPrefix(w, "-") {
+			count++
+			continue
+		}
+		if strings.Contains(w, "=") { // --flag=value consumes no following word
+			continue
+		}
+		if !flagIsBool(path, node, w) {
+			i++ // the next word is this flag's value, not a positional
+		}
 	}
-	return subVerbs[path[0]]
+	return count
 }
 
-func positionalsFor(path []string) func() []string {
-	return positionals[strings.Join(path, " ")]
+// positionalDomain returns the domain for positional slot i (the len(args)'th-and-beyond slots use rest).
+func positionalDomain(node *compNode, i int) func() []string {
+	if node == nil {
+		return nil
+	}
+	if i < len(node.args) {
+		return node.args[i]
+	}
+	return node.rest
 }
 
 // topLevelCandidates lists every visible command (+ "help"); a hidden command (or an alias) only
@@ -282,29 +176,31 @@ func completionCandidates(words []string) []string {
 		cur = words[len(words)-1]
 		words = words[:len(words)-1]
 	}
-	path, rest := knownPath(words)
+	path, node, rest := knownPath(words)
+
+	// "--flag=value": the current word itself carries the flag name before "=".
+	if strings.HasPrefix(cur, "-") && strings.Contains(cur, "=") {
+		name, valPrefix, _ := strings.Cut(cur, "=")
+		var out []string
+		for _, v := range flagValues(path, node, name) {
+			if strings.HasPrefix(v, valPrefix) {
+				out = append(out, name+"="+v)
+			}
+		}
+		return out
+	}
+
 	var cands []string
 	switch {
 	case len(rest) > 0 && strings.HasPrefix(rest[len(rest)-1], "-") && !strings.HasPrefix(cur, "-") &&
-		!flagIsBool(path, rest[len(rest)-1]):
-		cands = flagValues(path, rest[len(rest)-1]) // the value of the flag just typed
-	case len(rest) > 0 && strings.HasPrefix(rest[len(rest)-1], "-") && !strings.HasPrefix(cur, "-"):
-		// the flag just typed is boolean (no value slot) — offer the next flag, or positionals if none
-		cands = remainingFlags(path, rest)
-		if len(cands) == 0 {
-			if pos := positionalsFor(path); pos != nil {
-				cands = pos()
-			}
-		}
-	case strings.HasPrefix(cur, "-"):
-		cands = remainingFlags(path, rest)
+		!flagIsBool(path, node, rest[len(rest)-1]):
+		cands = flagValues(path, node, rest[len(rest)-1]) // the value of the flag just typed
 	case len(path) == 0 && len(rest) == 0:
 		cands = topLevelCandidates(cur)
-	case len(rest) == 0:
-		cands = subWordsFor(path)
-		if pos := positionalsFor(path); pos != nil {
-			cands = append(cands, pos()...) // a verb with both (theme: apply + palette names) offers both
-		}
+	case strings.HasPrefix(cur, "-"):
+		cands = remainingFlags(path, node, rest)
+	default:
+		cands = positionAwareCandidates(path, node, rest, cur)
 	}
 	var out []string
 	for _, c := range cands {
@@ -313,6 +209,27 @@ func completionCandidates(words []string) []string {
 		}
 	}
 	return out
+}
+
+// positionAwareCandidates handles the "next bare word" position: subwords (only at slot 0, right
+// after the verb path), the positional domain for that slot (or rest beyond it), and — whenever
+// that slot has no domain, or it's already satisfied and cur is empty — the node's remaining flags.
+func positionAwareCandidates(path []string, node *compNode, rest []string, cur string) []string {
+	i := positionalInfo(path, node, rest)
+	var cands []string
+	if i == 0 && node != nil {
+		for w := range node.sub {
+			cands = append(cands, w)
+		}
+	}
+	domain := positionalDomain(node, i)
+	if domain != nil {
+		cands = append(cands, domain()...)
+	}
+	if domain == nil || (cur == "" && i > 0) {
+		cands = append(cands, remainingFlags(path, node, rest)...)
+	}
+	return cands
 }
 
 // cmdComplete is the hidden __complete verb behind the shell shim: it receives the words typed after

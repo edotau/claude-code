@@ -46,16 +46,19 @@ func TestCompletionAliasPrefix(t *testing.T) {
 	}
 }
 
-// TestCompletionSubcommands: a hand-dispatched verb completes its subVerbs words in table order; an
-// unknown/leaf verb (doctor) offers nothing, so the shell falls back to filenames.
+// TestCompletionSubcommands: a hand-dispatched verb completes its subcommand words (order doesn't
+// matter — they come off a map, not a table); a leaf with no args/sub/flags (router start) offers
+// nothing, so the shell falls back to filenames.
 func TestCompletionSubcommands(t *testing.T) {
-	if got := completionCandidates([]string{"secrets", "s"}); !slices.Equal(got, []string{"set", "status", "scan"}) {
-		t.Errorf("secrets s* = %v, want [set status scan]", got)
+	got := completionCandidates([]string{"secrets", "s"})
+	slices.Sort(got)
+	if want := []string{"scan", "set", "status"}; !slices.Equal(got, want) {
+		t.Errorf("secrets s* = %v, want %v", got, want)
 	}
 	if got := completionCandidates([]string{"memory", "do"}); !slices.Equal(got, []string{"doctor"}) {
 		t.Errorf("memory do* = %v, want [doctor]", got)
 	}
-	if got := completionCandidates([]string{"doctor", ""}); len(got) != 0 {
+	if got := completionCandidates([]string{"router", "start", ""}); len(got) != 0 {
 		t.Errorf("leaf command should offer no candidates, got %v", got)
 	}
 }
@@ -170,8 +173,8 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "run", "science"} {
-		if _, ok := flagsFor[name]; ok {
-			t.Errorf("flagsFor must not carry a bare-launcher entry for %q", name)
+		if n := specTree()[name]; n != nil && len(n.flags) != 0 {
+			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
 		done := make(chan []string, 1)
 		go func() { done <- completionCandidates([]string{name, "--"}) }()

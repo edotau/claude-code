@@ -104,9 +104,10 @@ func describe() (Describe, error) {
 		if strings.HasPrefix(c.name, "__") {
 			continue
 		}
+		node := specTree()[c.name]
 		d.Commands = append(d.Commands, DescribeCommand{
 			Name: c.name, Group: c.group, Summary: c.summary, Aliases: c.aliases, Hidden: c.hidden,
-			Subverbs: subVerbs[c.name], Flags: flagNames(c.name),
+			Subverbs: subwordNames(node), Flags: flagNames(node),
 		})
 	}
 	d.Providers = DescribeProviders{Default: reg.Default, Fallback: reg.Fallback}
@@ -133,13 +134,27 @@ func describe() (Describe, error) {
 	return d, nil
 }
 
-// flagNames lists a verb's completable flags across its subverbs, "--flag" or "--flag <value>", sorted.
-func flagNames(verb string) []string {
+// subwordNames lists node's own subcommand words, sorted; nil for a leaf/launcher node.
+func subwordNames(node *compNode) []string {
+	if node == nil || node.sub == nil {
+		return nil
+	}
+	out := make([]string, 0, len(node.sub))
+	for w := range node.sub {
+		out = append(out, w)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// flagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
+// "--flag <value>", sorted.
+func flagNames(node *compNode) []string {
+	if node == nil {
+		return nil
+	}
 	seen := map[string]bool{}
-	for key, infos := range flagsFor {
-		if key != verb && !strings.HasPrefix(key, verb+" ") {
-			continue
-		}
+	add := func(infos []flagInfo) {
 		for _, f := range infos {
 			name := "--" + f.name
 			if !f.isBool {
@@ -147,6 +162,10 @@ func flagNames(verb string) []string {
 			}
 			seen[name] = true
 		}
+	}
+	add(node.flags)
+	for _, sub := range node.sub {
+		add(sub.flags)
 	}
 	out := make([]string, 0, len(seen))
 	for n := range seen {

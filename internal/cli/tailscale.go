@@ -80,6 +80,11 @@ func tailscaleMachines(ctx context.Context, args []string) int {
 	if err != nil {
 		return fail("tailscale machines: %v", err)
 	}
+	names := make([]string, 0, len(machines))
+	for _, m := range machines {
+		names = append(names, m.Name)
+	}
+	writeDispatchCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
 	if *format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, machines)
 		return 0
