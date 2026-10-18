@@ -34,11 +34,29 @@ func Authorize(ctx context.Context, p *Provider, h http.Header) error {
 	return nil
 }
 
-// LiveModels GETs the provider's model catalog on whichever route it has (Anthropic /v1/models, else OpenAI /models).
+// anthropicOAuthBeta is the header Claude Code's own client sends alongside a setup-token bearer.
+const anthropicOAuthBeta = "oauth-2025-04-20"
+
+// LiveModels GETs the provider's model catalog on whichever route it has (Anthropic /v1/models, else OpenAI
+// /models). A passthrough provider (subscription) has no credential this command can mint on its own, so it
+// tries the stored setup-token as a bearer credential; ErrPassthrough means even that is unavailable, and the
+// caller falls back to the registry's own configured models.
 func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
-	url := ""
+	entries, err := liveModelEntries(ctx, p)
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.id
+	}
+	return ids, err
+}
+
+// liveModelEntry is one catalog row: the id plus the display name when the API sends one (Anthropic does).
+type liveModelEntry struct{ id, name string }
+
+func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
+	url, anthropicDialect := "", false
 	if r, ok := p.Route(DialectAnthropic); ok {
-		url = r + "/v1/models"
+		url, anthropicDialect = r+"/v1/models", true
 	} else if r, ok := p.Route(DialectOpenAI); ok {
 		url = r + "/models"
 	} else {
@@ -48,7 +66,17 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := Authorize(ctx, p, req.Header); err != nil {
+	if anthropicDialect {
+		req.Header.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
+	}
+	if p.Auth.Type == AuthPassthrough {
+		tok := HeadlessOAuthToken()
+		if tok == "" {
+			return nil, ErrPassthrough
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+	} else if err := Authorize(ctx, p, req.Header); err != nil {
 		return nil, err
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -62,17 +90,18 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 	}
 	var doc struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", url, err)
 	}
-	ids := make([]string, len(doc.Data))
+	out := make([]liveModelEntry, len(doc.Data))
 	for i, m := range doc.Data {
-		ids[i] = m.ID
+		out[i] = liveModelEntry{id: m.ID, name: m.DisplayName}
 	}
-	return ids, nil
+	return out, nil
 }
 
 // ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one:
