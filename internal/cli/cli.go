@@ -63,6 +63,7 @@ func commands() []command {
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
+		{name: "web", group: groupSession, summary: "phone-friendly tailnet page: watch agents, dispatch new ones", run: cmdWeb},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (see also mcp doctor)", run: cmdDoctor},
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
