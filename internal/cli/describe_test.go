@@ -38,7 +38,7 @@ func TestDescribeCoversVerbsAndHooks(t *testing.T) {
 
 // flagNames merges a verb's own flags with its subverbs' and renders value-taking ones with a placeholder.
 func TestFlagNamesMergesSubverbs(t *testing.T) {
-	got := strings.Join(flagNames("memory"), " ")
+	got := strings.Join(flagNames(specTree()["memory"]), " ")
 	for _, want := range []string{"--repo <value>", "--notice", "--session <value>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("flagNames(memory) = %q, missing %q", got, want)
