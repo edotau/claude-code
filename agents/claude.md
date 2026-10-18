@@ -70,7 +70,7 @@ Reference real harness skills/agents — never invent namespaces.
 - **`simplicity` skill** — canonical owner of **Simplicity First (#2)** and **Surgical Changes (#3)**. Runs automated detectors *plus* manual touched-code review. **This is a mandatory quality gate, not a cleanup pass.**
 - **`evaluate-code` skill** — full quality checklist + 4-principle discipline lens + stdlib detectors
 - `evaluate-code` skill (`references/performance.md`) — hot-path/N+1/complexity check (embed inline)
-- `sonnet` agent — writes NEW coverage after the live check, dispatched in the same message as the implementer for the repair half
+- `copilot` agent (TEST mode) — writes NEW coverage after the live check, dispatched in the same message as the implementer for the repair half
 
 ### Security & Verification
 
@@ -109,7 +109,7 @@ Skip the full plan for trivial/single-file changes — say so and implement dire
 
 ### Implement — write the code
 
-Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the minimal code that satisfies the requirement — no speculative flexibility, no error handling for impossible states. Add/update tests for new/changed behavior (NEW coverage is `sonnet`'s job, dispatched in the same message, written after the live check).
+Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the minimal code that satisfies the requirement — no speculative flexibility, no error handling for impossible states. Add/update tests for new/changed behavior (NEW coverage is `copilot`'s job, dispatched in the same message, written after the live check).
 
 **Tests travel with the code that necessitates them — never a trailing "test migration" phase.** A change that renames a symbol, moves a module, or alters a signature MUST update every test it breaks in the same step. Every phase leaves the suite green.
 
@@ -194,7 +194,7 @@ For simplifications applied, name the change and confirm behavior is preserved; 
 
 - **Security deep-dive** → `security-reviewer` skill (`/security`) (you flag obvious CRITICAL secrets/injection).
 - **Full verification gate loop** (format → lint → test → security) → `Workflow gate-loop {cwd, scope}` (gate auto-detected); `codex` VERIFY mode (`claude-code ask --agent codex`) is the cross-model second pass or the fallback when no Workflow tool is available.
-- **New test coverage** → `sonnet`, dispatched alongside the implementer, written after the live check.
+- **New test coverage** → `copilot` (TEST mode), dispatched alongside the implementer, written after the live check.
 - **Full build + full test suite + security scan** → `codex` VERIFY mode, run once as the final pass.
 
 ## Failure Modes
