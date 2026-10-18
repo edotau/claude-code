@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // resolveFixtureConflictSetup builds the same divergent-edit-to-the-same-file conflict preflight_test.go
@@ -230,6 +232,7 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 		StartedAt:         time.Now(),
 		Deadline:          time.Now().Add(10 * time.Minute),
 		Agent:             "claude",
+		AgentExitOK:       true, // the agent itself returned success, fallback-free, before the crash
 	}
 	if err := SaveOperation(op); err != nil {
 		t.Fatalf("SaveOperation: %v", err)
@@ -292,6 +295,12 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 		t.Fatalf("result.AfterOID = %s, want the resolved worktree HEAD %s", result.AfterOID, headOf(wt))
 	}
 
+	// Matches production order (cmdWorktreeMerge): IntegrateTarget always runs after resolution,
+	// pinning plan.IntegratedOID — content is already merged, so this is a no-op re-merge.
+	if _, err := IntegrateTarget(repo, plan); err != nil {
+		t.Fatalf("IntegrateTarget: %v", err)
+	}
+
 	// Main moves on after resolution but before Promote — plan.TargetOID is now stale.
 	mergeFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
 	advancedMain := headOf(main)
@@ -309,6 +318,47 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	if headOf(main) != advancedMain {
 		t.Fatalf("main HEAD = %s, want unchanged %s (Promote must not fall back to a real merge)", headOf(main), advancedMain)
 	}
+}
+
+// TestResolveWithAgentRefusesWhileLeaseHeld is the regression test for Appendix A codex-review
+// finding #3's lease half (internal/worktree/resolve.go:134): a concurrent resolve/resume for the
+// same worktree must never run alongside a still-active one — ResolveWithAgent must refuse outright
+// rather than race it into polling, promoting, or cleaning up underneath the original.
+func TestResolveWithAgentRefusesWhileLeaseHeld(t *testing.T) {
+	repo, main, wt, plan := resolveFixtureConflictSetup(t)
+	mainBefore := headOf(main)
+
+	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, _ = paths.TryFileLock(operationLeasePath(repo.Main, filepath.Base(wt)), 2*time.Second, func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	defer close(release)
+
+	_, _, err := ResolveWithAgent(repo, plan, "claude", nil)
+	if err == nil {
+		t.Fatal("ResolveWithAgent: want an error while another resolve/resume holds the lease")
+	}
+	if !strings.Contains(err.Error(), "already active") {
+		t.Fatalf("err = %q, want it to report the lease conflict", err)
+	}
+	// Refused before ever touching the worktree: no conflict was materialized, main stayed clean.
+	mh, mhErr := hasMergeHead(wt)
+	if mhErr != nil {
+		t.Fatal(mhErr)
+	}
+	if mh {
+		t.Fatal("a conflict was materialized despite the lease refusal")
+	}
+	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch covers an explicitly selected Codex

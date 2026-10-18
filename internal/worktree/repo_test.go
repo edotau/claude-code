@@ -230,6 +230,32 @@ func detachedHead(t *testing.T) string {
 	return dir
 }
 
+// TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot is the regression test for Appendix A
+// codex-review finding #4 (internal/worktree/repo.go:85): when a worktree root is symlinked straight
+// onto the live main checkout (as `~/worktrees/.claude` -> `~/.claude` would be), a name like "internal"
+// that already exists as a real subdirectory of the live checkout must never be accepted as if it were
+// a worktree of that repo — common-dir equality alone is satisfied (it IS the same repo), but it is the
+// live checkout's own source tree, not a worktree.
+func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	// repo.Root pointed directly at the main checkout — the symlinked-root scenario, reproduced
+	// without needing a real symlink: Root(main) == main is exactly what that symlink collapses to.
+	repo := &Repo{Main: main, Root: main}
+
+	internal := filepath.Join(main, "internal")
+	if err := os.MkdirAll(internal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(internal, "source.go"), []byte("package internal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ResolveWorktree(repo, "internal"); err == nil {
+		t.Fatal("ResolveWorktree: want an error — the live checkout's own subdirectory must never be treated as a worktree")
+	}
+}
+
 func TestResolveRepoDetachedHEAD(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	main := detachedHead(t)

@@ -222,6 +222,26 @@ func TestPreflightDirtyTarget(t *testing.T) {
 	}
 }
 
+// TestPreflightDirtyWorktreeWithShowUntrackedFilesOff is the regression test for Appendix A
+// codex-review finding #8 (internal/worktree/preflight.go:216): a repo-local
+// status.showUntrackedFiles=no must not let an untracked file hide a dirty worktree from Preflight —
+// isDirty must explicitly request untracked files regardless of that config.
+func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
+	repo, _, wt := mergeFixtureSetup(t)
+	mergeFixtureRun(t, wt, "config", "status.showUntrackedFiles", "no")
+	if err := os.WriteFile(filepath.Join(wt, "untracked.txt"), []byte("new file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Preflight(repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDirtyWorktree {
+		t.Fatalf("Issues = %v, want one IssueDirtyWorktree (an untracked file must still count as dirty)", plan.Issues)
+	}
+}
+
 func TestPreflightDirtyWorktree(t *testing.T) {
 	repo, _, wt := mergeFixtureSetup(t)
 	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
@@ -294,6 +314,29 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 	}
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueUnrelatedHistories {
 		t.Fatalf("Issues = %v, want one IssueUnrelatedHistories", plan.Issues)
+	}
+}
+
+// TestInProgressOpPropagatesNonNotExistStatError is the regression test for Appendix A codex-review
+// finding #9's inProgressOp half (internal/worktree/preflight.go:239): a stat failure that is NOT
+// "file doesn't exist" (permission denied on the git-dir) must propagate as an error, never be
+// silently read as "no operation in progress".
+func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks don't apply when running as root")
+	}
+	_, _, wt := mergeFixtureSetup(t)
+	gitDir, err := gitDirOf(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(gitDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	if _, _, err := inProgressOp(wt); err == nil {
+		t.Fatal("inProgressOp: want a propagated error for a permission-denied stat, got nil")
 	}
 }
 

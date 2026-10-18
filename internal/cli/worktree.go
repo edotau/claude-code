@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -13,8 +14,8 @@ import (
 
 const worktreeUsage = `usage: claude-code worktree list [--format text|json]
        claude-code worktree create <name> [--branch <b>]
-       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--resolve-agent claude|codex] <name>
-       claude-code worktree merge --resume [--target <ref>] [--no-clean] <name>
+       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--verify "<cmd>"] [--resolve-agent claude|codex] <name>
+       claude-code worktree merge --resume [--target <ref>] [--no-clean] [--verify "<cmd>"] <name>
        claude-code worktree clean [--dry-run] <name>
        claude-code worktree clean-all [--dry-run|--yes]
 `
@@ -107,9 +108,9 @@ func printEntry(e worktree.Entry) {
 	for _, p := range e.Problems {
 		fmt.Printf("  ! %s\n", p)
 	}
-	fmt.Printf("  reopen:  cd %q\n", e.Path)
+	fmt.Printf("  reopen:  cd %s\n", shellQuote(e.Path))
 	if eligibleForClean(e) {
-		fmt.Printf("  cleanup: claude-code worktree clean %q\n", name)
+		fmt.Printf("  cleanup: claude-code worktree clean %s\n", shellQuote(name))
 	}
 }
 
@@ -148,6 +149,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	dryRun := fs.Bool("dry-run", false, "preview the plan, including predicted conflicts, without integrating or promoting")
 	target := fs.String("target", "", "require the main checkout to be on this branch (default: whatever it's on)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
+	verify := fs.String("verify", "", "run this command (e.g. the project's gate) inside the worktree after integration; a nonzero exit stops before promotion and preserves the worktree")
 	resolveAgent := fs.String("resolve-agent", "", "resolve a predicted conflict with this agent instead of stopping: claude|codex")
 	resume := fs.Bool("resume", false, "resume a previously started --resolve-agent operation for <name> (never re-invokes the agent)")
 	if fs.Parse(args) != nil {
@@ -188,6 +190,14 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	}
 	fmt.Printf("integrated: %s -> %s\n", shortOID(integrated.BeforeOID), shortOID(integrated.AfterOID))
 
+	if *verify != "" {
+		if err := runVerify(plan.WorktreePath, *verify); err != nil {
+			fmt.Fprintf(os.Stderr, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
+			return fail("worktree merge: verify failed, not promoting: %v", err)
+		}
+		fmt.Println("verify: passed")
+	}
+
 	promoted, err := worktree.Promote(repo, plan)
 	if err != nil {
 		if promoted != nil && promoted.ResumeHint != "" {
@@ -198,7 +208,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fmt.Printf("promoted:   %s -> %s on %s\n", shortOID(promoted.BeforeOID), shortOID(promoted.AfterOID), plan.TargetRef)
 
 	if *noClean {
-		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", name)
+		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", shellQuote(name))
 		return 0
 	}
 	result, err := worktree.Clean(repo, name, false)
@@ -247,6 +257,7 @@ func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRu
 		return nil, nil
 	}
 
+	origTargetRef, origTargetOID := plan.TargetRef, plan.TargetOID
 	_, result, err := worktree.ResolveWithAgent(repo, plan, resolveAgent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve: %w", err)
@@ -260,6 +271,10 @@ func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRu
 	if len(plan.Issues) > 0 {
 		printMergePlan(plan)
 		return nil, fmt.Errorf("still blocked after agent resolution (%s)", issueCodes(plan.Issues))
+	}
+	if plan.TargetRef != origTargetRef || plan.TargetOID != origTargetOID {
+		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) during resolution — re-run worktree merge explicitly to retry against the new target",
+			origTargetRef, shortOID(origTargetOID), plan.TargetRef, shortOID(plan.TargetOID))
 	}
 	return plan, nil
 }
@@ -292,6 +307,10 @@ func resumeWorktreeMerge(repo *worktree.Repo, name, target string) (*worktree.Me
 	if len(fresh.Issues) > 0 {
 		printMergePlan(fresh)
 		return nil, fmt.Errorf("still blocked after resuming resolution (%s)", issueCodes(fresh.Issues))
+	}
+	if fresh.TargetOID != op.TargetOID {
+		return nil, fmt.Errorf("target moved from %s to %s since the operation started — re-run worktree merge explicitly to retry against the new target",
+			shortOID(op.TargetOID), shortOID(fresh.TargetOID))
 	}
 	return fresh, nil
 }
@@ -385,6 +404,17 @@ func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 		fmt.Printf("%d eligible, %d refused — preview only, pass --yes to remove\n", removed, len(results)-removed)
 	}
 	return 0
+}
+
+// runVerify runs cmdStr (via sh -c, so a pipeline/compound command works) inside workDir, inheriting
+// stdout/stderr so the caller sees the gate's own output; a nonzero exit is the one signal that stops
+// promotion.
+func runVerify(workDir, cmdStr string) error {
+	cmd := exec.Command("sh", "-c", cmdStr)
+	cmd.Dir = workDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func printCleanResult(r worktree.CleanResult, dryRun bool) {

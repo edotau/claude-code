@@ -12,7 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
+
+// leasedFileLock tries once (no wait) for the exclusive lease at path; ran=false means another
+// resolve/resume already holds it. Unlike paths.WithFileLock, TryFileLock does not create path's
+// parent directory, so this does it first — the operations dir may not exist yet on a first resolve.
+func leasedFileLock(path string, fn func() error) (ran bool, err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return paths.TryFileLock(path, 0, fn)
+}
 
 // Bounded-wait knobs and the one seam over the real agent dispatch; a test shrinks the first two and
 // fakes the clock/agent through the vars so the whole poll loop runs in milliseconds, never a real model.
@@ -94,10 +106,37 @@ const (
 // ResolveWithAgent drives one agent-mediated conflict resolution to completion. op == nil starts
 // fresh: it materializes plan's merge-tree-predicted conflict for real inside the worktree (never
 // repo.Main) and invokes agentName once, with tools enabled, to resolve and commit it there. op != nil
-// is the --resume path: it skips straight to polling the saved operation — a tools-enabled agent is
-// never re-invoked automatically, crash or not. Either way, only Promote (the caller's job) commits
-// repo.Main; this function only polls and reports.
+// is the --resume path: it requires a persisted, successful, fallback-free agent-exit receipt
+// (op.AgentExitOK) before even polling — a failed, timed-out, or still-running operation can never be
+// waved through by git state alone — then skips straight to polling the saved operation; a
+// tools-enabled agent is never re-invoked automatically, crash or not. Either way, only Promote (the
+// caller's job) commits repo.Main; this function only polls and reports. The whole call — fresh or
+// resumed — holds an exclusive per-operation lease, so a concurrent resume can never race a still-active
+// original (or another resume) into promoting/cleaning the worktree out from under it.
 func ResolveWithAgent(repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
+	resuming := op != nil
+	if resuming && !op.AgentExitOK {
+		return nil, nil, fmt.Errorf(
+			"resolve: operation %s has no persisted successful agent-exit receipt (phase %q) — the agent may still be running or never completed; refusing to resume", op.ID, op.Phase)
+	}
+	name := filepath.Base(plan.WorktreePath)
+	var resultOp *Operation
+	var resultMerge *MergeResult
+	var innerErr error
+	ran, lockErr := leasedFileLock(operationLeasePath(repo.Main, name), func() error {
+		resultOp, resultMerge, innerErr = resolveWithAgentLeased(repo, plan, agentName, op)
+		return nil
+	})
+	if lockErr != nil {
+		return nil, nil, lockErr
+	}
+	if !ran {
+		return nil, nil, fmt.Errorf("resolve: another resolve/resume is already active for worktree %q", name)
+	}
+	return resultOp, resultMerge, innerErr
+}
+
+func resolveWithAgentLeased(repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
 	if op == nil {
 		materialized, err := materializeConflict(plan)
 		if err != nil {
@@ -129,6 +168,10 @@ func ResolveWithAgent(repo *Repo, plan *MergePlan, agentName string, op *Operati
 		if res.Fallback != "" {
 			return failOperation(op, fmt.Errorf(
 				"resolve: requested agent %q fell back to %q — refusing a silently different model", agentName, res.Fallback))
+		}
+		op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
+		if err := SaveOperation(op); err != nil {
+			return nil, nil, err
 		}
 	}
 	return pollUntilResolved(op, plan.WorktreePath)

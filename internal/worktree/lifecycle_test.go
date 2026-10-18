@@ -338,6 +338,88 @@ func TestCleanAllPreviewThenApply(t *testing.T) {
 	}
 }
 
+// gitDirOfForTest resolves dest's own private git-dir the same way the production code does, for a
+// test that needs to drop an operation marker directly into it.
+func gitDirOfForTest(t *testing.T, dest string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestCleanRefusesPendingAutostash is the regression test for Appendix A codex-review finding #5
+// (internal/worktree/lifecycle.go:83): a pending merge that used --autostash moves the worktree's own
+// local edits into the stash and leaves MERGE_HEAD/MERGE_AUTOSTASH set — `git status --porcelain`
+// reports clean (the edits are no longer in the working tree at all), so without an explicit
+// in-progress-operation check, Clean would otherwise remove the worktree and strand the only pointer
+// to those stashed edits held in its own private git-dir.
+func TestCleanRefusesPendingAutostash(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Create(repo, "autostashed", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitDir := gitDirOfForTest(t, dest)
+	// Simulate an interrupted `git merge --autostash`: both markers present, working tree otherwise clean.
+	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte(headOf(dest)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_AUTOSTASH"), []byte("deadbeef\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Clean(repo, "autostashed", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Removed {
+		t.Fatal("Clean: want refusal while a merge with a pending autostash restore is in progress")
+	}
+	if !strings.Contains(result.Reason, "autostash") && !strings.Contains(result.Reason, "merge") {
+		t.Errorf("Reason = %q, want it to mention the in-progress merge/autostash", result.Reason)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatal("worktree (and its only reference to the stashed edits) must survive a refused clean")
+	}
+}
+
+// TestIsLockedPropagatesNonNotExistStatError is the regression test for Appendix A codex-review
+// finding #9's isLocked half (internal/worktree/preflight.go:239, "isLocked similarly reports
+// unlocked on inspection errors"): a stat failure that is NOT "file doesn't exist" (here, permission
+// denied on the containing directory) must propagate as an error, never be read as "unlocked".
+func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks don't apply when running as root")
+	}
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Create(repo, "permcheck", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitDir := gitDirOfForTest(t, dest)
+	if err := os.Chmod(gitDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) }) // TempDir cleanup needs this back
+
+	locked, lockErr := isLocked(dest)
+	if lockErr == nil {
+		t.Fatalf("isLocked: want a propagated error for a permission-denied stat, got locked=%v, nil error", locked)
+	}
+}
+
 func TestCleanAllSkipsOrphanedEntries(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	main := gitRepo(t)

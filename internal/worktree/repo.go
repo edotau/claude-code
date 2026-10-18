@@ -80,11 +80,40 @@ func ResolveWorktree(repo *Repo, name string) (string, error) {
 }
 
 // ownsWorktree reports whether dest is itself a worktree sharing repo's common git dir — the only
-// reliable way to tell "this is our worktree" from "something else already lives at this path".
+// reliable way to tell "this is our worktree" from "something else already lives at this path". It
+// rejects dest outright when it is the live main checkout or a subdirectory of it (e.g. a symlinked
+// ~/worktrees/<repo> pointing straight at the main checkout would otherwise let a name like "internal"
+// resolve to the live checkout's own subdirectory), and requires dest to be a worktree *root* — its own
+// `--show-toplevel` must equal dest — so a subdirectory of some other checkout can't pass common-dir
+// equality alone and be mistaken for a worktree.
 func ownsWorktree(repo *Repo, dest string) (bool, error) {
-	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	destCanon, err := canonical(dest)
+	if err != nil {
+		return false, err
+	}
+	mainCanon, err := canonical(repo.Main)
+	if err != nil {
+		return false, err
+	}
+	if destCanon == mainCanon || strings.HasPrefix(destCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
+		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
+	}
+
+	topOut, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
 	if err != nil {
 		return false, nil // not a git repo at all is a collision, not a resolution error
+	}
+	top, err := canonical(strings.TrimSpace(string(topOut)))
+	if err != nil {
+		return false, err
+	}
+	if top != destCanon {
+		return false, nil // dest is a subdirectory of some checkout's worktree root, not a worktree root itself
+	}
+
+	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return false, nil
 	}
 	common, err := canonical(strings.TrimSpace(string(out)))
 	if err != nil {

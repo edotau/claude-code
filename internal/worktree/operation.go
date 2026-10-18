@@ -23,6 +23,7 @@ type Operation struct {
 	StartedAt         time.Time
 	Deadline          time.Time
 	Agent             string // "claude" | "codex"
+	AgentExitOK       bool   // true only once the agent process itself returned success with no fallback
 }
 
 // operationsDir holds one JSON file per repo+worktree under the harness's existing runtime state dir.
@@ -33,6 +34,13 @@ func operationsDir() string { return filepath.Join(paths.StateDir(), "worktree-m
 func operationPath(repoMain, name string) string {
 	slug := paths.Slug(filepath.Base(filepath.Clean(repoMain))+"-"+name, "._-", 0, "op")
 	return filepath.Join(operationsDir(), slug+".json")
+}
+
+// operationLeasePath is a separate lock file (not operationPath+".lock", to avoid colliding with
+// paths.WithFileLock's own ".lock" suffix convention) held for the full duration of one ResolveWithAgent
+// call — fresh or resumed — so a concurrent resume can never race the still-running original.
+func operationLeasePath(repoMain, name string) string {
+	return operationPath(repoMain, name) + ".lease"
 }
 
 // SaveOperation atomically writes op, overwriting any prior state saved for the same repo+worktree.

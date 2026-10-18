@@ -34,13 +34,14 @@ type Issue struct {
 // target branch, and every Issue found. A non-empty Issues means Merge must not proceed — the plan
 // itself is still returned so a caller (notably `worktree merge --dry-run`) can show why.
 type MergePlan struct {
-	CommonDir    string
-	MainPath     string
-	WorktreePath string
-	TargetRef    string
-	TargetOID    string
-	SourceOID    string
-	Issues       []Issue
+	CommonDir     string
+	MainPath      string
+	WorktreePath  string
+	TargetRef     string
+	TargetOID     string
+	SourceOID     string
+	IntegratedOID string // set by IntegrateTarget; Promote refuses unless the worktree HEAD still matches
+	Issues        []Issue
 }
 
 // runGit is the one seam over external git invocation in this file and merge.go: a test fakes a
@@ -211,9 +212,10 @@ func checkCheckoutState(path, dirtyCode string) (*Issue, error) {
 }
 
 // isDirty mirrors Inspect's own check in list.go; kept local since Preflight checks the main checkout
-// as well as a worktree, and Inspect's signature only ever runs against the latter.
+// as well as a worktree, and Inspect's signature only ever runs against the latter. --untracked-files=all
+// overrides a repo-local status.showUntrackedFiles=no, which would otherwise hide new files from this check.
 func isDirty(path string) (bool, error) {
-	out, err := runGit(path, nil, "status", "--porcelain", "--ignore-submodules=none")
+	out, err := runGit(path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
 		return false, fmt.Errorf("git status in %s: %w", path, err)
 	}
@@ -221,23 +223,31 @@ func isDirty(path string) (bool, error) {
 }
 
 // opMarkers names the per-worktree git-dir markers for a mid-operation state; a linked worktree's own
-// git-dir (never --git-common-dir) carries these, distinct per worktree.
+// git-dir (never --git-common-dir) carries these, distinct per worktree. MERGE_AUTOSTASH means a
+// restore of the pre-merge local edits is still pending — see lifecycle.go's Clean, which refuses on it.
 var opMarkers = []struct{ marker, op string }{
 	{"MERGE_HEAD", "merge"},
+	{"MERGE_AUTOSTASH", "merge (autostash restore pending)"},
 	{"CHERRY_PICK_HEAD", "cherry-pick"},
 	{"rebase-merge", "rebase"},
 	{"rebase-apply", "rebase"},
 }
 
-// inProgressOp reports the name of a mid-operation marker found under path's own git-dir, if any.
+// inProgressOp reports the name of a mid-operation marker found under path's own git-dir, if any. Only
+// a confirmed os.IsNotExist counts as "no marker" — any other stat error (e.g. permission denied) is an
+// unknown state and must propagate, never be read as clean.
 func inProgressOp(path string) (op string, found bool, err error) {
 	gitDir, err := gitDirOf(path)
 	if err != nil {
 		return "", false, err
 	}
 	for _, m := range opMarkers {
-		if _, statErr := os.Stat(filepath.Join(gitDir, m.marker)); statErr == nil {
+		_, statErr := os.Stat(filepath.Join(gitDir, m.marker))
+		if statErr == nil {
 			return m.op, true, nil
+		}
+		if !os.IsNotExist(statErr) {
+			return "", false, fmt.Errorf("check %s in %s: %w", m.marker, gitDir, statErr)
 		}
 	}
 	return "", false, nil
