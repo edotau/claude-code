@@ -1058,3 +1058,17 @@ func TestApplySupersedingFinishesEarlierCopies(t *testing.T) {
 		t.Errorf("guard does not see the superseding journal as the completed migration: %+v", g)
 	}
 }
+
+// TestMergeAppendOnlyAccessLogs: a grown or diverged access log merges instead of blocking the migration.
+func TestMergeAppendOnlyAccessLogs(t *testing.T) {
+	for _, tc := range []struct{ dst, src, want string }{
+		{"", "a\nb\n", "a\nb\n"},
+		{"a\n", "a\nb\nc\n", "a\nb\nc\n"},
+		{"a\nb\nc\n", "a\n", "a\nb\nc\n"},
+		{"a\nx\n", "a\nb\n", "a\nx\nb\n"},
+	} {
+		if got := mergeAppendOnly(tc.dst, tc.src); got != tc.want {
+			t.Errorf("mergeAppendOnly(%q, %q) = %q, want %q", tc.dst, tc.src, got, tc.want)
+		}
+	}
+}

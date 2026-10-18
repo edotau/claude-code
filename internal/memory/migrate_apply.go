@@ -291,6 +291,8 @@ func (a *applier) copyPhase() error {
 			err = a.mark(it, stepBlocked, "")
 		case act == ActionCopy && a.badDest(it):
 			err = a.mark(it, stepConflict, a.j.Steps[it.ID].DestSHA256)
+		case act == ActionCopy && it.Kind == KindAccessLog: // append-only state: merge, never conflict on growth
+			err = a.mergeAccessLog(it)
 		case it.Inline != nil:
 			err = a.originItem(it)
 		default:
@@ -357,6 +359,50 @@ func (a *applier) importItem(it MigrateItem) error {
 		}
 	}
 	return a.retireSource(it, stepQuarantined)
+}
+
+// mergeAccessLog writes the union of source and dest (prefix-aware, order kept), then retires the source.
+func (a *applier) mergeAccessLog(it MigrateItem) error {
+	src, err := os.ReadFile(it.Source)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	dst, err := os.ReadFile(it.Dest)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	merged := mergeAppendOnly(string(dst), string(src))
+	if err := os.MkdirAll(filepath.Dir(it.Dest), 0o700); err != nil {
+		return err
+	}
+	if err := paths.AtomicWrite(it.Dest, []byte(merged), 0o600); err != nil {
+		return err
+	}
+	if err := os.Remove(it.Source); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return a.mark(it, stepRetired, sha256Hex([]byte(merged)))
+}
+
+// mergeAppendOnly keeps dst and appends src's lines it lacks; a pure prefix relation keeps the longer log.
+func mergeAppendOnly(dst, src string) string {
+	switch {
+	case strings.HasPrefix(src, dst):
+		return src
+	case strings.HasPrefix(dst, src):
+		return dst
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(dst, "\n") {
+		have[l] = true
+	}
+	out := strings.TrimRight(dst, "\n")
+	for _, l := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
+		if l != "" && !have[l] {
+			out += "\n" + l
+		}
+	}
+	return out + "\n"
 }
 
 // resumed trusts a journal step only after the dest still hashes to what it recorded.
