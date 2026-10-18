@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -99,8 +98,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if len(req.Prompt) > MaxPromptBytes {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(req.Prompt))}
 	}
-	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Writable: gitCommonDirOutside(req)}
+	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools}
 	var env, argv []string
 	if own {
 		env, argv, err = vendors.OwnLoginHeadless(v.name, h)
@@ -348,21 +346,4 @@ func parseGeminiStream(r io.Reader, w io.Writer) (Result, error) {
 	}
 	res.Answer = strings.TrimSpace(answer.String())
 	return res, nil
-}
-
-// gitCommonDirOutside is the workdir's git common dir when a tools run's workdir is a linked worktree: its index,
-// objects and refs live in the main repo's .git, outside a workspace sandbox, so `git commit` there would fail.
-func gitCommonDirOutside(req Request) []string {
-	if !req.Tools || req.WorkDir == "" {
-		return nil
-	}
-	out, err := exec.Command("git", "-C", req.WorkDir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if err != nil {
-		return nil
-	}
-	dir := strings.TrimSpace(string(out))
-	if rel, err := filepath.Rel(req.WorkDir, dir); err == nil && !strings.HasPrefix(rel, "..") {
-		return nil // an ordinary checkout: .git is inside the workspace already
-	}
-	return []string{dir}
 }
