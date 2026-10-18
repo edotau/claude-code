@@ -28,7 +28,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 }
 
 // TestMenuRowsOrderNoSeparateProviderRow: the top-level menu is claude, then every vendors.Names() CLI
-// in roster order, then the section rows, then Done (appended by runMenu, not menuRows) — "provider" is
+// in roster order, then Done (appended by runMenu, not menuRows); sections are `configure <section>` args — "provider" is
 // folded into the claude row and must not appear again as its own entry.
 func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	reg := menuTestEnv(t)
@@ -40,7 +40,7 @@ func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	for _, r := range rows {
 		labels = append(labels, r[0])
 	}
-	want := []string{"claude", "codex", "gemini", "opencode", "copilot", "Models", "Router", "GitHub", "Remote", "Browser", "Doctor"}
+	want := []string{"claude", "codex", "gemini", "opencode", "copilot"}
 	if strings.Join(labels, ",") != strings.Join(want, ",") {
 		t.Fatalf("menu rows = %v, want %v", labels, want)
 	}
@@ -96,35 +96,6 @@ func TestRunMenuDoneRowLeavesImmediately(t *testing.T) {
 	}
 	if rc := runMenu(&dialog{reg: reg, out: discardWriter{}}); rc != 0 {
 		t.Errorf("rc = %d, want 0", rc)
-	}
-}
-
-// TestRunMenuSectionRowRunsOnceThenReturnsToMenu: picking a section row (Models) runs that section's
-// existing entry point exactly once, then the menu re-renders — picking Done next leaves.
-func TestRunMenuSectionRowRunsOnceThenReturnsToMenu(t *testing.T) {
-	reg := menuTestEnv(t)
-	origMenu := pickMenu
-	t.Cleanup(func() { pickMenu = origMenu })
-	var out bytes.Buffer
-	call := 0
-	pickMenu = func(title string, rows [][2]string, start int) (int, error) {
-		call++
-		if call == 1 {
-			for i, r := range rows {
-				if r[0] == "Models" {
-					return i, nil
-				}
-			}
-			t.Fatal("no Models row")
-		}
-		return len(rows) - 1, nil // Done on the second render
-	}
-	rc := runMenu(&dialog{reg: reg, out: &out})
-	if rc != 0 || call != 2 {
-		t.Fatalf("rc=%d calls=%d, want rc=0 after exactly 2 picker calls (Models, then Done)", rc, call)
-	}
-	if n := strings.Count(out.String(), "== models =="); n != 1 {
-		t.Errorf("models section header appeared %d times, want exactly 1:\n%s", n, out.String())
 	}
 }
 

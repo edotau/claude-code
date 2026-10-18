@@ -3,16 +3,7 @@
 package configure
 
 import (
-	"context"
-	"strings"
-	"time"
-
-	"github.com/edotau/claude-code/internal/browser"
-	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -71,24 +62,6 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 			changeKey(d, kts[0])
 		})
 	}
-	if scope == "" {
-		rows = append(rows,
-			[2]string{"Models", modelsStatus(d)},
-			[2]string{"Router", routerStatus(d)},
-			[2]string{"GitHub", githubMenuStatus()},
-			[2]string{"Remote", remoteMenuStatus()},
-			[2]string{"Browser", browserMenuStatus()},
-			[2]string{"Doctor", "run checks"},
-		)
-		actions = append(actions,
-			func(d *dialog) { d.header("models"); runModels(d) },
-			func(d *dialog) { d.header("router"); runRouter(d) },
-			func(d *dialog) { d.header("github"); runGithub(d) },
-			func(d *dialog) { d.header("remote"); runRemote(d) },
-			func(d *dialog) { d.header("browser"); runBrowser(d) },
-			func(d *dialog) { d.header("doctor"); launch.Doctor(d.out) },
-		)
-	}
 	return rows, actions
 }
 
@@ -104,67 +77,4 @@ func claudeStatus(d *dialog) string {
 		return detail
 	}
 	return backendDetail(d.reg, cur)
-}
-
-// modelsStatus is the Models row's detail: the resolved wire model per slot.
-func modelsStatus(d *dialog) string {
-	sel, err := providers.Select(d.reg, "")
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	parts := make([]string, 0, len(models.Slots))
-	for _, s := range models.Slots {
-		if _, ok := sel.Slots[s]; ok {
-			parts = append(parts, s+"="+sel.ClientModel(s))
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// routerStatus is the Router row's detail: not needed, off, or already running.
-func routerStatus(d *dialog) string {
-	sel, err := providers.Select(d.reg, "")
-	if err != nil {
-		return "error"
-	}
-	if !sel.NeedsRouter(d.reg) {
-		return "not needed"
-	}
-	if _, running := router.Running(context.Background()); running {
-		return "running"
-	}
-	return "off"
-}
-
-// githubMenuStatus is the GitHub row's detail: the gh CLI's own login state.
-func githubMenuStatus() string {
-	if ghAuthCheck().loggedIn {
-		return "logged in"
-	}
-	return "not logged in"
-}
-
-// remoteMenuStatus is the Remote row's detail: tailscale connectivity.
-func remoteMenuStatus() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	if _, err := tailscale.Status(ctx); err == nil {
-		return "tailscale running"
-	}
-	return "tailscale not connected"
-}
-
-// browserMenuStatus is the Browser row's detail: the system default browser and its extension state.
-func browserMenuStatus() string {
-	rep := browser.Detect(browser.NewEnv())
-	if rep.Default == "" {
-		return "no default browser detected"
-	}
-	ext := ""
-	for _, b := range rep.Browsers {
-		if b.Default {
-			ext = b.Paths.Extension
-		}
-	}
-	return rep.Default + " default · extension " + ext
 }
