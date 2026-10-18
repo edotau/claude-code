@@ -270,6 +270,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
+		check(true, false, "gemini route", geminiRouteDetail(reg, sel, serr))
 	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
@@ -398,6 +399,20 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 		return ri.Reason
 	}
 	return fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
+}
+
+// geminiRouteDetail reports which credential `ask --agent gemini` resolves to today: the Google AI Pro
+// login (google-ai) when selected in ~/.gemini/settings.json, else the keyed gemini provider.
+func geminiRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
+	loginPresent := vendors.GeminiLoginPresent()
+	if selErr != nil {
+		return fmt.Sprintf("login=%v (%v)", loginPresent, selErr)
+	}
+	target, _, err := vendors.ResolveTarget(reg, "gemini", sel, false)
+	if err != nil || target.Provider == nil {
+		return fmt.Sprintf("login=%v (%v)", loginPresent, orErr("", err))
+	}
+	return fmt.Sprintf("provider=%s model=%s login=%v", target.Provider.Name, target.Model, loginPresent)
 }
 
 func routerStatus() string {

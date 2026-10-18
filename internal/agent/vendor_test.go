@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Sampled from `opencode run --format json` 1.18.31 (ids shortened).
@@ -62,5 +67,45 @@ func TestParseGeminiStreamError(t *testing.T) {
 	res, err := parseGeminiStream(strings.NewReader(stream), &strings.Builder{})
 	if err == nil || !strings.Contains(err.Error(), "gemini-nope-9 is not found") || res.SessionID != "s2" {
 		t.Fatalf("err = %v, res = %+v", err, res)
+	}
+}
+
+// `ask --agent gemini` with a Google login selected but no cached oauth_creds.json must fail fast with
+// an actionable message, never exec the real gemini CLI (which would hang on its own browser sign-in
+// prompt headless). A fake "gemini" on PATH that would print that prompt and sleep proves it: if the
+// check above it ever regressed to running the binary first, this test would time out and the marker
+// file would exist.
+func TestVendorRunnerGeminiLoginMissingCredsFailsFastWithoutExec(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GEMINI_API_KEY", "")
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
+		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	marker := filepath.Join(t.TempDir(), "invoked")
+	bindir := t.TempDir()
+	script := "#!/bin/sh\ntouch " + marker + "\necho 'Login with Google'\nsleep 60\n"
+	if err := os.WriteFile(filepath.Join(bindir, "gemini"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bindir)
+
+	start := time.Now()
+	_, err := vendorRunner{"gemini"}.Run(context.Background(), Request{Prompt: "hi"}, io.Discard)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %v, want an immediate fast-fail", elapsed)
+	}
+	if err == nil || !strings.Contains(err.Error(), "no cached Google sign-in") {
+		t.Fatalf("err = %v, want an actionable \"no cached Google sign-in\" error", err)
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("the fake gemini binary was invoked; the credential check must fail before exec")
 	}
 }

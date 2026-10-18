@@ -214,11 +214,21 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 }
 
 // OpencodeCopilotModelIDs swaps the registry's "auto" haiku default for the provider's OpencodeFallback,
-// while the sonnet slot's own (non-"auto") id passes through unchanged.
+// while the sonnet slot's own (non-"auto") id passes through unchanged. The production registry's
+// github-copilot entry no longer defaults haiku to "auto" (it now pins a concrete id), so this overlays
+// a synthetic one to keep exercising the swap itself, independent of that literal.
 func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
 		t.Setenv(k, "")
+	}
+	overlay := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com",` +
+		`"auth":{"type":"passthrough","login":"copilot"},` +
+		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
+		`"opencode_fallback":"mai-code-1.1-flash"}}}`
+	if err := os.WriteFile(providers.UserFile(), []byte(overlay), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
