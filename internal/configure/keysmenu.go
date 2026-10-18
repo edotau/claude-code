@@ -1,7 +1,10 @@
 package configure
 
 import (
+	"cmp"
 	"github.com/edotau/claude-code/internal/tui"
+	"regexp"
+	"strings"
 )
 
 // pickKey is the terminal picker seam; tests replace it.
@@ -42,19 +45,47 @@ func keyRows(targets []keyTarget) ([][2]string, bool) {
 	return rows, allOK
 }
 
-// keyStatus is the row's right-hand column: where the credential lives and whether a live probe accepts it.
+// keyStatus is the row's right-hand column, one pattern for every credential: how it signs in · how it bills ·
+// the live check ("verified" paints green) — e.g. "API key · per-token usage · verified", "OAuth login · ChatGPT plan".
 func keyStatus(kt keyTarget) string {
 	if !kt.present {
 		return "missing · pick to set up"
 	}
-	status, _ := probe(kt)
-	switch status {
-	case "rejected":
-		return "rejected · pick to fix"
-	case "", "login":
-		return kt.source
+	if kt.provider != nil && kt.envVar != "" {
+		status, _ := probe(kt)
+		switch status {
+		case "rejected":
+			return "API key · per-token usage · rejected · pick to fix"
+		case "", "login":
+			status = "unverified"
+		}
+		return "API key · per-token usage · " + status
 	}
-	return kt.source + " · " + status
+	return loginLine(kt)
+}
+
+// planOf names the plan a login bills against, by agent; the claude row carries its tier, e.g. "subscription (max)".
+var planOf = map[string]string{"claude": "subscription", "codex": "ChatGPT plan", "copilot": "Copilot plan", "opencode": "Copilot plan"}
+
+var tierRE = regexp.MustCompile(`\((\w+)\)`)
+
+// loginLine renders a login-based credential: "OAuth login · <plan>", or "GitHub token" when an env token stands in.
+func loginLine(kt keyTarget) string {
+	plan := cmp.Or(planOf[kt.label], "subscription")
+	if kt.label == "claude" {
+		if m := tierRE.FindStringSubmatch(kt.source); m != nil {
+			plan += " (" + m[1] + ")"
+		}
+	}
+	signIn := "OAuth login"
+	if strings.HasPrefix(kt.source, "GH_TOKEN") || strings.HasPrefix(kt.source, "GITHUB_TOKEN") {
+		signIn = "GitHub token"
+	}
+	line := signIn + " · " + plan
+	if kt.headless {
+		line += " · headless token"
+	}
+	return line
 }
 
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
