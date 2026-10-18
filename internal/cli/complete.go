@@ -48,7 +48,7 @@ var subVerbs = map[string][]string{
 	"gemini":    {"ask", "bridge"},
 	"tailscale": {"status", "machines", "connect", "key", "exit-node"},
 	"setup":     {"adopt", "nuke", "workspace"},
-	"worktree":  {"list", "create", "clean", "clean-all"},
+	"worktree":  {"list", "create", "merge", "clean", "clean-all"},
 }
 
 // noComplete names the verbs that forward argv to a launched agent CLI (or, for science, exec a
@@ -127,6 +127,7 @@ var flagsFor = map[string][]flagInfo{
 	"web setup":          {{name: "browser", values: func() []string { return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"} }}, {name: "dry-run", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"worktree list":      {{name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"worktree create":    {{name: "branch"}},
+	"worktree merge":     {{name: "dry-run", isBool: true}, {name: "target"}, {name: "no-clean", isBool: true}},
 	"worktree clean":     {{name: "dry-run", isBool: true}},
 	"worktree clean-all": {{name: "dry-run", isBool: true}, {name: "yes", isBool: true}},
 }
