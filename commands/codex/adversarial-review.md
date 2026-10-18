@@ -133,8 +133,8 @@ ${FOCUS:+Additional focus: $FOCUS}
 ${DIFF:0:400000}
 </diff>"
 
-  # --no-fallback: a second-model-family review that silently ran on Claude is worse than no review.
-  if claude-code ask --agent codex --no-fallback "$PROMPT" 2>&1 | tee "$HANDOFF"; then
+  # --fallback vendors: an unavailable codex may hand off to another vendor family, never to Claude.
+  if claude-code ask --agent codex --fallback vendors "$PROMPT" 2>&1 | tee "$HANDOFF"; then
     STATE="complete"
     RC=0
   else

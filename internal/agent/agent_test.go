@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -133,7 +134,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
 // serving provider, or an exec failure with no answer) should fall back; everything else must not.
-func TestCodexUnavailable(t *testing.T) {
+func TestLegUnavailable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
 	deadline := &Error{Kind: KindFatal, Err: context.DeadlineExceeded}
@@ -150,10 +151,9 @@ func TestCodexUnavailable(t *testing.T) {
 		want bool
 	}{
 		{"nil error", &fakeRunner{name: "codex"}, Request{}, Result{}, nil, false},
-		{"not codex", &fakeRunner{name: "fake"}, Request{}, Result{}, genericErr, false},
+		{"claude ends the chain", &fakeRunner{name: "claude"}, Request{}, Result{}, genericErr, false},
+		{"any vendor leg", &fakeRunner{name: "gemini"}, Request{}, Result{}, genericErr, true},
 		{"non-empty answer", &fakeRunner{name: "codex"}, Request{}, Result{Answer: "partial"}, genericErr, false},
-		{"explicit provider", &fakeRunner{name: "codex"}, Request{Provider: "openai"}, Result{}, genericErr, false},
-		{"explicit non-claude model", &fakeRunner{name: "codex"}, Request{Model: "openai:gpt-4"}, Result{}, genericErr, false},
 		{"deadline exceeded", &fakeRunner{name: "codex"}, Request{}, Result{}, deadline, false},
 		{"canceled", &fakeRunner{name: "codex"}, Request{}, Result{}, canceled, false},
 		{"prompt too large", &fakeRunner{name: "codex"}, Request{}, Result{}, tooLarge, false},
@@ -163,8 +163,8 @@ func TestCodexUnavailable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := codexUnavailable(c.r, c.req, c.res, c.err); got != c.want {
-				t.Errorf("codexUnavailable() = %v, want %v", got, c.want)
+			if got := legUnavailable(c.r, c.res, c.err); got != c.want {
+				t.Errorf("legUnavailable() = %v, want %v", got, c.want)
 			}
 		})
 	}
@@ -179,11 +179,12 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("falls back and reports it", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
-		if !strings.Contains(res.FallbackReason, "executable file not found") || strings.Contains(res.FallbackReason, "\n") {
+		if !strings.HasPrefix(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "executable file not found") ||
+			strings.Contains(res.FallbackReason, "\n") {
 			t.Fatalf("FallbackReason = %q, want the last line of the codex error", res.FallbackReason)
 		}
 		if len(claude.seen) != 1 || claude.seen[0].Prompt != "p" {
@@ -191,10 +192,36 @@ func TestRunWithFallback(t *testing.T) {
 		}
 	})
 
+	t.Run("vendor legs come before claude and the first answer wins", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
+		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
+		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: true}, errs: []error{nil}}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		req := Request{Prompt: "p", Model: "gpt-6-astra"}
+		res, err := RunWithFallback(context.Background(), codex, []Runner{gemini, opencode, claude}, req, io.Discard, nil)
+		if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
+			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
+		}
+		if !strings.Contains(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "; gemini: ") {
+			t.Errorf("FallbackReason = %q, want one entry per skipped leg", res.FallbackReason)
+		}
+		if gemini.seen[0].Model != "" || opencode.seen[0].Model != "" {
+			t.Errorf("a vendor leg must take its own default model, saw %q / %q", gemini.seen[0].Model, opencode.seen[0].Model)
+		}
+	})
+
+	t.Run("an empty chain means no fallback", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
+		res, err := RunWithFallback(context.Background(), codex, nil, Request{Prompt: "p"}, io.Discard, nil)
+		if err == nil || res.Fallback != "" || res.Agent != "codex" {
+			t.Fatalf("res=%+v err=%v", res, err)
+		}
+	})
+
 	t.Run("success needs no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -203,7 +230,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -213,7 +240,7 @@ func TestRunWithFallback(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "openai:gpt-4"}
-		res, err := RunWithFallback(context.Background(), codex, claude, req, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, req, io.Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -230,7 +257,7 @@ func TestRunWithFallback(t *testing.T) {
 			codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 			claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
 			req := Request{Prompt: "p", Model: m.in}
-			if _, err := RunWithFallback(context.Background(), codex, claude, req, io.Discard, nil); err != nil {
+			if _, err := RunWithFallback(context.Background(), codex, []Runner{claude}, req, io.Discard, nil); err != nil {
 				t.Fatalf("model=%q err=%v", m.in, err)
 			}
 			if len(claude.seen) != 1 || claude.seen[0].Model != m.want {
@@ -247,7 +274,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 
 	codex := &codexHang{}
-	_, err := RunWithFallback(context.Background(), codex, claude,
+	_, err := RunWithFallback(context.Background(), codex, []Runner{claude},
 		Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
@@ -256,7 +283,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	codex = &codexHang{}
-	_, err = RunWithFallback(ctx, codex, claude, Request{Prompt: "p"}, io.Discard, nil)
+	_, err = RunWithFallback(ctx, codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -272,4 +299,29 @@ func (h *codexHang) Run(ctx context.Context, _ Request, _ io.Writer) (Result, er
 	h.calls++
 	<-ctx.Done()
 	return Result{}, ctx.Err()
+}
+
+// TestFallbackChain: vendors only in roster order without the requester, claude last only under "all".
+func TestFallbackChain(t *testing.T) {
+	names := func(rs []Runner) []string {
+		var out []string
+		for _, r := range rs {
+			out = append(out, r.Name())
+		}
+		return out
+	}
+	codex := &fakeRunner{name: "codex"}
+	all := names(FallbackChain(codex, FallbackAll))
+	if len(all) == 0 || all[len(all)-1] != "claude" || slices.Contains(all, "codex") || slices.Contains(all, "api") {
+		t.Errorf("all = %v, want installed vendors (no codex/api) then claude", all)
+	}
+	if v := names(FallbackChain(codex, FallbackVendors)); slices.Contains(v, "claude") {
+		t.Errorf("vendors = %v, must never include claude", v)
+	}
+	if n := FallbackChain(codex, FallbackNone); n != nil {
+		t.Errorf("none = %v, want nil", names(n))
+	}
+	if c := FallbackChain(&fakeRunner{name: "claude"}, FallbackAll); c != nil {
+		t.Errorf("claude itself never falls back, got %v", names(c))
+	}
 }

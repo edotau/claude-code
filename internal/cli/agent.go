@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,8 +23,8 @@ import (
 
 func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (codex falls back to claude if codex is unavailable)")
-	noFallback := fs.Bool("no-fallback", false, "fail instead of rerunning an unavailable codex on claude (a second-family review must not silently become a Claude one)")
+	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (an unavailable vendor falls back per --fallback)")
+	fallback := fs.String("fallback", agent.FallbackAll, "when a vendor agent is unavailable: all (other vendors, then claude) | vendors (never claude) | none")
 	provider := fs.String("provider", "", "provider (default: pin, then registry default)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
@@ -86,19 +88,13 @@ func cmdAsk(args []string) int {
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
-	_ = rec.Save()                    // fail-open: the log is for replay and forensics, never a gate on the run
-	fb, err := agent.Lookup("claude") // codex's generalized fallback target; "claude" always resolves
-	if err != nil {
-		return fail("ask: %v", err)
+	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	if !slices.Contains(agent.FallbackModes, *fallback) {
+		return fail("ask: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
 	}
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	var res agent.Result
-	if *noFallback {
-		res, err = agent.Run(ctx, r, req, stream, notify)
-	} else {
-		res, err = agent.RunWithFallback(ctx, r, fb, req, stream, notify)
-	}
+	res, err := agent.RunWithFallback(ctx, r, agent.FallbackChain(r, *fallback), req, stream, notify)
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	for _, d := range res.Dropped {
@@ -207,7 +203,7 @@ func printDispatchLog(format string) int {
 		}
 		agentCol := r.Agent
 		if r.Fallback != "" {
-			agentCol = r.Fallback + "→claude"
+			agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 		}
 		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Duration, tools, preview)
 		if r.FallbackReason != "" {
