@@ -32,7 +32,8 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 		args = append(args, "--resume", req.SessionID)
 	}
 	if !req.Tools {
-		args = append(args, "--tools", "")
+		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
+		args = append(args, "--tools", "", "--setting-sources", "")
 	}
 	plan, err := launch.Claude(ctx, launch.Options{Provider: req.Provider, Model: req.Model}, args)
 	if err != nil {
@@ -128,7 +129,8 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 			sawResult = true
 			res.Answer = ev.Result
 			u := ev.Usage
-			res.Usage = Usage{InputTokens: u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
+			res.Usage = Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
+				CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
 			if ev.IsError {
 				return res, fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
 			}

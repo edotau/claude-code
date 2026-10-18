@@ -46,7 +46,7 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 		if out.Model != "" {
 			res.Model = out.Model
 		}
-		res.Answer, res.Usage = answer.String(), Usage{int(out.InputTokens), int(out.OutputTokens)}
+		res.Answer, res.Usage = answer.String(), Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
 		return res, err
 	}
 	base, ok := p.Route(providers.DialectOpenAI)
@@ -142,7 +142,7 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 			served = chunk.Model
 		}
 		if chunk.Usage != nil {
-			usage = Usage{chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens}
+			usage = Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
 		}
 		for _, c := range chunk.Choices {
 			if c.Delta.Content != "" {

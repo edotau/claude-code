@@ -81,7 +81,7 @@ func TestAPIRunnerAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (Usage{7, 2}) {
+	if out.String() != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (Usage{InputTokens: 7, OutputTokens: 2}) {
 		t.Errorf("res = %+v, stream %q", res, out.String())
 	}
 	if gotKey != "anth-key" || gotAuth != "" {
@@ -125,7 +125,7 @@ func TestAPIRunnerOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (Usage{5, 2}) {
+	if out.String() != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (Usage{InputTokens: 5, OutputTokens: 2}) {
 		t.Errorf("res = %+v stream %q", res, out.String())
 	}
 	if gotAuth != "Bearer oai-key" || !strings.Contains(gotBody, `"reasoning_effort":"high"`) || !strings.Contains(gotBody, `"stream":true`) {
