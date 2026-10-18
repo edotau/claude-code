@@ -133,7 +133,8 @@ ${FOCUS:+Additional focus: $FOCUS}
 ${DIFF:0:400000}
 </diff>"
 
-  if claude-code ask --agent codex "$PROMPT" 2>&1 | tee "$HANDOFF"; then
+  # --no-fallback: a second-model-family review that silently ran on Claude is worse than no review.
+  if claude-code ask --agent codex --no-fallback "$PROMPT" 2>&1 | tee "$HANDOFF"; then
     STATE="complete"
     RC=0
   else

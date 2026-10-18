@@ -183,6 +183,9 @@ func TestRunWithFallback(t *testing.T) {
 		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
+		if !strings.Contains(res.FallbackReason, "executable file not found") || strings.Contains(res.FallbackReason, "\n") {
+			t.Fatalf("FallbackReason = %q, want the last line of the codex error", res.FallbackReason)
+		}
 		if len(claude.seen) != 1 || claude.seen[0].Prompt != "p" {
 			t.Fatalf("fallback did not see the original request: %+v", claude.seen)
 		}

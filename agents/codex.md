@@ -99,8 +99,9 @@ harness maintenance; SKILL/PLUGIN fire whenever a harness artifact is authored o
 When dispatched as a one-shot leg (`claude-code ask --agent codex`), you run with a shell
 and edit rights, so every mode is available.
 `claude-code ask --agent codex` falls back to a Claude runner when the codex CLI is
-unavailable (binary missing, login/quota failure), never on a timeout — the result is
-tagged so the caller can tell.
+unavailable (binary missing, login/quota failure), never on a timeout — the result carries
+`fallback` + `fallback_reason`, and `ask --log` prints the reason. Pass `--no-fallback` when the
+second model family is the point (adversarial review): then the leg fails loudly instead.
 
 ---
 

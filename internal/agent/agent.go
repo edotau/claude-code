@@ -33,15 +33,16 @@ type Usage struct {
 
 // Result is the envelope `ask --format json` prints.
 type Result struct {
-	Agent     string        `json:"agent"`
-	Provider  string        `json:"provider,omitempty"`
-	Model     string        `json:"model,omitempty"`
-	SessionID string        `json:"session_id,omitempty"`
-	Answer    string        `json:"answer"`
-	Usage     Usage         `json:"usage"`
-	Duration  time.Duration `json:"duration_ns"`
-	Dropped   []string      `json:"dropped,omitempty"`
-	Fallback  string        `json:"fallback,omitempty"` // set to the original runner's name when it ran instead
+	Agent          string        `json:"agent"`
+	Provider       string        `json:"provider,omitempty"`
+	Model          string        `json:"model,omitempty"`
+	SessionID      string        `json:"session_id,omitempty"`
+	Answer         string        `json:"answer"`
+	Usage          Usage         `json:"usage"`
+	Duration       time.Duration `json:"duration_ns"`
+	Dropped        []string      `json:"dropped,omitempty"`
+	Fallback       string        `json:"fallback,omitempty"`        // set to the original runner's name when it ran instead
+	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original runner was unavailable
 }
 
 // Caps declares which Request fields a runner honors; Prompt and Timeout are always honored.
@@ -251,8 +252,18 @@ func RunWithFallback(ctx context.Context, r, fb Runner, req Request, stream io.W
 		}
 	}
 	fres, ferr := Run(ctx, fb, fbReq, stream, notify)
-	fres.Fallback = r.Name()
+	fres.Fallback, fres.FallbackReason = r.Name(), fallbackReason(err)
 	return fres, ferr
+}
+
+// fallbackReason keeps the last line of the failure (a vendor CLI prints its own ERROR line last), capped at 200 bytes.
+func fallbackReason(err error) string {
+	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
+	s := strings.TrimSpace(lines[len(lines)-1])
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return s
 }
 
 // codexUnavailable narrows "codex failed" to "codex itself is unreachable": the binary, the resolved

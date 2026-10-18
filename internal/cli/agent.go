@@ -22,6 +22,7 @@ import (
 func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (codex falls back to claude if codex is unavailable)")
+	noFallback := fs.Bool("no-fallback", false, "fail instead of rerunning an unavailable codex on claude (a second-family review must not silently become a Claude one)")
 	provider := fs.String("provider", "", "provider (default: pin, then registry default)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
@@ -91,7 +92,13 @@ func cmdAsk(args []string) int {
 		return fail("ask: %v", err)
 	}
 	start := time.Now()
-	res, err := agent.RunWithFallback(ctx, r, fb, req, stream, func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
+	var res agent.Result
+	if *noFallback {
+		res, err = agent.Run(ctx, r, req, stream, notify)
+	} else {
+		res, err = agent.RunWithFallback(ctx, r, fb, req, stream, notify)
+	}
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	for _, d := range res.Dropped {
@@ -203,6 +210,9 @@ func printDispatchLog(format string) int {
 			agentCol = r.Fallback + "→claude"
 		}
 		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Duration, tools, preview)
+		if r.FallbackReason != "" {
+			fmt.Printf("%-28s   fallback: %s\n", "", r.FallbackReason)
+		}
 	}
 	return 0
 }
