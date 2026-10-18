@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,87 @@ func setConfigDir(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	return dir
+}
+
+// noKeyring points PATH at an empty dir so keyring.Available() is false and Store/Delete never
+// touch the real OS keychain.
+func noKeyring(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
+// Store with forceFile must always write the file plane, even though no keyring is on PATH anyway.
+func TestStoreForceFileWritesFile(t *testing.T) {
+	setConfigDir(t)
+	plane, err := Store("A_KEY", "v", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plane != EnvFile() {
+		t.Errorf("plane = %q, want %q", plane, EnvFile())
+	}
+	if got := ReadAll()["A_KEY"]; got != "v" {
+		t.Errorf("A_KEY = %q, want v", got)
+	}
+}
+
+// Store with no keyring tool available must fall back to the file plane, not error.
+func TestStoreFallsBackToFileWithoutKeyring(t *testing.T) {
+	setConfigDir(t)
+	noKeyring(t)
+	plane, err := Store("B_KEY", "v", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plane != EnvFile() {
+		t.Errorf("plane = %q, want %q", plane, EnvFile())
+	}
+	if got := ReadAll()["B_KEY"]; got != "v" {
+		t.Errorf("B_KEY = %q, want v", got)
+	}
+}
+
+// Delete must remove the name from the file plane (the keyring side is a no-op without a tool).
+func TestDeleteRemovesFileLine(t *testing.T) {
+	setConfigDir(t)
+	noKeyring(t)
+	if err := SetFile("C_KEY", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete("C_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ReadAll()["C_KEY"]; ok {
+		t.Error("C_KEY still present after Delete")
+	}
+}
+
+// Delete on a name stored nowhere must be a no-op, not an error.
+func TestDeleteMissingIsNoop(t *testing.T) {
+	setConfigDir(t)
+	noKeyring(t)
+	if err := Delete("NEVER_SET"); err != nil {
+		t.Fatalf("Delete on an unset name must not error: %v", err)
+	}
+}
+
+// Redact must show only the length for a short value, and never the middle of a long one.
+func TestRedact(t *testing.T) {
+	if got := Redact("short"); got != "5 chars" {
+		t.Errorf("Redact(short) = %q, want %q", got, "5 chars")
+	}
+	if got := Redact("sk-abcdefghijklmnopq"); got != "20 chars" {
+		t.Errorf("Redact(20 chars) = %q, want length only", got)
+	}
+	long := "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"
+	got := Redact(long)
+	want := long[:8] + "…" + long[len(long)-4:] + ", " + strconv.Itoa(len(long)) + " chars"
+	if got != want {
+		t.Errorf("Redact(long) = %q, want %q", got, want)
+	}
+	if strings.Contains(got, long[9:len(long)-5]) {
+		t.Errorf("Redact(long) leaked the middle of the value: %q", got)
+	}
 }
 
 // SetFile/Get must round-trip through the file plane, and the written file must be 0600.
@@ -257,15 +340,25 @@ func TestScanGitNotARepo(t *testing.T) {
 	}
 }
 
-// KeyringGet/Set on a box with no keyring tool must degrade, never panic or hang.
-func TestKeyringDegradesWithoutTool(t *testing.T) {
-	if KeyringAvailable() {
-		t.Skip("a keyring tool is present on this box; degrade path not exercised")
+// Store indexes the name (never the value) and Delete drops it, so a keyring-only custom secret stays listable.
+func TestStoreAndDeleteMaintainNamesIndex(t *testing.T) {
+	setConfigDir(t)
+	noKeyring(t)
+	for _, n := range []string{"Z_KEY", "A_KEY", "Z_KEY"} {
+		if _, err := Store(n, "secret-value", false); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, ok := KeyringGet("ANYTHING"); ok {
-		t.Fatal("KeyringGet must miss when no keyring tool is available")
+	if got := Names(); !slices.Equal(got, []string{"A_KEY", "Z_KEY"}) {
+		t.Fatalf("Names = %q, want [A_KEY Z_KEY]", got)
 	}
-	if err := KeyringSet("ANYTHING", "v"); err == nil {
-		t.Fatal("KeyringSet must error when no keyring tool is available")
+	if b, _ := os.ReadFile(IndexFile()); strings.Contains(string(b), "secret-value") {
+		t.Fatal("index must hold names only")
+	}
+	if err := Delete("Z_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Names(); !slices.Equal(got, []string{"A_KEY"}) {
+		t.Fatalf("Names after Delete = %q, want [A_KEY]", got)
 	}
 }

@@ -7,14 +7,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/tui"
 )
 
 func init() { secretsRun = cmdSecrets }
 
 const secretsUsage = `usage: claude-code secrets <op> [flags]
-  set <NAME> [--keyring]   write a secret (value on stdin) to env.d/secrets.env, or the OS keyring
+  set [<NAME>] [--file]    write a secret to the OS keyring (env.d/secrets.env with --file or no keyring);
+                           value on stdin, or no NAME on a terminal for the guided dialog
   get <NAME> [--export]    resolve: keyring -> env.d/secrets.env -> process env
   status                   every registered provider's credential source (never the value)
   scan [paths...]          audit config files for inline plaintext secrets (default: the known surface)
@@ -97,10 +101,13 @@ func extractInt(args []string, name string, def int) (int, []string, error) {
 }
 
 func cmdSecretsSet(args []string) int {
-	useKeyring, rest := extractBool(args, "keyring")
+	forceFile, rest := extractBool(args, "file")
 	dryRun, rest := extractBool(rest, "dry-run")
+	if len(rest) == 0 && !dryRun && tui.StdinIsTerminal() {
+		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true}, forceFile)
+	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set <NAME> [--keyring] [--dry-run]   (value on stdin)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--file] [--dry-run]   (value on stdin; no NAME on a terminal = dialog)")
 		return 2
 	}
 	name := rest[0]
@@ -114,7 +121,7 @@ func cmdSecretsSet(args []string) int {
 	}
 	if dryRun {
 		plane, verb := secrets.EnvFile(), "add"
-		if useKeyring {
+		if !forceFile && keyring.Available() {
 			plane = "the OS keyring"
 		} else if _, ok := secrets.ReadAll()[name]; ok {
 			verb = "replace"
@@ -122,17 +129,11 @@ func cmdSecretsSet(args []string) int {
 		fmt.Printf("would %s %s in %s (%d chars); nothing written\n", verb, name, plane, len(value))
 		return 0
 	}
-	if useKeyring {
-		if err := secrets.KeyringSet(name, value); err != nil {
-			return fail("%v", err)
-		}
-		fmt.Fprintf(os.Stderr, "wrote %s to the OS keyring (%d chars)\n", name, len(value))
-		return 0
-	}
-	if err := secrets.SetFile(name, value); err != nil {
+	plane, err := secrets.Store(name, value, forceFile)
+	if err != nil {
 		return fail("secrets set: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s to %s (%d chars, 0600)\n", name, secrets.EnvFile(), len(value))
+	fmt.Fprintf(os.Stderr, "wrote %s to %s (%s)\n", name, plane, secrets.Redact(value))
 	return 0
 }
 

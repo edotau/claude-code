@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -19,9 +20,7 @@ type ProviderStatus struct {
 }
 
 // Resolve reports p's credential source using the SAME order providers.Credential() uses
-// (env -> env.d/secrets.env -> auth.file -> command), so the status line matches what a launch
-// would actually do. A keyring-only hit is reported separately as a note: `secrets get`/`set
-// --keyring` manage it, but the provider launch ladder does not consult it yet.
+// (env -> keyring -> env.d/secrets.env -> auth.file -> command), so the line matches what a launch does.
 func Resolve(p *providers.Provider) ProviderStatus {
 	st := ProviderStatus{Name: p.Name, Type: p.Auth.Type}
 	switch p.Auth.Type {
@@ -39,6 +38,8 @@ func Resolve(p *providers.Provider) ProviderStatus {
 	if p.Auth.Env != "" {
 		if v := strings.TrimSpace(os.Getenv(p.Auth.Env)); v != "" {
 			st.Source = "env"
+		} else if _, ok := keyring.Get(p.Auth.Env); ok {
+			st.Source = "keyring"
 		} else if v := ReadAll()[p.Auth.Env]; strings.TrimSpace(v) != "" {
 			st.Source = "file"
 		}
@@ -50,12 +51,6 @@ func Resolve(p *providers.Provider) ProviderStatus {
 	}
 	if st.Source == "" && p.Auth.Command != "" {
 		st.Source = "command"
-	}
-	if st.Source == "" && p.Auth.Env != "" {
-		if _, ok := KeyringGet(p.Auth.Env); ok {
-			st.Source = "keyring"
-			st.Note = "stored in the OS keyring; provider launch does not read this plane yet"
-		}
 	}
 	if st.Source == "" {
 		st.Source = "none"

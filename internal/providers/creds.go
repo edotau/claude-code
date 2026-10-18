@@ -22,7 +22,7 @@ type cached struct {
 
 var cmdCache sync.Map // provider name → cached
 
-// Credential resolves the provider's secret: env var → env.d/secrets.env → file → command (cached for TTL).
+// Credential resolves the provider's secret: env var → OS keyring → env.d/secrets.env → file → command (cached for TTL).
 func Credential(ctx context.Context, p *Provider) (string, error) {
 	switch p.Auth.Type {
 	case AuthNone:
@@ -34,7 +34,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 		if v := strings.TrimSpace(os.Getenv(p.Auth.Env)); v != "" {
 			return v, nil
 		}
-		if v := strings.TrimSpace(ReadEnvFile(SecretsFile())[p.Auth.Env]); v != "" {
+		if v := StoredSecret(p.Auth.Env); v != "" {
 			return v, nil
 		}
 	}

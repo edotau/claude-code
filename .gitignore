@@ -52,6 +52,7 @@
 /.claude.json
 /providers.json
 /env.d/*.env
+/env.d/secrets.index
 /env.d/*.lock
 !/env.d/*.example
 .env

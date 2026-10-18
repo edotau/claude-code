@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -122,10 +123,21 @@ func PinDiff(kv map[string]string) []string {
 const OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 
 // HeadlessOAuthToken is the stored setup-token for unattended `claude -p` runs: the process env first, then
-// env.d/secrets.env. "" when neither has one — the run then depends on the interactive /login session.
+// the OS keyring, then env.d/secrets.env. "" when none has one — the run then depends on the interactive /login session.
 func HeadlessOAuthToken() string {
 	if tok := strings.TrimSpace(os.Getenv(OAuthTokenEnv)); tok != "" {
 		return tok
 	}
-	return strings.TrimSpace(ReadEnvFile(SecretsFile())[OAuthTokenEnv])
+	return StoredSecret(OAuthTokenEnv)
+}
+
+// keyringGet is the OS keyring lookup; a seam so tests never touch the real keychain.
+var keyringGet = keyring.Get
+
+// StoredSecret is name from the managed stores: the OS keyring first, then env.d/secrets.env; "" when neither.
+func StoredSecret(name string) string {
+	if v, ok := keyringGet(name); ok {
+		return v
+	}
+	return strings.TrimSpace(ReadEnvFile(SecretsFile())[name])
 }

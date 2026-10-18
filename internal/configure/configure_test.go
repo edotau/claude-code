@@ -84,9 +84,10 @@ func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
 func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("PATH", t.TempDir()) // no `security`/`secret-tool` on PATH: Store must fall back to the file plane
 	kt := keyTarget{label: "gemini", envVar: "GEMINI_API_KEY", loginArgv: []string{"gemini"}, fixCmd: "x"}
 	opts := authOptions(kt)
-	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "GEMINI_API_KEY" || !strings.Contains(opts[1].label, "aistudio") {
+	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "GEMINI_API_KEY" || !strings.Contains(opts[1].desc, "aistudio") {
 		t.Fatalf("authOptions = %+v, want browser login then key with its console URL", opts)
 	}
 	in := strings.NewReader("n\ny\nn\n  sk-test-value \n")
@@ -102,7 +103,7 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if strings.Contains(out.String(), "logged in") {
 		t.Error("login must not have run after being declined")
 	}
-	for _, want := range []string{"Sign in via browser (gemini)? [Y/n]", "Paste an API key (GEMINI_API_KEY)"} {
+	for _, want := range []string{"Browser login — gemini? [Y/n]", "Paste API key — create at aistudio.google.com/apikey"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("dialog lacks %q:\n%s", want, out.String())
 		}
