@@ -103,16 +103,16 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 	}
 	if loggedIn {
 		rows = append(rows,
-			billingRow{"Re-login", "claude auth login (refresh the browser session)", func() bool {
+			billingRow{"Login", "claude auth login · browser sign-in, refreshes the session", func() bool {
 				return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
 			}},
-			billingRow{"Re-mint setup token", "claude setup-token → " + providers.OAuthTokenEnv, func() bool {
+			billingRow{"OAuth token", "claude setup-token · mints a new token, rotates " + providers.OAuthTokenEnv, func() bool {
 				kt := keyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
 				return regenerate(d, kt, []string{"claude", "setup-token"}, true)
 			}},
 		)
 	}
-	rows = append(rows, billingRow{"API key", "pay per token · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
+	rows = append(rows, billingRow{"API key", "pay per token · paste to set, replace or rotate · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
 		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
 			provider: fp.reg.Providers[anthropicRow]}
 		if !ensureKey(d, kt, keyOK) {

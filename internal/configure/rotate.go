@@ -102,17 +102,14 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 func rotateOptions(kt keyTarget) []authOption {
 	var opts []authOption
 	if len(kt.loginArgv) > 0 {
-		opts = append(opts, authOption{action: "Re-login", desc: strings.Join(kt.loginArgv, " "), argv: kt.loginArgv})
+		opts = append(opts, authOption{action: "Login", desc: strings.Join(kt.loginArgv, " ") + " · browser sign-in, refreshes the session", argv: kt.loginArgv})
 	}
 	if len(kt.mintArgv) > 0 {
-		action := "Generate new token"
-		if len(opts) > 0 {
-			action = "Re-mint setup token" // anthropic subscription: distinct from the sibling Re-login
-		}
-		opts = append(opts, authOption{action: action, desc: strings.Join(kt.mintArgv, " "), mint: kt.mintArgv, env: kt.envVar})
+		opts = append(opts, authOption{action: "OAuth token", desc: strings.Join(kt.mintArgv, " ") + " · mints a new token, rotates " + kt.envVar,
+			mint: kt.mintArgv, env: kt.envVar})
 	}
 	if len(opts) == 0 && kt.envVar != "" && kt.provider != nil {
-		opts = append(opts, authOption{action: "Replace key", desc: "paste a new " + kt.envVar, env: kt.envVar})
+		opts = append(opts, authOption{action: "API key", desc: "paste a new " + kt.envVar + " · replaces or rotates the stored key", env: kt.envVar})
 	}
 	return opts
 }

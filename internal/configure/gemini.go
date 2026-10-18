@@ -47,8 +47,8 @@ func pickGeminiAuth(d *dialog, cur string) bool {
 	keyPresent := hasProvider && providers.CredentialPresent(p)
 	loginPresent := vendors.GeminiLoginPresent()
 	rows := [][2]string{
-		{"API key", "pay per token · AI Studio key [" + geminiKeyStatus(keyPresent, p) + "]"},
-		{"Google login", "gemini CLI only (/auth) — the harness ask runner refuses it [" + presence(loginPresent) + "]"},
+		{"API key", "pay per token · paste an AI Studio key to set, replace or rotate [" + geminiKeyStatus(keyPresent, p) + "]"},
+		{"Login", "gemini /auth · Google sign-in, refreshes the session · gemini CLI only [" + presence(loginPresent) + "]"},
 	}
 	start := 0
 	if cur == geminiRow {
