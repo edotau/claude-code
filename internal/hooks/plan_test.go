@@ -58,8 +58,27 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("saved = %v, want %v", got, want)
 	}
-	if got, _ := os.ReadFile(filepath.Join(cfg, "plans", filepath.FromSlash(want[1]))); string(got) != plan {
-		t.Errorf("saved plan must be the approved text verbatim, got %q", got)
+	got, _ := os.ReadFile(filepath.Join(cfg, "plans", filepath.FromSlash(want[1])))
+	if !strings.HasPrefix(string(got), plan) || !strings.Contains(string(got), "\n## Tasks\n") {
+		t.Errorf("saved plan must be the approved text followed by a Tasks checklist, got %q", got)
+	}
+}
+
+// TestWithTasks: headings naming a phase/step become items, the closeout tail follows, and a plan that already
+// carries a checklist is left exactly as approved.
+func TestWithTasks(t *testing.T) {
+	got := string(withTasks([]byte("# Plan: X\n\n### Phase 1 — parse\n\n## Step 2: render\n\n## Context\n")))
+	for _, want := range []string{"- [ ] Phase 1 — parse\n", "- [ ] Step 2: render\n", "- [ ] Full suite once\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "- [ ] Context") {
+		t.Errorf("a non-step heading became a task:\n%s", got)
+	}
+	own := "# Plan: Y\n\n## Tasks\n\n- [x] done\n- [ ] next\n"
+	if string(withTasks([]byte(own))) != own {
+		t.Errorf("a plan with its own checklist must be unchanged")
 	}
 }
 
