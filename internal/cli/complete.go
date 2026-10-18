@@ -37,7 +37,7 @@ type flagInfo struct {
 var subVerbs = map[string][]string{
 	"secrets":   {"set", "get", "delete", "status", "scan", "git", "doctor", "all"},
 	"history":   {"snapshot", "log", "diff"},
-	"web":       {"browsers", "setup"},
+	"web":       {"browsers", "setup", "view"},
 	"memory":    {"init", "search", "show", "digest", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate"},
 	"router":    {"serve", "start", "stop", "status"},
 	"mcp":       {"doctor"},
@@ -123,6 +123,7 @@ var flagsFor = map[string][]flagInfo{
 		{name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"web":                {{name: "addr"}, {name: "hosts"}, {name: "days"}, {name: "dry-run-dispatch", isBool: true}},
 	"web browsers":       {{name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"web view":           {{name: "session"}, {name: "days"}, {name: "n"}, {name: "follow", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"web setup":          {{name: "browser", values: func() []string { return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"} }}, {name: "dry-run", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"worktree list":      {{name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"worktree create":    {{name: "branch"}},

@@ -9,14 +9,17 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/web"
 )
 
 const webUsage = `usage: claude-code web [--addr ip:port] [--hosts h1,h2] [--days N]
        claude-code web browsers [--format text|json]
-       claude-code web setup [--browser chrome|edge|brave|arc|vivaldi|chromium|default] [--dry-run] [--format text|json]`
+       claude-code web setup [--browser chrome|edge|brave|arc|vivaldi|chromium|default] [--dry-run] [--format text|json]
+       claude-code web view <agentId|prefix> [--session id] [--days N] [--n 40] [--follow] [--format text|json]`
 
 // cmdWeb is the one agent-web verb: serve the dashboard, or the browser-control subcommands it also hosts.
 func cmdWeb(args []string) int {
@@ -26,6 +29,8 @@ func cmdWeb(args []string) int {
 			return cmdWebBrowsers(args[1:])
 		case "setup":
 			return cmdWebSetup(args[1:])
+		case "view":
+			return cmdWebView(args[1:])
 		case "-h", "--help":
 			fmt.Fprintln(os.Stderr, webUsage)
 			return 2
@@ -85,6 +90,46 @@ func cmdWebSetup(args []string) int {
 			line += "  error: " + a.Error
 		}
 		fmt.Println(line)
+	}
+	return 0
+}
+
+// cmdWebView is the drill-down into one subagent: a snapshot, then with --follow its live event stream.
+func cmdWebView(args []string) int {
+	fs := flag.NewFlagSet("web view", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	session := fs.String("session", "", "session id to search (default: every session in --days)")
+	days := fs.Int("days", 1, "session scope in days")
+	n := fs.Int("n", 40, "trailing events in the snapshot")
+	follow := fs.Bool("follow", false, "after the snapshot, stream new events until the agent finishes")
+	format := outfmt.Flag(fs)
+	rest, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(rest) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: claude-code web view <agentId|prefix> [--session id] [--days N] [--n 40] [--follow] [--format text|json]")
+		return 2
+	}
+	opts := agenttree.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
+	snap, err := agenttree.View(opts)
+	if err != nil {
+		return fail("web view: %v", err)
+	}
+	if *format == "json" {
+		if err := outfmt.Write(os.Stdout, snap); err != nil {
+			return fail("web view: %v", err)
+		}
+	} else {
+		agenttree.RenderSnapshot(os.Stdout, snap)
+	}
+	if !*follow {
+		return 0
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := agenttree.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
+		return fail("web view: %v", err)
 	}
 	return 0
 }
