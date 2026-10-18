@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="csrf-token" content="{{.CSRFToken}}">
+<title>claude-code web</title>
+<style>
+  :root { color-scheme: dark light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0.75rem; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1117; color: #e6e6e6;
+  }
+  h1 { font-size: 1.1rem; margin: 0.25rem 0 0.75rem; }
+  h2 { font-size: 0.95rem; color: #9aa0ac; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  section { margin-bottom: 1rem; }
+  .card { background: #171a23; border: 1px solid #272b36; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .muted { color: #8a8f9c; font-size: 0.82rem; }
+  .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .chip-running, .chip-active { background: #163; color: #8f8; }
+  .chip-finished, .chip-idle { background: #333; color: #aaa; }
+  .chip-stale { background: #532; color: #f96; }
+  .sub { margin-left: 0.9rem; border-left: 2px solid #272b36; padding-left: 0.6rem; margin-top: 0.35rem; }
+  label { display: block; font-size: 0.82rem; color: #9aa0ac; margin: 0.5rem 0 0.2rem; }
+  select, input, textarea, button {
+    width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #333848;
+    background: #11141c; color: #e6e6e6; font-size: 0.95rem;
+  }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  button { margin-top: 0.75rem; background: #2d6cdf; border-color: #2d6cdf; color: #fff; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: 0.6; }
+  #dispatchResult { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 0.5rem; }
+  #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+  #hostTabs button { width: auto; background: #1b1e28; border-color: #272b36; color: #ccc; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
+  #hostTabs button.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+</style>
+</head>
+<body>
+<h1>claude-code web</h1>
+
+<section>
+  <h2>Agents</h2>
+  <div id="tree"><p class="muted">loading…</p></div>
+</section>
+
+<section>
+  <h2>Dispatches</h2>
+  <div id="hostTabs"></div>
+  <div id="dispatches"><p class="muted">select a host</p></div>
+</section>
+
+<section>
+  <h2>Dispatch</h2>
+  <form id="dispatchForm">
+    <label for="f-host">Host</label>
+    <select id="f-host" name="host">
+      {{range .Hosts}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+
+    <label for="f-agent">Agent</label>
+    <select id="f-agent" name="agent">
+      {{range .Agents}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+
+    <label for="f-dir">Directory</label>
+    <input id="f-dir" name="dir" placeholder="~/project">
+
+    <label for="f-task">Task</label>
+    <textarea id="f-task" name="task" placeholder="What should the agent do?" required></textarea>
+
+    <button type="submit">Dispatch</button>
+  </form>
+  <div id="dispatchResult"></div>
+</section>
+
+<script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+let currentHost = null;
+
+function chip(status) {
+  return '<span class="chip chip-' + status + '">' + status + '</span>';
+}
+
+function renderSubagents(subs) {
+  if (!subs || !subs.length) return '';
+  return '<div class="sub">' + subs.map(function (s) {
+    return '<div class="row"><span>' + (s.type || s.id) + ' ' + chip(s.status) + '</span>' +
+      '<span class="muted">' + (s.lastTool || '') + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function renderTree(tree) {
+  const sessions = tree.sessions || [];
+  if (!sessions.length) return '<p class="muted">no recent sessions</p>';
+  return sessions.map(function (s) {
+    return '<div class="card">' +
+      '<div class="row"><strong>' + (s.title || s.project || s.id) + '</strong>' + chip(s.status) + '</div>' +
+      '<div class="muted">' + (s.cwd || '') + (s.branch ? ' @' + s.branch : '') + '</div>' +
+      renderSubagents(s.subagents) +
+      '</div>';
+  }).join('');
+}
+
+function renderDispatches(sessions) {
+  if (!sessions || !sessions.length) return '<p class="muted">no cc-* sessions</p>';
+  return sessions.map(function (s) {
+    return '<div class="card"><div class="row"><strong>' + s.Name + '</strong>' +
+      '<span class="muted">' + (s.Attached ? 'attached' : 'detached') + '</span></div>' +
+      '<div class="muted">' + (s.CurrentCmd || '') + '</div></div>';
+  }).join('');
+}
+
+function loadTree() {
+  fetch('/api/tree').then(function (r) { return r.json(); }).then(function (tree) {
+    document.getElementById('tree').innerHTML = renderTree(tree);
+  }).catch(function () {});
+}
+
+function loadDispatches(host) {
+  if (!host) return;
+  fetch('/api/dispatches?host=' + encodeURIComponent(host)).then(function (r) { return r.json(); }).then(function (sessions) {
+    document.getElementById('dispatches').innerHTML = renderDispatches(sessions);
+  }).catch(function () {});
+}
+
+function buildHostTabs(hosts) {
+  const el = document.getElementById('hostTabs');
+  el.innerHTML = hosts.map(function (h) { return '<button data-host="' + h + '">' + h + '</button>'; }).join('');
+  el.querySelectorAll('button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      el.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentHost = btn.dataset.host;
+      loadDispatches(currentHost);
+    });
+  });
+  if (hosts.length) {
+    currentHost = hosts[0];
+    el.querySelector('button').classList.add('active');
+    loadDispatches(currentHost);
+  }
+}
+
+document.getElementById('dispatchForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  const body = new URLSearchParams(new FormData(form));
+  fetch('/api/dispatch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+    body: body.toString(),
+  }).then(function (r) { return r.text().then(function (t) { return { ok: r.ok, text: t }; }); })
+    .then(function (res) {
+      document.getElementById('dispatchResult').textContent = res.text;
+      if (res.ok && currentHost) loadDispatches(currentHost);
+    }).catch(function (err) {
+      document.getElementById('dispatchResult').textContent = String(err);
+    }).finally(function () { btn.disabled = false; });
+});
+
+loadTree();
+buildHostTabs([{{range $i, $h := .Hosts}}{{if $i}},{{end}}"{{$h}}"{{end}}]);
+setInterval(function () {
+  loadTree();
+  if (currentHost) loadDispatches(currentHost);
+}, 5000);
+</script>
+</body>
+</html>

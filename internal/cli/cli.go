@@ -51,6 +51,7 @@ func commands() []command {
 		{name: "gemini", group: groupAgents, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
 		{name: "opencode", group: groupAgents, summary: "launch OpenCode on the registry; ask = one task", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		{name: "dispatch", group: groupAgents, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
+		{name: "web", group: groupSession, summary: "phone-friendly tailnet page: watch agents, dispatch new ones", run: cmdWeb},
 		// AUTH
 		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
 		{name: "resolve", group: groupAuth, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},

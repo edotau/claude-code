@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="682" height="841" viewBox="0 0 682 841" role="img" aria-label="claude-code help menu">
-<rect width="682" height="841" rx="10" fill="#1d1a22"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="699" height="860" viewBox="0 0 699 860" role="img" aria-label="claude-code help menu">
+<rect width="699" height="860" rx="10" fill="#1d1a22"/>
 <circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>
-<text x="341.0" y="22" fill="#8a7e90" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">$ claude-code</text>
+<text x="349.5" y="22" fill="#8a7e90" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">$ claude-code</text>
 <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14" xml:space="preserve">
 <text x="22.0" y="46" fill="#d7d4dc">usage: claude-code [&lt;command&gt;] [subcommand] [flags]</text>
 <text x="22.0" y="65" fill="#d7d4dc">       claude-code &lt;command&gt; -h    per-command help</text>
@@ -13,88 +13,91 @@
 <text x="38.8" y="141" fill="#4995e3" font-weight="bold">sonnet          </text>
 <text x="173.2" y="141" fill="#d7d4dc">Claude Code, sonnet main model; args pass to claude</text>
 <text x="22.0" y="160" fill="#d7d4dc">  </text>
-<text x="38.8" y="160" fill="#4e93e1" font-weight="bold">haiku           </text>
+<text x="38.8" y="160" fill="#4e93e2" font-weight="bold">haiku           </text>
 <text x="173.2" y="160" fill="#d7d4dc">Claude Code, haiku main model; args pass to claude</text>
 <text x="22.0" y="179" fill="#d7d4dc">  </text>
-<text x="38.8" y="179" fill="#568fdf" font-weight="bold">fable           </text>
+<text x="38.8" y="179" fill="#5590df" font-weight="bold">fable           </text>
 <text x="173.2" y="179" fill="#d7d4dc">Claude Code, fable main model; args pass to claude</text>
 <text x="22.0" y="198" fill="#d7d4dc">  </text>
-<text x="38.8" y="198" fill="#5f8bdb" font-weight="bold">copilot         </text>
+<text x="38.8" y="198" fill="#5e8cdc" font-weight="bold">copilot         </text>
 <text x="173.2" y="198" fill="#d7d4dc">launch GitHub Copilot CLI on the registry; ask = one task</text>
 <text x="22.0" y="217" fill="#d7d4dc">  </text>
-<text x="38.8" y="217" fill="#6987d8" font-weight="bold">codex           </text>
+<text x="38.8" y="217" fill="#6787d8" font-weight="bold">codex           </text>
 <text x="173.2" y="217" fill="#d7d4dc">launch Codex CLI on the registry; ask = one task</text>
 <text x="22.0" y="236" fill="#d7d4dc">  </text>
-<text x="38.8" y="236" fill="#7282d4" font-weight="bold">gemini          </text>
+<text x="38.8" y="236" fill="#7083d5" font-weight="bold">gemini          </text>
 <text x="173.2" y="236" fill="#d7d4dc">launch the gemini CLI; ask|bridge = large-context</text>
 <text x="22.0" y="255" fill="#d7d4dc">  </text>
-<text x="38.8" y="255" fill="#7a7ed1" font-weight="bold">opencode        </text>
+<text x="38.8" y="255" fill="#797fd2" font-weight="bold">opencode        </text>
 <text x="173.2" y="255" fill="#d7d4dc">launch OpenCode on the registry; ask = one task</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
-<text x="38.8" y="274" fill="#817ccf" font-weight="bold">dispatch        </text>
+<text x="38.8" y="274" fill="#7f7cd0" font-weight="bold">dispatch        </text>
 <text x="173.2" y="274" fill="#d7d4dc">launch an agent on a tailnet host in tmux; --list|--attach</text>
-<text x="22.0" y="312" fill="#8a7e90" font-weight="bold">AUTH</text>
+<text x="22.0" y="312" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="331" fill="#d7d4dc">  </text>
-<text x="38.8" y="331" fill="#847ace" font-weight="bold">secrets         </text>
-<text x="173.2" y="331" fill="#d7d4dc">set|get|status, scan|git|all (audit), cred checks</text>
+<text x="38.8" y="331" fill="#837ace" font-weight="bold">web             </text>
+<text x="173.2" y="331" fill="#d7d4dc">phone-friendly tailnet page: watch agents, dispatch new ones</text>
 <text x="22.0" y="350" fill="#d7d4dc">  </text>
-<text x="38.8" y="350" fill="#857acd" font-weight="bold">resolve         </text>
-<text x="173.2" y="350" fill="#d7d4dc">resolve + print a provider&#39;s credential (apiKeyHelper)</text>
+<text x="38.8" y="350" fill="#847ace" font-weight="bold">switch          </text>
+<text x="173.2" y="350" fill="#d7d4dc">pin the session provider (env.d/provider.env)</text>
 <text x="22.0" y="369" fill="#d7d4dc">  </text>
-<text x="38.8" y="369" fill="#8978c7" font-weight="bold">profile         </text>
-<text x="173.2" y="369" fill="#d7d4dc">providers + credential state; &lt;name&gt; shows its routes</text>
-<text x="22.0" y="407" fill="#8a7e90" font-weight="bold">SESSION</text>
+<text x="38.8" y="369" fill="#8779ca" font-weight="bold">clean           </text>
+<text x="173.2" y="369" fill="#d7d4dc">sweep accumulated state (dry-run; --apply deletes)</text>
+<text x="22.0" y="388" fill="#d7d4dc">  </text>
+<text x="38.8" y="388" fill="#8d77c2" font-weight="bold">history         </text>
+<text x="173.2" y="388" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
+<text x="22.0" y="407" fill="#d7d4dc">  </text>
+<text x="38.8" y="407" fill="#9575b8" font-weight="bold">science         </text>
+<text x="173.2" y="407" fill="#d7d4dc">Claude for Life Sciences on its own OAuth (--print-env)</text>
 <text x="22.0" y="426" fill="#d7d4dc">  </text>
-<text x="38.8" y="426" fill="#9076be" font-weight="bold">switch          </text>
-<text x="173.2" y="426" fill="#d7d4dc">pin the session provider (env.d/provider.env)</text>
+<text x="38.8" y="426" fill="#9f72ad" font-weight="bold">memory          </text>
+<text x="173.2" y="426" fill="#d7d4dc">two-layer session memory: namespaced + shared global bank</text>
 <text x="22.0" y="445" fill="#d7d4dc">  </text>
-<text x="38.8" y="445" fill="#9a74b3" font-weight="bold">clean           </text>
-<text x="173.2" y="445" fill="#d7d4dc">sweep accumulated state (dry-run; --apply deletes)</text>
-<text x="22.0" y="464" fill="#d7d4dc">  </text>
-<text x="38.8" y="464" fill="#a471a7" font-weight="bold">history         </text>
-<text x="173.2" y="464" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
-<text x="22.0" y="483" fill="#d7d4dc">  </text>
-<text x="38.8" y="483" fill="#ad6d9a" font-weight="bold">science         </text>
-<text x="173.2" y="483" fill="#d7d4dc">Claude for Life Sciences on its own OAuth (--print-env)</text>
+<text x="38.8" y="445" fill="#a86fa0" font-weight="bold">setup           </text>
+<text x="173.2" y="445" fill="#d7d4dc">adopt|nuke|workspace: migrate, wipe, or scope .claude/</text>
+<text x="22.0" y="483" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#b76b8f" font-weight="bold">memory          </text>
-<text x="173.2" y="502" fill="#d7d4dc">two-layer session memory: namespaced + shared global bank</text>
+<text x="38.8" y="502" fill="#b26c95" font-weight="bold">secrets         </text>
+<text x="173.2" y="502" fill="#d7d4dc">set|get|status, scan|git|all (audit), cred checks</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
-<text x="38.8" y="521" fill="#be6986" font-weight="bold">setup           </text>
-<text x="173.2" y="521" fill="#d7d4dc">adopt|nuke|workspace: migrate, wipe, or scope .claude/</text>
-<text x="22.0" y="559" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
-<text x="22.0" y="578" fill="#d7d4dc">  </text>
-<text x="38.8" y="578" fill="#c26780" font-weight="bold">doctor          </text>
-<text x="173.2" y="578" fill="#d7d4dc">read-only harness health checks (see also mcp doctor)</text>
+<text x="38.8" y="521" fill="#ba6a8b" font-weight="bold">resolve         </text>
+<text x="173.2" y="521" fill="#d7d4dc">resolve + print a provider&#39;s credential (apiKeyHelper)</text>
+<text x="22.0" y="540" fill="#d7d4dc">  </text>
+<text x="38.8" y="540" fill="#c06883" font-weight="bold">profile         </text>
+<text x="173.2" y="540" fill="#d7d4dc">providers + credential state; &lt;name&gt; shows its routes</text>
+<text x="22.0" y="578" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
 <text x="22.0" y="597" fill="#d7d4dc">  </text>
-<text x="38.8" y="597" fill="#c3677f" font-weight="bold">generate        </text>
-<text x="173.2" y="597" fill="#d7d4dc">renders settings.json from the template (--out writes)</text>
+<text x="38.8" y="597" fill="#c3677f" font-weight="bold">doctor          </text>
+<text x="173.2" y="597" fill="#d7d4dc">read-only harness health checks (see also mcp doctor)</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
-<text x="38.8" y="616" fill="#c66781" font-weight="bold">usage           </text>
-<text x="173.2" y="616" fill="#d7d4dc">subagent token totals + peak input tokens/min (--days N)</text>
+<text x="38.8" y="616" fill="#c4677f" font-weight="bold">generate        </text>
+<text x="173.2" y="616" fill="#d7d4dc">renders settings.json from the template (--out writes)</text>
 <text x="22.0" y="635" fill="#d7d4dc">  </text>
-<text x="38.8" y="635" fill="#cc6884" font-weight="bold">mcp             </text>
-<text x="173.2" y="635" fill="#d7d4dc">doctor: MCP server health, scope drift, inline secrets</text>
+<text x="38.8" y="635" fill="#c86781" font-weight="bold">usage           </text>
+<text x="173.2" y="635" fill="#d7d4dc">subagent token totals + peak input tokens/min (--days N)</text>
 <text x="22.0" y="654" fill="#d7d4dc">  </text>
-<text x="38.8" y="654" fill="#d46888" font-weight="bold">audit           </text>
-<text x="173.2" y="654" fill="#d7d4dc">typed action log: switches, pins, secret sets, blocks</text>
+<text x="38.8" y="654" fill="#ce6885" font-weight="bold">mcp             </text>
+<text x="173.2" y="654" fill="#d7d4dc">doctor: MCP server health, scope drift, inline secrets</text>
 <text x="22.0" y="673" fill="#d7d4dc">  </text>
-<text x="38.8" y="673" fill="#de698c" font-weight="bold">describe        </text>
-<text x="173.2" y="673" fill="#d7d4dc">machine-readable map: verbs, providers, runners, hooks</text>
+<text x="38.8" y="673" fill="#d66889" font-weight="bold">audit           </text>
+<text x="173.2" y="673" fill="#d7d4dc">typed action log: switches, pins, secret sets, blocks</text>
 <text x="22.0" y="692" fill="#d7d4dc">  </text>
-<text x="38.8" y="692" fill="#e76991" font-weight="bold">tailscale       </text>
-<text x="173.2" y="692" fill="#d7d4dc">tailnet: status | machines | connect | key | exit-node</text>
-<text x="22.0" y="730" fill="#8a7e90" font-weight="bold">SETTINGS</text>
-<text x="22.0" y="749" fill="#d7d4dc">  </text>
-<text x="38.8" y="749" fill="#f06a96" font-weight="bold">configure       </text>
-<text x="173.2" y="749" fill="#d7d4dc">guided setup: provider, login or key, models, agents</text>
+<text x="38.8" y="692" fill="#df698d" font-weight="bold">describe        </text>
+<text x="173.2" y="692" fill="#d7d4dc">machine-readable map: verbs, providers, runners, hooks</text>
+<text x="22.0" y="711" fill="#d7d4dc">  </text>
+<text x="38.8" y="711" fill="#e96a92" font-weight="bold">tailscale       </text>
+<text x="173.2" y="711" fill="#d7d4dc">tailnet: status | machines | connect | key | exit-node</text>
+<text x="22.0" y="749" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="768" fill="#d7d4dc">  </text>
-<text x="38.8" y="768" fill="#f86b99" font-weight="bold">install         </text>
-<text x="173.2" y="768" fill="#d7d4dc">install Claude Code + write settings.json (onboarding)</text>
+<text x="38.8" y="768" fill="#f16a96" font-weight="bold">configure       </text>
+<text x="173.2" y="768" fill="#d7d4dc">guided setup: provider, login or key, models, agents</text>
 <text x="22.0" y="787" fill="#d7d4dc">  </text>
-<text x="38.8" y="787" fill="#fd6b9c" font-weight="bold">theme           </text>
-<text x="173.2" y="787" fill="#d7d4dc">pick the statusline color (--preview to list)</text>
+<text x="38.8" y="787" fill="#f86b9a" font-weight="bold">install         </text>
+<text x="173.2" y="787" fill="#d7d4dc">install Claude Code + write settings.json (onboarding)</text>
 <text x="22.0" y="806" fill="#d7d4dc">  </text>
-<text x="38.8" y="806" fill="#ff6b9d" font-weight="bold">vscode          </text>
-<text x="173.2" y="806" fill="#d7d4dc">merge the tracked VS Code settings template (--check)</text>
+<text x="38.8" y="806" fill="#fd6b9c" font-weight="bold">theme           </text>
+<text x="173.2" y="806" fill="#d7d4dc">pick the statusline color (--preview to list)</text>
+<text x="22.0" y="825" fill="#d7d4dc">  </text>
+<text x="38.8" y="825" fill="#ff6b9d" font-weight="bold">vscode          </text>
+<text x="173.2" y="825" fill="#d7d4dc">merge the tracked VS Code settings template (--check)</text>
 </g></svg>
