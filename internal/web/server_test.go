@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/dispatch"
 )
@@ -35,10 +36,32 @@ func newTestServer(t *testing.T, opts Options, logBuf *bytes.Buffer) *Server {
 		dnsNames:  []string{"my-node.tailxyz.ts.net", "my-node"},
 		csrfToken: testCSRFToken,
 		logger:    log.New(logBuf, "", 0),
+		status:    newStatusCache(),
+		now:       time.Now,
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
+}
+
+// newStatusTestServer is newTestServer plus an injected fake Runner and clock, for handleDispatches
+// tests that must never touch a real ssh/tmux and must control cache expiry deterministically.
+func newStatusTestServer(t *testing.T, opts Options, run dispatch.Runner, now func() time.Time) *Server {
+	t.Helper()
+	s := newTestServer(t, opts, nil)
+	s.run = run
+	s.now = now
+	return s
+}
+
+// countingCaptureRunner returns out/err for every call and counts how many times it was invoked, to
+// assert on cache-hit vs. cache-miss behavior without a real ssh/tmux round trip.
+func countingCaptureRunner(out string, err error) (dispatch.Runner, *int) {
+	n := 0
+	return func(context.Context, []string) ([]byte, error) {
+		n++
+		return []byte(out), err
+	}, &n
 }
 
 func do(s *Server, req *http.Request) *httptest.ResponseRecorder {
@@ -365,3 +388,130 @@ func TestAccessLogExcludesBodyAndToken(t *testing.T) {
 		t.Errorf("access log contains the CSRF token: %s", logged)
 	}
 }
+
+// --- /api/dispatches: classified status only, expiring cache ---
+
+// webCaptureFrame builds one captureCommand-shaped record matching dispatch's on-wire framing, so
+// these tests exercise the real parseCaptureBlob/Observe/Classify pipeline through a fake Runner.
+func webCaptureFrame(sess, pid, agent, cmd, text string) string {
+	return "\x01" + sess + "|" + pid + "|" + agent + "|" + cmd + "\n" + text + "\x02\n"
+}
+
+func TestHandleDispatchesReturnsClassifiedStatusNotRawCaptureText(t *testing.T) {
+	secretText := "raw pane contents: <script>alert(document.cookie)</script> should never leave the server"
+	run, _ := countingCaptureRunner(webCaptureFrame("cc-claude-a", "%1", "claude", "claude", secretText), nil)
+	s := newStatusTestServer(t, Options{}, run, time.Now)
+	req := newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777")
+	w := do(s, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, secretText) {
+		t.Fatalf("/api/dispatches leaked raw pane capture text: %s", body)
+	}
+	var statuses []dispatch.PaneStatus
+	if err := json.Unmarshal(w.Body.Bytes(), &statuses); err != nil {
+		t.Fatalf("decode /api/dispatches body: %v; body=%s", err, body)
+	}
+	if len(statuses) != 1 || statuses[0].Session != "cc-claude-a" || statuses[0].State == "" {
+		t.Fatalf("statuses = %+v, want one classified cc-claude-a status", statuses)
+	}
+}
+
+func TestHandleDispatchesUnknownHostRejected(t *testing.T) {
+	run, calls := countingCaptureRunner("", nil)
+	s := newStatusTestServer(t, Options{Hosts: []string{"box-a"}}, run, time.Now)
+	req := newReq(t, "GET", "/api/dispatches?host=box-does-not-exist", "127.0.0.1:7777")
+	w := do(s, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown host: status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if *calls != 0 {
+		t.Errorf("an unknown host must never reach the capture runner, got %d calls", *calls)
+	}
+}
+
+func TestHandleDispatchesMissingHostIsBadRequest(t *testing.T) {
+	s := newTestServer(t, Options{}, nil)
+	req := newReq(t, "GET", "/api/dispatches", "127.0.0.1:7777")
+	w := do(s, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing ?host: status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleDispatchesServesWithinTTLFromCacheWithoutResampling(t *testing.T) {
+	run, calls := countingCaptureRunner(webCaptureFrame("cc-claude-a", "%1", "claude", "claude", "$ "), nil)
+	fakeNow := time.Now()
+	s := newStatusTestServer(t, Options{}, run, func() time.Time { return fakeNow })
+
+	for i := 0; i < 3; i++ {
+		w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200", i, w.Code)
+		}
+	}
+	if *calls != 1 {
+		t.Errorf("3 requests within the cache TTL should sample once, got %d capture calls", *calls)
+	}
+}
+
+func TestHandleDispatchesStaleCacheExpiresAndResamples(t *testing.T) {
+	run, calls := countingCaptureRunner(webCaptureFrame("cc-claude-a", "%1", "claude", "claude", "$ "), nil)
+	fakeNow := time.Now()
+	s := newStatusTestServer(t, Options{}, run, func() time.Time { return fakeNow })
+
+	w1 := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", w1.Code)
+	}
+	// Advance the fake clock past the cache TTL: the next request must trigger a fresh capture.
+	fakeNow = fakeNow.Add(statusCacheTTL + time.Second)
+	w2 := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("second request (post-expiry): status = %d, want 200", w2.Code)
+	}
+	if *calls != 2 {
+		t.Errorf("a request past the cache TTL should resample, got %d capture calls, want 2", *calls)
+	}
+}
+
+func TestHandleDispatchesCaptureFailureIsBadGatewayWhenNothingCached(t *testing.T) {
+	run, _ := countingCaptureRunner("", errSimulatedSSH)
+	s := newStatusTestServer(t, Options{}, run, time.Now)
+	w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("capture failure with nothing cached yet: status = %d, want 502; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// --- dashboard template escapes pane status fields before interpolating them into HTML ---
+
+func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
+	src, err := assetsFS.ReadFile("assets/index.html.tmpl")
+	if err != nil {
+		t.Fatalf("read index.html.tmpl: %v", err)
+	}
+	body := string(src)
+	start := strings.Index(body, "function renderDispatches")
+	if start < 0 {
+		t.Fatal("renderDispatches function not found in the dashboard template")
+	}
+	end := strings.Index(body[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("could not find the end of renderDispatches")
+	}
+	fn := body[start : start+end]
+	for _, field := range []string{"p.session", "p.agent", "p.reason"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderDispatches interpolates %s without escapeHTML(...): regression risk for a pane running attacker-controlled text\n%s", field, fn)
+		}
+	}
+}
+
+type simulatedSSHErr string
+
+func (e simulatedSSHErr) Error() string { return string(e) }
+
+var errSimulatedSSH = simulatedSSHErr("ssh: connection refused")

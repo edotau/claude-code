@@ -42,6 +42,22 @@ func fakeSSHOnPATH(t *testing.T, listOutput string) {
 	t.Setenv("PATH", dir)
 }
 
+// fakeSSHStatusOnPATH puts an `ssh` script on PATH that returns canned output for the pane-capture
+// command (tmux list-panes) used by --status, independent of fakeSSHOnPATH's list-sessions case.
+func fakeSSHStatusOnPATH(t *testing.T, captureOutput string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"case \"$2\" in *tmux\\ list-panes*) printf '%s' " + shQuote(captureOutput) + " ;; esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
 func TestDispatchMissingHost(t *testing.T) {
 	hermeticDispatch(t)
 	code, _, stderr := captureOutput(t, func() int { return cmdDispatch([]string{"hi"}) })
@@ -122,7 +138,7 @@ func TestDispatchDryRunRejectsBadName(t *testing.T) {
 
 func TestDispatchListTextAndJSON(t *testing.T) {
 	hermeticDispatch(t)
-	listing := "cc-claude-ab12\t1700000000\t1\tclaude\n"
+	listing := "cc-claude-ab12|1700000000|1|claude|claude\n"
 	fakeSSHOnPATH(t, listing)
 	code, out, stderr := captureOutput(t, func() int { return cmdDispatch([]string{"--list", "--host", "myhost"}) })
 	if code != 0 {
@@ -130,6 +146,9 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 	}
 	if !strings.Contains(out, "cc-claude-ab12") {
 		t.Errorf("--list text output missing session name:\n%s", out)
+	}
+	if !strings.Contains(out, "cmd=claude") {
+		t.Errorf("--list text output missing parsed CurrentCmd field (fieldSep regression):\n%s", out)
 	}
 
 	code, out, stderr = captureOutput(t, func() int {
@@ -180,6 +199,65 @@ func TestDispatchAttachMissingSessionArg(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "session name") {
 		t.Errorf("stderr = %q, want it to mention session name", stderr)
+	}
+}
+
+// statusCaptureFrame builds one captureCommand-shaped record (control-byte framed, "|"-separated
+// header) matching dispatch's actual on-wire format, so the fake ssh script exercises the real parser.
+func statusCaptureFrame(sess, pid, agent, cmd, text string) string {
+	return "\x01" + sess + "|" + pid + "|" + agent + "|" + cmd + "\n" + text + "\x02\n"
+}
+
+func TestDispatchListStatusTextAndJSON(t *testing.T) {
+	hermeticDispatch(t)
+	capture := statusCaptureFrame("cc-claude-ab12", "%1", "claude", "claude", "thinking...")
+	fakeSSHStatusOnPATH(t, capture)
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdDispatch([]string{"--list", "--host", "myhost", "--status"})
+	})
+	if code != 0 {
+		t.Fatalf("--list --status exit %d, want 0; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, "cc-claude-ab12") || !strings.Contains(out, "state=working") {
+		t.Errorf("--list --status text output missing session/state:\n%s", out)
+	}
+
+	code, out, stderr = captureOutput(t, func() int {
+		return cmdDispatch([]string{"--list", "--host", "myhost", "--status", "--format", "json"})
+	})
+	if code != 0 {
+		t.Fatalf("--list --status --format json exit %d, want 0; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, `"state": "working"`) {
+		t.Errorf("--list --status json output = %q, want a classified working state", out)
+	}
+}
+
+func TestDispatchListStatusNoPanesIsEmptyNotError(t *testing.T) {
+	hermeticDispatch(t)
+	fakeSSHStatusOnPATH(t, "")
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdDispatch([]string{"--list", "--host", "myhost", "--status"})
+	})
+	if code != 0 {
+		t.Fatalf("--list --status (no panes) exit %d, want 0; stderr=%q", code, stderr)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("--list --status (no panes) output = %q, want empty", out)
+	}
+}
+
+func TestDispatchListStatusSSHFailure(t *testing.T) {
+	hermeticDispatch(t)
+	emptyPATH(t) // no ssh on PATH at all: the capture round trip itself fails
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdDispatch([]string{"--list", "--host", "myhost", "--status"})
+	})
+	if code == 0 {
+		t.Fatalf("--list --status with no ssh available: code = 0, want nonzero")
+	}
+	if !strings.Contains(stderr, "dispatch") {
+		t.Errorf("stderr = %q, want it to report the capture failure", stderr)
 	}
 }
 

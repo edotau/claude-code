@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -33,6 +34,9 @@ type Server struct {
 	csrfToken string
 	logger    *log.Logger
 	mux       *http.ServeMux
+	run       dispatch.Runner // executes a dispatch capture/list command; tests fake this
+	now       func() time.Time
+	status    *statusCache // expiring, synchronized pane-status cache, keyed by host
 }
 
 // New builds a Server for opts.Addr (or the resolved default) without binding a listener; callers
@@ -63,6 +67,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		dnsNames:  tailnetNames(ctx),
 		csrfToken: token,
 		logger:    log.New(errw, "", log.LstdFlags),
+		run:       dispatch.ExecRunner,
+		now:       time.Now,
+		status:    newStatusCache(),
 	}
 	if note != "" {
 		s.logger.Print(note)

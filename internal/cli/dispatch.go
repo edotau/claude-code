@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 
 // dispatchUsage documents the three modes: start, --list, --attach.
 const dispatchUsage = `usage: claude-code dispatch --host <name> [--dir <path>] [--agent <a>] [--name <n>] [--dry-run] "<task>"
-       claude-code dispatch --list --host <name> [--format text|json]
+       claude-code dispatch --list --host <name> [--status] [--interval <dur>] [--format text|json]
        claude-code dispatch --attach --host <name> <session>
 `
 
@@ -36,6 +37,8 @@ func cmdDispatch(args []string) int {
 	name := fs.String("name", "", "tmux session name (default cc-<agent>-<id>)")
 	dryRun := fs.Bool("dry-run", false, "print the ssh argv instead of running it")
 	list := fs.Bool("list", false, "list cc-* tmux sessions on --host")
+	status := fs.Bool("status", false, "with --list, classify each pane's working/input-needed/ready/unknown state")
+	interval := fs.Duration("interval", 0, "with --status, re-sample every interval until interrupted (0 = sample once)")
 	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
 	format := fs.String("format", outfmt.Text, "--list output format: text|json")
 	if fs.Parse(args) != nil {
@@ -51,7 +54,7 @@ func cmdDispatch(args []string) int {
 	}
 	switch {
 	case *list:
-		return dispatchList(ctx, resolved, *format)
+		return dispatchList(ctx, resolved, *format, *status, *interval)
 	case *attach:
 		rest := fs.Args()
 		if len(rest) != 1 {
@@ -94,10 +97,18 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	return 0
 }
 
-func dispatchList(ctx context.Context, host, format string) int {
+// dispatchList dispatches to the plain session list or, with withStatus, the pane-status sampler.
+func dispatchList(ctx context.Context, host, format string, withStatus bool, interval time.Duration) int {
 	if err := outfmt.Check(format); err != nil {
 		return fail("%v", err)
 	}
+	if !withStatus {
+		return dispatchListPlain(ctx, host, format)
+	}
+	return dispatchListStatus(ctx, host, format, interval)
+}
+
+func dispatchListPlain(ctx context.Context, host, format string) int {
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
 	argv := dispatch.ExecArgs(ctx, host, dispatch.ListCommand(), false)
@@ -114,6 +125,40 @@ func dispatchList(ctx context.Context, host, format string) int {
 		fmt.Printf("%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd)
 	}
 	return 0
+}
+
+// dispatchListStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C.
+func dispatchListStatus(ctx context.Context, host, format string, interval time.Duration) int {
+	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+	var prev []dispatch.PaneStatus
+	for {
+		caps, capErr := dispatch.CapturePanes(sigCtx, host, false, dispatch.ExecRunner)
+		prev = dispatch.Observe(prev, caps, capErr, time.Now())
+		if capErr != nil && len(prev) == 0 {
+			return fail("dispatch --status: %v", capErr)
+		}
+		printPaneStatus(prev, format)
+		if interval <= 0 {
+			return 0
+		}
+		select {
+		case <-sigCtx.Done():
+			return 0
+		case <-time.After(interval):
+		}
+	}
+}
+
+// printPaneStatus writes one sample of pane statuses in the requested format.
+func printPaneStatus(statuses []dispatch.PaneStatus, format string) {
+	if format == outfmt.JSON {
+		_ = outfmt.Write(os.Stdout, statuses)
+		return
+	}
+	for _, p := range statuses {
+		fmt.Printf("%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason)
+	}
 }
 
 func dispatchAttach(host, session string) int {

@@ -271,7 +271,7 @@ func TestAttachArgs(t *testing.T) {
 }
 
 func TestListCommand_KnownFormat(t *testing.T) {
-	want := `tmux list-sessions -F '#{session_name}\t#{session_created}\t#{session_attached}\t#{pane_current_command}' 2>/dev/null | awk -F'\t' '$1 ~ /^cc-/'`
+	want := `tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>/dev/null | awk -F'|' '$1 ~ /^cc-/'`
 	if got := ListCommand(); got != want {
 		t.Errorf("ListCommand() = %q, want %q", got, want)
 	}
@@ -283,15 +283,15 @@ func TestListCommand_KnownFormat(t *testing.T) {
 
 func TestParseSessions(t *testing.T) {
 	// Sample of the real tab-separated format produced by listCommand.
-	input := "cc-claude-ab12\t1700000000\t1\tclaude\n" +
-		"cc-codex-ff00\t1700000100\t0\tbash\n"
+	input := "cc-claude-ab12|1700000000|1|claude|claude\n" +
+		"cc-codex-ff00|1700000100|0|bash|codex\n"
 	got := ParseSessions(input)
 	if len(got) != 2 {
 		t.Fatalf("ParseSessions returned %d sessions, want 2: %+v", len(got), got)
 	}
 	want := []Session{
-		{Name: "cc-claude-ab12", Created: "1700000000", Attached: true, CurrentCmd: "claude"},
-		{Name: "cc-codex-ff00", Created: "1700000100", Attached: false, CurrentCmd: "bash"},
+		{Name: "cc-claude-ab12", Created: "1700000000", Attached: true, CurrentCmd: "claude", Agent: "claude"},
+		{Name: "cc-codex-ff00", Created: "1700000100", Attached: false, CurrentCmd: "bash", Agent: "codex"},
 	}
 	for i, w := range want {
 		if got[i] != w {
