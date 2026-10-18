@@ -60,7 +60,7 @@ description: |
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
-color: blue
+color: cyan
 ---
 
 # Copilot — Test Surface · Last Mile
