@@ -74,7 +74,13 @@ func anthropicDetail(fp *firstParty, cur string) string {
 	return "subscription or api key"
 }
 
-// pickAnthropicBilling asks which first-party billing mode to use, satisfies its credential if absent,
+// billingRow is one row of the anthropic sub-picker: a label/detail pair and what picking it does.
+type billingRow struct {
+	label, desc string
+	run         func() bool
+}
+
+// pickAnthropicBilling asks which first-party billing mode to use, satisfies or rotates its credential,
 // and pins the matching provider (subscription = OAuth login, anthropic = API key).
 func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 	loggedIn, plan := fp.login()
@@ -85,35 +91,50 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 		}
 		return "[" + missing + "]"
 	}
-	rows := [][2]string{
-		{"Subscription", "OAuth · plan limits · Remote Control " + state(loggedIn, "logged in"+plan, "not logged in")},
-		{"API key", "pay per token · no Remote Control " + state(keyOK, "key set", "no key")},
+	rows := []billingRow{
+		{"Subscription", "OAuth · plan limits · Remote Control " + state(loggedIn, "logged in"+plan, "not logged in"), func() bool {
+			if !loggedIn && confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
+				if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
+					d.printf("anthropic: %v\n", err)
+				}
+			}
+			return keepOrPin(d, cur, subscriptionName)
+		}},
+	}
+	if loggedIn {
+		rows = append(rows,
+			billingRow{"Re-login", "claude auth login (refresh the browser session)", func() bool {
+				return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
+			}},
+			billingRow{"Re-mint setup token", "claude setup-token → " + providers.OAuthTokenEnv, func() bool {
+				kt := keyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
+				return regenerate(d, kt, []string{"claude", "setup-token"}, true)
+			}},
+		)
+	}
+	rows = append(rows, billingRow{"API key", "pay per token · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
+		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
+			provider: fp.reg.Providers[anthropicRow]}
+		if !ensureKey(d, kt, keyOK) {
+			d.printf("anthropic: no usable API key; left on %s\n", billingLabel(cur))
+			return false
+		}
+		return keepOrPin(d, cur, anthropicRow)
+	}})
+	pickRows := make([][2]string, len(rows))
+	for i, r := range rows {
+		pickRows[i] = [2]string{r.label, r.desc}
 	}
 	start := 0
 	if cur == anthropicRow {
-		start = 1
+		start = len(rows) - 1
 	}
-	idx, err := tui.PickBack("anthropic (current: "+billingLabel(cur)+")", rows, start)
+	idx, err := tui.PickBack("anthropic (current: "+billingLabel(cur)+")", pickRows, start)
 	if err != nil || idx < 0 {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return err == nil
 	}
-	if idx == 0 {
-		if !loggedIn && confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
-			if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
-				d.printf("anthropic: %v\n", err)
-			}
-		}
-		return keepOrPin(d, cur, subscriptionName)
-	}
-	if !keyOK {
-		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv}
-		if !resolveKey(d, kt) {
-			d.printf("anthropic: no API key stored; left on %s\n", billingLabel(cur))
-			return false
-		}
-	}
-	return keepOrPin(d, cur, anthropicRow)
+	return rows[idx].run()
 }
 
 // keepOrPin pins name unless it is already the session provider.

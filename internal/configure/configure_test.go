@@ -122,6 +122,34 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	}
 }
 
+// --check on a present, rotatable credential (codex's ChatGPT login) must stay read-only: no "keep it?"
+// prompt, no rotate CLI invoked, no file write — the new rotate feature must not change --check's contract.
+func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
+	cfg, home, codexHome := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("HARNESS_PROVIDER", "subscription")
+	t.Setenv("PATH", t.TempDir()) // no codex binary: forces the auth.json file check, never execs a CLI
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	rc := Run(Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
+	if rc != 0 {
+		t.Errorf("rc = %d, want 0 (codex reads present, nothing to fix):\n%s", rc, out.String())
+	}
+	if strings.Contains(out.String(), "current credential as-is") || strings.Contains(out.String(), "logged in again") {
+		t.Errorf("--check must never prompt to rotate or run a rotate CLI:\n%s", out.String())
+	}
+	if ents, _ := os.ReadDir(home); len(ents) != 0 {
+		t.Errorf("--check wrote into HOME: %v", ents)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "env.d", "secrets.env")); err == nil {
+		t.Error("--check wrote secrets.env")
+	}
+}
+
 // The Max-plan row offers three ways in: browser login, minting a headless token, pasting one; the minted token
 // is recognised in the CLI's output by its sk-ant-oat prefix.
 func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
