@@ -454,6 +454,37 @@ func findLineContaining(s, substr string) string {
 	return ""
 }
 
+// WorkflowRunDirs/WorkflowAgentFiles/WorkflowPhaseFromMeta are exported solely for internal/agenttree;
+// this pins their contract against the same fixture shapes workflowRunDirsForScope already exercises.
+func TestExportedWorkflowWrappersForAgentTree(t *testing.T) {
+	dir := t.TempDir()
+	sessionDir := filepath.Join(dir, "projects", "p", "sess0001")
+	writeWorkflowAgentFixture(t, dir, "p", "sess0001", "wf_abc", "one", "Detect", time.Minute,
+		usageRecordLine("claude-sonnet-4-5", 10, 5, "2026-10-18T00:00:00Z"))
+	writeWorkflowAgentFixture(t, dir, "p", "sess0001", "wf_abc", "two", "", time.Minute,
+		usageRecordLine("claude-sonnet-4-5", 20, 8, "2026-10-18T00:01:00Z"))
+
+	runDirs := WorkflowRunDirs(sessionDir)
+	if len(runDirs) != 1 || filepath.Base(runDirs[0]) != "wf_abc" {
+		t.Fatalf("WorkflowRunDirs = %v, want one dir named wf_abc", runDirs)
+	}
+
+	files := WorkflowAgentFiles(runDirs[0])
+	if len(files) != 2 {
+		t.Fatalf("WorkflowAgentFiles = %v, want 2 agent transcripts", files)
+	}
+	phases := map[string]bool{}
+	for _, f := range files {
+		phases[WorkflowPhaseFromMeta(f)] = true
+	}
+	if !phases["Detect"] {
+		t.Error("WorkflowPhaseFromMeta should read \"Detect\" from agent-one's sidecar meta")
+	}
+	if !phases[""] {
+		t.Error("WorkflowPhaseFromMeta should return \"\" for agent-two (no sidecar meta written)")
+	}
+}
+
 // indexOfFields finds header somewhere in got allowing arbitrary whitespace between its fields
 // (the real column widths are the implementation's choice), returning the byte index of the match
 // start or -1.

@@ -1,0 +1,2 @@
+{"type": "last-prompt", "leafUuid": "66666666-0df0-4562-931b-fc920946c988", "sessionId": "stale-session-cccc3333"}
+{"parentUuid":null,"isSidechain":false,"promptId":"p-0003","type":"user","message":{"role":"user","content":"Old work from a month ago."},"uuid":"77777777-af18-4e0e-a587-927b5eaca5de","timestamp":"2026-09-01T02:52:24.153Z","cwd":"/Users/fake/demo-repo","sessionId":"stale-session-cccc3333","gitBranch":"main"}

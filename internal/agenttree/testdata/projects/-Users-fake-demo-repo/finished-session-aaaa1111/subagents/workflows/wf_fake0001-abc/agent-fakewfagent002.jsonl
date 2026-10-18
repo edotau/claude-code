@@ -1,0 +1,2 @@
+{"parentUuid": null, "isSidechain": true, "promptId": "p-wf-0002", "agentId": "fakewfagent002", "type": "user", "message": {"role": "user", "content": "[Workflow harness] run the gate."}}
+{"parentUuid": "p-wf-0002", "isSidechain": true, "agentId": "fakewfagent002", "type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-4-5", "content": [{"type": "text", "text": "green."}, {"type":"tool_use","id":"tu1","name":"Bash","input":{}}], "usage": {"input_tokens":5,"cache_creation_input_tokens":1000,"cache_read_input_tokens":200,"output_tokens":80}}}
