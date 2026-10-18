@@ -27,7 +27,7 @@ type command struct {
 // Menu groups; declaration order in commands() is the display order.
 const (
 	groupAnthropic   = "ANTHROPIC"
-	groupVendors     = "VENDORS"
+	groupVendors     = "AGENTS"
 	groupAuth        = "AUTH"
 	groupSession     = "SESSION"
 	groupDiagnostics = "DIAGNOSTICS"
