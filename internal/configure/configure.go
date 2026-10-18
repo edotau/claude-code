@@ -220,6 +220,9 @@ func runProvider(d *dialog) bool {
 			if idx >= 0 && names[idx] == anthropicRow {
 				return pickAnthropicBilling(d, fp, cur)
 			}
+			if idx >= 0 && names[idx] == geminiRow {
+				return pickGeminiAuth(d, cur)
+			}
 			if idx < 0 || names[idx] == cur {
 				d.printf("provider   pinned %s (kept)\n", cur)
 				return true
@@ -400,6 +403,17 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 	return out, nil
 }
 
+// copilotEnvTokenSet reports whether copilot's credential comes from a raw env var override rather
+// than gh's own session — `gh auth refresh` would rotate the wrong thing in that case.
+func copilotEnvTokenSet() bool {
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		if strings.TrimSpace(os.Getenv(k)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
 	fallback := func() keyTarget {
@@ -411,7 +425,8 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 			}
 			// A passthrough provider carries another vendor's login, never a key this vendor can use.
 			if rerr == nil && target.Provider.Auth.Type != "passthrough" && providers.CredentialPresent(target.Provider) {
-				return keyTarget{label: name, present: true, source: target.Provider.Name + " key", provider: target.Provider}
+				return keyTarget{label: name, present: true, source: target.Provider.Name + " key",
+					envVar: target.Provider.Auth.Env, provider: target.Provider}
 			}
 		}
 		return keyTarget{label: name, present: false, fixCmd: vendors.ConfigureHint(name)}
@@ -419,7 +434,8 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	switch name {
 	case "codex":
 		if vendors.CodexChatGPTLoginPresent() {
-			return keyTarget{label: name, present: true, source: "ChatGPT login (codex login)"}
+			return keyTarget{label: name, present: true, source: "ChatGPT login (codex login)",
+				loginArgv: []string{"codex", "login"}} // rotate: re-run the same ChatGPT sign-in
 		}
 		kt := fallback()
 		if !kt.present {
@@ -428,7 +444,11 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		return kt
 	case "copilot":
 		if vendors.CopilotLoginPresent() {
-			return keyTarget{label: name, present: true, source: "GH_TOKEN / gh auth status"}
+			kt := keyTarget{label: name, present: true, source: "GH_TOKEN / gh auth status"}
+			if !copilotEnvTokenSet() {
+				kt.loginArgv = []string{"gh", "auth", "refresh"} // rotate: gh's own session, not an env override
+			}
+			return kt
 		}
 		kt := fallback()
 		if !kt.present {
@@ -437,7 +457,8 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		return kt
 	case "gemini":
 		if vendors.GeminiLoginPresent() {
-			return keyTarget{label: name, present: true, source: "Google login (~/.gemini/settings.json)"}
+			return keyTarget{label: name, present: true, source: "Google login (~/.gemini/settings.json)",
+				loginArgv: []string{"gemini"}} // rotate: re-run `gemini` and sign in again via /auth
 		}
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY", envVar: "GEMINI_API_KEY", provider: p}
@@ -446,7 +467,8 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 			fixCmd: "claude-code secrets set GEMINI_API_KEY, or `gemini` → /auth → Login with Google"}
 	case "opencode":
 		if names := vendors.OpencodeLogins(); len(names) > 0 {
-			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", ")}
+			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", "),
+				loginArgv: []string{"opencode", "auth", "login"}} // rotate: re-run opencode's own login
 		}
 		kt := fallback()
 		if !kt.present {
@@ -475,23 +497,30 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 			status, detail := probe(kt)
 			if status == "rejected" {
 				d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
-				if d.o.Interactive && !d.o.Check && kt.envVar != "" && resolveKey(d, kt) {
-					changed = true
-					continue
+				if d.o.Interactive && !d.o.Check {
+					if runRotate(d, kt) || (kt.envVar != "" && resolveKey(d, kt)) {
+						changed = true
+						continue
+					}
 				}
 				allOK = false
 				continue
 			}
 			if status != "" && status != "login" {
 				d.printf("%-10s present (%s; %s)\n", kt.label, kt.source, status)
-				continue
+			} else {
+				d.printf("%-10s present (%s)\n", kt.label, kt.source)
 			}
-			d.printf("%-10s present (%s)\n", kt.label, kt.source)
 			if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
 				confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
 				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false) {
 					changed = true
 				}
+				continue
+			}
+			if d.o.Interactive && !d.o.Check && len(rotateOptions(kt)) > 0 &&
+				!confirm(d, "Keep "+kt.label+"'s current credential as-is?") && runRotate(d, kt) {
+				changed = true
 			}
 			continue
 		}
