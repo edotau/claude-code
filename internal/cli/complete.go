@@ -119,6 +119,7 @@ var flagsFor = map[string][]flagInfo{
 	"dispatch": {{name: "host"}, {name: "dir"}, {name: "agent", values: func() []string { return dispatch.Agents }},
 		{name: "name"}, {name: "dry-run", isBool: true}, {name: "list", isBool: true}, {name: "attach", isBool: true},
 		{name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"web": {{name: "addr"}, {name: "hosts"}, {name: "days"}, {name: "dry-run-dispatch", isBool: true}},
 }
 
 // "gemini ask" is `ask` with --agent/--provider pre-filled; the flags it accepts are the same ones.
