@@ -209,7 +209,7 @@ func runProvider(d *dialog) bool {
 	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude
 	// row does; --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
-		return pickClaudeBackend(d, &firstParty{reg: reg}, cur)
+		return runAgentMenu(d, "claude", claudeMenu(d))
 	}
 	for i, n := range names {
 		mark := " "

@@ -3,79 +3,167 @@ package configure
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/googlekeys"
 	"github.com/edotau/claude-code/internal/secrets"
 )
 
-// fakeAnthropicProvider is a provider whose catalog route is a local server: ProbeCredential GETs it
-// with the candidate in X-Api-Key, so "verified" vs "rejected" is driven without ever touching a real API.
-func fakeAnthropicProvider(t *testing.T, want string) *providers.Provider {
+func TestGeminiMenuRowLabels(t *testing.T) {
+	reg := menuTestEnv(t)
+	m := geminiMenu(&dialog{reg: reg, out: discardWriter{}})
+	var got []string
+	for _, r := range m.rows {
+		got = append(got, r.label)
+	}
+	if want := "Subscription,API key,Login,Mint key"; strings.Join(got, ",") != want {
+		t.Errorf("gemini rows = %v, want %s", got, want)
+	}
+	if m.state.mode != modeNone {
+		t.Errorf("state = %+v, want %s with nothing configured", m.state, modeNone)
+	}
+}
+
+// fakeKeysEnv wires googlekeys at an httptest server and a temp ADC file; it records deletes.
+func fakeKeysEnv(t *testing.T, lookupName string) (deleted *[]string) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") != want {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+	var dels []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"access_token":"tok"}`)) })
+	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v2/keys:lookupKey":
+			if lookupName == "" {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error":{"message":"not found"}}`))
+				return
+			}
+			w.Write([]byte(`{"name":"` + lookupName + `"}`))
+		case r.Method == http.MethodPost:
+			w.Write([]byte(`{"name":"operations/c","done":true,"response":{"name":"projects/1/locations/global/keys/new"}}`))
+		case r.Method == http.MethodDelete:
+			dels = append(dels, strings.TrimPrefix(r.URL.Path, "/v2/"))
+			w.Write([]byte(`{"name":"operations/d","done":true,"response":{}}`))
+		case strings.HasSuffix(r.URL.Path, "/keyString"):
+			w.Write([]byte(`{"keyString":"AIza-minted"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data":[]}`))
-	}))
+	})
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &providers.Provider{
-		Name: "gemini", Kind: providers.DialectAnthropic, BaseURL: srv.URL,
-		Auth: providers.Auth{Type: providers.AuthAPIKey, Env: "GEMINI_API_KEY"},
-	}
-}
+	oldTok, oldAPI := googlekeys.TokenURL, googlekeys.APIKeysURL
+	googlekeys.TokenURL, googlekeys.APIKeysURL = srv.URL+"/token", srv.URL+"/v2"
+	t.Cleanup(func() { googlekeys.TokenURL, googlekeys.APIKeysURL = oldTok, oldAPI })
 
-func TestPresence(t *testing.T) {
-	if presence(true) != "present" || presence(false) != "absent" {
-		t.Errorf("presence(true/false) = %q/%q", presence(true), presence(false))
-	}
-}
-
-func TestPlaneLabel(t *testing.T) {
-	if planeLabel("file") != "secrets.env" {
-		t.Errorf("planeLabel(file) = %q", planeLabel("file"))
-	}
-	if planeLabel("keyring") != "keyring" {
-		t.Errorf("planeLabel(keyring) = %q", planeLabel("keyring"))
-	}
-}
-
-// No key at all: status is the plain "no key" line, no probe attempted.
-func TestGeminiKeyStatusNoKey(t *testing.T) {
-	if got := geminiKeyStatus(false, nil); got != "no key" {
-		t.Errorf("geminiKeyStatus(false, nil) = %q, want %q", got, "no key")
-	}
-}
-
-// A present key that the live probe accepts reports its plane and "probe ok".
-func TestGeminiKeyStatusPresentProbeOK(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("PATH", t.TempDir()) // no keyring tool: forces the file plane
-	t.Setenv("GEMINI_API_KEY", "good-value-123")
-	if _, err := secrets.Store("GEMINI_API_KEY", "good-value-123", true); err != nil {
+	adc := filepath.Join(t.TempDir(), "adc.json")
+	body := `{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"proj"}`
+	if err := os.WriteFile(adc, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := fakeAnthropicProvider(t, "good-value-123")
-	got := geminiKeyStatus(true, p)
-	if !strings.Contains(got, "stored in secrets.env") || !strings.Contains(got, "probe ok") {
-		t.Errorf("geminiKeyStatus = %q, want secrets.env + probe ok", got)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+	return &dels
+}
+
+// answerConfirms replaces actionConfirmed with a scripted answer per question prefix and records the questions.
+func answerConfirms(t *testing.T, answers map[string]bool) *[]string {
+	t.Helper()
+	orig := actionConfirmed
+	t.Cleanup(func() { actionConfirmed = orig })
+	var asked []string
+	actionConfirmed = func(q string) bool {
+		asked = append(asked, q)
+		for prefix, yes := range answers {
+			if strings.HasPrefix(q, prefix) {
+				return yes
+			}
+		}
+		return false
+	}
+	return &asked
+}
+
+func fileKeyEnv(t *testing.T, current string) {
+	t.Helper()
+	menuTestEnv(t) // temp config/HOME and an empty PATH: no keyring tool, so the file plane
+	if current != "" {
+		if _, err := secrets.Store(geminiKeyEnv, current, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
-// A present key the live probe rejects reports "probe failed", not "probe ok".
-func TestGeminiKeyStatusPresentProbeRejected(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("GEMINI_API_KEY", "bad-value")
-	p := fakeAnthropicProvider(t, "the-only-accepted-value")
-	got := geminiKeyStatus(true, p)
-	if !strings.Contains(got, "probe failed") {
-		t.Errorf("geminiKeyStatus = %q, want probe failed", got)
+func TestMintGeminiKeyStoresAndDeletesOldWhenConfirmed(t *testing.T) {
+	fileKeyEnv(t, "AIza-old")
+	dels := fakeKeysEnv(t, "projects/1/locations/global/keys/old")
+	asked := answerConfirms(t, map[string]bool{"Mint": true, "Delete the old key": true})
+	d := &dialog{out: discardWriter{}}
+	if !mintGeminiKey(d) {
+		t.Fatal("mintGeminiKey = false")
+	}
+	if v, src, _ := secrets.Get(geminiKeyEnv); v != "AIza-minted" || src != "file" {
+		t.Errorf("stored key = %q from %q, want AIza-minted from file", v, src)
+	}
+	if len(*dels) != 1 || (*dels)[0] != "projects/1/locations/global/keys/old" {
+		t.Errorf("deleted = %v, want the old key once", *dels)
+	}
+	if len(*asked) != 2 {
+		t.Errorf("asked %v, want mint then delete", *asked)
+	}
+}
+
+func TestMintGeminiKeyKeepsOldWhenDeleteDeclined(t *testing.T) {
+	fileKeyEnv(t, "AIza-old")
+	dels := fakeKeysEnv(t, "projects/1/locations/global/keys/old")
+	answerConfirms(t, map[string]bool{"Mint": true, "Delete the old key": false})
+	if !mintGeminiKey(&dialog{out: discardWriter{}}) {
+		t.Fatal("mintGeminiKey = false")
+	}
+	if v, _, _ := secrets.Get(geminiKeyEnv); v != "AIza-minted" {
+		t.Errorf("stored key = %q, want the minted one", v)
+	}
+	if len(*dels) != 0 {
+		t.Errorf("deleted %v despite a No", *dels)
+	}
+}
+
+func TestMintGeminiKeyUnresolvableOldKeyIsNotOffered(t *testing.T) {
+	fileKeyEnv(t, "AIza-aistudio")
+	dels := fakeKeysEnv(t, "") // lookup 404: key from another project
+	asked := answerConfirms(t, map[string]bool{"Mint": true})
+	if !mintGeminiKey(&dialog{out: discardWriter{}}) {
+		t.Fatal("mintGeminiKey = false")
+	}
+	if len(*dels) != 0 || len(*asked) != 1 {
+		t.Errorf("deleted=%v asked=%v, want no delete offer", *dels, *asked)
+	}
+}
+
+func TestMintGeminiKeyDeclinedMintChangesNothing(t *testing.T) {
+	fileKeyEnv(t, "AIza-old")
+	fakeKeysEnv(t, "projects/1/locations/global/keys/old")
+	answerConfirms(t, nil)
+	if mintGeminiKey(&dialog{out: discardWriter{}}) {
+		t.Fatal("mintGeminiKey = true after No")
+	}
+	if v, _, _ := secrets.Get(geminiKeyEnv); v != "AIza-old" {
+		t.Errorf("key changed to %q", v)
+	}
+}
+
+func TestMintGeminiKeyRefusesEnvPlane(t *testing.T) {
+	menuTestEnv(t)
+	t.Setenv(geminiKeyEnv, "AIza-from-env")
+	asked := answerConfirms(t, map[string]bool{"Mint": true})
+	var out strings.Builder
+	if mintGeminiKey(&dialog{out: &out}) {
+		t.Fatal("mintGeminiKey = true on the env plane")
+	}
+	if len(*asked) != 0 || !strings.Contains(out.String(), "process environment") {
+		t.Errorf("asked=%v out=%q, want a refusal before any confirm", *asked, out.String())
 	}
 }
