@@ -292,7 +292,7 @@ list is printed to stderr before the call. Anything else launches the gemini CLI
 `agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
 `~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`, `~/.config/opencode/agents/<name>.md` — via a
 local rendering under `docs/projections/<vendor>/agents/` (gitignored; the home copy is a byte-identical install
-of it; `clean --what projections` removes it), and links the
+of it; `clean --target projections` removes it), and links the
 hand-authored `skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a
 skill twice). Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are
 kept and reported; `--check` gates drift in both the projections and the homes; `--vendor <v>` narrows a run. `install` runs it
@@ -354,10 +354,11 @@ near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer
 
 ## Housekeeping
 
-- `claude-code clean [--what <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
-  run dirs, backups); dry-run by default, `--apply` deletes. Credentials and settings are never a target.
-  Opt-in only: `--what projections` (vendor renders) and `--what sessions` (Claude Code transcripts under
+- `claude-code clean [--target <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
+  run dirs, backups); applies by default, `--dry-run` previews. Credentials and settings are never a target.
+  Opt-in only: `--target projections` (vendor renders) and `--target sessions` (Claude Code transcripts under
   `projects/<slug>/` with their `<id>/` subagent dirs, aged by `--older-than`; `projects/<slug>/memory` stays).
+  `--target sessions` always asks before it deletes — a `[y/N]` prompt on a TTY, `--yes` without one.
   Every run also checks for a nested `.claude/` inside the config dir (project scope layered over user
   settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at

@@ -58,7 +58,7 @@ func commands() []command {
 		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers + credential state; <name> shows its routes", run: cmdProviders},
 		// SESSION
 		{name: "switch", group: groupSession, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
-		{name: "clean", group: groupSession, summary: "sweep accumulated state (dry-run; --apply deletes)", run: cmdClean},
+		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},

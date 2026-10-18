@@ -49,6 +49,6 @@ diff -r ~/.claude/docs/projections/codex/agents ~/.codex/agents   # what codex r
 
 `agents sync` honours `--vendor`, `--dry-run`, `--check` (exit 1 on drift in a projection or a home) and `--no-prune`.
 `claude-code install` runs it after settings, so a fresh box tracks the repo. The projections are local and
-gitignored — nothing to commit; `claude-code clean --what projections` removes them (the next sync rebuilds them).
+gitignored — nothing to commit; `claude-code clean --target projections` removes them (the next sync rebuilds them).
 
 Report the output.
