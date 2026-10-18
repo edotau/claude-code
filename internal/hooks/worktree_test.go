@@ -53,7 +53,7 @@ func TestWorktreeCreateFromRealPayload(t *testing.T) {
 	if code := WorktreeCreate(createPayload(repo, "live-probe"), &out, &errb); code != ExitProceed {
 		t.Fatalf("create: got %d, stderr %s", code, errb.String())
 	}
-	want := filepath.Join(home, "worktrees", filepath.Base(repo), "live-probe")
+	want := filepath.Join(canonHome(t, home), "worktrees", filepath.Base(repo), "live-probe")
 	got := strings.TrimSpace(out.String())
 	if got != want {
 		t.Fatalf("path = %q, want %q", got, want)
@@ -101,7 +101,7 @@ func TestWorktreeCreateFromInsideLinkedWorktreeResolvesToMain(t *testing.T) {
 	if code := WorktreeCreate(createPayload(linked, "second"), &out2, &errb2); code != ExitProceed {
 		t.Fatalf("create from linked cwd: got %d, stderr %s", code, errb2.String())
 	}
-	want := filepath.Join(home, "worktrees", filepath.Base(repo), "second")
+	want := filepath.Join(canonHome(t, home), "worktrees", filepath.Base(repo), "second")
 	if got := strings.TrimSpace(out2.String()); got != want {
 		t.Fatalf("path = %q, want %q", got, want)
 	}
@@ -208,4 +208,14 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(branchOut)) == "" {
 		t.Fatalf("unmerged branch should be kept, branch --list = %q, err %v", branchOut, err)
 	}
+}
+
+// canonHome resolves a temp HOME the way WorktreeRoot does (macOS tmp dirs live behind a /var symlink).
+func canonHome(t *testing.T, home string) string {
+	t.Helper()
+	c, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
