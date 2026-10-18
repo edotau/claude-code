@@ -88,6 +88,10 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
 
+.PHONY: help-svg
+help-svg: compile  ## Regenerate the README menu image (docs/images/cli-menu.svg)
+	$(BIN) help-svg --out docs/images/cli-menu.svg
+
 .PHONY: bootstrap
 bootstrap:  ## Fresh box: Go, install, configure (CHECK=1, TAILSCALE=1)
 	@$(MAKE) go-toolchain
