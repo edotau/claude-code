@@ -110,15 +110,15 @@ func Sync(opts SyncOptions) int {
 	pruned := 0
 	for _, vendor := range vendors {
 		fmt.Fprintf(out, "== %s ==\n", vendor)
-		r, p := syncVendor(out, targets[vendor], agents, DistDir(root, vendor), targets[vendor].home(home), dryRun, prune)
+		r, p := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
 		res.add(r)
 		pruned += p
 		if rel, ok := instructionFiles[vendor]; ok && hasDocs {
 			if !dryRun {
 				_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)
-				_ = os.MkdirAll(filepath.Join(root, "dist", vendor), 0o755)
+				_ = os.MkdirAll(ProjectionRoot(root, vendor), 0o755)
 			}
-			res.record(writeProjection(out, filepath.Join(root, "dist", vendor, filepath.Base(rel)), docs, dryRun))
+			res.record(writeProjection(out, filepath.Join(ProjectionRoot(root, vendor), filepath.Base(rel)), docs, dryRun))
 			res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
 		}
 	}

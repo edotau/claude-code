@@ -1,15 +1,15 @@
 ---
-description: "Project agents/ + CLAUDE.md into every vendor CLI (codex, copilot, gemini, opencode) via tracked dist/, link skills/ into ~/.agents/skills"
+description: "Project agents/ + CLAUDE.md into every vendor CLI (codex, copilot, gemini, opencode) via docs/projections/, link skills/ into ~/.agents/skills"
 argument-hint: "[--vendor <v>] [--dry-run | --check | --no-prune]"
 ---
 
 # /harness:sync-agents
 
 One roster, every agent CLI. `agents/<name>.md` is rendered into each vendor's native subagent format under the
-git-tracked `dist/<vendor>/agents/` and installed byte-identical into the vendor home; the hand-authored
+gitignored `docs/projections/<vendor>/agents/` and installed byte-identical into the vendor home; the hand-authored
 `skills/<name>/` dirs are symlinked into `~/.agents/skills`, the one skills directory all four CLIs read natively.
 CLAUDE.md + the roster are rendered into the vendors' global instruction files, `~/.codex/AGENTS.md` and
-`~/.gemini/GEMINI.md` (tracked as `dist/codex/AGENTS.md`, `dist/gemini/GEMINI.md`). Nothing is written at the harness
+`~/.gemini/GEMINI.md` (also rendered to `docs/projections/codex/AGENTS.md`, `docs/projections/gemini/GEMINI.md`). Nothing is written at the harness
 root: Claude Code loads a root `AGENTS.md` as a second copy of CLAUDE.md in every session.
 
 ## What syncs
@@ -35,7 +35,7 @@ more (banner-marked copies an earlier sync left there are pruned).
 
 ## Pruning
 
-Only banner-marked files whose source is gone (in `dist/` and the homes), harness symlinks in `~/.agents/skills`
+Only banner-marked files whose source is gone (in the projections and the homes), harness symlinks in `~/.agents/skills`
 whose skill is gone, and legacy banner-marked dirs in `~/.gemini/skills`. Never `RemoveAll`. `--no-prune` skips it;
 an empty roster refuses to prune.
 
@@ -44,11 +44,11 @@ an empty roster refuses to prune.
 ```bash
 claude-code agents sync $ARGUMENTS
 gemini skills list 2>&1 | grep -c 'Skill conflict'    # expect 0
-git -C ~/.claude status --short dist/                  # commit the tracked rendering
+diff -r ~/.claude/docs/projections/codex/agents ~/.codex/agents   # what codex reads, file by file
 ```
 
-`agents sync` honours `--vendor`, `--dry-run`, `--check` (exit 1 on drift in `dist/` or a home) and `--no-prune`.
-`claude-code install` runs it after settings, so a fresh box tracks the repo. Commit `dist/` with the agent or
-CLAUDE.md change that produced it.
+`agents sync` honours `--vendor`, `--dry-run`, `--check` (exit 1 on drift in a projection or a home) and `--no-prune`.
+`claude-code install` runs it after settings, so a fresh box tracks the repo. The projections are local and
+gitignored — nothing to commit; `claude-code clean --what projections` removes them (the next sync rebuilds them).
 
 Report the output.

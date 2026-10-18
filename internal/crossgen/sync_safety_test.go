@@ -33,7 +33,7 @@ func TestSyncCheckGatesStaleProjection(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: &out}); code == 0 {
 		t.Error("--check after a source edit = 0, want non-zero")
 	}
-	if !strings.Contains(out.String(), "DRY   ~/.claude/dist/codex/agents/demo-agent.toml") {
+	if !strings.Contains(out.String(), "DRY   ~/.claude/docs/projections/codex/agents/demo-agent.toml") {
 		t.Errorf("drift in the tracked dist copy not reported:\n%s", out.String())
 	}
 }
@@ -46,7 +46,7 @@ func TestSyncCheckAloneNeverWrites(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code == 0 {
 		t.Error("--check on a missing projection = 0, want non-zero")
 	}
-	for _, p := range []string{filepath.Join(home, ".gemini"), filepath.Join(claude, "dist")} {
+	for _, p := range []string{filepath.Join(home, ".gemini"), filepath.Join(claude, "docs", "projections")} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("Check alone (DryRun unset) wrote %s", p)
 		}
@@ -96,7 +96,7 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	}
 	for _, vendor := range VendorNames() {
 		tg := targets[vendor]
-		for _, p := range []string{filepath.Join(DistDir(claude, vendor), "doomed"+tg.ext), filepath.Join(tg.home(home), "doomed"+tg.ext)} {
+		for _, p := range []string{filepath.Join(ProjectionDir(claude, vendor), "doomed"+tg.ext), filepath.Join(tg.home(home), "doomed"+tg.ext)} {
 			if _, err := os.Lstat(p); !os.IsNotExist(err) {
 				t.Errorf("orphan survived prune: %s", p)
 			}
@@ -131,7 +131,7 @@ func TestSyncKeepsHandAuthoredVendorFile(t *testing.T) {
 		t.Errorf("hand-authored vendor file not KEEP'd:\n%s", out.String())
 	}
 	assertFileContains(t, hand, "hand-made")
-	assertFileContains(t, filepath.Join(DistDir(claude, "gemini"), "shadowed.md"), agentSkillBannerPrefix)
+	assertFileContains(t, filepath.Join(ProjectionDir(claude, "gemini"), "shadowed.md"), agentSkillBannerPrefix)
 }
 
 // skills/<x> symlinks point into ~/.agents/skills already, so they are the user's and never re-linked.
