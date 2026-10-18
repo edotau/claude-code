@@ -26,12 +26,22 @@ const (
 // framed by control bytes so parseCaptureBlob can split the output back into per-pane records. It
 // reuses dispatch.go's fieldSep ("|") for the header columns: tmux's format engine replaces a real
 // tab byte with "_" in its own -F output (see fieldSep's comment), so tab cannot separate these.
-var captureCommand = `tmux list-panes -a -F '#{session_name}` + fieldSep + `#{pane_id}` + fieldSep +
-	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>/dev/null` +
+//
+// list-panes's own exit status is checked explicitly, outside any pipe, before filtering/looping:
+// piped straight into awk/while, a list-panes failure (exit nonzero, empty stdout) is indistinguishable
+// from "no cc-* panes exist" (both yield zero loop iterations, and a while loop that never ran its
+// body exits 0) — the ssh round trip reports success with an empty capture, and CapturePanes/Observe
+// then has no way to tell a transient tmux failure apart from every tracked pane having vanished. A
+// capture-pane failure inside the loop instead `exit`s the loop (its subshell, piped as the script's
+// last statement) immediately, which is still the pipeline's — and so the whole script's — exit status.
+var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fieldSep + `#{pane_id}` + fieldSep +
+	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>/dev/null)"; list_rc=$?` +
+	`; if [ "$list_rc" -ne 0 ]; then echo 'dispatch: tmux list-panes failed' >&2; exit 1; fi` +
+	`; printf '%s\n' "$list_out"` +
 	` | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'` +
 	` | while IFS='` + fieldSep + `' read -r sess pid agent cmd; do` +
 	` printf '` + paneRecordStart + `%s` + fieldSep + `%s` + fieldSep + `%s` + fieldSep + `%s\n' "$sess" "$pid" "$agent" "$cmd";` +
-	` tmux capture-pane -p -t "$pid" -S -` + fmt.Sprint(paneCaptureLines) + ` 2>/dev/null;` +
+	` if ! tmux capture-pane -p -t "$pid" -S -` + fmt.Sprint(paneCaptureLines) + ` 2>/dev/null; then exit 1; fi;` +
 	` printf '` + paneRecordEnd + `\n'; done`
 
 // PaneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.

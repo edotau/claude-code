@@ -229,6 +229,52 @@ func writeStubTmux(t *testing.T, dir string) {
 	}
 }
 
+// writeFailingNewSessionTmux puts a `tmux` stub on dir that fails `new-session` (simulating a
+// duplicate session name) but succeeds on every other subcommand, appending every invocation's
+// subcommand to logPath so the test can tell whether `set-option` ran despite the failure.
+func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
+	t.Helper()
+	script := "#!/bin/sh\necho \"$1\" >> " + logPath + "\nif [ \"$1\" = new-session ]; then exit 1; fi\nexit 0\n"
+	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
+		t.Fatalf("writeFailingNewSessionTmux: %v", err)
+	}
+}
+
+// TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails is the regression test for Appendix A
+// codex-review finding #10 (internal/dispatch/dispatch.go:137): a duplicate session name makes
+// `tmux new-session` fail, and the generated script must not then tag whatever unrelated session
+// already holds that name with this dispatch's @cc_agent metadata.
+func TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
+	cmd, name, err := BuildRemoteCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
+	if err != nil {
+		t.Fatalf("BuildRemoteCommand: %v", err)
+	}
+	stubDir := t.TempDir()
+	logPath := t.TempDir() + "/calls.log"
+	writeFailingNewSessionTmux(t, stubDir, logPath)
+
+	run := exec.Command("sh", "-c", cmd)
+	run.Env = append(run.Environ(), "PATH="+stubDir)
+	out, runErr := run.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("generated command must fail when tmux new-session fails for %q; output=%s", name, out)
+	}
+
+	logged, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("reading tmux call log: %v", readErr)
+	}
+	calls := strings.Fields(string(logged))
+	for _, c := range calls {
+		if c == "set-option" {
+			t.Fatalf("tmux set-option ran despite new-session failing; calls=%v", calls)
+		}
+	}
+	if len(calls) == 0 || calls[0] != "new-session" {
+		t.Fatalf("expected new-session to be the (only) tmux call attempted, got %v", calls)
+	}
+}
+
 func TestSSHArgs_IsArgvNotShellString(t *testing.T) {
 	// SSHArgs always wraps the remote command as `sh -c <quoted>` so it runs under POSIX sh
 	// regardless of the remote login shell (e.g. fish).
