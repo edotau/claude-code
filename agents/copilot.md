@@ -61,7 +61,6 @@ tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
 color: red
-memory: user
 ---
 
 # Copilot — Test Surface · Last Mile

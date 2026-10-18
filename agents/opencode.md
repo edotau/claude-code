@@ -65,7 +65,6 @@ tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch]
 model: sonnet
 effort: low
 color: cyan
-memory: user
 ---
 
 # Opencode — Docs · Memory Reflection
