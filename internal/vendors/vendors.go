@@ -82,6 +82,14 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}
+	// "OpenCode defaults to the Copilot plan": opencode's own github-copilot login (unrelated to the
+	// session provider) is preferred whenever it is present, ahead of a session provider that could
+	// otherwise already serve opencode; an explicit --provider still wins.
+	if name == "opencode" && !explicit {
+		if gt, gnote, ok := opencodeCopilotTarget(reg); ok {
+			return gt, gnote, nil
+		}
+	}
 	if explicit || canServe(name, t.Provider) {
 		return t, "", nil
 	}
@@ -305,6 +313,10 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 // login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
 func login(name string, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
 	switch {
+	case name == "opencode" && p.Name == "github-copilot":
+		// github-copilot's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
+		// Copilot login (opencode auth login), never the harness's copilot-vendor credential.
+		return opencodeCopilotLogin()
 	case p.Auth.Login != name:
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	case name == "codex":
@@ -766,6 +778,77 @@ func CopilotLoginPresent() bool { return copilotLoginPresent() }
 // GeminiLoginPresent reports whether ~/.gemini/settings.json selects a Google login (which beats any key).
 func GeminiLoginPresent() bool { return geminiAuthConflict() != nil }
 
+// opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> the "github-copilot"
+// key in its auth.json): opus slot, pin-aware. ok is false without that login or a matching registry provider.
+func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, bool) {
+	if !OpencodeCopilotLoginPresent() {
+		return providers.Target{}, "", false
+	}
+	p, ok := loginProvider(reg, "github-copilot", "copilot")
+	if !ok {
+		return providers.Target{}, "", false
+	}
+	return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "opencode's own GitHub Copilot login (opencode auth login)", true
+}
+
+// OpencodeCopilotLoginPresent reports whether opencode's own auth.json has a "github-copilot" entry,
+// the key `opencode auth login` writes for a GitHub Copilot sign-in.
+func OpencodeCopilotLoginPresent() bool {
+	return slices.Contains(OpencodeLogins(), "github-copilot")
+}
+
+// opencodeCopilotLogin is opencode on its own GitHub Copilot sign-in: there is nothing for the harness to
+// inject (the login and the model/small_model `generate` wrote live in opencode's own config), so a
+// present login runs plain (ErrOwnLogin); an absent one is a clear, actionable error instead of login's
+// generic "wrong vendor" message (p.Auth.Login names "copilot", not "opencode").
+func opencodeCopilotLogin() ([]string, []string, error) {
+	if !OpencodeCopilotLoginPresent() {
+		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's own auth.json; run `opencode auth login` and choose GitHub Copilot")
+	}
+	return nil, nil, ErrOwnLogin
+}
+
+// OpencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
+// ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap tier for
+// sub-tasks; each honors HARNESS_<SLOT>_MODEL then HARNESS_MODEL the way providers.Select resolves a
+// session slot, rooted at the github-copilot provider instead of the session's. ok is false without a
+// registered github-copilot provider or either slot.
+func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
+	p, found := reg.Providers["github-copilot"]
+	if !found {
+		return "", "", false
+	}
+	main = slotModelID(reg, p, models.Sonnet)
+	small = slotModelID(reg, p, models.Haiku)
+	return main, small, main != "" && small != ""
+}
+
+// slotModelID is slot's pin-resolved wire model id for p: HARNESS_<SLOT>_MODEL, else HARNESS_MODEL, else
+// p's own table. A pin naming a different provider ("other:model") is still used verbatim as the id.
+func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) string {
+	spec := providers.Pin(providers.SlotPin(slot))
+	if spec == "" {
+		spec = providers.Pin(providers.PinModel)
+	}
+	if spec == "" {
+		spec = p.Models[slot]
+	}
+	if spec == "" {
+		return ""
+	}
+	return providers.ParseTarget(reg, spec, p).Model
+}
+
+// OpenCodePermissionMCP renders the permission/mcp blocks opencode's interactive config normally imports
+// from the caller's Claude settings (cwd-rooted) — reused by render paths in internal/generate that build
+// their own opencode.json directly instead of going through Configure/opencode (the github-copilot route,
+// which Configure cannot drive: a login provider's Auth.Login names "copilot", not "opencode").
+func OpenCodePermissionMCP() (permission map[string]any, mcp map[string]any, mcpSkipped []string) {
+	cwd, _ := os.Getwd()
+	imp := readClaudeImport(cwd)
+	return permissionBlock(imp.allow, imp.deny, imp.ask), mcpBlock(imp.mcp), imp.skippedMCP
+}
+
 // OpencodeLogins lists the providers opencode's own `auth login` stored (auth.json under its data dir), sorted.
 func OpencodeLogins() []string {
 	data, err := os.ReadFile(opencodeAuthFile())
@@ -784,7 +867,9 @@ func OpencodeLogins() []string {
 	return names
 }
 
-// opencodeOwnModel is the "model" the user set in ~/.config/opencode/opencode.jsonc (comment-free JSON only), else "".
+// opencodeOwnModel is the "model" the user set in ~/.config/opencode/opencode.jsonc (comment-free JSON
+// only), else "". Reads the exact filename only, so a generate-retired "opencode.jsonc.bak-<ts>" never
+// counts as the user's own setup.
 func opencodeOwnModel() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
