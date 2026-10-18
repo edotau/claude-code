@@ -138,6 +138,26 @@ function renderSubagents(subs, sessionId) {
   }).join('') + '</div>';
 }
 
+// phaseDone mirrors internal/agenttree/render.go's phaseDone: agents with a finished/error result vs. total.
+function phaseDone(agents) {
+  let done = 0;
+  (agents || []).forEach(function (a) { if (a.status === 'finished' || a.status === 'error') done++; });
+  return done;
+}
+
+function renderWorkflows(runs, sessionId) {
+  if (!runs || !runs.length) return '';
+  return '<div class="sub">' + runs.map(function (run) {
+    return '<div class="card"><div class="row"><span>workflow ' + escapeHTML(run.name || run.id) + ' ' + chip(run.status) + '</span></div>' +
+      (run.phases || []).map(function (phase) {
+        const total = (phase.agents || []).length;
+        return '<div class="muted">phase ' + escapeHTML(phase.name) + ' (' + phaseDone(phase.agents) + '/' + total + ' done)</div>' +
+          renderSubagents(phase.agents, sessionId);
+      }).join('') +
+      '</div>';
+  }).join('') + '</div>';
+}
+
 function renderTree(tree) {
   const sessions = tree.sessions || [];
   if (!sessions.length) return '<p class="muted">no recent sessions</p>';
@@ -146,6 +166,7 @@ function renderTree(tree) {
       '<div class="row"><strong>' + escapeHTML(s.title || s.project || s.id) + '</strong>' + chip(s.status) + '</div>' +
       '<div class="muted">' + escapeHTML(s.cwd || '') + (s.branch ? ' @' + escapeHTML(s.branch) : '') + '</div>' +
       renderSubagents(s.subagents, s.id) +
+      renderWorkflows(s.workflows, s.id) +
       '</div>';
   }).join('');
 }
