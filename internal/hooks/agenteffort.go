@@ -110,9 +110,6 @@ func vendorModelWord(subagentType string) (word string, ok bool) {
 		if ri.Model != "" {
 			return ri.Model, true
 		}
-		if ri.Leg != "" {
-			return ri.Leg, true
-		}
 		return "no-route", true
 	case "codex", "gemini":
 		sel, err := providers.Select(reg, "")
