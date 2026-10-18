@@ -47,9 +47,13 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// The harness's own docs tree (images + tracked knowledge) always passes; session artifacts live in <config>/memory.
-	if underDir(canonDeep(filepath.Join(paths.ConfigDir(), "docs")), abs) {
-		return ExitProceed
+	// The harness's own docs/ holds only images + tracked knowledge; anything else there is a retired home.
+	if harnessDocs := canonDeep(filepath.Join(paths.ConfigDir(), "docs")); underDir(harnessDocs, abs) {
+		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) ||
+			isTracked(canonDeep(paths.ConfigDir()), strings.TrimPrefix(abs, canonDeep(paths.ConfigDir())+string(filepath.Separator))) {
+			return ExitProceed
+		}
+		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", canonDeep(paths.ConfigDir()))
 	}
 	// Two gated shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
 	root := repoRootOf(dir)
@@ -79,6 +83,11 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if inDocs {
 		where = fmt.Sprintf("%s, which this repo gitignores — it vanishes on a fresh clone", dir)
 	}
+	return blockPlacement(stderr, base, where, root)
+}
+
+// blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
+func blockPlacement(stderr io.Writer, base, where, root string) int {
 	slug := paths.RepoSlug(root)
 	plans := filepath.Join(paths.ConfigDir(), "plans")
 	store := memory.Dir(root)
