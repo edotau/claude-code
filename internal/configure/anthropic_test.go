@@ -39,7 +39,7 @@ func TestBillingLabel(t *testing.T) {
 	if got := billingLabel("subscription"); got != "subscription" {
 		t.Errorf("billingLabel(subscription) = %q", got)
 	}
-	if got := billingLabel("anthropic"); got != "api key" {
+	if got := billingLabel("anthropic"); got != "API key" {
 		t.Errorf("billingLabel(anthropic) = %q", got)
 	}
 	if got := billingLabel("openai"); got != "openai (not anthropic)" {
