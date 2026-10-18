@@ -124,8 +124,20 @@ func migrateApply(path string, supersede bool) int {
 		return 1
 	}
 	fmt.Println("complete")
-	if g := memory.StartupGuard(); g.Paused { // Phase 1: a finished import stays paused until the Phase 2 cutover
+	if g := memory.StartupGuard(); g.Paused {
 		fmt.Println("note: " + g.Notice)
+		return 0
 	}
+	links, err := memory.EnsureNativeLinks() // the cutover: native memory now reads and writes the store
+	if err != nil {
+		return fail("memory migrate: native links: %v", err)
+	}
+	for _, l := range links {
+		fmt.Printf("link %-9s %s -> %s %s\n", l.Action, l.Link, l.Target, l.Detail)
+	}
+	if _, err := memory.SettleAll(time.Now()); err != nil {
+		return fail("memory migrate: index: %v", err)
+	}
+	fmt.Println("store live: " + memory.StoreDir())
 	return 0
 }

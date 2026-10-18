@@ -272,7 +272,7 @@ func (inv *inventory) quarantineTree(root, reason string) {
 
 // legacyTree inventories GlobalDir(): the global six, archive/, <slug>/ banks and anything unknown.
 func (inv *inventory) legacyTree() {
-	g := GlobalDir()
+	g := LegacyGlobalDir()
 	ents, _ := os.ReadDir(g)
 	for _, e := range ents {
 		name, p := e.Name(), filepath.Join(g, e.Name())

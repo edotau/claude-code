@@ -47,8 +47,8 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// This harness's own docs tree passes unconditionally: docs/{handoffs,reports,memory} are
-	// gitignored INSIDE this checkout, so the gated shapes below would block every legit write.
+	// This harness's own docs tree passes unconditionally: docs/reports is gitignored INSIDE this checkout, so the
+	// gated shapes below would block every legit write. Memory lives in <config>/memory, outside docs/ entirely.
 	if underDir(canonDeep(filepath.Join(paths.ConfigDir(), "docs")), abs) {
 		return ExitProceed
 	}

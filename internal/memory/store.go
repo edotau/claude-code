@@ -43,11 +43,31 @@ func IsHarvestChild() bool {
 	return v != "" && v != "0"
 }
 
-// GlobalDir is the shared bank at the top of the bank tree.
-func GlobalDir() string { return filepath.Join(paths.ConfigDir(), "docs", "memory", "bank") }
+// LegacyGlobalDir is the pre-cutover bank tree; only migration reads it once the cutover lands.
+func LegacyGlobalDir() string { return filepath.Join(paths.ConfigDir(), "docs", "memory", "bank") }
+
+// CutOver reports a completed migration: from then on every bank and native path resolves inside StoreDir().
+func CutOver() bool {
+	_, _, incomplete, migrated := scanJournals()
+	return migrated && !incomplete
+}
+
+// GlobalDir is the shared bank: the store root after the cutover, else the top of the legacy bank tree.
+func GlobalDir() string {
+	if CutOver() {
+		return StoreDir()
+	}
+	return LegacyGlobalDir()
+}
 
 // Dir is root's local bank; the config dir and any non-repo root collapse to the global one.
 func Dir(root string) string {
+	if CutOver() { // one dir per repo shared with native memory; the harness is memory/.claude
+		if d, err := RepoDir(root); err == nil {
+			return d
+		}
+		return StoreDir()
+	}
 	if slug := paths.RepoSlug(root); slug != "" && inWorkTree(root) {
 		return filepath.Join(GlobalDir(), slug)
 	}
@@ -91,7 +111,13 @@ func Init(root string) (string, error) {
 		return "", err
 	}
 	dir := Dir(root)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if CutOver() { // a new repo store needs its .origin before any file lands in it
+		d, err := EnsureRepoDir(root)
+		if err != nil {
+			return "", err
+		}
+		dir = d
+	} else if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	for name, body := range templates {

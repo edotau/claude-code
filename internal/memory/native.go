@@ -19,6 +19,13 @@ import (
 
 // NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
 func NativeDirs(root string) []string {
+	if CutOver() { // native shares the repo's store dir; the global tier holds the user-wide notes
+		out := []string{StoreDir()}
+		if d := Dir(root); !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+		return out
+	}
 	roots := []string{paths.ConfigDir(), root}
 	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil && root != "" {
 		roots = append(roots, GitToplevel(root)) // a subdir's sessions file under the repo top; forks only off-toplevel
@@ -39,6 +46,9 @@ func NativeDirs(root string) []string {
 // NativeDirs' extra fallback entries (the harness's own notes, a non-toplevel subdir's parent) that
 // search reads but archive must not touch.
 func NativeDir(root string) string {
+	if CutOver() {
+		return Dir(root)
+	}
 	return filepath.Join(paths.ConfigDir(), "projects", projectSlug(root), "memory")
 }
 

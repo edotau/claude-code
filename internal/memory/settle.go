@@ -92,6 +92,9 @@ func (s BankSettlement) Any() bool { return s.Moved() > 0 || s.Rotated > 0 }
 // SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
 // local (and global) index — all under the bank lock. Deletes nothing.
 func SettleBank(root string, now time.Time) (BankSettlement, error) {
+	if CutOver() { // overflow archives in scope; no auto-promotion to global
+		return settleUnified(root, now)
+	}
 	dir := Dir(root)
 	var s BankSettlement
 	err := paths.WithFileLock(lockPath(dir), func() error {

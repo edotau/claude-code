@@ -44,8 +44,8 @@ func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "complete") {
 		t.Fatalf("apply: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	if !strings.Contains(out, "note: memory migration complete") || !strings.Contains(out, "stay paused") {
-		t.Errorf("a complete apply must tell the operator writes stay paused until the cutover: %q", out)
+	if !strings.Contains(out, "store live: ") || !strings.Contains(out, "link linked") {
+		t.Errorf("a complete apply must cut over: link native dirs and report the live store: %q", out)
 	}
 	dest := filepath.Join(memory.StoreDir(), "conventions.md")
 	data, err := os.ReadFile(dest)
