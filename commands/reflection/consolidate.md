@@ -45,7 +45,8 @@ Review the conversation so far. Produce a structured summary:
 
 ### Step 2: Update Native Project Memory
 
-Update the current project's native memory at `~/.claude/projects/<slug>/memory/`:
+Update the current project's native memory at `~/.claude/projects/<slug>/memory/` — a symlink
+into `~/.claude/memory/<repo>/`, the same dir the typed bank files live in:
 
 1. Resolve the project's memory dir: `~/.claude/projects/<slug>/memory/MEMORY.md`
 2. Read its `MEMORY.md` index (+ any linked topic files)

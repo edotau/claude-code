@@ -130,11 +130,12 @@ create files in this mode.
 
 Read in order:
 
-1. **Auto-memory index** — `MEMORY.md` for the resolved auto-memory dir (first 200 lines
-   auto-loaded; flag truncation at line 200)
-2. **Auto-memory topic files** — any `*.md` beside `MEMORY.md`, linked from the index
-3. **Session memory bank** — `claude-code memory path` resolves it; `claude-code memory doctor`
-   surfaces caps/staleness/cross-tier-duplication findings
+1. **Catalog** — `memory/index.md` (the generated router, one row per repo store); `claude-code
+   memory path` resolves this repo's store dir (`memory/<repo>/`, harness = `memory/.claude/`)
+2. **Native MEMORY.md + topic files** — in that same store dir (first ~200 lines of `MEMORY.md`
+   auto-load, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region)
+3. **Typed bank files** — the six files beside MEMORY.md in the same dir; `claude-code memory
+   doctor` surfaces caps/staleness/cross-tier-duplication across both native and typed
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflow/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
 

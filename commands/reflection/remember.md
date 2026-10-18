@@ -12,7 +12,9 @@ argument-hint: "<what to remember> [--type user|feedback|project|reference]"
 
 ## The schema (one file per fact + an index line)
 
-Native project memory here is **structured**: each fact is its own topic file with YAML
+Native project memory lives at `~/.claude/projects/<slug>/memory/` — a symlink into
+`~/.claude/memory/<repo>/`, the same dir the six typed bank files live in. It is **structured**:
+each fact is its own topic file with YAML
 frontmatter, and `MEMORY.md` is a one-line-per-fact index. Do **not** just append a line to
 `MEMORY.md` — write the topic file first, then add its index pointer.
 

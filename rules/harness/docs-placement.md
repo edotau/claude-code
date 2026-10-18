@@ -17,9 +17,9 @@ is `~/.claude/docs`; `internal/hooks/docsplacement.go` is the only place its sub
 | Artifact | Path | Producer |
 | --- | --- | --- |
 | Approved plan | `~/.claude/plans/<date>-<title>.md` (this repo) · `~/.claude/plans/<repo>/<date>-<title>.md` (any other repo) — Claude Code's native `plansDirectory`, **outside** the docs tree and gitignored wholesale | `save-plan` hook (`ExitPlanMode`) |
-| Session handoff | `docs/handoffs/<date>-<topic>.md` | the session that ends |
+| Session handoff | `~/.claude/memory/<repo>/handoffs/<date>-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `docs/reports/<repo>/<name>.md` | the command or agent that produced it |
-| Session memory bank (STATE, not a doc) | `docs/memory/bank/<repo-slug>/` | `memory init` / the harvest gate |
+| Session memory bank (STATE, not a doc) | `~/.claude/memory/<repo>/` | `memory init` / the harvest gate |
 
 The **repo tag** is `paths.RepoSlug(root)` — the lowercased repo basename. The harness checkout itself
 resolves to `""`, so its own plans and handoffs sit untagged at the top of each subtree. Handoffs/reports
@@ -38,10 +38,9 @@ plans live only on disk, never in git history.
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
-- **State, not docs** — `docs/memory/` (the banks and their locks), `docs/projections/` (per-vendor agent renders
-  from `agents sync`; `clean --target projections` sweeps them) and `state/harness/`. The banks
-  live inside the docs tree but are per-machine STATE: gitignored, machine-written, never subject to
-  the placement table above.
+- **State, not docs** — `~/.claude/memory/` (the unified memory store and its locks — its own local
+  git repo, outside this repo's `docs/` tree entirely), `docs/projections/` (per-vendor agent
+  renders from `agents sync`; `clean --target projections` sweeps them) and `state/harness/`.
 
 ## Enforcement — the `docs-placement` gate
 
@@ -56,10 +55,9 @@ It passes on: a root anchor, a git-**tracked** file (`git ls-files`, so a force-
 ignored `docs/` passes), anything at or under the harness docs tree itself, every other subdirectory,
 a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
 
-- The harness-docs exemption is load-bearing: `docs/handoffs/HANDOFF.md` and `docs/memory/` are
-  gitignored **inside the harness checkout**, so shape 2 would otherwise block the canonical
-  destination for every bank write. Plans never hit this gate at all — `save-plan` writes directly
-  to `~/.claude/plans/`, outside the docs tree and outside any repo's own `docs/`.
+- Bank/handoff writes land in `~/.claude/memory/`, outside any repo's `docs/` tree, so this gate
+  never sees them at all. Plans don't hit it either — `save-plan` writes directly to
+  `~/.claude/plans/`, outside the docs tree and outside any repo's own `docs/`.
 - Class: deny-one-call — not a Stop/SubagentStop gate, so it needs no fail-open counter. The model
   re-issues the write at the named path and moves on.
 - A genuine repo doc the user asked for: `git add -N <file>` first (tracked wins over ignored), or
