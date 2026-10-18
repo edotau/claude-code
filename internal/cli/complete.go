@@ -63,7 +63,7 @@ var noComplete = map[string]bool{
 // verb body it describes when either changes.
 var flagsFor = map[string][]flagInfo{
 	"resolve":          {{name: "provider", values: providerNames}, {name: "router", isBool: true}},
-	"clean":            {{name: "what"}, {name: "older-than"}, {name: "apply", isBool: true}, {name: "list", isBool: true}},
+	"clean":            {{name: "target"}, {name: "older-than"}, {name: "dry-run", isBool: true}, {name: "yes", isBool: true}, {name: "list", isBool: true}},
 	"secrets set":      {{name: "file", isBool: true}, {name: "dry-run", isBool: true}},
 	"switch":           {{name: "dry-run", isBool: true}},
 	"secrets get":      {{name: "export", isBool: true}},

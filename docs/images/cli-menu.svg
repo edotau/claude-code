@@ -50,7 +50,7 @@
 <text x="173.2" y="464" fill="#d7d4dc">pin the session provider (env.d/provider.env)</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
 <text x="38.8" y="483" fill="#9a74b3" font-weight="bold">clean           </text>
-<text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state (dry-run; --apply deletes)</text>
+<text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
 <text x="38.8" y="502" fill="#a471a7" font-weight="bold">history         </text>
 <text x="173.2" y="502" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>

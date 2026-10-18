@@ -300,7 +300,7 @@ func nestedDetail(n clean.Nested) string {
 		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == clean.KeepWorktrees })
 		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into the template first"
 	default:
-		return n.Dir + " is redundant (claude-code clean --apply)"
+		return n.Dir + " is redundant (claude-code clean)"
 	}
 }
 

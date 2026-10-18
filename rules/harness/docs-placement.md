@@ -37,7 +37,7 @@ resolves to `""`, so its own plans and handoffs sit untagged at the top of each 
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
 - **State, not docs** — `docs/memory/` (the banks and their locks), `docs/projections/` (per-vendor agent renders
-  from `agents sync`; `clean --what projections` sweeps them) and `state/harness/`. The banks
+  from `agents sync`; `clean --target projections` sweeps them) and `state/harness/`. The banks
   live inside the docs tree but are per-machine STATE: gitignored, machine-written, never subject to
   the placement table above.
 

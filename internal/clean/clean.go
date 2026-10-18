@@ -1,15 +1,18 @@
-// Package clean is the explicit state sweep: `claude-code clean` is dry-run by default, and the
+// Package clean is the explicit state sweep: `claude-code clean` applies by default and the
 // age-out every target protects against is otherwise a LAZY side effect (harvest, hooks, install
-// each prune only their own path on their own schedule — nothing ever sweeps the rest).
+// each prune only their own path on their own schedule — nothing ever sweeps the rest). --dry-run
+// previews without deleting.
 //
 // Invariants, in order of importance:
 //  1. Credentials are NEVER touched: env.d/*.env, settings.json, providers.json, .credentials.json.
 //  2. The memory bank (docs/memory/bank/**, including its archive/ and archive/native/ subtrees) is
 //     NEVER a target, not even opt-in — it holds promoted, irrecoverable history.
-//  3. Nothing is deleted without --apply.
+//  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
+//     a [y/N] prompt on a TTY, --yes without one.
 package clean
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -34,7 +37,7 @@ type target struct {
 	globs func() []string
 	// ageless targets go at any age: --older-than does not gate them.
 	ageless bool
-	// optIn targets run only when named in --what, never in a bare sweep.
+	// optIn targets run only when named in --target, never in a bare sweep.
 	optIn bool
 }
 
@@ -96,13 +99,13 @@ func targets() []target {
 		},
 		{
 			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each vendor reads.
-			name: "projections", doc: "docs/projections: per-vendor agent/instruction renders (opt-in: --what projections)",
+			name: "projections", doc: "docs/projections: per-vendor agent/instruction renders (opt-in: --target projections)",
 			globs: func() []string { return []string{g("docs", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
 			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
 			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
-			name: "sessions", doc: "projects/<slug>: Claude Code session transcripts (<id>.jsonl) and their <id>/ subagent/tool-result dirs; auto-memory kept (opt-in: --what sessions)",
+			name: "sessions", doc: "projects/<slug>: Claude Code session transcripts (<id>.jsonl) and their <id>/ subagent/tool-result dirs; auto-memory kept (opt-in: --target sessions)",
 			globs: func() []string {
 				return []string{g("projects", "*", "*.jsonl"), g("projects", "*", "????????-????-????-????-????????????")}
 			},
@@ -120,13 +123,14 @@ func targets() []target {
 	}
 }
 
-// Run is `claude-code clean`: dry-run unless --apply.
+// Run is `claude-code clean`: applies unless --dry-run.
 func Run(args []string, out, errw io.Writer) int {
 	fs := flag.NewFlagSet("clean", flag.ContinueOnError)
 	fs.SetOutput(errw)
-	what := fs.String("what", "", "comma-separated targets (default: every target); --list names them")
+	want := fs.String("target", "", "comma-separated targets (default: every target); --list names them")
 	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h)")
-	apply := fs.Bool("apply", false, "actually delete — without it nothing is removed")
+	dryRun := fs.Bool("dry-run", false, "preview only — print what would be removed, delete nothing")
+	yesFlag := fs.Bool("yes", false, "skip the --target sessions confirmation prompt (required without a TTY)")
 	list := fs.Bool("list", false, "print the targets and exit")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -146,24 +150,29 @@ func Run(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "clean:", err)
 		return 2
 	}
-	selected, err := selectTargets(all, *what)
+	selected, err := selectTargets(all, *want)
 	if err != nil {
 		fmt.Fprintln(errw, "clean:", err)
 		return 2
 	}
 
+	apply := !*dryRun
 	cutoff := time.Now().Add(-age)
+	if apply && !confirmSessions(selected, cutoff, *olderThan, *yesFlag, errw) {
+		fmt.Fprintln(errw, "clean: sessions not confirmed — nothing deleted")
+		return 0
+	}
 	var totalFiles int
 	var totalBytes int64
-	// The nested config dir is wrong at any age, so it is checked on every run, outside --what/--older-than.
+	// The nested config dir is wrong at any age, so it is checked on every run, outside --target/--older-than.
 	if n := NestedConfig(); n.Dir != "" {
 		if len(n.Keep) > 0 {
 			fmt.Fprintf(errw, "%-16s kept %s: move %s into internal/settings/settings.tmpl.json, make install, re-run\n",
 				"nested-config", n.Dir, strings.Join(n.Keep, ", "))
-		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), *apply); len(hits) > 0 {
+		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply); len(hits) > 0 {
 			totalFiles, totalBytes = len(hits), size
 			verb := "would remove"
-			if *apply {
+			if apply {
 				verb = "removed"
 			}
 			fmt.Fprintf(errw, "%-16s %s %s\n", "nested-config", verb, n.Dir)
@@ -174,14 +183,14 @@ func Run(args []string, out, errw io.Writer) int {
 		if t.ageless {
 			tcut = time.Now().Add(time.Hour)
 		}
-		hits, size := pruneAged(t.globs(), tcut, *apply)
+		hits, size := pruneAged(t.globs(), tcut, apply)
 		if len(hits) == 0 {
 			continue
 		}
 		totalFiles += len(hits)
 		totalBytes += size
 		verb := "would remove"
-		if *apply {
+		if apply {
 			verb = "removed"
 		}
 		fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, verb, len(hits), pluralWord(len(hits), "y", "ies"), humanBytes(size))
@@ -190,14 +199,62 @@ func Run(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "clean: nothing older than %s in %d target(s) — already clean\n", *olderThan, len(selected))
 		return 0
 	}
-	if *apply {
+	if apply {
 		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, user settings, and the memory bank were not touched.\n",
 			humanBytes(totalBytes), totalFiles)
 		return 0
 	}
-	fmt.Fprintf(errw, "\ndry run — nothing deleted. %s across %d entries would go; re-run with --apply.\n",
+	fmt.Fprintf(errw, "\ndry run — nothing deleted. %s across %d entries would go; re-run without --dry-run to apply.\n",
 		humanBytes(totalBytes), totalFiles)
 	return 0
+}
+
+// confirmSessions gates the opt-in "sessions" target behind an explicit yes: a [y/N] prompt on a
+// TTY, --yes without one. True when there is nothing to confirm (sessions not selected, or empty)
+// or confirmation was given; false means the whole run must abort without deleting anything.
+func confirmSessions(selected []target, cutoff time.Time, olderThan string, autoYes bool, errw io.Writer) bool {
+	var sess target
+	found := false
+	for _, t := range selected {
+		if t.name == "sessions" {
+			sess, found = t, true
+		}
+	}
+	if !found {
+		return true
+	}
+	hits, size := pruneAged(sess.globs(), cutoff, false)
+	if len(hits) == 0 {
+		return true
+	}
+	repos := map[string]bool{}
+	for _, h := range hits {
+		repos[filepath.Base(filepath.Dir(h))] = true
+	}
+	fmt.Fprintf(errw, "sessions: %d transcript%s (%s) older than %s across %d repo%s\n",
+		len(hits), pluralWord(len(hits), "", "s"), humanBytes(size), olderThan, len(repos), pluralWord(len(repos), "", "s"))
+	if autoYes {
+		return true
+	}
+	if !isStdinTTY() {
+		fmt.Fprintln(errw, "clean: refusing --target sessions without a TTY; pass --yes to confirm")
+		return false
+	}
+	fmt.Fprint(errw, "delete them? [y/N] ")
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line = strings.ToLower(strings.TrimSpace(line))
+	return line == "y" || line == "yes"
+}
+
+// isStdinTTY reports whether stdin is the real controlling terminal. /dev/null is itself a char
+// device, so ModeCharDevice alone misreports `clean </dev/null` as a TTY; os.SameFile rules it out.
+func isStdinTTY() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(fi, null)
 }
 
 // pruneAged removes every glob match older than cutoff (a directory whole, by its newest mtime).
@@ -246,10 +303,10 @@ func parseAge(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// selectTargets resolves --what. Empty selects every target; an unknown name is an error rather than
+// selectTargets resolves --target. Empty selects every target; an unknown name is an error rather than
 // a silent no-op, so a typo can never read as "nothing to clean".
-func selectTargets(all []target, what string) ([]target, error) {
-	if strings.TrimSpace(what) == "" {
+func selectTargets(all []target, want string) ([]target, error) {
+	if strings.TrimSpace(want) == "" {
 		var out []target
 		for _, t := range all {
 			if !t.optIn {
@@ -263,7 +320,7 @@ func selectTargets(all []target, what string) ([]target, error) {
 		byName[t.name] = t
 	}
 	var out []target
-	for _, name := range strings.Split(what, ",") {
+	for _, name := range strings.Split(want, ",") {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
@@ -275,7 +332,7 @@ func selectTargets(all []target, what string) ([]target, error) {
 		out = append(out, t)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("--what named no targets")
+		return nil, fmt.Errorf("--target named no targets")
 	}
 	return out, nil
 }
