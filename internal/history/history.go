@@ -102,7 +102,7 @@ var secretRE = regexp.MustCompile(
 // Snapshot copies each of files into the store and commits iff something in THIS plane actually
 // changed. An absent file is a FACT (a vendor config is often absent on a fresh box), not an error;
 // its appearance and its deletion are both recorded, so a revert stays auditable. plane names the
-// commit subject prefix ("config" or "memory") and scopes the commit to just these files, so a stray
+// commit subject prefix ("config") and scopes the commit to just these files, so a stray
 // uncommitted change left over in the other plane never rides along.
 func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error) {
 	var res Result
@@ -261,4 +261,10 @@ func (s *Store) Diff(rev, plane string) (string, error) {
 		rev = found
 	}
 	return s.git("show", "--format=%h %ad%n%s%n%n%b", "--date=iso", rev)
+}
+
+// SnapshotConfig records the contested config files right before a harness writer overwrites them.
+func SnapshotConfig(note string) (Result, error) {
+	s := &Store{Dir: Dir()}
+	return s.Snapshot(ConfigFiles(), "config", note)
 }
