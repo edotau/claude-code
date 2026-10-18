@@ -12,6 +12,24 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
+// headless is the only launch that carries the setup-token: -p and --print, in any position.
+func TestHeadless(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-p", "hi"}, true},
+		{[]string{"hi", "--print"}, true},
+		{nil, false},
+		{[]string{"-c"}, false},
+		{[]string{"--settings", "x"}, false},
+	} {
+		if got := headless(tc.args); got != tc.want {
+			t.Errorf("headless(%v) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 // hermetic isolates config, pins and seams; userProviders is an optional providers.json overlay.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
@@ -120,8 +138,17 @@ func TestClaudePassthrough(t *testing.T) {
 	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
 		t.Errorf("passthrough must not set an apiKeyHelper: %q %s", p.Argv, p.Overlay)
 	}
-	if slices.Contains(p.Unset, oauthKey) {
-		t.Error("passthrough must keep CLAUDE_CODE_OAUTH_TOKEN")
+	// Interactive: the setup-token is withheld so Remote Control sees the /login credential.
+	if !slices.Contains(p.Unset, oauthKey) || p.Set[oauthKey] != "" {
+		t.Error("interactive passthrough must withhold CLAUDE_CODE_OAUTH_TOKEN")
+	}
+	t.Setenv(oauthKey, "sk-ant-oat-test")
+	h, err := Claude(context.Background(), Options{Provider: "subscription"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(h.Unset, oauthKey) {
+		t.Error("headless passthrough must keep CLAUDE_CODE_OAUTH_TOKEN")
 	}
 	// The built-in fallback does not route a login: a loopback base URL would disable Remote Control.
 	if _, ok := p.Set["ANTHROPIC_BASE_URL"]; ok || p.Set["ANTHROPIC_CUSTOM_HEADERS"] != "" {
