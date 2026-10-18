@@ -18,16 +18,19 @@ func cmdVSCode(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: claude-code vscode [--check] [--dry-run] [--dest <settings.json>] [--template <file>]")
 		fmt.Fprintln(os.Stderr, "                           [--keybindings-dest <file>] [--keybindings-template <file>]")
+		fmt.Fprintln(os.Stderr, "                           [--extensions-dir <dir>]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Merges the embedded first-party settings template into VS Code's MACHINE settings —")
 		fmt.Fprintln(os.Stderr, "that scope is not Settings-Synced, so each box renders its own copy from this template.")
 		fmt.Fprintln(os.Stderr, "Also merges the embedded keybindings template into the local client's keybindings.json")
 		fmt.Fprintln(os.Stderr, "(keybindings are UI-side, so a headless box with only ~/.vscode-server skips them).")
+		fmt.Fprintln(os.Stderr, "Also symlinks the Claude Code Agents extension into the detected extensions dir.")
 		fmt.Fprintln(os.Stderr, "")
 		fs.PrintDefaults()
 	}
 	template := fs.String("template", "", "settings template to merge (default: the one embedded in the binary)")
 	dest := fs.String("dest", "", "VS Code Machine settings.json (default: platform-detected)")
+	extensionsDir := fs.String("extensions-dir", "", "VS Code extensions dir to link the Agents extension into (default: platform-detected)")
 	keybindingsTemplate := fs.String("keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
 	keybindingsDest := fs.String("keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
@@ -78,6 +81,19 @@ func cmdVSCode(args []string) int {
 		}
 	}
 
+	extDirPath := *extensionsDir
+	if extDirPath == "" {
+		d, err := vscode.DefaultExtensionsDir()
+		if err != nil {
+			return fail("vscode: %v", err)
+		}
+		extDirPath = d
+	}
+	extResult, err := vscode.LinkExtension(paths.ConfigDir(), extDirPath, *check || *dryRun)
+	if err != nil {
+		return fail("vscode: %v", err)
+	}
+
 	if *check {
 		drift := false
 		if result.Changed {
@@ -86,6 +102,10 @@ func cmdVSCode(args []string) int {
 		}
 		if !skip && kbResult.Changed {
 			fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", kbDestPath)
+			drift = true
+		}
+		if extResult.Changed {
+			fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", extResult.Target)
 			drift = true
 		}
 		if drift {
@@ -97,6 +117,7 @@ func cmdVSCode(args []string) int {
 		} else {
 			reportMerge("keybindings template", kbDestPath, kbResult)
 		}
+		fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
 		return 0
 	}
 	if *dryRun {
@@ -106,6 +127,7 @@ func cmdVSCode(args []string) int {
 		} else {
 			reportDryRun("keybindings template", kbDestPath, kbResult.Changed)
 		}
+		reportDryRun("extension", extResult.Target, extResult.Changed)
 		return 0
 	}
 	reportMerge("template", destPath, result)
@@ -113,6 +135,11 @@ func cmdVSCode(args []string) int {
 		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
 	} else {
 		reportMerge("keybindings template", kbDestPath, kbResult)
+	}
+	if extResult.Changed {
+		fmt.Printf("claude-code: vscode linked extension -> %s\n", extResult.Target)
+	} else {
+		fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
 	}
 	return 0
 }
