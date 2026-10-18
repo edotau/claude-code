@@ -469,3 +469,26 @@ func TestCleanSessionsOlderThanStillFilters(t *testing.T) {
 		t.Error("--older-than default (30d) did not protect a fresh transcript")
 	}
 }
+
+// TestCleanSessionsTTYPrompt: on a terminal, only y/yes deletes; n or an empty answer aborts.
+func TestCleanSessionsTTYPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		answer  string
+		deleted bool
+	}{{"y\n", true}, {"yes\n", true}, {"n\n", false}, {"\n", false}} {
+		dir := t.TempDir()
+		t.Setenv("CLAUDE_CONFIG_DIR", dir)
+		transcript, _ := seedAgedSession(t, dir)
+		oldTTY, oldIn := stdinIsTTY, promptIn
+		stdinIsTTY, promptIn = func() bool { return true }, strings.NewReader(tc.answer)
+		var out, errw bytes.Buffer
+		Run([]string{"--target", "sessions"}, &out, &errw)
+		stdinIsTTY, promptIn = oldTTY, oldIn
+		if got := !exists(t, transcript); got != tc.deleted {
+			t.Errorf("answer %q: deleted=%v, want %v (%s)", tc.answer, got, tc.deleted, errw.String())
+		}
+		if !strings.Contains(errw.String(), "[y/N]") {
+			t.Errorf("answer %q: prompt not shown: %s", tc.answer, errw.String())
+		}
+	}
+}
