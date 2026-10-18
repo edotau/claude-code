@@ -1,0 +1,1 @@
+{"parentUuid": null, "isSidechain": true, "promptId": "p-sub-0002", "agentId": "fakeagentid002", "type": "user", "message": {"role": "user", "content": "Write tests for the tracker removal."}}
