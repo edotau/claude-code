@@ -41,7 +41,6 @@ description: |
 model: inherit
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
-memory: user
 maxTurns: 60
 ---
 

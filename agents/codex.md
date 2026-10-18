@@ -74,7 +74,6 @@ description: |
 model: inherit
 color: yellow
 tools: [Read, Write, Edit, Bash, Grep, Glob]
-memory: user
 ---
 
 # Codex — Adversarial Review · Verification Gate · Harness Optimization · Artifact Validation
