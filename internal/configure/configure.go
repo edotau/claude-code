@@ -486,6 +486,9 @@ func runKeys(d *dialog) (allOK bool, changed bool) {
 }
 
 func runKeysChanged(d *dialog) (allOK, changed bool) {
+	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+		return keysMenu(d) // a terminal gets the pick-one menu; piped runs keep the line-by-line pass below
+	}
 	targets, err := keyTargets(d.reg, d.o.Vendor)
 	if err != nil {
 		d.println(err)
