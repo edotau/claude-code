@@ -70,8 +70,7 @@ var flagsFor = map[string][]flagInfo{
 	"secrets git":      {{name: "since"}},
 	"secrets all":      {{name: "since"}}, // forwards its args to `secrets git`
 	"history snapshot": {{name: "note"}},
-	"history log":      {{name: "n"}, {name: "memory", isBool: true}, {name: "config", isBool: true}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
-	"history diff":     {{name: "memory", isBool: true}},
+	"history log":      {{name: "n"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"generate":         {{name: "out"}},
 	"usage":            {{name: "session"}, {name: "days"}, {name: "format", values: func() []string { return []string{"text", "json"} }}, {name: "workflows", isBool: true}},
 	"describe":         {{name: "format", values: func() []string { return []string{"text", "json"} }}},
@@ -83,7 +82,7 @@ var flagsFor = map[string][]flagInfo{
 	// memory's flagset is built once per subcommand and always carries --repo (declared ahead of the
 	// switch in cmdMemory), even on arms like stats/update that never read it back out.
 	"memory init":     {{name: "repo"}},
-	"memory search":   {{name: "repo"}, {name: "k"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"memory search":   {{name: "repo"}, {name: "all", isBool: true}, {name: "k"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"memory index":    {{name: "repo"}},
 	"memory path":     {{name: "repo"}},
 	"memory update":   {{name: "repo"}, {name: "transcript"}, {name: "cwd"}, {name: "session"}},
@@ -93,7 +92,7 @@ var flagsFor = map[string][]flagInfo{
 	"memory timeline": {{name: "repo"}, {name: "n"}},
 	"memory promote":  {{name: "repo"}},
 	"memory archive":  {{name: "repo"}, {name: "dupes", isBool: true}, {name: "split"}, {name: "apply", isBool: true}, {name: "restore", isBool: true}},
-	"memory migrate":  {{name: "dry-run", isBool: true}, {name: "apply"}, {name: "supersede", isBool: true}, {name: "origin"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"memory migrate":  {{name: "dry-run", isBool: true}, {name: "manifest"}, {name: "supersede", isBool: true}, {name: "origin"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"router serve":    {{name: "port"}},
 	"ask": {{name: "agent", values: agentNames}, {name: "provider", values: providerNames}, {name: "model"},
 		{name: "effort"}, {name: "workdir"}, {name: "session"}, {name: "tools", isBool: true},

@@ -51,8 +51,8 @@ func TestMemoryMigrateDryRunApplyAndGuard(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bank, "conventions.md"), []byte("# C\n- legacy\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryMigrate(nil) })
-	if code != 0 || !strings.Contains(out, "global-bank") || !strings.Contains(out, "manifest: ") || !strings.Contains(out, "memory migrate --apply ") {
+	code, out, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run"}) })
+	if code != 0 || !strings.Contains(out, "global-bank") || !strings.Contains(out, "manifest: ") || !strings.Contains(out, "memory migrate --manifest ") {
 		t.Fatalf("dry run: code=%d out=%q", code, out)
 	}
 	if strings.Contains(out, "- legacy") {
@@ -66,7 +66,7 @@ func TestMemoryMigrateDryRunApplyAndGuard(t *testing.T) {
 		t.Error("dry run created the store")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // WriteManifest names to the second: a fresh dir avoids the O_EXCL clash
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--format", "json"}) })
+	code, out, _ = captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run", "--format", "json"}) })
 	var m memory.Manifest
 	if code != 0 || json.Unmarshal([]byte(out), &m) != nil || m.Schema != memory.ManifestSchema {
 		t.Errorf("json dry run: code=%d out=%q", code, out[:min(len(out), 200)])
@@ -74,18 +74,18 @@ func TestMemoryMigrateDryRunApplyAndGuard(t *testing.T) {
 	if code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--origin", "nope"}) }); code != 2 || !strings.Contains(stderr, "SLUG=PATH") {
 		t.Errorf("bare --origin: code=%d stderr=%q", code, stderr)
 	}
-	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run=false"}) }); code != 1 {
-		t.Errorf("--dry-run=false without --apply: code=%d", code)
+	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--format", "json"}) }); code != 1 {
+		t.Errorf("--format json on the default apply: code=%d, want 1", code)
 	}
 	stale := filepath.Join(t.TempDir(), "stale.json")
 	if err := os.WriteFile(stale, []byte(`{"schema":1,"configDir":"/elsewhere","items":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", stale}) }); code != 2 || !strings.Contains(stderr, "does not match this box") {
+	if code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", stale}) }); code != 2 || !strings.Contains(stderr, "does not match this box") {
 		t.Errorf("stale manifest: code=%d stderr=%q", code, stderr)
 	}
-	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", "/nope"}) }); code != 1 {
-		t.Errorf("--apply of a nonexistent manifest: code=%d, want 1", code)
+	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", "/nope"}) }); code != 1 {
+		t.Errorf("--manifest of a nonexistent manifest: code=%d, want 1", code)
 	}
 	if err := memory.SetMaintenance("test"); err != nil {
 		t.Fatal(err)

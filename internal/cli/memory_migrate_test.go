@@ -14,7 +14,7 @@ import (
 // manifestPathFromDryRun runs a dry run migrate and extracts the manifest path it printed.
 func manifestPathFromDryRun(t *testing.T) string {
 	t.Helper()
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryMigrate(nil) })
+	code, out, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run"}) })
 	if code != 0 {
 		t.Fatalf("dry run exit = %d, out=%q", code, out)
 	}
@@ -40,7 +40,7 @@ func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 	}
 	manifestPath := manifestPathFromDryRun(t)
 
-	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", manifestPath}) })
+	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath}) })
 	if code != 0 || !strings.Contains(out, "complete") {
 		t.Fatalf("apply: code=%d out=%q stderr=%q", code, out, stderr)
 	}
@@ -77,7 +77,7 @@ func TestMemoryMigrateApplyRefusesWhileNotQuiesced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", manifestPath}) })
+	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath}) })
 	if code != 2 || !strings.Contains(stderr, "live harness claims") {
 		t.Errorf("not-quiesced apply: code=%d stderr=%q", code, stderr)
 	}
@@ -111,7 +111,7 @@ func TestMemoryMigrateApplyRefusesWhileBankLockBusy(t *testing.T) {
 	<-held
 	defer close(release)
 
-	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", manifestPath}) })
+	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath}) })
 	if code != 2 || !strings.Contains(stderr, "memory store busy") {
 		t.Errorf("bank-lock-busy apply: code=%d stderr=%q", code, stderr)
 	}
@@ -174,17 +174,17 @@ func TestMemoryMigrateSupersedeFlag(t *testing.T) {
 	}
 	manifestPath := manifestPathFromDryRun(t)
 
-	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--supersede"}) })
-	if code != 1 || !strings.Contains(stderr, "--supersede needs --apply") {
-		t.Errorf("--supersede alone: code=%d stderr=%q", code, stderr)
+	code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath, "--dry-run"}) })
+	if code != 1 || !strings.Contains(stderr, "--manifest applies a reviewed manifest") {
+		t.Errorf("--manifest with --dry-run: code=%d stderr=%q", code, stderr)
 	}
-	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", manifestPath, "--supersede"}) })
+	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath, "--supersede"}) })
 	if code != 0 || !strings.Contains(out, "complete") {
 		t.Fatalf("apply --supersede: code=%d out=%q stderr=%q", code, out, stderr)
 	}
 }
 
-// --format json is a dry-run contract: with --apply it must fail before touching the bank, never print plain text.
+// --format json is a dry-run contract: on any apply it must fail before touching the bank, never print plain text.
 func TestMemoryMigrateApplyRejectsJSONFormat(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -201,8 +201,8 @@ func TestMemoryMigrateApplyRejectsJSONFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--apply", manifestPath, "--format", "json"}) })
-	if code != 1 || out != "" || !strings.Contains(stderr, "--format json only applies to a dry run") {
+	code, out, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", manifestPath, "--format", "json"}) })
+	if code != 1 || out != "" || !strings.Contains(stderr, "--format json only applies to --dry-run") {
 		t.Fatalf("apply --format json: code=%d out=%q stderr=%q", code, out, stderr)
 	}
 	after, err := os.ReadFile(filepath.Join(bank, "conventions.md"))

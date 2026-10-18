@@ -347,7 +347,7 @@ func TestCompletionMemoryMigrate(t *testing.T) {
 		t.Errorf("memory mi* = %v, want [migrate]", got)
 	}
 	got := completionCandidates([]string{"memory", "migrate", "--"})
-	for _, want := range []string{"--dry-run", "--apply", "--origin", "--format"} {
+	for _, want := range []string{"--dry-run", "--manifest", "--origin", "--format"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("memory migrate flags missing %q: %v", want, got)
 		}

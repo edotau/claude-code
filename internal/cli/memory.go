@@ -27,7 +27,7 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory promote [--repo R]
        claude-code memory archive [--dupes] [--apply] [--restore] [--split N] [<topic>...]
        claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--format text|json]
-       claude-code memory migrate --apply MANIFEST`
+       claude-code memory migrate --manifest MANIFEST`
 
 func cmdMemory(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -61,6 +61,7 @@ func cmdMemory(args []string) int {
 		return 0
 	case "search":
 		k := fs.Int("k", 8, "maximum hits")
+		all := fs.Bool("all", false, "search the global tier and every repo store")
 		format := outfmt.Flag(fs)
 		terms, err := outfmt.Parse(fs, args[1:])
 		if err != nil {
@@ -73,7 +74,20 @@ func cmdMemory(args []string) int {
 		if len(terms) == 0 {
 			return fail("memory search: no query (%s)", memoryUsage)
 		}
-		hits := memory.SearchBanks(memoryRoot(*repo), strings.Join(terms, " "), *k)
+		q := strings.Join(terms, " ")
+		var hits []memory.SearchHit
+		switch {
+		case *all:
+			hits = memory.SearchAll(q, *k)
+		case *repo != "": // a store name from the catalog, else a checkout path
+			root := memoryRoot(*repo)
+			if e, ok := memory.RepoByName(*repo); ok && e.Origin.Origin != "" {
+				root = e.Origin.Origin
+			}
+			hits = memory.SearchBanks(root, q, *k)
+		default:
+			hits = memory.SearchBanks(memoryRoot(""), q, *k)
+		}
 		if *format == outfmt.JSON {
 			_ = outfmt.Write(os.Stdout, hits)
 			return 0
