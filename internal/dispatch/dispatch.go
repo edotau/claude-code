@@ -6,8 +6,11 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"os"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/tailscale"
 )
@@ -176,9 +179,50 @@ func SSHArgs(host, remoteCmd string) []string {
 	return []string{"ssh", host, "sh -c " + QuoteSH(remoteCmd)}
 }
 
+// ExecArgs runs remoteCmd under sh locally when host is this machine, else over ssh; batch forbids ssh prompts.
+func ExecArgs(ctx context.Context, host, remoteCmd string, batch bool) []string {
+	switch {
+	case IsLocalHost(ctx, host):
+		return []string{"sh", "-c", remoteCmd}
+	case batch: // a server-side caller has no TTY: a missing key must fail, never wait on a password prompt
+		return []string{"ssh", "-o", "BatchMode=yes", host, "sh -c " + QuoteSH(remoteCmd)}
+	}
+	return SSHArgs(host, remoteCmd)
+}
+
+var (
+	selfOnce  sync.Once
+	selfNames []string
+)
+
+// IsLocalHost reports whether host names this machine: localhost, its hostname, or its tailnet name/IPs.
+func IsLocalHost(ctx context.Context, host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	if _, at, ok := strings.Cut(h, "@"); ok {
+		h = at
+	}
+	selfOnce.Do(func() {
+		selfNames = []string{"localhost", "127.0.0.1", "::1"}
+		if n, err := os.Hostname(); err == nil {
+			selfNames = append(selfNames, strings.ToLower(n))
+		}
+		if st, err := tailscale.Status(ctx); err == nil {
+			selfNames = append(selfNames, st.IPs...)
+			if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
+				short, _, _ := strings.Cut(dns, ".")
+				selfNames = append(selfNames, dns, short)
+			}
+		}
+	})
+	return slices.Contains(selfNames, h)
+}
+
 // AttachArgs is the argv for `ssh -t host tmux attach -t session`, meant to replace the caller's
 // process so tmux owns the TTY directly.
 func AttachArgs(host, session string) []string {
+	if IsLocalHost(context.Background(), host) {
+		return []string{"tmux", "attach", "-t", session}
+	}
 	return []string{"ssh", "-t", host, "tmux", "attach", "-t", session}
 }
 

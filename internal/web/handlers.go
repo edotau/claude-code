@@ -61,7 +61,7 @@ func (s *Server) handleDispatches(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), sshTimeout)
 	defer cancel()
-	argv := dispatch.SSHArgs(resolved, dispatch.ListCommand())
+	argv := dispatch.ExecArgs(r.Context(), resolved, dispatch.ListCommand(), true)
 	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).Output()
 	if err != nil {
 		http.Error(w, "web: "+err.Error(), http.StatusBadGateway)
@@ -113,7 +113,7 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	argv := dispatch.SSHArgs(resolved, remoteCmd)
+	argv := dispatch.ExecArgs(r.Context(), resolved, remoteCmd, true)
 	if s.opts.DryRunDispatch {
 		writeJSON(w, dispatchResponse{Session: session, Attach: dispatch.AttachCommand(resolved, session), Argv: argv})
 		return

@@ -74,7 +74,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	if err != nil {
 		return fail("%v", err)
 	}
-	argv := dispatch.SSHArgs(host, remoteCmd)
+	argv := dispatch.ExecArgs(ctx, host, remoteCmd, false)
 	if dryRun {
 		for i, a := range argv {
 			fmt.Printf("argv[%d]: %s\n", i, a)
@@ -100,7 +100,7 @@ func dispatchList(ctx context.Context, host, format string) int {
 	}
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
-	argv := dispatch.SSHArgs(host, dispatch.ListCommand())
+	argv := dispatch.ExecArgs(ctx, host, dispatch.ListCommand(), false)
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).Output()
 	if err != nil {
 		return fail("dispatch --list: %v", err)

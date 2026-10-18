@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -281,7 +282,7 @@ func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
 			if wantName != resp.Session {
 				t.Fatalf("name mismatch: got %q want %q", resp.Session, wantName)
 			}
-			wantArgv := dispatch.SSHArgs("localhost", wantCmd)
+			wantArgv := dispatch.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
 			if len(resp.Argv) != len(wantArgv) {
 				t.Fatalf("argv length = %d, want %d: got=%v want=%v", len(resp.Argv), len(wantArgv), resp.Argv, wantArgv)
 			}
