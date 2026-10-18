@@ -7,7 +7,7 @@ import (
 
 // Every menu row fits an 80-column terminal, every group is present, and every alias resolves.
 func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
-	want := map[string]bool{groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
+	want := map[string]bool{groupAnthropic: false, groupVendors: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	for _, c := range commands() {
 		if n := utf8.RuneCountInString(c.summary); n > summaryMax {
 			t.Errorf("%s: summary is %d chars (max %d): %q", c.name, n, summaryMax, c.summary)
