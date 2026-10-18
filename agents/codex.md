@@ -314,8 +314,7 @@ Minimal plugin (just the manifest) → valid if manifest correct. Empty dirs / u
 ## Proposed Memory Updates
 
 After completing a review, verification, optimization, or validation, if you discovered something
-reusable, append a **Proposed Memory Updates** section to your final report. Do NOT write to
-`~/.claude/agent-memory/codex/` directly, and never touch the approval-gated RULES region —
+reusable, append a **Proposed Memory Updates** section to your final report. Do NOT write memory files yourself, and never touch the approval-gated RULES region —
 the parent orchestrator decides what gets persisted.
 
 Candidate content: frequently missed constraints, common task patterns worth flagging,
