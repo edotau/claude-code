@@ -198,4 +198,4 @@ help:  ## Show this help
 		| sort -t "$$(printf '\t')" -k1,1n -k3,3 \
 		| awk -F"\t" '{if($$2!=cur){cur=$$2; printf "\n\033[1m%s\033[0m\n", $$2} \
 			printf "  \033[36m%-16s\033[0m %s\n", $$3, $$4}'
-	@printf "\n\n"
+	@printf "\n"
