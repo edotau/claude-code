@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
@@ -17,14 +19,15 @@ import (
 func init() { secretsRun = cmdSecrets }
 
 const secretsUsage = `usage: claude-code secrets <op> [flags]
-  set [<NAME>] [--file]    write a secret to the OS keyring (env.d/secrets.env with --file or no keyring);
-                           value on stdin, or no NAME on a terminal for the guided dialog
-  get <NAME> [--export]    resolve: keyring -> env.d/secrets.env -> process env
-  status                   every registered provider's credential source (never the value)
-  scan [paths...]          audit config files for inline plaintext secrets (default: the known surface)
-  git [--since N]          audit this directory's git history for secret-shaped additions (read-only)
-  doctor                   file perms, key names, duplicate keys, keyring tool presence
-  all                      scan + git + doctor
+  set [<NAME>] [--file]   store a secret (keyring; --file = env.d/secrets.env)
+                          NAME: prompts for the value; no NAME: guided dialog
+  get <NAME> [--export]   print a secret (keyring -> secrets.env -> env)
+  delete <NAME>           remove a secret from the keyring and secrets.env
+  status                  credential source per provider (never the value)
+  scan [paths...]         find plaintext secrets in config files
+  git [--since N]         find secret-shaped additions in git history
+  doctor                  file perms, key names, duplicates, keyring tool
+  all                     scan + git + doctor
 `
 
 // cmdSecrets dispatches the `secrets` verb.
@@ -39,6 +42,8 @@ func cmdSecrets(args []string) int {
 		return cmdSecretsSet(rest)
 	case "get":
 		return cmdSecretsGet(rest)
+	case "delete":
+		return cmdSecretsDelete(rest)
 	case "status":
 		return cmdSecretsStatus(rest)
 	case "scan":
@@ -103,6 +108,10 @@ func extractInt(args []string, name string, def int) (int, []string, error) {
 func cmdSecretsSet(args []string) int {
 	forceFile, rest := extractBool(args, "file")
 	dryRun, rest := extractBool(rest, "dry-run")
+	if slices.Contains(rest, "--help") || slices.Contains(rest, "-h") {
+		fmt.Fprint(os.Stderr, secretsUsage)
+		return 2
+	}
 	if len(rest) == 0 && !dryRun && tui.StdinIsTerminal() {
 		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true}, forceFile)
 	}
@@ -111,13 +120,12 @@ func cmdSecretsSet(args []string) int {
 		return 2
 	}
 	name := rest[0]
-	raw, err := io.ReadAll(os.Stdin)
+	value, err := readSecretValue(name)
 	if err != nil {
-		return fail("secrets set: read stdin: %v", err)
+		return fail("secrets set: %v", err)
 	}
-	value := strings.TrimSpace(string(raw))
 	if value == "" {
-		return fail("secrets set: empty value on stdin")
+		return fail("secrets set: empty value")
 	}
 	if dryRun {
 		plane, verb := secrets.EnvFile(), "add"
@@ -133,8 +141,40 @@ func cmdSecretsSet(args []string) int {
 	if err != nil {
 		return fail("secrets set: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s to %s (%s)\n", name, plane, secrets.Redact(value))
+	fmt.Fprintf(os.Stderr, "wrote %s to %s (%s); `claude-code secrets get %s` prints it\n", name, plane, secrets.Redact(value), name)
 	return 0
+}
+
+// cmdSecretsDelete removes NAME from every managed plane (keyring, secrets.env, names index).
+func cmdSecretsDelete(args []string) int {
+	if len(args) != 1 || args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets delete <NAME>")
+		return 2
+	}
+	name := args[0]
+	if _, _, ok := secrets.Get(name); !ok {
+		return fail("secrets delete: %s not set", name)
+	}
+	if err := secrets.Delete(name); err != nil {
+		return fail("secrets delete: %v", err)
+	}
+	audit.Log(audit.SecretDelete, name, "")
+	fmt.Fprintf(os.Stderr, "deleted %s\n", name)
+	return 0
+}
+
+// readSecretValue prompts with hidden input on a terminal (a bare `secrets set NAME` used to wait on stdin
+// with no prompt at all); a pipe still supplies the value on stdin.
+func readSecretValue(name string) (string, error) {
+	if tui.StdinIsTerminal() {
+		v, err := tui.Secret("Paste the value for " + name + " (input hidden, Enter when done): ")
+		return strings.TrimSpace(v), err
+	}
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
 
 func cmdSecretsGet(args []string) int {

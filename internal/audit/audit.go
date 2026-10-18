@@ -22,6 +22,7 @@ const (
 	ProviderSwitch    Action = "provider_switch"
 	ModelPin          Action = "model_pin"
 	SecretSet         Action = "secret_set"
+	SecretDelete      Action = "secret_delete"
 	HookBlocked       Action = "hook_blocked"
 	RouterFallback    Action = "router_fallback"
 	TailscaleKeyMint  Action = "tailscale_key_mint"
@@ -33,12 +34,12 @@ const (
 )
 
 // Actions lists every valid action in report order.
-var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
+var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
 	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace}
 
 func (a Action) Valid() bool {
 	switch a {
-	case ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
+	case ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
 		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace:
 		return true
 	default:

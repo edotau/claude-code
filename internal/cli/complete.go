@@ -34,7 +34,7 @@ type flagInfo struct {
 // command.name a command dispatches under — see knownPath). Only two levels deep: nothing in this
 // repo hand-dispatches a third word.
 var subVerbs = map[string][]string{
-	"secrets":   {"set", "get", "status", "scan", "git", "doctor", "all"},
+	"secrets":   {"set", "get", "delete", "status", "scan", "git", "doctor", "all"},
 	"history":   {"snapshot", "log", "diff"},
 	"memory":    {"init", "search", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive"},
 	"router":    {"serve", "start", "stop", "status"},

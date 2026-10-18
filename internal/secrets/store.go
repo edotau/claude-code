@@ -122,13 +122,19 @@ func Delete(name string) error {
 	return editIndex(name, false)
 }
 
-// Redact renders a value for display: a short head and tail plus its length, never the middle.
+// Redact renders a stored value for display: a 5-char prefix (enough to recognise a paste) plus its length.
 func Redact(v string) string {
-	if len(v) < 32 {
+	if len(v) < redactMin {
 		return fmt.Sprintf("%d chars", len(v))
 	}
-	return fmt.Sprintf("%s…%s, %d chars", v[:8], v[len(v)-4:], len(v))
+	return fmt.Sprintf("%s*** (%d chars)", v[:redactShow], len(v))
 }
+
+// redactMin is the shortest value that shows a prefix; redactShow is how much of it (the Tailscale console shows 5).
+const (
+	redactMin  = 12
+	redactShow = 5
+)
 
 // Get resolves name through the managed ladder: OS keyring, then the file plane, then the process
 // env. source names which plane answered ("keyring"|"file"|"env"); ok is false when none hold it.
