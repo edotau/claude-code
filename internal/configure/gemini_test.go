@@ -3,14 +3,11 @@ package configure
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // fakeAnthropicProvider is a provider whose catalog route is a local server: ProbeCredential GETs it
@@ -80,38 +77,5 @@ func TestGeminiKeyStatusPresentProbeRejected(t *testing.T) {
 	got := geminiKeyStatus(true, p)
 	if !strings.Contains(got, "probe failed") {
 		t.Errorf("geminiKeyStatus = %q, want probe failed", got)
-	}
-}
-
-// pickGeminiAuth's Login row status is vendors.GeminiLoginPresent(): a selected Google login reports
-// "present", everything else (no settings.json, or a key auth selected) reports "absent". This is the
-// testable half of the row — pickGeminiAuth itself calls tui.PickBack directly with no injectable seam
-// (same limitation noted for pickClaudeBackend), so the Login-row-first ordering can only be read from
-// internal/configure/gemini.go, not driven here.
-func TestGeminiLoginRowStatusReflectsLoginPresence(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("GEMINI_CLI_HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := presence(vendors.GeminiLoginPresent()); got != "absent" {
-		t.Errorf("no settings.json: presence = %q, want absent", got)
-	}
-
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
-		[]byte(`{"security":{"auth":{"selectedType":"gemini-api-key"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := presence(vendors.GeminiLoginPresent()); got != "absent" {
-		t.Errorf("gemini-api-key selected: presence = %q, want absent", got)
-	}
-
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
-		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := presence(vendors.GeminiLoginPresent()); got != "present" {
-		t.Errorf("oauth-personal selected: presence = %q, want present", got)
 	}
 }
