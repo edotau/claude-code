@@ -109,11 +109,13 @@ func cmdSettings(args []string) int {
 			fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
 		}
 	}
-	if *out == "" {
-		if !*check { // --check reports drift only; the render itself is noise there
+	switch {
+	case *out != "" && *check: // drift report only; the vendor pass below decides the exit code
+	case *out == "" || *dryRun: // a preview: --out names where it WOULD go, never a write
+		if !*check {
 			os.Stdout.Write(data)
 		}
-	} else {
+	default:
 		backup, err := settings.WriteWithBackup(*out, data)
 		if err != nil {
 			return fail("%v", err)
