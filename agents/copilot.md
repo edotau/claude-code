@@ -236,5 +236,5 @@ Remaining: <what is still uncommitted, or "clean">
 At the end of either mode, propose (do not write) memory entries for durable facts only: a
 fixture whose contract is easy to misread, a suite whose failure output is misleading, a repo
 whose merge order is non-obvious, a gate that only fails post-merge. Skip anything the diff or
-git history already records. Do NOT write to `~/.claude/agent-memory/copilot/` directly, and
+git history already records. Do NOT write memory files yourself, and
 never touch the approval-gated RULES region — the parent decides what gets persisted.

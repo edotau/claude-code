@@ -290,6 +290,5 @@ the gate.
 
 After finishing, if you learned something reusable (a staleness signal unique to this harness, a
 naming convention that worked, a reliable documentation source, an effective search query),
-append a **Proposed Memory Updates** section. Do NOT write to
-`~/.claude/agent-memory/opencode/` directly, and never touch the approval-gated RULES region —
+append a **Proposed Memory Updates** section. Do NOT write memory files yourself, and never touch the approval-gated RULES region —
 the parent decides what gets persisted, keeping `MEMORY.md` a lean index.

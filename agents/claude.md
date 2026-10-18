@@ -206,4 +206,4 @@ For simplifications applied, name the change and confirm behavior is preserved; 
 
 ## Proposed Memory Updates
 
-After finishing, if you learned something reusable, append a **Proposed Memory Updates** section. Do NOT write to `~/.claude/agent-memory/claude/` directly, and never touch the approval-gated RULES region. Frame each as topic-file content plus its one-line `MEMORY.md` TOC entry, with a rationale. The parent consolidates and writes the detail to a topic file, keeping `MEMORY.md` a lean index.
+After finishing, if you learned something reusable, append a **Proposed Memory Updates** section. Do NOT write memory files yourself, and never touch the approval-gated RULES region. Frame each as topic-file content plus its one-line `MEMORY.md` TOC entry, with a rationale. The parent consolidates and writes the detail to a topic file, keeping `MEMORY.md` a lean index.
