@@ -75,6 +75,7 @@ func commands() []command {
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
+		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
 		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
 		{name: "agents", hidden: true, summary: "list runners; sync roster + instructions into vendor homes", run: cmdAgents},
@@ -154,11 +155,20 @@ func Run(argv []string) int {
 	return 2
 }
 
-// usage renders the grouped menu: usage header, UPPERCASE groups, a gradient-painted name column, and a
-// trailing note naming the hidden verbs and machine helpers. It opens on `usage:` — no banner.
-func usage(w *os.File) {
-	fmt.Fprintln(w, "usage: claude-code [<command>] [subcommand] [flags]")
-	fmt.Fprintln(w, "       claude-code <command> -h    per-command help")
+// menuHeader is the menu's fixed opening; it opens on `usage:` — no banner.
+var menuHeader = []string{
+	"usage: claude-code [<command>] [subcommand] [flags]",
+	"       claude-code <command> -h    per-command help",
+}
+
+// menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).
+type menuRow struct {
+	head, name, summary string
+	frac                float64
+}
+
+// menuRows lays out the visible verbs: UPPERCASE groups in declaration order, each preceded by a blank line.
+func menuRows() []menuRow {
 	cmds := commands()
 	var groups []string
 	seen := map[string]bool{}
@@ -173,6 +183,27 @@ func usage(w *os.File) {
 			groups = append(groups, c.group)
 		}
 	}
+	var rows []menuRow
+	n := 0
+	for _, g := range groups {
+		rows = append(rows, menuRow{}, menuRow{head: g})
+		for _, c := range cmds {
+			if c.hidden || c.group != g {
+				continue
+			}
+			rows = append(rows, menuRow{name: fmt.Sprintf("%-*s", nameWidth, c.name), summary: c.summary,
+				frac: float64(n) / float64(max(total-1, 1))})
+			n++
+		}
+	}
+	return rows
+}
+
+// usage renders the grouped menu, painting heads dim and the name column along the status line's gradient.
+func usage(w *os.File) {
+	for _, l := range menuHeader {
+		fmt.Fprintln(w, l)
+	}
 	paintHead := func(s string) string { return s }
 	paintName := func(s string, frac float64) string { return s }
 	if colorOK(w) {
@@ -180,17 +211,14 @@ func usage(w *os.File) {
 		paintHead = func(s string) string { return ansi.Paint(mode, dim, s, true) }
 		paintName = func(s string, frac float64) string { return ansi.Paint(mode, ansi.GradAt(stops, frac), s, true) }
 	}
-	row := 0
-	for _, g := range groups {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, paintHead(g))
-		for _, c := range cmds {
-			if c.hidden || c.group != g {
-				continue
-			}
-			frac := float64(row) / float64(max(total-1, 1))
-			row++
-			fmt.Fprintf(w, "  %s%s\n", paintName(fmt.Sprintf("%-*s", nameWidth, c.name), frac), c.summary)
+	for _, r := range menuRows() {
+		switch {
+		case r.head != "":
+			fmt.Fprintln(w, paintHead(r.head))
+		case r.name != "":
+			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), r.summary)
+		default:
+			fmt.Fprintln(w)
 		}
 	}
 }

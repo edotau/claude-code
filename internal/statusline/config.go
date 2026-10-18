@@ -114,6 +114,12 @@ func GradientNames() []string {
 	return names
 }
 
+// EmbeddedTheme returns name's stops and the dim tone from the built-in palettes, ignoring local overrides.
+func EmbeddedTheme(name string) (stops []ansi.RGB, dim ansi.RGB) {
+	pal := embeddedPalettes()
+	return hexStops(pal.Gradients[name]), ansi.Hex(pal.sem("dim"))
+}
+
 // GradientStops returns name's RGB stops from the resolved palette, or nil if name is unknown.
 func GradientStops(name string) []ansi.RGB {
 	hexes, ok := loadPalettes().Gradients[name]
