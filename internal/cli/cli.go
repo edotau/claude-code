@@ -46,7 +46,7 @@ func commands() []command {
 		{name: "opus", group: groupAnthropic, summary: "hardest reasoning: architecture, deep debugging · $$$", run: tierVerb(models.Opus)},
 		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: tierVerb(models.Sonnet)},
 		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default", run: tierVerb(models.Fable)},
+		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
 		{name: "copilot", group: groupVendors, summary: "Copilot CLI on your Copilot plan; pick any of 27 models", run: func(a []string) int { return vendorVerb("copilot", a) }},
 		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; second-opinion code reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
