@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"net"
 	"regexp"
 	"strings"
 
@@ -90,8 +89,25 @@ func agentCommand(agent, task string) string {
 	return "if command -v claude-code >/dev/null 2>&1; then " + shimmed + "; else " + bare + "; fi"
 }
 
+// dirFlag is tmux's `-c <dir>` flag text, or "" to omit it (ssh already lands in $HOME). A quoted
+// "~" is data to sh, not an expansion, so a leading ~ is rewritten to the "$HOME" expansion instead.
+func dirFlag(dir string) string {
+	switch {
+	case dir == "":
+		return ""
+	case dir == "~":
+		return `-c "$HOME"`
+	case strings.HasPrefix(dir, "~/"):
+		return `-c "$HOME"/` + QuoteSH(strings.TrimPrefix(dir, "~/"))
+	default:
+		return "-c " + QuoteSH(dir)
+	}
+}
+
 // BuildRemoteCommand returns the POSIX sh script to run over ssh: it checks tmux exists, then starts
-// a detached session named opts.Name (or a generated one) in opts.Dir running the agent command.
+// a detached session named opts.Name (or a generated one) in opts.Dir running the agent command
+// through the user's own login shell (so PATH entries from .profile/.bashrc, e.g. mise/npm-installed
+// agent CLIs, are on PATH) and keeps the session open under that shell once the agent exits.
 func BuildRemoteCommand(opts Opts) (string, string, error) {
 	if !ValidAgent(opts.Agent) {
 		return "", "", fmt.Errorf("dispatch: --agent %q must be one of %s", opts.Agent, strings.Join(Agents, "|"))
@@ -103,15 +119,16 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 	if !ValidName(name) {
 		return "", "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe.String())
 	}
-	dir := opts.Dir
-	if dir == "" {
-		dir = "~"
-	}
+	agentCmd := agentCommand(opts.Agent, opts.Task) + `; exec "${SHELL:-/bin/sh}" -l`
 	var b strings.Builder
 	fmt.Fprintf(&b, "if ! command -v tmux >/dev/null 2>&1; then echo %s >&2; exit 1; fi\n",
 		QuoteSH("dispatch: tmux not found on PATH"))
-	fmt.Fprintf(&b, "tmux new-session -d -s %s -c %s sh -c %s\n",
-		QuoteSH(name), QuoteSH(dir), QuoteSH(agentCommand(opts.Agent, opts.Task)))
+	parts := []string{"tmux", "new-session", "-d", "-s", QuoteSH(name)}
+	if df := dirFlag(opts.Dir); df != "" {
+		parts = append(parts, df)
+	}
+	parts = append(parts, `"${SHELL:-/bin/sh}"`, "-lc", QuoteSH(agentCmd))
+	fmt.Fprintln(&b, strings.Join(parts, " "))
 	return b.String(), name, nil
 }
 
@@ -152,9 +169,11 @@ func ParseSessions(output string) []Session {
 	return sessions
 }
 
-// SSHArgs is the argv for running remoteCmd on host via the system ssh binary (no local shell).
+// SSHArgs is the argv for running remoteCmd on host via the system ssh binary (no local shell). The
+// remote command is always run as `sh -c <remoteCmd>` so it executes under POSIX sh regardless of
+// the login shell ssh would otherwise hand it to (e.g. fish, which does not speak this syntax).
 func SSHArgs(host, remoteCmd string) []string {
-	return []string{"ssh", host, remoteCmd}
+	return []string{"ssh", host, "sh -c " + QuoteSH(remoteCmd)}
 }
 
 // AttachArgs is the argv for `ssh -t host tmux attach -t session`, meant to replace the caller's
@@ -168,12 +187,11 @@ func AttachCommand(host, session string) string {
 	return strings.Join(AttachArgs(host, session), " ")
 }
 
-// ResolveHost matches host against the tailnet's machine list (name or short name, case-insensitive)
-// when one is available offline; a bare single-word host with no match gets a helpful error naming
-// the known machines, since that's almost certainly a typo'd machine name rather than an ssh alias.
-// Anything else — a dotted FQDN, user@host, an IP, or a host:port — passes through for ssh/DNS/
-// ~/.ssh/config to resolve, and so does a bare word when the tailnet can't be listed at all.
-// "localhost" always passes through unchanged: it is never a tailnet peer name.
+// ResolveHost matches host against the tailnet's machine list (full or short name, case-insensitive)
+// when one is available offline, mapping a short machine name to its full MagicDNS name. Anything
+// that doesn't match — a dotted FQDN, user@host, an IP, a host:port, an ~/.ssh/config alias, or any
+// host when the tailnet can't be listed at all — passes through unchanged; ssh reports an unknown
+// host itself, and rejecting here would wrongly block a valid ssh alias that isn't a tailnet peer.
 func ResolveHost(ctx context.Context, host string) (string, error) {
 	if host == "localhost" {
 		return host, nil
@@ -190,20 +208,5 @@ func ResolveHost(ctx context.Context, host string) (string, error) {
 			return m.Name, nil
 		}
 	}
-	if looksLikeBareName(host) {
-		names := make([]string, len(machines))
-		for i, m := range machines {
-			names[i] = m.Name
-		}
-		return "", fmt.Errorf("dispatch: no tailnet machine matches %q; known machines: %s", host, strings.Join(names, ", "))
-	}
 	return host, nil
-}
-
-// looksLikeBareName is true for a single-word host: no dot, no '@', no ':', and not an IP literal.
-func looksLikeBareName(host string) bool {
-	if strings.ContainsAny(host, ".@:") {
-		return false
-	}
-	return net.ParseIP(host) == nil
 }

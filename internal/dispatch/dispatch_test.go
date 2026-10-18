@@ -144,8 +144,52 @@ func TestBuildRemoteCommand_DefaultDirAndName(t *testing.T) {
 	if !strings.HasPrefix(name, "cc-claude-") {
 		t.Errorf("generated name = %q, want prefix cc-claude-", name)
 	}
-	if !strings.Contains(cmd, "-c '~'") {
-		t.Errorf("default dir not rendered as quoted ~: %s", cmd)
+	// An empty --dir omits -c entirely: ssh already lands in $HOME, and a quoted "~" is not
+	// expanded by sh, so emitting -c '~' would make tmux try to chdir into a literal "~" directory.
+	if strings.Contains(cmd, "-c ") {
+		t.Errorf("default dir should omit -c, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, `"${SHELL:-/bin/sh}" -lc`) {
+		t.Errorf("expected the agent to run under the login shell: %s", cmd)
+	}
+}
+
+func TestDirFlag(t *testing.T) {
+	cases := map[string]string{
+		"":           "",
+		"~":          `-c "$HOME"`,
+		"~/my repo":  `-c "$HOME"/'my repo'`,
+		"/tmp/work":  `-c '/tmp/work'`,
+		"relative/p": `-c 'relative/p'`,
+	}
+	for dir, want := range cases {
+		if got := dirFlag(dir); got != want {
+			t.Errorf("dirFlag(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
+func TestBuildRemoteCommand_TildeDirUsesHOME(t *testing.T) {
+	cmd, _, err := BuildRemoteCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cmd, `-c "$HOME"/'my repo'`) {
+		t.Errorf("expected $HOME-relative -c flag, got: %s", cmd)
+	}
+	// Must be valid sh: the adjacent "$HOME"/'my repo' concatenation is the whole point.
+	if out, err := exec.Command("sh", "-n", "-c", cmd).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n rejected tilde-dir command: %v\n%s", err, out)
+	}
+}
+
+func TestBuildRemoteCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
+	cmd, _, err := BuildRemoteCommand(Opts{Agent: "claude", Task: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cmd, `exec "${SHELL:-/bin/sh}" -l'`) {
+		t.Errorf("expected the session to exec into a login shell after the agent exits: %s", cmd)
 	}
 }
 
@@ -186,8 +230,10 @@ func writeStubTmux(t *testing.T, dir string) {
 }
 
 func TestSSHArgs_IsArgvNotShellString(t *testing.T) {
+	// SSHArgs always wraps the remote command as `sh -c <quoted>` so it runs under POSIX sh
+	// regardless of the remote login shell (e.g. fish).
 	args := SSHArgs("myhost", "echo hi")
-	want := []string{"ssh", "myhost", "echo hi"}
+	want := []string{"ssh", "myhost", "sh -c 'echo hi'"}
 	if len(args) != len(want) {
 		t.Fatalf("SSHArgs = %v, want %v", args, want)
 	}
@@ -204,6 +250,10 @@ func TestSSHArgs_IsArgvNotShellString(t *testing.T) {
 	}
 	if len(args2) != 3 {
 		t.Errorf("SSHArgs produced %d argv elements, want 3 (host stayed one element)", len(args2))
+	}
+	// The wrapped remote command must still be valid, injection-safe sh.
+	if out, err := exec.Command("sh", "-n", "-c", args2[2]).CombinedOutput(); err != nil {
+		t.Fatalf("sh -n rejected the wrapped remote command: %v\n%s", err, out)
 	}
 }
 
