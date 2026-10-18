@@ -106,6 +106,45 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
+// Model is the catalog entry the harness prints and validates pins against.
+type Model struct {
+	ID              string
+	Name            string
+	Vision          bool
+	ReasoningEffort bool
+	Multiplier      *float64 // nil when the model carries no premium billing multiplier
+}
+
+// listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
+var listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+	clientOpts, err := BuildClientOptions(o)
+	if err != nil {
+		return nil, err
+	}
+	client := copilot.NewClient(clientOpts)
+	if err := client.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start copilot runtime: %w", err)
+	}
+	defer client.Stop()
+	return client.ListModels(ctx)
+}
+
+// ListModels returns the copilot CLI's own model catalog via its logged-in GitHub session (never BYOK).
+func ListModels(ctx context.Context, o Options) ([]Model, error) {
+	raw, err := listModelsFn(ctx, o)
+	if err != nil {
+		return nil, fmt.Errorf("list copilot models (sign in with `copilot` first, then retry): %w", err)
+	}
+	out := make([]Model, len(raw))
+	for i, m := range raw {
+		out[i] = Model{ID: m.ID, Name: m.Name, Vision: m.Capabilities.Supports.Vision, ReasoningEffort: m.Capabilities.Supports.ReasoningEffort}
+		if m.Billing != nil {
+			out[i].Multiplier = m.Billing.Multiplier
+		}
+	}
+	return out, nil
+}
+
 // Ask runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
 func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
 	if strings.TrimSpace(prompt) == "" {
