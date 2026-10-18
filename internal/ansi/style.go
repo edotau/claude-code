@@ -3,6 +3,8 @@ package ansi
 import (
 	"io"
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -46,22 +48,35 @@ func Style(on bool, code, s string) string {
 // statusTokens are the words the harness's status lines pivot on; Status paints them so a reader's eye lands
 // on the verdict first. Longer tokens are listed before their prefixes so "cred:ok" wins over "ok".
 var statusTokens = []struct{ token, code string }{
-	{"cred:missing", Red}, {"cred:ok", Green}, {"rejected", Red},
+	{"cred:missing", Red}, {"cred:ok", Green}, {"rejected", Red}, {"not verified", Dim},
 	{"REJECTED", Red}, {"ABSENT", Red}, {"DRIFT", Red}, {"FIX:", Red}, {"ERROR", Red}, {"failed", Red},
 	{"unreachable", Yellow}, {"unverified", Yellow}, {"skipped", Dim}, {"KEEP", Dim},
 	{"present", Green}, {"verified", Green}, {"routes to", Green}, {"runs on", Green}, {"logged in", Green},
 	{"pinned", Green}, {"unchanged", Dim},
 }
 
-// Status paints the known status tokens in line when on; the text is otherwise byte-identical.
+// Status paints the known status tokens in line when on, in one pass, longest token first — so "not verified" stays
+// gray instead of having its "verified" painted green; the text is otherwise byte-identical.
 func Status(on bool, line string) string {
 	if !on {
 		return line
 	}
-	for _, t := range statusTokens {
-		if strings.Contains(line, t.token) {
-			line = strings.ReplaceAll(line, t.token, t.code+t.token+Reset)
-		}
-	}
-	return line
+	return statusRE.ReplaceAllStringFunc(line, func(tok string) string { return statusCode[tok] + tok + Reset })
 }
+
+var statusCode = func() map[string]string {
+	m := make(map[string]string, len(statusTokens))
+	for _, t := range statusTokens {
+		m[t.token] = t.code
+	}
+	return m
+}()
+
+var statusRE = func() *regexp.Regexp {
+	toks := make([]string, len(statusTokens))
+	for i, t := range statusTokens {
+		toks[i] = regexp.QuoteMeta(t.token)
+	}
+	sort.Slice(toks, func(i, j int) bool { return len(toks[i]) > len(toks[j]) })
+	return regexp.MustCompile(strings.Join(toks, "|"))
+}()
