@@ -255,6 +255,28 @@ Either is only needed for `key` (mint an auth key) and `exit-node --approve`; `s
 off the installed CLI alone. `make tailscale-cli` installs the client; `claude-code configure` shows login + the
 admin credential as one row.
 
+## Worktrees and agent views
+
+```bash
+claude-code worktree list [--format json]            # every ~/worktrees/<repo>/* checkout: branch, dirty/merged/stale/orphaned, reopen + cleanup commands
+claude-code worktree create <name> [--branch b]      # the same path the worktree-create hook takes (default branch worktree-<name>)
+claude-code worktree clean [--dry-run] <name>        # removes only a clean, merged, unlocked worktree; never --force; branch -d when safe
+claude-code worktree clean-all [--dry-run|--yes]     # preview, then remove every eligible one
+claude-code agents tree [--session id] [--watch]     # sessions → subagents → workflows: journal-backed status, last activity, vendor legs (↳ codex … ⚠ fallback)
+claude-code web view <agentId|prefix> [--follow]     # one agent's snapshot (files edited, legs, result); --follow streams its events until it finishes
+claude-code dispatch --list --host <h> --status      # tmux pane state per dispatched agent: working | input-needed | ready | unknown | gone
+claude-code web browsers                             # per installed browser: extension | cdp | webdriver | gui control paths, and the system default
+claude-code web setup --browser edge                 # opens the Claude in Chrome install page in that browser; never writes Claude Code's host manifests
+```
+
+`worktree` is the deterministic engine behind the `worktree-create`/`worktree-remove` hooks and `/workflow:worktree`:
+inspection failures read as problems, never as "clean", and `clean` rechecks live state before each removal.
+`agents tree`, `web view`, the `claude-code web` dashboard (`/api/tree`, `/api/view`, `/api/browsers`) and the VS Code
+"Agents" panel all consume one `agenttree.Build`; a relay agent's vendor run is matched from `ask --log`, so a silent
+`codex→claude` fallback is flagged where you look. `web browsers` reports which control path each browser offers —
+the user's signed-in session needs `extension` (Chromium family) or `gui`; automation of your own site uses `cdp`
+or `webdriver` — and `doctor` / `configure browser` show the default browser's state.
+
 ## Agents
 
 ```bash
