@@ -161,7 +161,7 @@ For each completed worktree, in dependency order:
 1. **Preview**: `git log wt/<name> --oneline`
 2. **Merge**: `git merge wt/<name> --no-ff`
 3. **Conflict check**: resolve manually, then re-verify
-4. **Clean**: `git worktree remove .claude/worktrees/<name>`
+4. **Clean**: `git worktree remove ~/worktrees/<repo>/<name>`
 
 ---
 
