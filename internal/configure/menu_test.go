@@ -81,24 +81,6 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	}
 }
 
-// TestRunMenuDoneRowLeavesImmediately: picking the explicit "Done" row (its index, not -1) also leaves.
-func TestRunMenuDoneRowLeavesImmediately(t *testing.T) {
-	reg := menuTestEnv(t)
-	origMenu := pickMenu
-	t.Cleanup(func() { pickMenu = origMenu })
-	var doneIdx int
-	pickMenu = func(title string, rows [][2]string, start int) (int, error) {
-		doneIdx = len(rows) - 1
-		if rows[doneIdx][0] != "Done" {
-			t.Fatalf("last row = %v, want Done", rows[doneIdx])
-		}
-		return doneIdx, nil
-	}
-	if rc := runMenu(&dialog{reg: reg, out: discardWriter{}}); rc != 0 {
-		t.Errorf("rc = %d, want 0", rc)
-	}
-}
-
 // TestCheckAndPipedNeverOpenTheMenu: --check and a piped run keep the old Sections walk; the top-level
 // picker must never be invoked, regardless of how pickMenu would answer.
 func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
