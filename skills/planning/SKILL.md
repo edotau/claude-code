@@ -14,6 +14,13 @@ Invoke this skill (`/planning`) for Mode 1, add `--blueprint <task>` for Mode 2,
 
 ## Mode 1: Write Implementation Plans
 
+### Every plan ends with `## Tasks`
+
+Start from [references/plan-template.md](references/plan-template.md). The last section is a `- [ ]` checklist, one
+line per phase/step plus the closeout items; tick `- [x] … (<commit>)` as each lands and keep it current, so a lost
+session, agent or worktree resumes from the list. The `save-plan` hook appends one (built from Phase/Step/Part
+headings) to an approved plan that has none.
+
 ### Task Breakdown Rules
 
 Every task in a plan must be:
