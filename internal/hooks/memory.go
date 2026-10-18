@@ -82,7 +82,8 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 		memory.ResetSeen(sessionID, cwd, out)
 	}
 	// A harvest worker is a session too; it must not become the "previous session" of the user's next one.
-	if sessionID != "" && !memory.IsHarvestChild() {
+	// Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
+	if memory.LooksLikeSessionID(sessionID) && !memory.IsHarvestChild() {
 		_ = paths.AtomicWrite(chain, []byte(sessionID+"\n"), 0o600)
 	}
 	return out

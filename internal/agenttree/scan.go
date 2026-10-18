@@ -73,18 +73,26 @@ type workflowManifest struct {
 	Script    string          `json:"script"`
 	Result    json.RawMessage `json:"result"`
 	Summary   string          `json:"summary"`
+	Status    string          `json:"status"` // the run's own completed|killed, present on every manifest
 }
 
 // resultStatus reads result.status when the script's return value was an object carrying one (the
-// convention gate-loop-style workflows use for their own green/red outcome); "" otherwise.
+// convention gate-loop-style workflows use for their own green/red outcome), falling back to the
+// manifest's own top-level status (completed -> finished, killed -> error); "" otherwise.
 func (m *workflowManifest) resultStatus() string {
 	var r struct {
 		Status string `json:"status"`
 	}
-	if json.Unmarshal(m.Result, &r) != nil {
-		return ""
+	if json.Unmarshal(m.Result, &r) == nil && r.Status != "" {
+		return r.Status
 	}
-	return r.Status
+	switch m.Status {
+	case "killed":
+		return statusError
+	case "completed":
+		return statusFinished
+	}
+	return ""
 }
 
 // manifestNamePattern pulls the workflow's declared name out of its script's `meta = { name: '...' }`.

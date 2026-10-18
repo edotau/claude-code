@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,12 @@ import (
 
 // seenMaxAge prunes per-session seen sets; a session idle this long has long since compacted or ended.
 const seenMaxAge = 7 * 24 * time.Hour
+
+// sessionIDShape matches a Claude Code session id (UUID), rejecting probe/test payloads like "probe-x".
+var sessionIDShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// LooksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
+func LooksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
 
 // BlockKey identifies a block by its whitespace-normalized text.
 func BlockKey(block string) string {
@@ -31,6 +38,9 @@ func seenPath(sessionID string) string {
 
 // ResetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
 func ResetSeen(sessionID, root, surface string) {
+	if !LooksLikeSessionID(sessionID) {
+		return
+	}
 	p := seenPath(sessionID)
 	if p == "" {
 		return

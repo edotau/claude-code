@@ -3,6 +3,7 @@ package browser
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -231,11 +232,28 @@ func geckodriverState(env Env) string {
 	return stateDisabled
 }
 
+// guiState probes gui control read-only: on macOS it needs Accessibility/Apple-Events permission for the
+// controlling app, checked with a no-op System Events query that never performs a UI action (so it cannot
+// itself trigger the permission prompt); a -1719/-25211 error means that permission was already denied.
 func guiState(env Env) string {
-	if env.goos() == "darwin" {
+	if env.goos() != "darwin" {
+		return stateUnsupported
+	}
+	if env.DryRun {
+		return stateAvailable // DryRun (Setup) never calls Run beyond its own install-state probes
+	}
+	_, err := env.run("osascript", "-e", `tell application "System Events" to get name of first process`)
+	if err == nil {
 		return stateAvailable
 	}
-	return stateUnsupported
+	msg := err.Error()
+	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+		msg = string(ee.Stderr)
+	}
+	if strings.Contains(msg, "-1719") || strings.Contains(msg, "-25211") {
+		return stateDisabled
+	}
+	return stateAvailable // some other failure (e.g. osascript missing) — never claim disabled without the specific error
 }
 
 func dirExists(path string) bool {
