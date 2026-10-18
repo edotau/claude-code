@@ -1,6 +1,6 @@
 ---
 description: "Create and manage git worktrees for parallel Claude Code sessions"
-argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean]"
+argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean] [--resolve-agent claude|codex|--resume]"
 ---
 
 # worktree -- Git Worktree Lifecycle Manager
@@ -32,7 +32,8 @@ command: `~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. E
 root and every worktree's actual branch from git itself — never assume a naming convention
 (`wt/<name>`, `worktree-<name>`, an Orca-chosen name): discover it. `merge` runs a two-phase,
 fast-forward-only promotion (`internal/worktree/preflight.go`, `merge.go`): a predicted conflict stops
-before anything mutates — Appendix A Phase 3 adds agent resolution for that case.
+before anything mutates unless `--resolve-agent claude|codex` is passed (`resolve.go`), which hands it
+to an agent inside the worktree only; `--resume` reattaches to that operation after a crash.
 
 ---
 
@@ -44,6 +45,8 @@ before anything mutates — Appendix A Phase 3 adds agent resolution for that ca
 | `<name>` *(no subcommand)* | Same as `create <name>` |
 | `list` | Show all worktrees with status |
 | `merge <name> [--target <ref>] [--no-clean]` | Preview (plan + predicted conflicts), merge back fast-forward-only, verify, auto-clean unless `--no-clean` |
+| `merge <name> --resolve-agent claude\|codex` | On a predicted conflict only, resolve it with that agent inside the worktree, then continue the normal merge |
+| `merge <name> --resume` | Reattach to a previously started `--resolve-agent` operation; never re-invokes the agent |
 | `clean <name>` | Remove a single worktree safely |
 | `clean-all` | Remove all `~/worktrees/<repo>/*` worktrees |
 
@@ -167,6 +170,37 @@ issue: conflict [<files>] — git merge-tree predicts a conflict; Phase 3 adds a
 The worktree is still on disk, untouched. To clean up without merging:
   /workflow:worktree clean $SLUG
 ```
+
+---
+
+### Agent-assisted resolution (`--resolve-agent claude|codex`)
+
+A predicted `conflict` — and only that issue, never a dirty/detached/mismatched checkout — can be
+handed to an agent instead of stopping:
+
+```bash
+claude-code worktree merge --resolve-agent codex "$SLUG"
+```
+
+This materializes the predicted conflict for real **inside the worktree** (`git merge`, never on the
+main checkout), saves an `Operation` record, and runs the named agent once, with tools enabled, to
+resolve every conflicted file and commit the merge there itself — the controller never writes a
+resolution and never retries a tools-enabled agent automatically. It then polls the worktree every two
+seconds, up to ten minutes, for a clean commit with both the pinned target and the worktree's prior
+HEAD as ancestors (rejecting a stale merge commit from an aborted attempt). On success it continues
+straight into the normal integrate/promote/clean path above. A codex leg that silently fell back to
+Claude, a timeout, cancellation, or an unexpected history stops with the operation and the worktree's
+edits preserved on disk — nothing is cleaned up, so the state can be inspected or resumed.
+
+To reattach after a controller crash or Ctrl-C, without ever re-invoking the agent:
+
+```bash
+claude-code worktree merge --resume "$SLUG"
+```
+
+This reloads the saved `Operation` and revalidates the worktree's current state from scratch; if it is
+already a clean, committed resolution it proceeds straight to promote, otherwise it reports exactly
+why (still mid-merge, aborted, or a stale merge commit) and stops again.
 
 ---
 
