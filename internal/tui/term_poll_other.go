@@ -1,10 +1,10 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package tui
 
 import "time"
 
-// Only the Linux build can wait on stdin with a timeout, so elsewhere the pump keeps its historical
+// Only the Linux and darwin builds can wait on stdin with a timeout, so elsewhere the pump keeps its historical
 // blocking read: waitReadable never delays and Close has no pump to join.
 const (
 	pollTick = 0

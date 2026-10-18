@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package tui
 
@@ -27,9 +27,8 @@ func waitReadable(fd int, d time.Duration) bool {
 	nbits := fdSetSize / len(set.Bits)
 	set.Bits[fd/nbits] |= 1 << uint(fd%nbits)
 	tv := syscall.NsecToTimeval(int64(d))
-	n, err := syscall.Select(fd+1, &set, nil, nil, &tv)
-	if err != nil {
+	if err := sysSelect(fd+1, &set, &tv); err != nil {
 		return err != syscall.EINTR // EINTR (Go's preemption signal) is just a short poll — go round again
 	}
-	return n > 0
+	return set.Bits[fd/nbits]&(1<<uint(fd%nbits)) != 0
 }

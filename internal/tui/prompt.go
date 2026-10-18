@@ -44,3 +44,6 @@ func Secret(prompt string) (string, error) {
 	fmt.Fprintln(os.Stdout)
 	return string(b), err
 }
+
+// StdinIsTerminal reports whether stdin is a real terminal (a /dev/null char device is not).
+func StdinIsTerminal() bool { return isTerminal(int(os.Stdin.Fd())) }
