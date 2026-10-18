@@ -3,6 +3,7 @@
 package configure
 
 import (
+	"cmp"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -69,12 +70,40 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 // modes, whether its credential actually works right now.
 func claudeStatus(d *dialog) string {
 	cur := currentProvider(d.reg)
-	if isAnthropicBilling(cur) {
-		detail := anthropicDetail(&firstParty{reg: d.reg}, cur)
-		if cur == subscriptionName && providers.HeadlessOAuthToken() != "" {
-			detail += " · token set"
+	fp := &firstParty{reg: d.reg}
+	switch cur {
+	case subscriptionName:
+		ok, plan := fp.login()
+		if !ok {
+			return "OAuth login · subscription · not logged in"
 		}
-		return detail
+		line := "OAuth login · subscription" + plan
+		if providers.HeadlessOAuthToken() != "" {
+			line += " · headless token"
+		}
+		return line
+	case anthropicRow:
+		p, ok := d.reg.Providers[anthropicRow]
+		if !ok || !fp.key() {
+			return "API key · per-token usage · missing"
+		}
+		return "API key · per-token usage · " + cmp.Or(probeStatus(p), "unverified")
+	case "chatgpt":
+		return "OAuth login · ChatGPT plan"
+	case "github-copilot":
+		return "OAuth login · Copilot plan"
+	}
+	if p, ok := d.reg.Providers[cur]; ok && p.Auth.Env != "" {
+		return "API key · per-token usage · " + cmp.Or(probeStatus(p), "unverified") + " · " + cur
 	}
 	return backendDetail(d.reg, cur)
+}
+
+// probeStatus live-checks p's credential (4 s cap) and returns "verified" / "rejected" / "unreachable" / "".
+func probeStatus(p *providers.Provider) string {
+	status, _ := probe(keyTarget{provider: p})
+	if status == "login" {
+		return ""
+	}
+	return status
 }
