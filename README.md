@@ -58,7 +58,7 @@ when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, inst
 ## Setup
 
 ```bash
-claude-code configure                 # every section, in order: provider → keys → models → agents → router → doctor
+claude-code configure                 # every section, in order: provider → keys → models → agents → router → github → remote → doctor
 claude-code configure keys            # one section; --vendor codex scopes it
 claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
 claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift

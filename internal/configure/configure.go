@@ -31,7 +31,7 @@ import (
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "keys", "models", "agents", "router", "github", "doctor"}
+var Sections = []string{"provider", "keys", "models", "agents", "router", "github", "remote", "doctor"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -115,6 +115,8 @@ func Run(o Options, section string) int {
 			ok = runRouter(d)
 		case "github":
 			ok = runGithub(d)
+		case "remote":
+			ok = runRemote(d)
 		case "doctor":
 			ok = launch.Doctor(out)
 		}
@@ -328,11 +330,10 @@ func claudeLoginStatus() (loggedIn bool, plan string) {
 
 // consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
 var consoleURLs = map[string]string{
-	"ANTHROPIC_API_KEY":             "https://console.anthropic.com/settings/keys",
-	"GEMINI_API_KEY":                "https://aistudio.google.com/apikey",
-	"OPENAI_API_KEY":                "https://platform.openai.com/api-keys",
-	"OPENROUTER_API_KEY":            "https://openrouter.ai/settings/keys",
-	"TAILSCALE_OAUTH_CLIENT_SECRET": "https://login.tailscale.com/admin/settings/oauth",
+	"ANTHROPIC_API_KEY":  "https://console.anthropic.com/settings/keys",
+	"GEMINI_API_KEY":     "https://aistudio.google.com/apikey",
+	"OPENAI_API_KEY":     "https://platform.openai.com/api-keys",
+	"OPENROUTER_API_KEY": "https://openrouter.ai/settings/keys",
 }
 
 // authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.
@@ -393,9 +394,6 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 			continue
 		}
 		out = append(out, vendorKeyTarget(reg, name))
-	}
-	if vendorFilter == "" {
-		out = append(out, tailscaleKeyTarget())
 	}
 	return out, nil
 }
