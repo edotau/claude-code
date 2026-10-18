@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+// kbDestFlag isolates every cmdVSCode call below from the real machine's keybindings.json: without
+// it, a call that omits --keybindings-dest falls back to the platform default and writes there.
+func kbDestFlag(t *testing.T) []string {
+	t.Helper()
+	return []string{"--keybindings-dest", filepath.Join(t.TempDir(), "keybindings.json")}
+}
+
 func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -22,10 +29,29 @@ func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	return tmpl, dest
 }
 
-func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
+// An explicit --dest with no --keybindings-dest must default next to that dest, never to the
+// platform's real keybindings.json — the bug this guards shipped keybindings into the live machine.
+func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := captureOutput(t, func() int {
 		return cmdVSCode([]string{"--template", tmpl, "--dest", dest})
+	})
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	wantKbDest := filepath.Join(filepath.Dir(dest), "keybindings.json")
+	if !strings.Contains(out, wantKbDest) {
+		t.Errorf("keybindings dest not defaulted beside %s:\n%s", dest, out)
+	}
+	if _, err := os.Stat(wantKbDest); err != nil {
+		t.Errorf("keybindings.json not written beside the explicit --dest: %v", err)
+	}
+}
+
+func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
+	tmpl, dest := writeVSCodeFixture(t)
+	code, out, _ := captureOutput(t, func() int {
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest}, kbDestFlag(t)...))
 	})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -43,7 +69,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	code, out, _ := captureOutput(t, func() int {
-		return cmdVSCode([]string{"--template", tmpl, "--dest", dest, "--dry-run"})
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--dry-run"}, kbDestFlag(t)...))
 	})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -63,7 +89,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := captureOutput(t, func() int {
-		return cmdVSCode([]string{"--template", tmpl, "--dest", dest, "--check"})
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--check"}, kbDestFlag(t)...))
 	})
 	if code != 1 {
 		t.Fatalf("exit %d, want 1", code)
@@ -78,11 +104,14 @@ func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 
 func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
-	if code, _, _ := captureOutput(t, func() int { return cmdVSCode([]string{"--template", tmpl, "--dest", dest}) }); code != 0 {
+	kbFlag := kbDestFlag(t)
+	if code, _, _ := captureOutput(t, func() int {
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest}, kbFlag...))
+	}); code != 0 {
 		t.Fatal("initial merge failed")
 	}
 	code, out, _ := captureOutput(t, func() int {
-		return cmdVSCode([]string{"--template", tmpl, "--dest", dest, "--check"})
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--check"}, kbFlag...))
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0 once merged", code)
@@ -95,7 +124,7 @@ func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := captureOutput(t, func() int {
-		return cmdVSCode([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"})
+		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"}, kbDestFlag(t)...))
 	})
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
@@ -110,7 +139,7 @@ func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 	original, _ := os.ReadFile(dest)
 	for _, flagArg := range []string{"-h", "--help"} {
 		code, _, errOut := captureOutput(t, func() int {
-			return cmdVSCode([]string{flagArg, "--template", tmpl, "--dest", dest})
+			return cmdVSCode(append([]string{flagArg, "--template", tmpl, "--dest", dest}, kbDestFlag(t)...))
 		})
 		if code != 0 {
 			t.Errorf("vscode %s exit %d, want 0", flagArg, code)
