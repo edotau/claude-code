@@ -261,6 +261,105 @@ func TestGeminiAuthConflict(t *testing.T) {
 	}
 }
 
+// googleAITarget resolves the google-ai login provider from the real registry, with a Google login
+// selected and cached oauth tokens on disk under a temp GEMINI_CLI_HOME.
+func googleAITarget(t *testing.T, model string) providers.Target {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
+		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "oauth_creds.json"),
+		[]byte(`{"access_token":"tok123"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := reg.Get("google-ai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return providers.Target{Provider: p, Model: model}
+}
+
+// On the google-ai login provider, an oauth-personal settings.json with cached tokens is the expected
+// shape (never a conflict): Configure injects no GEMINI_API_KEY/base URL at all, only the model.
+func TestGeminiLoginProviderInjectsNoKeyOrBaseURL(t *testing.T) {
+	tg := googleAITarget(t, "gemini-4-argon")
+	env, argv, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("google-ai login provider on an oauth-personal settings.json must not error: %v", err)
+	}
+	got := envMap(env)
+	if _, ok := got["GEMINI_API_KEY"]; ok {
+		t.Errorf("env carries GEMINI_API_KEY on the login provider: %v", env)
+	}
+	if v, ok := got["GOOGLE_GEMINI_BASE_URL"]; ok && v != "" {
+		t.Errorf("env carries a non-empty GOOGLE_GEMINI_BASE_URL on the login provider: %v", env)
+	}
+	if got["GEMINI_MODEL"] != "gemini-4-argon" {
+		t.Errorf("GEMINI_MODEL = %q, want gemini-4-argon", got["GEMINI_MODEL"])
+	}
+	if !slices.Contains(argv, "-m") {
+		t.Errorf("argv = %v, want -m gemini-4-argon", argv)
+	}
+}
+
+// The same oauth-personal settings.json still fails on the keyed "gemini" provider (never exempted),
+// so a real AI-Studio-key session can't be silently redirected onto a login it never selected.
+func TestGeminiKeyProviderStillConflictsOnOAuthPersonal(t *testing.T) {
+	tg := target(t, "gemini", "gemini-2.5-pro")
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
+		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	if err == nil || !strings.Contains(err.Error(), "overrides the provider key") {
+		t.Errorf("err = %v, want the auth-conflict error unchanged on the key provider", err)
+	}
+}
+
+// A login run with no cached oauth_creds.json fails fast (actionable message), instead of handing a
+// browser-prompting gemini-cli nothing to authenticate with.
+func TestGeminiLoginMissingCachedCredsFailsFast(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
+		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := reg.Get("google-ai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ConfigureHeadless(context.Background(), "gemini",
+		providers.Target{Provider: p, Model: "gemini-4-argon"}, Headless{Prompt: "hi"})
+	if err == nil || !strings.Contains(err.Error(), "no cached Google sign-in") {
+		t.Errorf("err = %v, want an actionable \"no cached Google sign-in\" error", err)
+	}
+}
+
 // opencodeMenu unmarshals OPENCODE_CONFIG_CONTENT and returns just the model menu + the top-level model id.
 func opencodeMenu(t *testing.T, env []string, id string) (map[string]any, string) {
 	t.Helper()
@@ -838,6 +937,73 @@ func TestResolveTargetGeminiFallsBackToKeyedGemini(t *testing.T) {
 	}
 	if !strings.Contains(note, "GEMINI_API_KEY") {
 		t.Fatalf("expected a note naming GEMINI_API_KEY, got %q", note)
+	}
+}
+
+// When both a Google login and a keyed GEMINI_API_KEY are available, ResolveTarget prefers the login
+// provider (google-ai): it serves the gemini CLI's own account, ahead of per-token billing.
+func TestResolveTargetGeminiPrefersLoginOverKey(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("GEMINI_API_KEY", secret) // the key is ALSO present
+	for _, k := range []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
+		[]byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	target, note, err := ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Provider == nil || target.Provider.Name != "google-ai" {
+		t.Fatalf("expected the login provider google-ai preferred over the keyed gemini provider, got %v", target.Provider)
+	}
+	if !strings.Contains(note, "gemini login") {
+		t.Fatalf("expected a note naming the gemini login, got %q", note)
+	}
+}
+
+// Without a selected Google login, ResolveTarget still falls back to the keyed provider (the existing
+// TestResolveTargetGeminiFallsBackToKeyedGemini path), proving the login check is additive, not a replacement.
+func TestResolveTargetGeminiNoLoginSelectedFallsBackToKey(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("GEMINI_API_KEY", secret)
+	t.Setenv("GEMINI_CLI_HOME", t.TempDir()) // no settings.json at all: no login selected
+	for _, k := range []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	target, _, err := ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Provider == nil || target.Provider.Name != "gemini" {
+		t.Fatalf("expected fallback to the keyed gemini provider, got %v", target.Provider)
 	}
 }
 

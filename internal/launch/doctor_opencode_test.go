@@ -52,7 +52,8 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 }
 
 // With opencode's own github-copilot login present, the doctor row names provider=github-copilot and
-// both model/small_model; the haiku slot's "auto" default resolves through OpencodeFallback.
+// both model/small_model: the registry now pins both slots to concrete ids (no "auto" default to
+// swap for OpencodeFallback any more — that swap path is covered directly in internal/vendors).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	authDir := filepath.Join(xdgData, "opencode")
@@ -73,11 +74,11 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	if !strings.Contains(c.Detail, "opencode_login=true") {
 		t.Errorf("detail = %q, want opencode_login=true", c.Detail)
 	}
-	if !strings.Contains(c.Detail, "model=github-copilot/claude-sonnet-5.5") {
-		t.Errorf("detail = %q, want the sonnet slot's own id (non-\"auto\", unchanged)", c.Detail)
+	if !strings.Contains(c.Detail, "model=github-copilot/gpt-5.3-codex") {
+		t.Errorf("detail = %q, want the sonnet slot's own id, unchanged", c.Detail)
 	}
-	if !strings.Contains(c.Detail, "small_model=github-copilot/mai-code-1.1-flash") {
-		t.Errorf("detail = %q, want the haiku slot's \"auto\" swapped for its OpencodeFallback", c.Detail)
+	if !strings.Contains(c.Detail, "small_model=github-copilot/gpt-5.4-mini") {
+		t.Errorf("detail = %q, want the haiku slot's own id, unchanged", c.Detail)
 	}
 }
 

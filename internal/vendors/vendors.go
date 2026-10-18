@@ -151,6 +151,9 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			}
 		}
 	case "gemini":
+		if p, ok := loginProvider(reg, "google-ai", "gemini"); ok && GeminiLoginPresent() {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "google-ai (gemini login)", true
+		}
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
 		}
@@ -312,6 +315,8 @@ func login(name string, p *providers.Provider, model string, h *Headless) ([]str
 		return codexLogin(model, h)
 	case name == "copilot":
 		return copilotLogin(model, h)
+	case name == "gemini":
+		return geminiLogin(model, h)
 	}
 	return nil, nil, fmt.Errorf("%s: no subscription sign-in support", name)
 }
@@ -470,17 +475,20 @@ func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]str
 // geminiKeyAuth are the selectedType values that read GEMINI_API_KEY; any other one ignores the harness wiring.
 var geminiKeyAuth = map[string]bool{"": true, "gemini-api-key": true, "gateway": true}
 
-// geminiAuthConflict fails fast when ~/.gemini/settings.json picks a login auth: it beats every env var, and
-// a headless run would hang on the browser prompt (a system override file must be root-owned, so none is possible).
-func geminiAuthConflict() error {
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
+// geminiHome is $GEMINI_CLI_HOME or the user's home, where gemini-cli keeps settings.json/oauth_creds.json.
+func geminiHome() string {
+	if home := os.Getenv("GEMINI_CLI_HOME"); home != "" {
+		return home
 	}
-	file := filepath.Join(home, ".gemini", "settings.json")
-	b, err := os.ReadFile(file)
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// geminiSelectedAuthType reads ~/.gemini/settings.json's chosen auth type, or "" if unset/unreadable.
+func geminiSelectedAuthType() string {
+	b, err := os.ReadFile(filepath.Join(geminiHome(), ".gemini", "settings.json"))
 	if err != nil {
-		return nil
+		return ""
 	}
 	var cfg struct {
 		Legacy   string `json:"selectedAuthType"`
@@ -491,11 +499,61 @@ func geminiAuthConflict() error {
 		} `json:"security"`
 	}
 	if json.Unmarshal(b, &cfg) != nil {
-		return nil // gemini-cli reports its own parse errors
+		return "" // gemini-cli reports its own parse errors
 	}
-	if t := cmp.Or(cfg.Security.Auth.SelectedType, cfg.Legacy); !geminiKeyAuth[t] {
+	return cmp.Or(cfg.Security.Auth.SelectedType, cfg.Legacy)
+}
+
+// geminiAuthConflict fails fast when ~/.gemini/settings.json picks a login auth: it beats every env var, and
+// a headless run would hang on the browser prompt (a system override file must be root-owned, so none is possible).
+func geminiAuthConflict() error {
+	if t := geminiSelectedAuthType(); !geminiKeyAuth[t] {
 		return fmt.Errorf("gemini: %s selects auth %q, which overrides the provider key; run `gemini`, /auth → "+
-			"\"Use Gemini API key\", or delete security.auth.selectedType", file, t)
+			"\"Use Gemini API key\", or delete security.auth.selectedType",
+			filepath.Join(geminiHome(), ".gemini", "settings.json"), t)
+	}
+	return nil
+}
+
+// geminiLogin runs gemini on its own Google sign-in: no key/base-url env injected, so gemini-cli's own
+// oauth-personal path (GOOGLE_GENAI_USE_GCA/VERTEXAI left unset) picks the credential, not the harness.
+func geminiLogin(model string, h *Headless) ([]string, []string, error) {
+	if err := geminiGoogleLoginReady(); err != nil {
+		return nil, nil, err
+	}
+	env := []string{"GEMINI_MODEL=" + model}
+	if h == nil {
+		return append(env, "GEMINI_CLI_TRUST_WORKSPACE=true"), nil, nil
+	}
+	approval := "plan"
+	if h.Tools {
+		approval = "yolo"
+	}
+	argv := []string{"--skip-trust", "-m", model, "--output-format", "stream-json", "--approval-mode", approval}
+	if h.SessionID != "" {
+		argv = append(argv, "--resume", h.SessionID)
+	}
+	return env, append(argv, "--prompt="+h.Prompt), nil
+}
+
+// geminiGoogleLoginReady fails fast unless gemini-cli has a Google login selected AND cached OAuth
+// tokens on disk: a headless run with neither would otherwise hang on a browser sign-in prompt.
+func geminiGoogleLoginReady() error {
+	if t := geminiSelectedAuthType(); geminiKeyAuth[t] {
+		return fmt.Errorf("gemini: no Google login selected (run `gemini` and pick Login with Google; "+
+			"auth is currently %q)", t)
+	}
+	credsFile := filepath.Join(geminiHome(), ".gemini", "oauth_creds.json")
+	b, err := os.ReadFile(credsFile)
+	if err != nil {
+		return fmt.Errorf("gemini: no cached Google sign-in (%s missing); run `gemini` and pick Login with Google", credsFile)
+	}
+	var creds struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if json.Unmarshal(b, &creds) != nil || (creds.AccessToken == "" && creds.RefreshToken == "") {
+		return fmt.Errorf("gemini: cached Google sign-in at %s is empty/expired; run `gemini` and pick Login with Google", credsFile)
 	}
 	return nil
 }
