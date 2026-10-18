@@ -109,7 +109,7 @@ func Run(ctx context.Context, opts Options) error {
 
 // routes registers the dashboard's handlers, wrapped by the Host/Origin guard and access logging.
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /", s.guard(s.handleIndex))
+	s.mux.HandleFunc("GET /{$}", s.guard(s.handleIndex))
 	s.mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
 	s.mux.HandleFunc("GET /api/dispatches", s.guard(s.handleDispatches))
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
