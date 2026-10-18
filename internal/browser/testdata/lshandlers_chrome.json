@@ -1,0 +1,12 @@
+{
+  "LSHandlers": [
+    {
+      "LSHandlerPreferredVersions": {
+        "LSHandlerRoleAll": "-"
+      },
+      "LSHandlerRoleAll": "com.google.chrome",
+      "LSHandlerURLScheme": "https",
+      "LSHandlerModificationDate": 0
+    }
+  ]
+}
