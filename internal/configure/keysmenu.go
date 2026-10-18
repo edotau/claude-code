@@ -65,15 +65,14 @@ func withChecks(names []string, cols [][2]string) [][2]string {
 // missing. A login counts as verified when its own CLI's status check confirmed it.
 func keyCols(kt keyTarget) [2]string {
 	if !kt.present {
-		return [2]string{"not set up", "missing"}
+		return [2]string{"not set up", "not verified"}
 	}
 	if kt.provider != nil && kt.envVar != "" {
 		status, _ := probe(kt)
-		switch status {
-		case "verified", "rejected", "unreachable":
-			return [2]string{"per-token usage", status}
+		if status == "verified" {
+			return [2]string{"per-token usage", "verified"}
 		}
-		return [2]string{"per-token usage", "unverified"}
+		return [2]string{"per-token usage", "not verified"}
 	}
 	return [2]string{loginLine(kt), "verified"}
 }

@@ -3,7 +3,6 @@
 package configure
 
 import (
-	"cmp"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -71,22 +70,22 @@ func claudeCols(d *dialog) [2]string {
 	case subscriptionName:
 		ok, plan := fp.login()
 		if !ok {
-			return [2]string{"subscription", "missing"}
+			return [2]string{"subscription", "not verified"}
 		}
 		return [2]string{"subscription" + plan, "verified"}
 	case anthropicRow:
 		p, ok := d.reg.Providers[anthropicRow]
 		if !ok || !fp.key() {
-			return [2]string{"per-token usage", "missing"}
+			return [2]string{"per-token usage", "not verified"}
 		}
-		return [2]string{"per-token usage", cmp.Or(probeStatus(p), "unverified")}
+		return [2]string{"per-token usage", verifiedOr(probeStatus(p))}
 	case "chatgpt":
 		return [2]string{"subscription", loginCheck(vendors.CodexChatGPTLoginPresent())}
 	case "github-copilot":
 		return [2]string{"subscription", loginCheck(vendors.CopilotLoginPresent())}
 	}
 	if p, ok := d.reg.Providers[cur]; ok && p.Auth.Env != "" {
-		return [2]string{"per-token usage · " + cur, cmp.Or(probeStatus(p), "unverified")}
+		return [2]string{"per-token usage · " + cur, verifiedOr(probeStatus(p))}
 	}
 	return [2]string{backendDetail(d.reg, cur), ""}
 }
@@ -95,7 +94,7 @@ func loginCheck(ok bool) string {
 	if ok {
 		return "verified"
 	}
-	return "missing"
+	return "not verified"
 }
 
 // probeStatus live-checks p's credential (4 s cap) and returns "verified" / "rejected" / "unreachable" / "".
@@ -105,4 +104,12 @@ func probeStatus(p *providers.Provider) string {
 		return ""
 	}
 	return status
+}
+
+// verifiedOr collapses a probe result to the menu's two checks: "verified" or "not verified".
+func verifiedOr(status string) string {
+	if status == "verified" {
+		return status
+	}
+	return "not verified"
 }

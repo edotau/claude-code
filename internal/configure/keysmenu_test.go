@@ -15,7 +15,7 @@ func TestKeyRows(t *testing.T) {
 	if len(rows) != 2 || rows[0][1] != "subscription  verified" {
 		t.Fatalf("rows = %v", rows)
 	}
-	if rows[1][1] != "not set up    missing" || ok {
+	if rows[1][1] != "not set up    not verified" || ok {
 		t.Fatalf("absent row = %q ok=%v, want the set-up hint and ok=false", rows[1][1], ok)
 	}
 }
