@@ -1,0 +1,15 @@
+{
+  "BackendState": "Running",
+  "Self": {
+    "HostName": "test-mac",
+    "DNSName": "test-mac.tailxxxxx.ts.net.",
+    "OS": "macOS",
+    "TailscaleIPs": ["100.107.35.117"],
+    "AllowedIPs": ["100.107.35.117/32"],
+    "Online": true,
+    "ExitNode": false,
+    "ExitNodeOption": true,
+    "LastSeen": "0001-01-01T00:00:00Z"
+  },
+  "Peer": {}
+}

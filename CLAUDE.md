@@ -68,7 +68,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `/harness:mcp-doctor` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
-| Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes; opt-in `--what projections`) | credentials/settings never swept |
+| Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (dry-run default; `--apply` deletes; opt-in `--what projections\|sessions`) | credentials/settings never swept |
 | See what acted: provider switches, pins, secret sets, safety blocks, router failovers | `claude-code audit [--days 7] [--format json]` (`state/harness/audit.jsonl`; `doctor` shows the 7-day count) | names only, never a value or a blocked command |
 | Inspect or diff the shadow history of config + memory | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
 | Pick the statusline color palette · apply the whole look (VS Code, statusline, opencode, copilot, gemini) | `claude-code theme [--preview] [<palette>]` · `claude-code theme apply [--dry-run]` | `theme/README.md` — one JSON per tool, merged over its config |
@@ -84,6 +84,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |
+| Tailnet: status, machines, connect, mint a key, exit node | `claude-code tailscale status\|machines\|connect\|key\|exit-node` · `make tailscale-cli` · configure row | `docs/plans/2026-10-17-tailscale-module.md` |
 
 ## Where things live
 

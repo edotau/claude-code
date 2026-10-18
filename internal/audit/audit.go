@@ -19,19 +19,24 @@ import (
 type Action string
 
 const (
-	ProviderSwitch Action = "provider_switch"
-	ModelPin       Action = "model_pin"
-	SecretSet      Action = "secret_set"
-	HookBlocked    Action = "hook_blocked"
-	RouterFallback Action = "router_fallback"
+	ProviderSwitch    Action = "provider_switch"
+	ModelPin          Action = "model_pin"
+	SecretSet         Action = "secret_set"
+	HookBlocked       Action = "hook_blocked"
+	RouterFallback    Action = "router_fallback"
+	TailscaleKeyMint  Action = "tailscale_key_mint"
+	TailscaleExitNode Action = "tailscale_exit_node"
+	TailscaleConnect  Action = "tailscale_connect"
 )
 
 // Actions lists every valid action in report order.
-var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback}
+var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
+	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect}
 
 func (a Action) Valid() bool {
 	switch a {
-	case ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback:
+	case ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
+		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect:
 		return true
 	default:
 		return false

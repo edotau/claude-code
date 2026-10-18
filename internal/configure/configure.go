@@ -326,10 +326,11 @@ func claudeLoginStatus() (loggedIn bool, plan string) {
 
 // consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
 var consoleURLs = map[string]string{
-	"ANTHROPIC_API_KEY":  "https://console.anthropic.com/settings/keys",
-	"GEMINI_API_KEY":     "https://aistudio.google.com/apikey",
-	"OPENAI_API_KEY":     "https://platform.openai.com/api-keys",
-	"OPENROUTER_API_KEY": "https://openrouter.ai/settings/keys",
+	"ANTHROPIC_API_KEY":             "https://console.anthropic.com/settings/keys",
+	"GEMINI_API_KEY":                "https://aistudio.google.com/apikey",
+	"OPENAI_API_KEY":                "https://platform.openai.com/api-keys",
+	"OPENROUTER_API_KEY":            "https://openrouter.ai/settings/keys",
+	"TAILSCALE_OAUTH_CLIENT_SECRET": "https://login.tailscale.com/admin/settings/oauth",
 }
 
 // authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.
@@ -390,6 +391,9 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 			continue
 		}
 		out = append(out, vendorKeyTarget(reg, name))
+	}
+	if vendorFilter == "" {
+		out = append(out, tailscaleKeyTarget())
 	}
 	return out, nil
 }

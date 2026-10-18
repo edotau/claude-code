@@ -67,6 +67,7 @@ func commands() []command {
 		{name: "mcp", group: groupDiagnostics, summary: "doctor: MCP server health, scope drift, inline secrets", run: cmdMCP},
 		{name: "audit", group: groupDiagnostics, summary: "typed action log: switches, pins, secret sets, blocks", run: cmdAudit},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map: verbs, providers, runners, hooks", run: cmdDescribe},
+		{name: "tailscale", group: groupDiagnostics, summary: "tailnet: status | machines | connect | key | exit-node", run: cmdTailscale},
 		// SETTINGS
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},

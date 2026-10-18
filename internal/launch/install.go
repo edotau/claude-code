@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // ShimNames are the bare names install links to the harness binary.
@@ -259,6 +260,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
+	tsOK, tsDetail := tailscale.Doctor(context.Background())
+	check(tsOK, false, "tailscale", tsDetail)
 	has, err := settingsHasHooks(SettingsFile())
 	nested := clean.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
