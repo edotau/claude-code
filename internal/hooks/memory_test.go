@@ -354,3 +354,37 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, dir)
 	}
 }
+
+// TestPreCompactHarvestsOnlyUncoveredEdits: a compaction dispatches the harvest when edits exist past the last
+// stamp, never re-dispatches covered ones, never blocks, and stays quiet while memory is paused.
+func TestPreCompactHarvestsOnlyUncoveredEdits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	cwd := t.TempDir()
+	calls := stubSpawn(t, true)
+	run := func() int { return PreCompact(strings.NewReader(harvestPayload(tr, cwd))) }
+
+	writeEdits(t, tr, 0)
+	if run() != ExitProceed || calls.Load() != 0 {
+		t.Fatal("no edits must not spawn")
+	}
+	writeEdits(t, tr, 1) // below the Stop floor: a compaction still checkpoints it
+	if run() != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("uncovered edit must spawn once, calls=%d", calls.Load())
+	}
+	if run(); calls.Load() != 1 {
+		t.Error("covered edits re-dispatched")
+	}
+	writeEdits(t, tr, 4)
+	if run(); calls.Load() != 2 {
+		t.Errorf("new edits after the stamp must spawn again, calls=%d", calls.Load())
+	}
+	if err := memory.SetMaintenance("test"); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, tr, 9)
+	if run() != ExitProceed || calls.Load() != 2 {
+		t.Error("paused memory must not spawn")
+	}
+}
