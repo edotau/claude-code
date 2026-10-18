@@ -253,11 +253,25 @@ func FallbackChain(r Runner, mode string) []Runner {
 			chain = append(chain, c)
 		}
 	}
+	// codex's best stand-in is Copilot on its reasoning tier (user decision): another GPT flagship, same plan family.
+	if r.Name() == "codex" {
+		slices.SortStableFunc(chain, func(a, b Runner) int { return copilotFirst(a) - copilotFirst(b) })
+	}
 	if mode == FallbackAll {
 		chain = append(chain, claudeRunner{})
 	}
 	return chain
 }
+
+func copilotFirst(r Runner) int {
+	if r.Name() == "copilot" {
+		return 0
+	}
+	return 1
+}
+
+// fallbackSlot is the tier a vendor leg runs at when it stands in for another; unlisted pairs take the leg's default.
+var fallbackSlot = map[[2]string]string{{"codex", "copilot"}: models.Opus}
 
 func isVendor(name string) bool { return name != "claude" && name != "api" }
 
@@ -280,7 +294,7 @@ func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request,
 		if notify != nil {
 			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", prev.Name(), fallbackReason(err), fb.Name()))
 		}
-		res, err = Run(ctx, fb, fallbackRequest(fb, req), stream, notify)
+		res, err = Run(ctx, fb, fallbackRequest(r, fb, req), stream, notify)
 		prev = fb
 	}
 	if len(reasons) > 0 {
@@ -291,11 +305,11 @@ func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request,
 
 // fallbackRequest drops the original leg's provider and vendor model: a vendor leg takes its own default, and
 // the claude leg is a sonnet leg unless the caller asked for a Claude slot or id (unset would mean opus).
-func fallbackRequest(fb Runner, req Request) Request {
+func fallbackRequest(from, fb Runner, req Request) Request {
 	out := req
 	out.Provider = ""
 	if fb.Name() != "claude" {
-		out.Model = ""
+		out.Model = fallbackSlot[[2]string{from.Name(), fb.Name()}] // "" = the leg's own default model
 		return out
 	}
 	if out.Model == "" {
