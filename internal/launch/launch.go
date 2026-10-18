@@ -188,8 +188,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	}
 	if passthrough {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
-		// A long-lived setup-token in secrets.env outlives the /login session in .credentials.json.
-		if os.Getenv(oauthKey) == "" {
+		if !headless(args) {
+			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
+			plan.Unset = append(plan.Unset, oauthKey)
+		} else if os.Getenv(oauthKey) == "" {
+			// A long-lived setup-token in secrets.env outlives the /login session in .credentials.json.
 			if tok := providers.HeadlessOAuthToken(); tok != "" {
 				plan.Set[oauthKey] = tok
 			}
@@ -201,6 +204,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	}
 	plan.Argv = append(plan.Argv, args...)
 	return plan, nil
+}
+
+// headless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
+func headless(args []string) bool {
+	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
 }
 
 // Vendor resolves `claude-code run <vendor>`: the opus target wired through vendors.Configure, falling
