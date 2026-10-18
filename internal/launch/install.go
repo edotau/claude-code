@@ -254,16 +254,25 @@ func DoctorChecks() (checks []Check, ok bool) {
 						if providers.HeadlessOAuthToken() != "" {
 							label += " · headless token set"
 						} else {
-							label += " · no headless token (claude-code configure keys mints one)"
+							label += " · no headless token (claude-code configure → claude mints one)"
 						}
 					}
 				case "verified":
 					label += " · verified"
 				case "rejected":
-					present = false // stored, but the provider refuses it: as unusable as a missing key
+					present = false                           // stored, but the provider refuses it: as unusable as a missing key
+					detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
 					label += " · REJECTED: " + detail
 				default:
 					label += " · " + status + ": " + detail
+				}
+			}
+			if !present {
+				if alt := altAuth(reg, n); alt != "" {
+					if !strings.Contains(label, "REJECTED") {
+						label += " · no key"
+					}
+					present, label = true, label+" · "+alt
 				}
 			}
 			check(present, session, "credential "+n, label)
@@ -283,6 +292,25 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "browser", browserDoctorDetail())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
+}
+
+// altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:
+// claude runs on its OAuth login (or headless token) without ANTHROPIC_API_KEY, gemini on agy's Google login.
+func altAuth(reg *providers.Registry, name string) string {
+	switch name {
+	case "anthropic":
+		if providers.HeadlessOAuthToken() != "" {
+			return "claude uses the OAuth token instead"
+		}
+		if ok, plan := providers.ClaudeLoginStatus(); ok {
+			return "claude uses the OAuth login" + plan + " instead"
+		}
+	case "gemini":
+		if vendors.GeminiLoginPresent() {
+			return "gemini uses the Google login (agy) instead"
+		}
+	}
+	return ""
 }
 
 // Doctor prints DoctorChecks as ✓/✗ lines and reports whether every hard check passed.

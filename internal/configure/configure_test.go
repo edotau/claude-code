@@ -7,7 +7,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
+
+// runKeysCheck drives runKeysChanged directly the way Run's Sections walk used to before `keys` was
+// removed from Sections: --check/piped is still read-only here (resolveKey/runAuthOption never fire
+// for an absent key when o.Check or !o.Interactive), so this reproduces the old `Run(opts, "keys")`
+// behavior without going through the removed section name. !allOK maps to the CLI's old rc 1.
+func runKeysCheck(t *testing.T, o Options) (out bytes.Buffer, rc int) {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatalf("providers.Load: %v", err)
+	}
+	o.In = o.reader()
+	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: &out}
+	d.header("keys")
+	allOK, _ := runKeysChanged(d)
+	if !allOK {
+		rc = 1
+	}
+	return out, rc
+}
 
 // A piped --check on a box with no keys reports every absent credential, writes nothing, and exits 1.
 func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
@@ -19,8 +41,7 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("PATH", t.TempDir()) // no gh/codex/copilot on PATH: nothing can look "present" by accident
-	var out bytes.Buffer
-	rc := Run(Options{Check: true, Home: home, In: strings.NewReader(""), Out: &out}, "")
+	out, rc := runKeysCheck(t, Options{Check: true, Home: home, In: strings.NewReader("")})
 	if rc != 1 {
 		t.Errorf("rc = %d, want 1; output:\n%s", rc, out.String())
 	}
@@ -46,8 +67,7 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("PATH", t.TempDir())
-	var out bytes.Buffer
-	_ = Run(Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
+	out, _ := runKeysCheck(t, Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader("")})
 	if !strings.Contains(out.String(), "codex") || strings.Contains(out.String(), "codex      present (subscription") {
 		t.Errorf("codex must not read as present on a subscription session:\n%s", out.String())
 	}
@@ -78,8 +98,7 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(xdg, "opencode", "opencode.jsonc"), []byte(`{"model": "google/gemini-3.8-flash"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
-	rc := Run(Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
+	out, rc := runKeysCheck(t, Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader("")})
 	if rc != 1 || !strings.Contains(out.String(), "opencode") || !strings.Contains(out.String(), "ABSENT") {
 		t.Errorf("rc = %d; opencode.jsonc's own model must no longer read present:\n%s", rc, out.String())
 	}
@@ -134,8 +153,7 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
-	rc := Run(Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
+	out, rc := runKeysCheck(t, Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader("")})
 	if rc != 0 {
 		t.Errorf("rc = %d, want 0 (codex reads present, nothing to fix):\n%s", rc, out.String())
 	}
@@ -147,6 +165,19 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "env.d", "secrets.env")); err == nil {
 		t.Error("--check wrote secrets.env")
+	}
+}
+
+// `keys` was removed from Sections: naming it as a section now reports "unknown section" and exits 2,
+// never falling through to the key report (that report still runs internally, via Vendor -> runKeysChanged).
+func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
+	var out bytes.Buffer
+	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "keys")
+	if rc != 2 {
+		t.Errorf("rc = %d, want 2:\n%s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "unknown section") {
+		t.Errorf("output lacks %q:\n%s", "unknown section", out.String())
 	}
 }
 

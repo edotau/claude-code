@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"github.com/edotau/claude-code/internal/secrets"
 	"strings"
 	"testing"
 )
@@ -30,30 +31,40 @@ func TestRunMenuAppendsExitRowAfterAgentRows(t *testing.T) {
 	var got [][2]string
 	pickMenu = func(_ string, rows [][2]string, _ int) (int, error) { got = rows; return -1, nil }
 	runMenu(d)
-	if len(got) != len(actions)+1 || got[len(actions)] != exitRow {
-		t.Fatalf("rows = %v, want %d agent rows then %v", got, len(actions), exitRow)
+	if len(got) != len(actions)+1 || got[len(actions)] != submitRow {
+		t.Fatalf("rows = %v, want %d agent rows then %v", got, len(actions), submitRow)
 	}
 }
 
-func TestRunMenuExitNeedsConfirmation(t *testing.T) {
-	reg := menuTestEnv(t)
-	d := &dialog{reg: reg, out: discardWriter{}}
-	_, actions := menuRows(d)
-	exit := len(actions)
-	starts, _ := fakePickMenu(t, exit, exit)
-	answers := []bool{false, true}
-	orig := actionConfirmed
-	t.Cleanup(func() { actionConfirmed = orig })
-	var asked []string
-	actionConfirmed = func(q string) bool { asked = append(asked, q); a := answers[0]; answers = answers[1:]; return a }
-	if rc := runMenu(d); rc != 0 {
-		t.Fatalf("rc = %d", rc)
-	}
-	if len(*starts) != 2 || (*starts)[1] != exit {
-		t.Errorf("picker starts = %v, want a re-show with the cursor kept on Exit (%d)", *starts, exit)
-	}
-	if len(asked) != 2 || asked[0] != "Leave configure" {
-		t.Errorf("asked = %v", asked)
+func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
+	for _, yes := range []bool{false, true} {
+		reg := menuTestEnv(t) // PATH has no `security`, so Store lands in the temp file plane
+		var out strings.Builder
+		d := &dialog{reg: reg, out: &out}
+		_, actions := menuRows(d)
+		origPick := pickMenu
+		pickMenu = func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
+			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789", false)
+			return len(actions), nil
+		}
+		orig := actionConfirmed
+		var asked []string
+		actionConfirmed = func(q string) bool { asked = append(asked, q); return yes }
+		rc := runMenu(d)
+		actionConfirmed, pickMenu = orig, origPick
+		if rc != 0 {
+			t.Fatalf("yes=%v: rc=%d", yes, rc)
+		}
+		if len(asked) != 1 || asked[0] != "Save keys to the secrets manager" {
+			t.Errorf("yes=%v: asked = %v", yes, asked)
+		}
+		v, src, _ := secrets.Get("GEMINI_API_KEY")
+		if yes && (src != "file" || v != "AIzaTestKey-0123456789") {
+			t.Errorf("Submit y: GEMINI_API_KEY = %q from %q, want the staged value stored\n%s", v, src, out.String())
+		}
+		if !yes && src != "" {
+			t.Errorf("Submit n: GEMINI_API_KEY resolves from %q, want nothing stored and the env restored", src)
+		}
 	}
 }
 
