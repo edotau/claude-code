@@ -222,6 +222,7 @@ func usage(w *os.File) {
 			fmt.Fprintln(w)
 		}
 	}
+	fmt.Fprintln(w) // Why: a blank line between the menu and the next shell prompt
 }
 
 // colorOK is true when w is a terminal and NO_COLOR is unset (https://no-color.org).
