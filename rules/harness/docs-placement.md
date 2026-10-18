@@ -30,13 +30,14 @@ resolves to `""`, so its own plans and handoffs sit untagged at the top of each 
   `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. A repo's own
   `AGENTS.md`/`GEMINI.md` belong at its root (Codex/Gemini/Copilot read them there). The harness itself keeps
   none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into `~/.codex/AGENTS.md` and
-  `~/.gemini/GEMINI.md` (tracked under `dist/`), because Claude Code would load a root copy as a second
+  `~/.gemini/GEMINI.md` (rendered locally under `docs/projections/`), because Claude Code would load a root copy as a second
   CLAUDE.md in every session.
 - **A repo's own documentation** — `docs/` pages a project owns. Tracked pages always pass, and a
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
-- **State, not docs** — `docs/memory/` (the banks and their locks) and `state/harness/`. The banks
+- **State, not docs** — `docs/memory/` (the banks and their locks), `docs/projections/` (per-vendor agent renders
+  from `agents sync`; `clean --what projections` sweeps them) and `state/harness/`. The banks
   live inside the docs tree but are per-machine STATE: gitignored, machine-written, never subject to
   the placement table above.
 

@@ -34,6 +34,8 @@ type target struct {
 	globs func() []string
 	// ageless targets go at any age: --older-than does not gate them.
 	ageless bool
+	// optIn targets run only when named in --what, never in a bare sweep.
+	optIn bool
 }
 
 // targets are the harness's own debris plus the Claude Code CLI's per-session runtime state — this
@@ -91,6 +93,11 @@ func targets() []target {
 					g("shell-snapshots", "*"), g("todos", "*"),
 				}
 			},
+		},
+		{
+			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each vendor reads.
+			name: "projections", doc: "docs/projections: per-vendor agent/instruction renders (opt-in: --what projections)",
+			globs: func() []string { return []string{g("docs", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
 			name: "cli-caches", doc: "Claude Code CLI rebuildable caches/logs: cache/, image-cache/, debug/, statsig/, logs/, usage-data/, stats-cache.json, mcp-needs-auth-cache.json",
@@ -234,7 +241,13 @@ func parseAge(s string) (time.Duration, error) {
 // a silent no-op, so a typo can never read as "nothing to clean".
 func selectTargets(all []target, what string) ([]target, error) {
 	if strings.TrimSpace(what) == "" {
-		return all, nil
+		var out []target
+		for _, t := range all {
+			if !t.optIn {
+				out = append(out, t)
+			}
+		}
+		return out, nil
 	}
 	byName := map[string]target{}
 	for _, t := range all {

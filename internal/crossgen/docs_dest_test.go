@@ -18,7 +18,7 @@ func newDocsHarness(t *testing.T) (home, claude string) {
 	return home, claude
 }
 
-// The instruction render lands in each vendor's GLOBAL file (what its CLI reads from $HOME) plus the tracked dist
+// The instruction render lands in each vendor's GLOBAL file (what its CLI reads from $HOME) plus the local projection
 // copy, byte-identical, and never at the harness root — Claude Code would load a root AGENTS.md twice.
 func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	home, claude := newDocsHarness(t)
@@ -27,7 +27,7 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	}
 	want := DocsBanner + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
 	for vendor, rel := range instructionFiles {
-		dist := filepath.Join(DistDir(claude, vendor), "..", filepath.Base(rel))
+		dist := filepath.Join(ProjectionDir(claude, vendor), "..", filepath.Base(rel))
 		for _, p := range []string{filepath.Join(home, rel), dist} {
 			got, err := os.ReadFile(p)
 			if err != nil {

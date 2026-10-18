@@ -243,7 +243,7 @@ claude-code codex --print-env                         # bare verb = `run codex`;
 claude-code science serve                            # Claude for Life Sciences on its own login, harness env stripped
 claude-code usage --days 7 [--workflows]             # subagent tokens (one count per API response) + peak ITPM
 claude-code gemini bridge --dirs internal --index "map every caller of providers.Select"  # one 1M-context call
-claude-code agents sync --dry-run                    # agents/ → dist/<vendor>/agents + vendor homes; skills/ → ~/.agents/skills
+claude-code agents sync --dry-run                    # agents/ → docs/projections/<vendor>/agents + vendor homes; skills/ → ~/.agents/skills
 ```
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
@@ -264,12 +264,13 @@ are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`, `*.pem`/`*.key` ar
 list is printed to stderr before the call. Anything else launches the gemini CLI (same as `run gemini`).
 `agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
 `~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`, `~/.config/opencode/agents/<name>.md` — via a
-git-tracked rendering under `dist/<vendor>/agents/` (the home copy is a byte-identical install of it), and links the
+local rendering under `docs/projections/<vendor>/agents/` (gitignored; the home copy is a byte-identical install
+of it; `clean --what projections` removes it), and links the
 hand-authored `skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a
 skill twice). Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are
-kept and reported; `--check` gates drift in both `dist/` and the homes; `--vendor <v>` narrows a run. `install` runs it
+kept and reported; `--check` gates drift in both the projections and the homes; `--vendor <v>` narrows a run. `install` runs it
 after settings, and also renders CLAUDE.md + the roster into the vendors' global instruction files —
-`~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (tracked as `dist/<vendor>/…`); nothing is rendered at the harness root,
+`~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (also rendered to `docs/projections/<vendor>/…`); nothing is rendered at the harness root,
 since Claude Code would load a root AGENTS.md as a second CLAUDE.md in every session (OpenCode reads CLAUDE.md
 itself; Copilot has no user-level instruction file). Inside a session, the subagents in `agents/` (`code-workers`,
 `sonnet`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see

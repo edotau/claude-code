@@ -36,8 +36,15 @@ func sub(parts ...string) func(string) string {
 	return func(home string) string { return filepath.Join(append([]string{home}, parts...)...) }
 }
 
-// DistDir is the git-tracked rendering root inside the harness: <config>/dist/<vendor>/agents/<name>.<ext>.
-func DistDir(root, vendor string) string { return filepath.Join(root, "dist", vendor, "agents") }
+// ProjectionRoot is a vendor's local rendering inside the harness docs tree (gitignored, rebuilt by every sync).
+func ProjectionRoot(root, vendor string) string {
+	return filepath.Join(root, "docs", "projections", vendor)
+}
+
+// ProjectionDir holds a vendor's rendered agents: <config>/docs/projections/<vendor>/agents/<name>.<ext>.
+func ProjectionDir(root, vendor string) string {
+	return filepath.Join(ProjectionRoot(root, vendor), "agents")
+}
 
 // AgentsSkillsDir is the cross-vendor skills dir every CLI reads natively: $HOME/.agents/skills.
 func AgentsSkillsDir(home string) string { return filepath.Join(home, ".agents", "skills") }

@@ -132,7 +132,7 @@ func cmdAgents(args []string) int {
 	return fail("agents: unknown subcommand %q\n%s", args[0], agentsUsage)
 }
 
-// cmdAgentsSync renders agents/ into dist/<vendor>/agents plus each vendor's global instruction file, installs the
+// cmdAgentsSync renders agents/ into docs/projections/<vendor>/agents plus each vendor's global instruction file, installs the
 // copies into the vendor homes, and links skills/ into ~/.agents/skills; --vendor narrows the run to one target.
 func cmdAgentsSync(args []string) int {
 	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
