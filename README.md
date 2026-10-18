@@ -58,18 +58,19 @@ when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, inst
 ## Setup
 
 ```bash
-claude-code configure                 # on a terminal: one menu (claude, every agent CLI, Models … Doctor, Done); piped: every section in order
-claude-code configure keys            # one section; --agent codex scopes it to one agent CLI (also narrows the menu to that row)
+claude-code configure                 # on a terminal: the agents menu (one row per agent → its submenu → Submit); piped: every section in order
+claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|doctor); --agent codex narrows the menu to that row
 claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
 claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift
 claude-code vscode [--check|--dry-run] # merge the first-party settings + keybindings templates into VS Code
 ```
 
-`configure keys` and `doctor` probe every stored key with one catalog GET, so a key that is present but rejected
+`configure` and `doctor` probe every stored key with one catalog GET, so a key that is present but rejected
 (401) reads `REJECTED`, not `present`. For an absent or rejected credential the TTY dialog offers every way to
 fix it side by side — the vendor's browser/device login (`claude auth login`, `codex login`, `copilot login`,
-`opencode auth login`, `gemini` → Login with Google) and pasting an API key (opening the provider's key console
-first, if you want), stored in the OS keyring (`env.d/secrets.env` without one). Piped, each option is one `[Y/n]`.
+`opencode auth login`, `agy`) and pasting an API key (opening the provider's key console first, if you want).
+Keys entered in the menu are staged: the last row, **Submit** `[y/N]`, stores them in the OS keyring
+(`env.d/secrets.env` without one); `n` or Esc leaves and discards them. Piped, each option is one `[Y/n]`.
 
 The menu's **claude** row (also `configure provider`) is one sub-picker for every backend the agent can run a
 session on: **Subscription** (claude.ai OAuth login, plan usage limits, Remote Control works — pins
@@ -79,7 +80,7 @@ other registered backends (`chatgpt`, `gemini`, `github-copilot`) with their cre
 injected only into `claude -p` launches, so an interactive session's Remote Control uses the `/login` credential.
 
 The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
-`claude setup-token` mints a long-lived OAuth token for unattended runs. `configure keys` reports both states
+`claude setup-token` mints a long-lived OAuth token for unattended runs. The claude submenu reports both states
 (`claude.ai login (max); headless token set`), offers to mint the token when it is missing, captures it from the
 CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in `env.d/secrets.env`; the launcher, `ask --agent claude`
 and the memory harvest inject it so they keep working after the /login session expires. It is a Claude Code

@@ -31,7 +31,7 @@ type firstParty struct {
 
 func (f *firstParty) login() (loggedIn bool, plan string) {
 	if !f.loginDone {
-		f.loggedIn, f.plan = claudeLoginStatus()
+		f.loggedIn, f.plan = providers.ClaudeLoginStatus()
 		f.loginDone = true
 	}
 	return f.loggedIn, f.plan

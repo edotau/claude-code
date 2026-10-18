@@ -193,11 +193,11 @@ func copilotLoginPresent() bool {
 func ConfigureHint(name string) string {
 	switch name {
 	case "codex":
-		return "run `codex login` (ChatGPT) or `claude-code configure keys`"
+		return "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key"
 	case "copilot", "opencode":
 		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
 	case "gemini":
-		return "run `claude-code configure keys` to set GEMINI_API_KEY, or sign in with `agy`"
+		return "sign in with `agy`, or `claude-code configure` → gemini → API key"
 	default:
 		return "run `claude-code configure agents`"
 	}

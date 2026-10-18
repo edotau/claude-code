@@ -202,8 +202,13 @@ func ParseAssignment(raw string) (name, value string) {
 	return name, s
 }
 
-// storeValue writes one secret via secrets.Store and reports where it landed, redacted.
+// storeValue writes one secret via secrets.Store and reports where it landed, redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string, forceFile bool) bool {
+	if d.pending != nil {
+		d.stage(name, val, forceFile)
+		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
+		return true
+	}
 	plane, err := secrets.Store(name, val, forceFile)
 	if err != nil {
 		d.printf("%s: %v\n", name, err)

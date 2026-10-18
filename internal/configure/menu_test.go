@@ -14,6 +14,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
@@ -97,8 +98,8 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("--check invoked the menu picker %d times, want 0", calls)
 	}
-	if !strings.Contains(out.String(), "== keys ==") {
-		t.Errorf("--check output must still be the Sections walk:\n%s", out.String())
+	if !strings.Contains(out.String(), "== provider ==") || strings.Contains(out.String(), "== keys ==") {
+		t.Errorf("--check output must still be the Sections walk, without a keys section:\n%s", out.String())
 	}
 	_ = rc
 	out.Reset()
@@ -106,8 +107,8 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("a piped run invoked the menu picker %d times, want 0", calls)
 	}
-	if !strings.Contains(out.String(), "== keys ==") {
-		t.Errorf("piped output must still be the Sections walk:\n%s", out.String())
+	if !strings.Contains(out.String(), "== provider ==") || strings.Contains(out.String(), "== keys ==") {
+		t.Errorf("piped output must still be the Sections walk, without a keys section:\n%s", out.String())
 	}
 }
 

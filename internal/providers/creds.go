@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -115,4 +116,29 @@ func hint(p *Provider) string {
 		return ", or " + p.Auth.File
 	}
 	return ""
+}
+
+// ClaudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
+func ClaudeLoginStatus() (loggedIn bool, plan string) {
+	bin, err := exec.LookPath("claude")
+	if err != nil {
+		return false, ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "auth", "status").Output()
+	if err != nil {
+		return false, ""
+	}
+	var st struct {
+		LoggedIn         bool   `json:"loggedIn"`
+		SubscriptionType string `json:"subscriptionType"`
+	}
+	if json.Unmarshal(out, &st) != nil {
+		return false, ""
+	}
+	if st.SubscriptionType != "" {
+		plan = " (" + st.SubscriptionType + ")"
+	}
+	return st.LoggedIn, plan
 }

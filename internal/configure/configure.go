@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +30,7 @@ import (
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "keys", "models", "agents", "router", "github", "remote", "browser", "doctor"}
+var Sections = []string{"provider", "models", "agents", "router", "github", "remote", "browser", "doctor"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -67,6 +66,8 @@ type dialog struct {
 	br    *bufio.Reader
 	out   io.Writer
 	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
+	// pending holds keys entered in the menu until Submit; nil outside the menu (writes go straight through).
+	pending map[string]stagedKey
 }
 
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
@@ -108,8 +109,6 @@ func Run(o Options, section string) int {
 		switch s {
 		case "provider":
 			ok = runProvider(d)
-		case "keys":
-			ok, _ = runKeys(d)
 		case "models":
 			ok = runModels(d)
 		case "agents":
@@ -276,7 +275,7 @@ func maxPlanTarget(kt keyTarget) keyTarget {
 	kt.envVar = providers.OAuthTokenEnv
 	kt.fixCmd = "claude auth login (interactive) · claude setup-token → claude-code secrets set " + providers.OAuthTokenEnv + " (headless)"
 	kt.headless = providers.HeadlessOAuthToken() != ""
-	loggedIn, plan := claudeLoginStatus()
+	loggedIn, plan := providers.ClaudeLoginStatus()
 	kt.present = loggedIn || kt.headless
 	switch {
 	case loggedIn && kt.headless:
@@ -287,31 +286,6 @@ func maxPlanTarget(kt keyTarget) keyTarget {
 		kt.source = "headless token (" + providers.OAuthTokenEnv + "); not logged in interactively"
 	}
 	return kt
-}
-
-// claudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
-func claudeLoginStatus() (loggedIn bool, plan string) {
-	bin, err := exec.LookPath("claude")
-	if err != nil {
-		return false, ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "auth", "status").Output()
-	if err != nil {
-		return false, ""
-	}
-	var st struct {
-		LoggedIn         bool   `json:"loggedIn"`
-		SubscriptionType string `json:"subscriptionType"`
-	}
-	if json.Unmarshal(out, &st) != nil {
-		return false, ""
-	}
-	if st.SubscriptionType != "" {
-		plan = " (" + st.SubscriptionType + ")"
-	}
-	return st.LoggedIn, plan
 }
 
 // consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
@@ -459,11 +433,6 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	default:
 		return fallback()
 	}
-}
-
-// runKeys reports every target's state, offering to resolve an absent one on a TTY.
-func runKeys(d *dialog) (allOK bool, changed bool) {
-	return runKeysChanged(d)
 }
 
 func runKeysChanged(d *dialog) (allOK, changed bool) {
