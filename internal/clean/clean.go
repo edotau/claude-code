@@ -100,6 +100,15 @@ func targets() []target {
 			globs: func() []string { return []string{g("docs", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
+			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
+			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
+			name: "sessions", doc: "projects/<slug>: Claude Code session transcripts (<id>.jsonl) and their <id>/ subagent/tool-result dirs; auto-memory kept (opt-in: --what sessions)",
+			globs: func() []string {
+				return []string{g("projects", "*", "*.jsonl"), g("projects", "*", "????????-????-????-????-????????????")}
+			},
+			optIn: true,
+		},
+		{
 			name: "cli-caches", doc: "Claude Code CLI rebuildable caches/logs: cache/, image-cache/, debug/, statsig/, logs/, usage-data/, stats-cache.json, mcp-needs-auth-cache.json",
 			globs: func() []string {
 				return []string{
