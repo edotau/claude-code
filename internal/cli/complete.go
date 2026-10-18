@@ -45,6 +45,7 @@ var subVerbs = map[string][]string{
 	"theme":     {"apply"},
 	"gemini":    {"ask", "bridge"},
 	"tailscale": {"status", "machines", "connect", "key", "exit-node"},
+	"setup":     {"adopt", "nuke", "workspace"},
 }
 
 // noComplete names the verbs that forward argv to a launched agent CLI (or, for science, exec a
@@ -108,6 +109,10 @@ var flagsFor = map[string][]flagInfo{
 	"tailscale key": {{name: "ephemeral", isBool: true}, {name: "preauthorized", isBool: true}, {name: "reusable", isBool: true},
 		{name: "tags"}, {name: "expiry"}, {name: "description"}},
 	"tailscale exit-node": {{name: "enable", isBool: true}, {name: "disable", isBool: true}, {name: "approve", isBool: true}},
+	"setup adopt":         {{name: "from"}, {name: "into"}, {name: "dry-run", isBool: true}, {name: "label"}},
+	"setup nuke": {{name: "dir"}, {name: "apply", isBool: true}, {name: "keep-memory", isBool: true},
+		{name: "account", isBool: true}, {name: "cli", isBool: true}},
+	"setup workspace": {{name: "with"}, {name: "dry-run", isBool: true}},
 }
 
 // "gemini ask" is `ask` with --agent/--provider pre-filled; the flags it accepts are the same ones.
@@ -121,7 +126,10 @@ var positionals = map[string]func() []string{
 	"run":               vendorNames,
 	"hook":              hookNames,
 	"workflow skeleton": workflowPatterns,
+	"setup workspace":   setupWorkspaceSubwords,
 }
+
+func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
 
 func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
 

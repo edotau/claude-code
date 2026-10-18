@@ -107,6 +107,20 @@ Copilot extensions pointed at the shims, the terminal profile, right-click = pas
 box renders its own. Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences →
 Pointer → "Right button single click" → Paste from clipboard; Terminal.app has no right-click paste.
 
+### Setup modes: adopt, nuke, workspace
+
+`git clone` refuses a non-empty `~/.claude`; `claude-code setup` is the one verb for that and two
+other migrations — `adopt` backs up colliding tracked paths (never `secrets.env`) then restores the
+index; `nuke --apply` (typed-path confirm) archives untracked content by name, never value, before
+removing the dir; `workspace` scopes a project's own `.claude/`, global harness untouched.
+
+```bash
+scripts/bootstrap.sh                                           # fresh box: clone, build, adopt, install
+claude-code setup adopt --from <clone> --into ~/.claude [--dry-run]
+claude-code setup nuke [--apply] [--keep-memory] [--account] [--cli]
+claude-code setup workspace init|link|status
+```
+
 ## Providers
 
 Built-ins live in `internal/providers/defaults.json`. `~/.claude/providers.json` overlays them **by name**

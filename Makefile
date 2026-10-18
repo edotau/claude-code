@@ -33,7 +33,7 @@ PKGS            := ./...
 # Mirrors .github/workflows/ci.yml's `gofmt -l cmd internal` exactly — audit must stay a superset.
 GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
-# Repo-owned shell scripts only (none today; wildcard is empty and lint-shell no-ops).
+# Repo-owned shell scripts only (e.g. scripts/bootstrap.sh); lint-shell no-ops when the wildcard is empty.
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh)
 # Gate tool is PINNED: `@latest` could change under us between runs.
 GOVULN_VERSION  ?= v1.8.0

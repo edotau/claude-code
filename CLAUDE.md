@@ -49,6 +49,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
 | Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--vendor v] [--check]` · `make bootstrap` | `README.md` → Setup |
+| Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | `docs/plans/2026-10-17-setup-modes.md` |
 | Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
 | Sync VS Code's Machine settings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f]` | `README.md` → Setup |
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |

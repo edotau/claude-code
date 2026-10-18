@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
 )
 
@@ -266,6 +267,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	nested := clean.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	check(true, false, "audit (7d)", auditSummary())
+	check(true, false, "setup", setupDoctorDetail())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
 }
@@ -324,6 +326,15 @@ func rtkDoctorStatus() string {
 		return bin + " (" + hooks.RTKCommandList() + ")"
 	}
 	return "not on PATH — rtk-wrap no-ops"
+}
+
+// setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.
+func setupDoctorDetail() string {
+	st, ok := setup.Read()
+	if !ok {
+		return "fresh checkout (no adopt record)"
+	}
+	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 }
 
 func routerStatus() string {

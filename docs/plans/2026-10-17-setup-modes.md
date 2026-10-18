@@ -127,6 +127,10 @@ harness `.gitignore`.
   `setup <mode>` — one row in the verb table, one package, one completion entry.
 - Where `bootstrap.sh` lives and whether `make bootstrap` grows an `ADOPT=1` path that runs the same steps from
   an already-cloned staging dir.
+- **Agent-driven adopt (later)**: when `claude` is already installed and logged in, `setup adopt --agent` could hand
+  the clash report to a `claude -p` session that cherry-picks per file (auto, or asking the user per decision)
+  instead of leaving the backup for a manual `diff`. Needs the headless credential rules from decisionLog
+  2026-10-17 (setup-token only on `-p`). Not in phase 1.
 
 ## 6. Order
 
