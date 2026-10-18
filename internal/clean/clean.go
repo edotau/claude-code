@@ -102,8 +102,8 @@ func targets() []target {
 		},
 		{
 			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each vendor reads.
-			name: "projections", doc: "docs/projections: per-vendor agent/instruction renders (opt-in: --target projections)",
-			globs: func() []string { return []string{g("docs", "projections", "*")} }, ageless: true, optIn: true,
+			name: "projections", doc: "state/projections: per-vendor agent/instruction renders (opt-in: --target projections)",
+			globs: func() []string { return []string{g("state", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
 			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session

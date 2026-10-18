@@ -33,8 +33,6 @@
 /.claude/
 /state/
 /memory/
-/docs/memory/
-/agent-memory/
 /worktrees/
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/
@@ -94,6 +92,5 @@ coverage.*
 # Home-network scripts (UniFi gateway) — personal, kept out of the public repo
 scripts/unifi-*.sh
 /statusline/
-/docs/projections/
 /policy-limits.json*
 /remote-settings.json*
