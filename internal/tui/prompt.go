@@ -47,3 +47,38 @@ func Secret(prompt string) (string, error) {
 
 // StdinIsTerminal reports whether stdin is a real terminal (a /dev/null char device is not).
 func StdinIsTerminal() bool { return isTerminal(int(os.Stdin.Fd())) }
+
+// confirmKey maps one keypress to an answer: y yes; n, Esc, q or Ctrl-C no; Enter the default; done=false waits.
+func confirmKey(k Key, def bool) (answer, done bool) {
+	switch {
+	case k.Kind == KeyRune && (k.Rune == 'y' || k.Rune == 'Y'):
+		return true, true
+	case k.Kind == KeyRune && (k.Rune == 'n' || k.Rune == 'N' || k.Rune == 'q'), k.Kind == KeyEsc, k.Kind == KeyCtrlC:
+		return false, true
+	case k.Kind == KeyEnter:
+		return def, true
+	}
+	return false, false
+}
+
+// ConfirmKey asks a [y/N]-style question answered by a single keypress (Esc cancels at once); it falls back to the
+// line-based Confirm when stdin is not a terminal.
+func ConfirmKey(question string, def bool) bool {
+	t, err := Open()
+	if err != nil {
+		return Confirm(question, def)
+	}
+	defer t.Close()
+	hint := "[Y/n]"
+	if !def {
+		hint = "[y/N]"
+	}
+	fmt.Fprintf(os.Stdout, "%s %s · Esc cancel ", question, hint)
+	for k := range t.Keys() {
+		if answer, done := confirmKey(k, def); done {
+			fmt.Fprintln(os.Stdout, map[bool]string{true: "yes", false: "no"}[answer])
+			return answer
+		}
+	}
+	return false
+}

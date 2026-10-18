@@ -600,6 +600,9 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 
 // runMint runs the token-minting CLI on the real terminal with stdout tee'd, and returns the token it printed.
 func runMint(argv []string) string {
+	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
+		return ""
+	}
 	var buf bytes.Buffer
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
@@ -617,8 +620,23 @@ func openBrowser(url string) {
 	_ = exec.Command(bin, url).Start()
 }
 
+// errCancelled is a declined or Esc'd confirmation; callers report it like any failed login and change nothing.
+var errCancelled = errors.New("cancelled")
+
+// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a login or mint CLI; a stray Enter
+// must never start a sign-in that rewrites a vendor's own auth settings. Non-terminal runs proceed.
+var actionConfirmed = func(question string) bool {
+	if !isStdinTTY() {
+		return true
+	}
+	return tui.ConfirmKey(question+"?", false)
+}
+
 // runLogin execs a vendor's own login CLI attached to the real terminal.
 func runLogin(argv []string) error {
+	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to sign in") {
+		return errCancelled
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
