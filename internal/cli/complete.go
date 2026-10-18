@@ -34,16 +34,17 @@ type flagInfo struct {
 // command.name a command dispatches under — see knownPath). Only two levels deep: nothing in this
 // repo hand-dispatches a third word.
 var subVerbs = map[string][]string{
-	"secrets":  {"set", "get", "status", "scan", "git", "doctor", "all"},
-	"history":  {"snapshot", "log", "diff"},
-	"memory":   {"init", "search", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive"},
-	"router":   {"serve", "start", "stop", "status"},
-	"mcp":      {"doctor"},
-	"agents":   {"sync"},
-	"review":   {"quality", "complexity", "assumptions", "goals", "diff", "pr", "report", "gate"},
-	"workflow": {"skeleton", "lint"},
-	"theme":    {"apply"},
-	"gemini":   {"ask", "bridge"},
+	"secrets":   {"set", "get", "status", "scan", "git", "doctor", "all"},
+	"history":   {"snapshot", "log", "diff"},
+	"memory":    {"init", "search", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive"},
+	"router":    {"serve", "start", "stop", "status"},
+	"mcp":       {"doctor"},
+	"agents":    {"sync"},
+	"review":    {"quality", "complexity", "assumptions", "goals", "diff", "pr", "report", "gate"},
+	"workflow":  {"skeleton", "lint"},
+	"theme":     {"apply"},
+	"gemini":    {"ask", "bridge"},
+	"tailscale": {"status", "machines", "connect", "key", "exit-node"},
 }
 
 // noComplete names the verbs that forward argv to a launched agent CLI (or, for science, exec a
@@ -100,7 +101,13 @@ var flagsFor = map[string][]flagInfo{
 	"gemini bridge": {{name: "task"}, {name: "model"}, {name: "provider", values: providerNames}, {name: "effort"},
 		{name: "dirs"}, {name: "files"}, {name: "format"}, {name: "max-files"}, {name: "max-file-bytes"},
 		{name: "timeout"}, {name: "print-command", isBool: true}, {name: "rubric"}, {name: "index", isBool: true}, {name: "diff", isBool: true}},
-	"workflow skeleton": {{name: "name"}},
+	"workflow skeleton":  {{name: "name"}},
+	"tailscale status":   {{name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"tailscale machines": {{name: "format", values: func() []string { return []string{"text", "json"} }}},
+	"tailscale connect":  {{name: "auth-key"}, {name: "key-env"}, {name: "exit-node", isBool: true}},
+	"tailscale key": {{name: "ephemeral", isBool: true}, {name: "preauthorized", isBool: true}, {name: "reusable", isBool: true},
+		{name: "tags"}, {name: "expiry"}, {name: "description"}},
+	"tailscale exit-node": {{name: "enable", isBool: true}, {name: "disable", isBool: true}, {name: "approve", isBool: true}},
 }
 
 // "gemini ask" is `ask` with --agent/--provider pre-filled; the flags it accepts are the same ones.

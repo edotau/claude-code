@@ -29,7 +29,12 @@ type trackedSecret struct {
 // trackedSecrets is what the harness reads (each enabled provider's auth.env, the setup-token) plus every secret
 // added through the dialog or `secrets set` (the names index) and anything still in env.d/secrets.env.
 func trackedSecrets(reg *providers.Registry) []trackedSecret {
-	users := map[string][]string{providers.OAuthTokenEnv: {"claude -p (setup-token)"}}
+	users := map[string][]string{
+		providers.OAuthTokenEnv:         {"claude -p (setup-token)"},
+		"TAILSCALE_OAUTH_CLIENT_ID":     {"tailscale (oauth client id)"},
+		"TAILSCALE_OAUTH_CLIENT_SECRET": {"tailscale (oauth client secret)"},
+		"TAILSCALE_API_KEY":             {"tailscale (admin api key)"},
+	}
 	for _, n := range reg.Names() {
 		if env := reg.Providers[n].Auth.Env; env != "" {
 			users[env] = append(users[env], n)

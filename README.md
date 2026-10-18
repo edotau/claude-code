@@ -228,6 +228,19 @@ session sends the router secret in `X-Claude-Code-Router` (via `ANTHROPIC_CUSTOM
 keeps its OAuth login in `Authorization`, which the router forwards to `passthrough` providers only. A
 `passthrough` slot under an API-key session provider is refused — that session carries no login to forward.
 
+## Tailscale
+
+`claude-code tailscale status|machines|connect|key|exit-node` — stdlib `net/http` JSON against the admin API
+plus exec of the installed `tailscale` CLI; nothing in the harness imports `tailscale.com`. Credentials, resolved
+through the same env → keyring → `secrets.env` ladder as providers:
+
+- `TAILSCALE_OAUTH_CLIENT_ID` + `TAILSCALE_OAUTH_CLIENT_SECRET` — preferred; mints a short-lived API token.
+- `TAILSCALE_API_KEY` — a 90-day personal key, used as a bearer directly.
+
+Either is only needed for `key` (mint an auth key) and `exit-node --approve`; `status`/`machines`/`connect` work
+off the installed CLI alone. `make tailscale-cli` installs the client; `claude-code configure` shows login + the
+admin credential as one row.
+
 ## Agents
 
 ```bash
@@ -329,6 +342,8 @@ near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer
 
 - `claude-code clean [--what <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
   run dirs, backups); dry-run by default, `--apply` deletes. Credentials and settings are never a target.
+  Opt-in only: `--what projections` (vendor renders) and `--what sessions` (Claude Code transcripts under
+  `projects/<slug>/` with their `<id>/` subagent dirs, aged by `--older-than`; `projects/<slug>/memory` stays).
   Every run also checks for a nested `.claude/` inside the config dir (project scope layered over user
   settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
