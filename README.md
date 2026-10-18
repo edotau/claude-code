@@ -62,7 +62,7 @@ claude-code configure                 # every section, in order: provider → ke
 claude-code configure keys            # one section; --vendor codex scopes it
 claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
 claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift
-claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings template into the Machine settings
+claude-code vscode [--check|--dry-run] # merge the first-party settings + keybindings templates into VS Code
 ```
 
 `configure keys` and `doctor` probe every stored key with one catalog GET, so a key that is present but rejected
