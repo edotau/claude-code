@@ -18,7 +18,7 @@ func runMenu(d *dialog) int {
 	start := 0
 	for {
 		rows, actions := menuRows(d)
-		idx, err := pickMenu("configure", rows, start)
+		idx, err := pickMenu("== agents ==", rows, start)
 		if err != nil || idx < 0 {
 			return 0
 		}
