@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,14 +25,15 @@ func writeEdits(t *testing.T, path string, n int) {
 
 // stubSpawn replaces BOTH detached seams: a successful harvest dispatch also claims an idle watcher, and a
 // test must never start a real one.
-func stubSpawn(t *testing.T, ok bool) *int {
+// The counter is atomic: the idle watcher runs the stub on its own goroutine while the test polls.
+func stubSpawn(t *testing.T, ok bool) *atomic.Int64 {
 	t.Helper()
-	calls := 0
+	calls := new(atomic.Int64)
 	orig, origWatch := spawnHarvest, spawnWatcher
-	spawnHarvest = func(string, string, string) bool { calls++; return ok }
+	spawnHarvest = func(string, string, string) bool { calls.Add(1); return ok }
 	spawnWatcher = func([]string, string) bool { return true }
 	t.Cleanup(func() { spawnHarvest, spawnWatcher = orig, origWatch })
-	return &calls
+	return calls
 }
 
 func harvestPayload(tr, cwd string) string {
@@ -47,25 +49,25 @@ func TestSessionHarvestTriggerAndReharvest(t *testing.T) {
 	run := func() int { return SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &bytes.Buffer{}) }
 
 	writeEdits(t, tr, 2)
-	if run() != ExitProceed || *calls != 0 {
+	if run() != ExitProceed || calls.Load() != 0 {
 		t.Fatal("under the edit floor must not spawn")
 	}
 	writeEdits(t, tr, 3)
-	if run() != ExitProceed || *calls != 1 {
-		t.Fatalf("3 edits must spawn once, calls=%d", *calls)
+	if run() != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("3 edits must spawn once, calls=%d", calls.Load())
 	}
 	writeEdits(t, tr, 20)
-	if run(); *calls != 1 {
+	if run(); calls.Load() != 1 {
 		t.Error("re-harvest inside the cooldown")
 	}
 	stamp := stampPath("s1")
 	writeStamp(stamp, time.Now().Add(-16*time.Minute), "bg", 3)
 	writeEdits(t, tr, 12)
-	if run(); *calls != 1 {
+	if run(); calls.Load() != 1 {
 		t.Error("re-harvest with fewer than 10 new edits")
 	}
 	writeEdits(t, tr, 13)
-	if run(); *calls != 2 {
+	if run(); calls.Load() != 2 {
 		t.Error("10 new edits after the cooldown must re-harvest")
 	}
 	if st, _ := readStamp(stamp); !st.bg || st.edits != 13 {
@@ -73,17 +75,17 @@ func TestSessionHarvestTriggerAndReharvest(t *testing.T) {
 	}
 
 	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final harvest.
-	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); *calls != 2 {
+	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 2 {
 		t.Error("session end with no new edits spawned")
 	}
 	writeEdits(t, tr, 14)
-	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); *calls != 3 {
+	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 3 {
 		t.Error("session end with new edits must spawn")
 	}
 
 	t.Setenv(memory.HarvestChildEnv, "1")
 	_ = os.Remove(stamp)
-	if run(); *calls != 3 {
+	if run(); calls.Load() != 3 {
 		t.Error("a harvest child must never spawn another")
 	}
 }

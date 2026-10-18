@@ -31,13 +31,13 @@ func TestIdleHarvestOnceDispatchesUncoveredWork(t *testing.T) {
 	calls := stubSpawn(t, true)
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
-	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || *calls != 1 {
-		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final harvest (calls=%d)", *calls)
+	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
+		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final harvest (calls=%d)", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("idle")); !st.bg || st.edits != 9 {
 		t.Errorf("stamp after the idle harvest = %+v, want bg covering all 9 edits", st)
 	}
-	if idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || *calls != 1 {
+	if idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
 		t.Error("a second pass with everything covered must not dispatch again")
 	}
 	writeEdits(t, tr, 2)
@@ -135,7 +135,7 @@ func TestIdleHarvestWatchHarvestsQuietTranscript(t *testing.T) {
 	go func() {
 		done <- IdleHarvestWatch([]string{"--session", "quiet", "--transcript", tr, "--cwd", filepath.Dir(tr), "--idle", "1s"}, &note)
 	}()
-	for i := 0; i < 200 && *calls == 0; i++ {
+	for i := 0; i < 200 && calls.Load() == 0; i++ {
 		time.Sleep(5 * time.Millisecond)
 	}
 	_ = os.Remove(tr)
@@ -144,8 +144,8 @@ func TestIdleHarvestWatchHarvestsQuietTranscript(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("watcher did not exit after the transcript vanished")
 	}
-	if *calls != 1 || !strings.Contains(note.String(), "final harvest dispatched") {
-		t.Errorf("calls=%d note=%q", *calls, note.String())
+	if calls.Load() != 1 || !strings.Contains(note.String(), "final harvest dispatched") {
+		t.Errorf("calls=%d note=%q", calls.Load(), note.String())
 	}
 }
 
