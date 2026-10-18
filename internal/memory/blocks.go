@@ -101,7 +101,11 @@ func entriesWithPrefix(path, prefix string) []string {
 	var out []string
 	for _, line := range strings.Split(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
-			out = append(out, truncateLine(rest))
+			e := truncateLine(stripID(rest))
+			if id := BlockID(rest); id != "" {
+				e += " [" + id + "]"
+			}
+			out = append(out, e)
 		}
 	}
 	return out

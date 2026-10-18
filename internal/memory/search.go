@@ -41,12 +41,13 @@ type SearchHit struct {
 	Bank    string  `json:"bank"`    // local | global | archive | native
 	File    string  `json:"file"`
 	Block   string  `json:"block"`
+	ID      string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
 }
 
 // Title is the hit's first line, marker-stripped and truncated.
 func (h SearchHit) Title() string {
 	first, _, _ := strings.Cut(h.Block, "\n")
-	return truncateLine(strings.TrimLeft(first, "#- "))
+	return truncateLine(strings.TrimLeft(stripID(first), "#- "))
 }
 
 func contentTerms(s string) []string {
@@ -142,6 +143,8 @@ func rankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
 			score += idf * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*d.len/avgdl))
 		}
 		if score > 0 {
+			first, _, _ := strings.Cut(d.hit.Block, "\n")
+			d.hit.ID = BlockID(first)
 			d.hit.Score = score
 			d.hit.Matched = len(matched)
 			hits = append(hits, d.hit)

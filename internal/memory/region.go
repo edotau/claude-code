@@ -180,12 +180,7 @@ func settleUnified(root string, now time.Time) (BankSettlement, error) {
 			dirs = append(dirs, g)
 		}
 		for _, d := range dirs {
-			n, err := RotateSessionHistory(d, now)
-			s.Rotated += n
-			if err != nil {
-				return err
-			}
-			if _, err := writeBankRegion(d, now); err != nil {
+			if err := settleDir(d, now, &s); err != nil {
 				return err
 			}
 		}
@@ -211,12 +206,7 @@ func SettleAll(now time.Time) (BankSettlement, error) {
 			dirs = append(dirs, e.Dir)
 		}
 		for _, d := range dirs {
-			n, err := RotateSessionHistory(d, now)
-			s.Rotated += n
-			if err != nil {
-				return err
-			}
-			if _, err := writeBankRegion(d, now); err != nil {
+			if err := settleDir(d, now, &s); err != nil {
 				return err
 			}
 		}
@@ -227,6 +217,20 @@ func SettleAll(now time.Time) (BankSettlement, error) {
 		return commitStore("settle: all stores")
 	})
 	return s, err
+}
+
+// settleDir stamps block IDs, rotates sessionHistory and regenerates dir's MEMORY.md region.
+func settleDir(d string, now time.Time, s *BankSettlement) error {
+	if _, err := assignIDs(d, now); err != nil {
+		return err
+	}
+	n, err := RotateSessionHistory(d, now)
+	s.Rotated += n
+	if err != nil {
+		return err
+	}
+	_, err = writeBankRegion(d, now)
+	return err
 }
 
 func writeCatalog(now time.Time) error {
