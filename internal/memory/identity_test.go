@@ -299,6 +299,42 @@ func TestAliasToHarnessStore(t *testing.T) {
 	}
 }
 
+// TestWorkspaceOriginResolvesNonGitDirAndSubdirs: a store whose .origin names a non-git directory
+// resolves that directory AND its subdirs to the workspace (never Global); an unrelated non-git dir
+// has no matching store and stays Global.
+func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
+	cfg := tempConfig(t)
+	t.Setenv("HOME", t.TempDir())
+	raw := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(raw, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspace := resolvePath(raw)
+	dir := filepath.Join(cfg, "memory", "ws")
+	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "ws", Origin: workspace}); err != nil {
+		t.Fatal(err)
+	}
+
+	sub := filepath.Join(workspace, "a", "b")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{workspace, sub} {
+		id := Resolve(root)
+		if id.Global || id.Origin != workspace {
+			t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
+		}
+		if got, err := RepoDir(root); err != nil || got != dir {
+			t.Errorf("RepoDir(%s) = %s, %v, want %s", root, got, err, dir)
+		}
+	}
+
+	unrelated := t.TempDir()
+	if id := Resolve(unrelated); !id.Global || id.Origin != "" {
+		t.Errorf("Resolve(unrelated non-git dir) = %+v, want Global", id)
+	}
+}
+
 func TestRepoDirsSkipsJunk(t *testing.T) {
 	cfg := tempConfig(t)
 	store := filepath.Join(cfg, "memory")
