@@ -58,7 +58,10 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 
 // A vendor running on its own stored config (opencode.jsonc sets `model`) is configured, not ABSENT: the runner
 // launches it untouched, so `--check` must not demand a key for it.
-func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
+// opencode's own opencode.jsonc "model" setting is no longer a fallback leg (DescribeRoute's
+// copilot-login -> anthropic-key -> gemini-free -> none chain replaced it): with no credential on
+// that chain, the vendor reads ABSENT and the fix command names `claude-code configure github`.
+func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
@@ -66,6 +69,9 @@ func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
 	if err := os.MkdirAll(filepath.Join(xdg, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -74,8 +80,14 @@ func TestVendorOnOwnConfigReadsPresent(t *testing.T) {
 	}
 	var out bytes.Buffer
 	rc := Run(Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader(""), Out: &out}, "keys")
-	if rc != 0 || !strings.Contains(out.String(), "opencode   present (opencode's own config (google/gemini-3.8-flash))") {
-		t.Errorf("rc = %d; own-config vendor must read present:\n%s", rc, out.String())
+	if rc != 1 || !strings.Contains(out.String(), "opencode") || !strings.Contains(out.String(), "ABSENT") {
+		t.Errorf("rc = %d; opencode.jsonc's own model must no longer read present:\n%s", rc, out.String())
+	}
+	if strings.Contains(out.String(), "google/gemini-3.8-flash") {
+		t.Errorf("the retired own-config leg must not appear in output:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "claude-code configure github") {
+		t.Errorf("fix command must name `claude-code configure github`:\n%s", out.String())
 	}
 }
 
