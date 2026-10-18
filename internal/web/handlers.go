@@ -47,7 +47,8 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, tree)
 }
 
-// handleDispatches serves /api/dispatches?host=H: the cc-* tmux sessions on an allowed host.
+// handleDispatches serves /api/dispatches?host=H: classified pane status on an allowed host,
+// backed by Server's expiring cache. It exposes status only — never a pane's raw captured text.
 func (s *Server) handleDispatches(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Query().Get("host")
 	if host == "" {
@@ -61,13 +62,12 @@ func (s *Server) handleDispatches(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), sshTimeout)
 	defer cancel()
-	argv := dispatch.ExecArgs(r.Context(), resolved, dispatch.ListCommand(), true)
-	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).Output()
+	statuses, err := s.status.get(ctx, resolved, s.run, s.now())
 	if err != nil {
 		http.Error(w, "web: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, dispatch.ParseSessions(string(out)))
+	writeJSON(w, statuses)
 }
 
 // dispatchRequest is the POST /api/dispatch body (form or JSON).

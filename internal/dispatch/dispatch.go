@@ -132,11 +132,24 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 	}
 	parts = append(parts, `"${SHELL:-/bin/sh}"`, "-lc", QuoteSH(agentCmd))
 	fmt.Fprintln(&b, strings.Join(parts, " "))
+	// Tag the session with the agent it was launched for, so pane-status capture can tell a plain
+	// shell dispatch apart from a shell left behind after the agent process exited.
+	fmt.Fprintf(&b, "tmux set-option -t %s @cc_agent %s\n", QuoteSH(name), QuoteSH(opts.Agent))
 	return b.String(), name, nil
 }
 
-// listCommand is the ssh-side command for --list: cc-* tmux sessions, one tab-separated row each.
-const listCommand = `tmux list-sessions -F '#{session_name}\t#{session_created}\t#{session_attached}\t#{pane_current_command}' 2>/dev/null | awk -F'\t' '$1 ~ /^cc-/'`
+// fieldSep separates columns in tmux -F format output. It cannot be a tab: tmux's format engine
+// replaces a literal tab byte in expanded format text with "_" (verified against tmux 3.7c), so a
+// tab survives neither sh's quoting (which never expands "\t" to a real tab) nor tmux's own output.
+// "|" is safe for every field here: ValidName already forbids it in session names, pane ids are
+// tmux-generated ("%N"), @cc_agent is one of the fixed Agents list, and pane_current_command is a
+// program basename.
+const fieldSep = "|"
+
+// listCommand is the ssh-side command for --list: cc-* tmux sessions, one fieldSep-separated row each.
+const listCommand = `tmux list-sessions -F '#{session_name}` + fieldSep + `#{session_created}` + fieldSep +
+	`#{session_attached}` + fieldSep + `#{pane_current_command}` + fieldSep + `#{@cc_agent}' 2>/dev/null | awk -F'` +
+	fieldSep + `' '$1 ~ /^cc-/'`
 
 // ListCommand returns the remote command --list runs.
 func ListCommand() string { return listCommand }
@@ -147,16 +160,17 @@ type Session struct {
 	Created    string
 	Attached   bool
 	CurrentCmd string
+	Agent      string // the agent it was launched for, from the @cc_agent tmux user option
 }
 
-// ParseSessions parses listCommand's tab-separated output.
+// ParseSessions parses listCommand's fieldSep-separated output.
 func ParseSessions(output string) []Session {
 	var sessions []Session
 	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
 		if line == "" {
 			continue
 		}
-		cols := strings.Split(line, "\t")
+		cols := strings.Split(line, fieldSep)
 		s := Session{Name: cols[0]}
 		if len(cols) > 1 {
 			s.Created = cols[1]
@@ -166,6 +180,9 @@ func ParseSessions(output string) []Session {
 		}
 		if len(cols) > 3 {
 			s.CurrentCmd = cols[3]
+		}
+		if len(cols) > 4 {
+			s.Agent = cols[4]
 		}
 		sessions = append(sessions, s)
 	}

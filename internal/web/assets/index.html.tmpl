@@ -19,9 +19,11 @@
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
   .muted { color: #8a8f9c; font-size: 0.82rem; }
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
-  .chip-running, .chip-active { background: #163; color: #8f8; }
-  .chip-finished, .chip-idle { background: #333; color: #aaa; }
-  .chip-stale { background: #532; color: #f96; }
+  .chip-running, .chip-active, .chip-working { background: #163; color: #8f8; }
+  .chip-finished, .chip-idle, .chip-ready { background: #333; color: #aaa; }
+  .chip-stale, .chip-error { background: #532; color: #f96; }
+  .chip-input-needed { background: #542; color: #fc8; }
+  .chip-unknown, .chip-gone { background: #2a2a2a; color: #999; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #272b36; padding-left: 0.6rem; margin-top: 0.35rem; }
   label { display: block; font-size: 0.82rem; color: #9aa0ac; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
@@ -79,8 +81,14 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 let currentHost = null;
 
+function escapeHTML(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
 function chip(status) {
-  return '<span class="chip chip-' + status + '">' + status + '</span>';
+  return '<span class="chip chip-' + escapeHTML(status) + '">' + escapeHTML(status) + '</span>';
 }
 
 function renderSubagents(subs) {
@@ -103,12 +111,12 @@ function renderTree(tree) {
   }).join('');
 }
 
-function renderDispatches(sessions) {
-  if (!sessions || !sessions.length) return '<p class="muted">no cc-* sessions</p>';
-  return sessions.map(function (s) {
-    return '<div class="card"><div class="row"><strong>' + s.Name + '</strong>' +
-      '<span class="muted">' + (s.Attached ? 'attached' : 'detached') + '</span></div>' +
-      '<div class="muted">' + (s.CurrentCmd || '') + '</div></div>';
+function renderDispatches(statuses) {
+  if (!statuses || !statuses.length) return '<p class="muted">no cc-* panes</p>';
+  return statuses.map(function (p) {
+    return '<div class="card"><div class="row"><strong>' + escapeHTML(p.session) + '</strong>' +
+      chip(p.state) + '</div>' +
+      '<div class="muted">' + escapeHTML(p.agent || '') + ' &middot; ' + escapeHTML(p.reason || '') + '</div></div>';
   }).join('');
 }
 
