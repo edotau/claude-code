@@ -1,25 +1,23 @@
-# Handoff — Tailscale module phase 1 (2026-10-17)
+# Handoff — Tailscale phase 1 + setup modes (2026-10-17/18)
 
-## State
+## Shipped (all pushed, origin/main = 1f9b1ce)
 
-- Plan: `docs/plans/2026-10-17-tailscale-module.md` (stdlib-only `internal/tailscale`, no `tailscale.com` import;
-  measured tiers: tsnet 20.1 MB/559 pkgs, client/local 8.2 MB/323, client/tailscale/v2 6.4 MB/202).
-- Workflow `implement-and-verify` run `wf_0e24d730-b85` launched with the phase 1 brief; mid-run it had created
-  `internal/tailscale/{api,token,cli,doctor}.go`, `internal/cli/tailscale.go`, `internal/configure/tailscale.go`
-  and modified `audit.go`, `cli.go`, `complete.go`, `configure.go`, `configure/secrets.go`, `launch/install.go`,
-  `CLAUDE.md`, `README.md`. `go build ./...` and `go vet` were clean at last check. Not committed.
-- Defaults chosen for the plan's open items: `TAILSCALE=1` gates `bootstrap`; Linux uses the official script via
-  `sh -c "$(curl …)"` (the `curl | sh` spelling trips the safety hook); the configure row lives inside `keys`;
-  `Machines` merges API + CLI when a credential exists. Verb stays `tailscale` (not `remote`: collides with
-  Remote Control; no speculative umbrella).
-- Live facts: Mac already advertises an approved exit node; iPhone online peer; tailnet `tailbb611b.ts.net`;
-  `Tailscale.app` GUI variant, LocalAPI reachable.
+- `internal/tailscale` stdlib package + `claude-code tailscale status|machines|connect|key|exit-node`, configure row,
+  doctor row, `make tailscale-cli` (`TAILSCALE=1 make bootstrap`). Plan: `docs/plans/2026-10-17-tailscale-module.md`.
+- `claude-code setup adopt|nuke|workspace` + `scripts/bootstrap.sh`. Plan: `docs/plans/2026-10-17-setup-modes.md`
+  (§5 parks the agent-driven adopt idea).
+- `clean --what sessions`; `secrets delete`; `secrets set NAME` prompts on a TTY; redacted confirmation `kJaxH*** (17 chars)`.
 
-## Next
+## Live state on this Mac
 
-1. When the workflow reports: live check on the real surface — `claude-code tailscale status`, `machines`,
-   `exit-node` (no-op here), `doctor` row, `configure --check`; fix the `slices.Contains` hint in
-   `internal/tailscale/cli.go` if the gate left it; then one full `make test`.
-2. Report to the user (they asked to be told when done). Commit only when asked; no AI footers.
-3. Tabled: `docs/plans/2026-10-17-setup-modes.md` (adopt / nuke / workspace setup modes) — drafted, not started.
-4. Still pending from before: push 809eea2..0b6e4b9; untracked `policy-limits.json*`/`remote-settings.json*`.
+- OAuth client stored (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET`, keyring) with scopes `devices:core:read, devices:routes`
+  only: `machines` (source=api) and `exit-node --approve` verified live. **`tailscale key` cannot work with it** —
+  no `auth_keys` scope and the policy has no `tagOwners`. To enable: add `"tagOwners": {"tag:harness": ["autogroup:admin"]}`,
+  generate a new credential with Auth Keys write on `tag:harness`, `secrets set` both names again.
+- Personal plan (2026): 6 users, unlimited user devices, 50 tagged resources — the phone/Mac count against nothing.
+
+## Leftovers
+
+- `docs/memory/bank/proj` — seeded by a scratch `setup workspace` live check; gitignored; delete when convenient.
+- Chrome tabs (Trust credentials, JSON editor) were left open for the tagOwners step.
+- Known: the agent-inflight cap counts a sibling session's agents; the test-repair agent never got a slot this session.
