@@ -229,31 +229,81 @@ func errPromptTooLarge(n int) error {
 	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
 }
 
-// RunWithFallback runs r; when r is codex and codex itself turns out unavailable — binary missing, no
-// provider can serve it, or it exited with no answer — it reruns the same request on fb and reports the
-// swap on the result, never on a timeout, cancellation, an oversized prompt, a partial answer, or an
-// explicit non-Claude --provider/--model.
-func RunWithFallback(ctx context.Context, r, fb Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
-	res, err := Run(ctx, r, req, stream, notify)
-	if !codexUnavailable(r, req, res, err) {
-		return res, err
+// Fallback modes for an unavailable vendor leg: the full chain ending in claude, other vendors only, or none.
+const (
+	FallbackAll     = "all"
+	FallbackVendors = "vendors"
+	FallbackNone    = "none"
+)
+
+// FallbackModes lists the accepted --fallback values.
+var FallbackModes = []string{FallbackAll, FallbackVendors, FallbackNone}
+
+// FallbackChain is what an unavailable r falls back to: the other installed vendor runners in roster order
+// (a second model family stays a second family), then claude last under FallbackAll. claude/api never fall back.
+func FallbackChain(r Runner, mode string) []Runner {
+	if mode == FallbackNone || !isVendor(r.Name()) {
+		return nil
 	}
-	if notify != nil {
-		notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", r.Name(), err, fb.Name()))
-	}
-	fbReq := req
-	fbReq.Provider = ""
-	// An unset model would take the session default (opus); the fallback leg is a sonnet leg unless told otherwise.
-	if fbReq.Model == "" {
-		fbReq.Model = models.Sonnet
-	} else if !slices.Contains(models.Slots, fbReq.Model) {
-		if _, _, _, ok := models.ParseClaudeID(fbReq.Model); !ok {
-			fbReq.Model = models.Sonnet
+	var chain []Runner
+	for _, c := range Runners() {
+		if isVendor(c.Name()) && c.Name() != r.Name() && c.Available() == nil {
+			chain = append(chain, c)
 		}
 	}
-	fres, ferr := Run(ctx, fb, fbReq, stream, notify)
-	fres.Fallback, fres.FallbackReason = r.Name(), fallbackReason(err)
-	return fres, ferr
+	if mode == FallbackAll {
+		chain = append(chain, claudeRunner{})
+	}
+	return chain
+}
+
+func isVendor(name string) bool { return name != "claude" && name != "api" }
+
+// RunWithFallback runs r, then each leg of chain in turn while the previous one turned out unavailable — binary
+// missing, no provider can serve it, a login/quota failure, or an exit with no answer. It never moves on after a
+// timeout, cancellation, an oversized prompt or a partial answer, nor when the caller pinned an explicit
+// non-Claude --provider/--model. The result names the original runner in Fallback and every skipped leg's reason.
+func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
+	res, err := Run(ctx, r, req, stream, notify)
+	if explicitNonClaude(req) {
+		return res, err
+	}
+	var reasons []string
+	prev := r
+	for _, fb := range chain {
+		if !legUnavailable(prev, res, err) {
+			break
+		}
+		reasons = append(reasons, prev.Name()+": "+fallbackReason(err))
+		if notify != nil {
+			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", prev.Name(), fallbackReason(err), fb.Name()))
+		}
+		res, err = Run(ctx, fb, fallbackRequest(fb, req), stream, notify)
+		prev = fb
+	}
+	if len(reasons) > 0 {
+		res.Fallback, res.FallbackReason = r.Name(), strings.Join(reasons, "; ")
+	}
+	return res, err
+}
+
+// fallbackRequest drops the original leg's provider and vendor model: a vendor leg takes its own default, and
+// the claude leg is a sonnet leg unless the caller asked for a Claude slot or id (unset would mean opus).
+func fallbackRequest(fb Runner, req Request) Request {
+	out := req
+	out.Provider = ""
+	if fb.Name() != "claude" {
+		out.Model = ""
+		return out
+	}
+	if out.Model == "" {
+		out.Model = models.Sonnet
+	} else if !slices.Contains(models.Slots, out.Model) {
+		if _, _, _, ok := models.ParseClaudeID(out.Model); !ok {
+			out.Model = models.Sonnet
+		}
+	}
+	return out
 }
 
 // fallbackReason keeps the last line of the failure (a vendor CLI prints its own ERROR line last), capped at 200 bytes.
@@ -266,21 +316,18 @@ func fallbackReason(err error) string {
 	return s
 }
 
-// codexUnavailable narrows "codex failed" to "codex itself is unreachable": the binary, the resolved
-// target, or the exec all failed before producing an answer — excluding timeouts, cancellation, an
-// oversized prompt, a partial answer, and an explicit non-Claude provider/model pin.
-func codexUnavailable(r Runner, req Request, res Result, err error) bool {
-	if err == nil || r.Name() != "codex" || res.Answer != "" || explicitNonClaude(req) {
+// legUnavailable narrows "the leg failed" to "the leg itself is unreachable": the binary, the resolved target,
+// or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
+// partial answer. claude/api are the end of every chain and never count as unavailable here.
+func legUnavailable(r Runner, res Result, err error) bool {
+	if err == nil || !isVendor(r.Name()) || res.Answer != "" {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrPromptTooLarge) {
 		return false
 	}
 	var e *Error
-	if errors.As(err, &e) && e.Progressed {
-		return false
-	}
-	return true
+	return !(errors.As(err, &e) && e.Progressed)
 }
 
 // explicitNonClaude is true when --provider, or a "provider:model" --model, names a provider outright;

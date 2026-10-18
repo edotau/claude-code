@@ -38,7 +38,7 @@ type askEnvelope struct {
 	Error          string `json:"error,omitempty"`
 }
 
-// runResolveAgent shells out to this same claude-code binary's own `ask` verb — --no-fallback so an
+// runResolveAgent shells out to this same claude-code binary's own `ask` verb — --fallback none so an
 // explicitly selected codex leg either runs as codex or fails outright, never silently as claude — once,
 // with tools enabled, on prompt inside workDir. It never retries.
 var runResolveAgent = func(agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
@@ -49,7 +49,7 @@ var runResolveAgent = func(agentName, prompt, workDir string, timeout time.Durat
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+30*time.Second) // belt-and-suspenders over ask's own --timeout
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "ask", "--agent", agentName, "--workdir", workDir,
-		"--tools", "--no-fallback", "--timeout", timeout.String(), "--format", "json", "-")
+		"--tools", "--fallback", "none", "--timeout", timeout.String(), "--format", "json", "-")
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
