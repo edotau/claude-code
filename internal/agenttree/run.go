@@ -66,7 +66,11 @@ func renderOnce(claudeDir string, opts Options, format string, showAll bool, out
 	if format == outfmt.JSON {
 		return boolToExit(outfmt.Write(out, tree) == nil)
 	}
-	RenderText(out, tree, time.Now())
+	now := time.Now()
+	if opts.Now != nil {
+		now = opts.Now()
+	}
+	RenderText(out, tree, now)
 	return 0
 }
 

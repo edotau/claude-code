@@ -119,7 +119,7 @@ func cmdAsk(args []string) int {
 
 const agentsUsage = `usage: claude-code agents
        claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]
-       claude-code agents tree [--days N] [--session ID] [--running] [--watch [--interval D]] [--format text|json]`
+       claude-code agents tree [--days N] [--session ID] [--running] [--all] [--watch [--interval D]] [--format text|json]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
