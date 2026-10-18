@@ -98,6 +98,9 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
+	if section == "" && o.Interactive && !o.Check && !o.DryRun && isStdinTTY() {
+		return runMenu(d)
+	}
 	allOK := true
 	for _, s := range want {
 		d.header(s)
@@ -178,13 +181,18 @@ func yes(br *bufio.Reader) bool {
 
 // --- provider ---
 
+// currentProvider is the pinned session provider, falling back to the registry default when unpinned.
+func currentProvider(reg *providers.Registry) string {
+	if cur := providers.Pin(providers.PinProvider); cur != "" {
+		return cur
+	}
+	return reg.Default
+}
+
 func runProvider(d *dialog) bool {
 	reg := d.reg
 	names := reg.Names()
-	cur := providers.Pin(providers.PinProvider)
-	if cur == "" {
-		cur = reg.Default
-	}
+	cur := currentProvider(reg)
 	cred := func(n string) string {
 		if providers.CredentialPresent(reg.Providers[n]) {
 			return "cred:ok"
@@ -198,37 +206,10 @@ func runProvider(d *dialog) bool {
 		}
 		return applyProvider(d, d.o.Provider)
 	}
-	// On a terminal the picker is the list; printing it twice is what made the old dialogue look doubled.
-	// --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
+	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude
+	// row does; --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
-		// Anthropic leads as one row; its two billing modes (subscription|anthropic) are picked underneath.
-		names := pickerNames(reg)
-		fp := &firstParty{reg: reg}
-		rows := make([][2]string, len(names))
-		start := 0
-		for i, n := range names {
-			if n == anthropicRow {
-				rows[i] = [2]string{n, anthropicDetail(fp, cur)}
-			} else {
-				rows[i] = [2]string{n, cred(n) + "  " + reg.Providers[n].Kind}
-			}
-			if n == cur || (n == anthropicRow && isAnthropicBilling(cur)) {
-				start = i
-			}
-		}
-		if idx, err := tui.PickBack("provider — pick the session provider (current: "+cur+")", rows, start); err == nil {
-			if idx >= 0 && names[idx] == anthropicRow {
-				return pickAnthropicBilling(d, fp, cur)
-			}
-			if idx >= 0 && names[idx] == geminiRow {
-				return pickGeminiAuth(d, cur)
-			}
-			if idx < 0 || names[idx] == cur {
-				d.printf("provider   pinned %s (kept)\n", cur)
-				return true
-			}
-			return applyProvider(d, names[idx])
-		}
+		return pickClaudeBackend(d, &firstParty{reg: reg}, cur)
 	}
 	for i, n := range names {
 		mark := " "
@@ -662,7 +643,16 @@ func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
 
 // --- models ---
 
+// runModels is the `configure models` / "Models" row entry: a pick-one menu on a terminal, the plain
+// report otherwise (--check/--dry-run/piped never open a picker that would sit waiting for a choice).
 func runModels(d *dialog) bool {
+	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+		return modelsMenu(d)
+	}
+	return modelsReport(d)
+}
+
+func modelsReport(d *dialog) bool {
 	sel, err := providers.Select(d.reg, "")
 	if err != nil {
 		d.println(err)

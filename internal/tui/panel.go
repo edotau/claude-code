@@ -16,8 +16,9 @@ const (
 
 // pickState is the panel's pure state, separated from I/O so key handling tests without a TTY.
 type pickState struct {
-	rows []string // "name  detail" rows, already column-aligned
-	sel  int
+	rows   []string // "name  detail" rows, already column-aligned
+	header string   // optional column header, drawn in place of the blank line under the title; never selectable
+	sel    int
 }
 
 // handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C (no choice), pickChoose on Enter.
@@ -65,7 +66,11 @@ func panelLines(s pickState) int { return len(s.rows) + 4 }
 // dialogue already is, below earlier output, not over the top of the screen.
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
-	b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n\x1b[K\r\n")
+	b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n")
+	if s.header != "" {
+		b.WriteString("  " + ansi.Style(color, ansi.Dim, s.header))
+	}
+	b.WriteString("\x1b[K\r\n")
 	for i, row := range s.rows {
 		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
@@ -89,12 +94,17 @@ func erase(s pickState) string { return rewind(s) + "\x1b[J" }
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
 // means stdin is not a terminal; the caller should fall back to a line prompt.
 func Pick(title string, rows [][2]string, start int) (int, error) {
+	return pickLaid(title, "", layoutRows(rows), start)
+}
+
+// pickLaid runs the picker over already-aligned rows, with an optional non-selectable header line.
+func pickLaid(title, header string, rows []string, start int) (int, error) {
 	t, err := Open()
 	if err != nil {
 		return -1, err
 	}
 	defer t.Close()
-	s := pickState{rows: layoutRows(rows)}
+	s := pickState{rows: rows, header: header}
 	if start >= 0 && start < len(s.rows) {
 		s.sel = start
 	}
@@ -113,6 +123,18 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 		fmt.Fprint(os.Stdout, rewind(s)+render(title, s, color))
 	}
 	return -1, nil
+}
+
+// PickTable is PickBack with a column header: header[0] heads the name column, header[1] the detail column,
+// aligned with the rows and never selectable.
+func PickTable(title string, header [2]string, rows [][2]string, start int) (int, error) {
+	withBack := append(append([][2]string{}, rows...), [2]string{"Back", "return to the previous menu"})
+	laid := layoutRows(append([][2]string{header}, withBack...))
+	idx, err := pickLaid(title, laid[0], laid[1:], start)
+	if err != nil || idx == len(rows) {
+		return -1, err
+	}
+	return idx, nil
 }
 
 // PickBack is Pick with a trailing "Back" row appended; picking it (or Esc/q/Ctrl-C) both return -1, so a

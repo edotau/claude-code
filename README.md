@@ -58,8 +58,8 @@ when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, inst
 ## Setup
 
 ```bash
-claude-code configure                 # every section, in order: provider → keys → models → agents → router → github → remote → doctor
-claude-code configure keys            # one section; --agent codex scopes it to one agent CLI
+claude-code configure                 # on a terminal: one menu (claude, every agent CLI, Models … Doctor, Done); piped: every section in order
+claude-code configure keys            # one section; --agent codex scopes it to one agent CLI (also narrows the menu to that row)
 claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
 claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift
 claude-code vscode [--check|--dry-run] # merge the first-party settings + keybindings templates into VS Code
@@ -71,12 +71,12 @@ fix it side by side — the vendor's browser/device login (`claude auth login`, 
 `opencode auth login`, `gemini` → Login with Google) and pasting an API key (opening the provider's key console
 first, if you want), stored in the OS keyring (`env.d/secrets.env` without one). Piped, each option is one `[Y/n]`.
 
-`configure provider` lists `anthropic` first as one row for both first-party billing modes, showing the mode
-in use and whether its credential is valid (`billing: subscription (max)` / `billing: api key`). Picking it asks
-**subscription** (claude.ai OAuth login, plan usage limits, Remote Control works — pins `subscription`) or **API
-key** (`ANTHROPIC_API_KEY`, pay per token, no Remote Control — pins `anthropic`), and resolves a missing login or
-key before pinning. The setup-token is injected only into `claude -p` launches, so an interactive session's
-Remote Control uses the `/login` credential.
+The menu's **claude** row (also `configure provider`) is one sub-picker for every backend the agent can run a
+session on: **Subscription** (claude.ai OAuth login, plan usage limits, Remote Control works — pins
+`subscription`), **API key** (`ANTHROPIC_API_KEY`, pay per token, no Remote Control — pins `anthropic`), then the
+other registered backends (`chatgpt`, `gemini`, `github-copilot`) with their credential state, then **Login** /
+**OAuth token** once logged in. Picking a backend resolves a missing credential and pins it. The setup-token is
+injected only into `claude -p` launches, so an interactive session's Remote Control uses the `/login` credential.
 
 The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
 `claude setup-token` mints a long-lived OAuth token for unattended runs. `configure keys` reports both states
