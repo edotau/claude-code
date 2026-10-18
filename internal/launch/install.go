@@ -260,6 +260,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 			check(present, session, "credential "+n, label)
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
+		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
 	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
@@ -363,6 +364,19 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	}
 	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s file=%s opencode_login=%v copilot_cli_login=%v",
 		mainID, smallID, file, opencodeLogin, copilotCLILogin)
+}
+
+// copilotRouteDetail reports the copilot CLI's resolved leg (DescribeRoute): its own GitHub login,
+// BYOK with an anthropic or gemini key, or none — names/booleans/leg only, never a credential.
+func copilotRouteDetail(reg *providers.Registry, selErr error) string {
+	if selErr != nil {
+		return fmt.Sprintf("(%v)", selErr)
+	}
+	ri := vendors.DescribeRoute(reg, "copilot")
+	if !ri.OK {
+		return ri.Reason
+	}
+	return fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
 }
 
 func routerStatus() string {
