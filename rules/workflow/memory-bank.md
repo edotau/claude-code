@@ -58,9 +58,9 @@ paths:
   `conventions.md`/`decisionLog.md` goes through `/reflection:promote` or `/memory:promote`.
 - A fresh repo scaffolds the bank with `claude-code memory init` (or `/memory:init`).
 
-## Relationship to native agent memory
+## Relationship to native project memory
 
-`agent-memory/<name>/` (Claude Code's own `memory: user` scope) is a SIBLING system, not part of
-the bank: it is per-agent, not per-session, and is curated by `/reflection:*` rather than
-`/memory:*`. Don't conflate the two when writing a command or rule — the bank answers "where did
-this session leave off", agent memory answers "what has this agent learned".
+`~/.claude/projects/<slug>/memory/` (Claude Code's own native auto-memory) is a SIBLING system,
+not part of the bank: it is per-project, not per-session, and is curated by `/reflection:*`
+rather than `/memory:*`. Don't conflate the two when writing a command or rule — the bank
+answers "where did this session leave off", native memory answers "what has been learned".

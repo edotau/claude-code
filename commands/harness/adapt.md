@@ -36,7 +36,7 @@ For each signal found, classify it:
 | Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `communication.md` | Markdown/living-docs, or response style |
 | Performance insight | `rules/standards/performance.md` | Relevant subsection |
-| Agent-specific pattern | `agent-memory/<name>/` (topic file + `MEMORY.md` TOC entry) | Appropriate topic |
+| Session-learned fact | `~/.claude/projects/<slug>/memory/` (topic file + `MEMORY.md` TOC entry) | Appropriate topic |
 | Project state change | `docs/memory/bank/<repo-slug>/activeContext.md` | "Current Focus" / "Next Steps" |
 | Completed work | `docs/memory/bank/<repo-slug>/progress.md` | "What Works" / "What's Next" |
 
@@ -56,7 +56,7 @@ Scan for architectural or design decisions made this session. For each:
 - Where it affects the codebase
 
 Write decisions to `docs/memory/bank/<repo-slug>/decisionLog.md` (dated entry, newest first;
-supersede, never delete), or to the relevant agent memory if agent-scoped.
+supersede, never delete), or to native project memory if session-scoped.
 
 ### Step 3: Route Corrections to Target Files
 
@@ -82,11 +82,11 @@ Update `progress.md` if:
 - Priorities shifted ("What's Next")
 - New issues discovered ("Known Issues")
 
-### Step 5: Update Agent Memories
+### Step 5: Update Native Project Memory
 
-Only update agents whose domain was touched this session. For each:
+Only write what was actually learned this session. 
 
-1. Read the current `~/.claude/agent-memory/<name>/MEMORY.md` index (+ linked topic files)
+1. Read the current `~/.claude/projects/<slug>/memory/MEMORY.md` index (+ linked topic files)
 2. Summarize the learning into a topic file, then add/refine its one-line TOC entry in `MEMORY.md`
 3. Keep `MEMORY.md` a lean index (first ~200 lines auto-load; detail lives in topic files); never edit the RULES region
 

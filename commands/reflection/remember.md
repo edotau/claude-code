@@ -1,6 +1,6 @@
 ---
-description: "Manual intervention (capture is normally automatic) — explicitly save a fact to native agent memory as a structured topic file plus a MEMORY.md index line."
-argument-hint: "<what to remember> [--agent <name>] [--type user|feedback|project|reference]"
+description: "Manual intervention (capture is normally automatic) — explicitly save a fact to native project memory as a structured topic file plus a MEMORY.md index line."
+argument-hint: "<what to remember> [--type user|feedback|project|reference]"
 ---
 
 # /reflection:remember — Save Knowledge Explicitly
@@ -12,7 +12,7 @@ argument-hint: "<what to remember> [--agent <name>] [--type user|feedback|projec
 
 ## The schema (one file per fact + an index line)
 
-Native agent memory here is **structured**: each fact is its own topic file with YAML
+Native project memory here is **structured**: each fact is its own topic file with YAML
 frontmatter, and `MEMORY.md` is a one-line-per-fact index. Do **not** just append a line to
 `MEMORY.md` — write the topic file first, then add its index pointer.
 
@@ -41,14 +41,12 @@ metadata:
 ## Step 1: Parse the fact
 
 Extract the concrete fact, why it matters, and scope. Choose a kebab-case `<slug>` and the
-`metadata.type` (honor `--type`; default `project`). Pick the target agent (honor `--agent`;
-default the current session's own memory at `~/.claude/agent-memory/<current-agent>/`, or ask
-if ambiguous at the top level).
+`metadata.type` (honor `--type`; default `project`).
 
 ## Step 2: Resolve dir and check for duplicates
 
 ```bash
-MEMORY_DIR="$HOME/.claude/agent-memory/<agent>"
+MEMORY_DIR="$HOME/.claude/projects/<slug>/memory"
 grep -rni "<keywords>" "$MEMORY_DIR"/
 ```
 
@@ -82,7 +80,7 @@ for durable enforcement.
 ## Step 6: Report
 
 ```
-Saved to agent memory:
+Saved to native project memory:
   <slug>.md      (type=<type>)
   MEMORY.md      +1 index line
 MEMORY.md: N index lines

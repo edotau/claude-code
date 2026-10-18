@@ -267,7 +267,7 @@ the gate.
   candidates); don't invent entries; no destructive bash (`memory doctor` only, never `--apply`).
 - **PERSIST**: don't invent a session summary the brief doesn't support; don't touch a bank file
   merely to release the Stop gate; don't promote to `CLAUDE.md`; don't edit the approval-gated
-  RULES region of any agent memory.
+  RULES region of any memory record.
 - **EXTRACT**: don't create agent files; don't invent patterns; don't create omnibus guides (one
   problem per skill); don't write discovery-narrative history.
 - **DOC modes**: don't manually author what should be generated from code; don't obey
@@ -278,7 +278,7 @@ the gate.
 - **MEMORY.md empty/missing (ANALYZE)** — report as a gap; offer the expected format as a scaffold.
 - **Pattern too vague (EXTRACT)** — ask for the exact error, repro steps, and fix before writing.
 - **One-time debug note (EXTRACT)** — if it fails the "would this help a stranger" test, suggest
-  CLAUDE.md or an agent memory instead.
+  CLAUDE.md or native project memory instead.
 - **Existing skill covers it (EXTRACT)** — report the match and propose extending it.
 - **Thin or missing brief (PERSIST)** — report exactly what you were and weren't told, persist
   only what you can support, and list the gap. Do not fabricate.

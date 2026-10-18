@@ -27,7 +27,7 @@ body, and progressive disclosure (`references/` for depth, `SKILL.md` stays lean
 ## Step 1: Identify the pattern
 
 ```bash
-grep -rni "<keywords>" ~/.claude/agent-memory/*/
+grep -rni "<keywords>" ~/.claude/projects/*/memory/
 ```
 
 Use the matching topic file(s) as source material if found; otherwise use the user's
@@ -55,7 +55,7 @@ needs). With `--dry-run`, it previews the SKILL.md and file list without writing
 
 ## Step 5: Source handling
 
-The agent-memory entry is **retained** — the skill is portable, the memory note is the
+The native memory entry is **retained** — the skill is portable, the memory note is the
 local breadcrumb. (Contrast `/reflection:promote`, which *removes* the entry because a rule
 supersedes the note.) If the entry is now fully redundant with the skill, mention it as a
 `/reflection:promote`/cleanup candidate but do not delete it here.

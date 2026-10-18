@@ -1,12 +1,12 @@
 ---
-description: "Normally automatic (dream consolidation) — manual audit of native agent memory: health dashboard (--brief/--quick) or a full read-only audit of promotion candidates, stale entries, and consolidation opportunities via the opencode agent (ANALYZE mode)."
+description: "Normally automatic (dream consolidation) — manual audit of native project memory: health dashboard (--brief/--quick) or a full read-only audit of promotion candidates, stale entries, and consolidation opportunities via the opencode agent (ANALYZE mode)."
 argument-hint: "[--brief | --quick | --stale | --candidates]"
 ---
 
-# /reflection:review — Analyze Agent Memory
+# /reflection:review — Analyze Project Memory
 
 > Part of the `/reflection:*` family (see `/reflection:promote`, `:extract`, `:remember`,
-> `:consolidate`). This command runs a **read-only** audit of Claude Code's native agent
+> `:consolidate`). This command runs a **read-only** audit of Claude Code's native project
 > memory (and, when relevant, the session memory bank) and surfaces what to promote, prune,
 > or merge. It changes nothing — acting on findings is `/reflection:promote` and
 > `/reflection:consolidate`'s job.
@@ -38,7 +38,7 @@ auto-load cap.
 
 Dispatch the **opencode** agent in **ANALYZE** mode. Give it:
 
-- Every `~/.claude/agent-memory/*/MEMORY.md` + linked topic files
+- Every `~/.claude/projects/*/memory/MEMORY.md` + linked topic files
 - The output of `claude-code memory doctor`
 - `rules/standards/*.md`, `rules/workflow/*.md`, and this project's `CLAUDE.md`
 

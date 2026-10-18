@@ -8,9 +8,9 @@ paths:
 
 ## Available Agents
 
-Located flat at `agents/<name>.md`. Memory is fully native: Claude Code's `memory: user` scope
-reads/writes `~/.claude/agent-memory/<name>/MEMORY.md` (a lean index) plus the topic files
-beside it.
+Located flat at `agents/<name>.md`. Agents hold no per-agent memory scope; they only PROPOSE
+memory in their reports. The main session writes it to Claude Code's native project memory,
+`~/.claude/projects/<slug>/memory/MEMORY.md` (a lean index) plus the topic files beside it.
 
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
@@ -20,7 +20,7 @@ beside it.
 | copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
 | gemini | Codebase scanning — Sonnet in-process or Gemini large-context backend | Architecture, refactor impact, cross-file surveys |
-| opencode | DOCS refresh/lookup · ANALYZE agent-memory · proven-pattern EXTRACT · session PERSIST | Updating docs, API reference; `/reflection:*` — auditing/extracting/persisting memory |
+| opencode | DOCS refresh/lookup · ANALYZE native project memory · proven-pattern EXTRACT · session PERSIST | Updating docs, API reference; `/reflection:*` — auditing/extracting/persisting memory |
 
 ## Codebase Intelligence Protocol
 
