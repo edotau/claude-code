@@ -165,7 +165,7 @@ func cmdModels(args []string) int {
 		return fail("%v", err)
 	}
 	if *live {
-		return listLive(sel.Provider, *format)
+		return listLive(reg, sel.Provider, *format)
 	}
 	fmt.Printf("provider  %s   router:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
 	for _, s := range models.Slots {
@@ -245,75 +245,58 @@ func copilotModelIDs() ([]string, error) {
 	return ids, nil
 }
 
-// liveModel is the text/json row for one catalog entry.
+// liveModel is the JSON row for one catalog entry; the text view prints the same fields as an aligned table.
 type liveModel struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name,omitempty"`
-	Vision          bool     `json:"vision,omitempty"`
-	ReasoningEffort bool     `json:"reasoningEffort,omitempty"`
-	Multiplier      *float64 `json:"multiplier,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	UseCase      string `json:"use_case"`
+	Capabilities string `json:"capabilities,omitempty"`
 }
 
-// listLive prints the provider's live model catalog: github-copilot goes through the SDK (its own GitHub
-// login, never BYOK), every other provider keeps the plain HTTP /models GET.
-func listLive(p *providers.Provider, format string) int {
-	if p.Name == githubCopilotProvider {
-		return listLiveCopilot(format)
-	}
+// listLive prints the provider's live model catalog via providers.ListModels (github-copilot's own SDK,
+// every other provider's plain /models GET). A catalog that can't be fetched live falls back to a known,
+// offline list for the two providers that have one (subscription's registry models, chatgpt's codex cache).
+func listLive(reg *providers.Registry, p *providers.Provider, format string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	ids, err := providers.LiveModels(ctx, p)
+	infos, err := providers.ListModels(ctx, reg, p)
+	note := ""
 	if err != nil {
-		return fail("%v", err)
+		if infos, note, err = providers.FallbackModels(p, err); err != nil {
+			return fail("%v", err)
+		}
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, "claude-code: models:", note)
 	}
 	if format == outfmt.JSON {
-		rows := make([]liveModel, len(ids))
-		for i, id := range ids {
-			rows[i] = liveModel{ID: id}
+		rows := make([]liveModel, len(infos))
+		for i, m := range infos {
+			rows[i] = liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities}
 		}
 		_ = outfmt.Write(os.Stdout, rows)
 		return 0
 	}
-	for _, id := range ids {
-		fmt.Println(id)
-	}
+	printModelTable(infos)
 	return 0
 }
 
-func listLiveCopilot(format string) int {
-	bin, err := paths.LookPathReal("copilot")
-	if err != nil {
-		return fail("copilot CLI not found: %v", err)
+// printModelTable prints an aligned ID/Model/Use case/Capabilities table; widths are computed from the
+// rows, not fixed, and a gemini "models/" id prefix is dropped for display only (JSON keeps the raw id).
+func printModelTable(infos []providers.ModelInfo) {
+	idW, nameW, caseW, capW := len("ID"), len("Model"), len("Use case"), len("Capabilities")
+	ids := make([]string, len(infos))
+	for i, m := range infos {
+		ids[i] = strings.TrimPrefix(m.ID, "models/")
+		idW = max(idW, len(ids[i]))
+		nameW = max(nameW, len(m.Name))
+		caseW = max(caseW, len(m.UseCase))
+		capW = max(capW, len(m.Capabilities))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	list, err := copilotsdk.ListModels(ctx, copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true})
-	if err != nil {
-		return fail("%v", err)
+	fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s", idW, "ID", nameW, "Model", caseW, "Use case", capW, "Capabilities"), " "))
+	for i, m := range infos {
+		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s", idW, ids[i], nameW, m.Name, caseW, m.UseCase, capW, m.Capabilities), " "))
 	}
-	if format == outfmt.JSON {
-		rows := make([]liveModel, len(list))
-		for i, m := range list {
-			rows[i] = liveModel{ID: m.ID, Name: m.Name, Vision: m.Vision, ReasoningEffort: m.ReasoningEffort, Multiplier: m.Multiplier}
-		}
-		_ = outfmt.Write(os.Stdout, rows)
-		return 0
-	}
-	for _, m := range list {
-		mult := ""
-		if m.Multiplier != nil {
-			mult = fmt.Sprintf(" x%g", *m.Multiplier)
-		}
-		caps := ""
-		if m.Vision {
-			caps += " vision"
-		}
-		if m.ReasoningEffort {
-			caps += " reasoning-effort"
-		}
-		fmt.Printf("%-40s %-30s%s%s\n", m.ID, m.Name, caps, mult)
-	}
-	return 0
 }
 
 func cmdUse(args []string) int {

@@ -105,3 +105,82 @@ func FamilyOf(id string) string {
 	}
 	return f
 }
+
+// Use-case labels, keyed to Anthropic's own tier wording on the Claude model comparison page.
+const (
+	UseFrontier  = "Frontier reasoning" // demanding reasoning and long-horizon agentic work
+	UseAgentic   = "Agentic coding"     // long-running agentic coding and knowledge work
+	UseBalanced  = "Balanced"           // best combination of speed and intelligence
+	UseHighVol   = "High volume"        // high-volume, latency-sensitive: classification, extraction, routing
+	UseAuto      = "Auto"
+	UseSpeech    = "Speech"
+	UseEmbedding = "Embeddings"
+	UseImage     = "Image"
+	UseVideo     = "Video"
+	UseGeneral   = "General"
+)
+
+// UseCase maps a model id (and optional display name) onto Anthropic's four tiers by family, or a
+// non-chat kind. Pure and table-driven: no vendor exposes tier metadata, so this goes by id markers.
+func UseCase(id, name string) string {
+	s := strings.ToLower(id + " " + name)
+	switch {
+	case id == "auto":
+		return UseAuto
+	case containsAny(s, "whisper", "tts", "speech", "audio"):
+		return UseSpeech
+	case containsAny(s, "embed"):
+		return UseEmbedding
+	case containsAny(s, "dall-e", "dalle", "imagen", "image-gen", "-image"):
+		return UseImage
+	case containsAny(s, "video", "veo"):
+		return UseVideo
+	case FamilyOf(id) == Fable:
+		return UseFrontier
+	case FamilyOf(id) == Opus:
+		return UseAgentic
+	case FamilyOf(id) == Sonnet:
+		return UseBalanced
+	case FamilyOf(id) == Haiku:
+		return UseHighVol
+	case containsAny(s, "gemini", "gemma"):
+		return geminiUseCase(s)
+	case containsAny(s, "gpt", "o1", "o3", "o4"):
+		return gptUseCase(s)
+	default:
+		return UseGeneral
+	}
+}
+
+func geminiUseCase(s string) string {
+	switch {
+	case containsAny(s, "flash-lite", "gemma", "nano"):
+		return UseHighVol
+	case containsAny(s, "-pro"):
+		return UseAgentic
+	case containsAny(s, "-flash"):
+		return UseBalanced
+	default:
+		return UseGeneral
+	}
+}
+
+func gptUseCase(s string) string {
+	switch {
+	case containsAny(s, "mini", "nano"):
+		return UseHighVol
+	case containsAny(s, "o1", "o3", "o4") || containsAny(s, "-pro", "high"):
+		return UseFrontier
+	default:
+		return UseAgentic
+	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}

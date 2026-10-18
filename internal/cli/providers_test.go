@@ -81,35 +81,109 @@ func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 	}
 }
 
-// listLiveCopilot reports the copilot CLI as not found (never a panic) when it is absent from PATH.
+// listLive's copilot leg (dispatched via the provider name, listLiveCopilot no longer exists standalone)
+// reports the copilot CLI as not found (never a panic) when it is absent from PATH.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
-	code, _, stderr := captureOutput(t, func() int { return listLiveCopilot(outfmt.Text) })
+	reg := &providers.Registry{}
+	p := &providers.Provider{Name: githubCopilotProvider}
+	code, _, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })
 	if code == 0 {
-		t.Fatal("listLiveCopilot: want a non-zero exit when the copilot CLI is missing")
+		t.Fatal("listLive: want a non-zero exit when the copilot CLI is missing")
 	}
 	if !strings.Contains(stderr, "copilot CLI not found") {
 		t.Errorf("stderr = %q, want it to name the missing CLI", stderr)
 	}
 }
 
-// listLive's non-copilot leg renders a fake provider's catalog as JSON rows, id-only.
+// listLive's non-copilot leg renders a fake provider's catalog as JSON rows, each carrying a use_case.
 func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a", "model-b"})
 	p := fakeProvider(srv.URL)
-	code, stdout, _ := captureOutput(t, func() int { return listLive(p, outfmt.JSON) })
+	reg := &providers.Registry{}
+	code, stdout, _ := captureOutput(t, func() int { return listLive(reg, p, outfmt.JSON) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d", code)
 	}
 	var rows []struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		UseCase string `json:"use_case"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
 		t.Fatalf("stdout not a JSON array: %v\n%s", err, stdout)
 	}
 	if len(rows) != 2 || rows[0].ID != "model-a" || rows[1].ID != "model-b" {
 		t.Errorf("rows = %+v", rows)
+	}
+	for _, r := range rows {
+		if r.UseCase == "" {
+			t.Errorf("row %+v: use_case must never be empty (models.UseCase always returns a label)", r)
+		}
+	}
+}
+
+// listLive's subscription (passthrough) leg falls back to the registry's configured models on a 401,
+// and never prints the OAuth bearer token it tried — in the note, the table, or anywhere else.
+func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
+	cliScratch(t)
+	const secret = "sk-setup-token-super-secret-value"
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", secret)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}))
+	t.Cleanup(srv.Close)
+	p := &providers.Provider{
+		Name:    "sub",
+		Kind:    providers.DialectAnthropic,
+		BaseURL: srv.URL,
+		Auth:    providers.Auth{Type: providers.AuthPassthrough},
+		Models:  map[string]string{"opus": "claude-opus-5-5"},
+	}
+	reg := &providers.Registry{}
+	code, stdout, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })
+	if code != 0 {
+		t.Fatalf("listLive exit = %d, stderr=%s", code, stderr)
+	}
+	if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
+		t.Fatalf("output leaked the OAuth token\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "live catalog needs an API key") {
+		t.Errorf("stderr = %q, want the fallback note", stderr)
+	}
+	if !strings.Contains(stdout, "claude-opus-5-5") {
+		t.Errorf("stdout = %q, want the registry's configured model in the fallback table", stdout)
+	}
+}
+
+// printModelTable aligns every column to the widest cell in it, including the header, and drops a
+// gemini "models/" id prefix for display only.
+func TestPrintModelTableAligns(t *testing.T) {
+	infos := []providers.ModelInfo{
+		{ID: "models/gemini-2.5-flash", Name: "Gemini 2.5 Flash", UseCase: "Balanced", Capabilities: ""},
+		{ID: "x", Name: "y", UseCase: "High volume", Capabilities: "vision · x2"},
+	}
+	_, stdout, _ := captureOutput(t, func() int { printModelTable(infos); return 0 })
+	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want a header + 2 rows:\n%s", len(lines), stdout)
+	}
+	if strings.Contains(lines[1], "models/") {
+		t.Errorf("row kept the gemini models/ prefix: %q", lines[1])
+	}
+	// Every line's "Use case" column must start at the same byte offset.
+	idx := strings.Index(lines[0], "Use case")
+	for i, l := range lines {
+		if got := strings.Index(l, strings.Fields(l)[0]); got != 0 {
+			t.Fatalf("line %d not left-aligned: %q", i, l)
+		}
+	}
+	for i := 1; i < len(lines); i++ {
+		col := strings.Index(lines[i], infos[i-1].UseCase)
+		if col != idx {
+			t.Errorf("line %q: Use case column at %d, want %d (header's)", lines[i], col, idx)
+		}
 	}
 }
 
