@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -14,10 +18,15 @@ import (
 
 const worktreeUsage = `usage: claude-code worktree list [--format text|json]
        claude-code worktree create <name> [--branch <b>]
-       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--verify "<cmd>"] [--resolve-agent claude|codex] <name>
-       claude-code worktree merge --resume [--target <ref>] [--no-clean] [--verify "<cmd>"] <name>
+       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--verify "<cmd>"|--no-verify] [--resolve-agent claude|codex] <name>
+       claude-code worktree merge --resume [--target <ref>] [--no-clean] [--verify "<cmd>"|--no-verify] <name>
        claude-code worktree clean [--dry-run] <name>
        claude-code worktree clean-all [--dry-run|--yes]
+
+worktree merge runs a verification gate inside the worktree after integration and before promotion:
+--verify sets it explicitly, otherwise it is auto-detected from the worktree (Makefile test target,
+go.mod, pyproject, package.json, Cargo.toml). Neither explicit nor detected refuses to promote —
+--no-verify is the only way to skip it.
 `
 
 func cmdWorktree(args []string) int {
@@ -142,14 +151,18 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 // always runs and prints the plan first, so an Issue — including a predicted conflict — is visible
 // before anything mutates. A predicted conflict normally stops here; --resolve-agent hands it to an
 // agent instead (worktree.ResolveWithAgent), and --resume reattaches to a previously started one
-// without ever re-invoking the agent. Apply then runs IntegrateTarget -> Promote -> an optional Clean.
+// without ever re-invoking the agent. A SIGINT/SIGTERM cancels ctx: Promote never starts the ff-only
+// update once that happens, so a cancel during apply either completes the promote or leaves main
+// untouched. The whole non-dry-run apply (resolve-or-plan -> verify gate -> integrate -> verify ->
+// promote -> clean) runs under one worktree.WithWorktreeLease hold, so nothing else can interleave.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree merge", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	dryRun := fs.Bool("dry-run", false, "preview the plan, including predicted conflicts, without integrating or promoting")
 	target := fs.String("target", "", "require the main checkout to be on this branch (default: whatever it's on)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
-	verify := fs.String("verify", "", "run this command (e.g. the project's gate) inside the worktree after integration; a nonzero exit stops before promotion and preserves the worktree")
+	verify := fs.String("verify", "", "run this command inside the worktree after integration instead of auto-detecting one; a nonzero exit stops before promotion and preserves the worktree")
+	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve a predicted conflict with this agent instead of stopping: claude|codex")
 	resume := fs.Bool("resume", false, "resume a previously started --resolve-agent operation for <name> (never re-invokes the agent)")
 	if fs.Parse(args) != nil {
@@ -164,41 +177,80 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	}
 	name := rest[0]
 
-	var plan *worktree.MergePlan
-	var err error
-	if *resume {
-		plan, err = resumeWorktreeMerge(repo, name, *target)
-		if err != nil {
-			return fail("worktree merge --resume: %v", err)
-		}
-	} else {
-		plan, err = planOrResolve(repo, name, *target, *resolveAgent, *dryRun)
-		if err != nil {
-			return fail("worktree merge: %v", err)
-		}
-		if plan == nil {
-			return 1 // blocked, and either dry-run or not eligible for --resolve-agent: already printed
-		}
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if *dryRun {
-		return 0
+		return mergeDryRun(ctx, repo, name, *target, *resolveAgent)
 	}
 
-	integrated, err := worktree.IntegrateTarget(repo, plan)
+	var code int
+	if err := worktree.WithWorktreeLease(repo, name, func() error {
+		code = mergeLocked(ctx, repo, name, *target, *resolveAgent, *resume, *noClean, *verify, *noVerify)
+		return nil
+	}); err != nil {
+		return fail("worktree merge: %v", err)
+	}
+	return code
+}
+
+// mergeDryRun previews the plan (including a predicted conflict) without acquiring the worktree lease
+// or mutating anything: plan == nil means planOrResolve already printed why this is blocked.
+func mergeDryRun(ctx context.Context, repo *worktree.Repo, name, target, resolveAgent string) int {
+	plan, err := planOrResolve(ctx, repo, name, target, resolveAgent, true)
+	if err != nil {
+		return fail("worktree merge: %v", err)
+	}
+	if plan == nil {
+		return 1
+	}
+	return 0
+}
+
+// mergeLocked runs the full non-dry-run merge lifecycle under the lease cmdWorktreeMerge already
+// acquired: resume-or-plan, the verify-gate decision, then integrate -> verify -> promote -> clean.
+func mergeLocked(ctx context.Context, repo *worktree.Repo, name, target, resolveAgent string, resume, noClean bool, verify string, noVerify bool) int {
+	var plan *worktree.MergePlan
+	var err error
+	if resume {
+		plan, err = resumeWorktreeMerge(ctx, repo, name, target)
+	} else {
+		plan, err = planOrResolve(ctx, repo, name, target, resolveAgent, false)
+	}
+	if err != nil {
+		return fail("worktree merge: %v", err)
+	}
+	if plan == nil {
+		return 1 // blocked, and not eligible for --resolve-agent: already printed
+	}
+
+	gate, gateSource, err := chooseVerifyGate(plan.WorktreePath, verify, noVerify)
+	if err != nil {
+		return fail("worktree merge: %v", err)
+	}
+	return applyMerge(ctx, repo, plan, name, gate, gateSource, noClean)
+}
+
+// applyMerge runs IntegrateTarget -> the verify gate (if any) -> Promote -> an optional Clean, already
+// inside the caller's worktree lease — so it calls worktree.CleanInLease, never the self-locking Clean.
+func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePlan, name, gate, gateSource string, noClean bool) int {
+	integrated, err := worktree.IntegrateTarget(ctx, repo, plan)
 	if err != nil {
 		return fail("worktree merge: integrate: %v", err)
 	}
 	fmt.Printf("integrated: %s -> %s\n", shortOID(integrated.BeforeOID), shortOID(integrated.AfterOID))
 
-	if *verify != "" {
-		if err := runVerify(plan.WorktreePath, *verify); err != nil {
+	if gate != "" {
+		if err := runVerify(ctx, plan.WorktreePath, gate); err != nil {
 			fmt.Fprintf(os.Stderr, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
 			return fail("worktree merge: verify failed, not promoting: %v", err)
 		}
-		fmt.Println("verify: passed")
+		fmt.Printf("verify: passed (%s)\n", gateSource)
+	} else {
+		fmt.Println("verify: skipped (--no-verify) — promoting unverified")
 	}
 
-	promoted, err := worktree.Promote(repo, plan)
+	promoted, err := worktree.Promote(ctx, repo, plan)
 	if err != nil {
 		if promoted != nil && promoted.ResumeHint != "" {
 			fmt.Fprintln(os.Stderr, "  retry:", promoted.ResumeHint)
@@ -207,16 +259,92 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	}
 	fmt.Printf("promoted:   %s -> %s on %s\n", shortOID(promoted.BeforeOID), shortOID(promoted.AfterOID), plan.TargetRef)
 
-	if *noClean {
+	if noClean {
 		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", shellQuote(name))
 		return 0
 	}
-	result, err := worktree.Clean(repo, name, false)
+	result, err := worktree.CleanInLease(repo, name, false)
 	if err != nil {
 		return fail("worktree merge: clean: %v", err)
 	}
 	printCleanResult(result, false)
 	return 0
+}
+
+// chooseVerifyGate picks the command applyMerge runs after integration and before promotion: --no-verify
+// skips it outright, an explicit --verify wins next, otherwise it is auto-detected from worktreePath the
+// same way the gate-loop workflow does (workflows/gate-loop.js: Makefile test target -> go.mod -> pyproject
+// -> package.json -> Cargo.toml) — pure file checks, no execution, no network. Finding nothing and not
+// passed --no-verify refuses outright, before anything is integrated.
+func chooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
+	if noVerify {
+		return "", "", nil
+	}
+	if verify != "" {
+		return verify, "flag", nil
+	}
+	gate, source = detectVerifyGate(worktreePath)
+	if gate == "" {
+		return "", "", fmt.Errorf(`no verification gate found — pass --verify "<cmd>" or --no-verify`)
+	}
+	return gate, source, nil
+}
+
+// detectVerifyGate mirrors workflows/gate-loop.js's detection order over dir's own files.
+func detectVerifyGate(dir string) (gate, source string) {
+	if hasMakeTarget(filepath.Join(dir, "Makefile"), "test") {
+		return "make test", "Makefile"
+	}
+	if fileExists(filepath.Join(dir, "go.mod")) {
+		return "go build ./... && go vet ./... && go test ./...", "go.mod"
+	}
+	if fileExists(filepath.Join(dir, "pyproject.toml")) || fileExists(filepath.Join(dir, "setup.cfg")) {
+		return "pytest -q", "pyproject"
+	}
+	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
+		return "npm test", "package.json"
+	}
+	if fileExists(filepath.Join(dir, "Cargo.toml")) {
+		return "cargo build && cargo test", "Cargo.toml"
+	}
+	return "", ""
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// hasMakeTarget reports whether makefile declares a target named exactly target (a line starting with
+// "target:"). A missing Makefile is simply "no target", never an error.
+func hasMakeTarget(makefile, target string) bool {
+	data, err := os.ReadFile(makefile)
+	if err != nil {
+		return false
+	}
+	prefix := target + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasNPMTestScript reports whether pkgJSON declares a "test" script.
+func hasNPMTestScript(pkgJSON string) bool {
+	data, err := os.ReadFile(pkgJSON)
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(data, &pkg) != nil {
+		return false
+	}
+	_, ok := pkg.Scripts["test"]
+	return ok
 }
 
 // printMergePlan renders Preflight's plan: the pinned OIDs, then every Issue found (empty = clean).
@@ -244,8 +372,8 @@ func printMergePlan(plan *worktree.MergePlan) {
 // hands it to worktree.ResolveWithAgent and re-Preflights once the worktree is clean and committed
 // again. A nil plan with a nil error means the caller already printed why this is blocked (exit 1):
 // dry-run, no --resolve-agent, or an Issue --resolve-agent can't act on (anything but a conflict).
-func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRun bool) (*worktree.MergePlan, error) {
-	plan, err := worktree.Preflight(repo, name, target)
+func planOrResolve(ctx context.Context, repo *worktree.Repo, name, target, resolveAgent string, dryRun bool) (*worktree.MergePlan, error) {
+	plan, err := worktree.Preflight(ctx, repo, name, target)
 	if err != nil {
 		return nil, err
 	}
@@ -258,13 +386,13 @@ func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRu
 	}
 
 	origTargetRef, origTargetOID := plan.TargetRef, plan.TargetOID
-	_, result, err := worktree.ResolveWithAgent(repo, plan, resolveAgent, nil)
+	_, result, err := worktree.ResolveWithAgent(ctx, repo, plan, resolveAgent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve: %w", err)
 	}
 	printResolved(result)
 
-	plan, err = worktree.Preflight(repo, name, target) // fresh plan: the worktree is clean and committed now
+	plan, err = worktree.PreflightAfterResolution(ctx, repo, name, target) // the resolution is committed now
 	if err != nil {
 		return nil, err
 	}
@@ -281,8 +409,10 @@ func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRu
 
 // resumeWorktreeMerge reattaches to the --resolve-agent operation saved for name: it polls the
 // worktree's current state (worktree.ResolveWithAgent with a non-nil op never re-invokes the agent)
-// and, once resolved, returns a fresh Preflight plan ready for the normal integrate+promote path.
-func resumeWorktreeMerge(repo *worktree.Repo, name, target string) (*worktree.MergePlan, error) {
+// and, once resolved, returns a fresh Preflight plan ready for the normal integrate+promote path. Both
+// the saved target branch and OID must still match — a branch switched to a different ref at the same
+// commit is still a moved target.
+func resumeWorktreeMerge(ctx context.Context, repo *worktree.Repo, name, target string) (*worktree.MergePlan, error) {
 	op, err := worktree.LoadOperation(repo, name)
 	if err != nil {
 		return nil, fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
@@ -295,12 +425,12 @@ func resumeWorktreeMerge(repo *worktree.Repo, name, target string) (*worktree.Me
 		return nil, fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
 	}
 	plan := &worktree.MergePlan{WorktreePath: worktreePath}
-	_, result, err := worktree.ResolveWithAgent(repo, plan, op.Agent, op)
+	_, result, err := worktree.ResolveWithAgent(ctx, repo, plan, op.Agent, op)
 	if err != nil {
 		return nil, err
 	}
 	printResolved(result)
-	fresh, err := worktree.Preflight(repo, name, target)
+	fresh, err := worktree.PreflightAfterResolution(ctx, repo, name, target)
 	if err != nil {
 		return nil, err
 	}
@@ -308,9 +438,9 @@ func resumeWorktreeMerge(repo *worktree.Repo, name, target string) (*worktree.Me
 		printMergePlan(fresh)
 		return nil, fmt.Errorf("still blocked after resuming resolution (%s)", issueCodes(fresh.Issues))
 	}
-	if fresh.TargetOID != op.TargetOID {
-		return nil, fmt.Errorf("target moved from %s to %s since the operation started — re-run worktree merge explicitly to retry against the new target",
-			shortOID(op.TargetOID), shortOID(fresh.TargetOID))
+	if fresh.TargetRef != op.TargetRef || fresh.TargetOID != op.TargetOID {
+		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) since the operation started — re-run worktree merge explicitly to retry against the new target",
+			op.TargetRef, shortOID(op.TargetOID), fresh.TargetRef, shortOID(fresh.TargetOID))
 	}
 	return fresh, nil
 }
@@ -406,11 +536,12 @@ func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 	return 0
 }
 
-// runVerify runs cmdStr (via sh -c, so a pipeline/compound command works) inside workDir, inheriting
-// stdout/stderr so the caller sees the gate's own output; a nonzero exit is the one signal that stops
-// promotion.
-func runVerify(workDir, cmdStr string) error {
-	cmd := exec.Command("sh", "-c", cmdStr)
+// runVerify runs cmdStr inside workDir via `bash -c 'set -o pipefail; ...'`, so a failing stage in a
+// pipeline (e.g. `false | cat`) fails the gate instead of reading as passed; inherits stdout/stderr so
+// the caller sees the gate's own output. ctx cancellation kills cmdStr; a nonzero exit (including from
+// cancellation) is the one signal that stops promotion.
+func runVerify(ctx context.Context, workDir, cmdStr string) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
 	cmd.Dir = workDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

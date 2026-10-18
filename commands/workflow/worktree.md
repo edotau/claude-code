@@ -1,6 +1,6 @@
 ---
 description: "Create and manage git worktrees for parallel Claude Code sessions"
-argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean] [--verify \"<cmd>\"] [--resolve-agent claude|codex|--resume]"
+argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean] [--verify \"<cmd>\"|--no-verify] [--resolve-agent claude|codex|--resume]"
 ---
 
 # worktree -- Git Worktree Lifecycle Manager
@@ -44,7 +44,7 @@ to an agent inside the worktree only; `--resume` reattaches to that operation af
 | `create <name> [--branch <b>]` | Create worktree + branch `worktree-<name>` (or an existing branch `<b>`) |
 | `<name>` *(no subcommand)* | Same as `create <name>` |
 | `list` | Show all worktrees with status |
-| `merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"]` | Preview (plan + predicted conflicts), integrate, run `--verify` before promoting, merge back fast-forward-only, auto-clean unless `--no-clean` |
+| `merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify]` | Preview (plan + predicted conflicts), integrate, run the verify gate (explicit, auto-detected, or skipped with `--no-verify`) before promoting, merge back fast-forward-only, auto-clean unless `--no-clean` |
 | `merge <name> --resolve-agent claude\|codex` | On a predicted conflict only, resolve it with that agent inside the worktree, then continue the normal merge |
 | `merge <name> --resume` | Reattach to a previously started `--resolve-agent` operation; never re-invokes the agent |
 | `clean <name>` | Remove a single worktree safely |
@@ -110,11 +110,17 @@ verbatim rather than re-deriving `$WT`/`$SLUG` by hand. If no worktrees exist un
 Merge a worktree branch back onto the main checkout's current branch — delegates to
 `internal/worktree.Preflight` / `IntegrateTarget` / `Promote`, which pin both OIDs, simulate the
 merge with `git merge-tree` before touching anything, integrate the pinned target **inside the
-worktree**, run `--verify` there if given, and promote with a fast-forward-only `git merge --ff-only`
+worktree**, run the verify gate there, and promote with a fast-forward-only `git merge --ff-only`
 on the main checkout — never a `--no-ff` merge commit on the live branch, and never a real conflicting
 merge. `Promote` also refuses to fast-forward onto anything but the exact OID `IntegrateTarget` just
 verified: a commit added to the worktree between integration and promotion stops with a retry hint
 instead of silently riding along unreviewed.
+
+**The verify gate is required by default** — the CLI itself picks it, nothing here needs to discover
+one: `--verify "<cmd>"` sets it explicitly, otherwise it auto-detects from the worktree (Makefile test
+target, go.mod, pyproject, package.json, Cargo.toml). Neither explicit nor detected refuses to promote,
+before anything is integrated, with `no verification gate found — pass --verify "<cmd>" or --no-verify`.
+`--no-verify` is the only way to promote unverified.
 
 1. **Preview** — always run first, never skipped:
    ```bash
@@ -129,20 +135,19 @@ instead of silently riding along unreviewed.
 
 2. On a clean preview, present it to the user and ask: "Merge $SLUG into \<target\>? (Y/n)".
 
-3. Discover the project's fast gate (from the Makefile / `pyproject.toml` / `go.mod`), e.g.
-   `make test-unit`, `go test ./...`, `.venv/bin/python -m pytest -x -q`. On confirmation, apply with
-   that gate as `--verify`, run **inside the worktree, before promotion**:
+3. On confirmation, apply — pass `--verify "<cmd>"` only to override auto-detection, or `--no-verify`
+   to skip it on purpose:
    ```bash
-   claude-code worktree merge --verify "make test-unit" "$SLUG"
+   claude-code worktree merge "$SLUG"
    ```
    This re-runs Preflight itself (never trusts the earlier preview), integrates the pinned target into
-   the worktree, runs `--verify` there, and only on success fast-forwards the main checkout onto the
-   result — a failed or missing gate (no target, no `.venv`) stops here: the worktree is preserved on
-   disk, untouched by promotion, so the user can inspect it or fix the gate and retry the same command.
-   On success it then promotes and — unless `--no-clean` was passed — removes the worktree and deletes
-   the branch exactly as `clean` would (the same live recheck, not a forced removal). A failure after
-   promotion prints a retry hint instead of leaving a merge commit on the live branch; re-run Step 1 to
-   get a fresh plan before retrying.
+   the worktree, runs the verify gate there, and only on success fast-forwards the main checkout onto
+   the result — a failing gate stops here: the worktree is preserved on disk, untouched by promotion,
+   so the user can inspect it, fix the gate, or retry with `--verify`/`--no-verify`. On success it then
+   promotes and — unless `--no-clean` was passed — removes the worktree and deletes the branch exactly
+   as `clean` would (the same live recheck, not a forced removal). A failure after promotion prints a
+   retry hint instead of leaving a merge commit on the live branch; re-run Step 1 to get a fresh plan
+   before retrying.
 
 4. **Report** (success path):
    ```
@@ -182,14 +187,19 @@ claude-code worktree merge --resolve-agent codex "$SLUG"
 ```
 
 This materializes the predicted conflict for real **inside the worktree** (`git merge`, never on the
-main checkout), saves an `Operation` record, and runs the named agent once, with tools enabled, to
-resolve every conflicted file and commit the merge there itself — the controller never writes a
-resolution and never retries a tools-enabled agent automatically. It then polls the worktree every two
-seconds, up to ten minutes, for a clean commit with both the pinned target and the worktree's prior
-HEAD as ancestors (rejecting a stale merge commit from an aborted attempt). On success it continues
-straight into the normal integrate/promote/clean path above. A codex leg that silently fell back to
-Claude, a timeout, cancellation, or an unexpected history stops with the operation and the worktree's
-edits preserved on disk — nothing is cleaned up, so the state can be inspected or resumed.
+main checkout), saves an `Operation` record naming every originally-conflicted path, and runs the
+named agent once, with tools enabled, to edit those files only — the agent is told not to run `git
+add`/`commit`/`merge` itself (a sandboxed agent, e.g. codex's workspace-write, cannot write inside
+`.git` anyway). Once the agent exits cleanly with no fallback, the **controller** verifies every one of
+those paths lost its conflict markers and that nothing outside them changed, then runs `git add` +
+`git commit --no-edit` itself inside the worktree and revalidates the result (both the pinned target
+and the worktree's prior HEAD as ancestors of the new HEAD, rejecting a stale merge commit). On success
+it continues straight into the normal integrate/promote/clean path above. Markers left behind or an
+unexpected path changed fails the operation outright, the same as a timeout — the operation record and
+the worktree's edits stay on disk, nothing is cleaned up, so the state can be inspected or resumed. A
+codex leg that silently fell back to Claude, a timeout, or cancellation (Ctrl-C) fails the same way.
+`--resume` falls back to polling the worktree every two seconds, up to ten minutes, for the rare case a
+human (or an agent that committed anyway) finishes the job out of band.
 
 To reattach after a controller crash or Ctrl-C, without ever re-invoking the agent:
 

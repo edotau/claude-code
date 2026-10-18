@@ -253,7 +253,7 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 		got = append(got, f.name)
 	}
 	slices.Sort(got)
-	want := []string{"dry-run", "no-clean", "resolve-agent", "resume", "target", "verify"}
+	want := []string{"dry-run", "no-clean", "no-verify", "resolve-agent", "resume", "target", "verify"}
 	if !slices.Equal(got, want) {
 		t.Errorf("worktree merge flags = %v, want %v (cmdWorktreeMerge's own flag.NewFlagSet)", got, want)
 	}

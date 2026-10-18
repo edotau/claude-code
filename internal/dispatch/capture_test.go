@@ -167,13 +167,18 @@ func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 	}
 }
 
-// writeStubTmuxCapturePaneFails lists one cc-* pane successfully but fails capture-pane on it.
-func writeStubTmuxCapturePaneFails(t *testing.T, dir string) {
+// writeStubTmuxCapturePaneFails lists one cc-* pane successfully but fails capture-pane on it, and
+// touches markerPath so the test can confirm capture-pane actually ran rather than list-panes itself
+// having failed first (the printf format string here must treat the pane-id field as DATA, via the
+// "%s" format plus a separate argument — inlining it into the format string, e.g.
+// `printf 'cc-claude-a|%1|...\n'`, makes printf itself fail on the literal "%1" token before
+// list-panes's exit code is even checked, which previously made this test pass for the wrong reason).
+func writeStubTmuxCapturePaneFails(t *testing.T, dir, markerPath string) {
 	t.Helper()
 	script := "#!/bin/sh\n" +
 		"case \"$1\" in\n" +
-		"  list-panes) printf 'cc-claude-a|%1|claude|claude\\n' ;;\n" +
-		"  capture-pane) echo 'simulated capture failure' >&2; exit 1 ;;\n" +
+		"  list-panes) printf '%s\\n' 'cc-claude-a|%1|claude|claude' ;;\n" +
+		"  capture-pane) touch '" + markerPath + "'; echo 'simulated capture failure' >&2; exit 1 ;;\n" +
 		"  *) exit 0 ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
@@ -183,10 +188,13 @@ func writeStubTmuxCapturePaneFails(t *testing.T, dir string) {
 
 // TestCapturePanes_RealScriptPropagatesCapturePaneFailure covers the loop-body half of the same
 // finding: a capture-pane failure for one listed pane must also fail the whole script, not just
-// silently omit that pane's record.
+// silently omit that pane's record. The marker-file check pins that list-panes actually succeeded and
+// capture-pane was reached — without it, a broken stub that fails list-panes first would make this
+// test pass vacuously, for the wrong reason (see writeStubTmuxCapturePaneFails).
 func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	stubDir := t.TempDir()
-	writeStubTmuxCapturePaneFails(t, stubDir)
+	marker := stubDir + "/capture-pane-invoked"
+	writeStubTmuxCapturePaneFails(t, stubDir, marker)
 	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
 
 	caps, err := CapturePanes(context.Background(), "localhost", true, ExecRunner)
@@ -195,6 +203,9 @@ func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	}
 	if caps != nil {
 		t.Errorf("caps = %+v, want nil on a propagated capture failure", caps)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("capture-pane was never invoked (list-panes must have failed first): %v", statErr)
 	}
 }
 

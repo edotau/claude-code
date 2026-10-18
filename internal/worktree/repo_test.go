@@ -256,6 +256,42 @@ func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T
 	}
 }
 
+// TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination covers rejectLiveCheckoutRoot's own
+// reason for existing unconditionally (internal/worktree/repo.go:90): a brand-new name that does NOT
+// yet exist on disk under a worktree root symlinked into the live main checkout must still be
+// refused, before Create would otherwise materialize a new directory straight inside the live
+// checkout — ownsWorktree's EXISTING-destination check (the sibling regression test above) cannot
+// catch this, since os.Lstat on a nonexistent path has nothing to compare against.
+func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo := &Repo{Main: main, Root: main} // the symlinked-root scenario, collapsed: Root(main) == main
+
+	dest, err := ResolveWorktree(repo, "brand-new-name")
+	if err == nil {
+		t.Fatalf("ResolveWorktree: want an error for a nonexistent destination under the live checkout root, got dest=%q", dest)
+	}
+	if _, statErr := os.Stat(filepath.Join(main, "brand-new-name")); statErr == nil {
+		t.Fatal("a directory was created inside the live checkout despite the refusal")
+	}
+}
+
+// TestCreateRefusesWhenWorktreeRootIsLiveCheckout is the Create-level sibling: `worktree create` must
+// refuse outright rather than running `git worktree add` straight into the live checkout, even for a
+// name that has never existed before.
+func TestCreateRefusesWhenWorktreeRootIsLiveCheckout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo := &Repo{Main: main, Root: main}
+
+	if dest, err := Create(repo, "brand-new-name", ""); err == nil {
+		t.Fatalf("Create: want an error for a worktree root that is the live checkout, got dest=%q", dest)
+	}
+	if _, statErr := os.Stat(filepath.Join(main, "brand-new-name")); statErr == nil {
+		t.Fatal("Create: a directory was created inside the live checkout despite the refusal")
+	}
+}
+
 func TestResolveRepoDetachedHEAD(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	main := detachedHead(t)
