@@ -1,6 +1,6 @@
 ---
 description: "Create and manage git worktrees for parallel Claude Code sessions"
-argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--clean|--no-clean]"
+argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean]"
 ---
 
 # worktree -- Git Worktree Lifecycle Manager
@@ -27,11 +27,12 @@ Existing worktrees:
 ```
 
 **Location** — one root shared by native Claude Code (the `worktree-create` hook), Orca, and this
-command: `~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. `create`, `list`,
-`clean` and `clean-all` below delegate to `claude-code worktree …` (`internal/worktree`), which
-resolves this root and every worktree's actual branch from git itself — never assume a naming
-convention (`wt/<name>`, `worktree-<name>`, an Orca-chosen name): discover it. `merge` still
-operates directly, since the merge/resolve-agent lifecycle is a later phase (Appendix A, Phase 2+).
+command: `~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. Every subcommand below
+— including `merge` — delegates to `claude-code worktree …` (`internal/worktree`), which resolves this
+root and every worktree's actual branch from git itself — never assume a naming convention
+(`wt/<name>`, `worktree-<name>`, an Orca-chosen name): discover it. `merge` runs a two-phase,
+fast-forward-only promotion (`internal/worktree/preflight.go`, `merge.go`): a predicted conflict stops
+before anything mutates — Appendix A Phase 3 adds agent resolution for that case.
 
 ---
 
@@ -42,7 +43,7 @@ operates directly, since the merge/resolve-agent lifecycle is a later phase (App
 | `create <name> [--branch <b>]` | Create worktree + branch `worktree-<name>` (or an existing branch `<b>`) |
 | `<name>` *(no subcommand)* | Same as `create <name>` |
 | `list` | Show all worktrees with status |
-| `merge <name> [--clean\|--no-clean]` | Preview commits, merge back, verify, optionally auto-clean |
+| `merge <name> [--target <ref>] [--no-clean]` | Preview (plan + predicted conflicts), merge back fast-forward-only, verify, auto-clean unless `--no-clean` |
 | `clean <name>` | Remove a single worktree safely |
 | `clean-all` | Remove all `~/worktrees/<repo>/*` worktrees |
 
@@ -101,101 +102,69 @@ verbatim rather than re-deriving `$WT`/`$SLUG` by hand. If no worktrees exist un
 
 ---
 
-## SUBCOMMAND: `merge <name> [--clean|--no-clean]`
+## SUBCOMMAND: `merge <name> [--target <ref>] [--no-clean]`
 
-Merge a worktree branch back into the current branch, then optionally clean up.
+Merge a worktree branch back onto the main checkout's current branch — delegates to
+`internal/worktree.Preflight` / `IntegrateTarget` / `Promote`, which pin both OIDs, simulate the
+merge with `git merge-tree` before touching anything, integrate the pinned target **inside the
+worktree**, and promote with a fast-forward-only `git merge --ff-only` on the main checkout — never a
+`--no-ff` merge commit on the live branch, and never a real conflicting merge.
 
-Flags:
-- `--clean` — after a successful merge, auto-remove the worktree and delete the branch (no prompt).
-- `--no-clean` — leave the worktree on disk (no prompt). This matches the pre-auto-clean behavior.
-- *(no flag)* — after a successful merge, interactively ask `Clean up worktree $SLUG now? (Y/n)`.
-
-1. Resolve `<name>` to the worktree path `$WT` and branch `wt/$SLUG`. Parse the optional `--clean` / `--no-clean` flag.
-
-2. **Preview** — show what will be merged:
+1. **Preview** — always run first, never skipped:
    ```bash
-   git log --oneline HEAD..wt/$SLUG
-   git diff --stat HEAD..wt/$SLUG
+   claude-code worktree merge --dry-run "$SLUG"
    ```
+   Prints the pinned target/source OIDs and every `issue:` found. A clean plan prints
+   `clean — no predicted conflicts` and exits 0; any issue (dirty checkout, detached target, a
+   `--target` mismatch, unrelated histories, a `merge-tree` capability failure, or a predicted
+   `conflict` naming the conflicting files) exits 1 and nothing has mutated — skip to the **Merge
+   blocked** block below and stop. A `conflict` issue is the one Appendix A Phase 3 resolves with an
+   agent; until then, report it rather than retrying with a flag — there is none.
 
-3. **Check for uncommitted changes** in the worktree:
+2. On a clean preview, present it to the user and ask: "Merge $SLUG into \<target\>? (Y/n)".
+
+3. On confirmation, apply:
    ```bash
-   git -C $WT status --short
+   claude-code worktree merge "$SLUG"
    ```
-   If dirty, warn: "Worktree has uncommitted changes. Commit or stash them first."
-   List the dirty files and stop. Do NOT merge with uncommitted changes. Cleanup is never reached on this path.
+   This re-runs Preflight itself (never trusts the earlier preview), integrates the pinned target
+   into the worktree, fast-forwards the main checkout onto the result, and — unless `--no-clean` was
+   passed — removes the worktree and deletes the branch exactly as `clean` would (the same live
+   recheck, not a forced removal). A failure after integration prints a retry hint instead of leaving
+   a merge commit on the live branch; re-run Step 1 to get a fresh plan before retrying.
 
-4. **Merge** with no-fast-forward to preserve branch history:
-   ```bash
-   git merge wt/$SLUG --no-ff -m "Merge wt/$SLUG into $(git branch --show-current)"
-   ```
-   If the merge exits non-zero (conflicts), skip to the **Merge conflict** block at the end — do NOT run Step 5, 6, or 7.
-   This merge runs from the live checkout — it brings the worktree's commits in, never `checkout`/`reset`s the live tree to it.
-
-5. **Verify** — run the project's fast test target after merge (discover it from the Makefile /
+4. **Verify** — run the project's fast test target after merge (discover it from the Makefile /
    `pyproject.toml` / `go.mod`), e.g.:
    ```bash
    make test-unit 2>&1 | tail -5   # or: go test ./... | tail -5 · .venv/bin/python -m pytest -x -q | tail -5
    ```
-   Treat test-runner-not-found (no target, no `.venv`) as non-blocking — surface it in the report and continue. A real test failure is non-blocking for cleanup too, but is surfaced prominently so the user can decide.
+   Treat test-runner-not-found (no target, no `.venv`) as non-blocking — surface it in the report and
+   continue. A real test failure is non-blocking for cleanup too (it already ran), but is surfaced
+   prominently so the user can decide whether to revert.
 
-6. **Report** (success path):
+5. **Report** (success path):
    ```
    Merge complete
    ==============
-   Branch: wt/$SLUG -> <current branch>
-   Commits merged: <N>
+   Branch: worktree-$SLUG -> <target>
    Test result: <PASS/FAIL summary>
    ```
-
-7. **Post-merge cleanup** — only reached when Step 4 succeeded.
-
-   7a. Decide whether to clean:
-       - If `--clean` was passed → proceed to 7b.
-       - If `--no-clean` was passed → print the "still on disk" reminder (below) and stop.
-       - Otherwise, re-check the worktree is still clean:
-         ```bash
-         git -C $WT status --short
-         ```
-         If non-empty, print the "still on disk" reminder and stop (do not prompt — a dirty worktree is never silently cleaned).
-         If empty, prompt: `Clean up worktree $SLUG now? (Y/n)`. On `n` / decline, print the "still on disk" reminder and stop.
-
-   7b. Delegate to the same removal commands the `clean` subcommand uses:
-       ```bash
-       git worktree remove $WT --force
-       git branch -d wt/$SLUG 2>/dev/null || true
-       ```
-       Do NOT re-run the safety checks from `clean <name>` — Step 3 already verified the worktree was clean, and `--no-ff` preserves the branch's commits in history.
-
-   7c. On success, print:
-       ```
-       Worktree $SLUG removed. Branch wt/$SLUG deleted.
-       Commits are preserved on the merge commit (--no-ff).
-       ```
-       On removal failure (rare — e.g., filesystem lock), fall back to the "still on disk" reminder so the user can retry manually.
-
-   **"still on disk" reminder** (printed whenever cleanup is skipped or declined):
-   ```
-   The worktree is still on disk. To clean up:
-     /workflow:worktree clean $SLUG
-   ```
+   On `--no-clean`, the command's own `worktree left on disk; clean up with: ...` line replaces any
+   separate cleanup prompt — present it verbatim rather than re-deriving the command.
 
 ---
 
-### Merge conflict (Step 4 failure path)
+### Merge blocked (Step 1 issue)
 
-If `git merge` exits non-zero, do NOT run verify or cleanup. Print:
+Print the exact `issue:` line(s) from the dry-run preview and stop — do NOT run Step 3. For a
+predicted `conflict`, its `Paths` names the conflicting files:
+
 ```
-Merge conflict
-==============
-Conflicting files:
-  <list of files>
+Merge blocked
+=============
+issue: conflict [<files>] — git merge-tree predicts a conflict; Phase 3 adds agent resolution for this
 
-Resolve conflicts, then run:
-  git add <resolved files>
-  git commit
-
-The worktree is still on disk. To clean up after resolving:
+The worktree is still on disk, untouched. To clean up without merging:
   /workflow:worktree clean $SLUG
 ```
 

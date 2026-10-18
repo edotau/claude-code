@@ -13,6 +13,7 @@ import (
 
 const worktreeUsage = `usage: claude-code worktree list [--format text|json]
        claude-code worktree create <name> [--branch <b>]
+       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] <name>
        claude-code worktree clean [--dry-run] <name>
        claude-code worktree clean-all [--dry-run|--yes]
 `
@@ -36,6 +37,8 @@ func cmdWorktree(args []string) int {
 		return cmdWorktreeList(repo, rest)
 	case "create":
 		return cmdWorktreeCreate(repo, rest)
+	case "merge":
+		return cmdWorktreeMerge(repo, rest)
 	case "clean":
 		return cmdWorktreeClean(repo, rest)
 	case "clean-all":
@@ -131,6 +134,99 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	}
 	fmt.Println(dest)
 	return 0
+}
+
+// cmdWorktreeMerge previews (or, without --dry-run, applies) Preflight's two-phase merge: Preflight
+// always runs and prints the plan first, so an Issue — including a predicted conflict — is visible
+// before anything mutates. Apply then runs IntegrateTarget -> Promote -> an optional Clean.
+func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
+	fs := flag.NewFlagSet("worktree merge", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	dryRun := fs.Bool("dry-run", false, "preview the plan, including predicted conflicts, without integrating or promoting")
+	target := fs.String("target", "", "require the main checkout to be on this branch (default: whatever it's on)")
+	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	rest := fs.Args()
+	if len(rest) != 1 {
+		return fail("worktree merge: give exactly one name")
+	}
+	name := rest[0]
+
+	plan, err := worktree.Preflight(repo, name, *target)
+	if err != nil {
+		return fail("worktree merge: %v", err)
+	}
+	printMergePlan(plan)
+	if len(plan.Issues) > 0 {
+		return 1
+	}
+	if *dryRun {
+		return 0
+	}
+
+	integrated, err := worktree.IntegrateTarget(repo, plan)
+	if err != nil {
+		return fail("worktree merge: integrate: %v", err)
+	}
+	fmt.Printf("integrated: %s -> %s\n", shortOID(integrated.BeforeOID), shortOID(integrated.AfterOID))
+
+	promoted, err := worktree.Promote(repo, plan)
+	if err != nil {
+		if promoted != nil && promoted.ResumeHint != "" {
+			fmt.Fprintln(os.Stderr, "  retry:", promoted.ResumeHint)
+		}
+		return fail("worktree merge: promote: %v", err)
+	}
+	fmt.Printf("promoted:   %s -> %s on %s\n", shortOID(promoted.BeforeOID), shortOID(promoted.AfterOID), plan.TargetRef)
+
+	if *noClean {
+		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", name)
+		return 0
+	}
+	result, err := worktree.Clean(repo, name, false)
+	if err != nil {
+		return fail("worktree merge: clean: %v", err)
+	}
+	printCleanResult(result, false)
+	return 0
+}
+
+// printMergePlan renders Preflight's plan: the pinned OIDs, then every Issue found (empty = clean).
+// An Issue found before OIDs are pinned (dirty/detached/mismatch) leaves them blank, not stale.
+func printMergePlan(plan *worktree.MergePlan) {
+	fmt.Printf("target: %s%s\n", plan.TargetRef, oidSuffix(plan.TargetOID))
+	fmt.Printf("source: %s%s\n", plan.WorktreePath, oidSuffix(plan.SourceOID))
+	if len(plan.Issues) == 0 {
+		fmt.Println("clean — no predicted conflicts")
+		return
+	}
+	for _, iss := range plan.Issues {
+		fmt.Printf("issue: %s", iss.Code)
+		if len(iss.Paths) > 0 {
+			fmt.Printf(" %v", iss.Paths)
+		}
+		if iss.Detail != "" {
+			fmt.Printf(" — %s", iss.Detail)
+		}
+		fmt.Println()
+	}
+}
+
+func shortOID(oid string) string {
+	if len(oid) > 8 {
+		return oid[:8]
+	}
+	return oid
+}
+
+// oidSuffix is " (abc12345)", or "" when the plan stopped before pinning this OID.
+func oidSuffix(oid string) string {
+	if oid == "" {
+		return ""
+	}
+	return " (" + shortOID(oid) + ")"
 }
 
 func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
