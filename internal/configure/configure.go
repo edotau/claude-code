@@ -195,15 +195,25 @@ func runProvider(d *dialog) bool {
 	// On a terminal the picker is the list; printing it twice is what made the old dialogue look doubled.
 	// --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+		// Anthropic leads as one row; its two billing modes (subscription|anthropic) are picked underneath.
+		names := pickerNames(reg)
+		fp := &firstParty{reg: reg}
 		rows := make([][2]string, len(names))
 		start := 0
 		for i, n := range names {
-			rows[i] = [2]string{n, cred(n) + "  " + reg.Providers[n].Kind}
-			if n == cur {
+			if n == anthropicRow {
+				rows[i] = [2]string{n, anthropicDetail(fp, cur)}
+			} else {
+				rows[i] = [2]string{n, cred(n) + "  " + reg.Providers[n].Kind}
+			}
+			if n == cur || (n == anthropicRow && isAnthropicBilling(cur)) {
 				start = i
 			}
 		}
 		if idx, err := tui.Pick("provider — pick the session provider (current: "+cur+")", rows, start); err == nil {
+			if idx >= 0 && names[idx] == anthropicRow {
+				return pickAnthropicBilling(d, fp, cur)
+			}
 			if idx < 0 || names[idx] == cur {
 				d.printf("provider   pinned %s (kept)\n", cur)
 				return true
