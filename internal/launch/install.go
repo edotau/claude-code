@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/clean"
+	"github.com/edotau/claude-code/internal/history"
 	"io"
 	"io/fs"
 	"net/http"
@@ -45,6 +46,13 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
+	if !dryRun { // a vendor or hand edit about to be overwritten stays recoverable via `history diff`
+		if r, err := history.SnapshotConfig("pre-install"); err != nil {
+			fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
+		} else if r.Commit != "" {
+			fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
+		}
+	}
 	self, err := selfBinary()
 	if err != nil {
 		return err

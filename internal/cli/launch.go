@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/history"
 	"os"
 	"strings"
 	"time"
@@ -100,6 +101,13 @@ func cmdSettings(args []string) int {
 	data, err := settings.Render()
 	if err != nil {
 		return fail("%v", err)
+	}
+	if *out != "" && !*dryRun && !*check {
+		if r, err := history.SnapshotConfig("pre-generate"); err != nil {
+			fmt.Fprintln(os.Stderr, "generate: history snapshot:", err)
+		} else if r.Commit != "" {
+			fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
+		}
 	}
 	if *out == "" {
 		if !*check { // --check reports drift only; the render itself is noise there

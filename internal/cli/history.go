@@ -11,12 +11,11 @@ import (
 )
 
 const historyUsage = `usage: claude-code history snapshot [--note N]
-       claude-code history log [-n N] [--memory|--config]
-       claude-code history diff [rev] [--memory]`
+       claude-code history log [-n N] [--format text|json]
+       claude-code history diff [rev]
+Config files only; memory history is the store's own git: git -C ~/.claude/memory log`
 
-// cmdHistory reads and writes the shadow config/memory history: one repo under state/harness/history
-// (gitignored), covering the contested config files and the memory view as two labeled "planes" in
-// the same store (internal/history).
+// cmdHistory reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
 func cmdHistory(args []string) int {
 	sub := ""
 	if len(args) > 0 {
@@ -38,8 +37,7 @@ func cmdHistory(args []string) int {
 	return 2
 }
 
-// historySnapshot records both planes now. A plane that did not change reports so rather than
-// committing — "there is a commit" must keep meaning "something moved".
+// historySnapshot records the config plane now; unchanged files report so rather than committing.
 func historySnapshot(args []string) int {
 	fs := flag.NewFlagSet("history snapshot", flag.ContinueOnError)
 	note := fs.String("note", "manual", "note recorded in the commit subject")
@@ -54,12 +52,6 @@ func historySnapshot(args []string) int {
 		rc = 1
 	}
 	printSnapshot("config", cfg)
-	mem, err := store.Snapshot(history.MemoryFiles(), "memory", *note)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "history: memory:", err)
-		rc = 1
-	}
-	printSnapshot("memory", mem)
 	return rc
 }
 
@@ -80,13 +72,10 @@ func printSnapshot(plane string, r history.Result) {
 	}
 }
 
-// historyLog prints both planes' logs unless one is selected. Labeled per plane: the two are
-// independent histories, and an unlabeled merge would read as one timeline that never existed.
+// historyLog prints the config plane's log.
 func historyLog(args []string) int {
 	fs := flag.NewFlagSet("history log", flag.ContinueOnError)
 	n := fs.Int("n", 20, "commits per plane")
-	memOnly := fs.Bool("memory", false, "the memory bank only")
-	cfgOnly := fs.Bool("config", false, "the config files only")
 	format := outfmt.Flag(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -98,10 +87,7 @@ func historyLog(args []string) int {
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0
 	planes := map[string][]logEntry{}
-	for _, plane := range []string{"config", "memory"} {
-		if (plane == "config" && *memOnly) || (plane == "memory" && *cfgOnly) {
-			continue
-		}
+	for _, plane := range []string{"config"} {
 		lines, err := store.Log(*n, plane)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "history: %s: %v\n", plane, err)
@@ -150,11 +136,9 @@ func printLog(plane string, lines []string) {
 	}
 }
 
-// historyDiff shows one commit's patch. The config plane is the default target: it is the one another
-// tool rewrites behind your back, so it is the one a diff is usually chasing.
+// historyDiff shows one config-plane commit's patch.
 func historyDiff(args []string) int {
 	fs := flag.NewFlagSet("history diff", flag.ContinueOnError)
-	mem := fs.Bool("memory", false, "diff the memory bank history instead of the config files")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -163,9 +147,6 @@ func historyDiff(args []string) int {
 		rev = fs.Arg(0)
 	}
 	plane := "config"
-	if *mem {
-		plane = "memory"
-	}
 	store := &history.Store{Dir: history.Dir()}
 	out, err := store.Diff(rev, plane)
 	if err != nil {
