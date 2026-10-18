@@ -39,26 +39,29 @@ func presence(ok bool) string {
 	return "absent"
 }
 
-// pickGeminiAuth asks which Gemini credential the session provider uses: gemini's own Google AI Pro
-// login (preferred — serves the interactive gemini CLI and `ask --agent gemini` the same way codex's
-// ChatGPT login does, but is never pinned as the Claude session's own provider, which refuses a
-// passthrough session), or a Gemini API key as the fallback (every vendor and the ask runner can use it).
+// pickGeminiAuth asks which Gemini credential the session provider uses: a Gemini API key (every
+// vendor and the harness ask runner can use it), or gemini's own Google login — which serves only the
+// interactive gemini CLI's /auth and is never pinned, since the ask runner refuses a passthrough session.
 func pickGeminiAuth(d *dialog, cur string) bool {
 	p, hasProvider := d.reg.Providers[geminiRow]
 	keyPresent := hasProvider && providers.CredentialPresent(p)
 	loginPresent := vendors.GeminiLoginPresent()
 	rows := [][2]string{
-		{"Login", "Google AI Pro login · gemini /auth → \"Login with Google\" [" + presence(loginPresent) + "]"},
-		{"API key", "pay per token · fallback · paste an AI Studio key to set or rotate [" + geminiKeyStatus(keyPresent, p) + "]"},
+		{"API key", "pay per token · paste an AI Studio key to set or rotate [" + geminiKeyStatus(keyPresent, p) + "]"},
+		{"Login", "gemini /auth · Google sign-in, refreshes the session · gemini CLI only [" + presence(loginPresent) + "]"},
 	}
-	idx, err := tui.PickBack("gemini — pick the credential (current: "+cur+")", rows, 0)
+	start := 0
+	if cur == geminiRow {
+		start = 0
+	}
+	idx, err := tui.PickBack("gemini — pick the credential (current: "+cur+")", rows, start)
 	if err != nil || idx < 0 {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return err == nil
 	}
-	if idx == 0 {
-		d.printf("gemini   Google AI Pro login serves the interactive gemini CLI and `ask --agent gemini`; the " +
-			"Claude session itself refuses a passthrough gemini provider, so it is never pinned here\n")
+	if idx == 1 {
+		d.printf("gemini   Google login serves the interactive gemini CLI only; the ask runner refuses a " +
+			"passthrough gemini session, so it is never pinned as the session provider\n")
 		if confirm(d, "Run `gemini` now to sign in via /auth?") {
 			if err := runLogin([]string{"gemini"}); err != nil {
 				d.printf("gemini: %v\n", err)
