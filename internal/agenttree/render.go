@@ -162,15 +162,12 @@ func fitRow(prefix, tail, tool string, width int) string {
 	if runeLen(line) <= width {
 		return line
 	}
-	if tail != "" {
-		over := runeLen(line) - width
-		tail = shrink(tail, over)
-		line = joinNonEmpty(prefix, tail) + toolPart
+	// Why: the description outranks the last tool, so the tool segment goes before the description shrinks.
+	line = joinNonEmpty(prefix, tail)
+	if runeLen(line) > width && tail != "" {
+		tail = shrink(tail, runeLen(line)-width)
+		line = joinNonEmpty(prefix, tail)
 	}
-	if runeLen(line) <= width {
-		return line
-	}
-	line = joinNonEmpty(prefix, tail) // tool segment dropped
 	return clip(line, width)
 }
 
