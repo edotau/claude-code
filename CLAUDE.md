@@ -39,7 +39,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 6. **Live check first; scoped tests during development; the full suite once.** Run the verb or flow
    the task is about before writing tests around it. Test only the packages you touched. `make test`
    runs once, when the work is complete — state what ran and that the suite did not.
-   Every code dispatch carries the `sonnet` test agent in the same message. → `rules/standards/quality.md`
+   Every code dispatch carries the `copilot` test agent in the same message. → `rules/standards/quality.md`
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 
@@ -81,9 +81,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo · audit a branch before merge · loop a red gate | From a Claude Code session: `Workflow implement-and-verify {task, cwd, scope}` · `audit-fix-verify {range\|paths, cwd, rounds?, refuters?: ["codex"]}` (loops rounds in-script until dry/stalled/capped) · `gate-loop {cwd, scope}` (gate auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml); also `review-funnel` · `dag` · `test-and-fix-fanout` · `vendor-leg`; `/workflow:orchestrate`, `/code-workers` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows · the `workflow-lint` PreToolUse hook auto-fills `model:'sonnet'` on an unpinned inline `agent()` and blocks only an ambiguous rewrite |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
-| Fix failing tests | `/testing:test-and-fix` | `agents/sonnet` |
+| Fix failing tests | `/testing:test-and-fix` | `agents/copilot` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
-| Audit / extract / promote / save agent memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/reflection.md` |
+| Audit / extract / promote / save agent memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |

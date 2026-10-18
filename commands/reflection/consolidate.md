@@ -85,7 +85,7 @@ If this session revealed a mistake, wrong pattern, or missing constraint:
 
 > Runs automatically after Part 1, or standalone with `--dream` / `--dry-run`.
 
-Launch a **sonnet** subagent for consolidation. Pass it all memory file contents as context.
+Launch the **opencode** agent (PERSIST mode) for consolidation. Pass it all memory file contents as context.
 
 ### Phase 1: Backup
 
@@ -128,7 +128,7 @@ Run `claude-code memory doctor` for cap/staleness findings, then:
 
 ### Phase 6: Cross-Pollinate (via subagent)
 
-Hand the dream consolidator (sonnet) every touched `~/.claude/agent-memory/*/MEMORY.md` (+
+Hand the dream consolidator (opencode) every touched `~/.claude/agent-memory/*/MEMORY.md` (+
 topic files). Ask it to:
 
 1. Detect rules that recur across **3+ agent memories** and are hard prohibitions.
@@ -153,7 +153,7 @@ Session Summary: [written / skipped (dream-only)]
 
 Agent Memories:
   claude  89 -> 71 lines  (-18 merged related items)
-  [unchanged]    codex, gemini, sonnet, ...
+  [unchanged]    codex, gemini, opencode, ...
 
 Bank:
   activeContext.md: [updated/unchanged]

@@ -1,5 +1,5 @@
 ---
-description: "Normally automatic (dream consolidation) — manual audit of native agent memory: health dashboard (--brief/--quick) or a full read-only audit of promotion candidates, stale entries, and consolidation opportunities via the reflection agent (ANALYZE mode)."
+description: "Normally automatic (dream consolidation) — manual audit of native agent memory: health dashboard (--brief/--quick) or a full read-only audit of promotion candidates, stale entries, and consolidation opportunities via the opencode agent (ANALYZE mode)."
 argument-hint: "[--brief | --quick | --stale | --candidates]"
 ---
 
@@ -36,7 +36,7 @@ auto-load cap.
 
 ## Full review (default, `--stale`, `--candidates`)
 
-Dispatch the **reflection** agent in **ANALYZE** mode. Give it:
+Dispatch the **opencode** agent in **ANALYZE** mode. Give it:
 
 - Every `~/.claude/agent-memory/*/MEMORY.md` + linked topic files
 - The output of `claude-code memory doctor`

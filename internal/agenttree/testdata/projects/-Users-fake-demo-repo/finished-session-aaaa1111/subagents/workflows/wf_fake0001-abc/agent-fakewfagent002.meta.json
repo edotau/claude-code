@@ -1,1 +1,1 @@
-{"agentType":"sonnet","description":"run the gate and fix what fails","workflowPhase":"Gate","spawnDepth":1,"requestShape":"foreground","requestNonInteractive":false,"model":"sonnet"}
+{"agentType":"copilot","description":"run the gate and fix what fails","workflowPhase":"Gate","spawnDepth":1,"requestShape":"foreground","requestNonInteractive":false,"model":"sonnet"}

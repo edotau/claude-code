@@ -77,7 +77,7 @@ gets the assertion that pins it, not a table of every neighbour.
 
 For a bug fix the live run IS the RED: reproduce the defect on the real surface first, fix, re-run the
 same command, and the before/after output is the evidence. Repairing EXISTING tests the change breaks or
-makes stale is not "writing tests" and proceeds concurrently as usual (fan out the `sonnet` agent); only NEW
+makes stale is not "writing tests" and proceeds concurrently as usual (fan out the `copilot` agent); only NEW
 tests wait for the live check.
 
 ### TDD cycle — only where nothing can be run live
@@ -91,7 +91,7 @@ tests wait for the live check.
 6. Verify coverage (80%+)
 ```
 
-Reach for **sonnet** once the live check has landed, or immediately where there is no surface to
+Reach for **copilot** once the live check has landed, or immediately where there is no surface to
 run. On failures: check test isolation, verify mocks, fix the implementation (not the test, unless the
 test is wrong).
 
@@ -106,7 +106,7 @@ biggest time sink in a coding task, and the reason collateral breakage always su
 Concurrency is the whole point of the rule; a test agent dispatched after the code lands
 satisfies the letter and none of the value.
 
-The concurrent agent is a **repair** agent (`sonnet`) — existing tests the change breaks, which need
+The concurrent agent is a **repair** agent (`copilot`) — existing tests the change breaks, which need
 no live check. NEW coverage is still gated on the live run above, so it is dispatched after it, not here.
 
 **Ownership split** (no overlap, so the agents don't fight over the same files):
@@ -118,7 +118,7 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 | Test agent(s) | Everything else about tests: new coverage (edge cases, table rows, regression guards) **and** the EXISTING tests the change breaks or makes stale. Sized to the change, written after the live check, run scoped to the touched packages. |
 
 **Sizing.** One test agent minimum; scale with the implementation fan-out (roughly one per
-distinct suite or module under change). Test agents are lean leaves — `sonnet`, or
+distinct suite or module under change). Test agents are lean leaves — `copilot`, or
 `code-workers` for a scoped suite — so they sit outside the ≤8 deep-context tier.
 
 **Not satisfied by:**
