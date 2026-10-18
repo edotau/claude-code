@@ -363,7 +363,7 @@ near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
   `state/harness/history`; `env.d/secrets.env` is never snapshotted.
 - `claude-code theme [--preview]` — pick the statusline color palette.
-- `claude-code audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), safety-hook blocks (reason, never the command), router failovers. `doctor` prints the 7-day count.
+- `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), safety-hook blocks (reason, never the command), router failovers.
 - `claude-code mcp doctor [--format json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
 
 ## Status line

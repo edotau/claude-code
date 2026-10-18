@@ -318,9 +318,9 @@ func auditSummary() string {
 		}
 	}
 	if len(parts) == 0 {
-		return "no audited actions (claude-code audit)"
+		return "no audited actions (claude-code doctor --audit)"
 	}
-	return strings.Join(parts, ", ") + " (claude-code audit)"
+	return strings.Join(parts, ", ") + " (claude-code doctor --audit)"
 }
 
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.

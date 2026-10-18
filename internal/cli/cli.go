@@ -65,11 +65,10 @@ func commands() []command {
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
 		{name: "web", group: groupSession, summary: "phone-friendly tailnet page: watch agents, dispatch new ones", run: cmdWeb},
 		// DIAGNOSTICS
-		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (see also mcp doctor)", run: cmdDoctor},
+		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (--audit: typed action log)", run: cmdDoctor},
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
 		{name: "usage", group: groupDiagnostics, summary: "subagent token totals + peak input tokens/min (--days N)", run: cmdUsage},
 		{name: "mcp", group: groupDiagnostics, summary: "doctor: MCP server health, scope drift, inline secrets", run: cmdMCP},
-		{name: "audit", group: groupDiagnostics, summary: "typed action log: switches, pins, secret sets, blocks", run: cmdAudit},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map: verbs, providers, runners, hooks", run: cmdDescribe},
 		{name: "tailscale", group: groupDiagnostics, summary: "tailnet: status | machines | connect | key | exit-node", run: cmdTailscale},
 		// SETTINGS
