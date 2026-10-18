@@ -65,6 +65,7 @@ type Headless struct {
 	Effort    string
 	SessionID string // resume this session
 	Tools     bool
+	Writable  []string // extra dirs a tools run may write, e.g. a linked worktree's git common dir
 }
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -411,6 +412,11 @@ func codexHeadless(argv []string, h *Headless) []string {
 		sandbox = "workspace-write"
 	}
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
+	if h.Tools {
+		for _, d := range h.Writable {
+			argv = append(argv, "--add-dir", d)
+		}
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "resume", h.SessionID)
 	}
