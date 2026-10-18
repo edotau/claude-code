@@ -12,18 +12,15 @@ import (
 // pickMenu is the top-level menu's picker seam; tests replace it.
 var pickMenu = tui.Pick
 
-// runMenu is `configure`'s interactive entry with no section named: a pick-one menu over claude,
-// every agent CLI, and every section below it; picking a row runs that action, then the menu
-// re-renders with fresh status, cursor kept, until Done or Esc. --agent narrows it to that one row.
+// runMenu is `configure`'s interactive entry with no section named: a pick-one menu over claude and every agent
+// CLI; picking a row runs that action, then the menu re-renders with fresh status, cursor kept, until Esc.
+// --agent narrows it to that one row.
 func runMenu(d *dialog) int {
 	start := 0
 	for {
 		rows, actions := menuRows(d)
-		full := make([][2]string, len(rows)+1)
-		copy(full, rows)
-		full[len(rows)] = [2]string{"Done", "leave configure"}
-		idx, err := pickMenu("configure", full, start)
-		if err != nil || idx < 0 || idx == len(rows) {
+		idx, err := pickMenu("configure", rows, start)
+		if err != nil || idx < 0 {
 			return 0
 		}
 		start = idx

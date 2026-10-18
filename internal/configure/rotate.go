@@ -50,6 +50,9 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 		d.printf("%s: set via the process environment, not a stored plane — edit it where it is exported\n", kt.envVar)
 		return false
 	}
+	if !actionConfirmed("Paste a new " + kt.envVar + " to rotate it") {
+		return false
+	}
 	if u := consoleURLs[kt.envVar]; u != "" && confirm(d, "Open "+u+" in your browser to create the new key?") {
 		openBrowser(u)
 	}

@@ -93,6 +93,9 @@ func loginLine(kt keyTarget) string {
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
 func changeKey(d *dialog, kt keyTarget) bool {
 	if !kt.present {
+		if !actionConfirmed("Set up " + kt.label) {
+			return false
+		}
 		return resolveKey(d, kt)
 	}
 	if len(rotateOptions(kt)) == 0 {
