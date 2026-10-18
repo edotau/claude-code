@@ -48,10 +48,10 @@ func commands() []command {
 		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default", run: tierVerb(models.Fable)},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupVendors, summary: "launch GitHub Copilot CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("copilot", a) }},
-		{name: "codex", group: groupVendors, summary: "launch Codex CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("codex", a) }},
-		{name: "gemini", group: groupVendors, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
-		{name: "opencode", group: groupVendors, summary: "launch OpenCode on the registry; ask = one task", run: func(a []string) int { return vendorVerb("opencode", a) }},
+		{name: "copilot", group: groupVendors, summary: "Copilot CLI on your Copilot plan; pick any of 27 models", run: func(a []string) int { return vendorVerb("copilot", a) }},
+		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; second-opinion code reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
+		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context repo sweeps (bridge) and research", run: cmdGemini},
+		{name: "opencode", group: groupVendors, summary: "OpenCode on your Copilot plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
 		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
 		{name: "resolve", group: groupAuth, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
@@ -97,6 +97,12 @@ func commands() []command {
 func vendorVerb(vendor string, args []string) int {
 	if len(args) > 0 && args[0] == "ask" {
 		return cmdAsk(append([]string{"--agent", vendor}, args[1:]...))
+	}
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Fprintf(os.Stderr, "claude-code %s — launch the vendor CLI on the registry\n\n"+
+			"USAGE\n  claude-code %[1]s [vendor args…]   launch the vendor CLI, args untouched\n"+
+			"  claude-code %[1]s ask …              one-shot on the %[1]s runner (= ask --agent %[1]s)\n", vendor)
+		return 2
 	}
 	return launchVendor(vendor, args)
 }

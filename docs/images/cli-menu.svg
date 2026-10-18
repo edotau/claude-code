@@ -24,16 +24,16 @@
 <text x="22.0" y="236" fill="#8a7e90" font-weight="bold">AGENTS</text>
 <text x="22.0" y="255" fill="#d7d4dc">  </text>
 <text x="38.8" y="255" fill="#6987d8" font-weight="bold">copilot         </text>
-<text x="173.2" y="255" fill="#d7d4dc">launch GitHub Copilot CLI on the registry; ask = one task</text>
+<text x="173.2" y="255" fill="#d7d4dc">Copilot CLI on your Copilot plan; pick any of 27 models</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
 <text x="38.8" y="274" fill="#7282d4" font-weight="bold">codex           </text>
-<text x="173.2" y="274" fill="#d7d4dc">launch Codex CLI on the registry; ask = one task</text>
+<text x="173.2" y="274" fill="#d7d4dc">Codex on your ChatGPT login; second-opinion code reviews</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
 <text x="38.8" y="293" fill="#7a7ed1" font-weight="bold">gemini          </text>
-<text x="173.2" y="293" fill="#d7d4dc">launch the gemini CLI; ask|bridge = large-context</text>
+<text x="173.2" y="293" fill="#d7d4dc">Gemini CLI; 1M-context repo sweeps (bridge) and research</text>
 <text x="22.0" y="312" fill="#d7d4dc">  </text>
 <text x="38.8" y="312" fill="#817ccf" font-weight="bold">opencode        </text>
-<text x="173.2" y="312" fill="#d7d4dc">launch OpenCode on the registry; ask = one task</text>
+<text x="173.2" y="312" fill="#d7d4dc">OpenCode on your Copilot plan; docs and drafting</text>
 <text x="22.0" y="350" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="369" fill="#d7d4dc">  </text>
 <text x="38.8" y="369" fill="#847ace" font-weight="bold">secrets         </text>
