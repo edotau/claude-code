@@ -93,7 +93,7 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 	if cur == anthropicRow {
 		start = 1
 	}
-	idx, err := tui.Pick("anthropic — billing mode (current: "+billingLabel(cur)+")", rows, start)
+	idx, err := tui.PickBack("anthropic — billing mode (current: "+billingLabel(cur)+")", rows, start)
 	if err != nil || idx < 0 {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return err == nil
