@@ -5,6 +5,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // The anthropic picker row stands for both first-party billing modes: the subscription OAuth login
@@ -74,15 +75,50 @@ func anthropicDetail(fp *firstParty, cur string) string {
 	return "subscription or api key"
 }
 
-// billingRow is one row of the anthropic sub-picker: a label/detail pair and what picking it does.
+// billingRow is one row of the claude sub-picker: a label/detail pair and what picking it does.
+// key, when set, is the provider name this row pins — it is how the picker finds its starting row.
 type billingRow struct {
-	label, desc string
-	run         func() bool
+	label, desc, key string
+	run              func() bool
 }
 
-// pickAnthropicBilling asks which first-party billing mode to use, satisfies or rotates its credential,
-// and pins the matching provider (subscription = OAuth login, anthropic = API key).
-func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
+// otherBackends are the non-anthropic backends Claude Code can run a session on, shown in the claude
+// sub-picker below Subscription/API key; each must be a registered provider to get a row.
+var otherBackends = []string{"chatgpt", geminiRow, "github-copilot"}
+
+// backendDetail is an otherBackends row's status: whether a working credential is present. chatgpt
+// and github-copilot are passthrough providers — CredentialPresent always says yes for those (there is
+// no key to check) — so their row asks the vendor's own login state instead, same as keyTargets does.
+func backendDetail(reg *providers.Registry, name string) string {
+	switch name {
+	case "chatgpt":
+		return loginDetail(vendors.CodexChatGPTLoginPresent(), "ChatGPT login")
+	case "github-copilot":
+		return loginDetail(vendors.CopilotLoginPresent(), "GitHub login")
+	}
+	p, ok := reg.Providers[name]
+	if !ok {
+		return "not configured"
+	}
+	if providers.CredentialPresent(p) {
+		return "cred:ok  " + p.Kind
+	}
+	return "cred:missing  " + p.Kind
+}
+
+func loginDetail(present bool, what string) string {
+	if present {
+		return "cred:ok  " + what
+	}
+	return "cred:missing  " + what
+}
+
+// pickClaudeBackend asks which backend the claude agent runs its session on: the two first-party
+// billing modes (Subscription, API key), then the other backends the registry has configured
+// (chatgpt, gemini, github-copilot), then — once logged in to claude.ai — ways to rotate that
+// session (Login, OAuth token). Picking a backend row pins it (keepOrPin/applyProvider), same as
+// the plain provider picker; gemini opens its own API-key-vs-Google-login sub-picker.
+func pickClaudeBackend(d *dialog, fp *firstParty, cur string) bool {
 	loggedIn, plan := fp.login()
 	keyOK := fp.key()
 	state := func(ok bool, okText, missing string) string {
@@ -92,7 +128,7 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 		return "[" + missing + "]"
 	}
 	rows := []billingRow{
-		{"Subscription", "OAuth · plan limits · Remote Control " + state(loggedIn, "logged in"+plan, "not logged in"), func() bool {
+		{"Subscription", "OAuth · plan limits · Remote Control " + state(loggedIn, "logged in"+plan, "not logged in"), subscriptionName, func() bool {
 			if !loggedIn && confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
 				if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
 					d.printf("anthropic: %v\n", err)
@@ -100,36 +136,48 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 			}
 			return keepOrPin(d, cur, subscriptionName)
 		}},
+		{"API key", "pay per token · paste to set or rotate · no Remote Control " + state(keyOK, "key set", "no key"), anthropicRow, func() bool {
+			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
+				provider: fp.reg.Providers[anthropicRow]}
+			if !ensureKey(d, kt, keyOK) {
+				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(cur))
+				return false
+			}
+			return keepOrPin(d, cur, anthropicRow)
+		}},
+	}
+	for _, name := range otherBackends {
+		if _, ok := fp.reg.Providers[name]; !ok {
+			continue
+		}
+		n := name
+		rows = append(rows, billingRow{n, backendDetail(fp.reg, n), n, func() bool {
+			if n == geminiRow {
+				return pickGeminiAuth(d, cur)
+			}
+			return keepOrPin(d, cur, n)
+		}})
 	}
 	if loggedIn {
 		rows = append(rows,
-			billingRow{"Login", "claude auth login · browser sign-in, refreshes the session", func() bool {
+			billingRow{"Login", "claude auth login · browser sign-in, refreshes the session", "", func() bool {
 				return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
 			}},
-			billingRow{"OAuth token", "claude setup-token · mints a new token, rotates " + providers.OAuthTokenEnv, func() bool {
+			billingRow{"OAuth token", "claude setup-token · mints a new token, rotates " + providers.OAuthTokenEnv, "", func() bool {
 				kt := keyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
 				return regenerate(d, kt, []string{"claude", "setup-token"}, true)
 			}},
 		)
 	}
-	rows = append(rows, billingRow{"API key", "pay per token · paste to set or rotate · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
-		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
-			provider: fp.reg.Providers[anthropicRow]}
-		if !ensureKey(d, kt, keyOK) {
-			d.printf("anthropic: no usable API key; left on %s\n", billingLabel(cur))
-			return false
-		}
-		return keepOrPin(d, cur, anthropicRow)
-	}})
 	pickRows := make([][2]string, len(rows))
+	start := 0
 	for i, r := range rows {
 		pickRows[i] = [2]string{r.label, r.desc}
+		if r.key != "" && r.key == cur {
+			start = i
+		}
 	}
-	start := 0
-	if cur == anthropicRow {
-		start = len(rows) - 1
-	}
-	idx, err := tui.PickBack("anthropic (current: "+billingLabel(cur)+")", pickRows, start)
+	idx, err := tui.PickBack("claude (current: "+billingLabel(cur)+")", pickRows, start)
 	if err != nil || idx < 0 {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return err == nil
