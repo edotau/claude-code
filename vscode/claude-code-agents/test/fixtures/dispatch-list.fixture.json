@@ -1,0 +1,14 @@
+[
+  {
+    "Name": "cc-claude-a1b2",
+    "Created": "1729000000",
+    "Attached": true,
+    "CurrentCmd": "node"
+  },
+  {
+    "Name": "cc-codex-9f3d",
+    "Created": "1729003600",
+    "Attached": false,
+    "CurrentCmd": "bash"
+  }
+]
