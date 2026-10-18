@@ -199,6 +199,10 @@ func Machines(ctx context.Context) ([]Machine, error) {
 			byAddr[a] = p
 		}
 	}
+	// This node is never in its own peer list: Running is its online state.
+	for _, a := range st.IPs {
+		byAddr[a] = Peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
+	}
 	out := make([]Machine, 0, len(devices))
 	for _, d := range devices {
 		m := Machine{Name: d.Name, Addresses: d.Addresses, OS: d.OS, LastSeen: d.LastSeen, Tags: d.Tags, Source: "api"}

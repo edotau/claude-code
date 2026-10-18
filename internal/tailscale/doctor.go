@@ -37,8 +37,13 @@ func Doctor(ctx context.Context) (ok bool, detail string) {
 
 // credentialNote reports whether an admin API credential is configured, by name only.
 func credentialNote() string {
-	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
-		return "; api credential TAILSCALE_OAUTH_CLIENT_ID"
+	_, _, id := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID")
+	_, _, sec := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+	switch {
+	case id && sec:
+		return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET"
+	case id != sec:
+		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET"
 	}
 	if _, _, ok := secrets.Get("TAILSCALE_API_KEY"); ok {
 		return "; api credential TAILSCALE_API_KEY"

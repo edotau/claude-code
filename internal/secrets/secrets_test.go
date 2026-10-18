@@ -86,17 +86,20 @@ func TestRedact(t *testing.T) {
 	if got := Redact("short"); got != "5 chars" {
 		t.Errorf("Redact(short) = %q, want %q", got, "5 chars")
 	}
-	if got := Redact("sk-abcdefghijklmnopq"); got != "20 chars" {
-		t.Errorf("Redact(20 chars) = %q, want length only", got)
+	if got := Redact("elevenchars"); got != "11 chars" {
+		t.Errorf("Redact(11 chars) = %q, want length only", got)
 	}
+	// A pasted key shows just enough to tell it from a stray clipboard line, never the rest.
 	long := "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"
 	got := Redact(long)
-	want := long[:8] + "…" + long[len(long)-4:] + ", " + strconv.Itoa(len(long)) + " chars"
-	if got != want {
+	if want := "sk-an*** (" + strconv.Itoa(len(long)) + " chars)"; got != want {
 		t.Errorf("Redact(long) = %q, want %q", got, want)
 	}
-	if strings.Contains(got, long[9:len(long)-5]) {
-		t.Errorf("Redact(long) leaked the middle of the value: %q", got)
+	if strings.Contains(got, long[5:]) || strings.Contains(got, long[len(long)-4:]) {
+		t.Errorf("Redact(long) leaked the value: %q", got)
+	}
+	if got := Redact("kJaxH1234567890ab"); got != "kJaxH*** (17 chars)" {
+		t.Errorf("Redact(id) = %q", got)
 	}
 }
 
