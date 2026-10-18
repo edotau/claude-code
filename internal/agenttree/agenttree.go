@@ -351,6 +351,10 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 	return run
 }
 
+// FilterIdleSessions is filterIdleSessions, exported for callers outside this package (e.g. the
+// `web` dashboard) that want the CLI's default idle filtering applied to a Build result.
+func FilterIdleSessions(sessions []Session) []Session { return filterIdleSessions(sessions) }
+
 // filterIdleSessions drops an idle session with no subagents and no workflow runs — a session
 // opened and never dispatched anything is noise in the view, not state worth paging through.
 // Callers that want every session regardless (--all) skip calling this.
