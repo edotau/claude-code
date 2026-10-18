@@ -31,7 +31,7 @@ import (
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "keys", "models", "agents", "router", "doctor"}
+var Sections = []string{"provider", "keys", "models", "agents", "router", "github", "doctor"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -113,6 +113,8 @@ func Run(o Options, section string) int {
 			ok = runAgents(d)
 		case "router":
 			ok = runRouter(d)
+		case "github":
+			ok = runGithub(d)
 		case "doctor":
 			ok = launch.Doctor(out)
 		}
@@ -210,7 +212,7 @@ func runProvider(d *dialog) bool {
 				start = i
 			}
 		}
-		if idx, err := tui.Pick("provider — pick the session provider (current: "+cur+")", rows, start); err == nil {
+		if idx, err := tui.PickBack("provider — pick the session provider (current: "+cur+")", rows, start); err == nil {
 			if idx >= 0 && names[idx] == anthropicRow {
 				return pickAnthropicBilling(d, fp, cur)
 			}
@@ -537,7 +539,7 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 			rows = append(rows, [2]string{o.action, o.desc})
 		}
 		rows = append(rows, [2]string{"Skip", kt.fixCmd})
-		idx, err := tui.Pick(kt.label+" — no credential found; how do you want to authenticate?", rows, 0)
+		idx, err := tui.PickBack(kt.label+" — no credential found; how do you want to authenticate?", rows, 0)
 		if err == nil {
 			if idx < 0 || idx >= len(opts) {
 				return false
