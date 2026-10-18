@@ -202,6 +202,26 @@ func TestSkillLinksRespectOwnership(t *testing.T) {
 	assertFileContains(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy")
 }
 
+// The gemini vendor pass links skills into agy's own GeminiSkillsDir, not just ~/.agents/skills.
+func TestGeminiVendorSyncLinksOwnSkillsDir(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "demo", "demo")
+	writeSource(t, claude, "skills", "mine-dir", "mine")
+
+	var out bytes.Buffer
+	if code := Sync(SyncOptions{Vendor: "gemini", Out: &out}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0\n%s", code, out.String())
+	}
+	geminiSkills := GeminiSkillsDir(home)
+	if fi, err := os.Lstat(filepath.Join(geminiSkills, "mine")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("GeminiSkillsDir/mine not linked: %v", err)
+	}
+	dest, err := os.Readlink(filepath.Join(geminiSkills, "mine"))
+	if err != nil || dest != filepath.Join(claude, "skills", "mine-dir") {
+		t.Errorf("GeminiSkillsDir/mine -> %q (err %v), want %s", dest, err, filepath.Join(claude, "skills", "mine-dir"))
+	}
+}
+
 // --vendor narrows the run: only that vendor's dist + home are touched, skills still link.
 func TestSyncVendorFilter(t *testing.T) {
 	home, claude := isolate(t)

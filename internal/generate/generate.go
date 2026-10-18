@@ -1,6 +1,6 @@
 // Package generate renders every vendor agent's own config from the provider registry — codex
-// ~/.codex/config.toml, opencode ~/.config/opencode/opencode.json, gemini ~/.gemini/settings.json
-// (auth-type only), copilot (report-only, launch-time env), in one pass,
+// ~/.codex/config.toml, opencode ~/.config/opencode/opencode.json, gemini (report-only: agy has no
+// known settings-auth equivalent), copilot (report-only, launch-time env), in one pass,
 // with no launch. internal/cli's `generate`/`settings` verb renders settings.json itself; this
 // package is the vendor-config half called alongside it.
 package generate
@@ -82,7 +82,7 @@ func Run(o Options) (drift bool, err error) {
 				d = d || td
 			}
 		case "gemini":
-			d, err = renderGemini(sel, home, o, out)
+			d, err = reportGemini(sel, out)
 		case "copilot":
 			d, err = reportCopilot(reg, sel, out)
 		}
@@ -433,53 +433,17 @@ func renderOpenCodeTUI(home string, o Options, out io.Writer) (bool, error) {
 	return commitFile(path, raw, append(body, '\n'), existed, o, out, "opencode-tui")
 }
 
-// --- gemini: ~/.gemini/settings.json, auth-type selection only; a Google login is never overwritten ---
+// --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
+// auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
+// auth is the cached Google login marker or GEMINI_API_KEY at launch time (see vendors.GeminiLoginPresent).
 
-// geminiKeyAuthTypes mirrors vendors.go's unexported geminiKeyAuth: the selectedType values that
-// read GEMINI_API_KEY rather than a browser/Google login.
-var geminiKeyAuthTypes = map[string]bool{"": true, "gemini-api-key": true, "gateway": true}
-
-func renderGemini(sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
+func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	if sel.Provider.Auth.Type == providers.AuthPassthrough {
 		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
 		return false, nil
 	}
-	path := filepath.Join(home, ".gemini", "settings.json")
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	var existing map[string]any
-	if existed {
-		_ = json.Unmarshal(raw, &existing)
-	}
-	if existing == nil {
-		existing = map[string]any{}
-	}
-	security, _ := existing["security"].(map[string]any)
-	auth, _ := security["auth"].(map[string]any)
-	current, _ := auth["selectedType"].(string)
-	if current == "" {
-		current, _ = existing["selectedAuthType"].(string)
-	}
-	if !geminiKeyAuthTypes[current] {
-		fmt.Fprintf(out, "gemini: %s already selects auth %q (a login); never overwritten — run `gemini`, "+
-			"/auth to switch, or delete security.auth.selectedType\n", path, current)
-		return false, nil
-	}
-	next := map[string]any{}
-	maps.Copy(next, existing)
-	sec := map[string]any{}
-	maps.Copy(sec, security)
-	a := map[string]any{}
-	maps.Copy(a, auth)
-	a["selectedType"] = "gemini-api-key"
-	sec["auth"] = a
-	next["security"] = sec
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("gemini: %w", err)
-	}
-	body = append(body, '\n')
-	return commitFile(path, raw, body, existed, o, out, "gemini")
+	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
+	return false, nil
 }
 
 // --- copilot: launch-time env only; generate reports the resolved route and writes nothing ---

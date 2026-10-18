@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // Options configures one bridge run: inline workspace files into one prompt, one chat call.
@@ -58,8 +60,25 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	prompt := BuildPrompt(task, ctxFiles)
 	logContextStats(log, ctxFiles)
 
+	useAgy := o.Provider == "" && vendors.GeminiLoginPresent()
+	if useAgy {
+		if _, lookErr := exec.LookPath("agy"); lookErr != nil {
+			useAgy = false
+		}
+	}
+
 	if o.PrintCommand {
+		if useAgy {
+			return printAgyCommand(reg, sel, p, model, o, ctxFiles, prompt, log), nil
+		}
 		return printCommand(reg, sel, p, model, ctxFiles, prompt, log), nil
+	}
+
+	if useAgy {
+		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
+		return agent.RunAgy(ctx, agent.AgyRequest{
+			Prompt: prompt, Model: resolvedModelID(reg, sel, p, model), Effort: o.Effort, Cwd: o.Cwd, Tools: false,
+		}, stream)
 	}
 
 	r, err := agent.Lookup("api")
@@ -69,6 +88,14 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	return agent.Run(ctx, r, agent.Request{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout,
 	}, stream, func(s string) { fmt.Fprintln(log, s) })
+}
+
+// resolvedModelID resolves a slot name or provider:model to the concrete model id agy expects.
+func resolvedModelID(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string) string {
+	if t, ok := sel.Slots[model]; ok {
+		return t.Model
+	}
+	return providers.ParseTarget(reg, model, p).Model
 }
 
 // resolveProvider selects the provider (default "gemini") and resolves the model to call.
@@ -128,13 +155,22 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 		route, _ = p.Route(providers.DialectOpenAI)
 		suffix = "/chat/completions"
 	}
-	shown := model // a slot name or provider:id resolves the way agent.Run will, so the line names the real id
-	if t, ok := sel.Slots[model]; ok {
-		shown = t.Model
-	} else {
-		shown = providers.ParseTarget(reg, model, p).Model
-	}
+	shown := resolvedModelID(reg, sel, p, model) // a slot name or provider:id resolves the way agent.Run will
 	fmt.Fprintf(log, "POST %s%s model=%s provider=%s files=%d prompt_bytes=%d\n",
 		route, suffix, shown, p.Name, len(ctxFiles.Included), len(prompt))
 	return agent.Result{Provider: p.Name, Model: shown}
+}
+
+// printAgyCommand logs the resolved agy argv for --print-command on the agy backend and returns its Result.
+func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
+	o Options, ctxFiles Context, prompt string, log io.Writer) agent.Result {
+	shown := resolvedModelID(reg, sel, p, model)
+	argv := []string{"agy", "--model", shown}
+	if o.Effort != "" {
+		argv = append(argv, "--effort", o.Effort)
+	}
+	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json", "-p=")
+	fmt.Fprintf(log, "%s (stdin stream-json) files=%d prompt_bytes=%d\n",
+		strings.Join(argv, " "), len(ctxFiles.Included), len(prompt))
+	return agent.Result{Provider: "agy", Model: shown}
 }

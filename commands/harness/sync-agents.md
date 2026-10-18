@@ -43,7 +43,6 @@ an empty roster refuses to prune.
 
 ```bash
 claude-code agents sync $ARGUMENTS
-gemini skills list 2>&1 | grep -c 'Skill conflict'    # expect 0
 diff -r ~/.claude/state/projections/codex/agents ~/.codex/agents   # what codex reads, file by file
 ```
 

@@ -19,13 +19,13 @@ import (
 const geminiVerbUsage = `claude-code gemini — the gemini agent
 
 USAGE
-  claude-code gemini [vendor args…]      launch the vendor gemini CLI, args untouched
-  claude-code gemini ask …               one-shot on the gemini CLI runner (= ask --agent gemini --provider gemini)
+  claude-code gemini [vendor args…]      launch agy (the Antigravity CLI), args untouched
+  claude-code gemini ask …               one-shot on the agy runner (= ask --agent gemini --provider gemini)
   claude-code gemini bridge [flags] …    in-process large-context bridge (--dirs/--files/--task)
 `
 
 // cmdGemini is the gemini agent verb: ask/bridge reach the harness's own runners; everything else
-// launches the vendor gemini CLI with the args untouched.
+// launches agy (the Antigravity CLI) with the args untouched.
 func cmdGemini(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -57,7 +57,7 @@ func cmdGeminiBridge(args []string) int {
 	fs := flag.NewFlagSet("gemini bridge", flag.ContinueOnError)
 	task := fs.String("task", "", "explicit task text (else trailing args)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
-	provider := fs.String("provider", "gemini", "provider to run against")
+	provider := fs.String("provider", "", "provider to run against (default: gemini, or agy when logged in)")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh")
 	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
 	files := fs.String("files", "", "comma-separated file globs to ingest")

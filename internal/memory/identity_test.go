@@ -58,6 +58,39 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	}
 }
 
+// A cwd inside the store resolves to the repo its store dir describes, not to the store's own git repo ("memory").
+func TestResolveInsideStore(t *testing.T) {
+	cfg := gitRepo(t, t.TempDir(), ".claude")
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	proj := gitRepo(t, t.TempDir(), "proj")
+	if err := (Repo{Dir: StoreDir()}).Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	harness, err := EnsureRepoDir(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projStore, err := EnsureRepoDir(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := ArchiveDir(harness)
+	if err := os.MkdirAll(archive, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if id := Resolve(StoreDir()); !id.Global {
+		t.Errorf("Resolve(store top) = %+v, want global", id)
+	}
+	for _, root := range []string{harness, archive} {
+		if id := Resolve(root); !id.Harness {
+			t.Errorf("Resolve(%s) = %+v, want harness", root, id)
+		}
+	}
+	if id := Resolve(projStore); id.Origin != resolvePath(proj) {
+		t.Errorf("Resolve(%s) = %+v, want origin %s", projStore, id, proj)
+	}
+}
+
 func TestResolveHarness(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 func TestCopilotEnvTokenSet(t *testing.T) {
@@ -51,25 +52,23 @@ func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 	}
 }
 
-// gemini present via its own Google login (~/.gemini/settings.json) offers `gemini` (/auth) as the rotate CLI.
+// gemini present via agy's cached Google login (~/.gemini/jetski-standalone-oauth-token) offers `agy` as the rotate CLI.
 func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("GEMINI_CLI_HOME", "")
 	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"),
-		[]byte(`{"selectedAuthType":"oauth-personal"}`), 0o644); err != nil {
+	if err := os.WriteFile(vendors.AgyLoginMarker(home), []byte("tok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	kt := vendorKeyTarget(reg, "gemini")
 	if !kt.present {
-		t.Fatalf("gemini = %+v, want present via the Google login file", kt)
+		t.Fatalf("gemini = %+v, want present via the agy login marker", kt)
 	}
-	if len(kt.loginArgv) != 1 || kt.loginArgv[0] != "gemini" {
-		t.Errorf("gemini loginArgv = %v, want [gemini]", kt.loginArgv)
+	if len(kt.loginArgv) != 1 || kt.loginArgv[0] != "agy" {
+		t.Errorf("gemini loginArgv = %v, want [agy]", kt.loginArgv)
 	}
 }
 

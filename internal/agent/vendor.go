@@ -72,11 +72,8 @@ type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
 
-// Caps follow each CLI's verified headless flags; gemini has no effort flag.
+// Caps follow each CLI's verified headless flags.
 func (v vendorRunner) Caps() Caps {
-	if v.name == "gemini" {
-		return Caps{Model: true, Provider: true, WorkDir: true, SessionID: true, Tools: true}
-	}
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true}
 }
 
@@ -108,6 +105,17 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
+	if v.name == "gemini" {
+		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
+		out, err := RunAgy(ctx, AgyRequest{
+			Prompt: req.Prompt, Model: t.Model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Env: env,
+		}, stream)
+		res.Answer, res.Usage = out.Answer, out.Usage
+		if out.SessionID != "" {
+			res.SessionID = out.SessionID
+		}
+		return res, err
+	}
 	spec, _ := vendors.Lookup(v.name)
 	bin, err := paths.LookPathReal(spec.Binary)
 	if err != nil {
@@ -121,11 +129,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin)
 	cmd.Stderr = io.MultiWriter(tail, &banner)
-	switch v.name {
-	case "opencode":
+	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
-	case "gemini":
-		return v.runStream(ctx, cmd, tail, res, stream, parseGeminiStream)
 	}
 	cmd.Stdout = io.MultiWriter(stream, &answer)
 	err = cmd.Run()
@@ -147,25 +152,35 @@ func emptyAnswer(name string) error {
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
 	parse func(io.Reader, io.Writer) (Result, error)) (Result, error) {
+	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse)
+	res.Answer, res.Usage = out.Answer, out.Usage
+	if out.SessionID != "" {
+		res.SessionID = out.SessionID
+	}
+	return res, err
+}
+
+// runEventStream runs cmd to completion, decoding its stdout via parse while streaming text live;
+// shared by vendorRunner.runStream (opencode) and RunAgy (agy's own exec, no vendors.Configure argv).
+func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, stream io.Writer,
+	parse func(io.Reader, io.Writer) (Result, error)) (Result, error) {
+	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return res, err
 	}
 	if err := cmd.Start(); err != nil {
-		return res, childErr(ctx, v.name, err, tail)
+		return res, childErr(ctx, name, err, tail)
 	}
 	out, perr := parse(stdout, stream)
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
-	res.Answer, res.Usage = out.Answer, out.Usage
-	if out.SessionID != "" {
-		res.SessionID = out.SessionID
-	}
+	res.Answer, res.Usage, res.SessionID = out.Answer, out.Usage, out.SessionID
 	if werr != nil || ctx.Err() != nil {
-		return res, childErr(ctx, v.name, errors.Join(werr, perr), tail)
+		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}
 	if perr == nil && res.Answer == "" {
-		return res, emptyAnswer(v.name)
+		return res, emptyAnswer(name)
 	}
 	return res, perr
 }
@@ -294,56 +309,5 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		res.Model = out.Model
 	}
 	res.SessionID, res.Answer = out.SessionID, out.Text
-	return res, nil
-}
-
-type geminiEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Status    string `json:"status"`
-	Error     struct {
-		Message string `json:"message"`
-	} `json:"error"`
-	Stats struct {
-		Total int `json:"total_tokens"`
-		Input int `json:"input_tokens"`
-	} `json:"stats"`
-}
-
-// parseGeminiStream reads `gemini --output-format stream-json`: assistant deltas, then one result event.
-func parseGeminiStream(r io.Reader, w io.Writer) (Result, error) {
-	var res Result
-	var answer strings.Builder
-	dec := json.NewDecoder(r)
-	for {
-		var ev geminiEvent
-		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return res, fmt.Errorf("decode gemini stream-json: %w", err)
-		}
-		switch ev.Type {
-		case "init":
-			res.SessionID = ev.SessionID
-		case "message":
-			if ev.Role != "assistant" {
-				continue
-			}
-			if _, err := io.WriteString(w, ev.Content); err != nil {
-				return res, err
-			}
-			answer.WriteString(ev.Content)
-		case "result":
-			// output_tokens omits thinking; total minus input counts it, as opencode's reasoning does.
-			res.Usage = Usage{InputTokens: ev.Stats.Input, OutputTokens: max(ev.Stats.Total-ev.Stats.Input, 0)}
-			if ev.Status != "success" {
-				res.Answer = strings.TrimSpace(answer.String())
-				return res, errors.New(cmp.Or(ev.Error.Message, "gemini run "+cmp.Or(ev.Status, "failed")))
-			}
-		}
-	}
-	res.Answer = strings.TrimSpace(answer.String())
 	return res, nil
 }

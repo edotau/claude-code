@@ -33,34 +33,50 @@ func TestParseOpenCodeStreamError(t *testing.T) {
 	}
 }
 
-// Sampled from `gemini --output-format stream-json` 0.61.0.
-const geminiOK = `{"type":"init","timestamp":"2026-09-25T12:25:15.373Z","session_id":"8da8c0c1","model":"gemini-3.5-flash-lite"}
-{"type":"message","timestamp":"2026-09-25T12:25:15.373Z","role":"user","content":"Count from 1 to 5, one per line."}
-{"type":"message","timestamp":"2026-09-25T12:25:17.141Z","role":"assistant","content":"1\n2\n3","delta":true}
-{"type":"message","timestamp":"2026-09-25T12:25:17.142Z","role":"assistant","content":"\n4\n5","delta":true}
-{"type":"result","timestamp":"2026-09-25T12:25:17.173Z","status":"success","stats":{"total_tokens":16612,"input_tokens":16384,"output_tokens":9,"cached":0,"input":16384,"duration_ms":1800,"tool_calls":0}}
+// Captured live from `agy --output-format stream-json` 1.4.2 on this box.
+const agyOK = `{"event":"init","conversation_id":"415ed744","init":{"model":"gemini-3.8-flash-low","cwd":"/tmp","tools":["ask_permission"]}}
+{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"pong"}}
+{"event":"result","result":{"conversation_id":"415ed744","status":"SUCCESS","response":"pong\n","duration_seconds":1.57,"num_turns":1,"usage":{"input_tokens":18621,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":18622}}}
 `
 
-func TestParseGeminiStream(t *testing.T) {
+func TestParseAgyStream(t *testing.T) {
 	var out strings.Builder
-	res, err := parseGeminiStream(strings.NewReader(geminiOK), &out)
+	res, err := parseAgyStream(strings.NewReader(agyOK), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.SessionID != "8da8c0c1" || res.Answer != "1\n2\n3\n4\n5" || out.String() != res.Answer {
+	if res.SessionID != "415ed744" || res.Answer != "pong" || out.String() != "pong" {
 		t.Errorf("res = %+v, streamed %q", res, out.String())
 	}
-	if res.Usage != (Usage{InputTokens: 16384, OutputTokens: 228}) {
-		t.Errorf("usage = %+v (thinking must count as output)", res.Usage)
+	if res.Usage != (Usage{InputTokens: 18621, OutputTokens: 1, CacheReadTokens: 0}) {
+		t.Errorf("usage = %+v", res.Usage)
 	}
 }
 
-func TestParseGeminiStreamError(t *testing.T) {
-	stream := `{"type":"init","session_id":"s2","model":"gemini-nope-9"}
-{"type":"result","status":"error","error":{"type":"unknown","message":"[API Error: models/gemini-nope-9 is not found]"},"stats":{"total_tokens":0,"input_tokens":0}}
+// Captured live: a tool call is soft-denied headless (exit 0, no step_update text, status still SUCCESS).
+const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status":"SUCCESS","response":"","num_turns":1,"usage":{"input_tokens":71644,"output_tokens":346},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}
 `
-	res, err := parseGeminiStream(strings.NewReader(stream), &strings.Builder{})
-	if err == nil || !strings.Contains(err.Error(), "gemini-nope-9 is not found") || res.SessionID != "s2" {
+
+func TestParseAgyStream_SoftDeny(t *testing.T) {
+	res, err := parseAgyStream(strings.NewReader(agySoftDeny), &strings.Builder{})
+	if err != nil {
+		t.Fatalf("a soft deny is still status SUCCESS: %v", err)
+	}
+	if res.SessionID != "d1" || res.Answer != "" {
+		t.Errorf("res = %+v, want empty answer (no agent_response deltas, tool call denied)", res)
+	}
+	if res.Usage != (Usage{InputTokens: 71644, OutputTokens: 346}) {
+		t.Errorf("usage = %+v", res.Usage)
+	}
+}
+
+func TestParseAgyStream_Error(t *testing.T) {
+	stream := `{"event":"init","conversation_id":"e1","init":{"model":"gemini-nope-9","cwd":"/tmp","tools":[]}}
+{"event":"result","result":{"conversation_id":"e1","status":"ERROR","error":"model gemini-nope-9 is not found","usage":{"input_tokens":100,"output_tokens":0}}}
+`
+	res, err := parseAgyStream(strings.NewReader(stream), &strings.Builder{})
+	if err == nil || !strings.Contains(err.Error(), "gemini-nope-9 is not found") || res.SessionID != "e1" {
 		t.Fatalf("err = %v, res = %+v", err, res)
 	}
 }

@@ -74,17 +74,12 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 		t.Errorf("opencode.json missing harness-openai provider entry: %s", ocRaw)
 	}
 
-	geminiRaw, err := os.ReadFile(filepath.Join(home, ".gemini", "settings.json"))
-	if err != nil {
-		t.Fatalf("read gemini settings: %v", err)
+	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("gemini must write no settings.json, stat err = %v", err)
 	}
-	var g map[string]any
-	if err := json.Unmarshal(geminiRaw, &g); err != nil {
-		t.Fatalf("gemini settings.json not valid JSON: %v", err)
-	}
-	selected := g["security"].(map[string]any)["auth"].(map[string]any)["selectedType"]
-	if selected != "gemini-api-key" {
-		t.Errorf("gemini settings selectedType = %v, want gemini-api-key", selected)
+	if !strings.Contains(out.String(), "gemini: no config render") {
+		t.Errorf("expected a gemini report-only line, got:\n%s", out.String())
 	}
 
 	// A second run with nothing changed must report no drift and touch no file's content.

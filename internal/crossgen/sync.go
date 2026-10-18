@@ -113,6 +113,14 @@ func Sync(opts SyncOptions) int {
 		r, p := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
 		res.add(r)
 		pruned += p
+		if vendor == "gemini" {
+			// agy does not read ~/.agents/skills; link its own skills dir alongside the cross-vendor one.
+			geminiSkills := GeminiSkillsDir(home)
+			res.add(linkSkills(out, skills, skillsDir, geminiSkills, dryRun))
+			if prune {
+				pruned += pruneSkillLinks(out, geminiSkills, skillsDir, projectedSkillNames(skills), dryRun)
+			}
+		}
 		if rel, ok := instructionFiles[vendor]; ok && hasDocs {
 			if !dryRun {
 				_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)

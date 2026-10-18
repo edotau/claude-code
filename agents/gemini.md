@@ -65,7 +65,7 @@ You have **two engines** for scanning:
 
 ### Gemini backend — process
 
-Invoke the in-process native command (never raw `gemini`) via Bash:
+Invoke the in-process native command (never raw `agy`) via Bash:
 
 ```bash
 claude-code gemini bridge --dirs <d> [--files <globs>] -- "<TASK>"
@@ -87,9 +87,10 @@ claude-code gemini bridge --files "<glob>,<glob>" -- "<TASK>"
 claude-code gemini bridge --dirs <d> --index -- "<TASK>"
 ```
 
-Runs in-process against Google's API (`gemini` provider) using `GEMINI_API_KEY` — no vendor CLI, no
-node/python at runtime. Default model is the provider's sonnet tier (`gemini-3.8-flash`); override
-only when the caller explicitly asks (resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` →
+Rides the subscription (Free/Pro/Ultra) via the Antigravity CLI `agy` when a Google login is
+cached, else runs in-process against Google's API (`gemini` provider) using `GEMINI_API_KEY` — no
+node/python at runtime either way. Default model is the provider's sonnet tier (`gemini-3.8-flash`);
+override only when the caller explicitly asks (resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` →
 `GEMINI_MODEL` → default).
 
 Guidance: say what to focus on, what to skip, what shape the output should take. Narrow `--dirs` /

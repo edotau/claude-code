@@ -31,6 +31,9 @@ func Resolve(root string) Identity {
 	if paths.SamePath(root, paths.ConfigDir()) {
 		return harnessIdentity()
 	}
+	if id, ok := storeIdentity(root); ok {
+		return id
+	}
 	origin, ok := identities.Load(root)
 	if !ok {
 		origin = mainCheckout(root)
@@ -47,6 +50,32 @@ func Resolve(root string) Identity {
 		return harnessIdentity()
 	}
 	return Identity{Origin: o, Base: filepath.Base(o)}
+}
+
+// storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to Global; else ok=false.
+// Without it the store's own git repo resolves as a project named "memory".
+func storeIdentity(root string) (Identity, bool) {
+	canon, store := resolvePath(root), resolvePath(StoreDir())
+	if !within(canon, store) {
+		return Identity{}, false
+	}
+	if within(canon, resolvePath(HarnessStoreDir())) {
+		return harnessIdentity(), true
+	}
+	entries, _ := RepoDirs()
+	for _, e := range entries {
+		if o := e.Origin.Origin; o != "" && within(canon, resolvePath(e.Dir)) {
+			if paths.SamePath(o, paths.ConfigDir()) {
+				return harnessIdentity(), true
+			}
+			return Identity{Origin: o, Base: filepath.Base(o)}, true
+		}
+	}
+	return Identity{Global: true}, true
+}
+
+func within(p, dir string) bool {
+	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
 // workspaceOrigin is the pinned non-git workspace (a store whose .origin names root or an ancestor of it), or "".

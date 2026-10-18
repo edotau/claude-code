@@ -438,14 +438,14 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		return kt
 	case "gemini":
 		if vendors.GeminiLoginPresent() {
-			return keyTarget{label: name, present: true, source: "Google login (~/.gemini/settings.json)",
-				loginArgv: []string{"gemini"}} // rotate: re-run `gemini` and sign in again via /auth
+			return keyTarget{label: name, present: true, source: "Google login (agy)",
+				loginArgv: []string{"agy"}} // rotate: re-run `agy` and sign in again
 		}
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return keyTarget{label: name, present: true, source: "GEMINI_API_KEY", envVar: "GEMINI_API_KEY", provider: p}
 		}
-		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", loginArgv: []string{"gemini"},
-			fixCmd: "claude-code secrets set GEMINI_API_KEY, or `gemini` → /auth → Login with Google"}
+		return keyTarget{label: name, present: false, envVar: "GEMINI_API_KEY", loginArgv: []string{"agy"},
+			fixCmd: "claude-code secrets set GEMINI_API_KEY, or `agy` to sign in with Google"}
 	case "opencode":
 		if names := vendors.OpencodeLogins(); len(names) > 0 {
 			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", "),

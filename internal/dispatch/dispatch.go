@@ -61,13 +61,15 @@ type Opts struct {
 }
 
 // agentLaunchArgs is the agent CLI's own argv for running Task as its initial prompt, verified via
-// `<agent> --help`: claude/codex take a bare positional prompt, opencode wants --prompt, gemini and
-// copilot use -i/--interactive to seed a prompt and stay in the TUI.
+// `<agent> --help`: claude/codex take a bare positional prompt, opencode wants --prompt, copilot uses
+// -i/--interactive to seed a prompt and stay in the TUI; gemini (agy) takes the attached `-i=<task>` form.
 func agentLaunchArgs(agent, task string) []string {
 	switch agent {
 	case "opencode":
 		return []string{"--prompt", task}
-	case "gemini", "copilot":
+	case "gemini":
+		return []string{"-i=" + task}
+	case "copilot":
 		return []string{"-i", task}
 	default: // claude, codex
 		return []string{task}

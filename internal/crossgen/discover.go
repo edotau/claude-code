@@ -52,7 +52,8 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 }
 
 // DiscoverSkills reads skills/<dir>/SKILL.md sorted by dir. Symlinked dirs are skipped: they point into
-// ~/.agents/skills, which Gemini CLI already reads, so projecting them would duplicate every name.
+// ~/.agents/skills (read natively by codex/opencode/copilot; agy reads its own GeminiSkillsDir instead),
+// so projecting them would duplicate every name.
 func DiscoverSkills(skillsDir string) []Source {
 	return discoverSources(skillsDir, "SKILL.md")
 }
