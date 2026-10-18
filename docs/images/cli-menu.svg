@@ -18,7 +18,7 @@
 <text x="22.0" y="179" fill="#d7d4dc">  </text>
 <text x="38.8" y="179" fill="#568fdf" font-weight="bold">fable           </text>
 <text x="173.2" y="179" fill="#d7d4dc">Claude Code, fable main model; args pass to claude</text>
-<text x="22.0" y="217" fill="#8a7e90" font-weight="bold">VENDORS</text>
+<text x="22.0" y="217" fill="#8a7e90" font-weight="bold">AGENTS</text>
 <text x="22.0" y="236" fill="#d7d4dc">  </text>
 <text x="38.8" y="236" fill="#5f8bdb" font-weight="bold">copilot         </text>
 <text x="173.2" y="236" fill="#d7d4dc">launch GitHub Copilot CLI on the registry; ask = one task</text>
