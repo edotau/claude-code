@@ -26,5 +26,118 @@
   "terminal.integrated.enablePersistentSessions": false,
   "terminal.integrated.persistentSessionReviveProcess": "never",
   "terminal.integrated.stickyScroll.enabled": false,
-  "terminal.integrated.allowChords": false
+  "terminal.integrated.allowChords": false,
+  "terminal.integrated.profiles.linux": {
+    "bash": {
+      "path": "bash",
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash"
+    },
+    "Claude": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude"
+      ],
+      "icon": "sparkle",
+      "color": "terminal.ansiYellow"
+    },
+    "Codex": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/codex"
+      ],
+      "icon": "hubot",
+      "color": "terminal.ansiWhite"
+    },
+    "OpenCode": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/opencode"
+      ],
+      "icon": "terminal",
+      "color": "terminal.ansiCyan"
+    },
+    "Gemini": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/gemini"
+      ],
+      "icon": "star-full",
+      "color": "terminal.ansiBlue"
+    },
+    "Copilot": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/copilot"
+      ],
+      "icon": "copilot",
+      "color": "terminal.ansiMagenta"
+    }
+  },
+  "terminal.integrated.profiles.osx": {
+    "bash": {
+      "path": "bash",
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash"
+    },
+    "Claude": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude"
+      ],
+      "icon": "sparkle",
+      "color": "terminal.ansiYellow"
+    },
+    "Codex": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/codex"
+      ],
+      "icon": "hubot",
+      "color": "terminal.ansiWhite"
+    },
+    "OpenCode": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/opencode"
+      ],
+      "icon": "terminal",
+      "color": "terminal.ansiCyan"
+    },
+    "Gemini": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/gemini"
+      ],
+      "icon": "star-full",
+      "color": "terminal.ansiBlue"
+    },
+    "Copilot": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/copilot"
+      ],
+      "icon": "copilot",
+      "color": "terminal.ansiMagenta"
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.defaultProfile.osx": "bash",
+  "terminal.integrated.defaultLocation": "editor",
+  "workbench.colorTheme": "Monokai",
+  "editor.fontSize": 13
 }
