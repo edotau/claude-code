@@ -98,3 +98,5 @@ coverage.*
 scripts/unifi-*.sh
 /statusline/
 /docs/projections/
+/policy-limits.json*
+/remote-settings.json*
