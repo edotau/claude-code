@@ -105,7 +105,7 @@ tailscale-cli:  ## Install the Tailscale client; log in via configure
 	esac
 
 .PHONY: go-toolchain
-go-toolchain:  ## Install go.mod's Go into ~/.local/go when no go is on PATH (no sudo)
+go-toolchain:  ## Install go.mod's Go to ~/.local/go if none on PATH
 	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; exit 0; fi; \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
 	case "$$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac; \
