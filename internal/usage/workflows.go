@@ -115,6 +115,17 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	return dirs, nil
 }
 
+// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agenttree).
+func WorkflowRunDirs(sessionDir string) []string { return workflowRunDirs(sessionDir) }
+
+// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agenttree).
+func WorkflowAgentFiles(runDir string) []string { return workflowAgentFiles(runDir) }
+
+// WorkflowPhaseFromMeta reads one agent transcript's sibling meta's workflowPhase (exported for internal/agenttree).
+func WorkflowPhaseFromMeta(transcriptPath string) string {
+	return workflowPhaseFromMeta(transcriptPath, io.Discard)
+}
+
 // workflowRunDirs lists one session's workflows/<runId> dirs.
 func workflowRunDirs(sessionDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))

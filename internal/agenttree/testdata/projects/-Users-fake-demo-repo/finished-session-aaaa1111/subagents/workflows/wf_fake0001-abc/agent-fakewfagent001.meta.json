@@ -1,0 +1,1 @@
+{"agentType":"haiku","description":"detect the gate command","workflowPhase":"Detect","spawnDepth":1,"requestShape":"foreground","requestNonInteractive":false,"model":"haiku","finished":true}
