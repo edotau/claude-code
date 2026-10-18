@@ -1,7 +1,7 @@
 'use strict';
 const vscode = require('vscode');
-const { execFile } = require('node:child_process');
-const { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, attachShellArgs, attachCommandLine } = require('./lib/argv');
+const { execFile, spawn } = require('node:child_process');
+const { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, viewFollowArgv, attachShellArgs, attachCommandLine } = require('./lib/argv');
 const { buildAgentRootNodes, countRunning, buildDispatchNodes, parseTreeOutput } = require('./lib/tree-model');
 const { formatSnapshotText } = require('./lib/format');
 
@@ -154,15 +154,39 @@ async function runDispatch(context, provider) {
   }
 }
 
-/** The click-through detail pane: `web view <id> --session S --format json`, dumped as plain text. */
+// followChild is the one live `web view --follow` child process backing the output channel, killed
+// whenever a new agent is viewed or the extension deactivates — never more than one at a time.
+let followChild = null;
+
+function stopFollow() {
+  if (followChild) {
+    followChild.kill();
+    followChild = null;
+  }
+}
+
+/** Streams `web view <id> --session S --follow`'s text/plain lines into outputChannel until the agent finishes. */
+function startFollow(binary, agentId, sessionId, outputChannel) {
+  const argv = viewFollowArgv(binary, agentId, sessionId);
+  const child = spawn(binary, argv.slice(1));
+  followChild = child;
+  child.stdout.on('data', (chunk) => outputChannel.append(chunk.toString()));
+  child.on('error', () => { followChild = null; });
+  child.on('close', () => { followChild = null; });
+}
+
+/** The click-through detail pane: a `web view --format json` snapshot, then (if running) its live follow stream. */
 async function viewAgent(binary, node, outputChannel) {
   if (!node || node.kind !== 'subagent') return;
+  stopFollow();
   try {
     const argv = viewArgv(binary, node.agentId, node.sessionId);
     const stdout = await runBinary(binary, argv);
+    const snap = JSON.parse(stdout);
     outputChannel.clear();
-    outputChannel.appendLine(formatSnapshotText(JSON.parse(stdout)));
+    outputChannel.appendLine(formatSnapshotText(snap));
     outputChannel.show(true);
+    if (snap.status === 'running') startFollow(binary, node.agentId, node.sessionId, outputChannel);
   } catch (err) {
     vscode.window.showErrorMessage(`Claude Code Agents view failed: ${err.message}`);
   }
@@ -207,6 +231,8 @@ function activate(context) {
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
 }
 
-function deactivate() {}
+function deactivate() {
+  stopFollow();
+}
 
 module.exports = { activate, deactivate, AgentsTreeProvider, toTreeItem };

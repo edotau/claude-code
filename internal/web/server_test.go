@@ -575,6 +575,21 @@ func TestRenderSnapshotEscapesLabelAndFields(t *testing.T) {
 	}
 }
 
+// --- dashboard template escapes workflow-run fields (name/phase; status goes through chip()) ---
+
+func TestRenderWorkflowsEscapesNameAndPhase(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderWorkflows")
+	for _, field := range []string{"run.name || run.id", "phase.name"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderWorkflows interpolates %s without escapeHTML(...): regression risk for a workflow run's own name/phase text\n%s", field, fn)
+		}
+	}
+	// run.status/is rendered only through chip(...), which escapes internally — not a bare escapeHTML(...) call.
+	if !strings.Contains(fn, "chip(run.status)") {
+		t.Errorf("renderWorkflows must route run.status through chip(...) (which itself escapes)\n%s", fn)
+	}
+}
+
 func TestRenderBrowsersEscapesReportFields(t *testing.T) {
 	fn := extractJSFunc(t, templateSource(t), "renderBrowsers")
 	for _, field := range []string{"b.displayName || b.name", "b.host || ''"} {

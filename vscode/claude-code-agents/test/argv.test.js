@@ -6,6 +6,7 @@ const {
   dispatchListArgv,
   dispatchStartArgv,
   viewArgv,
+  viewFollowArgv,
   attachShellArgs,
   attachCommandLine,
 } = require('../lib/argv');
@@ -67,6 +68,18 @@ test('viewArgv: no session -> "web view <id> --format json"', () => {
 test('viewArgv: with session -> "--session S" inserted before --format', () => {
   assert.deepEqual(viewArgv('claude-code', 'fakewfagent002', 'finished-session-aaaa1111'), [
     'claude-code', 'web', 'view', 'fakewfagent002', '--session', 'finished-session-aaaa1111', '--format', 'json',
+  ]);
+});
+
+test('viewFollowArgv: no session -> "web view <id> --follow", no --format', () => {
+  assert.deepEqual(viewFollowArgv('claude-code', 'fakewfagent002', undefined), [
+    'claude-code', 'web', 'view', 'fakewfagent002', '--follow',
+  ]);
+});
+
+test('viewFollowArgv: with session -> "--session S" inserted before --follow', () => {
+  assert.deepEqual(viewFollowArgv('claude-code', 'fakewfagent002', 'finished-session-aaaa1111'), [
+    'claude-code', 'web', 'view', 'fakewfagent002', '--session', 'finished-session-aaaa1111', '--follow',
   ]);
 });
 

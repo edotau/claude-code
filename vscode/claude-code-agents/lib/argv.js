@@ -39,6 +39,14 @@ function viewArgv(binary, agentId, sessionId) {
   return argv;
 }
 
+/** argv for `<binary> web view <agentId> --session S --follow` (text/plain event stream, no --format). */
+function viewFollowArgv(binary, agentId, sessionId) {
+  const argv = [binary, 'web', 'view', agentId];
+  if (sessionId) argv.push('--session', sessionId);
+  argv.push('--follow');
+  return argv;
+}
+
 /** shellArgs for an `ssh -t host tmux attach -t session` terminal. */
 function attachShellArgs(host, session) {
   return ['-t', host, 'tmux', 'attach', '-t', session];
@@ -49,4 +57,4 @@ function attachCommandLine(host, session) {
   return ['ssh', ...attachShellArgs(host, session)].join(' ');
 }
 
-module.exports = { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, attachShellArgs, attachCommandLine };
+module.exports = { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, viewFollowArgv, attachShellArgs, attachCommandLine };
