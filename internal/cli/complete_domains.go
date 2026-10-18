@@ -28,6 +28,9 @@ func setupWorkspaceSubwords() []string { return []string{"init", "link", "status
 
 func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
 
+// configureAgentNames are the agent CLIs `configure --agent` can scope to: the vendors plus claude itself.
+func configureAgentNames() []string { return append([]string{"claude"}, vendorNames()...) }
+
 // hookNames derives from the hook chain the registry actually declares — never a hand copy of it.
 func hookNames() []string {
 	out := make([]string, 0, len(hookspec.Registry))

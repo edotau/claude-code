@@ -48,7 +48,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--vendor v] [--check]` · `make bootstrap` | `README.md` → Setup |
+| Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--agent claude|codex|copilot|opencode|gemini] [--check]` (`--provider` = the model backend, `--agent` = one agent CLI) · `make bootstrap` | `README.md` → Setup |
 | Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | `README.md` → Setup modes |
 | Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
 | Sync VS Code's Machine settings + per-agent terminal keybindings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f] [--keybindings-dest f]` | `README.md` → Setup |

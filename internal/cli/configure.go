@@ -13,17 +13,19 @@ import (
 	"github.com/edotau/claude-code/internal/tui"
 )
 
-const configureUsage = "usage: claude-code configure [--provider p] [--vendor codex|copilot|opencode|gemini|claude] [--dry-run] [--check] [provider|keys|models|agents|router|doctor]"
+// configureUsage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
+var configureUsage = "usage: claude-code configure [--provider p] [--agent claude|codex|copilot|opencode|gemini] [--dry-run] [--check] [" +
+	strings.Join(configure.Sections, "|") + "]"
 
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
 	fs := flag.NewFlagSet("configure", flag.ContinueOnError)
-	provider := fs.String("provider", "", "pick this provider non-interactively")
-	vendor := fs.String("vendor", "", "scope keys/agents to one vendor")
+	provider := fs.String("provider", "", "backend that serves model calls (subscription, anthropic, chatgpt, gemini, …), picked non-interactively")
+	vendor := fs.String("agent", "", "scope keys/agents to one agent CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
 	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, configureUsage) }
-	// `configure agents --vendor codex`: a leading section word precedes the flags, so lift it out first.
+	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		section, args = args[0], args[1:]
