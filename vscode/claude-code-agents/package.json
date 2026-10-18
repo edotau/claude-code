@@ -1,0 +1,76 @@
+{
+  "name": "claude-code-agents",
+  "displayName": "Claude Code Agents",
+  "description": "Browse the claude-code harness agent tree and dispatch remote work over SSH.",
+  "version": "0.1.0",
+  "publisher": "edotau",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onView:claudeCodeAgents.tree"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeCodeAgents",
+          "title": "Agents",
+          "icon": "media/hubot.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeCodeAgents": [
+        {
+          "id": "claudeCodeAgents.tree",
+          "name": "Agents"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "claudeCodeAgents.refresh", "title": "Refresh", "icon": "$(refresh)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.toggleShowAll", "title": "Toggle Show All", "icon": "$(filter)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.dispatch", "title": "Dispatch…", "icon": "$(rocket)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.attach", "title": "Attach", "icon": "$(terminal)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.copyAttachCommand", "title": "Copy Attach Command", "category": "Claude Code Agents" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "claudeCodeAgents.refresh", "when": "view == claudeCodeAgents.tree", "group": "navigation" },
+        { "command": "claudeCodeAgents.toggleShowAll", "when": "view == claudeCodeAgents.tree", "group": "navigation" },
+        { "command": "claudeCodeAgents.dispatch", "when": "view == claudeCodeAgents.tree", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "claudeCodeAgents.attach", "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session" },
+        { "command": "claudeCodeAgents.copyAttachCommand", "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session" }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Code Agents",
+      "properties": {
+        "claudeCodeAgents.binary": {
+          "type": "string",
+          "default": "claude-code",
+          "description": "Path or name of the claude-code binary."
+        },
+        "claudeCodeAgents.refreshSeconds": {
+          "type": "number",
+          "default": 5,
+          "description": "Auto-refresh interval, in seconds."
+        },
+        "claudeCodeAgents.days": {
+          "type": "number",
+          "default": 1,
+          "description": "Scope the agent tree to sessions modified within the last N days."
+        },
+        "claudeCodeAgents.hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "SSH hosts to list dispatched tmux sessions on."
+        }
+      }
+    }
+  }
+}
