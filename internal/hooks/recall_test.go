@@ -80,18 +80,22 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": "s"})
+	// session_id must be UUID-shaped: memoryContext's ResetSeen (which seeds the dedup set this test
+	// exercises) only fires for a real session id, not a bare probe/test token (memory.LooksLikeSessionID).
+	const sessionS = "44444444-4444-4444-8444-444444444444"
+	const sessionT = "55555555-5555-4555-8555-555555555555"
+	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
 	if SessionStart(bytes.NewReader(raw), &bytes.Buffer{}) != ExitProceed {
 		t.Fatal("SessionStart failed")
 	}
-	got := recallAs(t, "s", "alpha bravo charlie delta echo", cwd)
+	got := recallAs(t, sessionS, "alpha bravo charlie delta echo", cwd)
 	if !strings.Contains(got, "echo fresh") || strings.Contains(got, "already in context") || strings.Contains(got, "one shared term") {
 		t.Fatalf("want only the fresh, multi-term block: %q", got)
 	}
-	if again := recallAs(t, "s", "alpha bravo charlie delta echo", cwd); again != "" {
+	if again := recallAs(t, sessionS, "alpha bravo charlie delta echo", cwd); again != "" {
 		t.Errorf("a block recalled once must not be re-injected: %q", again)
 	}
-	if other := recallAs(t, "t", "alpha bravo charlie delta echo", cwd); !strings.Contains(other, "already in context") {
+	if other := recallAs(t, sessionT, "alpha bravo charlie delta echo", cwd); !strings.Contains(other, "already in context") {
 		t.Errorf("another session's context is not this one's: %q", other)
 	}
 }

@@ -199,12 +199,12 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	write(t, bad, "#!/bin/sh\nexit 1\n")
 	_ = os.Chmod(ok, 0o755)
 	_ = os.Chmod(bad, 0o755)
-	_ = WriteHarvestResult("s1", HarvestResult{Status: HarvestPending, Time: time.Now(), Log: "/l.log"})
+	_ = WriteHarvestResult("11111111-1111-1111-1111-111111111111", HarvestResult{Status: HarvestPending, Time: time.Now(), Log: "/l.log"})
 
-	if err := Update(UpdateOptions{Claude: ok, CWD: root, Session: "s1"}); err != nil {
+	if err := Update(UpdateOptions{Claude: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := ReadHarvestResult("s1")
+	r, _ := ReadHarvestResult("11111111-1111-1111-1111-111111111111")
 	if r.Status != HarvestOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
@@ -292,17 +292,17 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
 	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
-	ResetSeen("s1", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
-	seen := SeenBlocks("s1")
+	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	MarkSeen("s1", []SearchHit{{Block: "- other rule"}})
-	if !SeenBlocks("s1")[BlockKey("- other rule")] {
+	MarkSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
+	if !SeenBlocks("11111111-1111-1111-1111-111111111111")[BlockKey("- other rule")] {
 		t.Error("MarkSeen did not record the hit")
 	}
-	ResetSeen("s1", root, "")
-	if len(SeenBlocks("s1")) != 0 {
+	ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
+	if len(SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {

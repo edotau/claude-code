@@ -148,22 +148,53 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		}
 		return doc.H.AdditionalContext
 	}
-	if got := start("s0", sub); got != "" || memory.HasBank(sub) {
+	// Real session ids are UUID-shaped; memoryContext only advances the chain/ResetSeen for those
+	// (probe/test payloads like "probe-x" must not clobber it) — see memory.LooksLikeSessionID.
+	const (
+		s0 = "00000000-0000-4000-8000-000000000000"
+		s1 = "11111111-1111-4111-8111-111111111111"
+		s2 = "22222222-2222-4222-8222-222222222222"
+	)
+	if got := start(s0, sub); got != "" || memory.HasBank(sub) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
-	got := start("s1", repo)
+	got := start(s1, repo)
 	if !strings.Contains(got, "Memory bank scaffolded at") || !strings.Contains(got, "<!-- activeContext.md -->") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
-	_ = memory.WriteHarvestResult("s1", memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now(), Log: "/x.log"})
-	got = start("s2", repo)
-	if strings.Contains(got, "scaffolded") || !strings.Contains(got, "Previous session id: s1") || !strings.Contains(got, "did not complete (failed) (log: /x.log)") {
+	_ = memory.WriteHarvestResult(s1, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now(), Log: "/x.log"})
+	got = start(s2, repo)
+	if strings.Contains(got, "scaffolded") || !strings.Contains(got, "Previous session id: "+s1) || !strings.Contains(got, "did not complete (failed) (log: /x.log)") {
 		t.Errorf("notice: %q", got[:min(len(got), 500)])
 	}
 	t.Setenv(memory.HarvestChildEnv, "1")
-	start("child", repo)
-	if b, _ := os.ReadFile(filepath.Join(memory.StateDir(), "last-session")); strings.TrimSpace(string(b)) != "s2" {
+	start("child", repo) // a non-UUID harvest-child id: excluded by IsHarvestChild regardless of shape
+	if b, _ := os.ReadFile(filepath.Join(memory.StateDir(), "last-session")); strings.TrimSpace(string(b)) != s2 {
 		t.Errorf("a harvest child advanced the session chain: %q", b)
+	}
+}
+
+// TestSessionStartProbeIDDoesNotClobberLastSession: a non-UUID session id (probe/test payloads,
+// e.g. "probe-x") must not overwrite last-session or seed a seen-set, while a real UUID still does.
+func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	const real = "33333333-3333-4333-8333-333333333333"
+	memoryContext(repo, real, time.Now())
+	chain := filepath.Join(memory.StateDir(), "last-session")
+	if b, _ := os.ReadFile(chain); strings.TrimSpace(string(b)) != real {
+		t.Fatalf("a UUID session id must advance last-session: %q", b)
+	}
+	memoryContext(repo, "probe-x", time.Now())
+	if b, _ := os.ReadFile(chain); strings.TrimSpace(string(b)) != real {
+		t.Errorf("a probe id must not clobber last-session: got %q, want %q", strings.TrimSpace(string(b)), real)
 	}
 }
 

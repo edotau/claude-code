@@ -1,0 +1,14 @@
+{
+    "runId": "wf_fake0005-killed",
+    "timestamp": "2026-10-17T02:40:00.000Z",
+    "taskId": "fake0005",
+    "script": "export const meta = { name: 'killed-run', description: 'Workflow' }",
+    "scriptPath": "/Users/fake/demo-repo/.claude/workflows/scripts/killed-run-wf_fake0005-killed.js",
+    "args": { "cwd": "/Users/fake/demo-repo" },
+    "result": null,
+    "status": "killed",
+    "agentCount": 0,
+    "logs": [],
+    "durationMs": 1200,
+    "summary": "killed-run: terminated before completion"
+}

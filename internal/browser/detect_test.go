@@ -293,6 +293,50 @@ func TestDetect_NotInstalled(t *testing.T) {
 	}
 }
 
+// guiProbeKey is the osascript probe guiState issues, keyed the same way fakeRun.run joins its args.
+const guiProbeKey = `osascript -e tell application "System Events" to get name of first process`
+
+type fakeExecErr string
+
+func (e fakeExecErr) Error() string { return string(e) }
+
+func TestGUIState_AssistiveAccessErrorIsDisabled(t *testing.T) {
+	f := &fakeRun{answers: map[string]fakeAnswer{
+		guiProbeKey: {err: fakeExecErr("execution error: Not authorized to send Apple events (-1719)")},
+	}}
+	env := newTestEnv(t, f)
+	if got := guiState(env); got != stateDisabled {
+		t.Errorf("guiState = %q, want %q on an assistive-access error", got, stateDisabled)
+	}
+}
+
+func TestGUIState_OtherErrorStaysAvailable(t *testing.T) {
+	f := &fakeRun{answers: map[string]fakeAnswer{
+		guiProbeKey: {err: fakeExecErr("osascript: command not found")},
+	}}
+	env := newTestEnv(t, f)
+	if got := guiState(env); got != stateAvailable {
+		t.Errorf("guiState = %q, want %q when the failure is not the specific assistive-access error", got, stateAvailable)
+	}
+}
+
+func TestGUIState_NoErrorIsAvailable(t *testing.T) {
+	f := &fakeRun{}
+	env := newTestEnv(t, f)
+	if got := guiState(env); got != stateAvailable {
+		t.Errorf("guiState = %q, want %q on a clean probe", got, stateAvailable)
+	}
+}
+
+func TestGUIState_NonDarwinIsUnsupported(t *testing.T) {
+	f := &fakeRun{}
+	env := newTestEnv(t, f)
+	env.GOOS = "linux"
+	if got := guiState(env); got != stateUnsupported {
+		t.Errorf("guiState = %q, want %q off darwin", got, stateUnsupported)
+	}
+}
+
 func TestDetect_UnsupportedGOOS(t *testing.T) {
 	f := &fakeRun{}
 	env := newTestEnv(t, f)

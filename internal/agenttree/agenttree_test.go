@@ -144,15 +144,20 @@ func TestBuildFoldsWorkflowRunIntoPhases(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := sessionByID(t, tree, "finished-session-aaaa1111")
-	// 4 runs in this fixture: wf_fake0001-abc (manifest), wf_fake0002-nomanifest (manifest-less,
+	// 5 runs in this fixture: wf_fake0001-abc (manifest), wf_fake0002-nomanifest (manifest-less,
 	// finished via journal), wf_fake0003-running (manifest-less, still running via journal),
-	// wf_fake0004-error (manifest-less, one agent errored via a null journal result).
-	if len(s.Workflows) != 4 {
-		t.Fatalf("got %d workflow runs, want 4: %+v", len(s.Workflows), s.Workflows)
+	// wf_fake0004-error (manifest-less, one agent errored via a null journal result),
+	// wf_fake0005-killed (manifest with a null result but a top-level status:"killed").
+	if len(s.Workflows) != 5 {
+		t.Fatalf("got %d workflow runs, want 5: %+v", len(s.Workflows), s.Workflows)
 	}
 	run := workflowByID(t, s.Workflows, "wf_fake0001-abc")
 	if run.Name != "gate-loop" || run.Status != "green" {
 		t.Errorf("run = %+v, want name=gate-loop status=green", run)
+	}
+	killed := workflowByID(t, s.Workflows, "wf_fake0005-killed")
+	if killed.Name != "killed-run" || killed.Status != statusError {
+		t.Errorf("killed run = %+v, want name=killed-run status=%s", killed, statusError)
 	}
 	phases := map[string][]string{}
 	for _, p := range run.Phases {
@@ -337,8 +342,8 @@ func TestBuildJSONSchema(t *testing.T) {
 	if len(s.Subagents) != 2 {
 		t.Errorf("got %d subagents in JSON, want 2", len(s.Subagents))
 	}
-	if len(s.Workflows) != 4 {
-		t.Fatalf("got %d workflows, want 4: %+v", len(s.Workflows), s.Workflows)
+	if len(s.Workflows) != 5 {
+		t.Fatalf("got %d workflows, want 5: %+v", len(s.Workflows), s.Workflows)
 	}
 	var mainRun struct {
 		Phases []struct {
