@@ -49,3 +49,19 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 		t.Errorf("index line must show [id] without the raw marker: %v", e)
 	}
 }
+
+// TestDigestInputIsRawArchiveOnly: the digest reads every raw archive file but never its own output, and refuses past the cap.
+func TestDigestInputIsRawArchiveOnly(t *testing.T) {
+	migrateConfig(t)
+	dir := filepath.Join(t.TempDir(), "store")
+	write(t, filepath.Join(ArchiveDir(dir), "decisionLog-2026-09.md"), "## 2026-09-01 — old\nraw body\n")
+	write(t, filepath.Join(ArchiveDir(dir), DigestFile), "# Archive digest\n- previous summary\n")
+	in, used, err := DigestInput(dir)
+	if err != nil || len(used) != 1 || !strings.Contains(in, "raw body") || strings.Contains(in, "previous summary") {
+		t.Fatalf("DigestInput = %q %v %v; want the raw file only", in, used, err)
+	}
+	write(t, filepath.Join(ArchiveDir(dir), "sessionHistory-2026-09.md"), strings.Repeat("x", digestMaxInput))
+	if _, _, err := DigestInput(dir); err == nil || !strings.Contains(err.Error(), "needs-scope") {
+		t.Errorf("over-cap archive err = %v, want needs-scope", err)
+	}
+}

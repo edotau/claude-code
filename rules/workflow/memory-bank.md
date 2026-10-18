@@ -77,7 +77,8 @@ For readers familiar with Google's Agent Development Kit memory services, this m
 | `load_memory` | `claude-code memory search [--repo R \| --all] <terms>`, or `Read` a typed/topic file directly |
 | `add_session_to_memory` | The harvest pass (`/memory:end`, `claude-code memory update`, or `memory watch`) |
 | `MemoryEntry` | A typed block (one dated/titled entry in a bank file) addressable by file + heading |
-| Compaction | `claude-code memory index` rotation/archive, scoped to the repo (no automatic cross-repo promotion) |
+| Compaction | `claude-code memory index` rotation/archive, scoped to the repo (no automatic cross-repo promotion); `memory digest` summarizes the raw archive into `archive/digest.md` (one bounded haiku call, never digest-of-digest) |
+| `add_events_to_memory` | `pre-compact` hook: dispatches the harvest for edits no earlier harvest covered, before Claude Code compacts |
 
 ## Native project memory — same dir, not a sibling
 

@@ -350,6 +350,7 @@ claude-code memory init | path | index [--repo R]   # scaffold, locate, settle +
 claude-code memory search [--repo R] <terms> [--k 8] [--format json]  # BM25 over the bank
 claude-code memory doctor [--stale-days 90] [--notice]  # cap offenders, staleness, cross-tier duplication
 claude-code memory stats | timeline [--repo R] [-n 20] | promote [--repo R]  # stats is store-wide
+claude-code memory show <id> | digest [--repo R]          # one block by its [id]; haiku digest of the raw archive → archive/digest.md
 claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...   # one-time cutover from legacy trees
 claude-code memory migrate --manifest MANIFEST                 # apply a reviewed --dry-run manifest
 ```
