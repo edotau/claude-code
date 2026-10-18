@@ -8,52 +8,52 @@
 <text x="22.0" y="103" fill="#8a7e90" font-weight="bold">ANTHROPIC</text>
 <text x="22.0" y="122" fill="#d7d4dc">  </text>
 <text x="38.8" y="122" fill="#4796e4" font-weight="bold">opus            </text>
-<text x="173.2" y="122" fill="#d7d4dc">Claude Code, opus main model; args pass to claude</text>
+<text x="173.2" y="122" fill="#d7d4dc">hardest reasoning: architecture, deep debugging · $$$</text>
 <text x="22.0" y="141" fill="#d7d4dc">  </text>
 <text x="38.8" y="141" fill="#4995e3" font-weight="bold">sonnet          </text>
-<text x="173.2" y="141" fill="#d7d4dc">Claude Code, sonnet main model; args pass to claude</text>
+<text x="173.2" y="141" fill="#d7d4dc">everyday coding, reviews, subagents · $$</text>
 <text x="22.0" y="160" fill="#d7d4dc">  </text>
 <text x="38.8" y="160" fill="#4e93e2" font-weight="bold">haiku           </text>
-<text x="173.2" y="160" fill="#d7d4dc">Claude Code, haiku main model; args pass to claude</text>
+<text x="173.2" y="160" fill="#d7d4dc">quick lookups, mechanical edits · $ fastest</text>
 <text x="22.0" y="179" fill="#d7d4dc">  </text>
 <text x="38.8" y="179" fill="#5590df" font-weight="bold">fable           </text>
-<text x="173.2" y="179" fill="#d7d4dc">Claude Code, fable main model; args pass to claude</text>
-<text x="22.0" y="217" fill="#8a7e90" font-weight="bold">AGENTS</text>
-<text x="22.0" y="236" fill="#d7d4dc">  </text>
-<text x="38.8" y="236" fill="#5e8cdc" font-weight="bold">copilot         </text>
-<text x="173.2" y="236" fill="#d7d4dc">launch GitHub Copilot CLI on the registry; ask = one task</text>
+<text x="173.2" y="179" fill="#d7d4dc">separate frontier family; main-session default</text>
+<text x="22.0" y="198" fill="#d7d4dc">  </text>
+<text x="38.8" y="198" fill="#5e8cdc" font-weight="bold">science         </text>
+<text x="173.2" y="198" fill="#d7d4dc">Claude for Life Sciences, own login (--print-env)</text>
+<text x="22.0" y="236" fill="#8a7e90" font-weight="bold">AGENTS</text>
 <text x="22.0" y="255" fill="#d7d4dc">  </text>
-<text x="38.8" y="255" fill="#6787d8" font-weight="bold">codex           </text>
-<text x="173.2" y="255" fill="#d7d4dc">launch Codex CLI on the registry; ask = one task</text>
+<text x="38.8" y="255" fill="#6787d8" font-weight="bold">copilot         </text>
+<text x="173.2" y="255" fill="#d7d4dc">launch GitHub Copilot CLI on the registry; ask = one task</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
-<text x="38.8" y="274" fill="#7083d5" font-weight="bold">gemini          </text>
-<text x="173.2" y="274" fill="#d7d4dc">launch the gemini CLI; ask|bridge = large-context</text>
+<text x="38.8" y="274" fill="#7083d5" font-weight="bold">codex           </text>
+<text x="173.2" y="274" fill="#d7d4dc">launch Codex CLI on the registry; ask = one task</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
-<text x="38.8" y="293" fill="#797fd2" font-weight="bold">opencode        </text>
-<text x="173.2" y="293" fill="#d7d4dc">launch OpenCode on the registry; ask = one task</text>
-<text x="22.0" y="331" fill="#8a7e90" font-weight="bold">AUTH</text>
-<text x="22.0" y="350" fill="#d7d4dc">  </text>
-<text x="38.8" y="350" fill="#7f7cd0" font-weight="bold">secrets         </text>
-<text x="173.2" y="350" fill="#d7d4dc">set|get|status, scan|git|all (audit), cred checks</text>
+<text x="38.8" y="293" fill="#797fd2" font-weight="bold">gemini          </text>
+<text x="173.2" y="293" fill="#d7d4dc">launch the gemini CLI; ask|bridge = large-context</text>
+<text x="22.0" y="312" fill="#d7d4dc">  </text>
+<text x="38.8" y="312" fill="#7f7cd0" font-weight="bold">opencode        </text>
+<text x="173.2" y="312" fill="#d7d4dc">launch OpenCode on the registry; ask = one task</text>
+<text x="22.0" y="350" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="369" fill="#d7d4dc">  </text>
-<text x="38.8" y="369" fill="#837ace" font-weight="bold">resolve         </text>
-<text x="173.2" y="369" fill="#d7d4dc">resolve + print a provider&#39;s credential (apiKeyHelper)</text>
+<text x="38.8" y="369" fill="#837ace" font-weight="bold">secrets         </text>
+<text x="173.2" y="369" fill="#d7d4dc">set|get|status, scan|git|all (audit), cred checks</text>
 <text x="22.0" y="388" fill="#d7d4dc">  </text>
-<text x="38.8" y="388" fill="#847ace" font-weight="bold">profile         </text>
-<text x="173.2" y="388" fill="#d7d4dc">providers + credential state; &lt;name&gt; shows its routes</text>
-<text x="22.0" y="426" fill="#8a7e90" font-weight="bold">SESSION</text>
-<text x="22.0" y="445" fill="#d7d4dc">  </text>
-<text x="38.8" y="445" fill="#8779ca" font-weight="bold">switch          </text>
-<text x="173.2" y="445" fill="#d7d4dc">pin the session provider (env.d/provider.env)</text>
+<text x="38.8" y="388" fill="#847ace" font-weight="bold">resolve         </text>
+<text x="173.2" y="388" fill="#d7d4dc">resolve + print a provider&#39;s credential (apiKeyHelper)</text>
+<text x="22.0" y="407" fill="#d7d4dc">  </text>
+<text x="38.8" y="407" fill="#8779ca" font-weight="bold">profile         </text>
+<text x="173.2" y="407" fill="#d7d4dc">providers + credential state; &lt;name&gt; shows its routes</text>
+<text x="22.0" y="445" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="464" fill="#d7d4dc">  </text>
-<text x="38.8" y="464" fill="#8d77c2" font-weight="bold">clean           </text>
-<text x="173.2" y="464" fill="#d7d4dc">sweep accumulated state (dry-run; --apply deletes)</text>
+<text x="38.8" y="464" fill="#8d77c2" font-weight="bold">switch          </text>
+<text x="173.2" y="464" fill="#d7d4dc">pin the session provider (env.d/provider.env)</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
-<text x="38.8" y="483" fill="#9575b8" font-weight="bold">history         </text>
-<text x="173.2" y="483" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
+<text x="38.8" y="483" fill="#9575b8" font-weight="bold">clean           </text>
+<text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state (dry-run; --apply deletes)</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#9f72ad" font-weight="bold">science         </text>
-<text x="173.2" y="502" fill="#d7d4dc">Claude for Life Sciences on its own OAuth (--print-env)</text>
+<text x="38.8" y="502" fill="#9f72ad" font-weight="bold">history         </text>
+<text x="173.2" y="502" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
 <text x="38.8" y="521" fill="#a86fa0" font-weight="bold">memory          </text>
 <text x="173.2" y="521" fill="#d7d4dc">two-layer session memory: namespaced + shared global bank</text>
