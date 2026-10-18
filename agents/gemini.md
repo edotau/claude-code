@@ -31,7 +31,7 @@ description: |
   </example>
 model: sonnet
 effort: low
-color: blue
+color: purple
 tools: [Read, Grep, Glob, Bash]
 ---
 
