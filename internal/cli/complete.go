@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/statusline"
@@ -113,6 +114,9 @@ var flagsFor = map[string][]flagInfo{
 	"setup nuke": {{name: "dir"}, {name: "apply", isBool: true}, {name: "keep-memory", isBool: true},
 		{name: "account", isBool: true}, {name: "cli", isBool: true}},
 	"setup workspace": {{name: "with"}, {name: "dry-run", isBool: true}},
+	"dispatch": {{name: "host"}, {name: "dir"}, {name: "agent", values: func() []string { return dispatch.Agents }},
+		{name: "name"}, {name: "dry-run", isBool: true}, {name: "list", isBool: true}, {name: "attach", isBool: true},
+		{name: "format", values: func() []string { return []string{"text", "json"} }}},
 }
 
 // "gemini ask" is `ask` with --agent/--provider pre-filled; the flags it accepts are the same ones.
