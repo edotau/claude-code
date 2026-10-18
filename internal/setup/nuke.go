@@ -207,7 +207,7 @@ func untrackedUnder(repo, sub string) []string {
 }
 
 // archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,
-// never value) to ~/claude-nuke-<date>.tgz, adding docs/memory/bank and projects/*/memory when kept.
+// never value) to ~/claude-nuke-<date>.tgz, adding docs/memory/bank, plans/ and projects/*/memory when kept.
 func archiveUserContent(plan NukePlan, keepMemory bool) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -268,11 +268,13 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, data)
 }
 
-// keepMemoryPaths lists every file under docs/memory/bank/ and projects/*/memory/, dir-relative.
+// keepMemoryPaths lists every file under docs/memory/bank/, plans/ (untracked) and projects/*/memory/, dir-relative.
 func keepMemoryPaths(dir string) []string {
 	var roots []string
-	if fi, err := os.Stat(filepath.Join(dir, "docs", "memory", "bank")); err == nil && fi.IsDir() {
-		roots = append(roots, filepath.Join(dir, "docs", "memory", "bank"))
+	for _, rel := range []string{filepath.Join("docs", "memory", "bank"), "plans"} {
+		if fi, err := os.Stat(filepath.Join(dir, rel)); err == nil && fi.IsDir() {
+			roots = append(roots, filepath.Join(dir, rel))
+		}
 	}
 	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
 		roots = append(roots, matches...)

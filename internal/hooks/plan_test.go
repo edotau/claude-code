@@ -26,7 +26,7 @@ func planPayload(t *testing.T, cwd, plan, planFilePath string) string {
 func savedPlans(t *testing.T, cfg string) []string {
 	t.Helper()
 	var names []string
-	root := filepath.Join(cfg, "docs", "plans")
+	root := filepath.Join(cfg, "plans")
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			rel, _ := filepath.Rel(root, p)
@@ -58,7 +58,7 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("saved = %v, want %v", got, want)
 	}
-	if got, _ := os.ReadFile(filepath.Join(cfg, "docs", "plans", filepath.FromSlash(want[1]))); string(got) != plan {
+	if got, _ := os.ReadFile(filepath.Join(cfg, "plans", filepath.FromSlash(want[1]))); string(got) != plan {
 		t.Errorf("saved plan must be the approved text verbatim, got %q", got)
 	}
 }

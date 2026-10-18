@@ -1,6 +1,6 @@
 #!/bin/sh
 # Curl-able fresh-box bootstrap: clone to a staging dir, build it, let the built binary adopt the
-# live directory (it can't adopt itself before it exists). See docs/plans/2026-10-17-setup-modes.md.
+# live directory (it can't adopt itself before it exists). See README.md → Setup modes.
 set -eu
 
 REPO="${REPO:-https://github.com/edotau/claude-code}"

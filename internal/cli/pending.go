@@ -7,7 +7,7 @@ func cmdSecretsOrStub(args []string) int {
 	if secretsRun != nil {
 		return secretsRun(args)
 	}
-	return fail("secrets: not built into this binary yet (see docs/plans/2026-09-26-claude-dbx-feature-port.md, item 18)")
+	return fail("secrets: not built into this binary yet (see the claude-dbx feature-port plan, item 18)")
 }
 
 // cmdConfigureOrStub dispatches `configure` once internal/cli/configure.go lands (it registers via configureRun).

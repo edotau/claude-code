@@ -11,7 +11,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the planning skill to create the implementation plan."
 
-**Save plans to:** `.claude/docs/plans/YYYY-MM-DD-<feature-name>.md`
+**Save plans to:** `~/.claude/plans/YYYY-MM-DD-<feature-name>.md` (another repo: `~/.claude/plans/<repo-slug>/…`; plan mode files it for you via the `save-plan` hook)
 - (User preferences for plan location override this default)
 
 ## Scope Check
@@ -131,7 +131,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, offer execution choice:
 
-**"Plan complete and saved to `.claude/docs/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `~/.claude/plans/<filename>.md`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 

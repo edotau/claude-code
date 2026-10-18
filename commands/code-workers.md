@@ -39,10 +39,10 @@ echo "tasks (| -separated): $ARGS"
 ```
 
 If the task list is empty, read the approved plan — the most recent
-`$HOME/.claude/docs/plans/*.md` — and extract its task breakdown as the task list.
+`$HOME/.claude/plans/*.md` — and extract its task breakdown as the task list.
 
 ```bash
-[ -z "$ARGS" ] && ls -t "$HOME/.claude/docs/plans/"*.md 2>/dev/null | head -1
+[ -z "$ARGS" ] && ls -t "$HOME/.claude/plans/"*.md 2>/dev/null | head -1
 ```
 
 State the resolved task list before dispatching. For `auto`, decide the shape (independent → parallel;

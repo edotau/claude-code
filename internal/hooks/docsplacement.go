@@ -47,7 +47,7 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// This harness's own docs tree passes unconditionally: docs/{plans,handoffs,reports,memory} are
+	// This harness's own docs tree passes unconditionally: docs/{handoffs,reports,memory} are
 	// gitignored INSIDE this checkout, so the gated shapes below would block every legit write.
 	if underDir(canonDeep(filepath.Join(paths.ConfigDir(), "docs")), abs) {
 		return ExitProceed
@@ -82,17 +82,18 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	}
 	slug := paths.RepoSlug(root)
 	docs := filepath.Join(paths.ConfigDir(), "docs")
+	plans := filepath.Join(paths.ConfigDir(), "plans")
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"Harness-authored markdown belongs under %s:\n"+
-		"  plan             -> %s/<date>-%s-<title>.md\n"+
+		"Harness-authored markdown belongs under %s (plans) or %s (everything else):\n"+
+		"  plan             -> %s/<date>-<title>.md\n"+
 		"  report/review    -> %s/%s\n"+
 		"  handoff beacon   -> %s (machine-written at session start — don't hand-author one)\n"+
 		"Re-issue the write at one of those paths. A genuine repo doc the user asked for: create it with\n"+
 		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
 		"by setting %s=0.\n"+
 		"-> rules/standards/documentation.md\n",
-		base, where, docs,
-		filepath.Join(docs, "plans"), slug,
+		base, where, plans, docs,
+		filepath.Join(plans, slug),
 		filepath.Join(docs, "reports"), base,
 		filepath.Join(docs, "handoffs"),
 		docsPlacementDisableEnv)

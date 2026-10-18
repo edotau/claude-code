@@ -3,9 +3,9 @@
 ## Shipped (all pushed, origin/main = 1f9b1ce)
 
 - `internal/tailscale` stdlib package + `claude-code tailscale status|machines|connect|key|exit-node`, configure row,
-  doctor row, `make tailscale-cli` (`TAILSCALE=1 make bootstrap`). Plan: `docs/plans/2026-10-17-tailscale-module.md`.
-- `claude-code setup adopt|nuke|workspace` + `scripts/bootstrap.sh`. Plan: `docs/plans/2026-10-17-setup-modes.md`
-  (§5 parks the agent-driven adopt idea).
+  doctor row, `make tailscale-cli` (`TAILSCALE=1 make bootstrap`). See `README.md` → Tailscale.
+- `claude-code setup adopt|nuke|workspace` + `scripts/bootstrap.sh`. See `README.md` → Setup modes
+  (the plan parked the agent-driven adopt idea for later).
 - `clean --what sessions`; `secrets delete`; `secrets set NAME` prompts on a TTY; redacted confirmation `kJaxH*** (17 chars)`.
 
 ## Live state on this Mac
