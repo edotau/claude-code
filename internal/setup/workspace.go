@@ -184,7 +184,7 @@ func workspaceHasIgnore(path string) bool {
 	return slices.Contains(strings.Split(string(b), "\n"), workspaceIgnoreLine)
 }
 
-// workspaceMemoryAction seeds root's memory bank (global docs/memory/bank/<slug>), or reports it kept.
+// workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
 func workspaceMemoryAction(root string) workspaceAction {
 	dir := memory.Dir(root)
 	if _, err := os.Stat(filepath.Join(dir, memory.BankFiles()[0])); err == nil {
