@@ -33,7 +33,7 @@ func TestSyncCheckGatesStaleProjection(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: &out}); code == 0 {
 		t.Error("--check after a source edit = 0, want non-zero")
 	}
-	if !strings.Contains(out.String(), "DRY   ~/.claude/docs/projections/codex/agents/demo-agent.toml") {
+	if !strings.Contains(out.String(), "DRY   ~/.claude/state/projections/codex/agents/demo-agent.toml") {
 		t.Errorf("drift in the tracked dist copy not reported:\n%s", out.String())
 	}
 }
@@ -46,7 +46,7 @@ func TestSyncCheckAloneNeverWrites(t *testing.T) {
 	if code := Sync(SyncOptions{Check: true, Out: io.Discard}); code == 0 {
 		t.Error("--check on a missing projection = 0, want non-zero")
 	}
-	for _, p := range []string{filepath.Join(home, ".gemini"), filepath.Join(claude, "docs", "projections")} {
+	for _, p := range []string{filepath.Join(home, ".gemini"), filepath.Join(claude, "state", "projections")} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("Check alone (DryRun unset) wrote %s", p)
 		}

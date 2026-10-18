@@ -17,7 +17,7 @@ func TestSyncRejectsDuplicateSkillNamesBeforeWriting(t *testing.T) {
 	if code := Sync(SyncOptions{NoPrune: true, Out: io.Discard}); code != 1 {
 		t.Fatalf("Sync exit = %d, want 1", code)
 	}
-	for _, p := range []string{filepath.Join(claude, "docs", "projections"), filepath.Join(home, ".agents"), filepath.Join(home, ".codex")} {
+	for _, p := range []string{filepath.Join(claude, "state", "projections"), filepath.Join(home, ".agents"), filepath.Join(home, ".codex")} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("%s exists after rejected collision: %v", p, err)
 		}
@@ -35,7 +35,7 @@ func TestDiscoverAgentsRejectsNameDirMismatch(t *testing.T) {
 	if code := Sync(SyncOptions{NoPrune: true, Out: io.Discard}); code != 1 {
 		t.Fatalf("Sync exit = %d, want 1", code)
 	}
-	if _, err := os.Stat(filepath.Join(claude, "docs", "projections")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(claude, "state", "projections")); !os.IsNotExist(err) {
 		t.Fatalf("output exists after rejected roster: %v", err)
 	}
 }

@@ -36,12 +36,12 @@ func sub(parts ...string) func(string) string {
 	return func(home string) string { return filepath.Join(append([]string{home}, parts...)...) }
 }
 
-// ProjectionRoot is a vendor's local rendering inside the harness docs tree (gitignored, rebuilt by every sync).
+// ProjectionRoot is a vendor's local rendering under harness state (gitignored, rebuilt by every sync).
 func ProjectionRoot(root, vendor string) string {
-	return filepath.Join(root, "docs", "projections", vendor)
+	return filepath.Join(root, "state", "projections", vendor)
 }
 
-// ProjectionDir holds a vendor's rendered agents: <config>/docs/projections/<vendor>/agents/<name>.<ext>.
+// ProjectionDir holds a vendor's rendered agents: <config>/state/projections/<vendor>/agents/<name>.<ext>.
 func ProjectionDir(root, vendor string) string {
 	return filepath.Join(ProjectionRoot(root, vendor), "agents")
 }
