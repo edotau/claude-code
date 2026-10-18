@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"cmp"
+	"github.com/edotau/claude-code/internal/proc"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,7 +93,7 @@ func SetPins(kv map[string]string) error {
 		for k, v := range kv {
 			switch {
 			case k == PinProvider:
-				audit.Log(audit.ProviderSwitch, v, "")
+				audit.Log(audit.ProviderSwitch, v, pinCaller())
 			case k == PinModel || (strings.HasPrefix(k, "HARNESS_") && strings.HasSuffix(k, "_MODEL")):
 				audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
 			}
@@ -140,4 +141,13 @@ func StoredSecret(name string) string {
 		return v
 	}
 	return strings.TrimSpace(ReadEnvFile(SecretsFile())[name])
+}
+
+// pinCaller names who wrote a pin — the verb and the parent process — so an unexpected switch can be traced.
+func pinCaller() string {
+	verb := ""
+	if len(os.Args) > 1 {
+		verb = os.Args[1]
+	}
+	return "via " + cmp.Or(verb, "?") + " (parent " + cmp.Or(proc.Comm(os.Getppid()), "?") + ")"
 }
