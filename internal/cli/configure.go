@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/ansi"
 	"os"
 	"strings"
 
@@ -42,10 +43,7 @@ func cmdConfigure(args []string) int {
 }
 
 // isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).
-func isTTY(f *os.File) bool {
-	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
+func isTTY(f *os.File) bool { return ansi.IsTerminal(f) }
 
 func init() {
 	configureRun = cmdConfigure

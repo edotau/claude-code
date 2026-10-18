@@ -237,8 +237,7 @@ func colorOK(w *os.File) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}
-	fi, err := w.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return ansi.IsTerminal(w)
 }
 
 // sweep paints s rune by rune across the gradient, bold, like the status line's path segment.
