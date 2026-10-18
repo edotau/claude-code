@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/dispatch"
 )
 
@@ -31,13 +32,15 @@ func newTestServer(t *testing.T, opts Options, logBuf *bytes.Buffer) *Server {
 		logBuf = &bytes.Buffer{}
 	}
 	s := &Server{
-		opts:      opts,
-		boundAddr: "127.0.0.1:7777",
-		dnsNames:  []string{"my-node.tailxyz.ts.net", "my-node"},
-		csrfToken: testCSRFToken,
-		logger:    log.New(logBuf, "", 0),
-		status:    newStatusCache(),
-		now:       time.Now,
+		opts:       opts,
+		boundAddr:  "127.0.0.1:7777",
+		dnsNames:   []string{"my-node.tailxyz.ts.net", "my-node"},
+		csrfToken:  testCSRFToken,
+		logger:     log.New(logBuf, "", 0),
+		status:     newStatusCache(),
+		now:        time.Now,
+		browserEnv: browser.NewEnv(), // tests that exercise /api/browsers override this via newBrowserTestServer
+		browsers:   newBrowserCache(),
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
@@ -506,6 +509,77 @@ func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
 	for _, field := range []string{"p.session", "p.agent", "p.reason"} {
 		if !strings.Contains(fn, "escapeHTML("+field) {
 			t.Errorf("renderDispatches interpolates %s without escapeHTML(...): regression risk for a pane running attacker-controlled text\n%s", field, fn)
+		}
+	}
+}
+
+// --- dashboard template escapes the new activity/leg/snapshot/browser fields before interpolating ---
+
+// extractJSFunc returns the body of the first JS function named name in src, the same
+// start/end-delimiter approach TestRenderDispatchesTemplateEscapesStatusFields uses.
+func extractJSFunc(t *testing.T, src, name string) string {
+	t.Helper()
+	start := strings.Index(src, "function "+name)
+	if start < 0 {
+		t.Fatalf("function %s not found in the dashboard template", name)
+	}
+	end := strings.Index(src[start:], "\n}\n")
+	if end < 0 {
+		t.Fatalf("could not find the end of %s", name)
+	}
+	return src[start : start+end]
+}
+
+func templateSource(t *testing.T) string {
+	t.Helper()
+	src, err := assetsFS.ReadFile("assets/index.html.tmpl")
+	if err != nil {
+		t.Fatalf("read index.html.tmpl: %v", err)
+	}
+	return string(src)
+}
+
+func TestRenderActivityEscapesToolAndText(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderActivity")
+	for _, field := range []string{"text"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderActivity interpolates %s without escapeHTML(...): regression risk for an agent's own text/tool output\n%s", field, fn)
+		}
+	}
+}
+
+func TestRenderLegEscapesVendorFields(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderLeg")
+	for _, field := range []string{"l.fallback", "l.agent", "l.model", "l.duration"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderLeg interpolates %s without escapeHTML(...): regression risk for vendor-reported agent/model/fallback text\n%s", field, fn)
+		}
+	}
+}
+
+func TestRenderSubagentsEscapesDataAttributes(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderSubagents")
+	for _, field := range []string{"sessionId", "s.id"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderSubagents interpolates %s without escapeHTML(...): regression risk in the data-session/data-agent attributes\n%s", field, fn)
+		}
+	}
+}
+
+func TestRenderSnapshotEscapesLabelAndFields(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderSnapshot")
+	for _, field := range []string{"snap.label || snap.id", "snap.workflow", "snap.model || ''", "snap.result", "lines"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderSnapshot interpolates %s without escapeHTML(...): regression risk for agent-controlled label/result/event text\n%s", field, fn)
+		}
+	}
+}
+
+func TestRenderBrowsersEscapesReportFields(t *testing.T) {
+	fn := extractJSFunc(t, templateSource(t), "renderBrowsers")
+	for _, field := range []string{"b.displayName || b.name", "b.host || ''"} {
+		if !strings.Contains(fn, "escapeHTML("+field) {
+			t.Errorf("renderBrowsers interpolates %s without escapeHTML(...): regression risk for browser-report text\n%s", field, fn)
 		}
 	}
 }

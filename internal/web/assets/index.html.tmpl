@@ -25,6 +25,12 @@
   .chip-input-needed { background: #542; color: #fc8; }
   .chip-unknown, .chip-gone { background: #2a2a2a; color: #999; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #272b36; padding-left: 0.6rem; margin-top: 0.35rem; }
+  .agent-row { cursor: pointer; padding: 0.2rem 0; }
+  .agent-row:hover { background: #1b1e28; }
+  .activity { font-size: 0.78rem; color: #6fa8dc; margin-top: 0.1rem; }
+  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #9aa0ac; }
+  .linklike { background: none; border: none; color: #6fa8dc; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
+  #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
   label { display: block; font-size: 0.82rem; color: #9aa0ac; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
     width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #333848;
@@ -45,6 +51,16 @@
 <section>
   <h2>Agents</h2>
   <div id="tree"><p class="muted">loading…</p></div>
+</section>
+
+<section id="detailSection" style="display:none">
+  <h2>Agent <button type="button" class="linklike" id="detailCloseBtn">[close]</button></h2>
+  <div id="detail"></div>
+</section>
+
+<section>
+  <h2>Browsers</h2>
+  <div id="browsers"><p class="muted">loading…</p></div>
 </section>
 
 <section>
@@ -91,11 +107,34 @@ function chip(status) {
   return '<span class="chip chip-' + escapeHTML(status) + '">' + escapeHTML(status) + '</span>';
 }
 
-function renderSubagents(subs) {
+// statusGlyph mirrors internal/agenttree/render.go's statusGlyph: one marker per status at a glance.
+function statusGlyph(status) {
+  return { running: '●', finished: '✓', error: '✗', stale: '·' }[status] || ' ';
+}
+
+function renderActivity(a) {
+  if (!a || (!a.tool && !a.text)) return '';
+  const text = a.tool ? (a.tool + (a.arg ? ' ' + a.arg : '')) : a.text;
+  return '<div class="activity">' + escapeHTML(text) + '</div>';
+}
+
+// renderLeg mirrors internal/agenttree/render.go's formatLeg: "↳ codex gpt-6-astra running 2m14s".
+function renderLeg(l) {
+  const name = l.fallback ? escapeHTML(l.fallback) + '→' + escapeHTML(l.agent) : escapeHTML(l.agent);
+  let line = '↳ ' + name + ' ' + escapeHTML(l.model || '') + ' ' + chip(l.status) + ' ' + escapeHTML(l.duration || '');
+  if (l.fallback) line += ' ⚠ fallback';
+  return '<div class="leg">' + line + '</div>';
+}
+
+function renderSubagents(subs, sessionId) {
   if (!subs || !subs.length) return '';
   return '<div class="sub">' + subs.map(function (s) {
-    return '<div class="row"><span>' + (s.type || s.id) + ' ' + chip(s.status) + '</span>' +
-      '<span class="muted">' + (s.lastTool || '') + '</span></div>';
+    return '<div class="agent-row" data-session="' + escapeHTML(sessionId) + '" data-agent="' + escapeHTML(s.id) + '">' +
+      '<div class="row"><span>' + statusGlyph(s.status) + ' ' + escapeHTML(s.type || s.id) + ' ' + chip(s.status) + '</span>' +
+      '<span class="muted">' + escapeHTML(s.lastTool || '') + '</span></div>' +
+      renderActivity(s.activity) +
+      (s.legs || []).map(renderLeg).join('') +
+      '</div>';
   }).join('') + '</div>';
 }
 
@@ -104,9 +143,9 @@ function renderTree(tree) {
   if (!sessions.length) return '<p class="muted">no recent sessions</p>';
   return sessions.map(function (s) {
     return '<div class="card">' +
-      '<div class="row"><strong>' + (s.title || s.project || s.id) + '</strong>' + chip(s.status) + '</div>' +
-      '<div class="muted">' + (s.cwd || '') + (s.branch ? ' @' + s.branch : '') + '</div>' +
-      renderSubagents(s.subagents) +
+      '<div class="row"><strong>' + escapeHTML(s.title || s.project || s.id) + '</strong>' + chip(s.status) + '</div>' +
+      '<div class="muted">' + escapeHTML(s.cwd || '') + (s.branch ? ' @' + escapeHTML(s.branch) : '') + '</div>' +
+      renderSubagents(s.subagents, s.id) +
       '</div>';
   }).join('');
 }
@@ -118,6 +157,93 @@ function renderDispatches(statuses) {
       chip(p.state) + '</div>' +
       '<div class="muted">' + escapeHTML(p.agent || '') + ' &middot; ' + escapeHTML(p.reason || '') + '</div></div>';
   }).join('');
+}
+
+// eventLine mirrors internal/agenttree/view.go's formatEvent for one Snapshot.Events entry.
+function eventLine(e) {
+  const ts = e.at ? new Date(e.at).toLocaleTimeString() : '';
+  if (e.kind === 'tool') return ts + ' tool ' + (e.tool || '') + ' ' + (e.arg || '');
+  if (e.kind === 'text') return ts + ' text "' + (e.text || '') + '"';
+  if (e.kind === 'result') return ts + ' result ' + (e.size || 0) + ' B';
+  return ts;
+}
+
+function renderSnapshot(snap) {
+  let html = '<div class="row"><strong>' + escapeHTML(snap.label || snap.id) + '</strong>' + chip(snap.status) + '</div>';
+  if (snap.workflow) html += '<div class="muted">workflow ' + escapeHTML(snap.workflow) + ' phase ' + escapeHTML(snap.phase || '') + '</div>';
+  html += '<div class="muted">' + escapeHTML(snap.model || '') + (snap.effort ? ' effort=' + escapeHTML(snap.effort) : '') + '</div>';
+  html += renderActivity(snap.activity);
+  (snap.filesEdited || []).forEach(function (f) { html += '<div class="muted">edited ' + escapeHTML(f) + '</div>'; });
+  (snap.legs || []).forEach(function (l) { html += renderLeg(l); });
+  if (snap.result) html += '<div class="muted">result: ' + escapeHTML(snap.result) + '</div>';
+  const lines = (snap.events || []).map(eventLine).join('\n');
+  html += '<pre id="detailEvents">' + escapeHTML(lines) + '</pre>';
+  return html;
+}
+
+function closeDetail() {
+  if (window._detailAbort) window._detailAbort.abort();
+  document.getElementById('detailSection').style.display = 'none';
+  document.getElementById('detail').innerHTML = '';
+}
+
+// followDetail streams /api/view?follow=1's text/plain lines into #detailEvents as they arrive,
+// aborted by closeDetail or by opening a different agent.
+function followDetail(sessionId, agentId) {
+  const controller = new AbortController();
+  window._detailAbort = controller;
+  fetch('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId) + '&follow=1', { signal: controller.signal })
+    .then(function (r) {
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      const pre = document.getElementById('detailEvents');
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done || !pre) return;
+          pre.textContent += decoder.decode(res.value, { stream: true });
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .catch(function () {});
+}
+
+function openDetail(sessionId, agentId) {
+  if (window._detailAbort) window._detailAbort.abort();
+  const section = document.getElementById('detailSection');
+  const el = document.getElementById('detail');
+  section.style.display = '';
+  el.innerHTML = '<p class="muted">loading…</p>';
+  fetch('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId))
+    .then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
+      return r.json();
+    })
+    .then(function (snap) {
+      el.innerHTML = renderSnapshot(snap);
+      if (snap.status === 'running') followDetail(sessionId, agentId);
+    })
+    .catch(function (err) { el.innerHTML = '<p class="muted">' + escapeHTML(String(err.message || err)) + '</p>'; });
+}
+
+function renderBrowsers(rep) {
+  const browsers = (rep && rep.browsers) || [];
+  if (!browsers.length) return '<p class="muted">no browsers detected</p>';
+  return browsers.map(function (b) {
+    const paths = b.paths || {};
+    const mark = b.default ? ' <span class="muted">(default)</span>' : '';
+    return '<div class="card"><div class="row"><strong>' + escapeHTML(b.displayName || b.name) + '</strong>' + mark + '</div>' +
+      '<div class="muted">host=' + escapeHTML(b.host || '') + ' extension=' + escapeHTML(paths.extension || '') +
+      ' cdp=' + escapeHTML(paths.cdp || '') + ' webdriver=' + escapeHTML(paths.webdriver || '') +
+      ' gui=' + escapeHTML(paths.gui || '') + '</div></div>';
+  }).join('');
+}
+
+function loadBrowsers() {
+  fetch('/api/browsers').then(function (r) { return r.json(); }).then(function (rep) {
+    document.getElementById('browsers').innerHTML = renderBrowsers(rep);
+  }).catch(function () {});
 }
 
 function loadTree() {
@@ -170,12 +296,21 @@ document.getElementById('dispatchForm').addEventListener('submit', function (e) 
     }).finally(function () { btn.disabled = false; });
 });
 
+document.getElementById('tree').addEventListener('click', function (e) {
+  const row = e.target.closest('.agent-row');
+  if (!row) return;
+  openDetail(row.dataset.session, row.dataset.agent);
+});
+document.getElementById('detailCloseBtn').addEventListener('click', closeDetail);
+
 loadTree();
+loadBrowsers();
 buildHostTabs([{{range $i, $h := .Hosts}}{{if $i}},{{end}}"{{$h}}"{{end}}]);
 setInterval(function () {
   loadTree();
   if (currentHost) loadDispatches(currentHost);
 }, 5000);
+setInterval(loadBrowsers, 30000);
 </script>
 </body>
 </html>

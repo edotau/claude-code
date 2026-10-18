@@ -2,7 +2,7 @@
 // JSON -> plain tree-node model. Pure (no vscode import) so node:test exercises it directly;
 // extension.js adapts these plain nodes into vscode.TreeItem.
 const path = require('node:path');
-const { formatAge, formatTokens } = require('./format');
+const { formatAge, formatTokens, formatActivity, formatLeg } = require('./format');
 
 function iconForStatus(status) {
   if (status === 'running' || status === 'active') return 'sync~spin';
@@ -27,21 +27,40 @@ function nestByDepth(items) {
   return root;
 }
 
-function subagentNode(item, now) {
-  const children = (item.children || []).map((c) => subagentNode(c, now));
+/** A vendor-dispatch leg as an indented, non-expandable child row under its relay subagent. */
+function legNode(agentId, leg) {
   return {
-    kind: 'subagent',
-    id: item.id,
-    label: `${item.type}: ${item.description}`,
-    description: `${item.status} · ${formatTokens(item.tokens)} · ${formatAge(item.updated, now)}`,
-    tooltip: item.lastTool ? `last tool: ${item.lastTool}` : undefined,
-    icon: iconForStatus(item.status),
-    children,
+    kind: 'leg',
+    id: `${agentId}:leg:${leg.id}`,
+    label: formatLeg(leg),
+    description: '',
+    tooltip: leg.fallbackReason || undefined,
+    icon: leg.fallback ? 'warning' : 'link',
+    children: [],
   };
 }
 
-function phaseNode(workflowId, phase, now) {
-  const nested = nestByDepth(phase.agents || []).map((a) => subagentNode(a, now));
+// sessionId threads through to each subagent node so its view-detail command knows which
+// session to search (`claude-code web view <id> --session <sessionId>`).
+function subagentNode(item, now, sessionId) {
+  const children = (item.children || []).map((c) => subagentNode(c, now, sessionId));
+  const legChildren = (item.legs || []).map((l) => legNode(item.id, l));
+  const activity = formatActivity(item.activity);
+  return {
+    kind: 'subagent',
+    id: item.id,
+    agentId: item.id,
+    sessionId,
+    label: `${item.type}: ${item.description}`,
+    description: `${item.status} · ${formatTokens(item.tokens)} · ${formatAge(item.updated, now)}${activity ? ' · ' + activity : ''}`,
+    tooltip: item.lastTool ? `last tool: ${item.lastTool}` : undefined,
+    icon: iconForStatus(item.status),
+    children: [...legChildren, ...children],
+  };
+}
+
+function phaseNode(workflowId, phase, now, sessionId) {
+  const nested = nestByDepth(phase.agents || []).map((a) => subagentNode(a, now, sessionId));
   return {
     kind: 'phase',
     id: `${workflowId}:${phase.name}`,
@@ -53,7 +72,7 @@ function phaseNode(workflowId, phase, now) {
   };
 }
 
-function workflowNode(wf, now) {
+function workflowNode(wf, now, sessionId) {
   return {
     kind: 'workflow',
     id: wf.id,
@@ -61,13 +80,13 @@ function workflowNode(wf, now) {
     description: `${wf.status} · ${formatAge(wf.updated, now)}`,
     tooltip: undefined,
     icon: iconForStatus(wf.status),
-    children: (wf.phases || []).map((p) => phaseNode(wf.id, p, now)),
+    children: (wf.phases || []).map((p) => phaseNode(wf.id, p, now, sessionId)),
   };
 }
 
 function sessionNode(session, now) {
-  const subChildren = nestByDepth(session.subagents || []).map((s) => subagentNode(s, now));
-  const wfChildren = (session.workflows || []).map((w) => workflowNode(w, now));
+  const subChildren = nestByDepth(session.subagents || []).map((s) => subagentNode(s, now, session.id));
+  const wfChildren = (session.workflows || []).map((w) => workflowNode(w, now, session.id));
   return {
     kind: 'session',
     id: session.id,

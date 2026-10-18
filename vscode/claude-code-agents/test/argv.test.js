@@ -5,6 +5,7 @@ const {
   treeArgv,
   dispatchListArgv,
   dispatchStartArgv,
+  viewArgv,
   attachShellArgs,
   attachCommandLine,
 } = require('../lib/argv');
@@ -55,6 +56,18 @@ test('dispatchStartArgv: honors any requested agent string verbatim (allowlistin
   // argv.js builds argv only; it does not validate the agent name itself.
   const argv = dispatchStartArgv('claude-code', { host: 'h', agent: 'gemini', dir: '', task: 't' });
   assert.equal(argv[argv.indexOf('--agent') + 1], 'gemini');
+});
+
+test('viewArgv: no session -> "web view <id> --format json"', () => {
+  assert.deepEqual(viewArgv('claude-code', 'fakewfagent002', undefined), [
+    'claude-code', 'web', 'view', 'fakewfagent002', '--format', 'json',
+  ]);
+});
+
+test('viewArgv: with session -> "--session S" inserted before --format', () => {
+  assert.deepEqual(viewArgv('claude-code', 'fakewfagent002', 'finished-session-aaaa1111'), [
+    'claude-code', 'web', 'view', 'fakewfagent002', '--session', 'finished-session-aaaa1111', '--format', 'json',
+  ]);
 });
 
 test('attachShellArgs: matches the Go CLI\'s AttachArgs shape minus the leading "ssh"', () => {
