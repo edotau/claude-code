@@ -40,6 +40,9 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID string, now time.Time) string {
 	guard := memory.StartupGuard()
+	if guard.Migrated && !guard.Paused && !memory.IsHarvestChild() {
+		memory.LinkNativeFor(cwd) // keep this project's native memory pointed at its store dir
+	}
 	prefix := guard.Notice // paused: the notice ("" otherwise); else a fresh-scaffold notice or ""
 	if !guard.Paused {
 		prefix = maybeAutoInit(cwd)

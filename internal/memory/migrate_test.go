@@ -83,7 +83,7 @@ func inventoryAndWrite(t *testing.T, o InventoryOptions) (Manifest, string) {
 func minimalManifest(t *testing.T, names ...string) (Manifest, string) {
 	t.Helper()
 	for _, name := range names {
-		write(t, filepath.Join(GlobalDir(), name), "# "+name+"\nminimal real content\n")
+		write(t, filepath.Join(LegacyGlobalDir(), name), "# "+name+"\nminimal real content\n")
 	}
 	return inventoryAndWrite(t, InventoryOptions{})
 }
@@ -119,15 +119,15 @@ func newLegacyFixture(t *testing.T, withOrcaAlias bool) legacyFixture {
 	buildNativeStore(t, filepath.Join(cfg, "projects", projectSlug(repoR), "memory"))
 	buildLegacyGlobalBank(t)
 	buildChangedRepoBank(t, rSlug)
-	buildPristineBank(t, filepath.Join(GlobalDir(), "pristine1"))
-	impeccable := filepath.Join(GlobalDir(), ".impeccable", "hook.cache.json")
+	buildPristineBank(t, filepath.Join(LegacyGlobalDir(), "pristine1"))
+	impeccable := filepath.Join(LegacyGlobalDir(), ".impeccable", "hook.cache.json")
 	write(t, impeccable, strings.Repeat("x", 27)) // unknown junk: quarantined, not deleted
 
 	// `ling/`: pristine templates, but no origin anywhere — still deleted, no finding needed.
-	buildPristineBank(t, filepath.Join(GlobalDir(), "ling"))
+	buildPristineBank(t, filepath.Join(LegacyGlobalDir(), "ling"))
 
 	// `orphan-repo/`: changed (non-pristine) content with NO resolvable origin -> unresolved finding + skip.
-	orphanDir := filepath.Join(GlobalDir(), "orphan-repo")
+	orphanDir := filepath.Join(LegacyGlobalDir(), "orphan-repo")
 	for name := range templates {
 		write(t, filepath.Join(orphanDir, name), "# orphan "+name+"\nchanged, unresolved\n")
 	}
@@ -162,11 +162,11 @@ func buildNativeStore(t *testing.T, dir string) {
 	write(t, filepath.Join(dir, "archive", "old.md"), "archived\n")
 }
 
-// buildLegacyGlobalBank seeds GlobalDir() with the six typed files, an archived sessionHistory, the
+// buildLegacyGlobalBank seeds LegacyGlobalDir() with the six typed files, an archived sessionHistory, the
 // stale index, an access log and a stale lock file.
 func buildLegacyGlobalBank(t *testing.T) {
 	t.Helper()
-	g := GlobalDir()
+	g := LegacyGlobalDir()
 	for name := range templates {
 		write(t, filepath.Join(g, name), "# global "+name+"\nreal content\n")
 	}
@@ -176,10 +176,10 @@ func buildLegacyGlobalBank(t *testing.T) {
 	write(t, filepath.Join(g, ".postharvest.lock"), "")
 }
 
-// buildChangedRepoBank seeds GlobalDir()/slug/ with changed (non-template) typed files plus an archive.
+// buildChangedRepoBank seeds LegacyGlobalDir()/slug/ with changed (non-template) typed files plus an archive.
 func buildChangedRepoBank(t *testing.T, slug string) {
 	t.Helper()
-	dir := filepath.Join(GlobalDir(), slug)
+	dir := filepath.Join(LegacyGlobalDir(), slug)
 	for name := range templates {
 		write(t, filepath.Join(dir, name), "# "+name+" for "+slug+"\nchanged\n")
 	}
@@ -452,11 +452,11 @@ func TestApplyFullImportCommitsAndRetires(t *testing.T) {
 			assertStoreCommitCoversImports(t, m.Items)
 
 			assertPathsGone(t,
-				filepath.Join(GlobalDir(), "activeContext.md"),
-				filepath.Join(GlobalDir(), fx.rSlug, "activeContext.md"),
+				filepath.Join(LegacyGlobalDir(), "activeContext.md"),
+				filepath.Join(LegacyGlobalDir(), fx.rSlug, "activeContext.md"),
 				filepath.Join(fx.cfg, "projects", projectSlug(fx.repoR), "memory", "a-topic.md"),
-				filepath.Join(GlobalDir(), "pristine1"),
-				filepath.Join(GlobalDir(), "ling"),
+				filepath.Join(LegacyGlobalDir(), "pristine1"),
+				filepath.Join(LegacyGlobalDir(), "ling"),
 				filepath.Join(fx.cfg, "docs", "handoffs", "HANDOFF.md"),
 				filepath.Join(fx.cfg, "docs", "handoffs", "2026-10-17-loop-workflows.plan.json"),
 				filepath.Join(fx.cfg, "docs", "handoffs", "2026-10-17-loop-workflows.critic.json"),
@@ -610,7 +610,7 @@ func TestApplyDetectsChangedSourceSinceDryRun(t *testing.T) {
 	migrateConfig(t)
 	_, manifestPath := minimalManifest(t, "activeContext.md")
 
-	src := filepath.Join(GlobalDir(), "activeContext.md")
+	src := filepath.Join(LegacyGlobalDir(), "activeContext.md")
 	write(t, src, "# activeContext.md\nEDITED after the dry run\n")
 
 	var out bytes.Buffer
@@ -634,11 +634,11 @@ func TestApplyDetectsChangedSourceSinceDryRun(t *testing.T) {
 // and both copies are kept untouched.
 func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	migrateConfig(t)
-	write(t, filepath.Join(GlobalDir(), "activeContext.md"), "# activeContext.md\nminimal real content\n")
-	write(t, filepath.Join(GlobalDir(), "progress.md"), "# progress.md\nminimal real content\n")
+	write(t, filepath.Join(LegacyGlobalDir(), "activeContext.md"), "# activeContext.md\nminimal real content\n")
+	write(t, filepath.Join(LegacyGlobalDir(), "progress.md"), "# progress.md\nminimal real content\n")
 
 	// activeContext.md's dest already holds the exact same bytes as its (about to be hashed) source.
-	srcABytes, err := os.ReadFile(filepath.Join(GlobalDir(), "activeContext.md"))
+	srcABytes, err := os.ReadFile(filepath.Join(LegacyGlobalDir(), "activeContext.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,7 +652,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 
 	// progress.md's dest appears with DIFFERENT bytes only after the manifest was written (a race).
 	write(t, filepath.Join(StoreDir(), "progress.md"), "a completely different file\n")
-	srcB := filepath.Join(GlobalDir(), "progress.md")
+	srcB := filepath.Join(LegacyGlobalDir(), "progress.md")
 
 	var out bytes.Buffer
 	res, err := Apply(manifestPath, &out)
@@ -676,7 +676,7 @@ func TestApplyEqualDestVerifiesCommitsAndRetires(t *testing.T) {
 	// seed isolates a fresh box whose dest already holds the source's bytes, returning the dry-run manifest.
 	seed := func() (src, dest string, m Manifest, manifestPath string) {
 		migrateConfig(t)
-		src, dest = filepath.Join(GlobalDir(), "activeContext.md"), filepath.Join(StoreDir(), "activeContext.md")
+		src, dest = filepath.Join(LegacyGlobalDir(), "activeContext.md"), filepath.Join(StoreDir(), "activeContext.md")
 		write(t, src, "# activeContext.md\nminimal real content\n")
 		write(t, dest, "# activeContext.md\nminimal real content\n")
 		m, manifestPath = inventoryAndWrite(t, InventoryOptions{})
@@ -919,7 +919,7 @@ func TestApplyRejectsDestUnderSymlinkedAncestor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			migrateConfig(t)
-			src := filepath.Join(GlobalDir(), tc.src)
+			src := filepath.Join(LegacyGlobalDir(), tc.src)
 			write(t, src, tc.body)
 			elsewhere := t.TempDir()
 			link := tc.link()
@@ -1012,7 +1012,7 @@ func TestApplySettleResumesUncommittedTransaction(t *testing.T) {
 		t.Errorf("transaction journal left pending: %v", left)
 	}
 	assertAllHashesMatch(t, m.Items)
-	assertPathsGone(t, filepath.Join(GlobalDir(), "activeContext.md"))
+	assertPathsGone(t, filepath.Join(LegacyGlobalDir(), "activeContext.md"))
 }
 
 // Finding 3 regression: a manifest re-made after a crashed apply supersedes the old journal (kept aside, whole), and

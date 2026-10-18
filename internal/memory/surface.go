@@ -22,6 +22,9 @@ const truncatedNotice = "\n<!-- (surface truncated) -->"
 
 // SessionSurface composes root's local bank surface plus the global one, capped at TotalCapChars; "" when empty.
 func SessionSurface(root string) string {
+	if CutOver() {
+		return unifiedSurface(root)
+	}
 	var parts []string
 	if local := capBytes(localSurface(Dir(root), root), localCapBytes); local != "" {
 		parts = append(parts, local)
@@ -179,4 +182,68 @@ func dropParked(body string) string {
 		out = append(out, fmt.Sprintf("\n<!-- %d parked item(s) omitted; memory-recall surfaces them by topic -->", items))
 	}
 	return strings.Join(out, "\n")
+}
+
+// Unified-store budgets (plan §3.4): the catalog and the focus slices are reserved so neither starves the other.
+const (
+	catalogCapChars = 2500
+	focusCapChars   = 2000
+)
+
+// unifiedSurface is the post-cutover preload: the catalog router plus root's focus sections; Claude Code loads
+// the repo's MEMORY.md (with its generated bank region) itself, so no index is injected here.
+func unifiedSurface(root string) string {
+	dir := Dir(root)
+	var parts []string
+	if data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile)); err == nil {
+		parts = append(parts, "<!-- MEMORY CATALOG (start here; "+StoreDir()+") -->\n"+capRows(strings.TrimSpace(string(data)), catalogCapChars))
+	}
+	var focus []string
+	if data, err := os.ReadFile(filepath.Join(dir, "activeContext.md")); err == nil {
+		for _, h := range []string{"Current Focus", "Blockers", "Next Steps"} {
+			if sec := sectionBody(string(data), h); sec != "" {
+				focus = append(focus, "## "+h+"\n"+sec)
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "progress.md")); err == nil {
+		if sec := sectionBody(string(data), "In Progress"); sec != "" {
+			focus = append(focus, "## In Progress\n"+sec)
+		}
+	}
+	if len(focus) > 0 {
+		parts = append(parts, CapChars("<!-- THIS REPO ("+dir+") — focus only; read the typed files on demand -->\n"+strings.Join(focus, "\n\n"), focusCapChars))
+	}
+	return CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+}
+
+// sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
+func sectionBody(text, heading string) string {
+	var out []string
+	in := false
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "## ") {
+			if in {
+				break
+			}
+			in = strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(l, "## ")), heading)
+			continue
+		}
+		if in {
+			out = append(out, l)
+		}
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// capRows trims text to max chars at a whole-line boundary, pointing at the full file.
+func capRows(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	cut := strings.LastIndex(text[:max], "\n")
+	if cut < 0 {
+		cut = max
+	}
+	return text[:cut] + "\n- … (catalog truncated; read " + CatalogFile + " in the store)"
 }

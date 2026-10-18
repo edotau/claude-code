@@ -80,7 +80,7 @@ func SearchBanks(root, query string, k int) []SearchHit {
 	}
 	var docs []doc
 	df := map[string]int{}
-	for _, hit := range corpusBlocks(root) {
+	for _, hit := range append(corpusBlocks(root), routedBlocks(root, query)...) {
 		tf := map[string]float64{}
 		var dl float64
 		first, rest, _ := strings.Cut(hit.Block, "\n")

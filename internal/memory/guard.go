@@ -36,13 +36,12 @@ func StartupGuard() Guard {
 		return Guard{Paused: true, Notice: "memory migration incomplete (" + filepath.Base(path) + "): finish it with `claude-code memory migrate --apply " +
 			manifest + "`; memory writes are paused"}
 	}
-	// Dir/GlobalDir/NativeDir still resolve the retired legacy bank until the Phase 2 cutover: unpausing here
-	// would let SessionStart/harvests re-scaffold it, so a completed import stays paused with its own notice.
-	if migrated {
-		return Guard{Paused: true, Migrated: true, Notice: "memory migration complete (" + filepath.Base(path) + "): the legacy bank " +
-			GlobalDir() + " is retired and the store at " + StoreDir() + " is not wired for writes yet; memory scaffolding and harvests stay paused"}
+	// After a completed import every resolver points into the store, so writes resume — unless the store vanished.
+	if migrated && !StoreRepo().Exists() {
+		return Guard{Paused: true, Migrated: true, Notice: "memory migration complete (" + filepath.Base(path) + ") but the store " +
+			StoreDir() + " has no git repo; restore it before memory writes resume"}
 	}
-	return Guard{}
+	return Guard{Migrated: migrated}
 }
 
 // CheckWritable is the one mutation gate: nil when the store accepts writes, else ErrMemoryPaused with the notice.
