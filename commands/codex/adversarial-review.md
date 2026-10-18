@@ -16,8 +16,8 @@ Each invocation is tied to a session ID so results are traceable:
 
 - **`--session-id <id>`** — explicit session ID (e.g., a task-id from `/workflow:orchestrate`)
 - **omitted** — auto-derived from current git branch + short timestamp
-- **handoff file**: `docs/reports/codex-sessions/<session-id>/review-<timestamp>.md`
-- **status file**: `docs/reports/codex-sessions/<session-id>/status.md` (updated live)
+- **handoff file**: `$(claude-code memory path)/reports/codex-sessions/<session-id>/review-<timestamp>.md`
+- **status file**: `$(claude-code memory path)/reports/codex-sessions/<session-id>/status.md` (updated live)
 - The session ID is printed back to stdout as `SESSION_ID=<id>` so callers can correlate or chain follow-ups.
 
 ## Scope (pick one; defaults to `--uncommitted`)
@@ -82,7 +82,7 @@ if [[ -z "$SESSION_ID" ]]; then
   SESSION_ID="${branch}-${ts}"
 fi
 
-SESS_DIR="docs/reports/codex-sessions/$SESSION_ID"
+SESS_DIR="$(claude-code memory path)/reports/codex-sessions/$SESSION_ID"   # the repo's memory store, never docs/
 mkdir -p "$SESS_DIR"
 
 TS_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -181,4 +181,4 @@ exit $RC
 
 - Runs non-interactively through `claude-code ask --agent codex`.
 - Review is read-only — codex does not modify files in this mode.
-- Session files accumulate under `docs/reports/codex-sessions/` — clean up periodically.
+- Session files accumulate under `<memory store>/reports/codex-sessions/` — clean up periodically.

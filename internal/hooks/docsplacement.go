@@ -47,8 +47,7 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// This harness's own docs tree passes unconditionally: docs/reports is gitignored INSIDE this checkout, so the
-	// gated shapes below would block every legit write. Memory lives in <config>/memory, outside docs/ entirely.
+	// The harness's own docs tree (images + tracked knowledge) always passes; session artifacts live in <config>/memory.
 	if underDir(canonDeep(filepath.Join(paths.ConfigDir(), "docs")), abs) {
 		return ExitProceed
 	}
@@ -81,21 +80,23 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 		where = fmt.Sprintf("%s, which this repo gitignores — it vanishes on a fresh clone", dir)
 	}
 	slug := paths.RepoSlug(root)
-	docs := filepath.Join(paths.ConfigDir(), "docs")
 	plans := filepath.Join(paths.ConfigDir(), "plans")
+	store := memory.Dir(root)
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"Harness-authored markdown belongs under %s (plans) or %s (everything else):\n"+
+		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
 		"  plan             -> %s/<date>-<title>.md\n"+
 		"  report/review    -> %s/%s\n"+
-		"  handoff beacon   -> %s (machine-written at session start — don't hand-author one)\n"+
+		"  handoff          -> %s/<date>-<topic>.md\n"+
+		"  promoted, public-safe knowledge -> %s (tracked)\n"+
 		"Re-issue the write at one of those paths. A genuine repo doc the user asked for: create it with\n"+
 		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
 		"by setting %s=0.\n"+
-		"-> rules/standards/documentation.md\n",
-		base, where, plans, docs,
+		"-> rules/harness/docs-placement.md\n",
+		base, where, plans,
 		filepath.Join(plans, slug),
-		filepath.Join(docs, "reports"), base,
-		filepath.Join(docs, "handoffs"),
+		memory.ReportsDir(store), base,
+		memory.HandoffsDir(store),
+		filepath.Join(paths.ConfigDir(), "docs", "knowledge"),
 		docsPlacementDisableEnv)
 	return ExitBlock
 }
