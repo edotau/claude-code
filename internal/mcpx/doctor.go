@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secretshape"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // listTimeout bounds `claude mcp list`; without it a cold-starting npx server hangs Run() forever.
@@ -39,14 +39,14 @@ type serverDef struct {
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
 	v := plain(d)
-	v.Env, v.Headers = secretshape.RedactMap(d.Env), secretshape.RedactMap(d.Headers)
+	v.Env, v.Headers = shapes.RedactMap(d.Env), shapes.RedactMap(d.Headers)
 	if v.URL != "" {
 		v.URL = queryParamSecret.ReplaceAllString(v.URL, "${1}REDACTED")
 	}
 	return json.Marshal(struct {
 		plain
 		HasSecrets bool `json:"has_secrets,omitempty"`
-	}{v, secretshape.Any(d.Env) || secretshape.Any(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
+	}{v, shapes.Any(d.Env) || shapes.Any(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
 }
 
 // display renders the "command args" / url / type / "?" column.
@@ -244,8 +244,8 @@ type SecretFinding struct {
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&](?:token|key)=)[^&\s]+`)
 
-// looksLikeSecret is the shared credential-shape heuristic (internal/secretshape).
-func looksLikeSecret(val string) bool { return secretshape.Looks(val) }
+// looksLikeSecret is the shared credential-shape heuristic (internal/secrets/shapes).
+func looksLikeSecret(val string) bool { return shapes.Looks(val) }
 
 // FindSecrets scans every server's env, headers, and url for inline plaintext credentials.
 func FindSecrets(defs []Def) []SecretFinding {
@@ -276,7 +276,7 @@ func redact(defs []Def) []Def {
 	return out
 }
 
-func redactMap(m map[string]string) map[string]string { return secretshape.RedactMap(m) }
+func redactMap(m map[string]string) map[string]string { return shapes.RedactMap(m) }
 
 func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	var keys []string

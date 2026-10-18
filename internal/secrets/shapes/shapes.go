@@ -1,5 +1,5 @@
-// Package secretshape is the one credential-shape heuristic shared by every printer and scanner.
-package secretshape
+// Package shapes is the one credential-shape heuristic shared by every printer and scanner.
+package shapes
 
 import (
 	"regexp"
