@@ -22,7 +22,7 @@ description: |
   </example>
 model: sonnet
 effort: medium
-color: green
+color: pink
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 ---
 
