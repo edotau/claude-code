@@ -1,11 +1,11 @@
 export const meta = {
   name: 'implement-and-verify',
-  description: 'The house dispatch: parallel Explore intel → implementer ‖ sonnet (same message) → gate loop',
+  description: 'The house dispatch: parallel Explore intel → implementer ‖ copilot (same message) → gate loop',
   whenToUse:
     'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into audit-fix-verify (workflow() nests one level); run audit-fix-verify as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
-    { title: 'Build', detail: 'implementer (non-test files) ‖ sonnet test agent (test files)' },
+    { title: 'Build', detail: 'implementer (non-test files) ‖ copilot test agent (test files)' },
     { title: 'Gate', detail: 'gate-loop workflow over the touched packages' },
   ],
 }
@@ -78,7 +78,7 @@ const [impl, tests] = await parallel([
     { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: a.implModel || 'sonnet', effort: 'high' }
   ),
   () => agent(
-    `${context}\nYou are the TEST agent (sonnet). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
+    `${context}\nYou are the TEST agent (copilot). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
     `Repair existing tests the change breaks or makes stale, regenerate goldens by their documented procedure, add coverage sized to the change. ` +
     `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
     { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }

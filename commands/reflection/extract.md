@@ -1,5 +1,5 @@
 ---
-description: "Turn a recurring auto-memory pattern into a standalone skill under skills/<name>/SKILL.md — drives the reflection agent (EXTRACT mode)."
+description: "Turn a recurring auto-memory pattern into a standalone skill under skills/<name>/SKILL.md — drives the opencode agent (EXTRACT mode)."
 argument-hint: "<pattern description> [--name <skill-name>] [--dry-run]"
 ---
 
@@ -40,13 +40,13 @@ Lowercase, hyphenated, 2–4 words, descriptive (e.g. `provider-auth-refresh`,
 `router-fallback-tuning`). Honor `--name` if given. The folder name and the SKILL.md `name:`
 frontmatter must match.
 
-## Step 3: Dispatch reflection (EXTRACT mode)
+## Step 3: Dispatch opencode (EXTRACT mode)
 
-Launch the **reflection** agent (EXTRACT mode) with: the source material, the chosen name, and
+Launch the **opencode** agent (EXTRACT mode) with: the source material, the chosen name, and
 the output path `skills/<name>/`. The agent authors `SKILL.md` (plus any `references/` it
 needs). With `--dry-run`, it previews the SKILL.md and file list without writing.
 
-## Step 4: Quality gate (reflection EXTRACT enforces, verify in the report)
+## Step 4: Quality gate (opencode EXTRACT enforces, verify in the report)
 
 - Valid YAML frontmatter with `name` + `description`; `name` == folder name.
 - `description` carries trigger keywords (Claude search optimization).

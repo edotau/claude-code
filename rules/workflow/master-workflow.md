@@ -142,7 +142,7 @@ Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytes
 **Trigger**: 2+ parallel-safe sub-tasks.
 
 - `/workflow:orchestrate` or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
-  (ideally new) files in the shared tree; `sonnet` in the SAME message (`standards/quality.md`).
+  (ideally new) files in the shared tree; `copilot` in the SAME message (`standards/quality.md`).
 - A second model family for one lane: `claude-code ask --agent <leg> "<brief>"` from Bash
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `/workflow:worktree create|list|merge|clean`.
@@ -220,7 +220,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | `Plan` (built-in) | Task vetting, plan-only architecture | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-workers` | Parallel fan-out leaf — one scoped sub-task | 6 |
-| `sonnet` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check) | 6 |
+| `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |
 | `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
 
 > **Security review is a skill, not an agent.** Run it via `/security` (the `security-reviewer`
@@ -239,7 +239,7 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | Workflow | Shape | Phases | args |
 |----------|-------|--------|------|
 | `gate-loop` | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error` | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
-| `implement-and-verify` | Parallel intel → implementer ‖ sonnet → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
+| `implement-and-verify` | Parallel intel → implementer ‖ copilot → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings, cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
 | `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |

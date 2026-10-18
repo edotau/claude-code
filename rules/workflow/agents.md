@@ -17,12 +17,10 @@ beside it.
 | Explore (built-in) | Fast codebase scanning | **First step** — before planning or coding |
 | claude | Full-lifecycle coding: architect → plan → implement → simplify → review (incl. plan-only path) | Architectural decisions, MEDIUM+ changes, plan writing, post-write review |
 | code-workers | Sonnet-tier fan-out leaf: one well-scoped task in-context, effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
-| sonnet | The test surface: repairs EXISTING tests a change breaks or makes stale, and writes NEW coverage after the live check | Renames/signature changes; a suite that was green before the change; new behavior once the live check confirms it. Dispatch WITH the implementer, not after |
-| copilot | Last mile: merge branches in dependency order, then stage + commit | After the gates are green |
+| copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
-| documentation | Documentation + library lookup | Updating docs, API reference |
 | gemini | Codebase scanning — Sonnet in-process or Gemini large-context backend | Architecture, refactor impact, cross-file surveys |
-| reflection | Agent-memory ANALYZE + proven-pattern EXTRACT + session PERSIST (Claude-Code-native) | `/reflection:*` — auditing/extracting/persisting memory |
+| opencode | DOCS refresh/lookup · ANALYZE agent-memory · proven-pattern EXTRACT · session PERSIST | Updating docs, API reference; `/reflection:*` — auditing/extracting/persisting memory |
 
 ## Codebase Intelligence Protocol
 
@@ -55,7 +53,7 @@ No user prompt needed — trigger automatically:
 1. Non-trivial task received — run the **Codebase Intelligence Protocol** first
 2. Complex feature requests — use **claude** agent (architect/plan phase; feed it the context brief)
 3. Code just written/modified — use **claude** agent (review phase)
-4. Bug fix or new feature — new coverage is **sonnet**'s job, dispatched with the implementer, written after the live check
+4. Bug fix or new feature — new coverage is **copilot**'s job, dispatched with the implementer, written after the live check
 5. Architectural decision — use **claude** agent (architect phase)
 6. **Implementation starting** — dispatch the test-surface agent in the SAME message as the
    first implementation step, never after the code lands. It plans the additions AND finds
