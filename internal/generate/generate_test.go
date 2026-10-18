@@ -18,6 +18,9 @@ func scratch(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	t.Setenv("GEMINI_CLI_HOME", filepath.Join(home, ".gemini-cli-home-unused"))
 	t.Setenv("CODEX_HOME", filepath.Join(home, "codex-home-unused"))
+	// Isolated from the real machine's opencode auth.json/opencode.jsonc (ResolveTarget probes both unconditionally).
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("HARNESS_PROVIDER", "")
 	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
 	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")

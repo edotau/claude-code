@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -251,6 +252,35 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 // file itself (JSON has no comment syntax, so this key IS the banner).
 var openCodeOwnedKeys = []string{"$schema", "model", "permission", "mcp"}
 
+// openCodeCopilotOwnedKeys is openCodeOwnedKeys for the github-copilot route: model/small_model instead
+// of a provider block, since that login is opencode's own, not a harness-authored one.
+var openCodeCopilotOwnedKeys = []string{"$schema", "model", "small_model", "permission", "mcp"}
+
+// opencodeJSONPath is ~/.config/opencode/opencode.json, the file every opencode render below writes.
+func opencodeJSONPath(home string) string {
+	return filepath.Join(home, ".config", "opencode", "opencode.json")
+}
+
+// retireStaleOpenCodeJSONC moves a conflicting opencode.jsonc out of the way before writing
+// opencode.json: opencode prefers the .jsonc form when both exist, so a config this tool writes to
+// .json would otherwise be silently ignored. Never deletes; --dry-run/--check report without moving.
+func retireStaleOpenCodeJSONC(home string, o Options, out io.Writer) error {
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	if _, err := os.Stat(jsoncPath); err != nil {
+		return nil
+	}
+	bak := jsoncPath + ".bak-" + time.Now().UTC().Format("20060102T150405Z")
+	if o.DryRun || o.Check {
+		fmt.Fprintf(out, "opencode: would move %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
+		return nil
+	}
+	if err := os.Rename(jsoncPath, bak); err != nil {
+		return fmt.Errorf("opencode: %w", err)
+	}
+	fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
+	return nil
+}
+
 func renderOpenCode(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
 	ctx := context.Background()
 	target, note, err := vendors.ResolveTarget(reg, "opencode", sel, false)
@@ -260,6 +290,12 @@ func renderOpenCode(reg *providers.Registry, sel providers.Selection, home strin
 	}
 	if note != "" {
 		fmt.Fprintln(out, note)
+	}
+	if err := retireStaleOpenCodeJSONC(home, o, out); err != nil {
+		return false, err
+	}
+	if target.Provider != nil && target.Provider.Name == "github-copilot" {
+		return renderOpenCodeCopilot(reg, home, o, out)
 	}
 	env, _, err := vendors.Configure(ctx, "opencode", target, "")
 	if err != nil {
@@ -280,7 +316,7 @@ func renderOpenCode(reg *providers.Registry, sel providers.Selection, home strin
 	if err := json.Unmarshal([]byte(content), &rendered); err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
-	path := filepath.Join(home, ".config", "opencode", "opencode.json")
+	path := opencodeJSONPath(home)
 	raw, readErr := os.ReadFile(path)
 	existed := readErr == nil
 	var existing map[string]any
@@ -306,6 +342,60 @@ func renderOpenCode(reg *providers.Registry, sel providers.Selection, home strin
 	}
 	next["provider"] = merged
 	next["x-claude-code-managed"] = append(append([]string{}, openCodeOwnedKeys...), "provider")
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("opencode: %w", err)
+	}
+	body = append(body, '\n')
+	return commitFile(path, raw, body, existed, o, out, "opencode")
+}
+
+// renderOpenCodeCopilot renders opencode.json for opencode's own GitHub Copilot login: opencode already
+// owns that provider block (it wrote it via `opencode auth login`), so this writes only model/small_model
+// (sonnet/haiku) plus permission/mcp, drops any apiKey/provider wiring, and clears a stale harness-*
+// provider entry a previous (pre-login) run of this tool left behind.
+func renderOpenCodeCopilot(reg *providers.Registry, home string, o Options, out io.Writer) (bool, error) {
+	mainID, smallID, ok := vendors.OpencodeCopilotModelIDs(reg)
+	if !ok {
+		fmt.Fprintln(out, "opencode: skipped: github-copilot has no sonnet/haiku model configured")
+		return false, nil
+	}
+	path := opencodeJSONPath(home)
+	raw, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	var existing map[string]any
+	if existed {
+		_ = json.Unmarshal(raw, &existing)
+	}
+	next := map[string]any{}
+	maps.Copy(next, existing)
+	next["$schema"] = "https://opencode.ai/config.json"
+	next["model"] = "github-copilot/" + mainID
+	next["small_model"] = "github-copilot/" + smallID
+	if pm, ok := next["provider"].(map[string]any); ok {
+		for k := range pm {
+			if strings.HasPrefix(k, "harness-") {
+				delete(pm, k)
+			}
+		}
+		if len(pm) == 0 {
+			delete(next, "provider")
+		} else {
+			next["provider"] = pm
+		}
+	}
+	permission, mcp, _ := vendors.OpenCodePermissionMCP() // mcpSkipped has no env channel on this render path
+	if permission != nil {
+		next["permission"] = permission
+	} else {
+		delete(next, "permission")
+	}
+	if len(mcp) > 0 {
+		next["mcp"] = mcp
+	} else {
+		delete(next, "mcp")
+	}
+	next["x-claude-code-managed"] = append([]string{}, openCodeCopilotOwnedKeys...)
 	body, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)

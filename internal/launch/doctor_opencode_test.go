@@ -1,0 +1,94 @@
+package launch
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// doctorScratch isolates CLAUDE_CONFIG_DIR, every credential, and opencode's own auth.json/opencode.jsonc
+// (XDG_DATA_HOME/XDG_CONFIG_HOME) so DoctorChecks never reads real machine state.
+func doctorScratch(t *testing.T) (xdgData string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("PATH", t.TempDir()) // no gh/copilot CLI reachable
+	xdgData = filepath.Join(dir, "xdg-data")
+	t.Setenv("XDG_DATA_HOME", xdgData)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
+	for _, k := range []string{"HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL",
+		"HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	return xdgData
+}
+
+func findCheck(checks []Check, name string) *Check {
+	for i := range checks {
+		if checks[i].Name == name {
+			return &checks[i]
+		}
+	}
+	return nil
+}
+
+// Without opencode's own github-copilot login, the doctor row names the session provider, never a
+// model/small_model pair (that's the github-copilot route's own shape).
+func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
+	doctorScratch(t)
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "opencode route")
+	if c == nil {
+		t.Fatal(`no "opencode route" check in DoctorChecks output`)
+	}
+	if strings.Contains(c.Detail, "small_model=") {
+		t.Errorf("detail = %q, want no small_model on the non-copilot route", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "opencode_login=false") {
+		t.Errorf("detail = %q, want opencode_login=false", c.Detail)
+	}
+}
+
+// With opencode's own github-copilot login present, the doctor row names provider=github-copilot and
+// both model/small_model; the haiku slot's "auto" default resolves through OpencodeFallback.
+func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
+	xdgData := doctorScratch(t)
+	authDir := filepath.Join(xdgData, "opencode")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "opencode route")
+	if c == nil {
+		t.Fatal(`no "opencode route" check in DoctorChecks output`)
+	}
+	if !strings.Contains(c.Detail, "provider=github-copilot") {
+		t.Errorf("detail = %q, want provider=github-copilot", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "opencode_login=true") {
+		t.Errorf("detail = %q, want opencode_login=true", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "model=github-copilot/claude-sonnet-5.5") {
+		t.Errorf("detail = %q, want the sonnet slot's own id (non-\"auto\", unchanged)", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "small_model=github-copilot/mai-code-1.1-flash") {
+		t.Errorf("detail = %q, want the haiku slot's \"auto\" swapped for its OpencodeFallback", c.Detail)
+	}
+}
+
+// The doctor row never prints a secret: GH_TOKEN's value must not surface, only the env var's presence.
+func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
+	doctorScratch(t)
+	t.Setenv("GH_TOKEN", "super-secret-gh-token-value")
+	checks, _ := DoctorChecks()
+	for _, c := range checks {
+		if strings.Contains(c.Detail, "super-secret-gh-token-value") {
+			t.Fatalf("check %q leaked a credential: %q", c.Name, c.Detail)
+		}
+	}
+}

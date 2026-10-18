@@ -28,6 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // ShimNames are the bare names install links to the harness binary.
@@ -258,6 +259,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 			}
 			check(present, session, "credential "+n, label)
 		}
+		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
@@ -335,6 +337,32 @@ func setupDoctorDetail() string {
 		return "fresh checkout (no adopt record)"
 	}
 	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
+}
+
+// opencodeRouteDetail reports the opencode route `claude-code generate` would render: provider,
+// model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
+// never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
+func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
+	opencodeLogin := vendors.OpencodeCopilotLoginPresent()
+	copilotCLILogin := vendors.CopilotLoginPresent()
+	if selErr != nil {
+		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
+	}
+	target, _, err := vendors.ResolveTarget(reg, "opencode", sel, false)
+	if err != nil || target.Provider == nil {
+		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, orErr("", err))
+	}
+	home, _ := os.UserHomeDir()
+	file := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if target.Provider.Name != "github-copilot" {
+		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
+	}
+	mainID, smallID, ok := vendors.OpencodeCopilotModelIDs(reg)
+	if !ok {
+		return fmt.Sprintf("provider=github-copilot file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", file, opencodeLogin, copilotCLILogin)
+	}
+	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s file=%s opencode_login=%v copilot_cli_login=%v",
+		mainID, smallID, file, opencodeLogin, copilotCLILogin)
 }
 
 func routerStatus() string {
