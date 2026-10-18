@@ -8,8 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
+
+// harvestTitlePrefix is the background-harvest system prompt, never a real user ask.
+const harvestTitlePrefix = "Background harvest of a finished session"
+
+// isSkippableTitle rejects a candidate title that isn't a real user prompt: a tag-wrapped harness
+// directive (<local-command-caveat>, <command-name>, ...) or the SessionEnd harvest's own prompt.
+func isSkippableTitle(text string) bool {
+	return strings.HasPrefix(text, "<") || strings.HasPrefix(text, harvestTitlePrefix)
+}
 
 // headScanBytes bounds the main-transcript head read: cwd/branch/title all appear in the first
 // handful of records, long before a transcript's bulk (tool output, hook attachments) accumulates.
@@ -139,7 +149,9 @@ func scanSessionHead(path string) sessionHead {
 			head.branch = rec.GitBranch
 		}
 		if head.title == "" && rec.Type == "user" && !rec.IsSidechain {
-			head.title = truncate(userTurnText(rec.Message), 60)
+			if text := strings.TrimSpace(userTurnText(rec.Message)); text != "" && !isSkippableTitle(text) {
+				head.title = truncate(text, 60)
+			}
 		}
 		if head.cwd != "" && head.branch != "" && head.title != "" {
 			break
