@@ -64,7 +64,11 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 	if top := mainCheckout(root); top != "" {
 		root = top
 	}
-	return ensureLink(projectsMemory(projectSlug(root)), Dir(cwd)), true
+	target := Dir(cwd)
+	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
+		return LinkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
+	}
+	return ensureLink(projectsMemory(projectSlug(root)), target), true
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.
@@ -103,10 +107,6 @@ func ensureLink(link, target string) LinkResult {
 		return r
 	}
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
-		r.Action, r.Detail = "blocked", err.Error()
-		return r
-	}
-	if err := os.MkdirAll(target, 0o755); err != nil {
 		r.Action, r.Detail = "blocked", err.Error()
 		return r
 	}

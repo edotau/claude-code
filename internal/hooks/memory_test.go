@@ -263,3 +263,94 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 	}
 	assertPausedSuppressesHarvest(t, repo)
 }
+
+// cutoverStore marks the migration complete and creates the unified store's git repo — the state
+// memoryContext checks via memory.StartupGuard()/CutOver() before repairing a native link.
+func cutoverStore(t *testing.T) {
+	t.Helper()
+	journal := filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json")
+	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSessionStartLinksNativeMemoryAfterCutover: once the migration is complete and unpaused,
+// memoryContext (SessionStart's engine) repairs the cwd's native memory link to its repo store dir.
+func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	cutoverStore(t)
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-scaffold the store (the steady-state case: this repo already has a .origin from an
+	// earlier Init/EnsureRepoDir). A repo whose FIRST-EVER SessionStart runs under cutover hits a
+	// separate ordering bug — see the note below — so this test isolates the link-repair contract.
+	if _, err := memory.EnsureRepoDir(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	if g := memory.StartupGuard(); g.Paused || !g.Migrated {
+		t.Fatalf("test setup: guard = %+v, want unpaused and migrated", g)
+	}
+
+	memoryContext(repo, "s1", time.Now())
+
+	res, ok := memory.LinkNativeFor(repo)
+	if !ok {
+		t.Fatal("LinkNativeFor ok=false after cutover")
+	}
+	if res.Action != "ok" {
+		t.Errorf("link action after SessionStart = %s, want ok (already linked)", res.Action)
+	}
+	fi, err := os.Lstat(res.Link)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("SessionStart did not create a native-memory symlink at %s: %v", res.Link, err)
+	}
+	target, err := os.Readlink(res.Link)
+	if err != nil || target != res.Target {
+		t.Errorf("link -> %q, want %s (%v)", target, res.Target, err)
+	}
+}
+
+// TestSessionStartFirstSessionLinksScaffoldedStore: a repo's first SessionStart after the cutover links native memory
+// to the store Init scaffolds (with its .origin), never to an origin-less dir that pushes the bank to <slug>--<hash>.
+func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	cutoverStore(t)
+	repo := filepath.Join(t.TempDir(), "proj")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	memoryContext(repo, "first", time.Now())
+
+	dir := memory.Dir(repo)
+	if _, err := memory.ReadOrigin(dir); err != nil {
+		t.Fatalf("store %s has no .origin after the first SessionStart: %v", dir, err)
+	}
+	if strings.Contains(filepath.Base(dir), "--") {
+		t.Errorf("store key got a collision suffix on a fresh repo: %s", dir)
+	}
+	res, ok := memory.LinkNativeFor(repo)
+	if !ok || res.Action != "ok" || res.Target != dir {
+		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, dir)
+	}
+}
