@@ -26,12 +26,12 @@ Existing worktrees:
 !git worktree list 2>/dev/null
 ```
 
-**Location** — one root shared by native Claude Code (the `worktree-create` hook) and Orca:
-`~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. Every subcommand sets:
-```bash
-REPO=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
-WT="$HOME/worktrees/$REPO/$SLUG"
-```
+**Location** — one root shared by native Claude Code (the `worktree-create` hook), Orca, and this
+command: `~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. `create`, `list`,
+`clean` and `clean-all` below delegate to `claude-code worktree …` (`internal/worktree`), which
+resolves this root and every worktree's actual branch from git itself — never assume a naming
+convention (`wt/<name>`, `worktree-<name>`, an Orca-chosen name): discover it. `merge` still
+operates directly, since the merge/resolve-agent lifecycle is a later phase (Appendix A, Phase 2+).
 
 ---
 
@@ -39,7 +39,7 @@ WT="$HOME/worktrees/$REPO/$SLUG"
 
 | Input | Action |
 |-------|--------|
-| `create <name> [--branch <b>]` | Create worktree + branch `wt/<name>` (or an existing branch `<b>`) |
+| `create <name> [--branch <b>]` | Create worktree + branch `worktree-<name>` (or an existing branch `<b>`) |
 | `<name>` *(no subcommand)* | Same as `create <name>` |
 | `list` | Show all worktrees with status |
 | `merge <name> [--clean\|--no-clean]` | Preview commits, merge back, verify, optionally auto-clean |
@@ -52,34 +52,32 @@ If no arguments at all, run `list`.
 
 ## SUBCOMMAND: `create <name>`
 
-Create a new worktree for a parallel Claude Code session.
+Create a new worktree for a parallel Claude Code session — delegates the git plumbing to
+`internal/worktree.Create`, the same function the `worktree-create` hook calls.
 
 1. Derive a kebab-case slug from `<name>` (e.g., "add auth endpoint" -> `add-auth-endpoint`).
 
-2. Check if worktree already exists:
+2. Create (or resume) the worktree. No `--branch` reuses `worktree-$SLUG` — the hook's naming,
+   now shared by every creation path — if it already exists; resuming an existing `$SLUG`
+   worktree is safe (it prints the same path rather than recreating):
    ```bash
-   git worktree list | grep "wt/$SLUG"
+   WT=$(claude-code worktree create "$SLUG" ${BRANCH:+--branch "$BRANCH"})
    ```
-   If it exists, warn and print the path. Do not recreate.
+   A refusal here (bad name, traversal, or a foreign directory already occupying `$SLUG` — a
+   basename collision) prints the reason and stops; do not retry with `-f` or similar.
 
-3. Create the worktree (branch `wt/$SLUG`, or the `--branch` override; reuse the branch if it
-   already exists — `git worktree add $WT $BRANCH` without `-b`):
-   ```bash
-   git worktree add $WT -b ${BRANCH:-wt/$SLUG} HEAD
-   ```
-
-4. Python repos only — symlink the shared `.venv` (avoids a 500MB+ copy):
+3. Python repos only — symlink the shared `.venv` (avoids a 500MB+ copy):
    ```bash
    [ -d .venv ] && ln -sf "$(pwd)/.venv" "$WT/.venv"
    ```
 
-5. Copy environment files:
+4. Copy environment files:
    ```bash
    cp .env "$WT/.env" 2>/dev/null || true
    cp .claude/settings.local.json "$WT/.claude/settings.local.json" 2>/dev/null || true
    ```
 
-6. Print: path, branch, base SHA, and the follow-ups — launch via `cd $WT && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
+5. Print: path, branch, base SHA, and the follow-ups — launch via `cd $WT && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
    `/workflow:worktree clean $SLUG`. Inside the harness repo (`~/.claude`) itself, the banned git verbs
    (hard rule 4) are allowed inside this worktree — it is a separate checkout — but `make install` and
    `claude-code` verbs there still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it.
@@ -88,21 +86,18 @@ Create a new worktree for a parallel Claude Code session.
 
 ## SUBCOMMAND: `list`
 
-Show all worktrees under `~/worktrees/<repo>/` with status.
+Show all worktrees under `~/worktrees/<repo>/` with status — delegates to `internal/worktree.List`,
+which unions git's own registration with the directories actually on disk and inspects each one live
+(dirty/merged/stale/orphaned/prunable/locked), reading its real branch rather than assuming one:
 
-1. Run:
-   ```bash
-   git worktree list
-   ```
+```bash
+claude-code worktree list
+```
 
-2. For each worktree under `~/worktrees/<repo>/`, check:
-   - Branch name
-   - Ahead/behind vs parent branch: `git log --oneline HEAD..wt/$SLUG` (commits ahead)
-   - Uncommitted changes: `git -C $WT status --short`
-
-3. Print a table: name, branch, commits ahead, dirty state.
-
-If no worktrees exist under `~/worktrees/<repo>/`, print "No active worktrees."
+Each row already carries a quoted `cd` to reopen the worktree and, only when the live recheck
+says it's eligible, the exact `claude-code worktree clean` command to remove it — present those
+verbatim rather than re-deriving `$WT`/`$SLUG` by hand. If no worktrees exist under
+`~/worktrees/<repo>/`, it prints that and stops.
 
 ---
 
@@ -208,61 +203,46 @@ The worktree is still on disk. To clean up after resolving:
 
 ## SUBCOMMAND: `clean <name>`
 
-Safely remove a single worktree.
+Safely remove a single worktree — delegates to `internal/worktree.Clean`, which rechecks clean,
+merged, unlocked and owned state live immediately before removing (never trusts a prior `list`)
+and never forces.
 
-1. Resolve `<name>` to path `$WT`.
-
-2. **Check for unmerged commits**:
+1. Preview first:
    ```bash
-   git log --oneline HEAD..wt/$SLUG
+   claude-code worktree clean --dry-run "$SLUG"
    ```
-   If there are unmerged commits, warn:
-   ```
-   WARNING: wt/$SLUG has N unmerged commit(s).
-   Merge first with: /workflow:worktree merge $SLUG
-   ```
-   Ask for confirmation before proceeding.
+   A refusal (uncommitted changes, unmerged HEAD, locked, or inspection failure) prints the exact
+   reason — surface it and stop; do not retry with `--force` or similar. There is no such flag.
 
-3. **Check for uncommitted changes**:
+2. On a clean preview, ask for confirmation, then apply:
    ```bash
-   git -C $WT status --short
+   claude-code worktree clean "$SLUG"
    ```
-   If dirty, warn about uncommitted files and ask for confirmation.
+   This removes the worktree and, only if a plain `branch -d` succeeds (branch fully merged, no
+   force), deletes the branch too — an unmerged branch is kept on purpose.
 
-4. **Remove**:
-   ```bash
-   git worktree remove $WT --force
-   git branch -d wt/$SLUG 2>/dev/null || true
-   ```
-
-5. Print: "Worktree `$SLUG` removed. Branch `wt/$SLUG` deleted."
+3. Print the command's own result line (`removed: …` / `branch deleted: …`, or `refused: … (reason)`).
 
 ---
 
 ## SUBCOMMAND: `clean-all`
 
-Remove all worktrees under `~/worktrees/<repo>/`.
+Remove every eligible worktree under `~/worktrees/<repo>/` — delegates to
+`internal/worktree.CleanAll`, which runs the same live recheck `clean` does, per worktree.
 
-1. List all worktrees under `~/worktrees/<repo>/`:
+1. Preview:
    ```bash
-   git worktree list | grep "$HOME/worktrees/$REPO/"
+   claude-code worktree clean-all --dry-run
+   ```
+   Prints every worktree as `eligible:` or `refused: … (reason)`, plus a summary count.
+
+2. Present that summary to the user and ask: "Remove N worktrees? (Y/n)"
+
+3. On confirmation, apply:
+   ```bash
+   claude-code worktree clean-all --yes
    ```
 
-2. For each, check for unmerged commits and uncommitted changes (same as `clean`).
-
-3. Print a summary of what will be removed, including warnings for any with unmerged work.
-
-4. Ask for confirmation: "Remove N worktrees? (Y/n)"
-
-5. Remove each:
-   ```bash
-   git worktree remove $WT --force
-   git branch -d wt/$SLUG 2>/dev/null || true
-   ```
-
-6. Final cleanup — prune stale worktree references:
-   ```bash
-   git worktree prune
-   ```
-
-7. Print: "Removed N worktrees. Run `git worktree list` to verify."
+Unregistered directories under the root and git's own `prunable` administrative entries are
+reported (by `list` and by `clean-all --dry-run`'s underlying listing) but never auto-removed in
+this phase — surface them to the user, do not delete them.
