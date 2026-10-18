@@ -1,0 +1,16 @@
+{
+  "id": "20261018T095401.709-gemini",
+  "time": "2026-10-18T09:54:01.709327Z",
+  "agent": "gemini",
+  "request": {
+    "Prompt": "research the pattern",
+    "Model": "sonnet",
+    "Provider": "",
+    "Effort": "",
+    "WorkDir": "/Users/fake/demo-repo",
+    "SessionID": "",
+    "Tools": false,
+    "Timeout": 300000000000
+  },
+  "status": "running"
+}

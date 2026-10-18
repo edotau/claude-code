@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-// defaultWidth is the fallback render width when COLUMNS isn't set (or isn't a usable int).
-const defaultWidth = 100
+// defaultWidth is the fallback render width when COLUMNS isn't set (or isn't a usable int) — widest
+// value that still reads well in a plain terminal; --watch callers inherit the real COLUMNS instead.
+const defaultWidth = 120
 
 // terminalWidth reads COLUMNS (the shell exports it on an interactive tty; --watch callers inherit
 // it too), falling back to defaultWidth so a redirected/piped run still wraps sanely.
@@ -65,10 +66,11 @@ func RenderText(w io.Writer, tree *Tree, now time.Time) {
 	}
 	width := terminalWidth()
 	cols := computeColumnWidths(tree)
+	home, _ := os.UserHomeDir()
 	for _, repo := range groupByRepo(tree.Sessions) {
 		fmt.Fprintf(w, "%s\n", repo.cwd)
 		for _, s := range repo.sessions {
-			renderSession(w, s, now, cols, width)
+			renderSession(w, s, now, cols, width, home)
 		}
 		fmt.Fprintln(w)
 	}
@@ -104,7 +106,7 @@ func groupByRepo(sessions []Session) []repoGroup {
 }
 
 // renderSession prints one session line plus its branch/age, then its subagents and workflow runs.
-func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, width int) {
+func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, width int, home string) {
 	title := s.Title
 	if title == "" {
 		title = "(no prompt yet)"
@@ -112,40 +114,97 @@ func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, wid
 	prefix := fmt.Sprintf("  %s  %-*s  %-6s  %-8s", shortID(s.ID), cols.sessStatus, s.Status, age(s.Updated, now), s.Branch)
 	fmt.Fprintln(w, fitRow(prefix, title, "", width))
 	for _, sub := range s.Subagents {
-		renderSubagent(w, sub, now, cols, width)
+		renderSubagent(w, sub, now, cols, width, home, s.Cwd)
 	}
 	for _, run := range s.Workflows {
-		renderWorkflowRun(w, run, now, cols, width)
+		renderWorkflowRun(w, run, now, cols, width, home, s.Cwd)
 	}
 }
 
-// renderSubagent prints one subagent line, indented two columns per spawn depth beyond the session.
-// Description is rendered before tool so, when the row still overflows after truncating the
-// description, it's the trailing tool field that gets dropped — the least important part.
-func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int) {
+// statusGlyph renders a Subagent.Status as a single-character marker for a --watch-sized glance.
+func statusGlyph(status string) string {
+	switch status {
+	case statusRunning:
+		return "●"
+	case statusFinished:
+		return "✓"
+	case statusError:
+		return "✗"
+	case statusStale:
+		return "·"
+	default:
+		return " "
+	}
+}
+
+// idleSince renders how long since a subagent last did anything: its newest activity timestamp when
+// known, else its transcript's own mtime; "-" when neither is available.
+func idleSince(sub Subagent, now time.Time) string {
+	t := sub.Updated
+	if sub.Activity != nil && !sub.Activity.At.IsZero() {
+		t = sub.Activity.At
+	}
+	if t.IsZero() {
+		return "-"
+	}
+	return now.Sub(t).Round(time.Second).String()
+}
+
+// renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
+// depth beyond the session, then one indented row per vendor leg it launched. Description is
+// rendered before tool so, when the row still overflows after truncating the description, it's the
+// trailing tool field that gets dropped — the least important part.
+func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
 	tool := sub.LastTool
 	if tool == "" {
 		tool = "-"
 	}
-	prefix := fmt.Sprintf("%s%-*s %-*s depth=%d  %s  %s",
-		indent, cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth, tokenCompact(sub.Tokens), age(sub.Updated, now))
-	fmt.Fprintln(w, fitRow(prefix, truncate(sub.Description, 60), tool, width))
+	prefix := fmt.Sprintf("%s%s %-*s %-*s depth=%d  %s  %s  idle=%s",
+		indent, statusGlyph(sub.Status), cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth,
+		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
+	label := stripPaths(sub.Description, home, cwd)
+	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
+	for _, leg := range sub.Legs {
+		fmt.Fprintf(w, "%s  %s\n", indent, formatLeg(leg))
+	}
 }
 
-// renderWorkflowRun prints a run header then its phases -> agents.
-func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnWidths, width int) {
-	indent := strings.Repeat("  ", 2)
-	status := run.Status
-	if status == "" {
-		status = "running"
+// formatLeg renders one vendor dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
+// "↳ codex→claude ok 1m40s ⚠ fallback".
+func formatLeg(l Leg) string {
+	name := l.Agent
+	if l.Fallback != "" {
+		name = l.Fallback + "→" + l.Agent
 	}
-	prefix := fmt.Sprintf("%sworkflow %s  %-9s %-6s", indent, run.Name, status, age(run.Updated, now))
+	s := fmt.Sprintf("↳ %s %s %s %s", name, l.Model, l.Status, l.Duration)
+	if l.Fallback != "" {
+		s += " ⚠ fallback"
+	}
+	return s
+}
+
+// phaseDone counts a phase's agents that have a journal/meta result in, against its total.
+func phaseDone(agents []Subagent) (done, total int) {
+	for _, a := range agents {
+		total++
+		if a.Status == statusFinished || a.Status == statusError {
+			done++
+		}
+	}
+	return done, total
+}
+
+// renderWorkflowRun prints a run header then its phases -> agents, each phase showing done/total.
+func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
+	indent := strings.Repeat("  ", 2)
+	prefix := fmt.Sprintf("%sworkflow %s  %-9s %-6s", indent, run.Name, run.Status, age(run.Updated, now))
 	fmt.Fprintln(w, fitRow(prefix, run.ID, "", width))
 	for _, phase := range run.Phases {
-		fmt.Fprintf(w, "%s  phase %s\n", indent, phase.Name)
+		done, total := phaseDone(phase.Agents)
+		fmt.Fprintf(w, "%s  phase %s (%d/%d done)\n", indent, phase.Name, done, total)
 		for _, sub := range phase.Agents {
-			renderSubagent(w, sub, now, cols, width)
+			renderSubagent(w, sub, now, cols, width, home, cwd)
 		}
 	}
 }

@@ -70,6 +70,18 @@ func copyTestdataTree(t *testing.T) (claudeDir string, now time.Time) {
 	return claudeDir, now
 }
 
+// workflowByID finds one run in a session's Workflows slice, failing the test when absent.
+func workflowByID(t *testing.T, runs []WorkflowRun, id string) WorkflowRun {
+	t.Helper()
+	for _, r := range runs {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("workflow run %q not found among %d runs", id, len(runs))
+	return WorkflowRun{}
+}
+
 // chtimesAll backdates every regular file under dir to mt.
 func chtimesAll(t *testing.T, dir string, mt time.Time) {
 	t.Helper()
@@ -132,12 +144,15 @@ func TestBuildFoldsWorkflowRunIntoPhases(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := sessionByID(t, tree, "finished-session-aaaa1111")
-	if len(s.Workflows) != 1 {
-		t.Fatalf("got %d workflow runs, want 1", len(s.Workflows))
+	// 4 runs in this fixture: wf_fake0001-abc (manifest), wf_fake0002-nomanifest (manifest-less,
+	// finished via journal), wf_fake0003-running (manifest-less, still running via journal),
+	// wf_fake0004-error (manifest-less, one agent errored via a null journal result).
+	if len(s.Workflows) != 4 {
+		t.Fatalf("got %d workflow runs, want 4: %+v", len(s.Workflows), s.Workflows)
 	}
-	run := s.Workflows[0]
-	if run.ID != "wf_fake0001-abc" || run.Name != "gate-loop" || run.Status != "green" {
-		t.Errorf("run = %+v, want id=wf_fake0001-abc name=gate-loop status=green", run)
+	run := workflowByID(t, s.Workflows, "wf_fake0001-abc")
+	if run.Name != "gate-loop" || run.Status != "green" {
+		t.Errorf("run = %+v, want name=gate-loop status=green", run)
 	}
 	phases := map[string][]string{}
 	for _, p := range run.Phases {
@@ -322,8 +337,24 @@ func TestBuildJSONSchema(t *testing.T) {
 	if len(s.Subagents) != 2 {
 		t.Errorf("got %d subagents in JSON, want 2", len(s.Subagents))
 	}
-	if len(s.Workflows) != 1 || len(s.Workflows[0].Phases) != 2 {
-		t.Errorf("workflows = %+v, want 1 run with 2 phases", s.Workflows)
+	if len(s.Workflows) != 4 {
+		t.Fatalf("got %d workflows, want 4: %+v", len(s.Workflows), s.Workflows)
+	}
+	var mainRun struct {
+		Phases []struct {
+			Name   string `json:"name"`
+			Agents []struct {
+				ID string `json:"id"`
+			} `json:"agents"`
+		}
+	}
+	for _, r := range s.Workflows {
+		if r.ID == "wf_fake0001-abc" {
+			mainRun.Phases = r.Phases
+		}
+	}
+	if len(mainRun.Phases) != 2 {
+		t.Errorf("wf_fake0001-abc phases = %+v, want 2", mainRun.Phases)
 	}
 }
 
@@ -336,9 +367,12 @@ func TestRenderTextLineWidth(t *testing.T) {
 	}
 	var buf strings.Builder
 	RenderText(&buf, tree, now)
+	// max is terminalWidth()'s own fallback, not a hardcoded guess: the render change added a status
+	// glyph + idle column and widened defaultWidth (100 -> 120) to fit them.
+	max := terminalWidth()
 	for i, line := range strings.Split(buf.String(), "\n") {
-		if n := len([]rune(line)); n > 100 {
-			t.Errorf("line %d is %d columns (max 100): %q", i, n, line)
+		if n := len([]rune(line)); n > max {
+			t.Errorf("line %d is %d columns (max %d): %q", i, n, max, line)
 		}
 	}
 	if !strings.Contains(buf.String(), "/Users/fake/demo-repo") {

@@ -1,0 +1,22 @@
+{
+  "id": "20261018T141546.655-codex",
+  "time": "2026-10-18T14:15:46.655198Z",
+  "agent": "codex",
+  "request": {
+    "Prompt": "say OK",
+    "Model": "",
+    "Provider": "",
+    "Effort": "",
+    "WorkDir": "/Users/fake/demo-repo",
+    "SessionID": "",
+    "Tools": false,
+    "Timeout": 600000000000
+  },
+  "status": "ok",
+  "provider": "subscription",
+  "model": "claude-sonnet-5",
+  "session_id": "f8d2db0f-a1da-4d96-884c-7599d7738d4b",
+  "duration": "12.413s",
+  "fallback": "codex",
+  "fallback_reason": "ERROR: usage limit hit, try again later."
+}

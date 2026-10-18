@@ -1,0 +1,22 @@
+{
+  "id": "20261018T150000.000-codex",
+  "time": "2026-10-18T15:00:00.000000Z",
+  "agent": "codex",
+  "request": {
+    "Prompt": "review the fallback path",
+    "Model": "",
+    "Provider": "",
+    "Effort": "",
+    "WorkDir": "/Users/fake/demo-repo",
+    "SessionID": "",
+    "Tools": false,
+    "Timeout": 600000000000
+  },
+  "status": "ok",
+  "provider": "subscription",
+  "model": "claude-opus-5-5",
+  "session_id": "fake-fallback-session-0001",
+  "duration": "3.1s",
+  "fallback": "claude",
+  "fallback_reason": "codex: usage limit hit, falling back to claude"
+}

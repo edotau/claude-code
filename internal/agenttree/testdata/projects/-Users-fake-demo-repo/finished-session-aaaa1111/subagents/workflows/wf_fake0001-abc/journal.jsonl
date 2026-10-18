@@ -1,0 +1,5 @@
+{"type":"launched"}
+{"type":"started","key":"v2:fake0001detect","agentId":"fakewfagent001","label":"detect the gate command","phase":"Detect"}
+{"type":"result","key":"v2:fake0001detect","agentId":"fakewfagent001","result":"go test ./..."}
+{"type":"started","key":"v2:fake0001gate","agentId":"fakewfagent002","label":"run the gate and fix what fails","phase":"Gate"}
+{"type":"result","key":"v2:fake0001gate","agentId":"fakewfagent002","result":"green."}

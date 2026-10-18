@@ -1,0 +1,2 @@
+{"parentUuid": null, "isSidechain": true, "promptId": "p-wf-0030", "agentId": "fakewfagent030", "type": "user", "message": {"role": "user", "content": "[Workflow harness] doomed probe."}}
+{"parentUuid": "p-wf-0030", "isSidechain": true, "agentId": "fakewfagent030", "type": "assistant", "message": {"role": "assistant", "model": "claude-haiku-4-5", "content": [{"type": "text", "text": "crashed"}], "usage": {"input_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":0,"output_tokens":5}}}
