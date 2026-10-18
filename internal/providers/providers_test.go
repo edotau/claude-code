@@ -26,11 +26,23 @@ func load(t *testing.T) *Registry {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(PinProvider, "") // a session launched with a provider pin must not leak into the registry tests
+	stubKeyring(t, nil)       // tests must never shell out to the real OS keyring
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return reg
+}
+
+// stubKeyring replaces the keyringGet seam for the test's duration; a nil table always misses.
+func stubKeyring(t *testing.T, table map[string]string) {
+	t.Helper()
+	prev := keyringGet
+	keyringGet = func(name string) (string, bool) {
+		v, ok := table[name]
+		return v, ok
+	}
+	t.Cleanup(func() { keyringGet = prev })
 }
 
 func TestEmbeddedDefaultsValid(t *testing.T) {
@@ -180,6 +192,30 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	after, _ := os.ReadFile(PinFile())
 	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || string(before) != string(after) {
 		t.Fatalf("PinDiff = %q (file changed: %v)", got, string(before) != string(after))
+	}
+}
+
+// StoredSecret must prefer a keyring hit over the file plane, and fall back to the file when the
+// keyring misses; Credential must prefer the process env over both.
+func TestStoredSecretAndCredentialOrder(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	os.MkdirAll(filepath.Dir(SecretsFile()), 0o700)
+	os.WriteFile(SecretsFile(), []byte("export K='from-file'\n"), 0o600)
+
+	stubKeyring(t, nil) // keyring misses -> file plane wins
+	if got := StoredSecret("K"); got != "from-file" {
+		t.Errorf("StoredSecret (keyring miss) = %q, want from-file", got)
+	}
+
+	stubKeyring(t, map[string]string{"K": "from-keyring"}) // keyring hit beats the file
+	if got := StoredSecret("K"); got != "from-keyring" {
+		t.Errorf("StoredSecret (keyring hit) = %q, want from-keyring", got)
+	}
+
+	p := &Provider{Auth: Auth{Type: AuthBearer, Env: "K"}}
+	t.Setenv("K", "from-env")
+	if v, _ := Credential(context.Background(), p); v != "from-env" {
+		t.Errorf("Credential must prefer env over keyring/file, got %q", v)
 	}
 }
 

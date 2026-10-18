@@ -14,7 +14,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/settings.tmpl.json`
    (hooks: `internal/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
-2. **Secrets live only in `env.d/secrets.env` or a provider's `auth.command`** — never in
+2. **Secrets live only in the OS keyring, `env.d/secrets.env`, or a provider's `auth.command`** — never in
    `providers.json`, `settings.json`, a commit, or a log line.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
@@ -58,7 +58,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Add a gateway provider (LiteLLM, OpenRouter, corporate) | add it to `~/.claude/providers.json` with `routes` per dialect; copy `providers.example.json` | `README.md` → Providers |
-| Set a credential | `KEY=value` in `env.d/secrets.env` (see `env.d/secrets.env.example`), or `auth.command`; `claude-code secrets set\|get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
+| Set a credential | `claude-code secrets set [NAME]` (OS keyring; bare on a terminal = guided dialog; `--file` → `env.d/secrets.env`), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives the gemini CLI | `commands/gemini/gemini.md`, `agents/gemini.md` |

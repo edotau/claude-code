@@ -324,28 +324,32 @@ var consoleURLs = map[string]string{
 
 // authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.
 type authOption struct {
-	label string
-	argv  []string // login CLI to run attached to the terminal
-	mint  []string // CLI that prints a long-lived token; captured and stored under env
-	env   string   // env var a pasted (or minted) key is stored under (env.d/secrets.env)
+	action string   // one or two words, the picker's first column (Paste API key)
+	desc   string   // one short line, the second column
+	argv   []string // login CLI to run attached to the terminal
+	mint   []string // CLI that prints a long-lived token; captured and stored under env
+	env    string   // name a pasted (or minted) key is stored under (OS keyring, else env.d/secrets.env)
 }
+
+// label is the piped one-line form of the option.
+func (o authOption) label() string { return o.action + " — " + o.desc }
 
 // authOptions lists every way kt can be satisfied, browser login first; the dialog shows them all.
 func authOptions(kt keyTarget) []authOption {
 	var opts []authOption
 	if len(kt.loginArgv) > 0 {
-		opts = append(opts, authOption{label: "Sign in via browser (" + strings.Join(kt.loginArgv, " ") + ")", argv: kt.loginArgv})
+		opts = append(opts, authOption{action: "Browser login", desc: strings.Join(kt.loginArgv, " "), argv: kt.loginArgv})
 	}
 	if len(kt.mintArgv) > 0 {
-		opts = append(opts, authOption{label: "Mint a long-lived token for unattended runs (" + strings.Join(kt.mintArgv, " ") +
-			" → secrets.env " + kt.envVar + ")", mint: kt.mintArgv, env: kt.envVar})
+		opts = append(opts, authOption{action: "Mint token", desc: strings.Join(kt.mintArgv, " ") + " (unattended runs)",
+			mint: kt.mintArgv, env: kt.envVar})
 	}
 	if kt.envVar != "" {
-		label := "Paste an API key (" + kt.envVar + ")"
+		desc := kt.envVar
 		if u := consoleURLs[kt.envVar]; u != "" {
-			label += " — create one at " + u
+			desc = "create at " + strings.TrimPrefix(u, "https://")
 		}
-		opts = append(opts, authOption{label: label, env: kt.envVar})
+		opts = append(opts, authOption{action: "Paste API key", desc: desc, env: kt.envVar})
 	}
 	return opts
 }
@@ -469,7 +473,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 			d.printf("%-10s present (%s)\n", kt.label, kt.source)
 			if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
 				confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
-				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}) {
+				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false) {
 					changed = true
 				}
 			}
@@ -515,10 +519,10 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 	chosen := -1
 	if isStdinTTY() && d.o.In == os.Stdin {
 		rows := make([][2]string, 0, len(opts)+1)
-		for i, o := range opts {
-			rows = append(rows, [2]string{fmt.Sprintf("%d)", i+1), o.label})
+		for _, o := range opts {
+			rows = append(rows, [2]string{o.action, o.desc})
 		}
-		rows = append(rows, [2]string{"-", "Skip for now (" + kt.fixCmd + ")"})
+		rows = append(rows, [2]string{"Skip", kt.fixCmd})
 		idx, err := tui.Pick(kt.label+" — no credential found; how do you want to authenticate?", rows, 0)
 		if err == nil {
 			if idx < 0 || idx >= len(opts) {
@@ -529,7 +533,7 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 	}
 	if chosen < 0 {
 		for i, o := range opts {
-			if confirm(d, o.label+"?") {
+			if confirm(d, o.label()+"?") {
 				chosen = i
 				break
 			}
@@ -538,11 +542,11 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 			return false
 		}
 	}
-	return runAuthOption(d, kt, opts[chosen])
+	return runAuthOption(d, kt, opts[chosen], false)
 }
 
-// runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + secrets.env.
-func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
+// runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + the store.
+func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 	if len(o.argv) > 0 {
 		if err := runLogin(o.argv); err != nil {
 			d.printf("%s: %v\n", kt.label, err)
@@ -553,7 +557,7 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 	}
 	if len(o.mint) > 0 {
 		if tok := runMint(o.mint); tok != "" {
-			return storeSecret(d, o.env, tok)
+			return storeValue(d, o.env, tok, forceFile)
 		}
 		d.printf("%s: no token found in the output; paste it instead\n", o.env)
 	}
@@ -565,17 +569,8 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 		d.printf("%s: no value entered\n", o.env)
 		return false
 	}
-	return storeSecret(d, o.env, strings.TrimSpace(val))
-}
-
-// storeSecret writes one credential to env.d/secrets.env and reports where it went (never the value).
-func storeSecret(d *dialog, env, val string) bool {
-	if err := secrets.SetFile(env, val); err != nil {
-		d.printf("%s: %v\n", env, err)
-		return false
-	}
-	d.printf("wrote %s to %s\n", env, secrets.EnvFile())
-	return true
+	_, v := ParseAssignment(val)
+	return storeValue(d, o.env, v, forceFile)
 }
 
 // runMint runs the token-minting CLI on the real terminal with stdout tee'd, and returns the token it printed.

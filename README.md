@@ -81,7 +81,7 @@ login or config (`codex login`, `opencode auth login`, a `model` in `opencode.js
 `configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
 OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
 reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is
-offered and run attached, an API key is read with echo off into `env.d/secrets.env`; piped, every repair
+offered and run attached, an API key is read with echo off into the OS keyring (`env.d/secrets.env` without one); piped, every repair
 prints the exact command and the run continues. The vendor verbs do the same on demand: `claude-code codex`
 first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only then runs the plain
 `codex` CLI untouched (so `gemini auth login` always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
@@ -170,8 +170,12 @@ Other commands that fit: `op read op://Private/openrouter/credential`, `pass sho
 script that mints a short-lived gateway token. `claude-code token --provider <p>` prints the resolved
 credential — it is the `apiKeyHelper` Claude Code calls, so no key is stored in `settings.json`.
 
-`claude-code secrets` owns the `env.d/secrets.env` plane: `secrets set <KEY>` reads the value on stdin and
-writes it at 0600 (`--keyring` stores it in the OS keyring instead); `secrets get <KEY>` reads it back
+`claude-code secrets` owns two planes, read in the order env → OS keyring (macOS Keychain / libsecret) →
+`env.d/secrets.env`: `secrets set <KEY>` reads the value on stdin and stores it in the keyring, dropping any
+plaintext line (`--file`, or a box with no keyring, writes `env.d/secrets.env` at 0600 instead); bare
+`secrets set` on a terminal opens a dialog over every tracked secret — move a plaintext one into the keyring,
+mint the setup-token, paste a key (its console page opened), delete, or add a custom `NAME` whose pasted
+`NAME=value`/`export NAME="value"` line is parsed and shown only redacted; `secrets get <KEY>` reads it back
 (`--export` prints an eval-able line); `secrets status` reports which provider is served by which source
 without ever printing a value; `secrets scan` and `secrets git` audit the config surface and git history for a
 leaked credential and exit 1 on a finding; `secrets doctor` checks perms and key names; `secrets all` runs

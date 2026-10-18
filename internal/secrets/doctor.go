@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -103,9 +104,9 @@ func checkKeyNames(out io.Writer, reg *providers.Registry) {
 
 // checkKeyringTool is informational: its absence just means the file plane is the only option.
 func checkKeyringTool(out io.Writer) {
-	if KeyringAvailable() {
-		fmt.Fprintln(out, "  ✓ a keyring tool is on PATH ("+keyringBin()+")")
+	if keyring.Available() {
+		fmt.Fprintln(out, "  ✓ a keyring tool is on PATH ("+keyring.Tool()+")")
 		return
 	}
-	fmt.Fprintln(out, "  ℹ no keyring tool on PATH for this OS — `secrets set --keyring` is unavailable")
+	fmt.Fprintln(out, "  ℹ no keyring tool on PATH for this OS — `secrets set` falls back to env.d/secrets.env")
 }
