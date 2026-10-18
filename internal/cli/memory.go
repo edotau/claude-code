@@ -18,6 +18,7 @@ import (
 const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory search [--repo R|--all] [--k 8] [--format text|json] <terms>
        claude-code memory show <id>
+       claude-code memory digest [--repo R]
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
@@ -156,6 +157,17 @@ func cmdMemory(args []string) int {
 		if err := memory.Update(memory.UpdateOptions{Claude: claude, Transcript: *transcript, CWD: root, Session: *session, Out: os.Stdout}); err != nil {
 			return fail("memory update: %v", err)
 		}
+		return 0
+	case "digest":
+		if fs.Parse(args[1:]) != nil {
+			return 2
+		}
+		claude, _ := launch.ClaudeBinary()
+		path, err := memory.Digest(memory.Dir(memoryRoot(*repo)), claude)
+		if err != nil {
+			return fail("memory digest: %v", err)
+		}
+		fmt.Println("wrote " + path)
 		return 0
 	case "watch":
 		return hooks.IdleHarvestWatch(args[1:], os.Stderr) // spawned detached by the Stop gate; its own flag set

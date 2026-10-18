@@ -37,7 +37,7 @@ type flagInfo struct {
 var subVerbs = map[string][]string{
 	"secrets":   {"set", "get", "delete", "status", "scan", "git", "doctor", "all"},
 	"history":   {"snapshot", "log", "diff"},
-	"memory":    {"init", "search", "show", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate"},
+	"memory":    {"init", "search", "show", "digest", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate"},
 	"router":    {"serve", "start", "stop", "status"},
 	"mcp":       {"doctor"},
 	"agents":    {"sync", "tree"},
