@@ -13,14 +13,29 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
-// activeWindow is how recently a transcript must have been written to count as "running"/"active";
-// past it but unfinished is "stale".
-const activeWindow = 10 * time.Minute
+// subagentActiveWindow is how recently a subagent transcript must have been written to count as
+// "running"; past it but unfinished is "stale". Subagents go quiet between tool calls for longer
+// than a few seconds, so this window is generous.
+const subagentActiveWindow = 10 * time.Minute
 
-// Tokens is a compact input/output token pair, used for both a session and a subagent.
+// sessionActiveWindow is the much tighter window for a main session's own "active" status: Claude
+// Code appends to that transcript continuously while a turn is in flight, so anything but "just
+// happened" means the session has gone idle, regardless of how long a dispatched subagent keeps running.
+const sessionActiveWindow = 2 * time.Minute
+
+// Tokens is a compact token summary, used for both a session and a subagent. In is input +
+// cache-creation (the tokens actually billed fresh); CacheRead is split out separately since a
+// cache hit is nearly free and folding it into In makes the number meaningless to a reader.
 type Tokens struct {
-	In  int64 `json:"in"`
-	Out int64 `json:"out"`
+	In        int64 `json:"in"`
+	Out       int64 `json:"out"`
+	CacheRead int64 `json:"cacheRead"`
+}
+
+func (t *Tokens) add(o Tokens) {
+	t.In += o.In
+	t.Out += o.Out
+	t.CacheRead += o.CacheRead
 }
 
 // Subagent is one subagents/agent-<id>.jsonl + its sibling .meta.json.
@@ -199,8 +214,7 @@ func buildSession(transcriptPath string, now time.Time) Session {
 
 	for _, agentFile := range subagentFiles(sessionDir) {
 		sub := buildSubagent(agentFile, now)
-		s.Tokens.In += sub.Tokens.In
-		s.Tokens.Out += sub.Tokens.Out
+		s.Tokens.add(sub.Tokens)
 		s.Subagents = append(s.Subagents, sub)
 	}
 	slices.SortStableFunc(s.Subagents, func(a, b Subagent) int { return b.Updated.Compare(a.Updated) })
@@ -208,8 +222,7 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	for _, run := range buildWorkflowRuns(sessionDir, now) {
 		for _, phase := range run.Phases {
 			for _, sub := range phase.Agents {
-				s.Tokens.In += sub.Tokens.In
-				s.Tokens.Out += sub.Tokens.Out
+				s.Tokens.add(sub.Tokens)
 			}
 		}
 		s.Workflows = append(s.Workflows, run)
@@ -217,9 +230,9 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	return s
 }
 
-// sessionStatus: active when the transcript was written within activeWindow of now, else idle.
+// sessionStatus: active when the transcript was written within sessionActiveWindow of now, else idle.
 func sessionStatus(updated, now time.Time) string {
-	if !updated.IsZero() && now.Sub(updated) <= activeWindow {
+	if !updated.IsZero() && now.Sub(updated) <= sessionActiveWindow {
 		return statusActive
 	}
 	return statusIdle
@@ -252,7 +265,7 @@ func buildSubagent(transcriptPath string, now time.Time) Subagent {
 	var tok Tokens
 	if summary, err := transcript.SummarizeFile(transcriptPath); err == nil {
 		t := summary.Totals()
-		tok = Tokens{In: t.InputTokens + t.CacheReadTokens + t.CacheCreationTokens, Out: t.OutputTokens}
+		tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
 	}
 
 	return Subagent{
@@ -267,12 +280,12 @@ func buildSubagent(transcriptPath string, now time.Time) Subagent {
 	}
 }
 
-// subagentStatus: finished wins outright; otherwise running within activeWindow of now, else stale.
+// subagentStatus: finished wins outright; otherwise running within subagentActiveWindow of now, else stale.
 func subagentStatus(finished bool, updated, now time.Time) string {
 	if finished {
 		return statusFinished
 	}
-	if !updated.IsZero() && now.Sub(updated) <= activeWindow {
+	if !updated.IsZero() && now.Sub(updated) <= subagentActiveWindow {
 		return statusRunning
 	}
 	return statusStale
@@ -336,6 +349,20 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 		run.Phases = append(run.Phases, *byPhase[name])
 	}
 	return run
+}
+
+// filterIdleSessions drops an idle session with no subagents and no workflow runs — a session
+// opened and never dispatched anything is noise in the view, not state worth paging through.
+// Callers that want every session regardless (--all) skip calling this.
+func filterIdleSessions(sessions []Session) []Session {
+	var kept []Session
+	for _, s := range sessions {
+		if s.Status == statusIdle && len(s.Subagents) == 0 && len(s.Workflows) == 0 {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return kept
 }
 
 // cmpOr returns a when non-empty, else b.
