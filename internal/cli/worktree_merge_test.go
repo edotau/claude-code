@@ -97,7 +97,9 @@ func TestCmdWorktreeMergeApplyPromotesAndAutoCleans(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	sourceOID := cliHeadOf(t, wt)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	// The fixture repo has no detectable gate (no Makefile/go.mod/etc) — --no-verify isolates this
+	// test's intent (promote + auto-clean) from the separate verify-by-default behavior.
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge apply: code=%d stderr=%q", code, errb)
 	}
@@ -117,7 +119,7 @@ func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
 	wt := mergeFixtureCLIWorktreePath(t, repo)
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-clean", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --no-clean: code=%d stderr=%q", code, errb)
 	}

@@ -62,6 +62,9 @@ func ResolveWorktree(repo *Repo, name string) (string, error) {
 	if filepath.Dir(dest) != filepath.Clean(repo.Root) {
 		return "", fmt.Errorf("worktree name %q escapes %s", name, repo.Root)
 	}
+	if err := rejectLiveCheckoutRoot(repo); err != nil {
+		return "", err
+	}
 	info, err := os.Lstat(dest)
 	if err != nil {
 		return dest, nil // nothing there yet — the caller decides whether that's fine
@@ -77,6 +80,48 @@ func ResolveWorktree(repo *Repo, name string) (string, error) {
 		return "", fmt.Errorf("%s exists but is not a worktree of %s (basename collision)", dest, repo.Main)
 	}
 	return dest, nil
+}
+
+// rejectLiveCheckoutRoot refuses repo.Root when it canonically IS, or lives inside, repo.Main — the
+// check ownsWorktree does for an EXISTING dest, run here unconditionally so a worktree root symlinked
+// into the live checkout is rejected even before `create` would otherwise materialize a brand-new
+// directory inside it. repo.Root (or its parent, WorktreeRoot()) is resolved via its longest EXISTING
+// prefix — plain canonical() would silently skip every symlink when repo.Root's own basename doesn't
+// exist yet, which is exactly the case on a first `create` for this repo.
+func rejectLiveCheckoutRoot(repo *Repo) error {
+	rootCanon, err := canonicalExistingPrefix(repo.Root)
+	if err != nil {
+		return err
+	}
+	mainCanon, err := canonical(repo.Main)
+	if err != nil {
+		return err
+	}
+	if rootCanon == mainCanon || strings.HasPrefix(rootCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
+		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
+	}
+	return nil
+}
+
+// canonicalExistingPrefix resolves symlinks in the longest prefix of p that actually exists on disk,
+// then rejoins the remaining (not-yet-created) suffix unresolved — so a path whose leaf doesn't exist
+// yet still gets every real symlink component (e.g. a symlinked worktree root) resolved, unlike
+// canonical()/EvalSymlinks, which require the entire path to exist.
+func canonicalExistingPrefix(p string) (string, error) {
+	p = filepath.Clean(p)
+	suffix := ""
+	cur := p
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(resolved, suffix), nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p, nil // reached the filesystem root without finding anything that exists
+		}
+		suffix = filepath.Join(filepath.Base(cur), suffix)
+		cur = parent
+	}
 }
 
 // ownsWorktree reports whether dest is itself a worktree sharing repo's common git dir — the only

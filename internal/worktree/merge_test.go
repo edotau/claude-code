@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ func TestMergeFastForwardEndToEnd(t *testing.T) {
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	sourceBefore := headOf(wt)
 
-	plan, result, err := Merge(repo, "feature", "")
+	plan, result, err := Merge(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestMergeDivergentCleanEndToEnd(t *testing.T) {
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 	mainBefore := headOf(main)
 
-	plan, result, err := Merge(repo, "feature", "")
+	plan, result, err := Merge(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestMergeDivergentCleanEndToEnd(t *testing.T) {
 		t.Fatalf("main HEAD %s != worktree HEAD %s after promote", headOf(main), headOf(wt))
 	}
 	// Both originals must be ancestors of the integrated commit.
-	if ok, err := isAncestor(main, mainBefore, headOf(main)); err != nil || !ok {
+	if ok, err := isAncestor(context.Background(), main, mainBefore, headOf(main)); err != nil || !ok {
 		t.Fatalf("original main commit not an ancestor of the result: ok=%v err=%v", ok, err)
 	}
 }
@@ -62,7 +63,7 @@ func TestMergeRefusesOnDirtyWorktreeWithoutTouchingMain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := Merge(repo, "feature", "")
+	_, _, err := Merge(context.Background(), repo, "feature", "")
 	if err == nil {
 		t.Fatal("Merge: want error for a dirty worktree")
 	}
@@ -76,7 +77,7 @@ func TestMergeRefusesOnDirtyTargetWithoutTouchingWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := Merge(repo, "feature", "")
+	_, _, err := Merge(context.Background(), repo, "feature", "")
 	if err == nil {
 		t.Fatal("Merge: want error for a dirty target")
 	}
@@ -95,7 +96,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 	mainBefore := headOf(main)
 	wtBefore := headOf(wt)
 
-	commonDir, err := commonDirOf(main)
+	commonDir, err := commonDirOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 		t.Fatalf("Issues = %v, want none (hook failure happens inside git merge, not merge-tree)", plan.Issues)
 	}
 
-	if _, err := IntegrateTarget(repo, plan); err == nil {
+	if _, err := IntegrateTarget(context.Background(), repo, plan); err == nil {
 		t.Fatal("IntegrateTarget: want error when the pre-merge-commit hook rejects")
 	}
 	if headOf(wt) != wtBefore {
@@ -132,14 +133,14 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
 	if len(plan.Issues) != 0 {
 		t.Fatalf("Issues = %v, want none", plan.Issues)
 	}
-	if _, err := IntegrateTarget(repo, plan); err != nil {
+	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
 
@@ -147,7 +148,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	mergeFixtureWrite(t, main, "h.txt", "moved on\n", "main moves on")
 	movedTo := headOf(main)
 
-	result, err := Promote(repo, plan)
+	result, err := Promote(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("Promote: want error when the target moved since integration")
 	}
@@ -166,18 +167,18 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(repo, plan); err != nil {
+	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
 
 	// main advances past plan.TargetOID with a commit the integrated worktree HEAD never saw.
 	mergeFixtureWrite(t, main, "f.txt", "main diverges\n", "main diverges")
 
-	result, err := Promote(repo, plan)
+	result, err := Promote(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("Promote: want error — target moved, so promotion must stop regardless of ancestry")
 	}
@@ -194,11 +195,11 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	integrated, err := IntegrateTarget(repo, plan)
+	integrated, err := IntegrateTarget(context.Background(), repo, plan)
 	if err != nil {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
@@ -210,7 +211,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	mergeFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
 	unreviewed := headOf(wt)
 
-	result, promoteErr := Promote(repo, plan)
+	result, promoteErr := Promote(context.Background(), repo, plan)
 	if promoteErr == nil {
 		t.Fatal("Promote: want an error — the worktree moved past the verified integration since IntegrateTarget ran")
 	}
@@ -226,11 +227,11 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	repo, _, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(repo, plan); err != nil {
+	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
 
@@ -246,11 +247,42 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	<-held
 	defer close(release)
 
-	_, err = Promote(repo, plan)
+	_, err = Promote(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("Promote: want error while another holder has the merge lock")
 	}
 	if err != ErrMergeBusy {
 		t.Fatalf("err = %v, want ErrMergeBusy", err)
+	}
+}
+
+// TestIntegrateAndPromoteToleratePostResolutionResidue: a plan from PreflightAfterResolution lets untracked tool
+// residue (a plugin cache) through integrate + promote, while a plain Preflight plan still refuses it.
+func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	if err := os.MkdirAll(filepath.Join(wt, ".impeccable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".impeccable", "hook.cache.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	strict, err := Preflight(ctx, repo, "feature", "")
+	if err != nil || len(strict.Issues) == 0 {
+		t.Fatalf("plain Preflight must still flag untracked residue: issues=%v err=%v", strict.Issues, err)
+	}
+	plan, err := PreflightAfterResolution(ctx, repo, "feature", "")
+	if err != nil || len(plan.Issues) != 0 {
+		t.Fatalf("PreflightAfterResolution: issues=%v err=%v", plan.Issues, err)
+	}
+	if _, err := IntegrateTarget(ctx, repo, plan); err != nil {
+		t.Fatalf("IntegrateTarget refused residue: %v", err)
+	}
+	if _, err := Promote(ctx, repo, plan); err != nil {
+		t.Fatalf("Promote refused residue: %v", err)
+	}
+	if headOf(main) != headOf(wt) {
+		t.Fatalf("main = %s, want promoted to %s", headOf(main), headOf(wt))
 	}
 }

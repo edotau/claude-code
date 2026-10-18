@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -41,14 +42,16 @@ type MergePlan struct {
 	TargetOID     string
 	SourceOID     string
 	IntegratedOID string // set by IntegrateTarget; Promote refuses unless the worktree HEAD still matches
-	Issues        []Issue
+	// AfterResolution: planned after an agent resolution, so untracked tool residue in the worktree is tolerated.
+	AfterResolution bool
+	Issues          []Issue
 }
 
 // runGit is the one seam over external git invocation in this file and merge.go: a test fakes a
 // capability failure or an unsupported exit code through it, without a specially built git binary.
 // extraEnv is appended to the subprocess environment; nil for the common case.
-var runGit = func(dir string, extraEnv []string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
@@ -58,7 +61,19 @@ var runGit = func(dir string, extraEnv []string, args ...string) ([]byte, error)
 // Preflight resolves name to its worktree path, rejects an unsafe starting state (steps 1), pins both
 // OIDs and simulates the merge (step 2), and returns the plan either way — a non-nil error means
 // Preflight itself could not run (bad name, missing worktree, git infra failure), never a rejected state.
-func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
+// ctx cancellation stops the next git call; Preflight does no writes, so a cancel never leaves partial state.
+func Preflight(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
+	return preflight(ctx, repo, name, target, false)
+}
+
+// PreflightAfterResolution re-plans once an agent resolution is committed: the first Preflight proved the worktree
+// held no untracked files, so any now present are the agent's tooling residue (e.g. a plugin cache) — they cannot
+// ride into the promoted commits, and Clean still keeps the worktree while they exist.
+func PreflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
+	return preflight(ctx, repo, name, target, true)
+}
+
+func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*MergePlan, error) {
 	worktreePath, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return nil, err
@@ -66,13 +81,13 @@ func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
 	if _, err := os.Stat(worktreePath); err != nil {
 		return nil, fmt.Errorf("worktree %q not found at %s", name, worktreePath)
 	}
-	commonDir, err := commonDirOf(repo.Main)
+	commonDir, err := commonDirOf(ctx, repo.Main)
 	if err != nil {
 		return nil, err
 	}
-	plan := &MergePlan{CommonDir: commonDir, MainPath: repo.Main, WorktreePath: worktreePath}
+	plan := &MergePlan{CommonDir: commonDir, MainPath: repo.Main, WorktreePath: worktreePath, AfterResolution: trackedOnlyWorktree}
 
-	branch, err := requireBranch(repo.Main)
+	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
 		return plan, nil
@@ -84,12 +99,12 @@ func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
 		return plan, nil
 	}
 
-	if issue, err := checkCheckoutState(repo.Main, IssueDirtyTarget); err != nil {
+	if issue, err := checkCheckoutState(ctx, repo.Main, IssueDirtyTarget); err != nil {
 		return nil, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	if issue, err := checkCheckoutState(worktreePath, IssueDirtyWorktree); err != nil {
+	if issue, err := checkWorktreeState(ctx, worktreePath, trackedOnlyWorktree); err != nil {
 		return nil, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
@@ -104,7 +119,7 @@ func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
 		return nil, fmt.Errorf("could not resolve HEAD for %s or %s", repo.Main, worktreePath)
 	}
 
-	unrelated, err := unrelatedHistories(repo.Main, plan.SourceOID, plan.TargetOID)
+	unrelated, err := unrelatedHistories(ctx, repo.Main, plan.SourceOID, plan.TargetOID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +129,7 @@ func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
 		return plan, nil
 	}
 
-	conflicts, err := SimulateMerge(repo.Main, plan.SourceOID, plan.TargetOID, true)
+	conflicts, err := SimulateMerge(ctx, repo.Main, plan.SourceOID, plan.TargetOID, true)
 	if err != nil {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueCapability, Detail: err.Error()})
 		return plan, nil
@@ -131,18 +146,18 @@ func Preflight(repo *Repo, name, target string) (*MergePlan, error) {
 // trusted — a capability failure or an exit code outside {0,1} — and is never a signal to proceed as
 // if it were clean. dryRun isolates every object the write side effect produces into a throwaway
 // alternate object directory, removed before return, so repoPath's real store is never touched.
-func SimulateMerge(repoPath, sourceOID, targetOID string, dryRun bool) ([]string, error) {
+func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, dryRun bool) ([]string, error) {
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
 	var env []string
 	if dryRun {
-		extraEnv, cleanup, err := isolatedObjectDir(repoPath)
+		extraEnv, cleanup, err := isolatedObjectDir(ctx, repoPath)
 		if err != nil {
 			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", err)
 		}
 		defer cleanup()
 		env = extraEnv
 	}
-	out, err := runGit(repoPath, env, args...)
+	out, err := runGit(ctx, repoPath, env, args...)
 	switch code, isExit := asExitErr(err); {
 	case err == nil:
 		return nil, nil // exit 0: clean, nothing past the written tree OID to parse
@@ -156,8 +171,8 @@ func SimulateMerge(repoPath, sourceOID, targetOID string, dryRun bool) ([]string
 // isolatedObjectDir makes a scratch object directory with repoPath's real one layered as an alternate
 // (read access to every existing object, writes landing only in the scratch dir — see
 // git-merge-tree(1) and the GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES env vars it honors).
-func isolatedObjectDir(repoPath string) ([]string, func(), error) {
-	commonDir, err := commonDirOf(repoPath)
+func isolatedObjectDir(ctx context.Context, repoPath string) ([]string, func(), error) {
+	commonDir, err := commonDirOf(ctx, repoPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -193,15 +208,37 @@ func parseConflicts(out []byte) []string {
 
 // checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single
 // blocking Issue (dirty wins when both are true; the operation marker is secondary context).
-func checkCheckoutState(path, dirtyCode string) (*Issue, error) {
-	dirty, err := isDirty(path)
+func checkCheckoutState(ctx context.Context, path, dirtyCode string) (*Issue, error) {
+	dirty, err := isDirty(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	if dirty {
 		return &Issue{Code: dirtyCode, Paths: []string{path}}, nil
 	}
-	op, found, err := inProgressOp(path)
+	op, found, err := inProgressOp(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
+	}
+	return nil, nil
+}
+
+// checkWorktreeState is checkCheckoutState for the source worktree; trackedOnly ignores untracked residue.
+func checkWorktreeState(ctx context.Context, path string, trackedOnly bool) (*Issue, error) {
+	if !trackedOnly {
+		return checkCheckoutState(ctx, path, IssueDirtyWorktree)
+	}
+	tracked, err := changedPaths(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if len(tracked) > 0 {
+		return &Issue{Code: IssueDirtyWorktree, Paths: []string{path}}, nil
+	}
+	op, found, err := inProgressOp(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -214,8 +251,8 @@ func checkCheckoutState(path, dirtyCode string) (*Issue, error) {
 // isDirty mirrors Inspect's own check in list.go; kept local since Preflight checks the main checkout
 // as well as a worktree, and Inspect's signature only ever runs against the latter. --untracked-files=all
 // overrides a repo-local status.showUntrackedFiles=no, which would otherwise hide new files from this check.
-func isDirty(path string) (bool, error) {
-	out, err := runGit(path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
+func isDirty(ctx context.Context, path string) (bool, error) {
+	out, err := runGit(ctx, path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
 		return false, fmt.Errorf("git status in %s: %w", path, err)
 	}
@@ -236,8 +273,8 @@ var opMarkers = []struct{ marker, op string }{
 // inProgressOp reports the name of a mid-operation marker found under path's own git-dir, if any. Only
 // a confirmed os.IsNotExist counts as "no marker" — any other stat error (e.g. permission denied) is an
 // unknown state and must propagate, never be read as clean.
-func inProgressOp(path string) (op string, found bool, err error) {
-	gitDir, err := gitDirOf(path)
+func inProgressOp(ctx context.Context, path string) (op string, found bool, err error) {
+	gitDir, err := gitDirOf(ctx, path)
 	if err != nil {
 		return "", false, err
 	}
@@ -255,8 +292,8 @@ func inProgressOp(path string) (op string, found bool, err error) {
 
 // requireBranch is currentBranch's stricter sibling (list.go): Preflight must reject a detached
 // target outright rather than silently keying off its OID the way the staleness check tolerates.
-func requireBranch(path string) (string, error) {
-	out, err := runGit(path, nil, "symbolic-ref", "--short", "-q", "HEAD")
+func requireBranch(ctx context.Context, path string) (string, error) {
+	out, err := runGit(ctx, path, nil, "symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("%s: HEAD is detached, not on a branch", path)
 	}
@@ -265,8 +302,8 @@ func requireBranch(path string) (string, error) {
 
 // unrelatedHistories reports whether source and target share no common ancestor, using the same
 // exit-code contract list.go's Inspect already relies on (1 = clean "no", anything else = a failure).
-func unrelatedHistories(repoPath, sourceOID, targetOID string) (bool, error) {
-	_, err := runGit(repoPath, nil, "merge-base", sourceOID, targetOID)
+func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
+	_, err := runGit(ctx, repoPath, nil, "merge-base", sourceOID, targetOID)
 	if err == nil {
 		return false, nil
 	}
@@ -278,8 +315,8 @@ func unrelatedHistories(repoPath, sourceOID, targetOID string) (bool, error) {
 
 // isAncestor reports whether ancestor is reachable from descendant (fast-forward is possible),
 // via the same exit-code contract as unrelatedHistories.
-func isAncestor(repoPath, ancestor, descendant string) (bool, error) {
-	_, err := runGit(repoPath, nil, "merge-base", "--is-ancestor", ancestor, descendant)
+func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
+	_, err := runGit(ctx, repoPath, nil, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
@@ -289,16 +326,16 @@ func isAncestor(repoPath, ancestor, descendant string) (bool, error) {
 	return false, err
 }
 
-func commonDirOf(path string) (string, error) {
-	out, err := runGit(path, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
+func commonDirOf(ctx context.Context, path string) (string, error) {
+	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", fmt.Errorf("git-common-dir in %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
-func gitDirOf(path string) (string, error) {
-	out, err := runGit(path, nil, "rev-parse", "--path-format=absolute", "--git-dir")
+func gitDirOf(ctx context.Context, path string) (string, error) {
+	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-dir")
 	if err != nil {
 		return "", fmt.Errorf("git-dir in %s: %w", path, err)
 	}

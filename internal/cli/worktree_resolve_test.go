@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,8 +39,10 @@ func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	sourceOID := cliHeadOf(t, wt)
 
+	// --no-verify isolates this test's intent (resolve-agent ignored on a clean plan) from the
+	// separate verify-by-default behavior — the fixture repo has no detectable gate.
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resolve-agent", "claude", "feature"})
+		return cmdWorktree([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --resolve-agent on a clean plan: code=%d stderr=%q", code, errb)
@@ -126,7 +129,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := worktree.Preflight(r, "feature", "")
+	plan, err := worktree.Preflight(context.Background(), r, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -144,6 +147,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 		ID:                "op-target-moved",
 		Repo:              r.Main,
 		Worktree:          "feature",
+		TargetRef:         plan.TargetRef, // pinned to the real branch name, so only the OID move is under test below
 		TargetOID:         plan.TargetOID,
 		OriginalSourceOID: plan.SourceOID,
 		Phase:             "resolving",
@@ -174,6 +178,68 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 	}
 	if cliHeadOf(t, repo) != movedMain {
 		t.Fatal("main HEAD changed despite target movement, which must stop before integrate/promote")
+	}
+}
+
+// TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID covers the other half of the same
+// finding: main checked out onto a DIFFERENT branch pointing at the exact same commit the operation
+// pinned — the OID alone would pass unnoticed, so resumeWorktreeMerge must also compare TargetRef.
+func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := worktree.Preflight(context.Background(), r, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != worktree.IssueConflict {
+		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
+	}
+
+	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID)
+
+	op := &worktree.Operation{
+		ID:                "op-branch-changed",
+		Repo:              r.Main,
+		Worktree:          "feature",
+		TargetRef:         plan.TargetRef,
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		Phase:             "resolving",
+		StartedAt:         time.Now(),
+		Deadline:          time.Now().Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Main switches to a NEW branch pointing at the exact same commit — the OID never moves.
+	mergeFixtureCLIRun(t, repo, "checkout", "-b", "renamed-main")
+	sameOID := cliHeadOf(t, repo)
+	if sameOID != plan.TargetOID {
+		t.Fatal("fixture invariant broken: the checkout-b must not move the OID")
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target branch changed at the same OID, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != sameOID {
+		t.Fatal("main HEAD changed despite the branch-change refusal")
 	}
 }
 

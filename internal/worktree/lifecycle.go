@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,8 +57,23 @@ type CleanResult struct {
 
 // Clean removes name's worktree only after a live recheck confirms it is unlocked, clean, merged and
 // owned by repo (ResolveWorktree's collision check); it never forces removal, and keeps the branch
-// unless a safe `branch -d` succeeds. dryRun runs the same recheck and reports the verdict only.
+// unless a safe `branch -d` succeeds. dryRun runs the same recheck and reports the verdict only. The
+// whole recheck-and-remove runs under the per-worktree lease (WithWorktreeLease), so it can never
+// interleave with an active resolve or merge on the same worktree.
 func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
+	var result CleanResult
+	err := WithWorktreeLease(repo, name, func() error {
+		r, cleanErr := CleanInLease(repo, name, dryRun)
+		result = r
+		return cleanErr
+	})
+	return result, err
+}
+
+// CleanInLease is Clean's recheck-and-remove body, exported for a caller that already holds
+// WithWorktreeLease for repo+name (the CLI's merge lifecycle, which must not re-acquire the same
+// non-reentrant lease after a resolve or promote already took it). Standalone callers use Clean.
+func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 	dest, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return CleanResult{}, err
@@ -78,7 +94,7 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 		return result, nil
 	}
 
-	if op, found, err := inProgressOp(dest); err != nil {
+	if op, found, err := inProgressOp(context.Background(), dest); err != nil {
 		result.Reason = "operation check failed: " + err.Error()
 		return result, nil
 	} else if found {

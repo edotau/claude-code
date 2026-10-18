@@ -17,9 +17,11 @@ type Operation struct {
 	ID                string
 	Repo              string // repo.Main, the canonical main checkout path
 	Worktree          string // worktree name, as passed to `worktree merge`
+	TargetRef         string // the target branch pinned at resolve start; resume must match both this and TargetOID
 	TargetOID         string
 	OriginalSourceOID string
-	Phase             string // "resolving" | "resolved" | "failed" | "timeout"
+	ConflictPaths     []string // paths the agent was handed; finalizeAgentResolution never stages/commits outside these
+	Phase             string   // "resolving" | "resolved" | "failed" | "timeout"
 	StartedAt         time.Time
 	Deadline          time.Time
 	Agent             string // "claude" | "codex"

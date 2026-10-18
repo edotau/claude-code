@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -16,39 +17,51 @@ type MergeResult struct {
 }
 
 // Merge runs Preflight, refuses outright on any blocking Issue (including a predicted conflict —
-// Phase 3 resolves those), then integrates and promotes. On a failure after IntegrateTarget it still
-// returns the plan and the partial result, so the caller can inspect state instead of guessing it.
-func Merge(repo *Repo, name, target string) (*MergePlan, *MergeResult, error) {
-	plan, err := Preflight(repo, name, target)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(plan.Issues) > 0 {
-		return plan, nil, fmt.Errorf("worktree merge blocked: %s", issueSummary(plan.Issues))
-	}
+// Phase 3 resolves those), then integrates and promotes, the whole sequence under the per-worktree
+// lease (WithWorktreeLease) so it can never interleave with a resolve, another merge, or a Clean on
+// the same worktree. On a failure after IntegrateTarget it still returns the plan and the partial
+// result, so the caller can inspect state instead of guessing it. ctx cancellation stops the next git
+// call; Promote itself never starts the ff-only update once ctx is already done.
+func Merge(ctx context.Context, repo *Repo, name, target string) (*MergePlan, *MergeResult, error) {
+	var plan *MergePlan
+	var result *MergeResult
+	err := WithWorktreeLease(repo, name, func() error {
+		p, err := Preflight(ctx, repo, name, target)
+		plan = p
+		if err != nil {
+			return err
+		}
+		if len(plan.Issues) > 0 {
+			return fmt.Errorf("worktree merge blocked: %s", issueSummary(plan.Issues))
+		}
 
-	integrated, err := IntegrateTarget(repo, plan)
-	if err != nil {
-		return plan, nil, err
-	}
-	promoted, err := Promote(repo, plan)
-	if err != nil {
-		return plan, integrated, err
-	}
-	return plan, promoted, nil
+		integrated, err := IntegrateTarget(ctx, repo, plan)
+		if err != nil {
+			return err
+		}
+		result = integrated
+
+		promoted, err := Promote(ctx, repo, plan)
+		if err != nil {
+			return err // result stays the integrate outcome, so the caller can inspect state
+		}
+		result = promoted
+		return nil
+	})
+	return plan, result, err
 }
 
 // IntegrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
 // integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
 // conflict) before calling this; Phase 3 adds resolution for the ones that stop here instead.
-func IntegrateTarget(repo *Repo, plan *MergePlan) (*MergeResult, error) {
-	if issue, err := checkCheckoutState(plan.WorktreePath, IssueDirtyWorktree); err != nil {
+func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("integrate: %s: %v", issue.Code, issue.Detail)
 	}
 	before := headOf(plan.WorktreePath)
-	out, err := runGit(plan.WorktreePath, nil, "merge", "--no-edit", plan.TargetOID)
+	out, err := runGit(ctx, plan.WorktreePath, nil, "merge", "--no-edit", plan.TargetOID)
 	if err != nil {
 		return nil, fmt.Errorf("git merge inside worktree: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}
@@ -60,34 +73,38 @@ func IntegrateTarget(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 // Promote reacquires the merge lock, rechecks both OIDs and checkout states against what Preflight
 // pinned, requires ancestry, and fast-forwards repo.Main onto the integrated worktree HEAD — never a
 // real merge commit. Target movement or a failed ancestry/re-simulation check stops with a retry hint;
-// this never falls back to a real conflicting merge.
-func Promote(repo *Repo, plan *MergePlan) (*MergeResult, error) {
+// this never falls back to a real conflicting merge. A ctx already canceled when Promote is entered
+// returns immediately without acquiring the lock or touching repo.Main.
+func Promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var result *MergeResult
 	err := Acquire(0, func() error {
-		r, lockedErr := promoteLocked(repo, plan)
+		r, lockedErr := promoteLocked(ctx, repo, plan)
 		result = r
 		return lockedErr
 	})
 	return result, err
 }
 
-func promoteLocked(repo *Repo, plan *MergePlan) (*MergeResult, error) {
+func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if plan.IntegratedOID == "" {
 		return nil, fmt.Errorf("promote: no verified integration OID pinned — call IntegrateTarget first")
 	}
-	branch, err := requireBranch(repo.Main)
+	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
 		return nil, fmt.Errorf("promote: %w", err)
 	}
 	if branch != plan.TargetRef {
 		return nil, fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
 	}
-	if issue, err := checkCheckoutState(repo.Main, IssueDirtyTarget); err != nil {
+	if issue, err := checkCheckoutState(ctx, repo.Main, IssueDirtyTarget); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
 	}
-	if issue, err := checkCheckoutState(plan.WorktreePath, IssueDirtyWorktree); err != nil {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
@@ -105,7 +122,7 @@ func promoteLocked(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 				plan.IntegratedOID, freshSource)
 	}
 
-	ancestor, err := isAncestor(repo.Main, freshTarget, freshSource)
+	ancestor, err := isAncestor(ctx, repo.Main, freshTarget, freshSource)
 	if err != nil {
 		return nil, fmt.Errorf("promote: %w", err)
 	}
@@ -114,13 +131,16 @@ func promoteLocked(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 			fmt.Errorf("promote: %s is not an ancestor of the integrated worktree HEAD %s", freshTarget, freshSource)
 	}
 
-	if conflicts, err := SimulateMerge(repo.Main, freshSource, freshTarget, true); err != nil {
+	if conflicts, err := SimulateMerge(ctx, repo.Main, freshSource, freshTarget, true); err != nil {
 		return nil, fmt.Errorf("promote: re-simulation failed: %w", err)
 	} else if len(conflicts) > 0 {
 		return nil, fmt.Errorf("promote: re-simulation predicts a conflict in %v — refusing to fall back to a real merge", conflicts)
 	}
 
-	out, err := runGit(repo.Main, nil, "-c", "submodule.recurse=false", "merge", "--ff-only", "--no-autostash", freshSource)
+	if err := ctx.Err(); err != nil {
+		return nil, err // never start the ff-only update once canceled — repo.Main stays untouched
+	}
+	out, err := runGit(ctx, repo.Main, nil, "-c", "submodule.recurse=false", "merge", "--ff-only", "--no-autostash", freshSource)
 	if err != nil {
 		return nil, fmt.Errorf("git merge --ff-only: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}

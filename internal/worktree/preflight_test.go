@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +83,7 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	if strings.TrimSpace(string(out)) != "" {
 		t.Fatalf("main checkout has uncommitted changes: %q", out)
 	}
-	gitDir, err := gitDirOf(main)
+	gitDir, err := gitDirOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestPreflightFastForward(t *testing.T) {
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestPreflightDivergentCleanMerge(t *testing.T) {
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestPreflightTextConflict(t *testing.T) {
 	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	mainHEAD := headOf(main)
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestPreflightTextConflict(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainHEAD)
 
 	// Merge must refuse outright, never touching main or writing to the worktree either.
-	_, _, err = Merge(repo, "feature", "")
+	_, _, err = Merge(context.Background(), repo, "feature", "")
 	if err == nil {
 		t.Fatal("Merge: want error on predicted conflict")
 	}
@@ -155,7 +156,7 @@ func TestPreflightBinaryConflict(t *testing.T) {
 	mergeFixtureWrite(t, wt, "f.txt", "\x00\x01binA", "feature binary")
 	mergeFixtureWrite(t, main, "f.txt", "\x00\x01binB", "main binary")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestPreflightDeleteConflict(t *testing.T) {
 	mergeFixtureWrite(t, wt, "f.txt", "feature modify\n", "feature modifies f")
 	mergeFixtureRemove(t, main, "f.txt", "main deletes f")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestPreflightRenameConflict(t *testing.T) {
 	mergeFixtureRename(t, wt, "f.txt", "g.txt", "feature renames to g")
 	mergeFixtureRename(t, main, "f.txt", "h.txt", "main renames to h")
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -210,7 +211,7 @@ func TestPreflightDirtyTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -233,7 +234,7 @@ func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -248,7 +249,7 @@ func TestPreflightDirtyWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -262,7 +263,7 @@ func TestPreflightDetachedTarget(t *testing.T) {
 	head := headOf(main)
 	mergeFixtureRun(t, main, "checkout", "-q", head)
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -274,7 +275,7 @@ func TestPreflightDetachedTarget(t *testing.T) {
 func TestPreflightTargetMismatch(t *testing.T) {
 	repo, _, _ := mergeFixtureSetup(t)
 
-	plan, err := Preflight(repo, "feature", "some-other-branch")
+	plan, err := Preflight(context.Background(), repo, "feature", "some-other-branch")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -285,7 +286,7 @@ func TestPreflightTargetMismatch(t *testing.T) {
 
 func TestPreflightInProgressOperation(t *testing.T) {
 	repo, main, _ := mergeFixtureSetup(t)
-	gitDir, err := gitDirOf(main)
+	gitDir, err := gitDirOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +294,7 @@ func TestPreflightInProgressOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -308,7 +309,7 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 	mergeFixtureRun(t, wt, "commit", "-q", "--allow-empty", "-m", "orphan root")
 	_ = main
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
@@ -326,7 +327,7 @@ func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 		t.Skip("permission checks don't apply when running as root")
 	}
 	_, _, wt := mergeFixtureSetup(t)
-	gitDir, err := gitDirOf(wt)
+	gitDir, err := gitDirOf(context.Background(), wt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,14 +336,14 @@ func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
 
-	if _, _, err := inProgressOp(wt); err == nil {
+	if _, _, err := inProgressOp(context.Background(), wt); err == nil {
 		t.Fatal("inProgressOp: want a propagated error for a permission-denied stat, got nil")
 	}
 }
 
 func TestPreflightMissingWorktree(t *testing.T) {
 	repo, _, _ := mergeFixtureSetup(t)
-	if _, err := Preflight(repo, "does-not-exist", ""); err == nil {
+	if _, err := Preflight(context.Background(), repo, "does-not-exist", ""); err == nil {
 		t.Fatal("want error for a nonexistent worktree")
 	}
 }
@@ -355,15 +356,15 @@ func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	orig := runGit
-	runGit = func(dir string, extraEnv []string, args ...string) ([]byte, error) {
+	runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 		if len(args) > 0 && args[0] == "merge-tree" {
 			return nil, &exec.ExitError{ProcessState: mergeFixtureFakeExitState(129)}
 		}
-		return orig(dir, extraEnv, args...)
+		return orig(ctx, dir, extraEnv, args...)
 	}
 	defer func() { runGit = orig }()
 
-	plan, err := Preflight(repo, "feature", "")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
