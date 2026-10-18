@@ -40,6 +40,9 @@ type Provider struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	// OneM opts the provider's Claude ids into the [1m] marker; only true where the upstream serves 1M context.
 	OneM bool `json:"one_m,omitempty"`
+	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
+	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
+	OpencodeFallback string `json:"opencode_fallback,omitempty"`
 }
 
 // MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
@@ -157,6 +160,9 @@ func (r *Registry) Validate() error {
 		}
 		if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
 			errs = append(errs, fmt.Sprintf("%s: auth.login needs auth.type passthrough", n))
+		}
+		if p.OpencodeFallback == "auto" {
+			errs = append(errs, fmt.Sprintf("%s: opencode_fallback cannot itself be \"auto\"", n))
 		}
 	}
 	for _, n := range append([]string{r.Default}, r.Fallback...) {
