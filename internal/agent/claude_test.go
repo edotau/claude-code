@@ -24,7 +24,7 @@ func TestParseClaudeStream(t *testing.T) {
 	if out.String() != "Hello\nworld" {
 		t.Errorf("stream = %q (subagent text must be skipped)", out.String())
 	}
-	if res.Answer != "Hello\nworld" || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Usage != (Usage{100, 4}) {
+	if res.Answer != "Hello\nworld" || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Usage != (Usage{InputTokens: 10, CacheReadTokens: 90, OutputTokens: 4}) {
 		t.Errorf("res = %+v", res)
 	}
 }

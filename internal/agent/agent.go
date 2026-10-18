@@ -27,8 +27,10 @@ type Request struct {
 
 // Usage is token accounting where the runner reports it.
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens         int `json:"input_tokens"`                    // uncached input only
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"` // billed above input; kept apart so cost can be priced
+	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
+	OutputTokens        int `json:"output_tokens"`
 }
 
 // Result is the envelope `ask --format json` prints.

@@ -219,7 +219,9 @@ func parseOpenCodeStream(r io.Reader, w io.Writer) (Result, error) {
 			texts = append(texts, ev.Part.Text)
 		case "step_finish":
 			t := ev.Part.Tokens
-			res.Usage.InputTokens += t.Input + t.Cache.Read + t.Cache.Write
+			res.Usage.InputTokens += t.Input
+			res.Usage.CacheReadTokens += t.Cache.Read
+			res.Usage.CacheCreationTokens += t.Cache.Write
 			res.Usage.OutputTokens += t.Output + t.Reasoning
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
