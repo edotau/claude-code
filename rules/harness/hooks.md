@@ -28,6 +28,7 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 | `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context |
 | `access-trace` | PostToolUse (Read) | Logs a model read of a bank file (or its index) to that bank's `access.log`, the hot/cold signal `memory doctor` nominates from; never blocks |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Replace Claude Code's git logic: `--worktree`, `EnterWorktree` and subagent isolation create at `~/worktrees/<repo>/<name>` (Orca's root too); remove refuses a dirty tree and `branch -d`s the merged branch. Live payload carries only `name` |
+| `pre-compact` | PreCompact | Before Claude Code compacts the context, dispatches the background harvest when the transcript has edits no earlier harvest covered (ADK `add_events_to_memory`); never blocks — the transcript file survives compaction |
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After enough edits, spawns a detached `claude-code memory update` that runs the equivalent of `/memory:end`. The first dispatch also claims one detached `memory watch` per session: once the transcript is quiet 10 min with uncovered edits it harvests the final state, so a crash or kill (no SessionEnd) loses nothing |
 
 ## Notes

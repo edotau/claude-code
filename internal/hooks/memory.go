@@ -179,6 +179,24 @@ func SessionHarvestEnd(r io.Reader) int {
 	return ExitProceed
 }
 
+// PreCompact (ADK add_events_to_memory): before Claude Code compacts the context, harvest any edits no earlier
+// dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
+func PreCompact(r io.Reader) int {
+	in := ParseInput(r)
+	if !harvestable(in) || memory.StartupGuard().Paused {
+		return ExitProceed
+	}
+	stamp := stampPath(in.SessionID)
+	edits := transcript.CountEdits(in.TranscriptPath)
+	if st, ok := readStamp(stamp); edits == 0 || (ok && edits <= st.edits) {
+		return ExitProceed
+	}
+	if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+		writeStamp(stamp, time.Now(), "bg", edits)
+	}
+	return ExitProceed
+}
+
 func harvestable(in *Input) bool {
 	if in.SessionID == "" || in.TranscriptPath == "" || memory.IsHarvestChild() {
 		return false
