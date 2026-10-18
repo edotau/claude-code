@@ -109,7 +109,7 @@ func Secrets(o Options, forceFile bool) int {
 // pick is tui.Pick on the controlling terminal, a numbered prompt otherwise (tests, pipes).
 func pick(d *dialog, title string, rows [][2]string) (int, error) {
 	if isStdinTTY() && d.o.In == os.Stdin {
-		return tui.Pick(title, rows, 0)
+		return tui.PickBack(title, rows, 0)
 	}
 	d.println(title)
 	for i, r := range rows {
@@ -157,11 +157,10 @@ func editSecret(d *dialog, s trackedSecret, forceFile bool) {
 			return true
 		}})
 	}
-	rows := make([][2]string, 0, len(acts)+1)
+	rows := make([][2]string, 0, len(acts))
 	for _, a := range acts {
 		rows = append(rows, [2]string{a.name, a.desc})
 	}
-	rows = append(rows, [2]string{"Back", ""})
 	idx, err := pick(d, s.name+" ("+sourceLabel(s.source)+")", rows)
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return

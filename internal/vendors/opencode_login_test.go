@@ -10,14 +10,36 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencode's own `auth login` store is a fallback leg: a non-copilot login present → launch plain
-// (ErrOwnLogin); absent → keyed provider. github-copilot is its own leg (see
-// TestOpencodeCopilotLoginTakesPrecedence): it resolves to a real target, not ErrOwnLogin.
-func TestOpencodeOwnLoginIsAFallbackLeg(t *testing.T) {
-	data := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", data)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+// isolateOpencodeRouteEnv clears every credential/login surface DescribeRoute's opencode/copilot chain
+// reads, so a test controls precisely which leg (if any) resolves, never a real machine's own key.
+func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
+	t.Helper()
+	dataHome, cfgHome = t.TempDir(), t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no real `gh`: copilotLoginPresent's shell-out leg can't fire by accident
+	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	return dataHome, cfgHome
+}
+
+func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Selection {
+	t.Helper()
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+}
+
+// opencode's own `auth login` store for a NON-copilot provider (e.g. "anthropic") is no longer a
+// fallback leg by itself: DescribeRoute's opencode chain is copilot-login -> anthropic-key -> gemini-free
+// -> none, so an opencode-stored "anthropic" login with no ANTHROPIC_API_KEY/GEMINI_API_KEY resolves to
+// LegNone, never ErrOwnLogin — and the subscription session provider is never chosen either.
+func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
+	data, _ := isolateOpencodeRouteEnv(t)
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	if got := OpencodeLogins(); got != nil {
 		t.Fatalf("no auth.json yet, got %v", got)
@@ -35,17 +57,112 @@ func TestOpencodeOwnLoginIsAFallbackLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sel, err := providers.Select(reg, "")
+	sel := subscriptionSelection(t, reg)
+	target, _, err := ResolveTarget(reg, "opencode", sel, false)
+	if errors.Is(err, ErrOwnLogin) {
+		t.Fatal("a non-copilot opencode auth.json entry must not resolve to ErrOwnLogin")
+	}
+	if err == nil {
+		t.Fatalf("want the LegNone error with no credential present; got target=%+v", target)
+	}
+	if !strings.Contains(err.Error(), "claude-code configure github") {
+		t.Errorf("error = %q, want it to name `claude-code configure github`", err)
+	}
+	if target.Provider != nil && target.Provider.Auth.Type == "passthrough" {
+		t.Errorf("the subscription (passthrough) provider must never be chosen for opencode; got %+v", target.Provider)
+	}
+	// --provider is explicit: the session provider is used as-is regardless of the fallback chain.
+	if _, _, err := ResolveTarget(reg, "opencode", sel, true); err != nil {
+		t.Errorf("an explicit provider must resolve as-is, got err=%v", err)
+	}
+}
+
+// DescribeRoute's opencode chain in priority order: copilot-login, then anthropic-key, then
+// gemini-free, then none — each leg layered on top of the last so a higher leg is proven to outrank
+// a lower one, and the subscription provider is never selected at any point in the chain.
+func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
+	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, note, err := ResolveTarget(reg, "opencode", sel, false)
-	if !errors.Is(err, ErrOwnLogin) || target.Provider != nil || note == "" {
-		t.Errorf("want ErrOwnLogin with a note and no provider; got target=%+v note=%q err=%v", target, note, err)
+
+	if ri := DescribeRoute(reg, "opencode"); ri.OK || ri.Leg != LegNone {
+		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
 	}
-	// --provider is explicit: the session provider is used as-is, own login or not.
-	if _, _, err := ResolveTarget(reg, "opencode", sel, true); errors.Is(err, ErrOwnLogin) {
-		t.Error("an explicit provider must not be overridden by the own-login leg")
+
+	t.Setenv("GEMINI_API_KEY", secret)
+	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegGeminiFree || ri.Provider != "gemini" {
+		t.Fatalf("with only GEMINI_API_KEY, want gemini-free; got %+v", ri)
+	}
+
+	t.Setenv("ANTHROPIC_API_KEY", secret)
+	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegAnthropicKey || ri.Provider != "anthropic" {
+		t.Fatalf("anthropic-key must outrank gemini-free; got %+v", ri)
+	}
+
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
+		t.Fatalf("opencode's own copilot login must outrank both keys; got %+v", ri)
+	}
+
+	// ResolveTarget on the LegNone case returns exactly DescribeRoute's reason as the error.
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	none := DescribeRoute(reg, "opencode")
+	sel := subscriptionSelection(t, reg)
+	_, _, rerr := ResolveTarget(reg, "opencode", sel, false)
+	if rerr == nil || rerr.Error() != none.Reason {
+		t.Fatalf("ResolveTarget error = %v, want DescribeRoute's reason %q", rerr, none.Reason)
+	}
+}
+
+// Same chain order for copilot: copilot-login, then byok-anthropic, then byok-gemini, then none.
+func TestDescribeCopilotRouteChainOrder(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ri := DescribeRoute(reg, "copilot"); ri.OK || ri.Leg != LegNone {
+		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
+	}
+
+	t.Setenv("GEMINI_API_KEY", secret)
+	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegByokGemini || ri.Provider != "gemini" {
+		t.Fatalf("with only GEMINI_API_KEY, want byok-gemini; got %+v", ri)
+	}
+
+	t.Setenv("ANTHROPIC_API_KEY", secret)
+	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegByokAnthropic || ri.Provider != "anthropic" {
+		t.Fatalf("byok-anthropic must outrank byok-gemini; got %+v", ri)
+	}
+
+	t.Setenv("GH_TOKEN", secret)
+	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
+		t.Fatalf("copilot's own GitHub login must outrank BYOK; got %+v", ri)
+	}
+
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	none := DescribeRoute(reg, "copilot")
+	if none.OK || none.Leg != LegNone || !strings.Contains(none.Reason, "claude-code configure github") {
+		t.Fatalf("LegNone's reason must name `claude-code configure github`; got %+v", none)
+	}
+	sel := subscriptionSelection(t, reg)
+	_, _, rerr := ResolveTarget(reg, "copilot", sel, false)
+	if rerr == nil || rerr.Error() != none.Reason {
+		t.Fatalf("ResolveTarget error = %v, want DescribeRoute's reason %q", rerr, none.Reason)
 	}
 }
 
@@ -139,12 +256,10 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	}
 }
 
-// A model set in the user's own opencode.jsonc is the same leg: opencode runs on its own config, untouched.
-func TestOpencodeOwnConfigModelIsAFallbackLeg(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+// A model set in the user's own opencode.jsonc is no longer a fallback leg: DescribeRoute's chain
+// (copilot-login -> anthropic-key -> gemini-free -> none) replaced it, so it has no effect on routing.
+func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
+	_, cfg := isolateOpencodeRouteEnv(t)
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	if err := os.MkdirAll(filepath.Join(cfg, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
@@ -156,12 +271,15 @@ func TestOpencodeOwnConfigModelIsAFallbackLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sel, err := providers.Select(reg, "")
-	if err != nil {
-		t.Fatal(err)
+	sel := subscriptionSelection(t, reg)
+	target, _, err := ResolveTarget(reg, "opencode", sel, false)
+	if errors.Is(err, ErrOwnLogin) {
+		t.Fatal("opencode.jsonc's own model must not resolve to ErrOwnLogin under the new chain")
 	}
-	target, note, err := ResolveTarget(reg, "opencode", sel, false)
-	if !errors.Is(err, ErrOwnLogin) || target.Provider != nil || !strings.Contains(note, "google/gemini-3.8-flash") {
-		t.Errorf("want ErrOwnLogin naming the model; got target=%+v note=%q err=%v", target, note, err)
+	if err == nil {
+		t.Fatalf("want the LegNone error with no credential present; got target=%+v", target)
+	}
+	if !strings.Contains(err.Error(), "claude-code configure github") {
+		t.Errorf("error = %q, want it to name `claude-code configure github`", err)
 	}
 }
