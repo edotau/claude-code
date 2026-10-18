@@ -20,7 +20,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. A linked worktree
-   (`.claude/worktrees/<slug>`, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
+   (`~/worktrees/<repo>/<slug>`, shared with Orca, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
    branch there freely, merge back from the live tree (`git merge wt/<slug>`), never `checkout`/`reset`
    the live tree to it. `make install` and `claude-code` verbs still write to `~/.claude` from a
    worktree unless `CLAUDE_CONFIG_DIR` points at it.

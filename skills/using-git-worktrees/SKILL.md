@@ -27,13 +27,13 @@ reliable parallel sessions that never step on each other or pollute git status.
 The command handles everything with the harness conventions baked in:
 
 ```bash
-/workflow:worktree create add-auth-endpoint   # → .claude/worktrees/add-auth-endpoint on branch wt/add-auth-endpoint
+/workflow:worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint on branch wt/add-auth-endpoint
 /workflow:worktree list                        # all worktrees + status
 /workflow:worktree merge add-auth-endpoint     # preview commits, merge --no-ff, verify, optional clean
 /workflow:worktree clean add-auth-endpoint     # safe single removal
 ```
 
-It creates worktrees under `.claude/worktrees/<slug>` (gitignored), branches `wt/<slug>`,
+It creates worktrees under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude Code and Orca), branches `wt/<slug>`,
 **symlinks** the shared `.venv` (avoids a 500MB+ copy), and copies `.env` + `settings.local.json`.
 In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
 but `make install` and `claude-code` verbs run from it still target the live `~/.claude`.

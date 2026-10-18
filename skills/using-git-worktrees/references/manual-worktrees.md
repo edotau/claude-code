@@ -8,7 +8,7 @@ The underlying steps for **manual control**. Inside a Claude Code session, prefe
 ### 1. Pick the directory (priority order)
 
 ```bash
-ls -d .claude/worktrees 2>/dev/null   # harness default (gitignored)
+ls -d ~/worktrees/"$(basename "$PWD")" 2>/dev/null   # harness default (outside the repo)
 ls -d .worktrees 2>/dev/null          # common hidden alternative
 grep -i "worktree.*director" CLAUDE.md 2>/dev/null   # explicit project preference
 ```
@@ -19,7 +19,7 @@ creating one. Never scatter worktrees inside the main tree root where they'd be 
 ### 2. Verify the directory is gitignored (project-local only)
 
 ```bash
-git check-ignore -q .claude/worktrees 2>/dev/null || echo "NOT IGNORED — fix first"
+git check-ignore -q .worktrees 2>/dev/null || echo "NOT IGNORED — fix first"
 ```
 
 If not ignored, add it to `.gitignore` and commit **before** creating the worktree —
@@ -29,9 +29,9 @@ repo need no check.)
 ### 3. Create the worktree + branch
 
 ```bash
-slug=add-auth-endpoint
-git worktree add .claude/worktrees/$slug -b wt/$slug HEAD
-cd .claude/worktrees/$slug
+slug=add-auth-endpoint; repo=$(basename "$PWD")
+git worktree add ~/worktrees/$repo/$slug -b wt/$slug HEAD
+cd ~/worktrees/$repo/$slug
 ```
 
 ### 4. Wire up the environment — symlink, don't reinstall
@@ -93,13 +93,13 @@ removal:
 
 ```bash
 # 1. Anything uncommitted?
-git -C .claude/worktrees/$slug status --porcelain   # must be empty
+git -C ~/worktrees/$repo/$slug status --porcelain   # must be empty
 
 # 2. Is the branch merged into the integration branch?
 git branch --merged main | grep -q "wt/$slug" && echo "merged — safe to remove"
 
 # 3. Remove only if both checks pass
-git worktree remove .claude/worktrees/$slug          # refuses if dirty (good)
+git worktree remove ~/worktrees/$repo/$slug          # refuses if dirty (good)
 git branch -d wt/$slug                                # -d refuses if unmerged (good)
 git worktree prune                                    # clear stale metadata
 ```

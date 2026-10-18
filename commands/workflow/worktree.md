@@ -26,6 +26,13 @@ Existing worktrees:
 !git worktree list 2>/dev/null
 ```
 
+**Location** — one root shared by native Claude Code (the `worktree-create` hook) and Orca:
+`~/worktrees/<repo>/<slug>`, `<repo>` = the main checkout's basename. Every subcommand sets:
+```bash
+REPO=$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")")
+WT="$HOME/worktrees/$REPO/$SLUG"
+```
+
 ---
 
 ## PARSE SUBCOMMAND
@@ -37,7 +44,7 @@ Existing worktrees:
 | `list` | Show all worktrees with status |
 | `merge <name> [--clean\|--no-clean]` | Preview commits, merge back, verify, optionally auto-clean |
 | `clean <name>` | Remove a single worktree safely |
-| `clean-all` | Remove all `.claude/worktrees/*` worktrees |
+| `clean-all` | Remove all `~/worktrees/<repo>/*` worktrees |
 
 If no arguments at all, run `list`.
 
@@ -56,23 +63,23 @@ Create a new worktree for a parallel Claude Code session.
    If it exists, warn and print the path. Do not recreate.
 
 3. Create the worktree (branch `wt/$SLUG`, or the `--branch` override; reuse the branch if it
-   already exists — `git worktree add .claude/worktrees/$SLUG $BRANCH` without `-b`):
+   already exists — `git worktree add $WT $BRANCH` without `-b`):
    ```bash
-   git worktree add .claude/worktrees/$SLUG -b ${BRANCH:-wt/$SLUG} HEAD
+   git worktree add $WT -b ${BRANCH:-wt/$SLUG} HEAD
    ```
 
 4. Python repos only — symlink the shared `.venv` (avoids a 500MB+ copy):
    ```bash
-   [ -d .venv ] && ln -sf "$(pwd)/.venv" ".claude/worktrees/$SLUG/.venv"
+   [ -d .venv ] && ln -sf "$(pwd)/.venv" "$WT/.venv"
    ```
 
 5. Copy environment files:
    ```bash
-   cp .env ".claude/worktrees/$SLUG/.env" 2>/dev/null || true
-   cp .claude/settings.local.json ".claude/worktrees/$SLUG/.claude/settings.local.json" 2>/dev/null || true
+   cp .env "$WT/.env" 2>/dev/null || true
+   cp .claude/settings.local.json "$WT/.claude/settings.local.json" 2>/dev/null || true
    ```
 
-6. Print: path, branch, base SHA, and the follow-ups — launch via `cd .claude/worktrees/$SLUG && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
+6. Print: path, branch, base SHA, and the follow-ups — launch via `cd $WT && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
    `/workflow:worktree clean $SLUG`. Inside the harness repo (`~/.claude`) itself, the banned git verbs
    (hard rule 4) are allowed inside this worktree — it is a separate checkout — but `make install` and
    `claude-code` verbs there still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it.
@@ -81,21 +88,21 @@ Create a new worktree for a parallel Claude Code session.
 
 ## SUBCOMMAND: `list`
 
-Show all worktrees under `.claude/worktrees/` with status.
+Show all worktrees under `~/worktrees/<repo>/` with status.
 
 1. Run:
    ```bash
    git worktree list
    ```
 
-2. For each worktree under `.claude/worktrees/`, check:
+2. For each worktree under `~/worktrees/<repo>/`, check:
    - Branch name
    - Ahead/behind vs parent branch: `git log --oneline HEAD..wt/$SLUG` (commits ahead)
-   - Uncommitted changes: `git -C .claude/worktrees/$SLUG status --short`
+   - Uncommitted changes: `git -C $WT status --short`
 
 3. Print a table: name, branch, commits ahead, dirty state.
 
-If no worktrees exist under `.claude/worktrees/`, print "No active worktrees."
+If no worktrees exist under `~/worktrees/<repo>/`, print "No active worktrees."
 
 ---
 
@@ -108,7 +115,7 @@ Flags:
 - `--no-clean` — leave the worktree on disk (no prompt). This matches the pre-auto-clean behavior.
 - *(no flag)* — after a successful merge, interactively ask `Clean up worktree $SLUG now? (Y/n)`.
 
-1. Resolve `<name>` to the worktree path `.claude/worktrees/$SLUG` and branch `wt/$SLUG`. Parse the optional `--clean` / `--no-clean` flag.
+1. Resolve `<name>` to the worktree path `$WT` and branch `wt/$SLUG`. Parse the optional `--clean` / `--no-clean` flag.
 
 2. **Preview** — show what will be merged:
    ```bash
@@ -118,7 +125,7 @@ Flags:
 
 3. **Check for uncommitted changes** in the worktree:
    ```bash
-   git -C .claude/worktrees/$SLUG status --short
+   git -C $WT status --short
    ```
    If dirty, warn: "Worktree has uncommitted changes. Commit or stash them first."
    List the dirty files and stop. Do NOT merge with uncommitted changes. Cleanup is never reached on this path.
@@ -153,14 +160,14 @@ Flags:
        - If `--no-clean` was passed → print the "still on disk" reminder (below) and stop.
        - Otherwise, re-check the worktree is still clean:
          ```bash
-         git -C .claude/worktrees/$SLUG status --short
+         git -C $WT status --short
          ```
          If non-empty, print the "still on disk" reminder and stop (do not prompt — a dirty worktree is never silently cleaned).
          If empty, prompt: `Clean up worktree $SLUG now? (Y/n)`. On `n` / decline, print the "still on disk" reminder and stop.
 
    7b. Delegate to the same removal commands the `clean` subcommand uses:
        ```bash
-       git worktree remove .claude/worktrees/$SLUG --force
+       git worktree remove $WT --force
        git branch -d wt/$SLUG 2>/dev/null || true
        ```
        Do NOT re-run the safety checks from `clean <name>` — Step 3 already verified the worktree was clean, and `--no-ff` preserves the branch's commits in history.
@@ -203,7 +210,7 @@ The worktree is still on disk. To clean up after resolving:
 
 Safely remove a single worktree.
 
-1. Resolve `<name>` to path `.claude/worktrees/$SLUG`.
+1. Resolve `<name>` to path `$WT`.
 
 2. **Check for unmerged commits**:
    ```bash
@@ -218,13 +225,13 @@ Safely remove a single worktree.
 
 3. **Check for uncommitted changes**:
    ```bash
-   git -C .claude/worktrees/$SLUG status --short
+   git -C $WT status --short
    ```
    If dirty, warn about uncommitted files and ask for confirmation.
 
 4. **Remove**:
    ```bash
-   git worktree remove .claude/worktrees/$SLUG --force
+   git worktree remove $WT --force
    git branch -d wt/$SLUG 2>/dev/null || true
    ```
 
@@ -234,11 +241,11 @@ Safely remove a single worktree.
 
 ## SUBCOMMAND: `clean-all`
 
-Remove all worktrees under `.claude/worktrees/`.
+Remove all worktrees under `~/worktrees/<repo>/`.
 
-1. List all worktrees under `.claude/worktrees/`:
+1. List all worktrees under `~/worktrees/<repo>/`:
    ```bash
-   git worktree list | grep '.claude/worktrees/'
+   git worktree list | grep "$HOME/worktrees/$REPO/"
    ```
 
 2. For each, check for unmerged commits and uncommitted changes (same as `clean`).
@@ -249,7 +256,7 @@ Remove all worktrees under `.claude/worktrees/`.
 
 5. Remove each:
    ```bash
-   git worktree remove .claude/worktrees/$SLUG --force
+   git worktree remove $WT --force
    git branch -d wt/$SLUG 2>/dev/null || true
    ```
 
