@@ -69,7 +69,14 @@ claude-code vscode [--check|--dry-run] # merge the first-party VS Code settings 
 (401) reads `REJECTED`, not `present`. For an absent or rejected credential the TTY dialog offers every way to
 fix it side by side — the vendor's browser/device login (`claude auth login`, `codex login`, `copilot login`,
 `opencode auth login`, `gemini` → Login with Google) and pasting an API key (opening the provider's key console
-first, if you want), stored in `env.d/secrets.env`. Piped, each option is one `[Y/n]`.
+first, if you want), stored in the OS keyring (`env.d/secrets.env` without one). Piped, each option is one `[Y/n]`.
+
+`configure provider` lists `anthropic` first as one row for both first-party billing modes, showing the mode
+in use and whether its credential is valid (`billing: subscription (max)` / `billing: api key`). Picking it asks
+**subscription** (claude.ai OAuth login, plan usage limits, Remote Control works — pins `subscription`) or **API
+key** (`ANTHROPIC_API_KEY`, pay per token, no Remote Control — pins `anthropic`), and resolves a missing login or
+key before pinning. The setup-token is injected only into `claude -p` launches, so an interactive session's
+Remote Control uses the `/login` credential.
 
 The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
 `claude setup-token` mints a long-lived OAuth token for unattended runs. `configure keys` reports both states
