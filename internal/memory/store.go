@@ -71,35 +71,6 @@ func inWorkTree(root string) bool {
 	return in
 }
 
-// MigrateLegacy moves a pre-bank/ tree (global files and <slug>/ dirs directly under docs/memory) into
-// docs/memory/bank; idempotent, never overwrites, returns the entries moved.
-func MigrateLegacy() (int, error) {
-	legacy := filepath.Dir(GlobalDir())
-	ents, err := os.ReadDir(legacy)
-	if err != nil || (len(ents) == 1 && ents[0].Name() == "bank") {
-		return 0, nil
-	}
-	n := 0
-	err = paths.WithFileLock(filepath.Join(GlobalDir(), ".migrate"), func() error {
-		ents, _ = os.ReadDir(legacy)
-		for _, e := range ents {
-			if e.Name() == "bank" {
-				continue
-			}
-			to := filepath.Join(GlobalDir(), e.Name())
-			if _, err := os.Lstat(to); err == nil {
-				continue // destination exists: leave the legacy entry for a human
-			}
-			if err := os.Rename(filepath.Join(legacy, e.Name()), to); err != nil {
-				return err
-			}
-			n++
-		}
-		return nil
-	})
-	return n, err
-}
-
 // IsGlobal reports whether root's local bank is the global bank (read it once, not twice).
 func IsGlobal(root string) bool { return paths.SamePath(Dir(root), GlobalDir()) }
 
@@ -114,7 +85,11 @@ func HasBank(root string) bool {
 }
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
+// It is a scaffold write, so the startup guard gates it: a retired legacy bank is never recreated.
 func Init(root string) (string, error) {
+	if err := CheckWritable(); err != nil {
+		return "", err
+	}
 	dir := Dir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err

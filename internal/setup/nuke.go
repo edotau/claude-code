@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -51,11 +52,11 @@ type NukePlan struct {
 	Entries     []Entry
 	HasSecrets  bool
 	SecretNames []string
-	UserContent []string // untracked-user-content paths Nuke archives before removing dir
+	UserContent []string // untracked-user-content paths Nuke archives before removing dir (+ the keep-memory set when kept)
 }
 
-// PlanFor inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
-func Plan(dir string) (NukePlan, error) {
+// Plan inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
+func Plan(dir string, keepMemory bool) (NukePlan, error) {
 	plan := NukePlan{Dir: dir}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -81,6 +82,9 @@ func Plan(dir string) (NukePlan, error) {
 		sort.Strings(plan.SecretNames)
 	}
 	plan.UserContent = userContentPaths(dir, hasGit)
+	if keepMemory {
+		plan.UserContent = append(plan.UserContent, keepMemoryPaths(dir)...)
+	}
 	return plan, nil
 }
 
@@ -103,7 +107,7 @@ func Nuke(opts NukeOpts) error {
 	if err := nukeFloor(opts.Dir); err != nil {
 		return err
 	}
-	plan, err := Plan(opts.Dir)
+	plan, err := Plan(opts.Dir, opts.KeepMemory)
 	if err != nil {
 		return err
 	}
@@ -207,23 +211,44 @@ func untrackedUnder(repo, sub string) []string {
 }
 
 // archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,
-// never value) to ~/claude-nuke-<date>.tgz, adding docs/memory/bank, plans/ and projects/*/memory when kept.
-func archiveUserContent(plan NukePlan, keepMemory bool) (string, error) {
+// never value) to ~/claude-nuke-<date>.tgz; a failure removes the truncated tarball so none poses as a backup.
+func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dest := filepath.Join(home, "claude-nuke-"+time.Now().Format("20060102-150405")+".tgz")
+	dest = filepath.Join(home, "claude-nuke-"+time.Now().Format("20060102-150405")+".tgz")
 	f, err := os.Create(dest)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err != nil {
+			f.Close()
+			os.Remove(dest)
+		}
+	}()
 	gz := gzip.NewWriter(f)
-	defer gz.Close()
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	if err = tarPlan(tw, plan, keepMemory); err != nil {
+		return dest, err
+	}
+	// Explicit, ordered closes: each flushes buffered data, and a failed flush must fail the nuke.
+	if err = tw.Close(); err != nil {
+		return dest, err
+	}
+	if err = gz.Close(); err != nil {
+		return dest, err
+	}
+	if err = f.Close(); err != nil {
+		return dest, err
+	}
+	return dest, nil
+}
 
+// tarPlan writes the manifest then plan.UserContent. With keepMemory the plan carries memory/ (incl. .git),
+// so the file reads run under the bank lock: a concurrent settle/commit must not land a torn .git in the backup.
+func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 	manifest := struct {
 		Date        time.Time `json:"date"`
 		Dir         string    `json:"dir"`
@@ -232,24 +257,23 @@ func archiveUserContent(plan NukePlan, keepMemory bool) (string, error) {
 	}{Date: time.Now().UTC(), Dir: plan.Dir, SecretNames: plan.SecretNames, KeepMemory: keepMemory}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return dest, err
+		return err
 	}
 	if err := tarWriteBytes(tw, "manifest.json", data); err != nil {
-		return dest, err
+		return err
 	}
-	for _, rel := range plan.UserContent {
-		if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
-			return dest, err
-		}
-	}
-	if keepMemory {
-		for _, rel := range keepMemoryPaths(plan.Dir) {
+	write := func() error {
+		for _, rel := range plan.UserContent {
 			if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
-				return dest, err
+				return err
 			}
 		}
+		return nil
 	}
-	return dest, nil
+	if keepMemory {
+		return memory.WithBankLock(0, write)
+	}
+	return write()
 }
 
 func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
@@ -268,22 +292,28 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, data)
 }
 
-// keepMemoryPaths lists every file under docs/memory/bank/, plans/ (untracked) and projects/*/memory/, dir-relative.
+// keepMemoryPaths lists every regular file under memory/ (incl. .git), docs/memory/bank/, docs/knowledge/, plans/ and
+// real projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
 func keepMemoryPaths(dir string) []string {
-	var roots []string
-	for _, rel := range []string{filepath.Join("docs", "memory", "bank"), "plans"} {
-		if fi, err := os.Stat(filepath.Join(dir, rel)); err == nil && fi.IsDir() {
-			roots = append(roots, filepath.Join(dir, rel))
+	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), filepath.Join("docs", "knowledge"), "plans"}
+	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
+		for _, m := range matches {
+			if rel, err := filepath.Rel(dir, m); err == nil {
+				candidates = append(candidates, rel)
+			}
 		}
 	}
-	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
-		roots = append(roots, matches...)
+	var roots []string
+	for _, rel := range candidates {
+		if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.IsDir() {
+			roots = append(roots, filepath.Join(dir, rel))
+		}
 	}
 	var out []string
 	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
+			if err != nil || !d.Type().IsRegular() {
+				return nil // symlinks are never read: tarWriteFile would follow an escape link
 			}
 			if rel, relErr := filepath.Rel(dir, p); relErr == nil {
 				out = append(out, filepath.ToSlash(rel))

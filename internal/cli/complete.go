@@ -37,7 +37,7 @@ type flagInfo struct {
 var subVerbs = map[string][]string{
 	"secrets":   {"set", "get", "delete", "status", "scan", "git", "doctor", "all"},
 	"history":   {"snapshot", "log", "diff"},
-	"memory":    {"init", "search", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive"},
+	"memory":    {"init", "search", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate"},
 	"router":    {"serve", "start", "stop", "status"},
 	"mcp":       {"doctor"},
 	"agents":    {"sync", "tree"},
@@ -93,6 +93,7 @@ var flagsFor = map[string][]flagInfo{
 	"memory timeline": {{name: "repo"}, {name: "n"}},
 	"memory promote":  {{name: "repo"}},
 	"memory archive":  {{name: "repo"}, {name: "dupes", isBool: true}, {name: "split"}, {name: "apply", isBool: true}, {name: "restore", isBool: true}},
+	"memory migrate":  {{name: "dry-run", isBool: true}, {name: "apply"}, {name: "supersede", isBool: true}, {name: "origin"}, {name: "format", values: func() []string { return []string{"text", "json"} }}},
 	"router serve":    {{name: "port"}},
 	"ask": {{name: "agent", values: agentNames}, {name: "provider", values: providerNames}, {name: "model"},
 		{name: "effort"}, {name: "workdir"}, {name: "session"}, {name: "tools", isBool: true},

@@ -73,6 +73,11 @@ func cmdMemoryArchive(args []string) int {
 	}
 	dir := memory.NativeDir(memoryRoot(*repo))
 	names := fs.Args()
+	if writes := *apply && (*split >= 0 || len(names) > 0); writes {
+		if g := memory.StartupGuard(); g.Paused { // no native mutation while a migration or maintenance holds the store
+			return fail("memory archive: %s", g.Notice)
+		}
+	}
 
 	switch {
 	case *dupes:

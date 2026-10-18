@@ -55,7 +55,7 @@ func cmdSetupNuke(args []string) int {
 	fs.SetOutput(os.Stderr)
 	dir := fs.String("dir", paths.ConfigDir(), "the harness directory to remove")
 	apply := fs.Bool("apply", false, "actually remove it (dry-run without this flag)")
-	keepMemory := fs.Bool("keep-memory", false, "also archive docs/memory/bank, plans/ and projects/*/memory")
+	keepMemory := fs.Bool("keep-memory", false, "also archive memory/ (the local memory Git store, incl. .git), docs/memory/bank, plans/ and projects/*/memory")
 	account := fs.Bool("account", false, "report what removing the Claude Code account state would take")
 	removeCLI := fs.Bool("cli", false, "report what removing the Claude Code CLI install would take")
 	if fs.Parse(args) != nil {
