@@ -37,7 +37,7 @@ func specTree() map[string]*compNode {
 		"theme": {args: []func() []string{statusline.GradientNames}, flags: []flagInfo{boolFlag("preview")},
 			sub: map[string]*compNode{"apply": {flags: []flagInfo{boolFlag("dry-run")}}}},
 		"configure": {args: []func() []string{configureSections}, flags: []flagInfo{
-			valuedFlag("provider", providerNames), valuedFlag("vendor", vendorNames), boolFlag("dry-run"), boolFlag("check")}},
+			valuedFlag("provider", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check")}},
 		"models": {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
 		"router": {sub: map[string]*compNode{

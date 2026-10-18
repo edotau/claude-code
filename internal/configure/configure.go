@@ -36,7 +36,7 @@ var Sections = []string{"provider", "keys", "models", "agents", "router", "githu
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
 	Provider    string    // --provider: pick this one non-interactively (provider section)
-	Vendor      string    // --vendor: scope keys/agents to one vendor
+	Vendor      string    // --agent: scope keys/agents to one agent CLI
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
 	Interactive bool      // stdin+stderr are both a terminal; the caller decides this
