@@ -109,7 +109,7 @@ func rotateOptions(kt keyTarget) []authOption {
 			mint: kt.mintArgv, env: kt.envVar})
 	}
 	if len(opts) == 0 && kt.envVar != "" && kt.provider != nil {
-		opts = append(opts, authOption{action: "API key", desc: "paste a new " + kt.envVar + " · replaces or rotates the stored key", env: kt.envVar})
+		opts = append(opts, authOption{action: "API key", desc: "paste a new " + kt.envVar + " · rotates the stored key", env: kt.envVar})
 	}
 	return opts
 }

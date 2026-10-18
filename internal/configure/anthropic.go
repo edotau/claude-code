@@ -112,7 +112,7 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 			}},
 		)
 	}
-	rows = append(rows, billingRow{"API key", "pay per token · paste to set, replace or rotate · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
+	rows = append(rows, billingRow{"API key", "pay per token · paste to set or rotate · no Remote Control " + state(keyOK, "key set", "no key"), func() bool {
 		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
 			provider: fp.reg.Providers[anthropicRow]}
 		if !ensureKey(d, kt, keyOK) {
