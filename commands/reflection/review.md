@@ -31,7 +31,7 @@ claude-code memory doctor
 
 Report: bank cap usage (activeContext/progress/decisionLog/conventions/sessionHistory vs
 their caps), any stale findings, and (for `--quick`) a quick scan of
-`~/.claude/projects/*/memory/MEMORY.md` line counts flagged if any are near the 200-line
+`~/.claude/projects/*/memory/MEMORY.md` (symlinks into `~/.claude/memory/<repo>/`) line counts flagged if any are near the 200-line
 auto-load cap.
 
 ## Full review (default, `--stale`, `--candidates`)

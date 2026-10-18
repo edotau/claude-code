@@ -46,9 +46,12 @@ platitudes; nothing already in CLAUDE.md or `rules/` (point there instead).
 ## Step 6: Settle + report
 
 - **Run `claude-code memory index`** — it rotates `sessionHistory.md` past 30 entries into
-  `archive/sessionHistory-<yyyy-mm>.md` and rewrites the routing `index.md` session-start injects.
-  Deterministic and safe to re-run; do NOT rotate or hand-edit `index.md` yourself.
+  `archive/sessionHistory-<yyyy-mm>.md`, rewrites this repo's `MEMORY.md` bank region, and
+  regenerates the store-root catalog (`~/.claude/memory/index.md`). Deterministic and safe to
+  re-run; do NOT hand-edit the bank region or the catalog yourself.
 - Hold the line caps (`internal/memory/store.go`): projectContext 60, activeContext 80, progress 60,
   conventions 80, decisionLog 200.
-- The bank is untracked (`docs/memory/` is gitignored) and per-machine — do NOT commit it.
+- The bank lives in `~/.claude/memory/` — its own local-only git repo, never pushed and never
+  part of the project's own commits. Settling (`memory index`) commits there automatically; don't
+  commit it from the project's working tree.
 - Report one block: files touched, history entry title, decisions/conventions added, carry-forwards.

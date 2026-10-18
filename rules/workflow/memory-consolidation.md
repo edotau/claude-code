@@ -57,11 +57,12 @@ through the gate.
 
 ## Scope constraints
 
-- `/reflection:*` curates Claude Code's native project memory (`~/.claude/projects/<slug>/memory/`)
-  and the session memory bank (`docs/memory/bank/`). It does not invent a third tier — there is no
-  separate "learnings" feedstock file in this harness; a correction either routes straight to a
-  `rules/` file (via `/harness:adapt` or `/reflection:promote`) or stays in native memory until it
-  does.
+- `/reflection:*` curates Claude Code's native project memory and `/memory:*` curates the typed
+  bank files — both live in the same `~/.claude/memory/<repo>/` dir (the harness itself is
+  `memory/.claude/`; `~/.claude/projects/<slug>/memory` is a symlink into it). It does not invent
+  a third tier — there is no separate "learnings" feedstock file in this harness; a correction
+  either routes straight to a `rules/` file (via `/harness:adapt` or `/reflection:promote`) or
+  stays in native memory until it does.
 - Native memory edits never touch the approval-gated RULES region
   (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit human approval.
 - `sessionHistory.md` caps at 30 entries (overflow archives via `claude-code memory index`);

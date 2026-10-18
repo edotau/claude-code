@@ -2,21 +2,21 @@
 description: "Graduate durable, cross-project lessons from a repo's local memory bank into the shared global bank."
 ---
 
-# /memory:promote — Graduate Local Bank Lessons to the Global Bank
+# /memory:promote — Graduate Local Bank Lessons to the Global Store
 
-Two tiers: a **local** working bank (`docs/memory/bank/<repo-slug>/`) and the **shared global**
-bank (`docs/memory/bank/`, the tree TOP — used by any non-repo cwd and read alongside the local
-bank on every session). The local→global move for settled, over-cap overflow is mechanical and
-handled by `claude-code memory promote` itself (cap-triggered, deduped). This command is the
-**judgment** step: look at what has settled in the local bank and decide whether anything in it
-is durable enough, and general enough, to belong in the global bank now rather than waiting for
-the cap to force it.
+Two scopes in one store: this repo's dir (`~/.claude/memory/<repo>/`) and the **shared global**
+store (`~/.claude/memory/`, the tree TOP — used by any non-repo cwd and reachable from every
+session via the catalog, `memory search --all`, and cross-repo routing). Settle never promotes on
+its own — over-cap overflow archives within the repo's own `archive/`; `claude-code memory promote`
+is the explicit, deduped mechanical move. This command is the **judgment** step: look at what has
+settled in this repo's dir and decide whether anything in it is durable enough, and general enough,
+to belong in the global store (or, if near-rule and public-safe, in tracked `docs/knowledge/`).
 
 ## Procedure
 
-1. **Resolve the bank** — run `claude-code memory path` to get the local and global bank
-   directories; never hardcode them.
-2. **Read the local bank** — `conventions.md` and `decisionLog.md` are the two append-only files
+1. **Resolve the store** — run `claude-code memory path` to get this repo's dir; the global dir
+   is the store top (`claude-code memory path` from any non-repo cwd). Never hardcode either.
+2. **Read the local dir** — `conventions.md` and `decisionLog.md` are the two append-only files
    that accumulate durable lessons; `activeContext.md`/`progress.md`/`sessionHistory.md` are
    session state and never promote.
 3. **Judge each candidate entry** — promote ONLY if it is:

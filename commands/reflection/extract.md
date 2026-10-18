@@ -27,7 +27,7 @@ body, and progressive disclosure (`references/` for depth, `SKILL.md` stays lean
 ## Step 1: Identify the pattern
 
 ```bash
-grep -rni "<keywords>" ~/.claude/projects/*/memory/
+grep -rni "<keywords>" ~/.claude/projects/*/memory/   # symlinks into ~/.claude/memory/<repo>/
 ```
 
 Use the matching topic file(s) as source material if found; otherwise use the user's

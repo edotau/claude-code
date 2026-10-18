@@ -30,15 +30,15 @@ For each signal found, classify it:
 | Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
 | Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | Language-specific conventions, or general code quality |
 | Security pattern | `rules/software/<lang>/security.md` or `rules/standards/security.md` | Mandatory checks |
-| Architecture insight | `docs/memory/bank/<repo-slug>/decisionLog.md` | Dated entry, newest first |
+| Architecture insight | `~/.claude/memory/<repo>/decisionLog.md` | Dated entry, newest first |
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
 | Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `communication.md` | Markdown/living-docs, or response style |
 | Performance insight | `rules/standards/performance.md` | Relevant subsection |
-| Session-learned fact | `~/.claude/projects/<slug>/memory/` (topic file + `MEMORY.md` TOC entry) | Appropriate topic |
-| Project state change | `docs/memory/bank/<repo-slug>/activeContext.md` | "Current Focus" / "Next Steps" |
-| Completed work | `docs/memory/bank/<repo-slug>/progress.md` | "What Works" / "What's Next" |
+| Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; `~/.claude/projects/<slug>/memory` symlinks here) | Appropriate topic |
+| Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
+| Completed work | `~/.claude/memory/<repo>/progress.md` | "What Works" / "What's Next" |
 
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated).
 `/harness:adapt` writes only to the **writable** tiers — `rules/standards/` and
@@ -55,7 +55,7 @@ Scan for architectural or design decisions made this session. For each:
 - What alternatives were considered
 - Where it affects the codebase
 
-Write decisions to `docs/memory/bank/<repo-slug>/decisionLog.md` (dated entry, newest first;
+Write decisions to `~/.claude/memory/<repo>/decisionLog.md` (dated entry, newest first;
 supersede, never delete), or to native project memory if session-scoped.
 
 ### Step 3: Route Corrections to Target Files
@@ -86,7 +86,8 @@ Update `progress.md` if:
 
 Only write what was actually learned this session. 
 
-1. Read the current `~/.claude/projects/<slug>/memory/MEMORY.md` index (+ linked topic files)
+1. Read the current `~/.claude/projects/<slug>/memory/MEMORY.md` index (+ linked topic files) —
+   this is a symlink into `~/.claude/memory/<repo>/`, the same dir the typed bank files live in
 2. Summarize the learning into a topic file, then add/refine its one-line TOC entry in `MEMORY.md`
 3. Keep `MEMORY.md` a lean index (first ~200 lines auto-load; detail lives in topic files); never edit the RULES region
 
