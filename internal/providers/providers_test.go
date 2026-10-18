@@ -78,6 +78,23 @@ func TestOverlayAndRoutes(t *testing.T) {
 	}
 }
 
+// opencode_fallback exists to substitute for a catalog "auto" id opencode can't resolve itself; letting
+// opencode_fallback itself be "auto" would recreate the exact value it's supposed to replace.
+func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
+	bad := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
+	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).Validate()
+	if err == nil {
+		t.Fatal("opencode_fallback: \"auto\" must fail validation")
+	}
+	if !strings.Contains(err.Error(), "opencode_fallback cannot itself be") {
+		t.Errorf("error = %q, want it to name the opencode_fallback=auto rule", err)
+	}
+	good := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
+	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).Validate(); err != nil {
+		t.Errorf("a real opencode_fallback id must pass validation, got %v", err)
+	}
+}
+
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
 	t.Setenv(SlotPin("haiku"), "openai:gpt-5-nano")
