@@ -97,10 +97,11 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	}
 	for _, want := range []string{
 		filepath.Join(global, "plans"),
-		filepath.Join(global, "docs", "handoffs"),
-		filepath.Join(global, "docs", "reports"),
+		string(filepath.Separator) + "handoffs" + string(filepath.Separator),
+		string(filepath.Separator) + "reports" + string(filepath.Separator),
+		filepath.Join(global, "docs", "knowledge"),
 		"HARNESS_DOCS_PLACEMENT=0",
-		"rules/standards/documentation.md",
+		"rules/harness/docs-placement.md",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("block message missing %q:\n%s", want, stderr.String())
@@ -234,8 +235,8 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementHarnessDocsTreeExempt: the canonical destination is itself gitignored inside this
-// checkout, so the gate must never fire on it — every plan/handoff/report write would break.
+// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree (images + tracked knowledge) is never gated, even
+// when a checkout gitignores parts of it.
 func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	harness := ignoredDocsRepo(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)

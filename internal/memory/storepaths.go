@@ -18,7 +18,7 @@ const HarnessKey = ".claude"
 const CatalogFile = "index.md"
 
 // StoreReservedDirs are store subdirectories that are never a repo's memory dir.
-var StoreReservedDirs = map[string]bool{".git": true, "archive": true, "handoffs": true, "receipts": true}
+var StoreReservedDirs = map[string]bool{".git": true, "archive": true, "handoffs": true, "receipts": true, "reports": true}
 
 // StoreDir is the memory store root and the work tree of the local memory repo.
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
@@ -34,6 +34,9 @@ func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
 
 // HandoffsDir is dir's long-form session handoffs.
 func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
+
+// ReportsDir is dir's command/agent reports (reviews, audits, research briefs).
+func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
 
 // ReceiptsDir holds applied-batch receipts, tracked in memory Git as the authority for cursor recovery.
 func ReceiptsDir() string { return filepath.Join(StoreDir(), "receipts") }
