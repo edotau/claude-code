@@ -236,18 +236,24 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 	if autoYes {
 		return true
 	}
-	if !isStdinTTY() {
+	if !stdinIsTTY() {
 		fmt.Fprintln(errw, "clean: refusing --target sessions without a TTY; pass --yes to confirm")
 		return false
 	}
 	fmt.Fprint(errw, "delete them? [y/N] ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := bufio.NewReader(promptIn).ReadString('\n')
 	line = strings.ToLower(strings.TrimSpace(line))
 	return line == "y" || line == "yes"
 }
 
 // isStdinTTY reports whether stdin is the real controlling terminal. /dev/null is itself a char
 // device, so ModeCharDevice alone misreports `clean </dev/null` as a TTY; os.SameFile rules it out.
+// Test seams for the sessions [y/N] prompt.
+var (
+	stdinIsTTY           = isStdinTTY
+	promptIn   io.Reader = os.Stdin
+)
+
 func isStdinTTY() bool {
 	fi, err := os.Stdin.Stat()
 	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
