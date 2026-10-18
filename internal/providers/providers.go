@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/secretshape"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Wire dialects a provider route can speak.
@@ -47,11 +47,11 @@ type Provider struct {
 func (p Provider) MarshalJSON() ([]byte, error) {
 	type plain Provider // no MarshalJSON, so the alias cannot recurse
 	v := plain(p)
-	v.Headers = secretshape.RedactMap(p.Headers)
+	v.Headers = shapes.RedactMap(p.Headers)
 	return json.Marshal(struct {
 		plain
 		HasSecretHeaders bool `json:"has_secret_headers,omitempty"`
-	}{v, secretshape.Any(p.Headers)})
+	}{v, shapes.Any(p.Headers)})
 }
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).

@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secretshape"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Action is the closed set of audited events; Log drops anything else.
@@ -100,7 +100,7 @@ func scrub(s string) string {
 	f := strings.Fields(s)
 	changed := false
 	for i, w := range f {
-		if secretshape.Looks(w) {
+		if shapes.Looks(w) {
 			f[i], changed = "REDACTED", true
 		}
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/outfmt"
-	"github.com/edotau/claude-code/internal/secretshape"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 func cmdAsk(args []string) int {
@@ -182,7 +182,7 @@ func printDispatchLog(format string) int {
 	for _, r := range recs {
 		preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
 		for _, w := range strings.Fields(preview) {
-			if secretshape.Looks(w) {
+			if shapes.Looks(w) {
 				preview = strings.ReplaceAll(preview, w, "REDACTED")
 			}
 		}
