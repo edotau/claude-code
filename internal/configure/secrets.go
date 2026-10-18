@@ -30,10 +30,7 @@ type trackedSecret struct {
 // added through the dialog or `secrets set` (the names index) and anything still in env.d/secrets.env.
 func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	users := map[string][]string{
-		providers.OAuthTokenEnv:         {"claude -p (setup-token)"},
-		"TAILSCALE_OAUTH_CLIENT_ID":     {"tailscale (oauth client id)"},
-		"TAILSCALE_OAUTH_CLIENT_SECRET": {"tailscale (oauth client secret)"},
-		"TAILSCALE_API_KEY":             {"tailscale (admin api key)"},
+		providers.OAuthTokenEnv: {"claude -p (setup-token)"},
 	}
 	for _, n := range reg.Names() {
 		if env := reg.Providers[n].Auth.Env; env != "" {
