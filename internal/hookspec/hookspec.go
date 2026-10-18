@@ -20,6 +20,7 @@ const (
 	EventUserPromptSubmit   = "UserPromptSubmit"
 	EventStop               = "Stop"
 	EventSessionEnd         = "SessionEnd"
+	EventPreCompact         = "PreCompact"
 	EventWorktreeCreate     = "WorktreeCreate"
 	EventWorktreeRemove     = "WorktreeRemove"
 )
@@ -69,6 +70,8 @@ var Registry = []Spec{
 	// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 	{Name: "memory-recall", Event: EventUserPromptSubmit, Timeout: 5},
 	{Name: "session-harvest-end", Event: EventSessionEnd, Timeout: 15},
+	// Before a compaction, harvest edits no earlier dispatch covered (never blocks; the transcript survives).
+	{Name: "pre-compact", Event: EventPreCompact, Timeout: 15},
 	// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
 	{Name: "worktree-create", Event: EventWorktreeCreate, Timeout: 60},
 	{Name: "worktree-remove", Event: EventWorktreeRemove, Timeout: 30},

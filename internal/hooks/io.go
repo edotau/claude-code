@@ -136,6 +136,7 @@ var Registry = map[string]Handler{
 	"save-plan":           func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
 	"access-trace":        func(in io.Reader, _, _ io.Writer) int { return AccessTrace(in) },
 	"subagent-stop":       func(in io.Reader, _, errw io.Writer) int { return SubagentStop(in, errw) },
+	"pre-compact":         func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
 	"worktree-create":     func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
 	"worktree-remove":     func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
 }
