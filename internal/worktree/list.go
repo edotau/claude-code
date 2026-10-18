@@ -150,7 +150,7 @@ func Classify(e *Entry) {
 // Dirty=true (never silently "clean"), Merged=false (never silently eligible for removal).
 func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
 	e.Dirty = true
-	out, err := exec.Command("git", "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none").Output()
+	out, err := exec.Command("git", "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
 	switch {
 	case err != nil:
 		e.Problems = append(e.Problems, "dirty check failed: "+err.Error())

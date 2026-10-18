@@ -229,6 +229,51 @@ func TestCmdWorktreeCleanAllRequiresYesToApply(t *testing.T) {
 	}
 }
 
+// TestCmdWorktreeListReopenCommandIsShellSafe is the regression test for Appendix A codex-review
+// finding #7 (internal/cli/worktree.go:110): Go's %q uses double-quote syntax, which a POSIX shell
+// still expands $(...) and `...` inside of — pasting the printed "reopen" command for a worktree
+// named with a command substitution must never execute it.
+func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := gitRepoCLI(t)
+	t.Chdir(repo)
+
+	marker := "pwned-marker"
+	name := "x$(touch${IFS}" + marker + ")y"
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"create", "--branch", "wt/safe-branch", name})
+	})
+	if code != 0 {
+		t.Fatalf("create: code=%d stderr=%q", code, errb)
+	}
+	dest := strings.TrimSpace(out)
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("worktree missing at %s: %v", dest, err)
+	}
+
+	code, listOut, errb := captureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
+	if code != 0 {
+		t.Fatalf("list: code=%d stderr=%q", code, errb)
+	}
+	var reopenLine string
+	for _, line := range strings.Split(listOut, "\n") {
+		if strings.Contains(line, "reopen:") {
+			reopenLine = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "reopen:"))
+		}
+	}
+	if reopenLine == "" {
+		t.Fatalf("no reopen line found in list output: %q", listOut)
+	}
+
+	run := exec.Command("sh", "-c", reopenLine)
+	if out, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("running the printed reopen command failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("the printed reopen command executed the embedded command substitution: marker created at %s\nprinted command: %s", marker, reopenLine)
+	}
+}
+
 func TestCmdWorktreeCreateUnusualName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)

@@ -1,6 +1,6 @@
 ---
 description: "Create and manage git worktrees for parallel Claude Code sessions"
-argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean] [--resolve-agent claude|codex|--resume]"
+argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--target <ref>] [--dry-run|--no-clean] [--verify \"<cmd>\"] [--resolve-agent claude|codex|--resume]"
 ---
 
 # worktree -- Git Worktree Lifecycle Manager
@@ -44,7 +44,7 @@ to an agent inside the worktree only; `--resume` reattaches to that operation af
 | `create <name> [--branch <b>]` | Create worktree + branch `worktree-<name>` (or an existing branch `<b>`) |
 | `<name>` *(no subcommand)* | Same as `create <name>` |
 | `list` | Show all worktrees with status |
-| `merge <name> [--target <ref>] [--no-clean]` | Preview (plan + predicted conflicts), merge back fast-forward-only, verify, auto-clean unless `--no-clean` |
+| `merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"]` | Preview (plan + predicted conflicts), integrate, run `--verify` before promoting, merge back fast-forward-only, auto-clean unless `--no-clean` |
 | `merge <name> --resolve-agent claude\|codex` | On a predicted conflict only, resolve it with that agent inside the worktree, then continue the normal merge |
 | `merge <name> --resume` | Reattach to a previously started `--resolve-agent` operation; never re-invokes the agent |
 | `clean <name>` | Remove a single worktree safely |
@@ -110,8 +110,11 @@ verbatim rather than re-deriving `$WT`/`$SLUG` by hand. If no worktrees exist un
 Merge a worktree branch back onto the main checkout's current branch — delegates to
 `internal/worktree.Preflight` / `IntegrateTarget` / `Promote`, which pin both OIDs, simulate the
 merge with `git merge-tree` before touching anything, integrate the pinned target **inside the
-worktree**, and promote with a fast-forward-only `git merge --ff-only` on the main checkout — never a
-`--no-ff` merge commit on the live branch, and never a real conflicting merge.
+worktree**, run `--verify` there if given, and promote with a fast-forward-only `git merge --ff-only`
+on the main checkout — never a `--no-ff` merge commit on the live branch, and never a real conflicting
+merge. `Promote` also refuses to fast-forward onto anything but the exact OID `IntegrateTarget` just
+verified: a commit added to the worktree between integration and promotion stops with a retry hint
+instead of silently riding along unreviewed.
 
 1. **Preview** — always run first, never skipped:
    ```bash
@@ -126,31 +129,27 @@ worktree**, and promote with a fast-forward-only `git merge --ff-only` on the ma
 
 2. On a clean preview, present it to the user and ask: "Merge $SLUG into \<target\>? (Y/n)".
 
-3. On confirmation, apply:
+3. Discover the project's fast gate (from the Makefile / `pyproject.toml` / `go.mod`), e.g.
+   `make test-unit`, `go test ./...`, `.venv/bin/python -m pytest -x -q`. On confirmation, apply with
+   that gate as `--verify`, run **inside the worktree, before promotion**:
    ```bash
-   claude-code worktree merge "$SLUG"
+   claude-code worktree merge --verify "make test-unit" "$SLUG"
    ```
-   This re-runs Preflight itself (never trusts the earlier preview), integrates the pinned target
-   into the worktree, fast-forwards the main checkout onto the result, and — unless `--no-clean` was
-   passed — removes the worktree and deletes the branch exactly as `clean` would (the same live
-   recheck, not a forced removal). A failure after integration prints a retry hint instead of leaving
-   a merge commit on the live branch; re-run Step 1 to get a fresh plan before retrying.
+   This re-runs Preflight itself (never trusts the earlier preview), integrates the pinned target into
+   the worktree, runs `--verify` there, and only on success fast-forwards the main checkout onto the
+   result — a failed or missing gate (no target, no `.venv`) stops here: the worktree is preserved on
+   disk, untouched by promotion, so the user can inspect it or fix the gate and retry the same command.
+   On success it then promotes and — unless `--no-clean` was passed — removes the worktree and deletes
+   the branch exactly as `clean` would (the same live recheck, not a forced removal). A failure after
+   promotion prints a retry hint instead of leaving a merge commit on the live branch; re-run Step 1 to
+   get a fresh plan before retrying.
 
-4. **Verify** — run the project's fast test target after merge (discover it from the Makefile /
-   `pyproject.toml` / `go.mod`), e.g.:
-   ```bash
-   make test-unit 2>&1 | tail -5   # or: go test ./... | tail -5 · .venv/bin/python -m pytest -x -q | tail -5
-   ```
-   Treat test-runner-not-found (no target, no `.venv`) as non-blocking — surface it in the report and
-   continue. A real test failure is non-blocking for cleanup too (it already ran), but is surfaced
-   prominently so the user can decide whether to revert.
-
-5. **Report** (success path):
+4. **Report** (success path):
    ```
    Merge complete
    ==============
    Branch: worktree-$SLUG -> <target>
-   Test result: <PASS/FAIL summary>
+   Verify: <the --verify command and its pass/fail>
    ```
    On `--no-clean`, the command's own `worktree left on disk; clean up with: ...` line replaces any
    separate cleanup prompt — present it verbatim rather than re-deriving the command.

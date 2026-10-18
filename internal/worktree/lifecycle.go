@@ -78,6 +78,14 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 		return result, nil
 	}
 
+	if op, found, err := inProgressOp(dest); err != nil {
+		result.Reason = "operation check failed: " + err.Error()
+		return result, nil
+	} else if found {
+		result.Reason = op + " in progress"
+		return result, nil
+	}
+
 	entry := Entry{Path: dest, Head: headOf(dest)}
 	target, targetErr := currentBranch(repo.Main)
 	Inspect(repo, &entry, target, targetErr, time.Now())
@@ -144,12 +152,20 @@ func headOf(dest string) string {
 }
 
 // isLocked stats the linked worktree's private "locked" marker directly, so Clean needs no full
-// `worktree list` round trip just to recheck one entry's lock state.
+// `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
+// counts as unlocked; any other stat error is an unknown state and must propagate.
 func isLocked(dest string) (bool, error) {
 	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
 	if err != nil {
 		return false, err
 	}
 	_, statErr := os.Stat(filepath.Join(strings.TrimSpace(string(out)), "locked"))
-	return statErr == nil, nil
+	switch {
+	case statErr == nil:
+		return true, nil
+	case os.IsNotExist(statErr):
+		return false, nil
+	default:
+		return false, statErr
+	}
 }

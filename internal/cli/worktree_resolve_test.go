@@ -110,6 +110,73 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 	}
 }
 
+// TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted is the regression test for
+// Appendix A codex-review finding #6 (internal/cli/worktree.go:256, resume half): if main advances
+// (same branch, new OID) while an agent resolution is in flight, resuming must stop and require an
+// explicit retry rather than silently adopting the moved target — a fresh Preflight only compares
+// branch *names*, so without an explicit OID check the movement would otherwise pass unnoticed.
+func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	// Divergent edit to the same file on both sides -> a predicted conflict Preflight will report.
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := worktree.Preflight(r, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != worktree.IssueConflict {
+		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
+	}
+	mainBeforeResume := plan.TargetOID
+
+	// Simulate an agent having already resolved the conflict and committed it in the worktree,
+	// ancestor-correct over both pinned OIDs (CheckResolution's own contract).
+	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID) // records TargetOID as a merged parent
+
+	op := &worktree.Operation{
+		ID:                "op-target-moved",
+		Repo:              r.Main,
+		Worktree:          "feature",
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		Phase:             "resolving",
+		StartedAt:         time.Now(),
+		Deadline:          time.Now().Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Main moves on (same branch, new commit) while the resolution was supposedly in flight.
+	mergeFixtureCLIWrite(t, repo, "unrelated.txt", "main moved on\n", "main advances during resolution")
+	movedMain := cliHeadOf(t, repo)
+	if movedMain == mainBeforeResume {
+		t.Fatal("fixture invariant broken: main must have actually moved")
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target moved during resolution, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != movedMain {
+		t.Fatal("main HEAD changed despite target movement, which must stop before integrate/promote")
+	}
+}
+
 // TestCmdWorktreeMergeResumeMissingWorktreeFails covers an operation that names a worktree no longer
 // on disk (removed, or never existed under this name) — --resume must fail with a clear reason rather
 // than attempting to poll a path that isn't there.

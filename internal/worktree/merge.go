@@ -53,6 +53,7 @@ func IntegrateTarget(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 		return nil, fmt.Errorf("git merge inside worktree: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}
 	after := headOf(plan.WorktreePath)
+	plan.IntegratedOID = after // pins exactly what Promote is allowed to fast-forward onto
 	return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 }
 
@@ -71,6 +72,9 @@ func Promote(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 }
 
 func promoteLocked(repo *Repo, plan *MergePlan) (*MergeResult, error) {
+	if plan.IntegratedOID == "" {
+		return nil, fmt.Errorf("promote: no verified integration OID pinned — call IntegrateTarget first")
+	}
 	branch, err := requireBranch(repo.Main)
 	if err != nil {
 		return nil, fmt.Errorf("promote: %w", err)
@@ -94,6 +98,11 @@ func promoteLocked(repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if freshTarget != plan.TargetOID {
 		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree merge to re-integrate and retry"},
 			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)
+	}
+	if freshSource != plan.IntegratedOID {
+		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree merge to re-integrate and retry"},
+			fmt.Errorf("promote: worktree HEAD moved from the verified integration %s to %s since integration — refusing to promote an unreviewed commit",
+				plan.IntegratedOID, freshSource)
 	}
 
 	ancestor, err := isAncestor(repo.Main, freshTarget, freshSource)

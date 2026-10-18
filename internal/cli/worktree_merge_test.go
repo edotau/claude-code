@@ -129,6 +129,59 @@ func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
 	}
 }
 
+// TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion is the regression test for
+// Appendix A codex-review finding #1 (internal/cli/worktree.go:191): promotion and automatic cleanup
+// must not happen without a scoped verification step — a failing --verify command must stop before
+// Promote ever runs and leave the worktree on disk for inspection.
+func TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", "exit 1", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when --verify fails, stdout=%q stderr=%q", out, errb)
+	}
+	if strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, must never reach promotion after a failed verify", out)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a failed --verify — promotion must be skipped entirely")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must be preserved after a failed --verify, for inspection: %v", err)
+	}
+}
+
+// TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes covers the success half: --verify
+// runs inside the worktree (not main) after integration, and a zero exit lets promotion proceed.
+func TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	verifyCmd := `test -f g.txt && [ "$(pwd -P)" = "` + wt + `" ]`
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", verifyCmd, "feature"})
+	})
+	if code != 0 {
+		t.Fatalf("merge --verify (passing): code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "verify: passed") {
+		t.Fatalf("output = %q, want a verify-passed line", out)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line after a passing verify", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
 func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	wt := mergeFixtureCLIWorktreePath(t, repo)

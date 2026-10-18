@@ -186,6 +186,42 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	}
 }
 
+// TestPromoteRefusesCommitLandedAfterIntegrate is the regression test for Appendix A codex-review
+// finding #2 (internal/worktree/merge.go:93): a commit landing in the worktree between IntegrateTarget
+// and Promote (e.g. another actor, or the agent continuing to work) must never be silently promoted —
+// Promote must only ever fast-forward main onto the OID IntegrateTarget actually produced and pinned.
+func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+
+	plan, err := Preflight(repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	integrated, err := IntegrateTarget(repo, plan)
+	if err != nil {
+		t.Fatalf("IntegrateTarget: %v", err)
+	}
+	if plan.IntegratedOID != integrated.AfterOID {
+		t.Fatalf("plan.IntegratedOID = %q, want it pinned to %q", plan.IntegratedOID, integrated.AfterOID)
+	}
+
+	// An unreviewed commit lands in the worktree after integration, before Promote ever runs.
+	mergeFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
+	unreviewed := headOf(wt)
+
+	result, promoteErr := Promote(repo, plan)
+	if promoteErr == nil {
+		t.Fatal("Promote: want an error — the worktree moved past the verified integration since IntegrateTarget ran")
+	}
+	if result == nil || result.ResumeHint == "" {
+		t.Fatalf("result = %+v, want a populated ResumeHint", result)
+	}
+	if headOf(main) == unreviewed {
+		t.Fatal("main HEAD was fast-forwarded onto a commit that was never part of the reviewed integration")
+	}
+}
+
 func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	repo, _, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
