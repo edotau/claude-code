@@ -2,6 +2,7 @@ package configure
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
@@ -191,7 +192,20 @@ func keepOrPin(d *dialog, cur, name string) bool {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return true
 	}
+	if !switchConfirmed(d, cur, name) {
+		d.printf("provider   pinned %s (kept)\n", cur)
+		return true
+	}
 	return applyProvider(d, name)
+}
+
+// switchConfirmed asks before a terminal pick re-points every new Claude Code launch (default No): browsing the
+// backend list must never switch it silently. Scripted and piped runs keep their explicit pick.
+func switchConfirmed(d *dialog, cur, name string) bool {
+	if !d.o.Interactive || !isStdinTTY() || d.o.In != os.Stdin {
+		return true
+	}
+	return tui.Confirm("Run every new Claude Code launch on "+name+" instead of "+cur+"?", false)
 }
 
 // billingLabel names cur as the picker shows it.
