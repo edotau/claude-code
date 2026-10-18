@@ -824,7 +824,9 @@ func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 }
 
 // slotModelID is slot's pin-resolved wire model id for p: HARNESS_<SLOT>_MODEL, else HARNESS_MODEL, else
-// p's own table. A pin naming a different provider ("other:model") is still used verbatim as the id.
+// p's own table. A pin naming a different provider ("other:model") is still used verbatim as the id. A
+// resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
+// p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
 func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) string {
 	spec := providers.Pin(providers.SlotPin(slot))
 	if spec == "" {
@@ -836,7 +838,11 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 	if spec == "" {
 		return ""
 	}
-	return providers.ParseTarget(reg, spec, p).Model
+	id := providers.ParseTarget(reg, spec, p).Model
+	if id == "auto" && p.OpencodeFallback != "" {
+		return p.OpencodeFallback
+	}
+	return id
 }
 
 // OpenCodePermissionMCP renders the permission/mcp blocks opencode's interactive config normally imports
