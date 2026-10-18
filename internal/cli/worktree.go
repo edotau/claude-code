@@ -13,7 +13,8 @@ import (
 
 const worktreeUsage = `usage: claude-code worktree list [--format text|json]
        claude-code worktree create <name> [--branch <b>]
-       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] <name>
+       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--resolve-agent claude|codex] <name>
+       claude-code worktree merge --resume [--target <ref>] [--no-clean] <name>
        claude-code worktree clean [--dry-run] <name>
        claude-code worktree clean-all [--dry-run|--yes]
 `
@@ -138,15 +139,22 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 
 // cmdWorktreeMerge previews (or, without --dry-run, applies) Preflight's two-phase merge: Preflight
 // always runs and prints the plan first, so an Issue — including a predicted conflict — is visible
-// before anything mutates. Apply then runs IntegrateTarget -> Promote -> an optional Clean.
+// before anything mutates. A predicted conflict normally stops here; --resolve-agent hands it to an
+// agent instead (worktree.ResolveWithAgent), and --resume reattaches to a previously started one
+// without ever re-invoking the agent. Apply then runs IntegrateTarget -> Promote -> an optional Clean.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree merge", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	dryRun := fs.Bool("dry-run", false, "preview the plan, including predicted conflicts, without integrating or promoting")
 	target := fs.String("target", "", "require the main checkout to be on this branch (default: whatever it's on)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
+	resolveAgent := fs.String("resolve-agent", "", "resolve a predicted conflict with this agent instead of stopping: claude|codex")
+	resume := fs.Bool("resume", false, "resume a previously started --resolve-agent operation for <name> (never re-invokes the agent)")
 	if fs.Parse(args) != nil {
 		return 2
+	}
+	if *resolveAgent != "" && *resolveAgent != "claude" && *resolveAgent != "codex" {
+		return fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
@@ -154,13 +162,21 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	}
 	name := rest[0]
 
-	plan, err := worktree.Preflight(repo, name, *target)
-	if err != nil {
-		return fail("worktree merge: %v", err)
-	}
-	printMergePlan(plan)
-	if len(plan.Issues) > 0 {
-		return 1
+	var plan *worktree.MergePlan
+	var err error
+	if *resume {
+		plan, err = resumeWorktreeMerge(repo, name, *target)
+		if err != nil {
+			return fail("worktree merge --resume: %v", err)
+		}
+	} else {
+		plan, err = planOrResolve(repo, name, *target, *resolveAgent, *dryRun)
+		if err != nil {
+			return fail("worktree merge: %v", err)
+		}
+		if plan == nil {
+			return 1 // blocked, and either dry-run or not eligible for --resolve-agent: already printed
+		}
 	}
 	if *dryRun {
 		return 0
@@ -212,6 +228,98 @@ func printMergePlan(plan *worktree.MergePlan) {
 		}
 		fmt.Println()
 	}
+}
+
+// planOrResolve runs Preflight and prints the plan; a predicted conflict with --resolve-agent set
+// hands it to worktree.ResolveWithAgent and re-Preflights once the worktree is clean and committed
+// again. A nil plan with a nil error means the caller already printed why this is blocked (exit 1):
+// dry-run, no --resolve-agent, or an Issue --resolve-agent can't act on (anything but a conflict).
+func planOrResolve(repo *worktree.Repo, name, target, resolveAgent string, dryRun bool) (*worktree.MergePlan, error) {
+	plan, err := worktree.Preflight(repo, name, target)
+	if err != nil {
+		return nil, err
+	}
+	printMergePlan(plan)
+	if len(plan.Issues) == 0 {
+		return plan, nil
+	}
+	if dryRun || resolveAgent == "" || !onlyConflictIssue(plan.Issues) {
+		return nil, nil
+	}
+
+	_, result, err := worktree.ResolveWithAgent(repo, plan, resolveAgent, nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve: %w", err)
+	}
+	printResolved(result)
+
+	plan, err = worktree.Preflight(repo, name, target) // fresh plan: the worktree is clean and committed now
+	if err != nil {
+		return nil, err
+	}
+	if len(plan.Issues) > 0 {
+		printMergePlan(plan)
+		return nil, fmt.Errorf("still blocked after agent resolution (%s)", issueCodes(plan.Issues))
+	}
+	return plan, nil
+}
+
+// resumeWorktreeMerge reattaches to the --resolve-agent operation saved for name: it polls the
+// worktree's current state (worktree.ResolveWithAgent with a non-nil op never re-invokes the agent)
+// and, once resolved, returns a fresh Preflight plan ready for the normal integrate+promote path.
+func resumeWorktreeMerge(repo *worktree.Repo, name, target string) (*worktree.MergePlan, error) {
+	op, err := worktree.LoadOperation(repo, name)
+	if err != nil {
+		return nil, fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
+	}
+	if op.Repo != repo.Main {
+		return nil, fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
+	}
+	worktreePath := filepath.Join(repo.Root, op.Worktree)
+	if _, err := os.Stat(worktreePath); err != nil {
+		return nil, fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
+	}
+	plan := &worktree.MergePlan{WorktreePath: worktreePath}
+	_, result, err := worktree.ResolveWithAgent(repo, plan, op.Agent, op)
+	if err != nil {
+		return nil, err
+	}
+	printResolved(result)
+	fresh, err := worktree.Preflight(repo, name, target)
+	if err != nil {
+		return nil, err
+	}
+	if len(fresh.Issues) > 0 {
+		printMergePlan(fresh)
+		return nil, fmt.Errorf("still blocked after resuming resolution (%s)", issueCodes(fresh.Issues))
+	}
+	return fresh, nil
+}
+
+// onlyConflictIssue reports whether every blocking Issue is a predicted conflict — the one case
+// --resolve-agent is allowed to act on, never a dirty/detached/mismatched checkout.
+func onlyConflictIssue(issues []worktree.Issue) bool {
+	if len(issues) == 0 {
+		return false
+	}
+	for _, iss := range issues {
+		if iss.Code != worktree.IssueConflict {
+			return false
+		}
+	}
+	return true
+}
+
+func issueCodes(issues []worktree.Issue) string {
+	codes := make([]string, len(issues))
+	for i, iss := range issues {
+		codes[i] = iss.Code
+	}
+	return strings.Join(codes, ", ")
+}
+
+func printResolved(r *worktree.MergeResult) {
+	fmt.Printf("resolved:   %s -> %s\n", shortOID(r.BeforeOID), shortOID(r.AfterOID))
 }
 
 func shortOID(oid string) string {
