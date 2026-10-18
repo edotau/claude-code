@@ -111,7 +111,7 @@ var pinKeys = []string{"model", "effort"}
 // pinAllowed is the allow-list per pin key; anything else is a hit (an unknown value silently falls
 // back to the session tier rather than erroring).
 var pinAllowed = map[string]map[string]bool{
-	"model":  {"haiku": true, "sonnet": true, "opus": true},
+	"model":  {"haiku": true, "sonnet": true, "opus": true, "fable": true},
 	"effort": {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
 }
 
