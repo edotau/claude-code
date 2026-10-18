@@ -21,6 +21,7 @@
 /plugins/
 /chrome/
 /daemon/
+/daemon.*
 /jobs/
 /local/
 /logs/
