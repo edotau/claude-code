@@ -43,10 +43,11 @@ const (
 func commands() []command {
 	return []command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "Claude Code, opus main model; args pass to claude", run: tierVerb(models.Opus)},
-		{name: "sonnet", group: groupAnthropic, summary: "Claude Code, sonnet main model; args pass to claude", run: tierVerb(models.Sonnet)},
-		{name: "haiku", group: groupAnthropic, summary: "Claude Code, haiku main model; args pass to claude", run: tierVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "Claude Code, fable main model; args pass to claude", run: tierVerb(models.Fable)},
+		{name: "opus", group: groupAnthropic, summary: "hardest reasoning: architecture, deep debugging · $$$", run: tierVerb(models.Opus)},
+		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: tierVerb(models.Sonnet)},
+		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
+		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default", run: tierVerb(models.Fable)},
+		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
 		{name: "copilot", group: groupVendors, summary: "launch GitHub Copilot CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("copilot", a) }},
 		{name: "codex", group: groupVendors, summary: "launch Codex CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("codex", a) }},
 		{name: "gemini", group: groupVendors, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
@@ -59,7 +60,6 @@ func commands() []command {
 		{name: "switch", group: groupSession, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state (dry-run; --apply deletes)", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
-		{name: "science", group: groupSession, summary: "Claude for Life Sciences on its own OAuth (--print-env)", run: cmdScience},
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
