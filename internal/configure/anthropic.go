@@ -62,14 +62,14 @@ func anthropicDetail(fp *firstParty, cur string) string {
 	switch cur {
 	case subscriptionName:
 		if ok, plan := fp.login(); ok {
-			return "cred:ok  billing: subscription" + plan
+			return "cred:ok  subscription" + plan
 		}
-		return "cred:missing  billing: subscription (not logged in)"
+		return "cred:missing  subscription (not logged in)"
 	case anthropicRow:
 		if fp.key() {
-			return "cred:ok  billing: api key"
+			return "cred:ok  API key"
 		}
-		return "cred:missing  billing: api key (" + anthropicKeyEnv + " unset)"
+		return "cred:missing  API key (" + anthropicKeyEnv + " unset)"
 	}
 	return "subscription or api key"
 }
@@ -93,7 +93,7 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 	if cur == anthropicRow {
 		start = 1
 	}
-	idx, err := tui.Pick("anthropic — billing mode (current: "+billingLabel(cur)+")", rows, start)
+	idx, err := tui.Pick("anthropic (current: "+billingLabel(cur)+")", rows, start)
 	if err != nil || idx < 0 {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return err == nil
@@ -109,7 +109,7 @@ func pickAnthropicBilling(d *dialog, fp *firstParty, cur string) bool {
 	if !keyOK {
 		kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv}
 		if !resolveKey(d, kt) {
-			d.printf("anthropic: no API key stored; billing left on %s\n", billingLabel(cur))
+			d.printf("anthropic: no API key stored; left on %s\n", billingLabel(cur))
 			return false
 		}
 	}
@@ -131,7 +131,7 @@ func billingLabel(cur string) string {
 	case subscriptionName:
 		return "subscription"
 	case anthropicRow:
-		return "api key"
+		return "API key"
 	}
 	return fmt.Sprintf("%s (not anthropic)", cur)
 }
