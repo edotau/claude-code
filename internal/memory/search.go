@@ -155,9 +155,10 @@ func rankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
 }
 
 type searchSource struct {
-	bank   string
-	files  []string
-	native bool // one-fact topic files with frontmatter, not entry-block bank files
+	bank      string
+	knowledge bool // whole-file blocks: a knowledge note is one topic, not a heading grammar
+	files     []string
+	native    bool // one-fact topic files with frontmatter, not entry-block bank files
 }
 
 // corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
@@ -170,6 +171,10 @@ func corpusBlocks(root string) []SearchHit {
 				continue
 			}
 			base := filepath.Base(path)
+			if src.knowledge {
+				out = append(out, SearchHit{Bank: src.bank, File: base, Block: strings.TrimSpace(stripFrontmatter(string(data)))})
+				continue
+			}
 			if src.native {
 				if name, desc, body, ok := topicFrontmatter(string(data)); ok {
 					out = append(out, SearchHit{Bank: src.bank, File: base, Block: name + " — " + desc + "\n" + body})
@@ -205,6 +210,11 @@ func searchSources(root string) []searchSource {
 	for _, dir := range NativeDirs(root) {
 		if topics := topicPaths(dir); len(topics) > 0 {
 			out = append(out, searchSource{bank: "native", files: topics, native: true})
+		}
+	}
+	if CutOver() { // tracked long-term knowledge: cross-repo top plus this repo's subdir
+		if files := knowledgeFiles(filepath.Base(Dir(root))); len(files) > 0 {
+			out = append(out, searchSource{bank: "knowledge", files: files, knowledge: true})
 		}
 	}
 	return out
