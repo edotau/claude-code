@@ -26,7 +26,8 @@ type command struct {
 
 // Menu groups; declaration order in commands() is the display order.
 const (
-	groupAgents      = "AGENTS"
+	groupAnthropic   = "ANTHROPIC"
+	groupVendors     = "VENDORS"
 	groupAuth        = "AUTH"
 	groupSession     = "SESSION"
 	groupDiagnostics = "DIAGNOSTICS"
@@ -42,15 +43,14 @@ const (
 func commands() []command {
 	return []command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAgents, summary: "Claude Code, opus main model; args pass to claude", run: tierVerb(models.Opus)},
-		{name: "sonnet", group: groupAgents, summary: "Claude Code, sonnet main model; args pass to claude", run: tierVerb(models.Sonnet)},
-		{name: "haiku", group: groupAgents, summary: "Claude Code, haiku main model; args pass to claude", run: tierVerb(models.Haiku)},
-		{name: "fable", group: groupAgents, summary: "Claude Code, fable main model; args pass to claude", run: tierVerb(models.Fable)},
-		{name: "copilot", group: groupAgents, summary: "launch GitHub Copilot CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("copilot", a) }},
-		{name: "codex", group: groupAgents, summary: "launch Codex CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("codex", a) }},
-		{name: "gemini", group: groupAgents, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
-		{name: "opencode", group: groupAgents, summary: "launch OpenCode on the registry; ask = one task", run: func(a []string) int { return vendorVerb("opencode", a) }},
-		{name: "dispatch", group: groupAgents, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
+		{name: "opus", group: groupAnthropic, summary: "Claude Code, opus main model; args pass to claude", run: tierVerb(models.Opus)},
+		{name: "sonnet", group: groupAnthropic, summary: "Claude Code, sonnet main model; args pass to claude", run: tierVerb(models.Sonnet)},
+		{name: "haiku", group: groupAnthropic, summary: "Claude Code, haiku main model; args pass to claude", run: tierVerb(models.Haiku)},
+		{name: "fable", group: groupAnthropic, summary: "Claude Code, fable main model; args pass to claude", run: tierVerb(models.Fable)},
+		{name: "copilot", group: groupVendors, summary: "launch GitHub Copilot CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("copilot", a) }},
+		{name: "codex", group: groupVendors, summary: "launch Codex CLI on the registry; ask = one task", run: func(a []string) int { return vendorVerb("codex", a) }},
+		{name: "gemini", group: groupVendors, summary: "launch the gemini CLI; ask|bridge = large-context", run: cmdGemini},
+		{name: "opencode", group: groupVendors, summary: "launch OpenCode on the registry; ask = one task", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
 		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
 		{name: "resolve", group: groupAuth, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
@@ -62,6 +62,7 @@ func commands() []command {
 		{name: "science", group: groupSession, summary: "Claude for Life Sciences on its own OAuth (--print-env)", run: cmdScience},
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
+		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (see also mcp doctor)", run: cmdDoctor},
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
