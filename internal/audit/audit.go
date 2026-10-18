@@ -27,16 +27,19 @@ const (
 	TailscaleKeyMint  Action = "tailscale_key_mint"
 	TailscaleExitNode Action = "tailscale_exit_node"
 	TailscaleConnect  Action = "tailscale_connect"
+	SetupAdopt        Action = "setup_adopt"
+	SetupNuke         Action = "setup_nuke"
+	SetupWorkspace    Action = "setup_workspace"
 )
 
 // Actions lists every valid action in report order.
 var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
-	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect}
+	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace}
 
 func (a Action) Valid() bool {
 	switch a {
 	case ProviderSwitch, ModelPin, SecretSet, HookBlocked, RouterFallback,
-		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect:
+		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace:
 		return true
 	default:
 		return false

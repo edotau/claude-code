@@ -60,6 +60,7 @@ func commands() []command {
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
 		{name: "science", group: groupSession, summary: "Claude for Life Sciences on its own OAuth (--print-env)", run: cmdScience},
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
+		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (see also mcp doctor)", run: cmdDoctor},
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
