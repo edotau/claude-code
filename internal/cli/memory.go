@@ -16,7 +16,8 @@ import (
 )
 
 const memoryUsage = `usage: claude-code memory init [--repo R]
-       claude-code memory search [--repo R] [--k 8] [--format text|json] <terms>
+       claude-code memory search [--repo R|--all] [--k 8] [--format text|json] <terms>
+       claude-code memory show <id>
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
@@ -96,8 +97,22 @@ func cmdMemory(args []string) int {
 			fmt.Println("no matching blocks (banks empty or query all stopwords)")
 		}
 		for _, h := range hits {
-			fmt.Printf("%5.2f  %-7s %-18s %s\n", h.Score, h.Bank, h.File, h.Title())
+			id := ""
+			if h.ID != "" {
+				id = " [" + h.ID + "]"
+			}
+			fmt.Printf("%5.2f  %-7s %-18s %s%s\n", h.Score, h.Bank, h.File, h.Title(), id)
 		}
+		return 0
+	case "show":
+		if fs.Parse(args[1:]) != nil || fs.NArg() != 1 {
+			return fail("memory show: give one block id (from `memory search` or a MEMORY.md region)")
+		}
+		path, block, err := memory.ShowBlock(fs.Arg(0))
+		if err != nil {
+			return fail("memory show %s: %v", fs.Arg(0), err)
+		}
+		fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 		return 0
 	case "index":
 		if fs.Parse(args[1:]) != nil {
