@@ -72,11 +72,11 @@ func TestRotateOptionsShapes(t *testing.T) {
 		kt   keyTarget
 		want []string
 	}{
-		{"login only", keyTarget{loginArgv: []string{"codex", "login"}}, []string{"Re-login"}},
-		{"mint only", keyTarget{mintArgv: []string{"claude", "setup-token"}}, []string{"Generate new token"}},
+		{"login only", keyTarget{loginArgv: []string{"codex", "login"}}, []string{"Login"}},
+		{"mint only", keyTarget{mintArgv: []string{"claude", "setup-token"}}, []string{"OAuth token"}},
 		{"login and mint (subscription)", keyTarget{loginArgv: []string{"claude", "auth", "login"}, mintArgv: []string{"claude", "setup-token"}},
-			[]string{"Re-login", "Re-mint setup token"}},
-		{"keyed, no generator", keyTarget{envVar: "X", provider: &providers.Provider{}}, []string{"Replace key"}},
+			[]string{"Login", "OAuth token"}},
+		{"keyed, no generator", keyTarget{envVar: "X", provider: &providers.Provider{}}, []string{"API key"}},
 		{"keyed but no provider: no generator and no paste", keyTarget{envVar: "X"}, nil},
 		{"nothing at all", keyTarget{}, nil},
 	}
@@ -144,7 +144,7 @@ func TestRunRotateTwoOptionsPipedPicksSecondOnDecline(t *testing.T) {
 	d, out := newDialog("n\n")
 	kt := keyTarget{label: "claude", loginArgv: []string{"missing-login-cli"}, mintArgv: []string{"missing-mint-cli"}}
 	runRotate(d, kt) // exercising which branch ran, not the (missing-binary) result
-	if !strings.Contains(out.String(), "Re-login") {
+	if !strings.Contains(out.String(), "Login") {
 		t.Errorf("expected the first option's confirm prompt in output:\n%s", out.String())
 	}
 }
