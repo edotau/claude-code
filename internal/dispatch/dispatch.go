@@ -131,7 +131,9 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 		parts = append(parts, df)
 	}
 	parts = append(parts, `"${SHELL:-/bin/sh}"`, "-lc", QuoteSH(agentCmd))
-	fmt.Fprintln(&b, strings.Join(parts, " "))
+	// Chained with && (not a separate statement): a duplicate session name makes new-session fail,
+	// and the tag must not then land on whatever unrelated session already holds that name.
+	fmt.Fprintln(&b, strings.Join(parts, " ")+" &&")
 	// Tag the session with the agent it was launched for, so pane-status capture can tell a plain
 	// shell dispatch apart from a shell left behind after the agent process exited.
 	fmt.Fprintf(&b, "tmux set-option -t %s @cc_agent %s\n", QuoteSH(name), QuoteSH(opts.Agent))

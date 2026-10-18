@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -134,6 +135,66 @@ func TestCapturePanes_InjectionShapedTextIsDataNotControl(t *testing.T) {
 	}
 	if len(caps) != 1 || caps[0].Text != payload {
 		t.Fatalf("injection-shaped payload was not preserved verbatim as data: %+v", caps)
+	}
+}
+
+// writeStubTmuxListPanesFails puts a `tmux` stub on dir that fails `list-panes` (simulating a
+// transient tmux failure, e.g. no server at all) but would succeed on anything else.
+func writeStubTmuxListPanesFails(t *testing.T, dir string) {
+	t.Helper()
+	script := "#!/bin/sh\nif [ \"$1\" = list-panes ]; then echo 'simulated tmux failure' >&2; exit 1; fi\nexit 0\n"
+	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
+		t.Fatalf("writeStubTmuxListPanesFails: %v", err)
+	}
+}
+
+// TestCapturePanes_RealScriptPropagatesListPanesFailure is the regression test for Appendix A
+// codex-review finding #11 (internal/dispatch/capture.go:29): it exercises the REAL captureCommand
+// shell script (via ExecRunner, run locally through sh -c since host="localhost") against a stub
+// tmux whose `list-panes` fails, and requires CapturePanes to surface that as an error rather than
+// a successful empty capture — which previously made every tracked pane look "gone".
+func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
+	stubDir := t.TempDir()
+	writeStubTmuxListPanesFails(t, stubDir)
+	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
+
+	caps, err := CapturePanes(context.Background(), "localhost", true, ExecRunner)
+	if err == nil {
+		t.Fatalf("CapturePanes: want an error when the real script's tmux list-panes fails, got caps=%+v", caps)
+	}
+	if caps != nil {
+		t.Errorf("caps = %+v, want nil on a propagated listing failure", caps)
+	}
+}
+
+// writeStubTmuxCapturePaneFails lists one cc-* pane successfully but fails capture-pane on it.
+func writeStubTmuxCapturePaneFails(t *testing.T, dir string) {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  list-panes) printf 'cc-claude-a|%1|claude|claude\\n' ;;\n" +
+		"  capture-pane) echo 'simulated capture failure' >&2; exit 1 ;;\n" +
+		"  *) exit 0 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
+		t.Fatalf("writeStubTmuxCapturePaneFails: %v", err)
+	}
+}
+
+// TestCapturePanes_RealScriptPropagatesCapturePaneFailure covers the loop-body half of the same
+// finding: a capture-pane failure for one listed pane must also fail the whole script, not just
+// silently omit that pane's record.
+func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
+	stubDir := t.TempDir()
+	writeStubTmuxCapturePaneFails(t, stubDir)
+	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
+
+	caps, err := CapturePanes(context.Background(), "localhost", true, ExecRunner)
+	if err == nil {
+		t.Fatalf("CapturePanes: want an error when capture-pane fails mid-loop, got caps=%+v", caps)
+	}
+	if caps != nil {
+		t.Errorf("caps = %+v, want nil on a propagated capture failure", caps)
 	}
 }
 
