@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,6 +16,7 @@ import (
 func fixtureNukeDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir) // the keep-memory bank lock lives under ConfigDir: keep it off the real ~/.claude
 	gitInit(t, dir, map[string]string{
 		"CLAUDE.md":   "harness\n",
 		"agents/a.md": "agent\n",
@@ -67,7 +69,7 @@ func tarEntries(t *testing.T, path string) map[string][]byte {
 
 func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	dir := fixtureNukeDir(t)
-	plan, err := Plan(dir)
+	plan, err := Plan(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +157,100 @@ func TestNukeKeepMemoryAddsBank(t *testing.T) {
 	}
 }
 
+// --keep-memory also archives plans/ and docs/knowledge/ when present, not just memory/ and the bank.
+func TestNukeKeepMemoryIncludesPlansAndKnowledge(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
+	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "knowledge\n")
+
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	for _, want := range []string{"plans/2026-10-18-x.md", "docs/knowledge/x.md"} {
+		if _, ok := entries[want]; !ok {
+			t.Fatalf("--keep-memory should archive %q, got %v", want, tarNames(entries))
+		}
+	}
+}
+
+// The dry-run preview lists the keep-memory set, so the user reviews it before the irreversible apply.
+func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	mustWrite(t, filepath.Join(dir, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
+	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
+	var out bytes.Buffer
+	if err := Nuke(NukeOpts{Dir: dir, KeepMemory: true, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"memory/.git/HEAD", "plans/2026-10-18-x.md", "docs/memory/bank/repo/progress.md"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("preview with --keep-memory should list %q:\n%s", want, out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "memory", ".git", "HEAD")); err != nil {
+		t.Fatal("preview must not remove anything")
+	}
+	out.Reset()
+	if err := Nuke(NukeOpts{Dir: dir, KeepMemory: false, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "memory/.git/HEAD") {
+		t.Error("preview without --keep-memory must not list memory/")
+	}
+}
+
+// Without --keep-memory, memory/, plans/ and docs/knowledge/ are never archived (plan-only paths).
+func TestNukeWithoutKeepMemorySkipsMemoryPlansKnowledge(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, "memory", "repo", "MEMORY.md"), "- topic\n")
+	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
+	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "knowledge\n")
+
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: false}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	for name := range entries {
+		if strings.HasPrefix(name, "memory/") || strings.HasPrefix(name, "plans/") || strings.HasPrefix(name, "docs/knowledge/") {
+			t.Fatalf("nuke without --keep-memory must never archive %q", name)
+		}
+	}
+}
+
+// A symlinked projects/*/memory dir anywhere above a real one is still skipped: Lstat gates the
+// candidate root itself before WalkDir ever runs, so a symlinked root contributes nothing.
+func TestNukeKeepMemorySkipsSymlinkedCandidateRoot(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	realStore := filepath.Join(t.TempDir(), "elsewhere")
+	mustWrite(t, filepath.Join(realStore, "MEMORY.md"), "outside\n")
+	if err := os.MkdirAll(filepath.Join(dir, "projects", "-linked-only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realStore, filepath.Join(dir, "projects", "-linked-only", "memory")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	for name := range entries {
+		if strings.Contains(name, "linked-only") {
+			t.Fatalf("symlinked candidate root must be skipped, got %q", name)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(realStore, "MEMORY.md")); string(b) != "outside\n" {
+		t.Error("the symlink target outside the config dir must never be touched")
+	}
+}
+
 func tarNames(entries map[string][]byte) []string {
 	out := make([]string, 0, len(entries))
 	for k := range entries {
@@ -176,5 +272,48 @@ func TestNukeRefusesRootAndHome(t *testing.T) {
 	}
 	if _, err := os.Stat(home); err != nil {
 		t.Fatal("home was removed")
+	}
+}
+
+// --keep-memory archives the local memory Git store whole (incl. .git) and real native dirs, but a
+// symlinked projects/*/memory (the store's own duplicate) and symlinked files are skipped, never followed.
+func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
+	mustWrite(t, filepath.Join(dir, "memory", "repo", "MEMORY.md"), "- topic\n")
+	mustWrite(t, filepath.Join(dir, "projects", "-real", "memory", "MEMORY.md"), "native\n")
+	escape := filepath.Join(t.TempDir(), "secret.txt")
+	mustWrite(t, escape, "outside\n")
+	if err := os.MkdirAll(filepath.Join(dir, "projects", "-linked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "memory", "repo"), filepath.Join(dir, "projects", "-linked", "memory")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(escape, filepath.Join(dir, "memory", "repo", "escape.md")); err != nil {
+		t.Fatal(err)
+	}
+	got := keepMemoryPaths(dir)
+	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "docs/memory/bank/repo/progress.md"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("keepMemoryPaths missing %s: %v", want, got)
+		}
+	}
+	for _, p := range got {
+		if strings.HasPrefix(p, "projects/-linked/") || strings.HasSuffix(p, "escape.md") {
+			t.Errorf("keepMemoryPaths followed a symlink: %s", p)
+		}
+	}
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	if string(entries["memory/.git/HEAD"]) != "ref: refs/heads/main\n" {
+		t.Errorf("tarball lacks the memory Git dir: %v", tarNames(entries))
+	}
+	if b, _ := os.ReadFile(escape); string(b) != "outside\n" {
+		t.Error("symlink target outside the config dir was touched")
 	}
 }

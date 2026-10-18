@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -225,26 +226,46 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyIdempotentNoOverwrite(t *testing.T) {
-	cfg := tempConfig(t)
-	legacy := filepath.Join(cfg, "docs", "memory")
-	write(t, filepath.Join(legacy, "conventions.md"), "# C\n- legacy\n")
-	write(t, filepath.Join(legacy, "proj", "progress.md"), "# P\nlegacy\n")
-	write(t, filepath.Join(legacy, "decisionLog.md"), "# D\nlegacy\n")
-	write(t, filepath.Join(GlobalDir(), "decisionLog.md"), "# D\nnew\n")
-	n, err := MigrateLegacy()
-	if err != nil || n != 2 {
-		t.Fatalf("moved %d err %v", n, err)
+func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
+	tempConfig(t)
+	if g := StartupGuard(); g.Paused || g.Notice != "" {
+		t.Fatalf("fresh config must not pause: %+v", g)
 	}
-	if mustRead(t, filepath.Join(GlobalDir(), "proj", "progress.md")) != "# P\nlegacy\n" ||
-		!strings.Contains(mustRead(t, filepath.Join(GlobalDir(), "conventions.md")), "legacy") {
-		t.Error("legacy entries not moved under bank/")
+	if err := SetMaintenance("migration apply"); err != nil {
+		t.Fatal(err)
 	}
-	if mustRead(t, filepath.Join(GlobalDir(), "decisionLog.md")) != "# D\nnew\n" || mustRead(t, filepath.Join(legacy, "decisionLog.md")) != "# D\nlegacy\n" {
-		t.Error("an existing destination was overwritten or its legacy twin removed")
+	g := StartupGuard()
+	if !g.Paused || !strings.Contains(g.Notice, "memory maintenance in progress (migration apply)") || !strings.Contains(g.Notice, "paused") {
+		t.Errorf("maintenance guard: %+v", g)
 	}
-	if n, err := MigrateLegacy(); n != 0 || err != nil {
-		t.Errorf("second run moved %d err %v", n, err)
+	if err := ClearMaintenance(); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(MigrateStateDir(), "20260101-000000.journal.json")
+	write(t, journal, `{"phase":"complete","manifest":"/m/done.json"}`)
+	g = StartupGuard()
+	if !g.Paused || !g.Migrated || !strings.Contains(g.Notice, "memory migration complete (20260101-000000.journal.json)") ||
+		!strings.Contains(g.Notice, GlobalDir()) || !strings.Contains(g.Notice, StoreDir()) {
+		t.Errorf("a complete journal must stay paused until the cutover wires the resolvers: %+v", g)
+	}
+	if _, err := Init(repoRoot(t, "after")); !errors.Is(err, ErrMemoryPaused) {
+		t.Errorf("Init after a completed migration must refuse to scaffold the legacy bank: %v", err)
+	}
+	if _, err := os.Stat(GlobalDir()); !os.IsNotExist(err) {
+		t.Error("the retired legacy bank was recreated")
+	}
+	write(t, journal, `{"phase":"copy","manifest":"/m/pending.json"}`)
+	g = StartupGuard()
+	if !g.Paused || !strings.Contains(g.Notice, "memory migration incomplete (20260101-000000.journal.json)") ||
+		!strings.Contains(g.Notice, "memory migrate --apply /m/pending.json") {
+		t.Errorf("incomplete journal guard: %+v", g)
+	}
+	write(t, journal, "not json")
+	if g := StartupGuard(); !g.Paused {
+		t.Error("an unreadable journal is an unknown state and must pause")
+	}
+	if _, err := os.Stat(MaintenancePath()); !os.IsNotExist(err) {
+		t.Error("StartupGuard must be a pure read")
 	}
 }
 

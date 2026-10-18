@@ -39,14 +39,17 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID string, now time.Time) string {
-	_, _ = memory.MigrateLegacy()
-	scaffolded := maybeAutoInit(cwd)
+	guard := memory.StartupGuard()
+	prefix := guard.Notice // paused: the notice ("" otherwise); else a fresh-scaffold notice or ""
+	if !guard.Paused {
+		prefix = maybeAutoInit(cwd)
+	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
-	out := ""
+	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
 	if bank := memory.SessionSurface(cwd); bank != "" {
 		note := "Session memory bank (local + shared global) loaded below. It auto-saves at session end; /memory:end is the manual override."
-		if scaffolded != "" {
-			note = scaffolded + " " + note
+		if prefix != "" {
+			note = prefix + " " + note
 		}
 		if prev, _ := os.ReadFile(chain); strings.TrimSpace(string(prev)) != "" {
 			prevID := strings.TrimSpace(string(prev))
@@ -113,6 +116,9 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 	if !harvestable(in) {
 		return ExitProceed
 	}
+	if memory.StartupGuard().Paused {
+		return ExitProceed // maintenance/migration: no spawn, no block, no stamp
+	}
 	stamp := stampPath(in.SessionID)
 	now := time.Now()
 	st, ok := readStamp(stamp)
@@ -153,6 +159,9 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 func SessionHarvestEnd(r io.Reader) int {
 	in := ParseInput(r)
 	if !harvestable(in) {
+		return ExitProceed
+	}
+	if memory.StartupGuard().Paused {
 		return ExitProceed
 	}
 	stamp := stampPath(in.SessionID)

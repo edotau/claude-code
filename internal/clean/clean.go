@@ -5,8 +5,9 @@
 //
 // Invariants, in order of importance:
 //  1. Credentials are NEVER touched: env.d/*.env, settings.json, providers.json, .credentials.json.
-//  2. The memory bank (docs/memory/bank/**, including its archive/ and archive/native/ subtrees) is
-//     NEVER a target, not even opt-in — it holds promoted, irrecoverable history.
+//  2. The memory stores (memory/** — the local memory Git repo incl. .git, raw archives — and
+//     docs/memory/bank/**) and migration state (state/harness/memory/{migrate,journal,access}, bank.lock,
+//     maintenance) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
 //     a [y/N] prompt on a TTY, --yes without one.
 package clean
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -265,8 +267,8 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool) ([]string, int64
 			if !ok || !mt.Before(cutoff) {
 				continue
 			}
-			if strings.HasSuffix(m, ".lock") {
-				continue // live bookkeeping, never debris
+			if strings.HasSuffix(m, ".lock") || protected(m) {
+				continue // live bookkeeping and memory stores/migration state: never debris
 			}
 			sz := dirSize(m)
 			if apply {
@@ -280,6 +282,23 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool) ([]string, int64
 	}
 	sort.Strings(hit)
 	return hit, size
+}
+
+// protected reports whether p is memory store or migration state (invariant 2): belt-and-braces behind the globs.
+func protected(p string) bool {
+	p = filepath.Clean(p)
+	for _, exact := range []string{memory.BankLockPath(), memory.MaintenancePath()} {
+		if p == filepath.Clean(exact) {
+			return true
+		}
+	}
+	for _, root := range []string{memory.StoreDir(), memory.MigrateStateDir(), memory.JournalDir(), memory.AccessStateDir()} {
+		root = filepath.Clean(root)
+		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseAge accepts Go durations plus a `d` (days) suffix, which time.ParseDuration lacks.

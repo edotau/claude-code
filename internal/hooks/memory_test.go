@@ -166,3 +166,100 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		t.Errorf("a harvest child advanced the session chain: %q", b)
 	}
 }
+
+// assertPausedSuppressesHarvest drives Stop then SessionEnd for session "s1" against a paused guard and
+// asserts neither spawns a harvest or writes a stamp — shared by every "guard pauses the write paths" test.
+func assertPausedSuppressesHarvest(t *testing.T, cwd string) {
+	t.Helper()
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 20)
+	calls := stubSpawn(t, false)
+	var errb bytes.Buffer
+	if code := SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
+		t.Errorf("paused Stop: code=%d spawns=%d stderr=%q", code, calls.Load(), errb.String())
+	}
+	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 0 {
+		t.Error("paused SessionEnd must not spawn")
+	}
+	if _, ok := readStamp(stampPath("s1")); ok {
+		t.Error("paused harvest wrote a stamp")
+	}
+}
+
+// A raised maintenance marker pauses every memory write path: no scaffold, no spawn, no block, no stamp —
+// the notice alone is injected, and an existing surface still loads read-only behind it.
+func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.SetMaintenance("test pause"); err != nil {
+		t.Fatal(err)
+	}
+	got := memoryContext(repo, "s1", time.Now())
+	if memory.HasBank(repo) || !strings.Contains(got, "memory maintenance in progress (test pause)") || strings.Contains(got, "scaffolded") {
+		t.Fatalf("paused SessionStart must emit the notice alone and scaffold nothing: %q", got)
+	}
+	assertPausedSuppressesHarvest(t, repo)
+	if err := memory.ClearMaintenance(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.SetMaintenance("again"); err != nil {
+		t.Fatal(err)
+	}
+	got = memoryContext(repo, "s2", time.Now())
+	if !strings.HasPrefix(got, "memory maintenance in progress (again)") || !strings.Contains(got, "<!-- activeContext.md -->") {
+		t.Errorf("paused with a bank: notice must prefix the read-only surface: %q", got[:min(len(got), 300)])
+	}
+}
+
+// An unfinished migration journal pauses the same paths as the maintenance marker (plan §4: "no implicit
+// migration") — SessionStart never resumes/completes a migration itself, it only surfaces the notice.
+func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json")
+	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journal, []byte(`{"phase":"copy","manifest":"/m/pending.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := memoryContext(repo, "s1", time.Now())
+	if memory.HasBank(repo) || !strings.Contains(got, "memory migration incomplete") || !strings.Contains(got, "memory migrate --apply /m/pending.json") ||
+		strings.Contains(got, "scaffolded") {
+		t.Fatalf("paused SessionStart must emit the migration notice alone and scaffold nothing: %q", got)
+	}
+
+	assertPausedSuppressesHarvest(t, repo)
+
+	// A complete journal retires the legacy bank; until the cutover re-points Dir/GlobalDir at the store, the
+	// hook stays paused so SessionStart never recreates it.
+	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/pending.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = memoryContext(repo, "s2", time.Now())
+	if memory.HasBank(repo) || !strings.Contains(got, "memory migration complete") || strings.Contains(got, "scaffolded") {
+		t.Fatalf("a completed journal must keep the pause and scaffold nothing: %q", got[:min(len(got), 300)])
+	}
+	if _, err := os.Stat(memory.GlobalDir()); !os.IsNotExist(err) {
+		t.Error("SessionStart recreated the retired legacy bank")
+	}
+	assertPausedSuppressesHarvest(t, repo)
+}

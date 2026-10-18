@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -249,6 +250,7 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bank := filepath.Join(paths.ConfigDir(), "docs", "memory", "bank")
 	envDir := filepath.Join(paths.ConfigDir(), "env.d")
+	store := memory.StoreDir()
 	for _, tg := range targets() {
 		for _, root := range tg.roots() {
 			if strings.HasPrefix(root, bank) {
@@ -257,7 +259,34 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 			if strings.HasPrefix(root, envDir) {
 				t.Errorf("target %q resolves under env.d %q", tg.name, root)
 			}
+			// Invariant 2 (updated): no target glob may resolve under the local memory Git store either.
+			if root == store || strings.HasPrefix(root, store+string(filepath.Separator)) {
+				t.Errorf("target %q resolves under the memory store %q", tg.name, root)
+			}
 		}
+	}
+}
+
+// TestProtectedExactBoundary: protected() must not treat a differently-named sibling that merely shares
+// a prefix (e.g. "memory-other", "migrate-old") as covered — only the root itself or a true subpath.
+func TestProtectedExactBoundary(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	for _, rel := range []string{"memory-other/x", "state/harness/memory/migrate-old/manifest.json", "state/harness/memory/journal-old/txn.json", "state/harness/memory/access-log/repo.log"} {
+		if protected(filepath.Join(dir, rel)) {
+			t.Errorf("protected(%s) = true: prefix-sharing sibling must not be guarded as the real root", rel)
+		}
+	}
+}
+
+// TestProtectedUnderMigrateQuarantine: migrate's quarantine subtree (a Phase-1 migration artifact)
+// nests under MigrateStateDir() and must stay protected at any depth.
+func TestProtectedUnderMigrateQuarantine(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	p := filepath.Join(dir, "state/harness/memory/migrate/quarantine/20260101/item-1/conflicting.md")
+	if !protected(p) {
+		t.Errorf("protected(%s) = false: quarantined migration conflicts must never be swept", p)
 	}
 }
 
@@ -489,6 +518,44 @@ func TestCleanSessionsTTYPrompt(t *testing.T) {
 		}
 		if !strings.Contains(errw.String(), "[y/N]") {
 			t.Errorf("answer %q: prompt not shown: %s", tc.answer, errw.String())
+		}
+	}
+}
+
+// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), migration
+// manifests/journals, access logs, the bank lock and the maintenance marker are never pruned, at any age.
+func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	old := time.Now().Add(-400 * 24 * time.Hour)
+	keep := []string{
+		"memory/.git/HEAD", "memory/MEMORY.md", "memory/repo/archive/sessionHistory-2025-01.md",
+		"state/harness/memory/migrate/20260101.manifest.json", "state/harness/memory/journal/txn-1.json",
+		"state/harness/memory/access/repo.log", "state/harness/memory/bank.lock", "state/harness/memory/maintenance",
+	}
+	for _, rel := range keep {
+		p := filepath.Join(dir, rel)
+		write(t, p, "keep")
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		if !protected(p) {
+			t.Errorf("protected(%s) = false", rel)
+		}
+	}
+	for _, rel := range []string{"state/harness/memory/stamp-x", "state/harness/memory/harvest-1.log", "memory-other/x", "state/harness/memory/journal-old"} {
+		if protected(filepath.Join(dir, rel)) {
+			t.Errorf("protected(%s) = true: ordinary debris must stay sweepable", rel)
+		}
+	}
+	hits, _ := pruneAged([]string{filepath.Join(dir, "memory", "*"), filepath.Join(dir, "memory", ".git", "*"),
+		filepath.Join(dir, "state", "harness", "memory", "*"), filepath.Join(dir, "state", "harness", "memory", "*", "*")}, time.Now(), true)
+	if len(hits) != 0 {
+		t.Errorf("pruneAged removed protected paths: %v", hits)
+	}
+	for _, rel := range keep {
+		if !exists(t, filepath.Join(dir, rel)) {
+			t.Errorf("%s was deleted", rel)
 		}
 	}
 }

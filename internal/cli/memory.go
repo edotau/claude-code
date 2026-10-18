@@ -25,7 +25,9 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory stats
        claude-code memory timeline [--repo R] [-n 20]
        claude-code memory promote [--repo R]
-       claude-code memory archive [--dupes] [--apply] [--restore] [--split N] [<topic>...]`
+       claude-code memory archive [--dupes] [--apply] [--restore] [--split N] [<topic>...]
+       claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--format text|json]
+       claude-code memory migrate --apply MANIFEST`
 
 func cmdMemory(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -35,13 +37,17 @@ func cmdMemory(args []string) int {
 	if args[0] == "archive" {
 		return cmdMemoryArchive(args[1:])
 	}
-	if n, err := memory.MigrateLegacy(); err != nil {
-		fmt.Fprintln(os.Stderr, "memory: legacy layout migration:", err)
-	} else if n > 0 {
-		fmt.Fprintf(os.Stderr, "memory: moved %d legacy entries into %s\n", n, memory.GlobalDir())
+	if args[0] == "migrate" {
+		return cmdMemoryMigrate(args[1:])
 	}
 	fs := flag.NewFlagSet("memory "+args[0], flag.ContinueOnError)
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
+	switch args[0] {
+	case "index", "promote", "update": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
+		if g := memory.StartupGuard(); g.Paused {
+			return fail("memory %s: %s", args[0], g.Notice)
+		}
+	}
 	switch args[0] {
 	case "init":
 		if fs.Parse(args[1:]) != nil {
