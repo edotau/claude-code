@@ -1,0 +1,12 @@
+{
+  "LSHandlers": [
+    {
+      "LSHandlerPreferredVersions": {
+        "LSHandlerRoleAll": "-"
+      },
+      "LSHandlerRoleAll": "com.apple.Safari",
+      "LSHandlerURLScheme": "https",
+      "LSHandlerModificationDate": 0
+    }
+  ]
+}
