@@ -110,14 +110,14 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 	return code
 }
 
-// SubagentStop retires the stopping subagent's slot only when the simplify gate lets it stop: as two
-// parallel hooks, the slot freed while a blocked subagent kept working.
+// SubagentStop retires the stopping subagent's slot on its FIRST stop, even one the simplify gate sends
+// back: an agent that then ends through SubagentHandback never stops again, and a held slot would block
+// every new dispatch until the idle prune (live: 6 of 8 slots leaked that way on 2026-10-18).
 func SubagentStop(r io.Reader, stderr io.Writer) int {
 	raw, _ := io.ReadAll(r)
-	if SimplifyAfterEdits(bytes.NewReader(raw), stderr) == ExitBlock {
-		return ExitBlock
-	}
-	return AgentInflight("post", bytes.NewReader(raw), stderr)
+	code := SimplifyAfterEdits(bytes.NewReader(raw), stderr)
+	_ = AgentInflight("post", bytes.NewReader(raw), stderr)
+	return code
 }
 
 // spawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).
