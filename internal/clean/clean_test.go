@@ -92,28 +92,27 @@ func exists(t *testing.T, p string) bool {
 	return err == nil
 }
 
-// TestCleanDryRunByDefault: the verb reports and deletes nothing unless --apply.
-func TestCleanDryRunByDefault(t *testing.T) {
+// TestCleanDryRunPreviewsDeletesNothing: --dry-run reports what would go and deletes nothing.
+func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
+	dir := seedDebris(t)
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--dry-run"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --dry-run = %d, want 0", code)
+	}
+	if !exists(t, filepath.Join(dir, "state/harness/memory/harvest-20260101-000000.log")) {
+		t.Error("--dry-run deleted something — only a run without --dry-run may")
+	}
+	if !strings.Contains(errw.String(), "--dry-run") {
+		t.Errorf("dry run does not name the flag that triggered it:\n%s", errw.String())
+	}
+}
+
+// TestCleanAppliesByDefault: with no flags, clean deletes aged debris immediately (no --apply needed).
+func TestCleanAppliesByDefault(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
 	if code := Run(nil, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0", code)
-	}
-	if !exists(t, filepath.Join(dir, "state/harness/memory/harvest-20260101-000000.log")) {
-		t.Error("a dry run deleted something — --apply is the only thing that may")
-	}
-	if !strings.Contains(errw.String(), "--apply") {
-		t.Errorf("dry run does not say how to actually run it:\n%s", errw.String())
-	}
-}
-
-// TestCleanApplySweepsEveryTarget: --apply removes aged debris in every target, and leaves
-// credentials, live config, and the memory bank (archive included) alone.
-func TestCleanApplySweepsEveryTarget(t *testing.T) {
-	dir := seedDebris(t)
-	var out, errw bytes.Buffer
-	if code := Run([]string{"--apply"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --apply = %d, want 0", code)
 	}
 	for _, gone := range []string{
 		"state/harness/memory/harvest-20260101-000000.log", "state/harness/memory/stamp-sess-aaa",
@@ -143,13 +142,13 @@ func TestCleanApplySweepsEveryTarget(t *testing.T) {
 	}
 }
 
-// TestCleanApplyReportsNonZeroBytes: --apply must size hits BEFORE deletion — dirSize on an
-// already-removed path always reads 0, which would otherwise make every --apply run print "reclaimed 0 B".
+// TestCleanApplyReportsNonZeroBytes: a default run must size hits BEFORE deletion — dirSize on an
+// already-removed path always reads 0, which would otherwise make every run print "reclaimed 0 B".
 func TestCleanApplyReportsNonZeroBytes(t *testing.T) {
 	seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--apply"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --apply = %d, want 0", code)
+	if code := Run(nil, &out, &errw); code != 0 {
+		t.Fatalf("Run = %d, want 0", code)
 	}
 	if strings.Contains(errw.String(), "reclaimed 0 B") {
 		t.Errorf("reported 0 bytes reclaimed despite deleting seeded debris:\n%s", errw.String())
@@ -162,33 +161,45 @@ func TestCleanRespectsOlderThan(t *testing.T) {
 	young := filepath.Join(dir, "state/harness/memory/harvest-20261231-000000.log")
 	write(t, young, "x")
 	var out, errw bytes.Buffer
-	Run([]string{"--apply"}, &out, &errw)
+	Run(nil, &out, &errw)
 	if !exists(t, young) {
 		t.Error("a file inside the age threshold was swept")
 	}
 }
 
-// TestCleanWhatScopesToOneTarget: naming one target in --what must not sweep the others.
-func TestCleanWhatScopesToOneTarget(t *testing.T) {
+// TestCleanTargetScopesToOneTarget: naming one target in --target must not sweep the others.
+func TestCleanTargetScopesToOneTarget(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--what", "router-log", "--apply"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --what router-log --apply = %d, want 0", code)
+	if code := Run([]string{"--target", "router-log"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target router-log = %d, want 0", code)
 	}
 	if exists(t, filepath.Join(dir, "state/harness/router.log")) {
 		t.Error("the named target was still not swept")
 	}
 	if !exists(t, filepath.Join(dir, "state/harness/memory/harvest-20260101-000000.log")) {
-		t.Error("--what router-log also swept memory-state")
+		t.Error("--target router-log also swept memory-state")
 	}
 }
 
-// TestCleanWhatRejectsUnknownTarget: a typo in --what must error, never read as "nothing to clean".
-func TestCleanWhatRejectsUnknownTarget(t *testing.T) {
+// TestCleanTargetRejectsUnknownTarget: a typo in --target must error, never read as "nothing to clean".
+func TestCleanTargetRejectsUnknownTarget(t *testing.T) {
 	seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--what", "not-a-real-target", "--apply"}, &out, &errw); code != 2 {
-		t.Errorf("Run --what bogus = %d, want 2", code)
+	if code := Run([]string{"--target", "not-a-real-target"}, &out, &errw); code != 2 {
+		t.Errorf("Run --target bogus = %d, want 2", code)
+	}
+}
+
+// TestCleanWhatFlagRejected: the renamed flag has no --what alias; the old name is now unknown.
+func TestCleanWhatFlagRejected(t *testing.T) {
+	seedDebris(t)
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--what", "router-log"}, &out, &errw); code != 2 {
+		t.Errorf("Run --what router-log = %d, want 2 (unknown flag)", code)
+	}
+	if !strings.Contains(errw.String(), "what") {
+		t.Errorf("error does not name the rejected flag:\n%s", errw.String())
 	}
 }
 
@@ -284,7 +295,7 @@ func TestNestedConfig(t *testing.T) {
 	write(t, filepath.Join(nested, "settings.local.json"), `{"outputStyle": "Concise", "prefersReducedMotion": true}`)
 
 	var out, errw bytes.Buffer
-	Run([]string{"--apply"}, &out, &errw)
+	Run(nil, &out, &errw)
 	if !strings.Contains(errw.String(), "settings.local.json:prefersReducedMotion") {
 		t.Fatalf("uncovered key not reported: %s", errw.String())
 	}
@@ -300,7 +311,7 @@ func TestNestedConfig(t *testing.T) {
 
 	os.RemoveAll(filepath.Join(nested, "agents"))
 	errw.Reset()
-	Run([]string{"--apply"}, &out, &errw)
+	Run(nil, &out, &errw)
 	if _, err := os.Stat(nested); !os.IsNotExist(err) {
 		t.Fatalf("covered nested dir not removed: %s", errw.String())
 	}
@@ -320,7 +331,7 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	Run([]string{"--apply"}, &out, &errw)
+	Run(nil, &out, &errw)
 	if !exists(t, gitFile) {
 		t.Error("--apply removed a linked worktree's .git pointer")
 	}
@@ -335,7 +346,7 @@ func TestBackupsAgeless(t *testing.T) {
 		write(t, p, "x")
 	}
 	var out, errw bytes.Buffer
-	Run([]string{"--apply"}, &out, &errw)
+	Run(nil, &out, &errw)
 	for _, p := range fresh {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("fresh backup kept: %s", p)
@@ -343,8 +354,9 @@ func TestBackupsAgeless(t *testing.T) {
 	}
 }
 
-// TestSessionsTargetOptInKeepsAutoMemory: transcripts and their <id>/ dirs go only under --what sessions;
-// projects/<slug>/memory and any other sibling survive at any age.
+// TestSessionsTargetOptInKeepsAutoMemory: transcripts and their <id>/ dirs go only under --target sessions
+// (confirmed via --yes, since the test process has no TTY); projects/<slug>/memory and any other sibling
+// survive at any age.
 func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -367,20 +379,93 @@ func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 		}
 	}
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--apply"}, &out, &errw); code != 0 {
-		t.Fatalf("bare Run --apply = %d, want 0: %s", code, errw.String())
+	if code := Run(nil, &out, &errw); code != 0 {
+		t.Fatalf("bare Run = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, transcript) || !exists(t, sessDir) {
 		t.Fatal("bare sweep removed session transcripts; sessions must be opt-in")
 	}
 	out.Reset()
-	if code := Run([]string{"--what", "sessions", "--apply"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --what sessions --apply = %d, want 0: %s", code, errw.String())
+	errw.Reset()
+	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, transcript) || exists(t, sessDir) {
-		t.Error("--what sessions kept an aged transcript or session dir")
+		t.Error("--target sessions --yes kept an aged transcript or session dir")
 	}
 	if !exists(t, memory) || !exists(t, pointer) {
-		t.Error("--what sessions swept projects/<slug>/memory or a non-session sibling")
+		t.Error("--target sessions swept projects/<slug>/memory or a non-session sibling")
+	}
+}
+
+// seedAgedSession lays down one aged transcript + session dir under projects/<slug> and returns their paths.
+func seedAgedSession(t *testing.T, dir string) (transcript, sessDir string) {
+	t.Helper()
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	slug := filepath.Join(dir, "projects", "-Users-me-repo")
+	transcript = filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd.jsonl")
+	sessDir = filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd", "subagents", "a.jsonl")
+	for _, p := range []string{transcript, sessDir} {
+		write(t, p, "x")
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		for d := filepath.Dir(p); strings.HasPrefix(d, slug); d = filepath.Dir(d) {
+			if err := os.Chtimes(d, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return transcript, sessDir
+}
+
+// TestCleanSessionsRefusesWithoutTTYOrYes: --target sessions with no TTY and no --yes deletes nothing
+// and reports the refusal, rather than silently reading as "nothing to clean".
+func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	transcript, sessDir := seedAgedSession(t, dir)
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--target", "sessions"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions = %d, want 0 (refusal is not an error exit)", code)
+	}
+	if !exists(t, transcript) || !exists(t, sessDir) {
+		t.Error("sessions were deleted without confirmation")
+	}
+	if !strings.Contains(errw.String(), "--yes") {
+		t.Errorf("refusal does not name --yes as the way past it:\n%s", errw.String())
+	}
+}
+
+// TestCleanSessionsYesDeletes: --target sessions --yes deletes without any prompt.
+func TestCleanSessionsYesDeletes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	transcript, sessDir := seedAgedSession(t, dir)
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	}
+	if exists(t, transcript) || exists(t, sessDir) {
+		t.Error("--target sessions --yes left the aged transcript or session dir behind")
+	}
+}
+
+// TestCleanSessionsOlderThanStillFilters: --yes bypasses the prompt, not the age filter — a young
+// transcript must survive even when sessions are confirmed.
+func TestCleanSessionsOlderThanStillFilters(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	young := filepath.Join(dir, "projects", "-Users-me-repo", "11111111-1111-1111-1111-111111111111.jsonl")
+	write(t, young, "x")
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	}
+	if !exists(t, young) {
+		t.Error("--older-than default (30d) did not protect a fresh transcript")
 	}
 }

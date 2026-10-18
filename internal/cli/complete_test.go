@@ -84,8 +84,8 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
 		t.Errorf("theme -- = %v, want [--preview]", got)
 	}
-	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--format"}) {
-		t.Errorf("doctor -- = %v, want [--format]", got)
+	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format"}) {
+		t.Errorf("doctor -- = %v, want [--audit --days --format]", got)
 	}
 }
 
@@ -134,7 +134,7 @@ func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 		words []string
 		typed string
 	}{
-		{[]string{"clean", "--apply", ""}, "--apply"},
+		{[]string{"clean", "--dry-run", ""}, "--dry-run"},
 		{[]string{"usage", "--workflows", ""}, "--workflows"},
 	} {
 		got := completionCandidates(tc.words)
