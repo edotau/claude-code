@@ -31,6 +31,14 @@ function dispatchStartArgv(binary, opts) {
   return argv;
 }
 
+/** argv for `<binary> web view <agentId> [--session S] --format json` (the click-through detail pane). */
+function viewArgv(binary, agentId, sessionId) {
+  const argv = [binary, 'web', 'view', agentId];
+  if (sessionId) argv.push('--session', sessionId);
+  argv.push('--format', 'json');
+  return argv;
+}
+
 /** shellArgs for an `ssh -t host tmux attach -t session` terminal. */
 function attachShellArgs(host, session) {
   return ['-t', host, 'tmux', 'attach', '-t', session];
@@ -41,4 +49,4 @@ function attachCommandLine(host, session) {
   return ['ssh', ...attachShellArgs(host, session)].join(' ');
 }
 
-module.exports = { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, attachShellArgs, attachCommandLine };
+module.exports = { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, attachShellArgs, attachCommandLine };

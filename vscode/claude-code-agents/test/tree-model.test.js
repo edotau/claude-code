@@ -87,6 +87,79 @@ test('buildAgentTree: a session node nests its subagents by depth', () => {
   assert.equal(active.children.filter((c) => c.kind === 'subagent').length, 27);
 });
 
+// A minimal hand-built session (not the shared fixture) isolating one relay subagent with an
+// Activity and two vendor Legs, so assertions here don't depend on the big fixture's shape.
+function sessionWithLegsAndActivity() {
+  return {
+    sessions: [
+      {
+        id: 'sess-legs-1',
+        title: 'repo-legs',
+        cwd: '/Users/fake/repo-legs',
+        status: 'active',
+        updated: '2026-10-18T06:59:00-04:00',
+        subagents: [
+          {
+            id: 'relay-1',
+            type: 'codex',
+            description: 'review the change',
+            status: 'running',
+            depth: 1,
+            tokens: { in: 10, out: 5 },
+            updated: '2026-10-18T06:58:00-04:00',
+            lastTool: 'Bash',
+            activity: { tool: 'Bash', arg: 'go test ./...' },
+            legs: [
+              { id: 'leg-a', agent: 'codex', model: 'gpt-6-astra', status: 'running', duration: '2m14s' },
+              {
+                id: 'leg-b', agent: 'claude', fallback: 'codex', model: 'opus', status: 'ok',
+                duration: '1m40s', fallbackReason: 'rate limited',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+test('buildAgentTree: a subagent node carries its activity in the description', () => {
+  const repos = buildAgentTree(sessionWithLegsAndActivity(), { now: NOW });
+  const relay = repos[0].children[0].children.find((c) => c.kind === 'subagent' && c.id === 'relay-1');
+  assert.ok(relay, 'relay-1 subagent node not found');
+  assert.match(relay.description, /Bash go test \.\/\.\.\.$/);
+});
+
+test('buildAgentTree: a subagent\'s legs become leg children, indented ahead of any nested subagents', () => {
+  const repos = buildAgentTree(sessionWithLegsAndActivity(), { now: NOW });
+  const relay = repos[0].children[0].children.find((c) => c.kind === 'subagent' && c.id === 'relay-1');
+  const legs = relay.children.filter((c) => c.kind === 'leg');
+  assert.equal(legs.length, 2);
+  assert.equal(legs[0].id, 'relay-1:leg:leg-a');
+  assert.match(legs[0].label, /^↳ codex gpt-6-astra running 2m14s$/);
+  assert.equal(legs[0].icon, 'link');
+});
+
+test('buildAgentTree: a fallback leg gets the warning icon and surfaces fallbackReason as its tooltip', () => {
+  const repos = buildAgentTree(sessionWithLegsAndActivity(), { now: NOW });
+  const relay = repos[0].children[0].children.find((c) => c.kind === 'subagent' && c.id === 'relay-1');
+  const fallbackLeg = relay.children.find((c) => c.kind === 'leg' && c.id === 'relay-1:leg:leg-b');
+  assert.ok(fallbackLeg);
+  assert.match(fallbackLeg.label, /⚠ fallback$/);
+  assert.equal(fallbackLeg.icon, 'warning');
+  assert.equal(fallbackLeg.tooltip, 'rate limited');
+});
+
+test('buildAgentTree: a subagent with no activity/legs has an unmodified description and no leg children', () => {
+  const data = sessionWithLegsAndActivity();
+  delete data.sessions[0].subagents[0].activity;
+  delete data.sessions[0].subagents[0].legs;
+  const repos = buildAgentTree(data, { now: NOW });
+  const relay = repos[0].children[0].children.find((c) => c.kind === 'subagent' && c.id === 'relay-1');
+  assert.equal(relay.children.filter((c) => c.kind === 'leg').length, 0);
+  assert.doesNotMatch(relay.description, / · $/);
+});
+
 test('buildAgentTree: workflow phases become phase nodes nested under a workflow node', () => {
   const repos = buildAgentTree(treeFixture, { now: NOW });
   const beta = repos.find((r) => r.id === 'repo-beta');

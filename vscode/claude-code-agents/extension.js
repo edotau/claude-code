@@ -1,8 +1,9 @@
 'use strict';
 const vscode = require('vscode');
 const { execFile } = require('node:child_process');
-const { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, attachShellArgs, attachCommandLine } = require('./lib/argv');
+const { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, attachShellArgs, attachCommandLine } = require('./lib/argv');
 const { buildAgentRootNodes, countRunning, buildDispatchNodes, parseTreeOutput } = require('./lib/tree-model');
+const { formatSnapshotText } = require('./lib/format');
 
 function config() {
   return vscode.workspace.getConfiguration('claudeCodeAgents');
@@ -32,6 +33,9 @@ function toTreeItem(node) {
   item.tooltip = node.tooltip || node.label;
   item.contextValue = node.kind;
   if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
+  if (node.kind === 'subagent') {
+    item.command = { command: 'claudeCodeAgents.viewAgent', title: 'View Agent', arguments: [node] };
+  }
   return item;
 }
 
@@ -150,10 +154,26 @@ async function runDispatch(context, provider) {
   }
 }
 
+/** The click-through detail pane: `web view <id> --session S --format json`, dumped as plain text. */
+async function viewAgent(binary, node, outputChannel) {
+  if (!node || node.kind !== 'subagent') return;
+  try {
+    const argv = viewArgv(binary, node.agentId, node.sessionId);
+    const stdout = await runBinary(binary, argv);
+    outputChannel.clear();
+    outputChannel.appendLine(formatSnapshotText(JSON.parse(stdout)));
+    outputChannel.show(true);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Claude Code Agents view failed: ${err.message}`);
+  }
+}
+
 function activate(context) {
   const provider = new AgentsTreeProvider();
   const view = vscode.window.createTreeView('claudeCodeAgents.tree', { treeDataProvider: provider });
   context.subscriptions.push(view);
+  const detailChannel = vscode.window.createOutputChannel('Claude Code Agent');
+  context.subscriptions.push(detailChannel);
 
   const updateBadge = () => {
     view.badge = provider.running > 0 ? { value: provider.running, tooltip: `${provider.running} running` } : undefined;
@@ -168,6 +188,9 @@ function activate(context) {
       provider.refresh();
     }),
     vscode.commands.registerCommand('claudeCodeAgents.dispatch', () => runDispatch(context, provider)),
+    vscode.commands.registerCommand('claudeCodeAgents.viewAgent', (node) =>
+      viewAgent(config().get('binary') || 'claude-code', node, detailChannel)
+    ),
     vscode.commands.registerCommand('claudeCodeAgents.attach', (node) => {
       if (!node || node.kind !== 'dispatch-session') return;
       attachTerminal(node.host, node.session);

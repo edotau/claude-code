@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -28,15 +29,17 @@ type Options struct {
 
 // Server is the bound web dashboard: its CSRF token and host allowlist are fixed for the process.
 type Server struct {
-	opts      Options
-	boundAddr string
-	dnsNames  []string
-	csrfToken string
-	logger    *log.Logger
-	mux       *http.ServeMux
-	run       dispatch.Runner // executes a dispatch capture/list command; tests fake this
-	now       func() time.Time
-	status    *statusCache // expiring, synchronized pane-status cache, keyed by host
+	opts       Options
+	boundAddr  string
+	dnsNames   []string
+	csrfToken  string
+	logger     *log.Logger
+	mux        *http.ServeMux
+	run        dispatch.Runner // executes a dispatch capture/list command; tests fake this
+	now        func() time.Time
+	status     *statusCache  // expiring, synchronized pane-status cache, keyed by host
+	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
+	browsers   *browserCache // expiring, synchronized browser.Detect cache
 }
 
 // New builds a Server for opts.Addr (or the resolved default) without binding a listener; callers
@@ -62,14 +65,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		errw = io.Discard
 	}
 	s := &Server{
-		opts:      opts,
-		boundAddr: addr,
-		dnsNames:  tailnetNames(ctx),
-		csrfToken: token,
-		logger:    log.New(errw, "", log.LstdFlags),
-		run:       dispatch.ExecRunner,
-		now:       time.Now,
-		status:    newStatusCache(),
+		opts:       opts,
+		boundAddr:  addr,
+		dnsNames:   tailnetNames(ctx),
+		csrfToken:  token,
+		logger:     log.New(errw, "", log.LstdFlags),
+		run:        dispatch.ExecRunner,
+		now:        time.Now,
+		status:     newStatusCache(),
+		browserEnv: browser.NewEnv(),
+		browsers:   newBrowserCache(),
 	}
 	if note != "" {
 		s.logger.Print(note)
@@ -120,6 +125,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
 	s.mux.HandleFunc("GET /api/dispatches", s.guard(s.handleDispatches))
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
+	s.mux.HandleFunc("GET /api/view", s.guard(s.handleView))
+	s.mux.HandleFunc("GET /api/browsers", s.guard(s.handleBrowsers))
 }
 
 // guard wraps h with the Host-header/Origin DNS-rebinding defence and a one-line access log; a

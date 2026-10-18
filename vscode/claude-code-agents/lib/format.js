@@ -31,4 +31,43 @@ function formatAge(iso, now) {
   return `${deltaDay}d`;
 }
 
-module.exports = { formatCount, formatTokens, formatAge };
+/** "tool arg" from an Activity{tool,arg,text}, falling back to its text blurb; '' when absent. */
+function formatActivity(activity) {
+  if (!activity) return '';
+  if (activity.tool) return activity.arg ? `${activity.tool} ${activity.arg}` : activity.tool;
+  return activity.text || '';
+}
+
+/** "↳ codex gpt-6-astra running 2m14s [⚠ fallback]", mirroring internal/agenttree/render.go's formatLeg. */
+function formatLeg(leg) {
+  const name = leg.fallback ? `${leg.fallback}→${leg.agent}` : leg.agent;
+  let line = `↳ ${name} ${leg.model || ''} ${leg.status || ''} ${leg.duration || ''}`.replace(/\s+/g, ' ').trim();
+  if (leg.fallback) line += ' ⚠ fallback';
+  return line;
+}
+
+/** "HH:MM:SS tool Read path…" / "HH:MM:SS text "…"" / "HH:MM:SS result 12 B", one Snapshot.Events entry. */
+function formatEventLine(e) {
+  const ts = e.at ? new Date(e.at).toLocaleTimeString() : '';
+  if (e.kind === 'tool') return `${ts} tool ${e.tool || ''} ${e.arg || ''}`.trim();
+  if (e.kind === 'text') return `${ts} text "${e.text || ''}"`;
+  if (e.kind === 'result') return `${ts} result ${e.size || 0} B`;
+  return ts;
+}
+
+/** Plain-text rendering of a `web view --format json` Snapshot, for the output-channel detail pane. */
+function formatSnapshotText(snap) {
+  const lines = [`${snap.id}  ${snap.label || ''}`];
+  if (snap.workflow) lines.push(`workflow ${snap.workflow}  phase ${snap.phase || ''}`);
+  const model = snap.effort ? `${snap.model || ''} effort=${snap.effort}` : snap.model || '';
+  lines.push(`status ${snap.status}  model ${model}  ${formatTokens(snap.tokens)}`);
+  const activity = formatActivity(snap.activity);
+  if (activity) lines.push(`last activity: ${activity}`);
+  for (const f of snap.filesEdited || []) lines.push(`  edited ${f}`);
+  for (const l of snap.legs || []) lines.push(`  ${formatLeg(l)}`);
+  for (const e of snap.events || []) lines.push(formatEventLine(e));
+  if (snap.result) lines.push(`result: ${snap.result}`);
+  return lines.join('\n');
+}
+
+module.exports = { formatCount, formatTokens, formatAge, formatActivity, formatLeg, formatEventLine, formatSnapshotText };

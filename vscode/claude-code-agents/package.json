@@ -32,6 +32,7 @@
       { "command": "claudeCodeAgents.refresh", "title": "Refresh", "icon": "$(refresh)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.toggleShowAll", "title": "Toggle Show All", "icon": "$(filter)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.dispatch", "title": "Dispatch…", "icon": "$(rocket)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.viewAgent", "title": "View Agent", "icon": "$(eye)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.attach", "title": "Attach", "icon": "$(terminal)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.copyAttachCommand", "title": "Copy Attach Command", "category": "Claude Code Agents" }
     ],
