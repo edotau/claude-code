@@ -46,7 +46,8 @@ in either of two shapes, printing the canonical paths to use instead:
    clone (`git check-ignore`; a non-ignored `docs/` is the project's own and is never gated).
 
 It passes on: a root anchor, a git-**tracked** file (`git ls-files`, so a force-added page inside an
-ignored `docs/` passes), anything under the harness's own `docs/` tree, every other subdirectory,
+ignored `docs/` passes), the harness's own `docs/knowledge/` and `docs/images/` (any other new page there — a retired
+`docs/handoffs`/`docs/reports` — blocks), every other subdirectory,
 a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
 
 - Store writes (bank, handoffs, reports) land in `~/.claude/memory/`, outside any repo's `docs/` tree, so this gate

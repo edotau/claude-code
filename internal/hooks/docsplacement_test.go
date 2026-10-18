@@ -235,17 +235,20 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree (images + tracked knowledge) is never gated, even
-// when a checkout gitignores parts of it.
+// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree admits only knowledge/ and images/; the retired
+// handoffs/reports homes block even though this checkout no longer gitignores them.
 func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	harness := ignoredDocsRepo(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)
 
-	for _, name := range []string{"plans/2026-09-09-x.md", "handoffs/HANDOFF.md", "reports/repo/y.md", "memory/bank/z.md"} {
+	for name, want := range map[string]int{
+		"knowledge/topic.md": ExitProceed, "knowledge/repo/x.md": ExitProceed, "images/n.md": ExitProceed,
+		"handoffs/HANDOFF.md": ExitBlock, "reports/repo/y.md": ExitBlock, "plans/2026-09-09-x.md": ExitBlock,
+	} {
 		var stderr bytes.Buffer
 		p := filepath.Join(harness, "docs", filepath.FromSlash(name))
-		if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", p)), &stderr); code != ExitProceed {
-			t.Errorf("%s: code = %d, want proceed inside the harness docs tree (stderr: %s)", name, code, stderr.String())
+		if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", p)), &stderr); code != want {
+			t.Errorf("%s: code = %d, want %d (stderr: %s)", name, code, want, stderr.String())
 		}
 	}
 }
