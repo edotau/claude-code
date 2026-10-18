@@ -97,6 +97,19 @@ func BuildCatalog(now time.Time) (string, error) {
 		}
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md\n", e.Key, storeHook(e.Dir), when, e.Key)
 	}
+	top, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*.md"))
+	nested, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*", "*.md"))
+	var rows []string
+	for _, f := range append(top, nested...) {
+		if filepath.Base(f) == "README.md" {
+			continue
+		}
+		rel, _ := filepath.Rel(KnowledgeDir(), f)
+		rows = append(rows, "- "+rel+" — "+storeHookFile(f))
+	}
+	if len(rows) > 0 {
+		b.WriteString("\n## Knowledge (tracked, docs/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
+	}
 	global := BuildBankIndex(StoreDir(), now)
 	if global != "" {
 		lines := strings.Split(strings.TrimSpace(global), "\n")
@@ -258,4 +271,32 @@ func newestMarkdown(dir string) time.Time {
 		}
 	}
 	return newest
+}
+
+// knowledgeFiles are docs/knowledge/*.md (cross-repo) plus docs/knowledge/<key>/*.md; README.md is the tier's own doc.
+func knowledgeFiles(key string) []string {
+	var out []string
+	for _, pat := range []string{filepath.Join(KnowledgeDir(), "*.md"), filepath.Join(KnowledgeDir(), key, "*.md")} {
+		m, _ := filepath.Glob(pat)
+		for _, f := range m {
+			if filepath.Base(f) != "README.md" {
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+// storeHookFile is a knowledge note's first prose line (its routing hook).
+func storeHookFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return filepath.Base(path)
+	}
+	for _, l := range strings.Split(stripFrontmatter(string(data)), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			return truncate(l, 100)
+		}
+	}
+	return filepath.Base(path)
 }

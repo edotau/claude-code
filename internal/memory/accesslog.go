@@ -31,12 +31,12 @@ func LogAccess(dir string, now time.Time, entry, reason string) {
 	}
 	line := now.UTC().Format(time.RFC3339) + " -- " + sanitizeField(entry, accessEntryMax) +
 		" -- " + sanitizeField(reason, accessReasonMax) + "\n"
-	path := filepath.Join(dir, AccessLogFile)
+	path := AccessLogPath(dir)
 	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
 		return // symlink/oddity planted at the log name — never write through it
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return // bank dir not scaffolded yet — fail-open, same as every other LogAccess error path
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return // log dir not scaffolded yet — fail-open, same as every other LogAccess error path
 	}
 	maybeTrimAccessLog(path)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -93,7 +93,7 @@ type AccessStat struct {
 // AccessStats parses dir's access log into entry → AccessStat (Days = distinct UTC days in
 // (now-windowDays, now]). 2nd return is the OLDEST timestamp — the cold-entry gate needs log > horizon.
 func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
-	data, err := os.ReadFile(filepath.Join(dir, AccessLogFile))
+	data, err := os.ReadFile(AccessLogPath(dir))
 	if err != nil {
 		return map[string]AccessStat{}, time.Time{}
 	}
@@ -132,4 +132,19 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 		stats[entry] = s
 	}
 	return stats, oldest
+}
+
+// AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir after the cutover
+// (state, never memory history), else access.log beside the legacy bank.
+func AccessLogPath(dir string) string {
+	if CutOver() {
+		if rel, ok := InsideStore(dir); ok {
+			key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
+			if key == "" || key == "." {
+				key = "global"
+			}
+			return filepath.Join(AccessStateDir(), key+".log")
+		}
+	}
+	return filepath.Join(dir, AccessLogFile)
 }

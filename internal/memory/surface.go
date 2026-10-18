@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Surface caps: per-surface byte guards, then a character budget under hooks' 9,500-char additionalContext cap
@@ -214,7 +216,22 @@ func unifiedSurface(root string) string {
 	if len(focus) > 0 {
 		parts = append(parts, CapChars("<!-- THIS REPO ("+dir+") — focus only; read the typed files on demand -->\n"+strings.Join(focus, "\n\n"), focusCapChars))
 	}
+	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
+		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
+			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked — run `claude-code memory migrate`) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+		}
+	}
 	return CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+}
+
+// nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
+func nativeLinked(root, dir string) bool {
+	r := filepath.Clean(root)
+	if top := mainCheckout(r); top != "" {
+		r = top
+	}
+	cur, err := os.Readlink(projectsMemory(projectSlug(r)))
+	return err == nil && paths.SamePath(cur, dir)
 }
 
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
