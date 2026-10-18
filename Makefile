@@ -89,14 +89,14 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
 
 .PHONY: bootstrap
-bootstrap:  ## Fresh box: go toolchain, install, then configure (CHECK=1 = check only, TAILSCALE=1 adds the VPN client)
+bootstrap:  ## Fresh box: Go, install, configure (CHECK=1, TAILSCALE=1)
 	@$(MAKE) go-toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
 .PHONY: tailscale-cli
-tailscale-cli:  ## Install the Tailscale client (darwin: brew cask; linux: official script); login is `configure`
+tailscale-cli:  ## Install the Tailscale client; log in via configure
 	@if command -v tailscale >/dev/null 2>&1; then echo -e "$(C_OK)tailscale found: $$(tailscale version | head -1)"; exit 0; fi; \
 	case "$$(uname -s)" in \
 	  Darwin) brew install --cask tailscale-app ;; \
