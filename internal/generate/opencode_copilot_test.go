@@ -58,9 +58,9 @@ func TestRenderOpenCodeCopilotWritesModelAndSmallModel(t *testing.T) {
 	if !strings.HasPrefix(small, "github-copilot/") {
 		t.Errorf("small_model = %q, want a github-copilot/ prefix", small)
 	}
-	// The registry's haiku default is "auto"; renderOpenCodeCopilot must swap it for OpencodeFallback.
-	if small != "github-copilot/mai-code-1.1-flash" {
-		t.Errorf("small_model = %q, want the \"auto\" haiku default swapped for the configured fallback", small)
+	// small_model is the registry's github-copilot haiku pin (the auto → OpencodeFallback swap is pinned in internal/vendors).
+	if small != "github-copilot/gpt-5.4-mini" {
+		t.Errorf("small_model = %q, want the github-copilot haiku pin", small)
 	}
 	if _, ok := oc["apiKey"]; ok {
 		t.Errorf("opencode.json has apiKey, want none for the github-copilot route: %s", raw)
