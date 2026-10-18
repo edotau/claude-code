@@ -1,78 +1,111 @@
+// gemini.go — the gemini agent's submenu: Google login or an AI Studio key, then Login and Mint key. Mint key creates a
+// Gemini-only key through the Google Cloud API Keys API (internal/googlekeys) and rotates GEMINI_API_KEY to it.
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
+	"context"
+	"errors"
+	"os/exec"
+	"time"
+
+	"github.com/edotau/claude-code/internal/googlekeys"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-const geminiRow = "gemini"
+const (
+	geminiRow    = "gemini"
+	geminiKeyEnv = "GEMINI_API_KEY"
+)
 
-// geminiKeyStatus is the API key row's detail: where the key is stored and whether it still works.
-func geminiKeyStatus(present bool, p *providers.Provider) string {
-	if !present {
-		return "no key"
+func geminiMenu(d *dialog) agentMenu {
+	loginSel := vendors.GeminiLoginPresent() // ~/.gemini/settings.json selects a Google login, which beats the key
+	p, keyOK := keyPresent(d.reg, geminiRow)
+	st := agentState{mode: modeNone}
+	switch {
+	case loginSel:
+		st = agentState{mode: modeSubscription, verified: true}
+	case keyOK:
+		st = agentState{mode: modeAPIKey, verified: keyVerified(p)}
 	}
-	status, _ := probe(keyTarget{provider: p})
-	verdict := "probe ok"
-	if status == "rejected" {
-		verdict = "probe failed"
-	}
-	if _, src, ok := secrets.Get("GEMINI_API_KEY"); ok {
-		return "stored in " + planeLabel(src) + ", " + verdict
-	}
-	return verdict
-}
-
-func planeLabel(src string) string {
-	if src == "file" {
-		return "secrets.env"
-	}
-	return src
-}
-
-func presence(ok bool) string {
-	if ok {
-		return "present"
-	}
-	return "absent"
-}
-
-// pickGeminiAuth asks which Gemini credential the session provider uses: a Gemini API key (every
-// vendor and the harness ask runner can use it), or gemini's own Google login — which serves only the
-// interactive gemini CLI's /auth and is never pinned, since the ask runner refuses a passthrough session.
-func pickGeminiAuth(d *dialog, cur string) bool {
-	p, hasProvider := d.reg.Providers[geminiRow]
-	keyPresent := hasProvider && providers.CredentialPresent(p)
-	loginPresent := vendors.GeminiLoginPresent()
-	rows := [][2]string{
-		{"API key", "pay per token · paste an AI Studio key to set or rotate [" + geminiKeyStatus(keyPresent, p) + "]"},
-		{"Login", "gemini /auth · Google sign-in, refreshes the session · gemini CLI only [" + presence(loginPresent) + "]"},
-	}
-	start := 0
-	if cur == geminiRow {
-		start = 0
-	}
-	idx, err := tui.PickBack("gemini — pick the credential (current: "+cur+")", rows, start)
-	if err != nil || idx < 0 {
-		d.printf("provider   pinned %s (kept)\n", cur)
-		return err == nil
-	}
-	if idx == 1 {
-		d.printf("gemini   Google login serves the interactive gemini CLI only; the ask runner refuses a " +
-			"passthrough gemini session, so it is never pinned as the session provider\n")
-		if confirm(d, "Run `gemini` now to sign in via /auth?") {
-			if err := runLogin([]string{"gemini"}); err != nil {
-				d.printf("gemini: %v\n", err)
-			}
+	key := keyRow(d, geminiRow, geminiRow, "pay per token · paste to set or rotate · every agent and ask leg")
+	ensure := key.run
+	key.run = func() bool {
+		ok := ensure()
+		if ok && loginSel {
+			d.printf("gemini     its own settings still select the Google login; run `gemini` → /auth → Use Gemini API key\n")
 		}
-		return true
+		return ok
 	}
-	kt := keyTarget{label: geminiRow, envVar: "GEMINI_API_KEY", fixCmd: "claude-code secrets set GEMINI_API_KEY", provider: p}
-	if !ensureKey(d, kt, keyPresent) {
-		d.printf("gemini: no usable API key; left on %s\n", cur)
+	return agentMenu{st, []billingRow{
+		{"Subscription", "Google login · plan limits · interactive gemini only " + bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
+			if loginSel {
+				d.printf("%-10s on its Google login (kept)\n", geminiRow)
+				return true
+			}
+			d.printf("gemini     pick /auth → Login with Google; `ask --agent gemini` legs keep running on %s\n", geminiKeyEnv)
+			return signIn(d, geminiRow, []string{"gemini"})
+		}},
+		key,
+		{"Login", "gemini → /auth · browser sign-in, refreshes the Google session", "", func() bool {
+			return signIn(d, geminiRow, []string{"gemini"})
+		}},
+		{"Mint key", "API Keys API · mints a Gemini-only key in your Cloud project, rotates " + geminiKeyEnv, "", func() bool {
+			return mintGeminiKey(d)
+		}},
+	}}
+}
+
+// newKeysClient is the API Keys client seam; tests replace it.
+var newKeysClient = googlekeys.New
+
+// mintGeminiKey creates a key restricted to the Gemini API, stores it in the plane the old one came from, then offers
+// to delete the old key. No Google Cloud login yet: offers `gcloud auth application-default login` first.
+func mintGeminiKey(d *dialog) bool {
+	forceFile, plane := planeOf(geminiKeyEnv)
+	if plane == "env" {
+		d.printf("%s: set via the process environment, not a stored plane — edit it where it is exported\n", geminiKeyEnv)
 		return false
 	}
-	return keepOrPin(d, cur, geminiRow)
+	if !actionConfirmed("Mint a new Gemini-only API key in your Google Cloud project") {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	c, err := newKeysClient(ctx)
+	if errors.Is(err, googlekeys.ErrNoADC) {
+		if _, lookErr := exec.LookPath("gcloud"); lookErr != nil {
+			d.printf("gemini: %v; install the Google Cloud CLI, or use API key to paste one from aistudio.google.com/apikey\n", err)
+			return false
+		}
+		if !signIn(d, "gcloud", googlekeys.LoginArgv) {
+			return false
+		}
+		c, err = newKeysClient(ctx)
+	}
+	if err != nil {
+		d.printf("gemini: %v\n", err)
+		return false
+	}
+	oldName := ""
+	if old, _, ok := secrets.Get(geminiKeyEnv); ok && old != "" {
+		oldName, _ = c.Lookup(ctx, old) // best effort: a key from another project or AI Studio may not resolve
+	}
+	name, key, err := c.Create(ctx, "claude-code gemini "+time.Now().Format("2006-01-02"))
+	if err != nil {
+		d.printf("gemini: %v\n", err)
+		return false
+	}
+	d.printf("gemini     minted %s (new keys can take a minute to start working)\n", name)
+	if !storeValue(d, geminiKeyEnv, key, forceFile) {
+		return false
+	}
+	if oldName != "" && oldName != name && actionConfirmed("Delete the old key "+oldName+" (restorable for 30 days)") {
+		if err := c.Delete(ctx, oldName); err != nil {
+			d.printf("gemini: old key kept: %v\n", err)
+		} else {
+			d.printf("gemini     deleted %s\n", oldName)
+		}
+	}
+	return true
 }

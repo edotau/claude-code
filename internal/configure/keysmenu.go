@@ -70,9 +70,9 @@ func keyCols(kt keyTarget) [2]string {
 	if kt.provider != nil && kt.envVar != "" {
 		status, _ := probe(kt)
 		if status == "verified" {
-			return [2]string{"per-token usage", "verified"}
+			return [2]string{modeAPIKey, "verified"}
 		}
-		return [2]string{"per-token usage", "not verified"}
+		return [2]string{modeAPIKey, "not verified"}
 	}
 	return [2]string{loginLine(kt), "verified"}
 }

@@ -28,7 +28,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 }
 
 // TestMenuRowsOrderNoSeparateProviderRow: the top-level menu is claude, then every vendors.Names() CLI
-// in roster order, then Done (appended by runMenu, not menuRows); sections are `configure <section>` args — "provider" is
+// in roster order, then Exit (appended by runMenu, not menuRows); sections are `configure <section>` args — "provider" is
 // folded into the claude row and must not appear again as its own entry.
 func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	reg := menuTestEnv(t)
@@ -60,7 +60,7 @@ func TestMenuRowsAgentScopeShowsOnlyThatRow(t *testing.T) {
 	}
 }
 
-// TestRunMenuDoneLeavesImmediatelyAndChangesNothing: Done (or Esc, which pickMenu reports the same way
+// TestRunMenuDoneLeavesImmediatelyAndChangesNothing: Esc (, which pickMenu reports the same way
 // as -1) must run no action and leave the pinned provider untouched.
 func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	reg := menuTestEnv(t)
@@ -116,10 +116,7 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 // name differs from the one already in effect; picking the current backend again must not re-pin it.
 //
 // This is the closest unit-level proof available for "picking claude pins only on an explicit backend
-// pick": pickClaudeBackend's own picker (internal/configure/anthropic.go:180) calls tui.PickBack
-// directly rather than through an injectable seam like pickMenu/pickSlots/pickModels, so a fake picker
-// cannot drive it to an explicit row choice from outside the tui package (tui.Open requires a real
-// stdin TTY and fails fast otherwise). See the report's Unresolved section.
+// pick": runAgentMenu's picker is now the pickAgent seam (see agentmenu_test.go).
 func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

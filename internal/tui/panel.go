@@ -79,7 +79,7 @@ func render(title string, s pickState, color bool) string {
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
-	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, "↑↓/j k move · Enter pick · Esc cancel") + "\x1b[K")
+	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, "↑/↓ to navigate · enter to select") + "\x1b[K")
 	return b.String()
 }
 
