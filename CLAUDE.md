@@ -103,5 +103,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `skills/synced/` — claude.ai account skills Claude Code re-downloads each sync round; untracked, edit them on claude.ai.
 - `plans/` — implementation plans (Claude Code's native `plansDirectory`); untracked, gitignored
   wholesale — this repo's own at the top, other repos' under `plans/<repo-slug>/`.
-- `docs/memory/bank/<repo-slug>/` — session memory bank (six files, untracked; git roots only — the `bank/` top
-  is the global bank); engine `internal/memory`, hooks `session-start` / `memory-recall` / `session-harvest[-end]`.
+- `memory/` — the one memory store: a local-only git repo. `memory/index.md` is the generated catalog
+  (router, never hand-edit); `memory/<repo>/` holds both native auto-memory (MEMORY.md + topics) and
+  the six typed bank files per repo (harness itself = `memory/.claude/`); `memory/` top = global.
+  `projects/<slug>/memory` is a symlink into it. Engine `internal/memory`, hooks `session-start` /
+  `memory-recall` / `session-harvest[-end]`.

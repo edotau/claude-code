@@ -325,31 +325,40 @@ To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registr
 
 ## Memory bank
 
-Six files per git repo under `docs/memory/bank/<repo-slug>/` (untracked): `projectContext`, `activeContext`,
-`progress`, `decisionLog`, `conventions`, `sessionHistory`; `docs/memory/bank/` itself is the global bank, used
-by any non-repo cwd. A pre-`bank/` tree moves in place on the next session start or `memory` verb.
+ONE store: `~/.claude/memory/` — a local-only git repo (every settle commits; never pushed; supersede,
+never delete). `memory/index.md` is the generated catalog router (one row per repo store + newest global
+entries; never hand-edit). The top of the tree is GLOBAL (cross-repo); `memory/<repo>/` is per repo (key =
+main-checkout basename; the harness itself is `memory/.claude/`; collisions get a hash suffix; `.origin`
+records identity). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` + topic files)
+and the six typed bank files — `projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`,
+`sessionHistory` (frontmatter `harness_kind: bank`). `MEMORY.md` carries a generated `<!-- bank:begin -->`…
+`<!-- bank:end -->` region (≤40 lines/4KB) pointing at the typed files + newest entries; lines outside it are
+native/Claude's and are never rewritten. `~/.claude/projects/<slug>/memory` is a harness-maintained symlink
+into `memory/<repo>/` (created by `memory migrate`, repaired at SessionStart) — there is no separate
+native tree.
 
-What a session pays for: SessionStart injects `activeContext` (minus its `## Parked` section) + `progress` and the bank's generated
-`index.md` (one routing line per durable entry, ≤8,500 chars total); everything else is found per prompt by the
-`memory-recall` hook (BM25 over local, global, archive and native topics, ≤3 blocks, skipping what is already in
-context) and by `claude-code memory search`. Every settle (`memory index`, the background harvest) keeps the bank
-small: `sessionHistory` rotates past 30 entries to `archive/`, local `decisionLog`/`conventions` overflow past
-their line caps is promoted to the global bank, global overflow is archived, and `index.md` is regenerated.
+What a session pays for: SessionStart injects the catalog (`memory/index.md`) plus this repo's
+`activeContext.md` Current Focus/Blockers/Next Steps and `progress.md` In Progress — everything else loads
+on demand (`claude-code memory search [--repo <name>|--all]`, Read). `memory-recall` (UserPromptSubmit)
+adds up to 3 matching bank/native blocks per prompt, and routes to another repo's store only when the
+prompt names it (catalog key or origin basename). Every settle (`memory index`, the background harvest)
+keeps it small: `sessionHistory` rotates past 30 entries to `archive/` (in scope — no automatic promotion
+to global), the catalog and each touched repo's bank region are regenerated, and the store commits.
 
 ```bash
-claude-code memory init | path | index              # scaffold, locate, settle + reindex
-claude-code memory search <terms> [--k 8] [--format json]  # BM25 over every tier
-claude-code memory doctor [--stale-days 90]         # cap offenders, staleness, credential-shaped lines, hot/cold topics
-claude-code memory stats | timeline [-n 20] | promote
+claude-code memory init | path | index [--repo R]   # scaffold, locate, settle + regenerate region/catalog
+claude-code memory search [--repo R] <terms> [--k 8] [--format json]  # BM25 over the bank
+claude-code memory doctor [--stale-days 90] [--notice]  # cap offenders, staleness, cross-tier duplication
+claude-code memory stats | timeline [--repo R] [-n 20] | promote [--repo R]  # stats is store-wide
+claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...   # one-time cutover from legacy trees
+claude-code memory migrate --manifest MANIFEST                 # apply a reviewed --dry-run manifest
 ```
 
-**Native auto-memory** (Claude Code's own `MEMORY.md` + topic files under `projects/<slug>/memory/`) is injected
-whole every session, so `claude-code memory archive` governs its size: the audit reports injected bytes, orphans
-and dangling pointers; `--split 20 --apply` keeps a 20-line core in `MEMORY.md` and moves older pointer lines to
-`SEARCHABLE.md` (indexed by recall, never injected; a `<!-- keep -->` marker pins a line); `--dupes` clusters
-near-duplicate topics; `archive <topic> --apply` moves a cold topic out (pointer lines recorded verbatim) and
-`--restore` brings it back. `access.log` beside each bank records every recall, which is what makes a topic
-"hot" (a pointer is suggested) or "cold" (an archive candidate) in `memory doctor`.
+`claude-code memory archive [--repo R] [--dupes] [--apply] [--restore] [--split N] [<topic>...]` governs the
+native MEMORY.md's size within a repo's dir: `--split N --apply` keeps an N-line core in `MEMORY.md` and
+moves older pointer lines to `SEARCHABLE.md` (indexed by recall, never injected); `--dupes` clusters
+near-duplicate topics (report-only); `archive <topic> --apply` moves a cold topic out and `--restore`
+brings it back. `access.log` beside each store records every recall.
 `/memory:init` enriches, `/memory:end` saves manually.
 
 ## Housekeeping
