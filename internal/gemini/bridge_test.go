@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // gemChatBody is the wire shape the api runner's openai-dialect chatStream sends.
@@ -419,5 +420,170 @@ func TestBridgeRunUpstream502IsTransient(t *testing.T) {
 	}
 	if ae.Kind != agent.KindTransient {
 		t.Errorf("kind = %v, want KindTransient", ae.Kind)
+	}
+}
+
+// setupGeminiProviderOverride overlays the built-in "gemini" provider itself (not a side name) onto srv,
+// so a bridge call with Provider=="" (the no-explicit-flag case) still resolves to a fake endpoint.
+func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("TEST_GEMINI_DEFAULT_KEY", "gem-default-key")
+	body := fmt.Sprintf(`{"providers":{
+	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
+		srv.URL+"/v1")
+	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fakeAgyScript writes an executable `agy` at dir/agy that drains stdin, drops a sentinel file (proof it
+// ran) and prints a canned stream-json result line — no step_update, matching the spec's one-line fixture.
+func fakeAgyScript(t *testing.T, dir, sentinel string) {
+	t.Helper()
+	// printf, not echo: /bin/sh echo expands \n to a literal newline, breaking the JSON line in two.
+	script := "#!/bin/sh\ncat > /dev/null\n: > " + sentinel + "\n" +
+		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"ok","num_turns":1,"usage":{"input_tokens":10,"output_tokens":1}}}'` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// loginHome returns a temp HOME carrying (or not) agy's cached-login marker.
+func loginHome(t *testing.T, present bool) string {
+	t.Helper()
+	home := t.TempDir()
+	if !present {
+		return home
+	}
+	marker := vendors.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// TestBridgeRunNoLoginUsesAPI: Provider=="" (no explicit --provider) with no cached agy login still
+// resolves to the api runner against the default "gemini" provider slot.
+func TestBridgeRunNoLoginUsesAPI(t *testing.T) {
+	t.Setenv("HOME", loginHome(t, false))
+	var hits []gotRequest
+	srv := newServer(&hits, 0)
+	defer srv.Close()
+	setupGeminiProviderOverride(t, srv)
+
+	dir := t.TempDir()
+	res, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("hits = %d, want 1 (api path)", len(hits))
+	}
+	if got := decodeBody(t, hits[0]).Model; got != "g-flash" {
+		t.Errorf("model = %q, want g-flash", got)
+	}
+	if res.Provider != "gemini" {
+		t.Errorf("provider = %q, want gemini", res.Provider)
+	}
+}
+
+// TestBridgeRunExplicitProviderSkipsAgy: an explicit --provider stays on the api runner even with a
+// cached agy login and `agy` on PATH — only the no-flag default (Provider=="") considers agy at all.
+func TestBridgeRunExplicitProviderSkipsAgy(t *testing.T) {
+	t.Setenv("HOME", loginHome(t, true))
+	binDir := t.TempDir()
+	sentinel := filepath.Join(binDir, "ran")
+	fakeAgyScript(t, binDir, sentinel)
+	t.Setenv("PATH", binDir)
+
+	var hits []gotRequest
+	srv := newServer(&hits, 0)
+	defer srv.Close()
+	setupRegistry(t, srv)
+
+	dir := t.TempDir()
+	res, err := Run(context.Background(), Options{Provider: "tgem", Cwd: dir, Task: "t"}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("hits = %d, want 1 (explicit provider stays on api)", len(hits))
+	}
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Error("agy sentinel exists: the fake agy binary ran despite an explicit --provider")
+	}
+	if res.Provider != "tgem" {
+		t.Errorf("provider = %q, want tgem", res.Provider)
+	}
+}
+
+// TestBridgeRunAgyBackendWhenLoginPresent: Provider=="" with a cached agy login and `agy` on PATH routes
+// through agent.RunAgy instead of the api runner — zero HTTP hits, the agy backend log line, and the
+// result event's conversation id surfacing as SessionID even though the fixture carries no step_update.
+func TestBridgeRunAgyBackendWhenLoginPresent(t *testing.T) {
+	t.Setenv("HOME", loginHome(t, true))
+	binDir := t.TempDir()
+	sentinel := filepath.Join(binDir, "ran")
+	fakeAgyScript(t, binDir, sentinel)
+	t.Setenv("PATH", binDir)
+
+	var hits []gotRequest
+	srv := newServer(&hits, 0)
+	defer srv.Close()
+	setupGeminiProviderOverride(t, srv)
+
+	dir := t.TempDir()
+	var log strings.Builder
+	res, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, &log)
+	// The canned fixture has no step_update delta: the answer must come from result.response.
+	if err != nil || res.Answer != "ok" {
+		t.Errorf("Run = (%q, %v), want (\"ok\", nil)", res.Answer, err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %d, want 0 (agy path makes no HTTP call)", len(hits))
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Error("agy sentinel missing: the fake agy binary never ran")
+	}
+	if !strings.Contains(log.String(), "gemini bridge: agy") {
+		t.Errorf("log missing agy backend line:\n%s", log.String())
+	}
+	if res.SessionID != "c1" {
+		t.Errorf("SessionID = %q, want c1 (from the result event's conversation_id)", res.SessionID)
+	}
+}
+
+// TestBridgeRunPrintCommandAgyBackend: --print-command on the agy path prints the resolved agy argv
+// (model, stream-json both ways) instead of the api runner's POST line, and sends nothing over the wire.
+func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
+	t.Setenv("HOME", loginHome(t, true))
+	binDir := t.TempDir()
+	fakeAgyScript(t, binDir, filepath.Join(binDir, "ran")) // present on PATH; --print-command never execs it
+	t.Setenv("PATH", binDir)
+
+	var hits []gotRequest
+	srv := newServer(&hits, 0)
+	defer srv.Close()
+	setupGeminiProviderOverride(t, srv)
+
+	dir := t.TempDir()
+	var log strings.Builder
+	res, err := Run(context.Background(), Options{Cwd: dir, Task: "t", PrintCommand: true}, io.Discard, &log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %d, want 0 (print-command sends nothing)", len(hits))
+	}
+	if !strings.Contains(log.String(), "agy --model g-flash") || !strings.Contains(log.String(), "stream-json") {
+		t.Errorf("log missing the resolved agy argv:\n%s", log.String())
+	}
+	if res.Provider != "agy" {
+		t.Errorf("provider = %q, want agy", res.Provider)
 	}
 }

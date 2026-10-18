@@ -3,7 +3,6 @@
 package vendors
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,7 +34,7 @@ type Spec struct {
 
 var specs = []Spec{
 	{Name: "codex", Binary: "codex", Dialect: providers.DialectResponses, Dialects: []string{providers.DialectResponses}},
-	{Name: "gemini", Binary: "gemini", Dialect: providers.DialectGemini, Dialects: []string{providers.DialectGemini}},
+	{Name: "gemini", Binary: "agy", Dialect: providers.DialectGemini, Dialects: []string{providers.DialectGemini}},
 	{Name: "opencode", Binary: "opencode", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectGemini, providers.DialectOpenAI}},
 	{Name: "copilot", Binary: "copilot", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectOpenAI}},
 }
@@ -151,6 +150,9 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			}
 		}
 	case "gemini":
+		if p, ok := reg.Providers["gemini"]; ok && GeminiLoginPresent() {
+			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (Google login via agy)", true
+		}
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
 		}
@@ -195,7 +197,7 @@ func ConfigureHint(name string) string {
 	case "copilot", "opencode":
 		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
 	case "gemini":
-		return "run `claude-code configure keys` to set GEMINI_API_KEY, or sign in with `gemini`"
+		return "run `claude-code configure keys` to set GEMINI_API_KEY, or sign in with `agy`"
 	default:
 		return "run `claude-code configure agents`"
 	}
@@ -242,6 +244,9 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
 	cred, err := providers.Credential(ctx, p)
+	if name == "gemini" && GeminiLoginPresent() {
+		cred, err = "", nil // agy's cached Google login wins over any key
+	}
 	if errors.Is(err, providers.ErrPassthrough) {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
@@ -426,78 +431,20 @@ func isGateway(base string) bool {
 	return err == nil && u.Host != googleHost
 }
 
-// gemini: Google's own host takes the bare key; any other base is a gateway and needs the base URL too.
-// Every knob is set explicitly (empty clears) so an inherited GOOGLE_*/GEMINI_* var cannot redirect the run.
-// Interactive runs also trust the workspace (GEMINI_CLI_TRUST_WORKSPACE), equivalent to --skip-trust.
+// gemini: agy speaks only Google's own backend — a gateway base (anything but googleHost) is a hard error.
+// A cached agy login (AgyLoginMarker) always wins over GEMINI_API_KEY, so the key rides only without one.
 func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
-	if err := geminiAuthConflict(); err != nil {
-		return nil, nil, err
-	}
-	baseURL, mechanism := "", "x-goog-api-key"
 	if isGateway(base) {
-		baseURL = base
-		if p.Auth.Type == providers.AuthBearer {
-			mechanism = "bearer"
-		}
+		return nil, nil, errors.New("agy has no custom base URL; gemini runs on Google's backend only")
 	}
-	var hs []string
-	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-		hs = append(hs, k+":"+p.Headers[k])
+	var env []string
+	if !GeminiLoginPresent() {
+		env = append(env, "GEMINI_API_KEY="+cred)
 	}
-	env := []string{
-		"GEMINI_MODEL=" + model,
-		"GEMINI_API_KEY=" + cred,
-		"GOOGLE_GEMINI_BASE_URL=" + baseURL,
-		"GEMINI_API_KEY_AUTH_MECHANISM=" + mechanism,
-		"GEMINI_CLI_CUSTOM_HEADERS=" + strings.Join(hs, ","),
-		"GOOGLE_GENAI_USE_GCA=",
-		"GOOGLE_GENAI_USE_VERTEXAI=",
+	if h != nil {
+		return env, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
 	}
-	if h == nil {
-		return append(env, "GEMINI_CLI_TRUST_WORKSPACE=true"), nil, nil
-	}
-	approval := "plan" // read-only, like codex's read-only sandbox
-	if h.Tools {
-		approval = "yolo"
-	}
-	argv := []string{"--skip-trust", "-m", model, "--output-format", "stream-json", "--approval-mode", approval}
-	if h.SessionID != "" {
-		argv = append(argv, "--resume", h.SessionID)
-	}
-	return env, append(argv, "--prompt="+h.Prompt), nil
-}
-
-// geminiKeyAuth are the selectedType values that read GEMINI_API_KEY; any other one ignores the harness wiring.
-var geminiKeyAuth = map[string]bool{"": true, "gemini-api-key": true, "gateway": true}
-
-// geminiAuthConflict fails fast when ~/.gemini/settings.json picks a login auth: it beats every env var, and
-// a headless run would hang on the browser prompt (a system override file must be root-owned, so none is possible).
-func geminiAuthConflict() error {
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	file := filepath.Join(home, ".gemini", "settings.json")
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return nil
-	}
-	var cfg struct {
-		Legacy   string `json:"selectedAuthType"`
-		Security struct {
-			Auth struct {
-				SelectedType string `json:"selectedType"`
-			} `json:"auth"`
-		} `json:"security"`
-	}
-	if json.Unmarshal(b, &cfg) != nil {
-		return nil // gemini-cli reports its own parse errors
-	}
-	if t := cmp.Or(cfg.Security.Auth.SelectedType, cfg.Legacy); !geminiKeyAuth[t] {
-		return fmt.Errorf("gemini: %s selects auth %q, which overrides the provider key; run `gemini`, /auth → "+
-			"\"Use Gemini API key\", or delete security.auth.selectedType", file, t)
-	}
-	return nil
+	return env, []string{"--model", model}, nil
 }
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
@@ -764,8 +711,17 @@ func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
 // CopilotLoginPresent reports a usable GitHub login for copilot: GH_TOKEN or an authenticated `gh`.
 func CopilotLoginPresent() bool { return copilotLoginPresent() }
 
-// GeminiLoginPresent reports whether ~/.gemini/settings.json selects a Google login (which beats any key).
-func GeminiLoginPresent() bool { return geminiAuthConflict() != nil }
+// GeminiLoginPresent reports whether agy's cached Google login is on disk; it beats GEMINI_API_KEY (even a bogus key).
+func GeminiLoginPresent() bool {
+	home, _ := os.UserHomeDir()
+	_, err := os.Stat(AgyLoginMarker(home))
+	return err == nil
+}
+
+// AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
+func AgyLoginMarker(home string) string {
+	return filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
+}
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> the "github-copilot"
 // key in its auth.json): opus slot, pin-aware. ok is false without that login or a matching registry provider.

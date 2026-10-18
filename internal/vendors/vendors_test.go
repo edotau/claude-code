@@ -20,7 +20,7 @@ const secret = "sk-SECRET-123"
 func target(t *testing.T, provider, model string) providers.Target {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir()) // isolates GeminiLoginPresent's AgyLoginMarker lookup from the real machine
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, secret)
 	}
@@ -60,13 +60,10 @@ func TestConfigure(t *testing.T) {
 			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "-"}},
 		{vendor: "codex", provider: "openrouter", model: "x", wantErr: "no responses route"},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
-			wantArgv: []string{"--skip-trust", "-m", "gemini-2.5-pro", "--output-format", "stream-json", "--approval-mode", "plan", "--prompt=hi"},
-			wantEnv: map[string]string{"GEMINI_API_KEY": secret, "GEMINI_MODEL": "gemini-2.5-pro", "GOOGLE_GEMINI_BASE_URL": "",
-				"GEMINI_API_KEY_AUTH_MECHANISM": "x-goog-api-key", "GOOGLE_GENAI_USE_GCA": "", "GEMINI_CLI_TRUST_WORKSPACE": ""}},
+			wantEnv: map[string]string{"GEMINI_API_KEY": secret}},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro",
-			wantEnv: map[string]string{"GEMINI_CLI_TRUST_WORKSPACE": "true"}},
-		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "-hi", Tools: true, SessionID: "u1"},
-			wantArgv: []string{"--approval-mode", "yolo", "--resume", "u1", "--prompt=-hi"}},
+			wantArgv: []string{"--model", "gemini-2.5-pro"},
+			wantEnv:  map[string]string{"GEMINI_API_KEY": secret}},
 		{vendor: "gemini", provider: "openai", model: "gpt-5", wantErr: "no gemini route"},
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
 			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
@@ -219,45 +216,54 @@ func TestOpenCodeGeminiNative(t *testing.T) {
 	}
 }
 
+// agy has no custom base URL, so a gateway provider for the gemini vendor must fail fast with a clear error.
 func TestGeminiGateway(t *testing.T) {
-	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GW_KEY", secret)
 	p := &providers.Provider{Name: "gw", Kind: providers.DialectGemini, BaseURL: "https://gw.example/gemini",
 		Auth: providers.Auth{Type: providers.AuthBearer, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
-	env, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := envMap(env)
-	want := map[string]string{"GOOGLE_GEMINI_BASE_URL": "https://gw.example/gemini", "GEMINI_API_KEY_AUTH_MECHANISM": "bearer",
-		"GEMINI_CLI_CUSTOM_HEADERS": "X-Team:a", "GEMINI_API_KEY": secret}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("env %s = %q, want %q", k, got[k], v)
-		}
+	_, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
+	if err == nil || !strings.Contains(err.Error(), "no custom base URL") {
+		t.Fatalf("err = %v, want a clear \"no custom base URL\" error", err)
 	}
 }
 
-func TestGeminiAuthConflict(t *testing.T) {
+// A cached agy Google login (AgyLoginMarker under HOME) wins over GEMINI_API_KEY: no login means the key rides.
+func TestGeminiLoginPrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if GeminiLoginPresent() {
+		t.Fatal("no marker on disk must read as not logged in")
+	}
 	tg := target(t, "gemini", "gemini-2.5-pro")
-	for body, wantErr := range map[string]bool{
-		`{"security":{"auth":{"selectedType":"oauth-personal"}}}`: true,
-		`{"selectedAuthType":"vertex-ai"}`:                        true,
-		`{"security":{"auth":{"selectedType":"gemini-api-key"}}}`: false,
-		`{"theme":"Default"}`:                                     false,
-	} {
-		home := t.TempDir()
-		t.Setenv("GEMINI_CLI_HOME", home)
-		if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		_, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
-		if (err != nil) != wantErr || (wantErr && !strings.Contains(err.Error(), "overrides the provider key")) {
-			t.Errorf("%s: err = %v, wantErr %v", body, err, wantErr)
-		}
+	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
+	t.Setenv("HOME", home)
+
+	env, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envMap(env)["GEMINI_API_KEY"]; got != secret {
+		t.Errorf("without a login marker, GEMINI_API_KEY = %q, want %q", got, secret)
+	}
+
+	marker := AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !GeminiLoginPresent() {
+		t.Fatal("marker on disk must read as logged in")
+	}
+
+	env, _, err = ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := envMap(env)["GEMINI_API_KEY"]; ok {
+		t.Errorf("with a login marker, GEMINI_API_KEY must not be set, got %q", got)
 	}
 }
 
@@ -816,6 +822,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 func TestResolveTargetGeminiFallsBackToKeyedGemini(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", t.TempDir()) // no agy login marker
 	t.Setenv("GEMINI_API_KEY", secret)
 	for _, k := range []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, "")
@@ -893,5 +900,44 @@ func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 	}
 	if v, ok := got["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"]; ok && v == strconv.Itoa(models.ContextWindow("gpt-5")) {
 		t.Errorf("prompt budget must leave room for %d output tokens, got %s", copilotMaxOutputTokens, v)
+	}
+}
+
+func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GEMINI_API_KEY", "")
+	marker := AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	target, note, err := ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Provider == nil || target.Provider.Name != "gemini" || !strings.Contains(note, "Google login") {
+		t.Fatalf("expected the Google-login gemini route, got %v / %q", target.Provider, note)
+	}
+	env, _, err := ConfigureHeadless(context.Background(), "gemini", target, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("a login with no key must still configure: %v", err)
+	}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GEMINI_API_KEY=") {
+			t.Fatalf("login run must not inject a key: %v", env)
+		}
 	}
 }

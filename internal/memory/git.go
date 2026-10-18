@@ -290,7 +290,7 @@ func (r Repo) validateRel(rel string) error {
 // at /dev/null); the installed pre-push guard still fires for manual git, which reads the repo's own hooks dir.
 func (r Repo) run(args ...string) (string, error) {
 	gitDir := filepath.Join(r.Dir, ".git")
-	full := []string{"--git-dir=" + gitDir, "--work-tree=" + r.Dir,
+	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir,
 		"-c", "user.name=claude-code", "-c", "user.email=claude-code@localhost",
 		"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false",
 		"-c", "core.hooksPath=" + os.DevNull}

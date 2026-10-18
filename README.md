@@ -91,12 +91,12 @@ reported as present and reused. Only an absent credential prompts — on a termi
 offered and run attached, an API key is read with echo off into the OS keyring (`env.d/secrets.env` without one); piped, every repair
 prints the exact command and the run continues. The vendor verbs do the same on demand: `claude-code codex`
 first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only then runs the plain
-`codex` CLI untouched (so `gemini auth login` always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
+`codex` CLI untouched (so `agy`'s own Google login always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
 error while someone is at the terminal.
 
 `generate` renders what `install` renders plus each vendor's config from the registry — codex
 `~/.codex/config.toml`, opencode `~/.config/opencode/opencode.json` (with your Claude permissions and MCPs
-imported), gemini `~/.gemini/settings.json` (never over a Google login), copilot reported as launch-time env —
+imported), gemini `~/.gemini/antigravity-cli/settings.json` (never over a cached Google login), copilot reported as launch-time env —
 as banner-marked blocks with foreign keys untouched and one `.backup` per file. The rendered codex and opencode
 blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only the shims
 export: run `codex`/`opencode` through `~/.claude/bin` (or `claude-code run <vendor>`), not the bare binary, or
@@ -297,20 +297,22 @@ claude-code agents sync --dry-run                    # agents/ → state/project
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
 gateway route written once serves both. Without `--tools`, claude and opencode get no tools, codex a read-only
-sandbox, and gemini its read-only plan mode. gemini reads the key only when `~/.gemini/settings.json` selects
-API-key auth (or none); a Google login there overrides every env var, so the runner refuses it. An interactive
+sandbox, and gemini its read-only plan mode. The gemini leg runs `agy` and reads `GEMINI_API_KEY` only when no
+cached Google login marker (`~/.gemini/jetski-standalone-oauth-token`) exists; a login there wins over every env
+var, so the runner refuses a gateway route (agy has no base-URL override) for this leg. An interactive
 `run opencode` also imports your Claude permissions (`settings.json` allow/deny/ask → opencode's `permission`
 block) and MCP servers (`~/.claude.json`, plus project `.mcp.json` entries Claude Code has approved for that
 directory — unapproved ones are named in `HARNESS_OPENCODE_MCP_SKIPPED`) and lists every tier model the provider
 serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
 
 `claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini --provider gemini`
-(drives the gemini CLI); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` inlines
-workspace files into one prompt and makes a single first-party call on the `gemini` provider (`GEMINI_API_KEY`,
-default `gemini-3.8-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the `gemini` subagent
-and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only tracked/untracked-but-not-ignored files
-are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`, `*.pem`/`*.key` are always skipped; the inlined path
-list is printed to stderr before the call. Anything else launches the gemini CLI (same as `run gemini`).
+(drives the Antigravity CLI `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides
+the subscription via `agy` when a Google login is present, else makes a single call on the `gemini` provider
+(`GEMINI_API_KEY`, default `gemini-3.8-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the
+`gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
+tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`,
+`*.pem`/`*.key` are always skipped; the inlined path list is printed to stderr before the call. Anything else
+launches `agy` (same as `run gemini`).
 `agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
 `~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`, `~/.config/opencode/agents/<name>.md` — via a
 local rendering under `state/projections/<vendor>/agents/` (gitignored; the home copy is a byte-identical install

@@ -15,13 +15,13 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	t.Setenv("HARNESS_PROVIDER", "subscription") // passthrough auth: gemini cannot use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
-	fake := filepath.Join(t.TempDir(), "gemini")
+	fake := filepath.Join(t.TempDir(), "agy")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	orig := lookPath
 	lookPath = func(name string) (string, error) {
-		if name == "gemini" {
+		if name == "agy" {
 			return fake, nil
 		}
 		return "", errors.New("not found")

@@ -167,9 +167,8 @@ For each completed worktree, in dependency order:
 
 ## Phase 8: Verify
 
-**Trigger**: After all code changes, before commit. Loop: `Workflow gate-loop {cwd, scope, maxIterations: 3}` —
-the gate is detected from Makefile/go.mod/pyproject/package.json/Cargo.toml when not passed, and `exit`
-(`green\|stalled\|capped\|error`) says why it stopped. The gates it runs:
+**Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow gate-loop` when the
+user asks for it):
 
 ```
 Gate 1: <format>          -- auto-fix formatting
@@ -228,6 +227,7 @@ test fixing, `/harness:techdebt scan` for debt.
 
 ## Saved Workflows (`workflows/*.js`)
 
+Run one only when the user asks for it; the default dispatch is `/code-workers` ‖ `copilot` (Phase 6).
 Deterministic templates of the phases above, runnable by name (`Workflow({name, args})`) or inline from
 another script via `workflow(name, args)`. Sequential = awaited stages, Parallel = `parallel()`/`pipeline()`,
 Loop = a bounded `while` — control flow is code, never a model decision. Agents work in the shared tree.

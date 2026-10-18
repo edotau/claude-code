@@ -99,8 +99,8 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 	return pruned
 }
 
-// pruneLegacyGeminiSkills removes every banner-marked skill dir an earlier sync wrote under ~/.gemini/skills:
-// skills now reach Gemini through ~/.agents/skills, and a copy in both tiers is exactly the conflict Gemini warns on.
+// pruneLegacyGeminiSkills removes every banner-marked skill dir an earlier sync wrote under ~/.gemini/skills, the
+// pre-agy location: skills now reach agy through GeminiSkillsDir, and a copy in both tiers conflicts.
 func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) int {
 	entries, err := os.ReadDir(root)
 	if err != nil {

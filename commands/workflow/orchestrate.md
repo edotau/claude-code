@@ -58,7 +58,7 @@ Instructions:
    | explore | `Explore` | Structure, conventions, dependencies → `## Findings` |
    | plan | `Plan` | Task breakdown per the `planning` skill → `## Plan`; **stop for user approval** |
    | refine *(optional)* | `general-purpose` | Self-contained brief per sub-task → `## Refined Briefs` |
-   | implement | `code-workers` per sub-task (parallel-safe ones in one message) **‖ `copilot`** | Execute plan steps — or `Workflow implement-and-verify` per self-contained sub-task |
+   | implement | `code-workers` per sub-task (parallel-safe ones in one message) **‖ `copilot`** | Execute plan steps |
    | simplify | `general-purpose` loading the `simplicity` skill | Behavior-preserving cleanup |
    | review | `general-purpose` loading `evaluate-code` **‖** one loading `security-reviewer` | Findings + SHIP / FIX REQUIRED / BLOCK |
    | verify | main session: `Workflow gate-loop {cwd, scope}` (gate auto-detected), then the `approval-gate` checklist | format → lint → test → security |

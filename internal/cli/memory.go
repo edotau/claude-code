@@ -253,7 +253,8 @@ func memoryRoot(repo string) string {
 		return d
 	}
 	cwd, _ := os.Getwd()
-	if top := memory.GitToplevel(cwd); top != "" {
+	// Inside the store its own toplevel is the store root; keep cwd so memory/<repo>/ resolves to that repo.
+	if top := memory.GitToplevel(cwd); top != "" && !paths.SamePath(top, memory.StoreDir()) {
 		return top
 	}
 	return cwd

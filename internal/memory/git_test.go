@@ -274,3 +274,21 @@ func mustEval(t *testing.T, p string) string {
 	}
 	return r
 }
+
+// Store git calls run with -C: from a cwd inside the store, pathspecs and output stay relative to the store root.
+func TestRepoRunIgnoresProcessCwd(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := Repo{Dir: store}
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "proj", "activeContext.md"), "x\n")
+	t.Chdir(filepath.Join(store, "proj"))
+	st, err := r.Status("proj/activeContext.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st) != 1 || st[0].Path != "proj/activeContext.md" {
+		t.Fatalf("Status from a store subdir = %+v, want proj/activeContext.md", st)
+	}
+}

@@ -60,7 +60,8 @@ claude-code gemini bridge [--model <MODEL>] [--dirs <DIRS>] [--files <FILES>] [-
 ```
 
 Guidance:
-- Routing is always the in-process Google API path (`GEMINI_API_KEY`, no vendor CLI, no node/python).
+- Routing rides the subscription via `agy` when a Google login is present, else the in-process
+  Google API path (`GEMINI_API_KEY` via the `google.golang.org/genai` SDK) — no node/python either way.
 - Use `--dirs` for broad package or module areas.
 - Use `--files` for precise globs or structured data slices.
 - `--index` appends a path index to the inlined bodies; pair with `--max-files 0` for an index-only run with no bodies.
@@ -144,13 +145,15 @@ Keep the bridge context lean — reference files/lines, don't paste large snippe
 ## Notes
 
 - Native command: `claude-code gemini bridge` — in-process Go, no node/python.
-- **Routing**: one chat-completions call to Google's API via the `gemini` provider (registry entry,
-  `kind: openai`), authenticated with `GEMINI_API_KEY` from `env.d/secrets.env`. No vendor CLI at
-  runtime, so a broken `gemini` install can't take the bridge offline.
+- **Routing**: rides the subscription (Free/Pro/Ultra) via `agy` when a cached Google login is
+  present, else one call to the `gemini` provider (registry entry, `kind: openai`) via the
+  `google.golang.org/genai` SDK, authenticated with `GEMINI_API_KEY` from `env.d/secrets.env`.
+  `agy` has no gateway/base-URL override, so a gateway-routed `gemini` provider only serves the
+  API-key fallback leg.
 - Model tiers: `opus` = `gemini-4-argon` (reasoning; use for second-opinion review),
   `sonnet` = `gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`.
 - Model resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet
   tier. `--model` accepts a tier name (`opus`/`sonnet`/`haiku`) or a bare model id.
 - `--rubric <file>` takes a file path (e.g. `skills/simplicity/SKILL.md`), not a skill name.
 - Related: the `gemini` agent's Gemini backend wraps this bridge in a structured-findings format;
-  `claude-code gemini ask "<task>"` drives the vendor `gemini` CLI directly instead of the bridge.
+  `claude-code gemini ask "<task>"` drives the Antigravity CLI `agy` directly instead of the bridge.

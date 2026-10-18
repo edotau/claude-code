@@ -365,7 +365,7 @@ func shellQuote(s string) string {
 var OfferConfigure func(vendor string, reason error) bool
 
 // passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
-// that CLI and it carries its own login, so refusing to run it would only hide `gemini auth login` itself.
+// that CLI and it carries its own login, so refusing to run it would only hide its own `agy` sign-in.
 func passthrough(spec vendors.Spec, name string, reason error, args []string) (Plan, error) {
 	if _, err := lookPath(spec.Binary); err != nil {
 		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story

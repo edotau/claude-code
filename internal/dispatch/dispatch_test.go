@@ -92,6 +92,18 @@ func TestValidName(t *testing.T) {
 	}
 }
 
+// TestAgentLaunchArgs_Interactive pins agy's attached `-i=<task>` form (verified live on this box;
+// `-i <task>` as two argv elements would swallow the next flag the same way `-p` does headless) against
+// copilot's separate `-i <task>` form, which the two previously shared.
+func TestAgentLaunchArgs_Interactive(t *testing.T) {
+	if got := agentLaunchArgs("gemini", "hello"); len(got) != 1 || got[0] != "-i=hello" {
+		t.Errorf("agentLaunchArgs(gemini) = %v, want [\"-i=hello\"]", got)
+	}
+	if got := agentLaunchArgs("copilot", "hello"); len(got) != 2 || got[0] != "-i" || got[1] != "hello" {
+		t.Errorf("agentLaunchArgs(copilot) = %v, want [\"-i\" \"hello\"]", got)
+	}
+}
+
 func TestBuildRemoteCommand_RejectsBadName(t *testing.T) {
 	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " "} {
 		if _, _, err := BuildRemoteCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {

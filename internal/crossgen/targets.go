@@ -52,6 +52,12 @@ func AgentsSkillsDir(home string) string { return filepath.Join(home, ".agents",
 // LegacyGeminiSkillsDir is where earlier syncs projected skills; only banner-marked dirs there are ever pruned.
 func LegacyGeminiSkillsDir(home string) string { return filepath.Join(home, ".gemini", "skills") }
 
+// GeminiSkillsDir is agy's own skills dir: unlike other vendors it does not read ~/.agents/skills, so
+// the gemini vendor pass links skills here too, in addition to the cross-vendor AgentsSkillsDir.
+func GeminiSkillsDir(home string) string {
+	return filepath.Join(home, ".gemini", "antigravity-cli", "skills")
+}
+
 func userHome() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

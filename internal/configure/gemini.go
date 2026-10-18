@@ -1,5 +1,5 @@
-// gemini.go — the gemini agent's submenu: Google login or an AI Studio key, then Login and Mint key. Mint key creates a
-// Gemini-only key through the Google Cloud API Keys API (internal/googlekeys) and rotates GEMINI_API_KEY to it.
+// gemini.go — the gemini agent's submenu: Google login via `agy` or an AI Studio key, then Login and Mint key. Mint key
+// creates a Gemini-only key through the Google Cloud API Keys API (internal/googlekeys) and rotates GEMINI_API_KEY to it.
 package configure
 
 import (
@@ -19,7 +19,7 @@ const (
 )
 
 func geminiMenu(d *dialog) agentMenu {
-	loginSel := vendors.GeminiLoginPresent() // ~/.gemini/settings.json selects a Google login, which beats the key
+	loginSel := vendors.GeminiLoginPresent() // agy's cached Google login beats GEMINI_API_KEY
 	p, keyOK := keyPresent(d.reg, geminiRow)
 	st := agentState{mode: modeNone}
 	switch {
@@ -33,22 +33,22 @@ func geminiMenu(d *dialog) agentMenu {
 	key.run = func() bool {
 		ok := ensure()
 		if ok && loginSel {
-			d.printf("gemini     its own settings still select the Google login; run `gemini` → /auth → Use Gemini API key\n")
+			d.printf("gemini     the Google login via `agy` still takes priority over %s\n", geminiKeyEnv)
 		}
 		return ok
 	}
 	return agentMenu{st, []billingRow{
-		{"Subscription", "Google login · plan limits · interactive gemini only " + bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "Google login via agy · plan limits · interactive agy only " + bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
 			if loginSel {
 				d.printf("%-10s on its Google login (kept)\n", geminiRow)
 				return true
 			}
-			d.printf("gemini     pick /auth → Login with Google; `ask --agent gemini` legs keep running on %s\n", geminiKeyEnv)
-			return signIn(d, geminiRow, []string{"gemini"})
+			d.printf("gemini     signing in through `agy`; `ask --agent gemini` legs keep running on %s\n", geminiKeyEnv)
+			return signIn(d, geminiRow, []string{"agy"})
 		}},
 		key,
-		{"Login", "gemini → /auth · browser sign-in, refreshes the Google session", "", func() bool {
-			return signIn(d, geminiRow, []string{"gemini"})
+		{"Login", "agy · browser sign-in on first launch, refreshes the Google session", "", func() bool {
+			return signIn(d, geminiRow, []string{"agy"})
 		}},
 		{"Mint key", "API Keys API · mints a Gemini-only key in your Cloud project, rotates " + geminiKeyEnv, "", func() bool {
 			return mintGeminiKey(d)
