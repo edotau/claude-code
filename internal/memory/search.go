@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"math"
 	"os"
 	"path/filepath"
@@ -69,6 +70,24 @@ func QueryTermCount(q string) int {
 
 // SearchBanks ranks every block of root's local, global and archive banks plus native topics; top k (0 = all).
 func SearchBanks(root, query string, k int) []SearchHit {
+	return rankBlocks(query, k, append(corpusBlocks(root), routedBlocks(root, query)...))
+}
+
+// SearchAll ranks the global tier plus every repo store as one corpus (`memory search --all`).
+func SearchAll(query string, k int) []SearchHit {
+	blocks := corpusBlocks(paths.ConfigDir())
+	if entries, err := RepoDirs(); err == nil {
+		for _, e := range entries {
+			if e.Key != HarnessKey {
+				blocks = append(blocks, storeBlocks(e)...)
+			}
+		}
+	}
+	return rankBlocks(query, k, blocks)
+}
+
+// rankBlocks is BM25 over blocks (title line weighted); top k (0 = all).
+func rankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
 	qTerms := contentTerms(query)
 	if len(qTerms) == 0 {
 		return nil
@@ -80,7 +99,7 @@ func SearchBanks(root, query string, k int) []SearchHit {
 	}
 	var docs []doc
 	df := map[string]int{}
-	for _, hit := range append(corpusBlocks(root), routedBlocks(root, query)...) {
+	for _, hit := range blocks {
 		tf := map[string]float64{}
 		var dl float64
 		first, rest, _ := strings.Cut(hit.Block, "\n")

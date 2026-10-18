@@ -242,7 +242,7 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 	}
 
 	got := memoryContext(repo, "s1", time.Now())
-	if memory.HasBank(repo) || !strings.Contains(got, "memory migration incomplete") || !strings.Contains(got, "memory migrate --apply /m/pending.json") ||
+	if memory.HasBank(repo) || !strings.Contains(got, "memory migration incomplete") || !strings.Contains(got, "memory migrate --manifest /m/pending.json") ||
 		strings.Contains(got, "scaffolded") {
 		t.Fatalf("paused SessionStart must emit the migration notice alone and scaffold nothing: %q", got)
 	}

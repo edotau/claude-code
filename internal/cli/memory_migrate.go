@@ -12,8 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
-const memoryMigrateUsage = `usage: claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--format text|json]
-       claude-code memory migrate --apply MANIFEST [--supersede]`
+const memoryMigrateUsage = `usage: claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--supersede] [--format text|json]
+       claude-code memory migrate --manifest MANIFEST [--supersede]
+Applies by default (inventory → manifest → apply); --dry-run writes the manifest only.`
 
 // originFlag collects repeatable --origin SLUG=PATH pins.
 type originFlag map[string]string
@@ -29,14 +30,14 @@ func (o originFlag) Set(v string) error {
 	return nil
 }
 
-// cmdMemoryMigrate: the default dry run inventories the legacy trees and writes only a manifest; --apply consumes
-// that exact manifest. Exit 0 only on a complete apply; 2 when the box is not quiesced or the manifest is stale.
+// cmdMemoryMigrate applies by default (inventory, manifest, apply); --dry-run stops after the manifest and
+// --manifest applies a reviewed one. Exit 0 only on a complete apply (or a written dry-run manifest).
 func cmdMemoryMigrate(args []string) int {
 	fs := flag.NewFlagSet("memory migrate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	dryRun := fs.Bool("dry-run", true, "inventory and write a manifest only (the default)")
-	apply := fs.String("apply", "", "apply this manifest (implies not --dry-run)")
-	supersede := fs.Bool("supersede", false, "with --apply: set another manifest's unfinished journal aside (kept as *.journal.superseded.json)")
+	dryRun := fs.Bool("dry-run", false, "inventory and write a manifest only; apply nothing")
+	manifest := fs.String("manifest", "", "apply this reviewed manifest instead of taking a fresh inventory")
+	supersede := fs.Bool("supersede", false, "set another manifest's unfinished journal aside (kept as *.journal.superseded.json)")
 	origins := originFlag{}
 	fs.Var(origins, "origin", "pin a legacy slug to its checkout: SLUG=PATH (repeatable)")
 	format := outfmt.Flag(fs)
@@ -50,33 +51,35 @@ func cmdMemoryMigrate(args []string) int {
 		fail("memory migrate: %v", err)
 		return 2
 	}
-	if *apply != "" {
-		if *format == outfmt.JSON {
-			return fail("memory migrate: --format json only applies to a dry run; --apply streams progress text (%s)", memoryMigrateUsage)
-		}
-		return migrateApply(*apply, *supersede)
+	if *manifest != "" && (*dryRun || len(origins) > 0) {
+		return fail("memory migrate: --manifest applies a reviewed manifest; it takes no --dry-run/--origin (%s)", memoryMigrateUsage)
 	}
-	if *supersede {
-		return fail("memory migrate: --supersede needs --apply MANIFEST (%s)", memoryMigrateUsage)
+	if *format == outfmt.JSON && !*dryRun {
+		return fail("memory migrate: --format json only applies to --dry-run; an apply streams progress text (%s)", memoryMigrateUsage)
 	}
-	if !*dryRun {
-		return fail("memory migrate: --dry-run=false needs --apply MANIFEST (%s)", memoryMigrateUsage)
+	if *manifest != "" {
+		return migrateApply(*manifest, *supersede)
 	}
-	return migrateDryRun(map[string]string(origins), *format)
+	path, rc := migrateDryRun(map[string]string(origins), *format, *dryRun)
+	if rc != 0 || *dryRun {
+		return rc
+	}
+	return migrateApply(path, *supersede)
 }
 
-func migrateDryRun(origins map[string]string, format string) int {
+// migrateDryRun takes the inventory and writes its manifest; with preview it also prints the review hint.
+func migrateDryRun(origins map[string]string, format string, preview bool) (string, int) {
 	m, err := memory.Inventory(memory.InventoryOptions{Origins: origins, Now: time.Now()})
 	if err != nil {
-		return fail("memory migrate: %v", err)
+		return "", fail("memory migrate: %v", err)
 	}
 	path, err := memory.WriteManifest(m)
 	if err != nil {
-		return fail("memory migrate: %v", err)
+		return "", fail("memory migrate: %v", err)
 	}
 	if format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, m)
-		return 0
+		return path, 0
 	}
 	for _, it := range m.Items {
 		src, dest := it.Source, it.Dest
@@ -91,8 +94,11 @@ func migrateDryRun(origins map[string]string, format string) int {
 	for _, f := range m.Findings {
 		fmt.Println("! " + f)
 	}
-	fmt.Printf("manifest: %s\napply: claude-code memory migrate --apply %s\n", path, path)
-	return 0
+	fmt.Printf("manifest: %s\n", path)
+	if preview {
+		fmt.Printf("apply: claude-code memory migrate --manifest %s\n", path)
+	}
+	return path, 0
 }
 
 // migrateApply runs the manifest; supersede is the explicit, journal-preserving way past another manifest's journal.

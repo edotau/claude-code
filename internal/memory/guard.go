@@ -33,7 +33,7 @@ func StartupGuard() Guard {
 	}
 	path, manifest, incomplete, migrated := scanJournals()
 	if incomplete {
-		return Guard{Paused: true, Notice: "memory migration incomplete (" + filepath.Base(path) + "): finish it with `claude-code memory migrate --apply " +
+		return Guard{Paused: true, Notice: "memory migration incomplete (" + filepath.Base(path) + "): finish it with `claude-code memory migrate --manifest " +
 			manifest + "`; memory writes are paused"}
 	}
 	// After a completed import every resolver points into the store, so writes resume — unless the store vanished.

@@ -257,7 +257,7 @@ func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
 	write(t, journal, `{"phase":"copy","manifest":"/m/pending.json"}`)
 	g = StartupGuard()
 	if !g.Paused || !strings.Contains(g.Notice, "memory migration incomplete (20260101-000000.journal.json)") ||
-		!strings.Contains(g.Notice, "memory migrate --apply /m/pending.json") {
+		!strings.Contains(g.Notice, "memory migrate --manifest /m/pending.json") {
 		t.Errorf("incomplete journal guard: %+v", g)
 	}
 	write(t, journal, "not json")
