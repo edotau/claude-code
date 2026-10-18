@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/history"
 	"io"
@@ -279,6 +280,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	check(true, false, "audit (7d)", auditSummary())
 	check(true, false, "setup", setupDoctorDetail())
+	check(true, false, "browser", browserDoctorDetail())
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
 }
@@ -329,6 +331,17 @@ func auditSummary() string {
 		return "no audited actions (claude-code doctor --audit)"
 	}
 	return strings.Join(parts, ", ") + " (claude-code doctor --audit)"
+}
+
+// browserDoctorDetail names the default browser and its extension state; advisory, never a failing check.
+func browserDoctorDetail() string {
+	rep := browser.Detect(browser.NewEnv())
+	for _, b := range rep.Browsers {
+		if b.Default {
+			return b.Name + " default, extension=" + b.Paths.Extension + " (claude-code web browsers)"
+		}
+	}
+	return "no Chromium-family default (claude-code web browsers)"
 }
 
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
