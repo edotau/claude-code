@@ -342,3 +342,45 @@ func TestBackupsAgeless(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionsTargetOptInKeepsAutoMemory: transcripts and their <id>/ dirs go only under --what sessions;
+// projects/<slug>/memory and any other sibling survive at any age.
+func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	slug := filepath.Join(dir, "projects", "-Users-me-repo")
+	transcript := filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd.jsonl")
+	sessDir := filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd", "subagents", "a.jsonl")
+	memory := filepath.Join(slug, "memory", "MEMORY.md")
+	pointer := filepath.Join(slug, "bridge-pointer.json")
+	for _, p := range []string{transcript, sessDir, memory, pointer} {
+		write(t, p, "x")
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		// Age every ancestor up to the slug: a subtree is aged by its newest entry, dirs included.
+		for d := filepath.Dir(p); strings.HasPrefix(d, slug); d = filepath.Dir(d) {
+			if err := os.Chtimes(d, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--apply"}, &out, &errw); code != 0 {
+		t.Fatalf("bare Run --apply = %d, want 0: %s", code, errw.String())
+	}
+	if !exists(t, transcript) || !exists(t, sessDir) {
+		t.Fatal("bare sweep removed session transcripts; sessions must be opt-in")
+	}
+	out.Reset()
+	if code := Run([]string{"--what", "sessions", "--apply"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --what sessions --apply = %d, want 0: %s", code, errw.String())
+	}
+	if exists(t, transcript) || exists(t, sessDir) {
+		t.Error("--what sessions kept an aged transcript or session dir")
+	}
+	if !exists(t, memory) || !exists(t, pointer) {
+		t.Error("--what sessions swept projects/<slug>/memory or a non-session sibling")
+	}
+}
