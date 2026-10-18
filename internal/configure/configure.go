@@ -628,10 +628,7 @@ func readSecret(br *bufio.Reader) (string, error) {
 	return line, nil
 }
 
-func isStdinTTY() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
+func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
 
 // --- models ---
 

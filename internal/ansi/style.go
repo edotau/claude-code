@@ -21,11 +21,18 @@ func Enabled(w io.Writer) bool {
 		return false
 	}
 	f, ok := w.(*os.File)
-	if !ok {
+	return ok && IsTerminal(f)
+}
+
+// IsTerminal reports whether f is a real terminal. /dev/null is itself a char device, so
+// ModeCharDevice alone misreports `cmd </dev/null` as interactive; os.SameFile rules it out.
+func IsTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(fi, null)
 }
 
 // Style wraps s in code (one or more SGR escapes) and a reset when on; otherwise s unchanged.

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/ansi"
 	"io"
 	"os"
 	"path/filepath"
@@ -246,22 +247,11 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 	return line == "y" || line == "yes"
 }
 
-// isStdinTTY reports whether stdin is the real controlling terminal. /dev/null is itself a char
-// device, so ModeCharDevice alone misreports `clean </dev/null` as a TTY; os.SameFile rules it out.
 // Test seams for the sessions [y/N] prompt.
 var (
-	stdinIsTTY           = isStdinTTY
+	stdinIsTTY           = func() bool { return ansi.IsTerminal(os.Stdin) }
 	promptIn   io.Reader = os.Stdin
 )
-
-func isStdinTTY() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	null, err := os.Stat(os.DevNull)
-	return err != nil || !os.SameFile(fi, null)
-}
 
 // pruneAged removes every glob match older than cutoff (a directory whole, by its newest mtime).
 // Size is measured BEFORE removal — dirSize on an already-deleted path always reads 0.
