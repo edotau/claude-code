@@ -10,7 +10,7 @@ description: "Session reflection + memory consolidation — persist learnings, t
 
 Two modes in one command:
 
-- **`/reflection:consolidate`** — End-of-session: summarize work, persist learnings to agent memories and the memory bank, then consolidate
+- **`/reflection:consolidate`** — End-of-session: summarize work, persist learnings to native project memory and the memory bank, then consolidate
 - **`/reflection:consolidate --dream`** — Consolidation only: audit, deduplicate, prune, and cross-pollinate memory without a session summary
 - **`/reflection:consolidate --dry-run`** — Audit all memory layers and report what would change without editing
 
@@ -43,19 +43,18 @@ Review the conversation so far. Produce a structured summary:
 - <problems hit and how they were resolved, or still open>
 ```
 
-### Step 2: Update Agent Memories
+### Step 2: Update Native Project Memory
 
-For each agent whose domain was touched this session, update its native memory
-(`~/.claude/agent-memory/<name>/`):
+Update the current project's native memory at `~/.claude/projects/<slug>/memory/`:
 
-1. Find all agent memory dirs: `~/.claude/agent-memory/*/MEMORY.md`
-2. For each relevant agent, read its `MEMORY.md` index (+ any linked topic files)
+1. Resolve the project's memory dir: `~/.claude/projects/<slug>/memory/MEMORY.md`
+2. Read its `MEMORY.md` index (+ any linked topic files)
 3. Summarize new learnings into a **topic file** (`<topic>.md` beside `MEMORY.md`), then add or refine its one-line TOC entry in `MEMORY.md`:
    - Patterns that recur in this project
    - Gotchas discovered this session
    - Conventions to enforce
    - Things that worked well or failed
-4. Only update agents whose domain was actually touched — no generic platitudes
+4. Only write what was actually learned this session — no generic platitudes
 5. Never edit the approval-gated RULES region (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`)
 
 ### Step 3: Update the Memory Bank
@@ -90,12 +89,12 @@ Launch the **opencode** agent (PERSIST mode) for consolidation. Pass it all memo
 ### Phase 1: Backup
 
 Before any edits, create timestamped backups under `backups/dream/<yyyy-mm-dd-HHMM>/` of
-every file about to be modified (memory bank files, touched agent memories).
+every file about to be modified (memory bank files, touched native memory).
 
 ### Phase 2: Audit All Memory Layers
 
 Read every memory file and build an inventory: bank files (lines, last updated), each
-touched agent's `MEMORY.md` + topic files (lines, duplicates, staleness).
+touched project's `MEMORY.md` + topic files (lines, duplicates, staleness).
 
 ### Phase 3: Review Recent Sessions
 
@@ -105,9 +104,9 @@ Run `claude-code memory timeline` for the recent harvest/dream/session trail:
 2. Extract corrections (things that failed and their fixes)
 3. Note which are already captured in memory vs. missing
 
-### Phase 4: Consolidate Agent Memories
+### Phase 4: Consolidate Native Project Memory
 
-For each `~/.claude/agent-memory/*/MEMORY.md` (index) + its topic files:
+For each `~/.claude/projects/*/memory/MEMORY.md` (index) + its topic files:
 
 1. **Remove duplicates**: Entries/topic files that say the same thing in different words
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
@@ -128,13 +127,13 @@ Run `claude-code memory doctor` for cap/staleness findings, then:
 
 ### Phase 6: Cross-Pollinate (via subagent)
 
-Hand the dream consolidator (opencode) every touched `~/.claude/agent-memory/*/MEMORY.md` (+
+Hand the dream consolidator (opencode) every touched `~/.claude/projects/*/memory/MEMORY.md` (+
 topic files). Ask it to:
 
-1. Detect rules that recur across **3+ agent memories** and are hard prohibitions.
+1. Detect rules that recur across **3+ project memories** and are hard prohibitions.
 2. Only those rules qualify for promotion to `CLAUDE.md` under "Known Gotchas" (or the
    equivalent always-on section) — and only if visible every session is genuinely required.
-3. After promotion, remove the promoted entry from the individual agent memories
+3. After promotion, remove the promoted entry from the individual project memories
    (project-level supersedes).
 4. Rules that recur but aren't hard prohibitions get appended straight to the matching
    `rules/standards/` or `rules/software/<lang>/` file instead.
@@ -151,9 +150,9 @@ Backup: backups/dream/2026-04-13-1430/
 
 Session Summary: [written / skipped (dream-only)]
 
-Agent Memories:
-  claude  89 -> 71 lines  (-18 merged related items)
-  [unchanged]    codex, gemini, opencode, ...
+Native Project Memory:
+  MEMORY.md  89 -> 71 lines  (-18 merged related items)
+  [unchanged]    other topic files
 
 Bank:
   activeContext.md: [updated/unchanged]
@@ -161,7 +160,7 @@ Bank:
 
 Cross-Pollination:
   1 pattern promoted to CLAUDE.md: "<rule>"
-  Removed from: <agent> agent memory
+  Removed from: native project memory
 
 Total changes: N files modified, N files unchanged
 ```
@@ -185,7 +184,7 @@ After all updates:
 
 1. Confirm all updated memory files are well-formed markdown
 2. Confirm `sessionHistory.md` has <= 30 entries
-3. Confirm each agent `MEMORY.md` is a lean index (detail pushed to topic files; RULES region untouched)
+3. Confirm the project `MEMORY.md` is a lean index (detail pushed to topic files; RULES region untouched)
 
 ---
 

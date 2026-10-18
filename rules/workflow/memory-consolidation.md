@@ -23,20 +23,20 @@ paths:
 
 ```
 [SESSION REFLECTION — skipped in --dream and --dry-run]
-  SESSION SUMMARY --> UPDATE AGENT MEMORIES --> UPDATE MEMORY BANK --> ROUTE CORRECTIONS TO RULES
+  SESSION SUMMARY --> UPDATE NATIVE MEMORY --> UPDATE MEMORY BANK --> ROUTE CORRECTIONS TO RULES
 
 [DREAM CONSOLIDATION — Sonnet subagent owns Cross-Pollinate]
-  BACKUP --> AUDIT --> REVIEW RECENT SESSIONS --> PRUNE AGENT MEMORIES
+  BACKUP --> AUDIT --> REVIEW RECENT SESSIONS --> PRUNE NATIVE MEMORY
     --> REFRESH BANK --> CROSS-POLLINATE --> REPORT
 ```
 
 ## The promotion gradient
 
 ```
-agent memory ──promote (/reflection:promote)──▶ rules/standards/<topic>.md
-                                                 rules/software/<lang>/<topic>.md
+native memory ──promote (/reflection:promote)──▶ rules/standards/<topic>.md
+                                                  rules/software/<lang>/<topic>.md
                                                           │ dream gate only:
-                                                          │ 3+ agent memories AND
+                                                          │ 3+ memory entries AND
                                                           │ hard prohibition
                                                           ▼
                                           CLAUDE.md "Known Gotchas"   ← always-on tier
@@ -51,18 +51,18 @@ through the gate.
 - **`/harness:adapt`** — captures a session's corrections and routes each into the matching
   `rules/standards/` or `rules/software/` file (routing table in `commands/harness/adapt.md`).
   It **never** edits `rules/workflow/`, and never edits `CLAUDE.md`.
-- **`/reflection:consolidate --dream`** — curates agent memories and (gated) promotes hard
+- **`/reflection:consolidate --dream`** — curates native project memory and (gated) promotes hard
   prohibitions up to `CLAUDE.md`. It **never** edits `rules/**` beyond the gated promotion —
   those files are human/`adapt`-authored and git-tracked.
 
 ## Scope constraints
 
-- `/reflection:*` curates Claude Code's native agent memory (`agent-memory/<name>/`) and the
-  session memory bank (`docs/memory/bank/`). It does not invent a third tier — there is no
+- `/reflection:*` curates Claude Code's native project memory (`~/.claude/projects/<slug>/memory/`)
+  and the session memory bank (`docs/memory/bank/`). It does not invent a third tier — there is no
   separate "learnings" feedstock file in this harness; a correction either routes straight to a
-  `rules/` file (via `/harness:adapt` or `/reflection:promote`) or stays in agent memory until it
+  `rules/` file (via `/harness:adapt` or `/reflection:promote`) or stays in native memory until it
   does.
-- Agent-memory edits never touch the approval-gated RULES region
+- Native memory edits never touch the approval-gated RULES region
   (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit human approval.
 - `sessionHistory.md` caps at 30 entries (overflow archives via `claude-code memory index`);
   `conventions.md`/`decisionLog.md` overflow promotes to the global bank via `claude-code memory

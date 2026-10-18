@@ -83,7 +83,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/copilot` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
-| Audit / extract / promote / save agent memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/opencode.md` |
+| Audit / extract / promote / save memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |

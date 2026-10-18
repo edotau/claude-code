@@ -1,22 +1,22 @@
 ---
-description: "Graduate a proven agent-memory entry into a writable rules tier (rules/standards or rules/software) — never CLAUDE.md directly — then remove it from agent memory."
+description: "Graduate a proven memory entry into a writable rules tier (rules/standards or rules/software) — never CLAUDE.md directly — then remove it from native project memory."
 argument-hint: "<pattern description> [--target <path>]"
 ---
 
 # /reflection:promote — Graduate a Learning up the Gradient
 
 > Part of the `/reflection:*` family (see `/reflection:review`, `:extract`, `:remember`,
-> `:consolidate`). This command moves a proven entry **out of** native agent memory and
+> `:consolidate`). This command moves a proven entry **out of** native project memory and
 > **into** a writable rules tier where it becomes durable, addressable doctrine.
 
 ## The promotion gradient
 
 ```
-agent-memory entry ──promote──▶ rules/standards/<topic>.md
+memory entry ──promote──▶ rules/standards/<topic>.md
                                  rules/software/<lang>/<topic>.md   (writable)
                                                  │
                                                  │ dream gate only:
-                                                 │ 3+ agent memories AND
+                                                 │ 3+ memory entries AND
                                                  │ hard prohibition
                                                  ▼
                                  CLAUDE.md "Known Gotchas"  (always-on tier)
@@ -28,10 +28,10 @@ CLAUDE.md-worthy, route it to a `rules/standards/` file and note that the dream 
 consider it later — that is the only path. `promote` also never edits `rules/workflow/`
 (human-authored process).
 
-## Step 1: Find the entry in agent memory
+## Step 1: Find the entry in native project memory
 
 ```bash
-grep -rni "<keywords>" ~/.claude/agent-memory/*/
+grep -rni "<keywords>" ~/.claude/projects/*/memory/
 ```
 
 Show the matching topic file(s) + `MEMORY.md` index line and confirm with the user this is
@@ -57,7 +57,7 @@ explicit `--target <path>` only if it points at a writable tier (never `CLAUDE.m
 
 ## Step 3: Distill into a rule
 
-Transform the agent-memory note (descriptive, multi-line) into a prescriptive one-liner:
+Transform the memory note (descriptive, multi-line) into a prescriptive one-liner:
 
 - Imperative voice ("Use X", "Never Y").
 - Include the concrete command/path/value, not just the concept.
@@ -68,27 +68,27 @@ Append the rule (a line to a short paragraph) under the right heading in the tar
 existing `rules/standards/` / `rules/software/<lang>/` format — and with **no `paths:`
 frontmatter** unless the file is meant to be on-demand.
 
-## Step 4: Remove the entry from agent memory
+## Step 4: Remove the entry from native project memory
 
 After the target write lands:
 
-1. Delete the topic file (`rm ~/.claude/agent-memory/<agent>/<slug>.md`) — or, if the fact
+1. Delete the topic file (`rm ~/.claude/projects/<slug>/memory/<topic>.md`) — or, if the fact
    shared a file with still-relevant content, edit out only the promoted portion.
-2. Remove its index line from that agent's `MEMORY.md`.
+2. Remove its index line from that project's `MEMORY.md`.
 3. Confirm the index no longer references a deleted file (no dangling links).
 
-This frees agent-memory space and prevents the same rule living in two tiers.
+This frees MEMORY.md space (cap: 200 lines auto-loaded) and prevents the same rule living in two tiers.
 
 ## Step 5: Report
 
 ```
 Promoted: "<distilled rule>"
   → <target file> §<section>
-Removed from agent memory: <agent>/<slug>.md  +  MEMORY.md index line
+Removed from native memory: <slug>.md  +  MEMORY.md index line
 MEMORY.md: N index lines remaining
 
 [if CLAUDE.md-worthy] Routed to <rules file>; the /reflection:consolidate --dream
-gate (3+ agent memories AND hard prohibition) will consider it for CLAUDE.md promotion.
+gate (3+ memory entries AND hard prohibition) will consider it for CLAUDE.md promotion.
 This command does not write CLAUDE.md.
 ```
 
@@ -97,4 +97,4 @@ This command does not write CLAUDE.md.
 - **Promote** when the entry recurs across sessions, prevents a repeat mistake, or is a
   convention any contributor should know (`/reflection:review` scores it ≥ 6).
 - **Don't** promote one-off debugging notes, session-specific context, or anything mid-migration
-  that may change soon — leave those in agent memory.
+  that may change soon — leave those in native project memory.
