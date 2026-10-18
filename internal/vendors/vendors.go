@@ -100,6 +100,12 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 		}
 		return ft, note, nil
 	}
+	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
+	if name == "opencode" || name == "copilot" {
+		if ri := DescribeRoute(reg, name); !ri.OK {
+			return providers.Target{}, "", errors.New(ri.Reason)
+		}
+	}
 	return t, "", nil
 }
 
@@ -138,24 +144,22 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			return providers.Target{Provider: p, Model: model}, "chatgpt (codex login)", true
 		}
 	case "copilot":
-		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok && copilotLoginPresent() {
-			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "github-copilot (GH_TOKEN/gh auth)", true
+		// copilot's own chain (DescribeRoute): its GitHub login, then BYOK with an anthropic or gemini key.
+		if ri := DescribeRoute(reg, "copilot"); ri.OK {
+			if t, ok := routeTarget(reg, ri); ok {
+				return t, ri.Reason, true
+			}
 		}
 	case "gemini":
 		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
 		}
 	case "opencode":
-		// opencode keeps its own provider logins (`opencode auth login` → auth.json); those come first, then
-		// a plain keyed registry provider. A nil Provider tells the launcher to run opencode untouched.
-		if names := OpencodeLogins(); len(names) > 0 {
-			return providers.Target{}, "opencode auth login (" + strings.Join(names, ", ") + ")", true
-		}
-		if m := opencodeOwnModel(); m != "" {
-			return providers.Target{}, "opencode's own config (" + m + ")", true
-		}
-		if p, ok := firstKeyedProvider(reg); ok {
-			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, p.Name + " (first keyed provider)", true
+		// opencode's own chain (DescribeRoute): its own GitHub Copilot login, then an anthropic or gemini key.
+		if ri := DescribeRoute(reg, "opencode"); ri.OK {
+			if t, ok := routeTarget(reg, ri); ok {
+				return t, ri.Reason, true
+			}
 		}
 	}
 	return providers.Target{}, "", false
@@ -167,21 +171,6 @@ func loginProvider(reg *providers.Registry, providerName, vendor string) (*provi
 		return nil, false
 	}
 	return p, true
-}
-
-// firstKeyedProvider is the first registered provider (by name, sorted) with a non-passthrough,
-// non-none auth type whose credential actually resolves.
-func firstKeyedProvider(reg *providers.Registry) (*providers.Provider, bool) {
-	for _, n := range reg.Names() {
-		p := reg.Providers[n]
-		if p.Auth.Type == providers.AuthPassthrough || p.Auth.Type == providers.AuthNone {
-			continue
-		}
-		if providers.CredentialPresent(p) {
-			return p, true
-		}
-	}
-	return nil, false
 }
 
 // copilotLoginPresent checks GH_TOKEN first, then `gh auth token` (copilot's own sign-in surface) — the
@@ -203,8 +192,8 @@ func ConfigureHint(name string) string {
 	switch name {
 	case "codex":
 		return "run `codex login` (ChatGPT) or `claude-code configure keys`"
-	case "copilot":
-		return "run `copilot login` (or set GH_TOKEN) or `claude-code configure keys`"
+	case "copilot", "opencode":
+		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
 	case "gemini":
 		return "run `claude-code configure keys` to set GEMINI_API_KEY, or sign in with `gemini`"
 	default:
@@ -871,28 +860,6 @@ func OpencodeLogins() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// opencodeOwnModel is the "model" the user set in ~/.config/opencode/opencode.jsonc (comment-free JSON
-// only), else "". Reads the exact filename only, so a generate-retired "opencode.jsonc.bak-<ts>" never
-// counts as the user's own setup.
-func opencodeOwnModel() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".config")
-	}
-	data, err := os.ReadFile(filepath.Join(base, "opencode", "opencode.jsonc"))
-	if err != nil {
-		return ""
-	}
-	var cfg struct {
-		Model string `json:"model"`
-	}
-	if json.Unmarshal(data, &cfg) != nil {
-		return ""
-	}
-	return cfg.Model
 }
 
 // opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), where `opencode auth login` writes.

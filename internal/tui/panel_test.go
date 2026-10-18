@@ -95,3 +95,21 @@ func TestRenderDrawsInPlaceAndRewindsItsOwnHeight(t *testing.T) {
 		t.Errorf("color on must paint status tokens and reverse the selected row:\n%q", colored)
 	}
 }
+
+// PickBack's own index remap ("Back" row, appended at len(rows), maps to -1; every other index passes
+// through unchanged) only runs past Pick's TTY gate, so it can't be driven with a fake key stream the
+// way handlePickKey is above (no injectable seam on Open/isTerminal here). What IS testable without a
+// TTY is Pick's own documented non-TTY contract, which PickBack inherits unchanged: -1 and a non-nil
+// error, regardless of how many rows (and therefore where the synthetic Back row would land).
+func TestPickBackNonTTYReturnsMinusOneRegardlessOfRowCount(t *testing.T) {
+	for _, rows := range [][][2]string{
+		nil,
+		{{"a", "x"}},
+		{{"a", "x"}, {"b", "y"}, {"c", "z"}},
+	} {
+		idx, err := PickBack("title", rows, 0)
+		if idx != -1 || err == nil {
+			t.Errorf("PickBack(%d rows) on a non-terminal = (%d, %v), want (-1, non-nil)", len(rows), idx, err)
+		}
+	}
+}

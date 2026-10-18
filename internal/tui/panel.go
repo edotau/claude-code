@@ -114,3 +114,17 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 	}
 	return -1, nil
 }
+
+// PickBack is Pick with a trailing "Back" row appended; picking it (or Esc/q/Ctrl-C) both return -1, so a
+// caller with a menu loop re-shows the enclosing menu on -1 and a caller without one keeps its existing
+// "kept, nothing changed" path unmodified.
+func PickBack(title string, rows [][2]string, start int) (int, error) {
+	withBack := make([][2]string, len(rows)+1)
+	copy(withBack, rows)
+	withBack[len(rows)] = [2]string{"Back", "return to the previous menu"}
+	idx, err := Pick(title, withBack, start)
+	if err != nil || idx == len(rows) {
+		return -1, err
+	}
+	return idx, nil
+}
