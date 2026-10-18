@@ -49,7 +49,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
 | Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--vendor v] [--check]` · `make bootstrap` | `README.md` → Setup |
-| Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | `docs/plans/2026-10-17-setup-modes.md` |
+| Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | `README.md` → Setup modes |
 | Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
 | Sync VS Code's Machine settings + per-agent terminal keybindings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f] [--keybindings-dest f]` | `README.md` → Setup |
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |
@@ -87,7 +87,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |
-| Tailnet: status, machines, connect, mint a key, exit node | `claude-code tailscale status\|machines\|connect\|key\|exit-node` · `make tailscale-cli` · configure row | `docs/plans/2026-10-17-tailscale-module.md` |
+| Tailnet: status, machines, connect, mint a key, exit node | `claude-code tailscale status\|machines\|connect\|key\|exit-node` · `make tailscale-cli` · configure row | `README.md` → Tailscale |
 
 ## Where things live
 
@@ -101,6 +101,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
 - `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own (symlinks into `~/.agents`, which Gemini reads natively), leave them.
 - `skills/synced/` — claude.ai account skills Claude Code re-downloads each sync round; untracked, edit them on claude.ai.
-- `docs/plans/` — implementation plans.
+- `plans/` — implementation plans (Claude Code's native `plansDirectory`); untracked, gitignored
+  wholesale — this repo's own at the top, other repos' under `plans/<repo-slug>/`.
 - `docs/memory/bank/<repo-slug>/` — session memory bank (six files, untracked; git roots only — the `bank/` top
   is the global bank); engine `internal/memory`, hooks `session-start` / `memory-recall` / `session-harvest[-end]`.

@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// SavePlan files an approved ExitPlanMode plan as <config>/docs/plans/[<repo>/]<date>-<title>.md (subdirs git-ignored).
+// SavePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
 // PostToolUse only fires on approval; tool_input.plan is the approved text, planFilePath its scratch copy.
 func SavePlan(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
@@ -27,7 +27,7 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 		return ExitProceed
 	}
 	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(in.CWD), in.CWD))
-	dir := filepath.Join(paths.ConfigDir(), "docs", "plans", slug)
+	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
 	dest, fresh := planDest(dir, time.Now().Format("2006-01-02")+"-"+planTitle(plan), plan)
 	if !fresh {
 		return ExitProceed

@@ -34,8 +34,6 @@
 /state/
 /memory/
 /docs/memory/
-# Plans save-plan filed from other repos (docs/plans/<repo>/); this repo's own stay top-level and tracked.
-/docs/plans/*/
 /agent-memory/
 /worktrees/
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.

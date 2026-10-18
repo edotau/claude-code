@@ -96,7 +96,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
-		filepath.Join(global, "docs", "plans"),
+		filepath.Join(global, "plans"),
 		filepath.Join(global, "docs", "handoffs"),
 		filepath.Join(global, "docs", "reports"),
 		"HARNESS_DOCS_PLACEMENT=0",

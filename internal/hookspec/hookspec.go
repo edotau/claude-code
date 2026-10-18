@@ -58,7 +58,7 @@ var Registry = []Spec{
 	// One SubagentStop hook, run in order: an editing subagent's first stop is sent back for one simplicity
 	// pass, and its inflight slot retires only on the stop that actually ends it.
 	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
-	// An approved plan is filed under docs/plans, tagged with its repo.
+	// An approved plan is filed under plans/, tagged with its repo.
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
 	// A model read of a bank file is traced to that bank's access log (memory doctor's hot/cold signal).
 	{Name: "access-trace", Event: EventPostToolUse, Matcher: "Read", Timeout: 5},
