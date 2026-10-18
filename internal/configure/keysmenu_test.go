@@ -12,10 +12,10 @@ func TestKeyRows(t *testing.T) {
 		{label: "codex", present: true, source: "ChatGPT login (codex login)"},
 		{label: "gemini", present: false},
 	})
-	if len(rows) != 2 || rows[0] != [2]string{"codex", "OAuth login · ChatGPT plan"} {
+	if len(rows) != 2 || rows[0][1] != "subscription  verified" {
 		t.Fatalf("rows = %v", rows)
 	}
-	if rows[1][1] != "missing · pick to set up" || ok {
+	if rows[1][1] != "not set up    missing" || ok {
 		t.Fatalf("absent row = %q ok=%v, want the set-up hint and ok=false", rows[1][1], ok)
 	}
 }
@@ -37,16 +37,16 @@ func TestKeysMenuBackChangesNothing(t *testing.T) {
 	}
 }
 
-// TestLoginLine: every login row reads "<sign-in> · <plan>", the claude row carries its tier and headless token.
+// TestLoginLine: every login row's mode is "subscription", with the tier when the CLI reports one.
 func TestLoginLine(t *testing.T) {
 	cases := []struct {
 		kt   keyTarget
 		want string
 	}{
-		{keyTarget{label: "claude", source: "claude.ai login (max)", headless: true}, "OAuth login · subscription (max) · headless token"},
-		{keyTarget{label: "codex", source: "ChatGPT login (codex login)"}, "OAuth login · ChatGPT plan"},
-		{keyTarget{label: "opencode", source: "opencode auth login: github-copilot"}, "OAuth login · Copilot plan"},
-		{keyTarget{label: "copilot", source: "GH_TOKEN / gh auth status"}, "GitHub token · Copilot plan"},
+		{keyTarget{label: "claude", source: "claude.ai login (max)", headless: true}, "subscription (max)"},
+		{keyTarget{label: "codex", source: "ChatGPT login (codex login)"}, "subscription"},
+		{keyTarget{label: "opencode", source: "opencode auth login: github-copilot"}, "subscription"},
+		{keyTarget{label: "copilot", source: "GH_TOKEN / gh auth status"}, "subscription"},
 	}
 	for _, c := range cases {
 		if got := loginLine(c.kt); got != c.want {

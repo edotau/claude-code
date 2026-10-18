@@ -1,7 +1,6 @@
 package configure
 
 import (
-	"cmp"
 	"github.com/edotau/claude-code/internal/tui"
 	"regexp"
 	"strings"
@@ -32,60 +31,63 @@ func keysMenu(d *dialog) (allOK, changed bool) {
 	}
 }
 
-// keyRows renders one picker row per credential and reports whether every one is present and accepted.
+// keyRows renders one picker row per credential (name, then mode and check aligned) and reports whether every
+// credential is present and accepted.
 func keyRows(targets []keyTarget) ([][2]string, bool) {
-	rows := make([][2]string, len(targets))
+	names := make([]string, len(targets))
+	cols := make([][2]string, len(targets))
 	allOK := true
 	for i, kt := range targets {
-		rows[i] = [2]string{kt.label, keyStatus(kt)}
-		if !kt.present || rows[i][1] == "rejected · pick to fix" {
+		names[i] = kt.label
+		cols[i] = keyCols(kt)
+		if cols[i][1] != "verified" {
 			allOK = false
 		}
 	}
-	return rows, allOK
+	return withChecks(names, cols), allOK
 }
 
-// keyStatus is the row's right-hand column, one pattern for every credential: how it signs in · how it bills ·
-// the live check ("verified" paints green) — e.g. "API key · per-token usage · verified", "OAuth login · ChatGPT plan".
-func keyStatus(kt keyTarget) string {
+// withChecks lays out name rows whose detail is two aligned columns: the mode, then the check ("verified" is green).
+func withChecks(names []string, cols [][2]string) [][2]string {
+	width := 0
+	for _, c := range cols {
+		width = max(width, len([]rune(c[0])))
+	}
+	rows := make([][2]string, len(names))
+	for i, c := range cols {
+		pad := strings.Repeat(" ", width-len([]rune(c[0])))
+		rows[i] = [2]string{names[i], strings.TrimRight(c[0]+pad+"  "+c[1], " ")}
+	}
+	return rows
+}
+
+// keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or
+// missing. A login counts as verified when its own CLI's status check confirmed it.
+func keyCols(kt keyTarget) [2]string {
 	if !kt.present {
-		return "missing · pick to set up"
+		return [2]string{"not set up", "missing"}
 	}
 	if kt.provider != nil && kt.envVar != "" {
 		status, _ := probe(kt)
 		switch status {
-		case "rejected":
-			return "API key · per-token usage · rejected · pick to fix"
-		case "", "login":
-			status = "unverified"
+		case "verified", "rejected", "unreachable":
+			return [2]string{"per-token usage", status}
 		}
-		return "API key · per-token usage · " + status
+		return [2]string{"per-token usage", "unverified"}
 	}
-	return loginLine(kt)
+	return [2]string{loginLine(kt), "verified"}
 }
-
-// planOf names the plan a login bills against, by agent; the claude row carries its tier, e.g. "subscription (max)".
-var planOf = map[string]string{"claude": "subscription", "codex": "ChatGPT plan", "copilot": "Copilot plan", "opencode": "Copilot plan"}
 
 var tierRE = regexp.MustCompile(`\((\w+)\)`)
 
-// loginLine renders a login-based credential: "OAuth login · <plan>", or "GitHub token" when an env token stands in.
+// loginLine is a login credential's mode: "subscription", with the tier when the CLI reports one ("subscription (max)").
 func loginLine(kt keyTarget) string {
-	plan := cmp.Or(planOf[kt.label], "subscription")
 	if kt.label == "claude" {
 		if m := tierRE.FindStringSubmatch(kt.source); m != nil {
-			plan += " (" + m[1] + ")"
+			return "subscription (" + m[1] + ")"
 		}
 	}
-	signIn := "OAuth login"
-	if strings.HasPrefix(kt.source, "GH_TOKEN") || strings.HasPrefix(kt.source, "GITHUB_TOKEN") {
-		signIn = "GitHub token"
-	}
-	line := signIn + " · " + plan
-	if kt.headless {
-		line += " · headless token"
-	}
-	return line
+	return "subscription"
 }
 
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
