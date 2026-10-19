@@ -36,21 +36,22 @@ func BuildPrompt(task string, ctx Context) string {
 		}
 	}
 
-	return fmt.Sprintf(`<context_inventory>
-%s</context_inventory>
-
-<context_files>
-%s
-</context_files>
-
-<task>
+	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
+	return fmt.Sprintf(`<task>
 %s
 </task>
 
 <constraints>
 - Use the provided workspace context when it is relevant.
 - Cite file paths when referring to evidence from inline context.
-- Call out when the context is partial, skipped, or truncated.
+- Call out when the context is partial, skipped, or truncated (name the last file you saw in full).
 - Do not invent files or data that are not present in the provided payloads.
-</constraints>`, inv.String(), blocks.String(), task)
+</constraints>
+
+<context_inventory>
+%s</context_inventory>
+
+<context_files>
+%s
+</context_files>`, task, inv.String(), blocks.String())
 }
