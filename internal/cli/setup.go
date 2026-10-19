@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 )
 
-const setupUsage = `usage: claude-code setup adopt --from DIR [--into DIR] [--dry-run] [--label S]
-       claude-code setup nuke [--dir DIR] [--apply] [--keep-memory]
-                              [--account] [--cli]
-       claude-code setup workspace init|link|status ...`
+const setupUsage = `usage: claude-code install --setup <mode> [flags]
+  adopt --from DIR [--into DIR] [--dry-run] [--label S]
+  nuke [--dir DIR] [--apply] [--keep-memory] [--account] [--cli]
+  workspace init|link|status ...`
 
 func cmdSetup(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {

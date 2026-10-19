@@ -12,9 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 )
 
-const setupWorkspaceUsage = `usage: claude-code setup workspace init [<root>] [--with LIST] [--dry-run]
-       claude-code setup workspace link <agents|commands|skills> <name> [<root>]
-       claude-code setup workspace status [<root>]
+const setupWorkspaceUsage = `usage: claude-code install --setup workspace <op>
+  init [<root>] [--with LIST] [--dry-run]
+  link <agents|commands|skills> <name> [<root>]
+  status [<root>]
 <root> defaults to cwd and must be a git toplevel outside ~/.claude.`
 
 // cmdSetupWorkspace is the `setup workspace` leg: a project .claude/ scaffold, link and status.
