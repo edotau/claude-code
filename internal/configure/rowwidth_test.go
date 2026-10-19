@@ -1,6 +1,9 @@
 package configure
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.
 func maxRuneLen(labels []string) int {
@@ -66,6 +69,16 @@ func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
+		}
+	}
+}
+
+// TestTierRowsFitEightyColumns: tier · use · a long model id stays within 80 columns.
+func TestTierRowsFitEightyColumns(t *testing.T) {
+	for slot, use := range tierUse {
+		row := fmt.Sprintf("  %-6s  %s", slot, padTo(use, 42)+"anthropic/claude-sonnet-5-5") // as tui.layoutRows lays it
+		if w := len([]rune(row)); w > 80 {
+			t.Errorf("%s tier row is %d columns: %q", slot, w, row)
 		}
 	}
 }

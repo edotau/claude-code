@@ -601,6 +601,23 @@ var actionConfirmed = func(question string) bool {
 	return tui.ConfirmKey(question+"?", false)
 }
 
+// saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
+// Non-terminal runs save.
+var saveConfirmed = func(question string) bool {
+	if !isStdinTTY() {
+		return true
+	}
+	return tui.ConfirmKey(question+"?", true)
+}
+
+// confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
+func confirmLeave(n int, what string) bool {
+	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
+}
+
+// enterRow is every configure page's last row: Enter leaves the page, asking first when it has unsaved changes.
+func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
+
 // runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func runLogin(argv []string) error {
@@ -683,7 +700,12 @@ func runAgents(d *dialog) bool {
 			ok = false
 			continue
 		}
-		if _, _, cerr := vendors.Configure(context.Background(), name, target, ""); cerr != nil {
+		_, _, cerr := vendors.Configure(context.Background(), name, target, "")
+		if errors.Is(cerr, vendors.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
+			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
+			continue
+		}
+		if cerr != nil {
 			d.printf("%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))
 			ok = false
 			continue

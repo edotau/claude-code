@@ -99,7 +99,7 @@ func secretsLoop(d *dialog, forceFile bool) int {
 		for _, s := range list {
 			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-15s %s", sourceLabel(s.source), s.users)})
 		}
-		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, [2]string{"Done", ""})
+		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
 		title := "secrets — pick one to set (stores in " + store + ")"
 		if d.pending != nil {
 			title = "secrets — pick one to set (Submit saves to " + store + ")"
@@ -262,7 +262,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		return
 	}
 	slices.Sort(page)
-	if !actionConfirmed(fmt.Sprintf("Save %d key(s) to the secrets manager", len(page))) {
+	if !confirmLeave(len(page), "key(s) to the secrets manager") {
 		for _, name := range page {
 			restoreStaged(d, name, before)
 		}

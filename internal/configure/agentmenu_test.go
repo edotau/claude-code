@@ -48,15 +48,15 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789", false)
 			return len(actions), nil
 		})
-		orig := actionConfirmed
+		orig := saveConfirmed
 		var asked []string
-		actionConfirmed = func(q string) bool { asked = append(asked, q); return yes }
+		saveConfirmed = func(q string) bool { asked = append(asked, q); return yes }
 		rc := runMenu(d)
-		actionConfirmed, pickMenu = orig, origPick
+		saveConfirmed, pickMenu = orig, origPick
 		if rc != 0 {
 			t.Fatalf("yes=%v: rc=%d", yes, rc)
 		}
-		if len(asked) != 1 || asked[0] != "Save keys to the secrets manager" {
+		if len(asked) != 1 || asked[0] != "Save 1 key(s) to the secrets manager" {
 			t.Errorf("yes=%v: asked = %v", yes, asked)
 		}
 		v, src, _ := secrets.Get("GEMINI_API_KEY")

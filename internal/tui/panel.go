@@ -68,7 +68,7 @@ func layoutRows(rows [][2]string) []string {
 }
 
 // hintText is the key-hint line render draws last; panelLines counts it by the same literal.
-const hintText = "↑/↓ to navigate · enter to select"
+const hintText = "↑/↓ to navigate · enter to select · esc to go back"
 
 // wrappedLines is how many terminal rows a plain (unstyled) line of length n occupies at cols columns -
 // 1 below cols, ceil(n/cols) at or above it. cols<=0 (size query failed) never wraps.
@@ -83,11 +83,14 @@ func wrappedLines(n, cols int) int {
 // (each 2 cols wider for its marker/space prefix), blank, hint - each counted by its wrapped height, not
 // 1, so a row too long for a narrow terminal doesn't make rewind undercount and leave stale frames behind.
 func panelLines(title string, s pickState, cols int) int {
-	lines := wrappedLines(len([]rune(title)), cols)
-	if s.header != "" {
-		lines += wrappedLines(2+len([]rune(s.header)), cols)
-	} else {
-		lines++
+	lines := 0
+	if title != "" { // a title-less (sectioned) panel opens straight on its first section title
+		lines += wrappedLines(len([]rune(title)), cols)
+		if s.header != "" {
+			lines += wrappedLines(2+len([]rune(s.header)), cols)
+		} else {
+			lines++
+		}
 	}
 	for i, row := range s.rows {
 		lines += wrappedLines(2+len([]rune(row)), cols)
@@ -109,11 +112,13 @@ func panelLines(title string, s pickState, cols int) int {
 // dialogue already is, below earlier output, not over the top of the screen.
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
-	b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n")
-	if s.header != "" {
-		b.WriteString("  " + ansi.Style(color, ansi.Dim, s.header))
+	if title != "" {
+		b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n")
+		if s.header != "" {
+			b.WriteString("  " + ansi.Style(color, ansi.Dim, s.header))
+		}
+		b.WriteString("\x1b[K\r\n")
 	}
-	b.WriteString("\x1b[K\r\n")
 	for i, row := range s.rows {
 		if i == len(s.rows)-1 && len(s.rows) > 1 {
 			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
@@ -219,7 +224,7 @@ type Section struct {
 	Rows  [][2]string
 }
 
-// PickSections draws every section's rows under its own title (columns aligned across all of them), then
+// PickSections draws every section's rows under its own title (title itself is unused: each section carries one) (columns aligned across all of them), then
 // trailing after a blank line. It returns the index among selectable rows in order (trailing = the last),
 // or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
 func PickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
@@ -232,11 +237,9 @@ func PickSections(title string, sections []Section, trailing [2]string, start in
 	heads := map[int]bool{}
 	var pos []int // display index of each selectable row
 	k := 0
-	for i, sec := range sections {
-		if i > 0 {
-			heads[len(rows)] = true
-			rows = append(rows, sec.Title)
-		}
+	for _, sec := range sections {
+		heads[len(rows)] = true // every section, the first included: a blank line, then its title
+		rows = append(rows, sec.Title)
 		for range sec.Rows {
 			pos = append(pos, len(rows))
 			rows = append(rows, laid[k])
@@ -249,7 +252,7 @@ func PickSections(title string, sections []Section, trailing [2]string, start in
 	if start >= 0 && start < len(pos) {
 		at = pos[start]
 	}
-	idx, err := pickHeads(title, "", rows, heads, at)
+	idx, err := pickHeads("", "", rows, heads, at)
 	if err != nil || idx < 0 {
 		return -1, err
 	}

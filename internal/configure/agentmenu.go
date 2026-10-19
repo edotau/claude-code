@@ -69,8 +69,19 @@ func displayLabel(name string) string {
 	return name
 }
 
+// internalName undoes displayLabel: the agent page title carries the display label.
+func internalName(label string) string {
+	if label == displayLabel("gemini") {
+		return "gemini"
+	}
+	return label
+}
+
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
+	if r := modelRow(d, internalName(name)); r != nil {
+		m.rows = append(m.rows, *r)
+	}
 	title := name + " (current: " + m.state.mode
 	if m.state.verified {
 		title += " · verified"
