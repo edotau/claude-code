@@ -365,3 +365,23 @@ func TestStoreAndDeleteMaintainNamesIndex(t *testing.T) {
 		t.Fatalf("Names after Delete = %q, want [A_KEY]", got)
 	}
 }
+
+func TestPreviewShowsPrefixLengthAndDoubledPaste(t *testing.T) {
+	key := "sk-ant-api03-" + strings.Repeat("a", 95)
+	got := Preview(key)
+	if !strings.HasPrefix(got, "sk-ant-api03-*") || !strings.HasSuffix(got, "(108 chars)") || strings.Contains(got, "aaa") {
+		t.Errorf("Preview(anthropic) = %q", got)
+	}
+	if w := len([]rune("  pasted  " + Preview(key+key))); w > 80 {
+		t.Errorf("doubled preview is %d columns", w)
+	}
+	if !strings.Contains(Preview(key+key), "pasted twice?") {
+		t.Errorf("doubled paste not flagged: %q", Preview(key+key))
+	}
+	if got := Preview("abcdef"); got != "ab**** (6 chars)" {
+		t.Errorf("short value reveals too much: %q", got)
+	}
+	if got := Preview("AIzaSyD" + strings.Repeat("x", 32)); !strings.HasPrefix(got, "AIza***") {
+		t.Errorf("Preview(google) = %q", got)
+	}
+}
