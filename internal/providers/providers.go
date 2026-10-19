@@ -123,8 +123,16 @@ type Registry struct {
 	OpencodeLadder []string `json:"opencodeLadder,omitempty"`
 	// OpencodePlugins renders opencode's own `plugin` config key; empty (the default) leaves it untouched.
 	OpencodePlugins []string `json:"opencodePlugins,omitempty"`
-	// AgentLabels overrides configure's agent mode column: "agent:rawID" (with * globs) or "agent" → template.
-	AgentLabels map[string]string `json:"agentLabels,omitempty"`
+	// AgentPlans describes each agent's sign-in plans for configure's mode column, keyed by agent name.
+	AgentPlans map[string][]Plan `json:"agentPlans,omitempty"`
+}
+
+// Plan is one sign-in plan: ID matches the raw plan ID the login reports (* globs); the rest are optional display fields.
+type Plan struct {
+	ID       string `json:"id"`
+	Tier     string `json:"tier,omitempty"`
+	Desc     string `json:"desc,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // Get returns the named provider or an error naming the known ones.

@@ -13,15 +13,45 @@
     "nvidia"
   ],
   "opencodePlugins": [],
-  "agentLabels": {
-    "claude:*max_20x*": "Max 20x · personal",
-    "claude": "{mode} · {provider}",
-    "codex:plus": "ChatGPT Plus",
-    "codex": "{mode} ({tier})",
-    "antigravity": "Google AI Pro · {mode}",
-    "copilot:individual_pro": "Copilot Pro+",
-    "copilot": "{mode} ({tier})",
-    "*:*claude-opus*": "Opus via {provider}"
+  "agentPlans": {
+    "claude": [
+      {
+        "id": "*max_20x*",
+        "tier": "Max 20x",
+        "desc": "20x Pro usage",
+        "provider": "Anthropic"
+      },
+      {
+        "id": "*max_5x*",
+        "tier": "Max 5x",
+        "desc": "5x Pro usage",
+        "provider": "Anthropic"
+      }
+    ],
+    "codex": [
+      {
+        "id": "plus",
+        "tier": "Plus",
+        "desc": "Codex web, CLI, IDE",
+        "provider": "OpenAI"
+      }
+    ],
+    "antigravity": [
+      {
+        "id": "*",
+        "tier": "Google AI Pro",
+        "desc": "5h quota",
+        "provider": "Google"
+      }
+    ],
+    "copilot": [
+      {
+        "id": "individual_pro",
+        "tier": "Pro+",
+        "desc": "3,900 credits/mo",
+        "provider": "GitHub"
+      }
+    ]
   },
   "providers": {
     "litellm": {

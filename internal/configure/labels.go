@@ -1,63 +1,60 @@
-// labels.go — the user's own text for an agent's mode column (providers.json agentLabels), else the computed one.
+// labels.go — an agent's mode column from the user's agentPlans (providers.json), else the computed one.
 package configure
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// labelMax keeps a custom mode column short enough for its row to stay within 80 columns.
-const labelMax = 40
+// labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
+const labelMax = 48
 
-// modeLabel is the agent's mode column: the most specific agentLabels match (exact agent:rawID, then the longest
-// glob, then the bare agent) rendered with {mode} {tier} {id} {provider}; the computed label when none matches.
+// modeLabel builds the mode column from the agentPlans entry matching the plan the sign-in reports: the entry's
+// tier (else today's mode text), then its desc and provider when set. No entry keeps today's label.
 func modeLabel(d *dialog, name string, st agentState) string {
-	if d.reg == nil || len(d.reg.AgentLabels) == 0 {
+	if d.reg == nil || len(d.reg.AgentPlans) == 0 {
 		return st.label()
 	}
-	id, provider := rawPlanID(d, name, st)
-	tmpl, ok := matchLabel(d.reg.AgentLabels, name, id)
-	if !ok && displayLabel(name) != name { // keys may use the shown name too ("antigravity" for gemini)
-		tmpl, ok = matchLabel(d.reg.AgentLabels, displayLabel(name), id)
+	plans, ok := d.reg.AgentPlans[name]
+	if !ok {
+		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
 	}
+	plan, ok := matchPlan(plans, rawPlanID(d, name, st))
 	if !ok {
 		return st.label()
 	}
-	out := strings.NewReplacer("{mode}", st.mode, "{tier}", st.tier, "{id}", id, "{provider}", provider).Replace(tmpl)
+	parts := []string{withTier(st.mode, st.tier)}
+	if plan.Tier != "" && st.mode == modeSubscription {
+		parts[0] = plan.Tier // the plan name already says it is a subscription
+	}
+	for _, f := range []string{plan.Desc, plan.Provider} {
+		if f != "" {
+			parts = append(parts, f)
+		}
+	}
+	out := strings.Join(parts, " · ")
 	if r := []rune(out); len(r) > labelMax {
 		out = string(r[:labelMax-1]) + "…"
 	}
 	return out
 }
 
-// matchLabel picks labels' template for agent with raw id: "agent:id" exactly, then the longest matching
-// glob key (either half may use *), then "agent" alone.
-func matchLabel(labels map[string]string, agent, id string) (string, bool) {
-	if t, ok := labels[agent+":"+id]; ok && id != "" {
-		return t, true
-	}
-	best := ""
-	for _, k := range slices.Sorted(func(yield func(string) bool) {
-		for k := range labels {
-			if !yield(k) {
-				return
-			}
-		}
-	}) {
-		a, i, ok := strings.Cut(k, ":")
-		if ok && strings.Contains(k, "*") && glob(a, agent) && glob(i, id) && len(k) > len(best) {
-			best = k
+// matchPlan picks the plan whose id equals the raw id, else the longest matching * glob.
+func matchPlan(plans []providers.Plan, id string) (providers.Plan, bool) {
+	best, found := providers.Plan{}, false
+	for _, p := range plans {
+		switch {
+		case p.ID == id:
+			return p, true
+		case strings.Contains(p.ID, "*") && glob(p.ID, id) && (!found || len(p.ID) > len(best.ID)):
+			best, found = p, true
 		}
 	}
-	if best != "" {
-		return labels[best], true
-	}
-	t, ok := labels[agent]
-	return t, ok
+	return best, found
 }
 
 // glob matches s against a pattern whose only wildcard is * (any run, / included).
@@ -67,26 +64,22 @@ func glob(pattern, s string) bool {
 	return ok
 }
 
-// rawPlanID is what the agent's sign-in reports (claude rate tier, ChatGPT plan, copilot_plan); on an API key it is
-// the account's opus model id. provider names the account the agent runs on.
-func rawPlanID(d *dialog, name string, st agentState) (id, provider string) {
-	p, claude := modelTarget(d, name)
-	if p != nil {
-		provider = p.Name
-	}
+// rawPlanID is what the agent's sign-in reports (claude rate tier, ChatGPT plan, copilot_plan); on an API key it
+// is the account's opus model id, so a pattern can match a provider's prefixed ids.
+func rawPlanID(d *dialog, name string, st agentState) string {
 	if st.mode != modeSubscription {
-		if p != nil {
-			id = currentModel(d, p, claude, models.Opus)
+		if p, claude := modelTarget(d, name); p != nil {
+			return currentModel(d, p, claude, models.Opus)
 		}
-		return id, provider
+		return ""
 	}
 	switch name {
 	case "claude":
-		id = claudeRateTier()
+		return claudeRateTier()
 	case "codex":
-		id = vendors.CodexPlan()
+		return vendors.CodexPlan()
 	case "copilot":
-		id = copilotRawPlan()
+		return copilotRawPlan()
 	}
-	return id, provider
+	return ""
 }
