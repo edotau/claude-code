@@ -313,11 +313,11 @@ func legLabel(r Runner) string {
 // asked for a Claude slot or id (unset would mean opus).
 func fallbackRequest(from, fb Runner, req Request, prevModel string) Request {
 	out := req
-	out.Provider = ""
+	out.Provider, out.SessionID = "", "" // a session id belongs to the leg that minted it
 	if fb.Name() != "claude" {
 		out.Model = ""
 		if fb.Name() == "copilot" && sameModelOnCopilot[from.Name()] {
-			out.Model = models.Strip1M(prevModel)
+			out.Model = models.Strip1M(cmp.Or(prevModel, req.Model)) // the caller's model when codex never resolved one
 		}
 		return out
 	}
