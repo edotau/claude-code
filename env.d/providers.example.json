@@ -15,40 +15,23 @@
   "agentPlans": {
     "claude": [
       {
-        "id": "*max_20x*",
-        "tier": "Max 20x",
-        "desc": "20x Pro usage",
-        "provider": "Anthropic"
-      },
-      {
-        "id": "*max_5x*",
-        "tier": "Max 5x",
-        "desc": "5x Pro usage",
-        "provider": "Anthropic"
+        "id": "*"
       }
     ],
     "codex": [
       {
-        "id": "plus",
-        "tier": "Plus",
-        "desc": "Codex web, CLI, IDE",
-        "provider": "OpenAI"
+        "id": "*"
       }
     ],
     "antigravity": [
       {
         "id": "*",
-        "tier": "Google AI Pro",
-        "desc": "5h quota",
-        "provider": "Google"
+        "tier": "Google AI Pro"
       }
     ],
     "copilot": [
       {
-        "id": "individual_pro",
-        "tier": "Pro+",
-        "desc": "3,900 credits/mo",
-        "provider": "GitHub"
+        "id": "*"
       }
     ]
   },

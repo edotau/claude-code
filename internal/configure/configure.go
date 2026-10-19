@@ -292,9 +292,9 @@ func maxPlanTarget(kt keyTarget) keyTarget {
 
 // consoleURLs are where each API key is minted; the key option offers to open the page before the paste.
 var consoleURLs = map[string]string{
-	"ANTHROPIC_API_KEY":  "https://console.anthropic.com/settings/keys",
-	"GEMINI_API_KEY":     "https://aistudio.google.com/apikey",
-	"OPENAI_API_KEY":     "https://platform.openai.com/api-keys",
+	"ANTHROPIC_API_KEY": "https://console.anthropic.com/settings/keys",
+	"GEMINI_API_KEY":    "https://aistudio.google.com/apikey",
+	"OPENAI_API_KEY":    "https://platform.openai.com/api-keys",
 }
 
 // authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.

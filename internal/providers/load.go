@@ -55,6 +55,9 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		if o.AgentPlans != nil {
 			reg.AgentPlans = o.AgentPlans
 		}
+		if o.AgentPlanFormat != "" {
+			reg.AgentPlanFormat = o.AgentPlanFormat
+		}
 		if reg.Providers == nil {
 			reg.Providers = map[string]*Provider{}
 		}
