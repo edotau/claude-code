@@ -27,7 +27,7 @@ recovery point if a session, agent or worktree is lost. Mark an item **you** whe
 - [ ] Phase 2 — <name>
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages
-- [ ] Review (`claude-code ask --agent codex --fallback vendors`)
+- [ ] Review (`claude-code ask --agent codex`)
 - [ ] Full suite once
 - [ ] Commit + push
 - [ ] Handoff / `/memory:end`
