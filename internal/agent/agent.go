@@ -249,13 +249,14 @@ func FallbackChain(r Runner, mode string) []Runner {
 	}
 	var chain []Runner
 	for _, c := range Runners() {
-		if isVendor(c.Name()) && c.Name() != r.Name() && c.Available() == nil {
-			chain = append(chain, c)
+		if !isVendor(c.Name()) || c.Name() == r.Name() || c.Available() != nil {
+			continue
 		}
-	}
-	// codex's best stand-in is Copilot on its reasoning tier (user decision): another GPT flagship, same plan family.
-	if r.Name() == "codex" {
-		slices.SortStableFunc(chain, func(a, b Runner) int { return copilotFirst(a) - copilotFirst(b) })
+		// codex and gemini: first party, then Copilot on the same model, then claude (user decision) — no other vendor.
+		if copilotOnly[r.Name()] && c.Name() != "copilot" {
+			continue
+		}
+		chain = append(chain, c)
 	}
 	if mode == FallbackAll {
 		chain = append(chain, claudeRunner{})
@@ -263,15 +264,11 @@ func FallbackChain(r Runner, mode string) []Runner {
 	return chain
 }
 
-func copilotFirst(r Runner) int {
-	if r.Name() == "copilot" {
-		return 0
-	}
-	return 1
-}
+// copilotOnly names the first-party legs whose only vendor stand-in is Copilot.
+var copilotOnly = map[string]bool{"codex": true, "gemini": true}
 
-// fallbackSlot is the tier a vendor leg runs at when it stands in for another; unlisted pairs take the leg's default.
-var fallbackSlot = map[[2]string]string{{"codex", "copilot"}: models.Opus}
+// sameModelOnCopilot names the legs whose model ids Copilot also serves (GPT); Copilot has no Gemini models.
+var sameModelOnCopilot = map[string]bool{"codex": true}
 
 func isVendor(name string) bool { return name != "claude" && name != "api" }
 
@@ -294,7 +291,7 @@ func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request,
 		if notify != nil {
 			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", legLabel(prev), fallbackReason(err), legLabel(fb)))
 		}
-		res, err = Run(ctx, fb, fallbackRequest(r, fb, req), stream, notify)
+		res, err = Run(ctx, fb, fallbackRequest(r, fb, req, res.Model), stream, notify)
 		prev = fb
 	}
 	if len(reasons) > 0 {
@@ -311,13 +308,17 @@ func legLabel(r Runner) string {
 	return r.Name()
 }
 
-// fallbackRequest drops the original leg's provider and vendor model: a vendor leg takes its own default, and
-// the claude leg is a sonnet leg unless the caller asked for a Claude slot or id (unset would mean opus).
-func fallbackRequest(from, fb Runner, req Request) Request {
+// fallbackRequest drops the original leg's provider and vendor model: codex→copilot keeps the model codex ran
+// (prevModel), other vendor legs take their own default, and the claude leg is a sonnet leg unless the caller
+// asked for a Claude slot or id (unset would mean opus).
+func fallbackRequest(from, fb Runner, req Request, prevModel string) Request {
 	out := req
 	out.Provider = ""
 	if fb.Name() != "claude" {
-		out.Model = fallbackSlot[[2]string{from.Name(), fb.Name()}] // "" = the leg's own default model
+		out.Model = ""
+		if fb.Name() == "copilot" && sameModelOnCopilot[from.Name()] {
+			out.Model = models.Strip1M(prevModel)
+		}
 		return out
 	}
 	if out.Model == "" {
