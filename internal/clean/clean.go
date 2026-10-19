@@ -5,8 +5,8 @@
 //
 // Invariants, in order of importance:
 //  1. Credentials are NEVER touched: env.d/*.env, settings.json, providers.json, .credentials.json.
-//  2. The memory stores (memory/** — the local memory Git repo incl. .git, raw archives — and
-//     docs/memory/bank/**) and migration state (state/harness/memory/{migrate,journal,access}, bank.lock,
+//  2. The memory store (memory/** — the local memory Git repo incl. .git, raw archives)
+//     and migration state (state/harness/memory/{migrate,journal,access}, bank.lock,
 //     maintenance) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
 //     a [y/N] prompt on a TTY, --yes without one.

@@ -292,8 +292,8 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, data)
 }
 
-// keepMemoryPaths lists every regular file under memory/ (incl. .git), docs/memory/bank/, docs/knowledge/, plans/ and
-// real projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
+// keepMemoryPaths lists every regular file under memory/ (incl. .git), docs/knowledge/, plans/, an unmigrated legacy
+// docs/memory/bank/ and real projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
 func keepMemoryPaths(dir string) []string {
 	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), filepath.Join("docs", "knowledge"), "plans"}
 	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {

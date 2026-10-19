@@ -1,5 +1,5 @@
 // Package memory is the session memory bank: six typed markdown files per git repo under
-// <ConfigDir>/memory/<repo>/ (legacy: docs/memory/bank/<slug> until the migration cuts over), global at the top.
+// <ConfigDir>/memory/<repo>/ (harness itself memory/.claude/), global at the top.
 package memory
 
 import (

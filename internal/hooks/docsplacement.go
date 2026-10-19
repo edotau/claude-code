@@ -138,7 +138,7 @@ func isDir(path string) bool {
 }
 
 // canonDeep resolves p's deepest existing ancestor and re-joins the missing tail, so a nested target
-// under a dir that does not exist yet (docs/reports/) still compares equal to the realpath git reports.
+// under a dir that does not exist yet (docs/knowledge/x/) still compares equal to the realpath git reports.
 func canonDeep(p string) string {
 	if a, err := filepath.Abs(p); err == nil {
 		p = a
