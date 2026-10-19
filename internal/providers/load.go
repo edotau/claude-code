@@ -52,6 +52,9 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		if o.OpencodePlugins != nil {
 			reg.OpencodePlugins = o.OpencodePlugins
 		}
+		if o.AgentLabels != nil {
+			reg.AgentLabels = o.AgentLabels
+		}
 		if reg.Providers == nil {
 			reg.Providers = map[string]*Provider{}
 		}

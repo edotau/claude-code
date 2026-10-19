@@ -83,7 +83,7 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 		}
 		st := build(d).state
 		n := name
-		names, cols = append(names, displayLabel(n)), append(cols, [2]string{st.label(), st.check()})
+		names, cols = append(names, displayLabel(n)), append(cols, [2]string{modeLabel(d, n, st), st.check()})
 		actions = append(actions, func(d *dialog) { runAgentMenu(d, displayLabel(n), agentMenus[n](d)) })
 	}
 	return withChecks(names, cols), actions
