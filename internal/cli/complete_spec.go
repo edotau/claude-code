@@ -94,6 +94,7 @@ func specTree() map[string]*compNode {
 			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),
 				flag("n"), boolFlag("follow"), formatFlag()}},
 		}},
+		"web-search": {flags: []flagInfo{flag("query"), flag("max-results")}},
 		"worktree": {sub: map[string]*compNode{
 			"list":   {flags: []flagInfo{formatFlag()}},
 			"create": {flags: []flagInfo{flag("branch")}},
