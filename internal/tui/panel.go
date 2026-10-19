@@ -138,15 +138,6 @@ func render(title string, s pickState, color bool) string {
 	return b.String()
 }
 
-// rewind moves the cursor back to the panel's first line so the next render overdraws the last frame.
-func rewind(title string, s pickState, cols int) string {
-	return fmt.Sprintf("\r\x1b[%dA", panelLines(title, s, cols)-1)
-}
-
-// erase removes the panel once a choice is made, so the dialogue continues with one result line instead
-// of leaving the whole menu in the scrollback.
-func erase(title string, s pickState, cols int) string { return rewind(title, s, cols) + "\x1b[J" }
-
 // Pick runs an arrow-key single-choice panel titled title over rows (name, detail pairs), opening on
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
 // means stdin is not a terminal; the caller should fall back to a line prompt.
@@ -174,9 +165,18 @@ func pickHeads(title, header string, rows []string, heads map[int]bool, start in
 		s = s.step(1)
 	}
 	color := ansi.Enabled(os.Stdout)
-	cols, _ := t.Size() // re-queried each frame below: a mid-session resize keeps rewind's count honest
-	fmt.Fprint(os.Stdout, render(title, s, color))
-	defer func() { cols, _ = t.Size(); fmt.Fprint(os.Stdout, erase(title, s, cols)) }()
+	prev := 0 // lines the last frame drew: the next redraw rewinds exactly that many
+	draw := func() {
+		cols, h := t.Size() // per frame: a resize keeps the window and the rewind honest
+		f := fit(title, s, cols, h)
+		if prev > 0 {
+			fmt.Fprintf(os.Stdout, "\r\x1b[%dA\x1b[J", prev-1)
+		}
+		fmt.Fprint(os.Stdout, render(title, f, color))
+		prev = panelLines(title, f, cols)
+	}
+	draw()
+	defer func() { fmt.Fprintf(os.Stdout, "\r\x1b[%dA\x1b[J", prev-1) }()
 	for k := range t.Keys() {
 		var act int
 		s, act = handlePickKey(s, k)
@@ -186,10 +186,37 @@ func pickHeads(title, header string, rows []string, heads map[int]bool, start in
 		case pickChoose:
 			return s.sel, nil
 		}
-		fmt.Fprint(os.Stdout, rewind(title, s, cols)+render(title, s, color))
-		cols, _ = t.Size()
+		draw()
 	}
 	return -1, nil
+}
+
+// fit windows s's rows around the cursor so the panel fits h-1 terminal lines; a panel taller than the screen
+// scrolls its top out of reach of the cursor-up rewind, and every redraw then leaves a stale copy above.
+func fit(title string, s pickState, cols, h int) pickState {
+	if panelLines(title, s, cols) < h {
+		return s
+	}
+	win := func(lo, hi int) pickState {
+		w := pickState{rows: s.rows[lo:hi], header: s.header, sel: s.sel - lo, heads: map[int]bool{}}
+		for i := lo; i < hi; i++ {
+			if s.heads[i] {
+				w.heads[i-lo] = true
+			}
+		}
+		return w
+	}
+	lo, hi := s.sel, s.sel+1
+	for grew := true; grew; {
+		grew = false
+		if hi < len(s.rows) && panelLines(title, win(lo, hi+1), cols) < h {
+			hi, grew = hi+1, true
+		}
+		if lo > 0 && panelLines(title, win(lo-1, hi), cols) < h {
+			lo, grew = lo-1, true
+		}
+	}
+	return win(lo, hi)
 }
 
 // PickTable is PickBack with a column header: header[0] heads the name column, header[1] the detail column,
