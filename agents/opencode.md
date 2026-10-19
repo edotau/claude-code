@@ -115,7 +115,8 @@ and say explicitly that the result could be outdated.
 
 DOC-UPDATE and DOC-LOOKUP drafts run on the OpenCode CLI (the user's GitHub Copilot plan), not on you:
 `claude-code ask --agent opencode --tools --workdir <repo> "<brief>"`. You brief, then check the result
-against the Validate step above. Fallback order: opencode → the other vendor CLIs → Anthropic (`ask`'s
+against the Validate step above. Default model and effort fit normal drafting; only for an unusually
+complex pass (a large restructuring) add `--effort high`. Fallback order: opencode → the other vendor CLIs → Anthropic (`ask`'s
 default). Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. ANALYZE/EXTRACT/PERSIST stay with you.
 
 ---

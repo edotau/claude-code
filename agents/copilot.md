@@ -126,6 +126,8 @@ test-wrong vs. code-wrong call, and brief; the Copilot CLI makes the edits:
    (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
    batch needs a stronger model).
 3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
+3b. Model and effort: `auto` at the default effort fits normal repair batches; only for an unusually complex batch
+   (repairs that hinge on subtle behavior) add `--model claude-opus-5.5 --effort high`.
 4. Fallback order: copilot → the other vendor CLIs → Anthropic (`ask`'s default `--fallback all` ends on
    Claude). Only if `ask` itself fails, or the edits don't hold up, make them yourself and say why.
 
