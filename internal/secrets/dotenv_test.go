@@ -1,6 +1,8 @@
 package secrets
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -37,4 +39,35 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 	if got := FormatDotenv([]Pair{{"A_KEY", "a"}}); !strings.HasSuffix(got, "\nA_KEY=a\n") || !strings.HasPrefix(got, "# ") {
 		t.Errorf("format = %q", got)
 	}
+}
+
+func TestAppendDotenvCreatesAppendsSkipsAndTightens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if n, _, err := AppendDotenv(path, []Pair{{"A", "1"}}); err != nil || n != 1 {
+		t.Fatalf("create: n=%d err=%v", n, err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(must(os.ReadFile(path)), "B=old"...), 0o644); err != nil { // no trailing newline
+		t.Fatal(err)
+	}
+	n, skipped, err := AppendDotenv(path, []Pair{{"A", "x"}, {"B", "y"}, {"C", "3"}})
+	if err != nil || n != 1 || !slices.Equal(skipped, []string{"A", "B"}) {
+		t.Fatalf("append: n=%d skipped=%v err=%v", n, skipped, err)
+	}
+	got := string(must(os.ReadFile(path)))
+	if !strings.HasPrefix(got, "# ") || !strings.HasSuffix(got, "\nA=1\nB=old\nC=3\n") {
+		t.Errorf("file = %q", got)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %o, want 600", fi.Mode().Perm())
+	}
+}
+
+func must(b []byte, err error) []byte {
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
