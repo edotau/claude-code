@@ -22,7 +22,7 @@ func newWSLTestEnv(t *testing.T, f *fakeRun) Env {
 		Run:        f.run,
 		Probe:      func() string { return "" },
 		Sleep:      func(time.Duration) {},
-		ClaudeBin:  "claude",
+		ClaudeBin:  "claude", HasNPX: true,
 	}
 }
 
