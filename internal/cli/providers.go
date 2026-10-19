@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // githubCopilotProvider is the registry name ListModels and pin validation key off.
@@ -176,6 +177,18 @@ func cmdModels(args []string) int {
 	if *live {
 		return listLive(reg, sel.Provider, *format)
 	}
+	if *format == "json" {
+		slots := map[string]string{}
+		for _, s := range models.Slots {
+			if t, ok := sel.Slots[s]; ok {
+				slots[s] = t.Spec()
+			}
+		}
+		if err := outfmt.Write(os.Stdout, map[string]any{"provider": sel.Provider.Name, "router": sel.NeedsRouter(reg), "slots": slots}); err != nil {
+			return fail("models: %v", err)
+		}
+		return 0
+	}
 	fmt.Printf("provider  %s   router:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
 	for _, s := range models.Slots {
 		if t, ok := sel.Slots[s]; ok {
@@ -243,7 +256,7 @@ func copilotModelIDs() ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	list, err := copilotsdk.ListModels(ctx, copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true})
+	list, err := copilotsdk.ListModels(ctx, copilotCatalogOptions(bin))
 	if err != nil {
 		return nil, err
 	}
@@ -379,4 +392,12 @@ func printPinDiff(kv map[string]string) int {
 		fmt.Println("  " + l)
 	}
 	return 0
+}
+
+// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_GITHUB_USER), not its stored login.
+func copilotCatalogOptions(bin string) copilotsdk.Options {
+	if tok := vendors.CopilotToken(); tok != "" {
+		return copilotsdk.Options{CLIPath: bin, GitHubToken: tok}
+	}
+	return copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true}
 }

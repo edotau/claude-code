@@ -113,7 +113,7 @@ func runGithub(d *dialog) bool {
 	ghOK, copilotOK, opencodeOK := githubStatusRows(d)
 	githubFixCmds(d, ghOK, copilotOK, opencodeOK)
 	if d.o.Check {
-		return vendors.DescribeRoute(d.reg, "opencode").OK || vendors.DescribeRoute(d.reg, "copilot").OK
+		return vendors.DescribeRoute(d.reg, "opencode").OK && vendors.DescribeRoute(d.reg, "copilot").OK
 	}
 	return true
 }
@@ -170,7 +170,11 @@ func pickCopilotModels(d *dialog) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	list, err := copilotsdk.ListModels(ctx, copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true})
+	opts := copilotCatalogOptions(bin)
+	if tok := vendors.CopilotLaunchToken(); tok != "" {
+		opts.GitHubToken, opts.UseLoggedInUser = tok, false
+	}
+	list, err := copilotsdk.ListModels(ctx, opts)
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
 		return
@@ -245,4 +249,12 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 		fields["opencode_fallback"] = fallback
 	}
 	return providers.SetProviderFields("github-copilot", fields)
+}
+
+// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_GITHUB_USER), not its stored login.
+func copilotCatalogOptions(bin string) copilotsdk.Options {
+	if tok := vendors.CopilotToken(); tok != "" {
+		return copilotsdk.Options{CLIPath: bin, GitHubToken: tok}
+	}
+	return copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true}
 }
