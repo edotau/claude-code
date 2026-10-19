@@ -34,6 +34,15 @@
 /.claude/
 /state/
 /memory/
+# Memory markdown never rides a harness commit, wherever a legacy or native tool drops it.
+/agent-memory/
+/docs/memory/
+/docs/plans/
+/docs/reports/
+/docs/handoffs/
+MEMORY.md
+SEARCHABLE.md
+/docs/knowledge/bi-*.md
 /worktrees/
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/
