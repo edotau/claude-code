@@ -243,7 +243,7 @@ func runCustomEnv(d *dialog) {
 			}
 			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
 		}
-		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or keyring"}, [2]string{"Done", ""})
+		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or keyring"}, enterRow("save and go back"))
 		idx, err := pickPlain(d, "environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
@@ -306,7 +306,7 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	if len(edits) == 0 {
 		return
 	}
-	if !actionConfirmed(fmt.Sprintf("Save %d environment change(s)", len(edits))) {
+	if !confirmLeave(len(edits), "environment change(s)") {
 		d.printf("environment: %d change(s) discarded\n", len(edits))
 		return
 	}

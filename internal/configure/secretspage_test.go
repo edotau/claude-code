@@ -16,10 +16,10 @@ func TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys(t *testing.T) {
 		d.stage("OLD_KEY", "old", true)
 		before := map[string]stagedKey{"OLD_KEY": d.pending["OLD_KEY"]}
 		d.stage("PAGE_KEY", "page-value", true)
-		orig := actionConfirmed
-		actionConfirmed = func(string) bool { return yes }
+		orig := saveConfirmed
+		saveConfirmed = func(string) bool { return yes }
 		confirmPageKeys(d, before)
-		actionConfirmed = orig
+		saveConfirmed = orig
 		if _, still := d.pending["PAGE_KEY"]; still {
 			t.Errorf("yes=%v: PAGE_KEY still pending after the page closed", yes)
 		}

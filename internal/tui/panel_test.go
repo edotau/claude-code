@@ -146,12 +146,12 @@ func TestRenderBlankLineBeforeTrailingRow(t *testing.T) {
 func TestPanelLinesCountsWrappedRows(t *testing.T) {
 	s := pickState{rows: []string{"short", strings.Repeat("x", 90)}}
 	wide := panelLines("title", s, 200)  // every line fits on one terminal row
-	narrow := panelLines("title", s, 40) // the 90-char row now wraps across 3 (2 prefix + 90 = 92/40)
+	narrow := panelLines("title", s, 50) // the 90-char row wraps across 2 (2 prefix + 90 = 92/50); the hint still fits
 	if wide != 7 {
 		t.Errorf("panelLines(wide) = %d, want 7 (len(rows)+4 unwrapped, +1 trailing-row separator)", wide)
 	}
-	if narrow != wide+2 {
-		t.Errorf("panelLines(narrow) = %d, want %d (the long row now spans 3 lines, not 1)", narrow, wide+2)
+	if narrow != wide+1 {
+		t.Errorf("panelLines(narrow) = %d, want %d (the long row now spans 2 lines, not 1)", narrow, wide+1)
 	}
 }
 
@@ -170,5 +170,22 @@ func TestPickBackNonTTYReturnsMinusOneRegardlessOfRowCount(t *testing.T) {
 		if idx != -1 || err == nil {
 			t.Errorf("PickBack(%d rows) on a non-terminal = (%d, %v), want (-1, non-nil)", len(rows), idx, err)
 		}
+	}
+}
+
+// TestSectionsOpenWithBlankLineBeforeEachTitle: a sectioned panel has no title line; every section title, the
+// first included, follows a blank line, and the cursor starts on the first real row.
+func TestSectionsOpenWithBlankLineBeforeEachTitle(t *testing.T) {
+	s := pickState{rows: []string{"== agents ==", "a", "== tools ==", "b", "Enter"}, heads: map[int]bool{0: true, 2: true}}
+	s = s.step(1)
+	out := render("", s, false)
+	if !strings.HasPrefix(out, "\x1b[K\r\n== agents ==") || !strings.Contains(out, "a\x1b[K\r\n\x1b[K\r\n== tools ==") {
+		t.Errorf("section layout wrong:\n%q", out)
+	}
+	if s.sel != 1 || s.step(1).sel != 3 {
+		t.Errorf("cursor must skip titles: sel=%d next=%d", s.sel, s.step(1).sel)
+	}
+	if got := strings.Count(out, "\r\n") + 1; got != panelLines("", s, 200) {
+		t.Errorf("rendered %d lines, panelLines says %d", got, panelLines("", s, 200))
 	}
 }

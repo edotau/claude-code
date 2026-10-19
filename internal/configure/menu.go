@@ -16,7 +16,7 @@ import (
 var pickMenu = tui.PickSections
 
 // submitRow ends the menu: y saves the keys entered in it to the secrets manager, n discards them like Esc.
-var submitRow = [2]string{"Submit", "save keys to the secrets manager [y/N]"}
+var submitRow = enterRow("save keys to the secrets manager and exit")
 
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
@@ -33,17 +33,14 @@ func runMenu(d *dialog) int {
 	for {
 		sections, actions := homeSections(d)
 		idx, err := pickMenu("== agents ==", sections, submitRow, start)
-		if err != nil || idx < 0 {
-			return 0
-		}
-		start = idx
-		if idx == len(actions) {
-			if actionConfirmed("Save keys to the secrets manager") {
+		if err != nil || idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
+			if confirmLeave(len(d.pending), "key(s) to the secrets manager") {
 				saveKeys(d)
 				d.changed = true
 			}
 			return 0
 		}
+		start = idx
 		actions[idx](d)
 	}
 }
