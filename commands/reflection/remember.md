@@ -12,8 +12,8 @@ argument-hint: "<what to remember> [--type user|feedback|project|reference]"
 
 ## The schema (one file per fact + an index line)
 
-Native project memory lives at `~/.claude/projects/<slug>/memory/` — a symlink into
-`~/.claude/memory/<repo>/`, the same dir the six typed bank files live in. It is **structured**:
+Native project memory lives in the store dir printed by `claude-code memory path`
+(`~/.claude/memory/<repo>/`), the same dir the six typed bank files live in. It is **structured**:
 each fact is its own topic file with YAML
 frontmatter, and `MEMORY.md` is a one-line-per-fact index. Do **not** just append a line to
 `MEMORY.md` — write the topic file first, then add its index pointer.
@@ -48,7 +48,7 @@ Extract the concrete fact, why it matters, and scope. Choose a kebab-case `<slug
 ## Step 2: Resolve dir and check for duplicates
 
 ```bash
-MEMORY_DIR="$HOME/.claude/projects/<slug>/memory"
+MEMORY_DIR="$(claude-code memory path)"
 grep -rni "<keywords>" "$MEMORY_DIR"/
 ```
 

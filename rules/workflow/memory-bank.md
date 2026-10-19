@@ -47,9 +47,10 @@ are never rewritten by `memory index`.
 - **`claude-code memory index`**: regenerates this repo's `MEMORY.md` bank region and rotates
   `sessionHistory.md` past its cap into `archive/`; also regenerates the store-root catalog.
   GENERATED — never hand-edit the bank region or `memory/index.md`.
-- **`claude-code memory doctor`**: reports cap usage, staleness, and cross-tier duplication.
-- **`claude-code memory promote`**: moves settled local overflow into the shared global store
-  (deduped). `/memory:promote` is the judgment layer above it — see that command.
+- **`claude-code memory doctor`**: reports cap usage and staleness per bank.
+- **`claude-code memory promote`**: runs the same settle pass as `index` (rotate, region, catalog, commit);
+  after the store cutover there is no auto-promotion to global. `/memory:promote` is the judgment layer.
+- **`claude-code memory alias --repo <checkout> --into <key>`**: folds a second checkout's store into its canonical one.
 
 ## Scope — repo dir and global
 

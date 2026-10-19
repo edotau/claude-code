@@ -36,7 +36,7 @@ For each signal found, classify it:
 | Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `communication.md` | Markdown/living-docs, or response style |
 | Performance insight | `rules/standards/performance.md` | Relevant subsection |
-| Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; `~/.claude/projects/<slug>/memory` symlinks here) | Appropriate topic |
+| Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
 | Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
 | Completed work | `~/.claude/memory/<repo>/progress.md` | "What Works" / "What's Next" |
 
@@ -86,8 +86,8 @@ Update `progress.md` if:
 
 Only write what was actually learned this session. 
 
-1. Read the current `~/.claude/projects/<slug>/memory/MEMORY.md` index (+ linked topic files) —
-   this is a symlink into `~/.claude/memory/<repo>/`, the same dir the typed bank files live in
+1. Read the current `$(claude-code memory path)/MEMORY.md` index (+ linked topic files) —
+   the store dir under `~/.claude/memory/<repo>/`, where the typed bank files live
 2. Summarize the learning into a topic file, then add/refine its one-line TOC entry in `MEMORY.md`
 3. Keep `MEMORY.md` a lean index (first ~200 lines auto-load; detail lives in topic files); never edit the RULES region
 

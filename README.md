@@ -373,11 +373,12 @@ to global), the catalog and each touched repo's bank region are regenerated, and
 ```bash
 claude-code memory init | path | index [--repo R]   # scaffold, locate, settle + regenerate region/catalog
 claude-code memory search [--repo R] <terms> [--k 8] [--format json]  # BM25 over the bank
-claude-code memory doctor [--stale-days 90] [--notice]  # cap offenders, staleness, cross-tier duplication
-claude-code memory stats | timeline [--repo R] [-n 20] | promote [--repo R]  # stats is store-wide
+claude-code memory doctor [--stale-days 90] [--notice]  # cap offenders, staleness
+claude-code memory stats | timeline [--repo R] [-n 20] | promote [--repo R]  # stats is store-wide; promote = settle pass
 claude-code memory show <id> | digest [--repo R]          # one block by its [id]; haiku digest of the raw archive → archive/digest.md
 claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...   # one-time cutover from legacy trees
-claude-code memory migrate --manifest MANIFEST                 # apply a reviewed --dry-run manifest
+claude-code memory migrate --manifest MANIFEST                 # apply a reviewed --dry-run manifest (also moves legacy docs/{plans,reports,handoffs,memory/native})
+claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]  # fold a second checkout's store into its canonical one
 ```
 
 `claude-code memory archive [--repo R] [--dupes] [--apply] [--restore] [--split N] [<topic>...]` governs the
