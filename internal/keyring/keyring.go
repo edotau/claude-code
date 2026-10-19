@@ -151,6 +151,11 @@ func Delete(name string) error {
 	if err == nil || (errors.As(err, &exit) && exit.ExitCode() == 44) { // 44 = errSecItemNotFound
 		return nil
 	}
+	if runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
+		if _, found := Get(name); !found { // secret-tool clear exits 1 for an absent item too: nothing to delete
+			return nil
+		}
+	}
 	if ctx.Err() != nil {
 		down = true
 	}

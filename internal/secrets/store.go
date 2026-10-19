@@ -23,6 +23,9 @@ func ReadAll() map[string]string { return providers.ReadEnvFile(EnvFile()) }
 // SetFile writes (or replaces) name=value in the file plane, chmod 600, atomic, under a file lock
 // shared with any concurrent `secrets set`.
 func SetFile(name, value string) error {
+	if strings.ContainsAny(value, "\r\n") { // a newline would split into extra NAME=value lines on read
+		return fmt.Errorf("%s: a value stored in %s must be one line", name, EnvFile())
+	}
 	if err := rewriteFile(func(cur map[string]string) { cur[name] = value }); err != nil {
 		return err
 	}
@@ -106,6 +109,11 @@ func Store(name, value string, forceFile bool) (plane string, err error) {
 		plane = EnvFile()
 		if err := SetFile(name, value); err != nil {
 			return "", err
+		}
+		if forceFile && keyring.Available() { // Get prefers the keyring, so a stale copy there would win
+			if err := keyring.Delete(name); err != nil {
+				return plane, fmt.Errorf("%s written to %s, but the keyring still holds the old value: %w", name, plane, err)
+			}
 		}
 	}
 	return plane, editIndex(name, true)
