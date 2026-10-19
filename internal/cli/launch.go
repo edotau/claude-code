@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -117,8 +118,13 @@ func cmdSettings(args []string) int {
 			fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
 		}
 	}
+	outDrift := false
 	switch {
-	case *out != "" && *check: // drift report only; the vendor pass below decides the exit code
+	case *out != "" && *check: // drift report only: the rendered settings against the --out file, then the vendors
+		if cur, err := os.ReadFile(*out); err != nil || !bytes.Equal(cur, data) {
+			fmt.Printf("settings: %s has drifted from the render\n", *out)
+			outDrift = true
+		}
 	case *out == "" || *dryRun: // a preview: --out names where it WOULD go, never a write
 		if !*check {
 			os.Stdout.Write(data)
@@ -145,7 +151,7 @@ func cmdSettings(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if *check && drift {
+	if *check && (drift || outDrift) {
 		return 1
 	}
 	return 0

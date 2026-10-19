@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -152,7 +153,7 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 	var dirs []string
 	for _, dir := range candidates {
 		info, statErr := os.Stat(dir)
-		if statErr != nil || !info.IsDir() || info.ModTime().Before(cutoff) {
+		if statErr != nil || !info.IsDir() || newestModTime(dir).Before(cutoff) {
 			continue
 		}
 		dirs = append(dirs, dir)
@@ -181,4 +182,20 @@ func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount in
 	}
 	fmt.Fprintf(out, "\nfiles scanned:              %d\n", fileCount)
 	fmt.Fprintf(out, "peak input tokens/min:      %d  (uncached input + cache writes; the ITPM 429-risk proxy)\n", agg.PeakInputTokensPerMin)
+}
+
+// newestModTime is the latest mtime of dir or anything under it: appending to a transcript in subagents/ leaves
+// the session dir's own mtime untouched, so a resumed session would otherwise fall outside --days.
+func newestModTime(dir string) time.Time {
+	var newest time.Time
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
 }
