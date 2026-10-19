@@ -61,6 +61,7 @@ func TestCopilotTier(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			clear(copilotPlanCache)
 			copilotTierCmd = func(context.Context) ([]byte, error) { return []byte(c.out), c.err }
 			if got := copilotTier(); got != c.want {
 				t.Errorf("copilotTier = %q, want %q", got, c.want)

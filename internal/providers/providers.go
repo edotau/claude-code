@@ -123,6 +123,8 @@ type Registry struct {
 	OpencodeLadder []string `json:"opencodeLadder,omitempty"`
 	// OpencodePlugins renders opencode's own `plugin` config key; empty (the default) leaves it untouched.
 	OpencodePlugins []string `json:"opencodePlugins,omitempty"`
+	// AgentLabels overrides configure's agent mode column: "agent:rawID" (with * globs) or "agent" → template.
+	AgentLabels map[string]string `json:"agentLabels,omitempty"`
 }
 
 // Get returns the named provider or an error naming the known ones.
