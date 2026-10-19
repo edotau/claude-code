@@ -28,6 +28,10 @@
 /usage-data/
 /config.json
 /stats-cache.json
+/daemon-auth-cooldown
+/mcp/
+/remote/
+/session-data/
 /mcp-needs-auth-cache.json
 /.last-*
 /.python-version
@@ -54,14 +58,18 @@ SEARCHABLE.md
 /settings.local.json
 /.credentials.json
 /.claude.json
-/env.d/*.env
-/env.d/*.json
-/env.d/secrets.index
-/env.d/*.lock
+/env.d/*
 !/env.d/*.example
 !/env.d/*.example.json
 .env
+.env.*
+*.env
+!*.env.example
 *.token
+
+# Python
+.venv/
+__pycache__/
 
 # Build output
 /bin/
@@ -71,29 +79,25 @@ SEARCHABLE.md
 coverage.*
 *.coverprofile
 
-# User-installed skills (symlinks into ~/.agents; not part of the harness)
-/skills/academic-cv-builder
-/skills/career-changer-translator
-/skills/cover-letter-generator
-/skills/creative-portfolio-resume
-/skills/executive-resume-writer
-/skills/interview-prep-generator
-/skills/job-description-analyzer
-/skills/linkedin-profile-optimizer
-/skills/offer-comparison-analyzer
-/skills/portfolio-case-study-writer
-/skills/reference-list-builder
-/skills/resume-ats-optimizer
-/skills/resume-bullet-writer
-/skills/resume-formatter
-/skills/resume-quantifier
-/skills/resume-section-builder
-/skills/resume-tailor
-/skills/resume-version-manager
-/skills/salary-negotiation-prep
-/skills/tech-resume-optimizer
-/skills/orca-linear
-/skills/reverse-engineer-anything
+# Skills: only the harness's own are tracked; every other dir is the user's (symlinks into ~/.agents or local copies).
+/skills/*
+!/skills/approval-gate
+!/skills/command-development
+!/skills/computer-use
+!/skills/evaluate-code
+!/skills/fable-method
+!/skills/find-skills
+!/skills/orca-cli
+!/skills/orchestration
+!/skills/planning
+!/skills/python-patterns
+!/skills/security-reviewer
+!/skills/simplicity
+!/skills/subagent-workflows
+!/skills/test-guard-discipline
+!/skills/testing
+!/skills/using-git-worktrees
+!/skills/web-search
 
 # Editors / OS
 .DS_Store
