@@ -49,7 +49,7 @@ Every task in a plan must be:
 ...
 ```
 
-Plans live in `~/.claude/plans/` only (untracked): approving one in plan mode makes the `save-plan` hook file it as `~/.claude/plans/<date>-<title>.md` (this repo) or `~/.claude/plans/<repo-slug>/<date>-<title>.md` (any other repo) — never a repo root or a repo's own `.claude/`. `/workflow:orchestrate` stage handoffs sit beside them in `~/.claude/plans/stages/`.
+Plans live in `~/.claude/plans/` only (untracked): approving one in plan mode makes the `save-plan` hook file it as `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) or `~/.claude/plans/<repo-slug>/YYYY-MM-DD-<slug>.md` (any other repo) — never a repo root or a repo's own `.claude/`. `/workflow:orchestrate` stage handoffs sit beside them as `~/.claude/plans/stages/YYYY-MM-DD-<task-id>.md`. Every plan-family file starts with its `YYYY-MM-DD-` creation date, so `ls` sorts them by age.
 
 ### Self-Review Checklist
 
@@ -67,8 +67,8 @@ plan-text detectors (stdin; they analyze PLAN TEXT, never code files — full CL
 `skills/evaluate-code/references/detectors.md`):
 
 ```bash
-cat ~/.claude/plans/<date>-<title>.md | claude-code review assumptions - --json   # #1 hidden assumptions
-cat ~/.claude/plans/<date>-<title>.md | claude-code review goals - --json         # #4 verification quality
+cat ~/.claude/plans/YYYY-MM-DD-<slug>.md | claude-code review assumptions - --json   # #1 hidden assumptions
+cat ~/.claude/plans/YYYY-MM-DD-<slug>.md | claude-code review goals - --json         # #4 verification quality
 ```
 
 A `CLARIFY` (assumptions) or `MISSING` (verification) verdict means strengthen the plan

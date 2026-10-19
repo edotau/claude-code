@@ -29,7 +29,7 @@ Instructions:
    otherwise `INCLUDE_REFINE=false`. Derive a kebab-case task ID from the remaining description
    (e.g., "add user auth" → `add-user-auth`).
 
-2. Create the stage handoff document `~/.claude/plans/stages/{task-id}.md` (include
+2. Create the stage handoff document `~/.claude/plans/stages/YYYY-MM-DD-{task-id}.md` (include
    `## Refined Briefs` ONLY when `INCLUDE_REFINE=true`):
    ```markdown
    # Task: {task-id}
@@ -48,7 +48,7 @@ Instructions:
    ```
 
 3. Run the stages sequentially. For each stage, dispatch an `Agent` (the subagent type in the table)
-   whose prompt is: "Read `~/.claude/plans/stages/{task-id}.md` and complete the {stage} section",
+   whose prompt is: "Read `~/.claude/plans/stages/YYYY-MM-DD-{task-id}.md` and complete the {stage} section",
    plus the stage's own instructions. Writing stages (implement, simplify) scope each agent to
    disjoint files in the shared tree. **Skip `refine` entirely when `INCLUDE_REFINE=false`.**
 

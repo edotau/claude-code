@@ -10,9 +10,9 @@
 
 | Artifact | Path | Producer |
 | --- | --- | --- |
-| Approved plan | `~/.claude/plans/<date>-<title>.md` (this repo) · `~/.claude/plans/<repo>/<date>-<title>.md` (any other repo) — Claude Code's native `plansDirectory`, gitignored wholesale | `save-plan` hook (`ExitPlanMode`) |
-| Session handoff | `<store>/handoffs/<date>-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
-| Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/<name>.md` | the command or agent that produced it |
+| Approved plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo) — Claude Code's native `plansDirectory`, gitignored wholesale | `save-plan` hook (`ExitPlanMode`) |
+| Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
+| Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
 | Promoted, public-safe knowledge | `~/.claude/docs/knowledge/<topic>.md` · `docs/knowledge/<repo>/<topic>.md` (tracked) | `/memory:promote`, reviewed |
 | Session memory bank (STATE, not a doc) | `<store>/` | `memory init` / the harvest gate |
 
