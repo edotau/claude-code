@@ -329,14 +329,27 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 // send POSTs body with the provider's auth; a 401/403 refreshes the credential and replays once.
 func (r *Router) send(in *http.Request, p *providers.Provider, url string, body []byte, hdr func(http.Header)) (*http.Response, error) {
 	ctx := in.Context()
-	do := func() (*http.Response, error) {
+	do := func(credential string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
 		hdr(req.Header)
-		if err := providers.Authorize(ctx, p, req.Header); err != nil {
-			return nil, err
+		if credential == "" {
+			if err := providers.Authorize(ctx, p, req.Header); err != nil {
+				return nil, err
+			}
+		} else {
+			for k, v := range p.Headers {
+				req.Header.Set(k, v)
+			}
+			req.Header.Del("Authorization")
+			req.Header.Del("X-Api-Key")
+			if p.Auth.Type == providers.AuthAPIKey {
+				req.Header.Set("X-Api-Key", credential)
+			} else {
+				req.Header.Set("Authorization", "Bearer "+credential)
+			}
 		}
 		resp, err := r.client.Do(req)
 		if err != nil {
@@ -344,17 +357,18 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 		}
 		return resp, nil
 	}
-	resp, err := do()
+	resp, err := do("")
 	if err != nil {
 		return nil, err
 	}
 	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) &&
 		(p.Auth.Type == providers.AuthAPIKey || p.Auth.Type == providers.AuthBearer) {
 		drain(resp)
-		if _, err := providers.Refresh(ctx, p); err != nil {
+		credential, err := providers.Refresh(ctx, p)
+		if err != nil {
 			return nil, err
 		}
-		if resp, err = do(); err != nil {
+		if resp, err = do(credential); err != nil {
 			return nil, err
 		}
 	}

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // scienceTOML is the generic claude-science config shipped in the binary; company/HPC detail stays out of it.
@@ -50,7 +52,7 @@ func scienceDefaultsFile() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	return path, os.WriteFile(path, scienceTOML, 0o600)
+	return path, paths.AtomicWrite(path, scienceTOML, 0o600)
 }
 
 // scienceArgs splits the harness's leading --port (either argv form) from the vendor argv, which passes untouched.
