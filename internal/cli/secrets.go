@@ -25,6 +25,7 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
   delete <NAME>           remove a secret from the keyring and secrets.env
   import <file> [--file]  store every NAME=value line of a .env (# lines skipped)
   export <file> [NAME...] write stored secrets to a new .env (0600)
+  list [NAME...]          stored secrets: name, keyring|file, masked value
   status                  credential source per provider (never the value)
   scan [paths...]         find plaintext secrets in config files
   git [--since N]         find secret-shaped additions in git history
@@ -50,6 +51,8 @@ func cmdSecrets(args []string) int {
 		return cmdSecretsImport(rest)
 	case "export":
 		return cmdSecretsExport(rest)
+	case "list":
+		return cmdSecretsList(rest)
 	case "status":
 		return cmdSecretsStatus(rest)
 	case "scan":
@@ -315,5 +318,29 @@ func cmdSecretsExport(args []string) int {
 		return fail("secrets export: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %d secret(s) to %s (0600, plaintext — delete it after use)\n", len(pairs), args[0])
+	return 0
+}
+
+// cmdSecretsList prints each stored secret (keyring or file plane, never the process env) with a masked value.
+func cmdSecretsList(args []string) int {
+	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets list [NAME...]")
+		return 2
+	}
+	reg, _ := providers.Load()
+	rows := secrets.ListStored(reg, args)
+	if len(rows) == 0 {
+		fmt.Fprintln(os.Stderr, "no stored secrets")
+		return 0
+	}
+	w := 0
+	for _, r := range rows {
+		w = max(w, len(r.Name))
+	}
+	for _, r := range rows {
+		// name + plane + preview within 80 columns: the preview gets what the name column leaves (≥8 stars)
+		room := max(8, 80-w-2-7-2-13) // 13 = " (NNN chars)"
+		fmt.Printf("%-*s  %-7s  %s\n", w, r.Name, r.Source, secrets.PreviewWithin(r.Value, room))
+	}
 	return 0
 }

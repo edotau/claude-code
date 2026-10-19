@@ -37,7 +37,7 @@ func TestSpecTreeCoversEveryCommand(t *testing.T) {
 // switch without a matching specTree entry drifts silently otherwise.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	cases := map[string][]string{
-		"secrets":   {"set", "get", "delete", "import", "export", "status", "scan", "git", "doctor", "all"},
+		"secrets":   {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
 		"history":   {"snapshot", "log", "diff"},
 		"web":       {"browsers", "setup", "view"},
 		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias"},

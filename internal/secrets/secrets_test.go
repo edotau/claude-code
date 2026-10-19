@@ -392,3 +392,18 @@ func TestPreviewShowsPrefixLengthAndDoubledPaste(t *testing.T) {
 		t.Errorf("Preview(google) = %q", got)
 	}
 }
+
+func TestPreviewPrefixStopsAtRandomSegment(t *testing.T) {
+	cases := map[string]string{
+		"tvly-dev-3vjVEqAbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdef": "tvly-dev-",
+		"sk-ant-oat01-" + strings.Repeat("Z", 95):                   "sk-ant-oat01-",
+		"tskey-api-kAbC123-" + strings.Repeat("q", 42):              "tskey-api-",
+		"BBDC-" + strings.Repeat("A", 44):                           "BBDC",
+	}
+	for in, want := range cases {
+		got := Preview(in)
+		if !strings.HasPrefix(got, want+"*") {
+			t.Errorf("Preview(%.20s…) = %q, want visible prefix %q then stars", in, got, want)
+		}
+	}
+}

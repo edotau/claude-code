@@ -39,9 +39,23 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	return pairs, problems
 }
 
-// ExportPairs is every secret the keyring or the file plane holds (indexed names, file keys, provider auth.env
-// names), restricted to only when given; the process env is not ours to export.
+// Stored is one secret the harness holds: its name, the plane it resolved from, and the value.
+type Stored struct{ Name, Source, Value string }
+
+// ExportPairs is every stored secret as NAME=value pairs (single-line values only), restricted to only when given.
 func ExportPairs(reg *providers.Registry, only []string) []Pair {
+	var out []Pair
+	for _, s := range ListStored(reg, only) {
+		if !strings.ContainsAny(s.Value, "\r\n") {
+			out = append(out, Pair{s.Name, s.Value})
+		}
+	}
+	return out
+}
+
+// ListStored is every secret the keyring or the file plane holds (indexed names, file keys, provider auth.env
+// names), restricted to only when given; the process env is not ours to list or export.
+func ListStored(reg *providers.Registry, only []string) []Stored {
 	names := slices.Clone(Names())
 	for k := range ReadAll() {
 		names = append(names, k)
@@ -54,13 +68,13 @@ func ExportPairs(reg *providers.Registry, only []string) []Pair {
 		}
 	}
 	slices.Sort(names)
-	var out []Pair
+	var out []Stored
 	for _, n := range slices.Compact(names) {
 		if len(only) > 0 && !slices.Contains(only, n) {
 			continue
 		}
-		if v, src, ok := Get(n); ok && src != "env" && !strings.ContainsAny(v, "\r\n") {
-			out = append(out, Pair{n, v})
+		if v, src, ok := Get(n); ok && src != "env" {
+			out = append(out, Stored{n, src, v})
 		}
 	}
 	return out
