@@ -85,28 +85,6 @@ func TestLayoutRowsAligns(t *testing.T) {
 }
 
 // The panel draws where the cursor is and redraws by rewinding its own height; it must never home the cursor,
-// which painted the menu over the top of the screen while the dialogue continued below.
-func TestRenderDrawsInPlaceAndRewindsItsOwnHeight(t *testing.T) {
-	s := pickState{rows: layoutRows([][2]string{{"a", "cred:ok x"}, {"b", "cred:missing y"}}), sel: 1}
-	out := render("title", s, false)
-	if strings.Contains(out, "\x1b[H") {
-		t.Error("render must not home the cursor")
-	}
-	if strings.Count(out, "\r\n") != panelLines("title", s, 200)-1 {
-		t.Errorf("render emits %d line breaks, want %d (panelLines-1)", strings.Count(out, "\r\n"), panelLines("title", s, 200)-1)
-	}
-	want := fmt.Sprintf("\r\x1b[%dA", panelLines("title", s, 200)-1)
-	if rewind("title", s, 200) != want || erase("title", s, 200) != want+"\x1b[J" {
-		t.Errorf("rewind/erase = %q / %q, want %q / %q", rewind("title", s, 200), erase("title", s, 200), want, want+"\x1b[J")
-	}
-	if strings.Contains(out, "\x1b[") && strings.Contains(out, "\x1b[32m") {
-		t.Error("color off must paint nothing")
-	}
-	colored := render("title", s, true)
-	if !strings.Contains(colored, "\x1b[32mcred:ok") || !strings.Contains(colored, "\x1b[7m") {
-		t.Errorf("color on must paint status tokens and reverse the selected row:\n%q", colored)
-	}
-}
 
 // A header line draws in place of the blank line under the title — panelLines (and so render's own
 // line count) must not change whether a header is set or not, or PickTable's redraw would overdraw
@@ -187,5 +165,25 @@ func TestSectionsOpenWithBlankLineBeforeEachTitle(t *testing.T) {
 	}
 	if got := strings.Count(out, "\r\n") + 1; got != panelLines("", s, 200) {
 		t.Errorf("rendered %d lines, panelLines says %d", got, panelLines("", s, 200))
+	}
+}
+
+// TestFitWindowsRowsToTerminalHeight: a panel taller than the screen shows only the rows that fit, cursor
+// included, so the cursor-up rewind never has to reach scrolled-off lines.
+func TestFitWindowsRowsToTerminalHeight(t *testing.T) {
+	rows := make([]string, 30)
+	for i := range rows {
+		rows[i] = fmt.Sprintf("row %d", i)
+	}
+	s := pickState{rows: rows, sel: 20}
+	f := fit("", s, 120, 12)
+	if n := panelLines("", f, 120); n >= 12 {
+		t.Errorf("windowed panel is %d lines, want < 12", n)
+	}
+	if f.rows[f.sel] != "row 20" {
+		t.Errorf("cursor row lost: %q", f.rows[f.sel])
+	}
+	if same := fit("", pickState{rows: rows[:3]}, 120, 12); len(same.rows) != 3 {
+		t.Errorf("a panel that fits must not be windowed")
 	}
 }

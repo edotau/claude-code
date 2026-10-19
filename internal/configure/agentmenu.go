@@ -64,7 +64,7 @@ var pickAgent = tui.PickBack
 // whose runner is agy 1.4.2 (Antigravity) — the internal vendor/runner name stays "gemini" everywhere else.
 func displayLabel(name string) string {
 	if name == "gemini" {
-		return "agy (Antigravity)"
+		return "antigravity"
 	}
 	return name
 }
