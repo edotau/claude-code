@@ -60,6 +60,7 @@ func specTree() map[string]*compNode {
 			"delete": {args: []func() []string{secretNames}},
 			"import": {flags: []flagInfo{boolFlag("file")}},
 			"export": {args: []func() []string{secretNames}},
+			"list":   {args: []func() []string{secretNames}},
 			"status": {}, "scan": {},
 			"git":    {flags: []flagInfo{flag("since")}},
 			"doctor": {},

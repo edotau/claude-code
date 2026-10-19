@@ -133,14 +133,17 @@ func Redact(v string) string {
 // Preview shows a just-pasted value so a wrong or doubled paste is visible: the key's own prefix (up to its last
 // -/_ in the first 16 chars, never over a third of it), one * per hidden char up to a cap, and the length.
 // A value that is two identical halves is flagged. Fits an 80-column line after a 10-column label.
-func Preview(v string) string {
+func Preview(v string) string { return PreviewWithin(v, previewStars) }
+
+// PreviewWithin is Preview with prefix+stars capped at width, for tables that need a narrower column.
+func PreviewWithin(v string, width int) string {
 	shown := min(4, len(v)/3)
-	if i := strings.LastIndexAny(v[:min(16, len(v))], "-_"); i+1 > shown && i+1 <= len(v)/3 {
-		shown = i + 1
+	if p := keyPrefix(v); len(p) > shown && len(p) <= len(v)/3 {
+		shown = len(p)
 	}
 	hidden := len(v) - shown
-	stars := strings.Repeat("*", min(hidden, previewStars-shown))
-	if hidden > previewStars-shown {
+	stars := strings.Repeat("*", max(0, min(hidden, width-shown)))
+	if hidden > width-shown {
 		stars += "…"
 	}
 	out := fmt.Sprintf("%s%s (%d chars)", v[:shown], stars, len(v))
@@ -148,6 +151,20 @@ func Preview(v string) string {
 		out += " · pasted twice?"
 	}
 	return out
+}
+
+// keyPrefix is a key's vendor prefix: leading short lowercase-alnum segments, each ending in - or _ ("sk-ant-oat01-",
+// "tvly-dev-"); it stops at the first segment that looks random (any uppercase, or longer than 6), never exposing it.
+func keyPrefix(v string) string {
+	end := 0
+	for end < len(v) && end < 16 {
+		i := strings.IndexAny(v[end:], "-_")
+		if i <= 0 || i > 6 || strings.ToLower(v[end:end+i]) != v[end:end+i] {
+			break
+		}
+		end += i + 1
+	}
+	return v[:end]
 }
 
 // previewStars caps prefix+stars so "label  " + preview + length + the doubled-paste flag stay within 80 columns.
