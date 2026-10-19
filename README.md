@@ -124,9 +124,9 @@ claude-code setup workspace init|link|status
 
 ## Providers
 
-Built-ins live in `internal/providers/defaults.json`. `~/.claude/providers.json` overlays them **by name**
+Built-ins live in `internal/providers/defaults.json`. `~/.claude/env.d/providers.json` overlays them **by name**
 (a provider entry replaces the built-in; `"name": null` removes one; `default`/`fallback` override when
-set). Start from [`providers.example.json`](providers.example.json).
+set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
 
 ```jsonc
 {

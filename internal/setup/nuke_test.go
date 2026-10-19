@@ -22,7 +22,7 @@ func fixtureNukeDir(t *testing.T) string {
 		"agents/a.md": "agent\n",
 	})
 	mustWrite(t, filepath.Join(dir, "settings.local.json"), `{"local":true}`)
-	mustWrite(t, filepath.Join(dir, "providers.json"), `{"providers":{}}`)
+	mustWrite(t, filepath.Join(dir, "env.d", "providers.json"), `{"providers":{}}`)
 	mustWrite(t, filepath.Join(dir, "env.d", "provider.env"), "HARNESS_PROVIDER=foo\n")
 	mustWrite(t, filepath.Join(dir, "env.d", "secrets.env"), "API_KEY=sk-super-secret\n")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
@@ -124,7 +124,7 @@ func TestNukeApplyArchivesUserContentNeverSecrets(t *testing.T) {
 	}
 
 	entries := tarEntries(t, findTarball(t, home))
-	for _, want := range []string{"manifest.json", "settings.local.json", "providers.json", "env.d/provider.env"} {
+	for _, want := range []string{"manifest.json", "settings.local.json", "env.d/providers.json", "env.d/provider.env"} {
 		if _, ok := entries[want]; !ok {
 			t.Fatalf("tarball missing %q; has %v", want, tarNames(entries))
 		}

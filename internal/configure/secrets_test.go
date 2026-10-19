@@ -73,7 +73,7 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("PATH", t.TempDir())
-	if err := os.WriteFile(filepath.Join(cfg, "providers.json"), []byte(`{"providers": {"openrouter": null}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(`{"providers": {"openrouter": null}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := secrets.Store("MY_CUSTOM", "v", false); err != nil {

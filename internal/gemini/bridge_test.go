@@ -65,7 +65,7 @@ func setupRegistry(t *testing.T, srv *httptest.Server) {
 	body := fmt.Sprintf(`{"providers":{
 	  "tgem":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
-	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -433,7 +433,7 @@ func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	body := fmt.Sprintf(`{"providers":{
 	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
-	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

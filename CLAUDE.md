@@ -58,7 +58,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
-| Add a gateway provider (LiteLLM, OpenRouter, corporate) | add it to `~/.claude/providers.json` with `routes` per dialect; copy `providers.example.json` | `README.md` → Providers |
+| Add a gateway provider (LiteLLM, OpenRouter, corporate) | add it to `~/.claude/env.d/providers.json` with `routes` per dialect; copy `env.d/providers.example.json` | `README.md` → Providers |
 | Set a credential | `claude-code secrets set [NAME]` (OS keyring; bare on a terminal = guided dialog; `--file` → `env.d/secrets.env`), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
@@ -98,8 +98,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
-- `internal/providers/defaults.json` — built-in providers; `~/.claude/providers.json` overlays by name.
-- `env.d/` — `provider.env` (pins, written by `switch`/`models`) and `secrets.env` (credentials); untracked.
+- `internal/providers/defaults.json` — built-in providers; `~/.claude/env.d/providers.json` overlays by name.
+- `env.d/` — `provider.env` (pins, `switch`/`models`), `secrets.env` (credentials), `providers.json` (overlay),
+  `custom.env` (launch env); untracked; each has a tracked `*.example` beside it.
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`

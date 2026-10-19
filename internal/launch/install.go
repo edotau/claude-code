@@ -96,6 +96,7 @@ func Install(w io.Writer, dryRun bool) error {
 		}
 	}
 	seedTmuxConf(w, dryRun)
+	moveProvidersFile(w, dryRun)
 	if err := linkOnPath(w, target, dryRun); err != nil {
 		return err
 	}
@@ -139,6 +140,27 @@ func Install(w io.Writer, dryRun bool) error {
 	syncVendors(w, dryRun)
 	installGitHooks(w, dryRun)
 	return nil
+}
+
+// moveProvidersFile moves a pre-env.d ~/.claude/providers.json into env.d once; both present keeps both and warns.
+func moveProvidersFile(w io.Writer, dryRun bool) {
+	old, dst := filepath.Join(paths.ConfigDir(), "providers.json"), providers.UserFile()
+	if _, err := os.Stat(old); err != nil {
+		return
+	}
+	if _, err := os.Stat(dst); err == nil {
+		fmt.Fprintf(w, "providers %s and %s both exist; only the env.d one is read — merge and delete the old one\n", old, dst)
+		return
+	}
+	fmt.Fprintf(w, "move     %s → %s\n", old, dst)
+	if dryRun {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err == nil {
+		if err := os.Rename(old, dst); err != nil {
+			fmt.Fprintf(w, "providers move failed: %v\n", err)
+		}
+	}
 }
 
 // installGitHooks points core.hooksPath at the repo's .githooks (pre-push runs the CI gate); best-effort.

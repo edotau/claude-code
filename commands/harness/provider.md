@@ -6,7 +6,7 @@ allowed-tools: "Bash(claude-code switch:*), Bash(claude-code profile:*), Bash(cl
 
 # /harness:provider — Switch LLM Provider
 
-Flip Claude Code between the providers registered in `~/.claude/providers.json`
+Flip Claude Code between the providers registered in `~/.claude/env.d/providers.json`
 (overlaying `internal/providers/defaults.json` by name). The command pins the session
 provider via `claude-code switch` (alias: `use`), which writes `env.d/provider.env`.
 
