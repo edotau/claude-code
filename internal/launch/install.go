@@ -30,6 +30,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -283,6 +284,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
 	}
+	for _, s := range tools.StatusAll() {
+		check(true, false, "tool "+s.Name, toolDoctorDetail(s))
+	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
@@ -475,6 +479,28 @@ func settingsHasHooks(file string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// toolDoctorDetail renders one tool's doctor line: path + version, flagged when it's an npm-global
+// copy that `claude-code install --tools` would retire, or a report-only hint when none is found.
+func toolDoctorDetail(s tools.Status) string {
+	if s.Path == "" {
+		if s.Hint != "" {
+			return "not found (" + s.Hint + ")"
+		}
+		return "not found (claude-code install --tools=" + s.Name + ")"
+	}
+	detail := s.Path
+	if s.Version != "" {
+		detail += " " + s.Version
+	}
+	switch {
+	case s.NPMGlobal:
+		detail += " (npm-global; claude-code install --tools retires this)"
+	case s.LocalBin:
+		detail += " (~/.local/bin)"
+	}
+	return detail
 }
 
 func orErr(s string, err error) string {

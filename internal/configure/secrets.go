@@ -3,8 +3,10 @@ package configure
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,6 +78,17 @@ func Secrets(o Options, forceFile bool) int {
 	}
 	o.In = o.reader()
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: o.writer(), color: ansi.Enabled(o.writer())}
+	return secretsLoop(d, forceFile)
+}
+
+// secretsLoop is the secrets page on d: standalone it stores at once; inside configure (d.pending set) every
+// value is staged and configure's Submit saves it to the keyring.
+func secretsLoop(d *dialog, forceFile bool) int {
+	if d.pending != nil {
+		before := maps.Clone(d.pending)
+		defer confirmPageKeys(d, before)
+	}
+	reg := d.reg
 	store := "the OS keyring"
 	if forceFile || !keyring.Available() {
 		store = secrets.EnvFile()
@@ -86,8 +99,12 @@ func Secrets(o Options, forceFile bool) int {
 		for _, s := range list {
 			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-15s %s", sourceLabel(s.source), s.users)})
 		}
-		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, [2]string{"Done", ""})
-		idx, err := pick(d, "secrets — pick one to set (stores in "+store+")", rows)
+		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
+		title := "secrets — pick one to set (stores in " + store + ")"
+		if d.pending != nil {
+			title = "secrets — pick one to set (Submit saves to " + store + ")"
+		}
+		idx, err := pickPlain(d, title, rows)
 		if err != nil {
 			fmt.Fprintf(d.out, "secrets: %v\n", err)
 			return 1
@@ -226,4 +243,57 @@ func textLine(d *dialog, prompt string) string {
 		return strings.TrimRight(line, "\r\n")
 	}
 	return readLine(d.br)
+}
+
+// confirmPageKeys asks, on leaving the secrets page inside configure, whether to save what the page staged
+// now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit.
+func confirmPageKeys(d *dialog, before map[string]stagedKey) {
+	var page []string
+	for name, k := range d.pending {
+		if prev, ok := before[name]; ok && prev.val == k.val {
+			continue
+		}
+		if v, _, ok := secrets.Get(name); ok && v == k.val && k.had && k.prev == v {
+			continue // re-entered the value already stored: not a change
+		}
+		page = append(page, name)
+	}
+	if len(page) == 0 {
+		return
+	}
+	slices.Sort(page)
+	if !confirmLeave(len(page), "key(s) to the secrets manager") {
+		for _, name := range page {
+			restoreStaged(d, name, before)
+		}
+		d.printf("secrets: %d change(s) discarded\n", len(page))
+		return
+	}
+	for _, name := range page {
+		k := d.pending[name]
+		plane, err := secrets.Store(name, k.val, k.forceFile)
+		if err != nil {
+			d.printf("%s: not saved: %v\n", name, err)
+			continue
+		}
+		d.printf("saved %s to %s (%s)\n", name, plane, secrets.Redact(k.val))
+		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
+	}
+	d.changed = true
+}
+
+// restoreStaged undoes one page-staged key: back to its pre-page staging, or out of pending with its env restored.
+func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
+	if prev, ok := before[name]; ok {
+		d.pending[name] = prev
+		os.Setenv(name, prev.val)
+		return
+	}
+	k := d.pending[name]
+	if k.had {
+		os.Setenv(name, k.prev)
+	} else {
+		os.Unsetenv(name)
+	}
+	delete(d.pending, name)
 }

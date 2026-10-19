@@ -310,7 +310,7 @@ func login(name string, p *providers.Provider, model string, h *Headless) ([]str
 	case name == "opencode" && p.Name == "github-copilot":
 		// github-copilot's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
 		// Copilot login (opencode auth login), never the harness's copilot-vendor credential.
-		return opencodeCopilotLogin()
+		return opencodeCopilotLogin(model, h)
 	case p.Auth.Login != name:
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	case name == "codex":
@@ -539,17 +539,30 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 	if name != "opencode" {
 		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
 	}
+	env, argv = opencodeRun("", h)
+	return env, argv, nil
+}
+
+// OpencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
+// `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
+func OpencodeRunArgv(model string, h Headless) (env, argv []string) { return opencodeRun(model, h) }
+
+// opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
+func opencodeRun(model string, h Headless) (env, argv []string) {
 	if !h.Tools {
 		env = append(env, `OPENCODE_CONFIG_CONTENT={"permission":"deny"}`)
 	}
 	argv = []string{"run", "--format", "json"}
+	if model != "" {
+		argv = append(argv, "-m", model)
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
 	}
-	return env, append(argv, positional(h.Prompt)...), nil
+	return env, append(argv, positional(h.Prompt)...)
 }
 
 // copilotMaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.
@@ -714,13 +727,27 @@ func CopilotLoginPresent() bool { return copilotLoginPresent() }
 // GeminiLoginPresent reports whether agy's cached Google login is on disk; it beats GEMINI_API_KEY (even a bogus key).
 func GeminiLoginPresent() bool {
 	home, _ := os.UserHomeDir()
-	_, err := os.Stat(AgyLoginMarker(home))
-	return err == nil
+	for _, p := range agyLoginMarkers(home) {
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
+// agy 1.4.2 moved this from jetski-standalone-oauth-token to antigravity-cli/antigravity-oauth-token;
+// this is the current path a fresh sign-in writes.
 func AgyLoginMarker(home string) string {
-	return filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
+	return agyLoginMarkers(home)[0]
+}
+
+// agyLoginMarkers lists every path agy has used for its cached Google OAuth token, newest first.
+func agyLoginMarkers(home string) []string {
+	return []string{
+		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
+		filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
+	}
 }
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> the "github-copilot"
@@ -742,15 +769,16 @@ func OpencodeCopilotLoginPresent() bool {
 	return slices.Contains(OpencodeLogins(), "github-copilot")
 }
 
-// opencodeCopilotLogin is opencode on its own GitHub Copilot sign-in: there is nothing for the harness to
-// inject (the login and the model/small_model `generate` wrote live in opencode's own config), so a
-// present login runs plain (ErrOwnLogin); an absent one is a clear, actionable error instead of login's
-// generic "wrong vendor" message (p.Auth.Login names "copilot", not "opencode").
-func opencodeCopilotLogin() ([]string, []string, error) {
+// opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
+func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error) {
 	if !OpencodeCopilotLoginPresent() {
 		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's own auth.json; run `opencode auth login` and choose GitHub Copilot")
 	}
-	return nil, nil, ErrOwnLogin
+	if h == nil {
+		return nil, nil, ErrOwnLogin
+	}
+	env, argv := opencodeRun("github-copilot/"+model, *h)
+	return env, argv, nil
 }
 
 // OpencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku

@@ -1,9 +1,11 @@
 package vendors
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -291,5 +293,49 @@ func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "claude-code configure github") {
 		t.Errorf("error = %q, want it to name `claude-code configure github`", err)
+	}
+}
+
+// Regression: ConfigureHeadless on opencode's own GitHub Copilot login must not surface ErrOwnLogin (the
+// headless runner has no interactive menu to pick a model from) and must carry the resolved model as
+// `-m github-copilot/<model>`, not silently fall back to opencode's own default.
+func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_PROVIDER", "subscription")
+	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _, err := ResolveTarget(reg, "opencode", sel, false)
+	if err != nil {
+		t.Fatalf("ResolveTarget: %v", err)
+	}
+	_, argv, err := ConfigureHeadless(context.Background(), "opencode", target, Headless{Prompt: "pong"})
+	if errors.Is(err, ErrOwnLogin) {
+		t.Fatal("ConfigureHeadless must not surface ErrOwnLogin: the headless runner cannot fall back to an interactive model menu")
+	}
+	if err != nil {
+		t.Fatalf("ConfigureHeadless: %v", err)
+	}
+	want := "github-copilot/" + target.Model
+	if !slices.Contains(argv, want) {
+		t.Errorf("argv = %v, want it to carry -m %q", argv, want)
+	}
+	// Interactive (h == nil, via Configure) keeps the old behavior: opencode launches plain on its own login.
+	if _, _, err := Configure(context.Background(), "opencode", target, ""); !errors.Is(err, ErrOwnLogin) {
+		t.Errorf("Configure (interactive) err = %v, want ErrOwnLogin", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,38 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 	good := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
 	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).Validate(); err != nil {
 		t.Errorf("a real opencode_fallback id must pass validation, got %v", err)
+	}
+}
+
+// an overlay's opencodeLadder/opencodePlugins replace the defaults' whole, not merge into them.
+func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(PinProvider, "")
+	stubKeyring(t, nil)
+	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
+		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
+		"opencodeLadder": ["a"], "opencodePlugins": ["old-plugin"]}`)
+	overlay := []byte(`{"opencodeLadder": ["b", "a"], "opencodePlugins": ["new-plugin"]}`)
+	reg, err := Parse(base, overlay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"b", "a"}) {
+		t.Errorf("OpencodeLadder = %v, want overlay's full replacement", reg.OpencodeLadder)
+	}
+	if !reflect.DeepEqual(reg.OpencodePlugins, []string{"new-plugin"}) {
+		t.Errorf("OpencodePlugins = %v, want overlay's full replacement", reg.OpencodePlugins)
+	}
+}
+
+func TestValidateRejectsUnknownOpencodeLadderName(t *testing.T) {
+	reg := &Registry{OpencodeLadder: []string{"ghost"}, Providers: map[string]*Provider{}}
+	err := reg.Validate()
+	if err == nil {
+		t.Fatal("unknown opencodeLadder name must fail validation")
+	}
+	if !strings.Contains(err.Error(), "opencodeLadder names unknown provider") {
+		t.Errorf("error = %q, want it to name the opencodeLadder rule", err)
 	}
 }
 

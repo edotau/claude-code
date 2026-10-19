@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -237,6 +238,10 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		fmt.Fprintln(os.Stderr, note)
 	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
+	if errors.Is(err, vendors.ErrOwnLogin) {
+		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
+		return plainPlan(spec, args)
+	}
 	if err != nil {
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
@@ -251,6 +256,9 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 				}
 				env, prefix, err = vendors.Configure(ctx, name, target, "")
 			}
+		}
+		if errors.Is(err, vendors.ErrOwnLogin) {
+			return plainPlan(spec, args)
 		}
 		if err != nil {
 			return passthrough(spec, name, reason, args)
@@ -271,6 +279,43 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 
 // Env applies the plan to base (KEY=VALUE list).
 func (p Plan) Env(base []string) []string {
+	return p.envWith(base, customEnv())
+}
+
+// customEnv is env.d/custom.env resolved (keyring refs via secrets.Get); an unresolved ref is warned, not set.
+var customEnv = func() map[string]string {
+	vals, missing := providers.ResolveCustomEnv(func(k string) (string, bool) {
+		v, _, ok := secrets.Get(k)
+		return v, ok
+	})
+	for _, k := range missing {
+		fmt.Fprintf(os.Stderr, "claude-code: custom env %s=@keyring has no keyring value; not set\n", k)
+	}
+	return vals
+}
+
+// envWith layers base, then custom (user vars), then Set; Unset and Set keys always beat a custom var.
+func (p Plan) envWith(base []string, custom map[string]string) []string {
+	unset := map[string]bool{}
+	for _, k := range p.Unset {
+		unset[k] = true
+	}
+	merged := maps.Clone(p.Set)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	for k, v := range custom {
+		_, harness := p.Set[k]
+		if !harness && !unset[k] {
+			merged[k] = v
+		}
+	}
+	p.Set = merged
+	return p.plainEnv(base)
+}
+
+// plainEnv is base minus Unset/Set keys, plus Set.
+func (p Plan) plainEnv(base []string) []string {
 	drop := map[string]bool{}
 	for _, k := range p.Unset {
 		drop[k] = true
@@ -307,6 +352,14 @@ func (p Plan) Print(w io.Writer) {
 			v = vendors.RedactConfig(v)
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
+	}
+	for _, k := range slices.Sorted(maps.Keys(providers.CustomEnv())) {
+		switch _, harness := p.Set[k]; {
+		case harness || slices.Contains(p.Unset, k):
+			fmt.Fprintf(w, "custom   %s (overridden by the launch)\n", k)
+		default:
+			fmt.Fprintf(w, "custom   %s (env.d/custom.env)\n", k)
+		}
 	}
 	if len(p.Overlay) > 0 {
 		fmt.Fprintf(w, "overlay  %s\n%s\n", p.OverlayPath, p.Overlay)

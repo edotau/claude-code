@@ -1,6 +1,5 @@
 // Package vscode merges the tracked VS Code settings template into VS Code's Machine settings.json
-// — the scope Settings Sync never syncs, so every box renders its own copy locally. Ported from
-// claude-dbx's internal/settings/settingscmd/vscode.go.
+// — the scope Settings Sync never syncs, so every box renders its own copy locally.
 package vscode
 
 import (

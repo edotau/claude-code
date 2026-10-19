@@ -130,6 +130,29 @@ func Redact(v string) string {
 	return fmt.Sprintf("%s*** (%d chars)", v[:redactShow], len(v))
 }
 
+// Preview shows a just-pasted value so a wrong or doubled paste is visible: the key's own prefix (up to its last
+// -/_ in the first 16 chars, never over a third of it), one * per hidden char up to a cap, and the length.
+// A value that is two identical halves is flagged. Fits an 80-column line after a 10-column label.
+func Preview(v string) string {
+	shown := min(4, len(v)/3)
+	if i := strings.LastIndexAny(v[:min(16, len(v))], "-_"); i+1 > shown && i+1 <= len(v)/3 {
+		shown = i + 1
+	}
+	hidden := len(v) - shown
+	stars := strings.Repeat("*", min(hidden, previewStars-shown))
+	if hidden > previewStars-shown {
+		stars += "…"
+	}
+	out := fmt.Sprintf("%s%s (%d chars)", v[:shown], stars, len(v))
+	if n := len(v); n >= 16 && n%2 == 0 && v[:n/2] == v[n/2:] {
+		out += " · pasted twice?"
+	}
+	return out
+}
+
+// previewStars caps prefix+stars so "label  " + preview + length + the doubled-paste flag stay within 80 columns.
+const previewStars = 40
+
 // redactMin is the shortest value that shows a prefix; redactShow is how much of it (the Tailscale console shows 5).
 const (
 	redactMin  = 12

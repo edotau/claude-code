@@ -81,8 +81,8 @@ func TestGeminiSubverbsCompleteDespiteBareLauncherGuard(t *testing.T) {
 // TestCompletionFlags: a partial word beginning with "-" resolves the typed path and offers its own
 // flags; a leaf with no flagsFor entry offers nothing.
 func TestCompletionFlags(t *testing.T) {
-	if got := completionCandidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run"}) {
-		t.Errorf("install -- = %v, want [--dry-run]", got)
+	if got := completionCandidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run", "--tools"}) {
+		t.Errorf("install -- = %v, want [--dry-run --tools]", got)
 	}
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
 		t.Errorf("theme -- = %v, want [--preview]", got)
@@ -268,9 +268,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 }
 
-// TestCompletionInstallHonorsBashCompletionUserDirOverride is the dbx bug fix: dbx's completionsDir
-// only ever checked XDG_DATA_HOME, silently ignoring BASH_COMPLETION_USER_DIR — the override
-// bash-completion itself honors. This pins both the override and the XDG fallback.
+// TestCompletionInstallHonorsBashCompletionUserDirOverride pins BASH_COMPLETION_USER_DIR and the XDG fallback.
 func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	override := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", override)

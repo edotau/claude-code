@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/tools"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 )
 
@@ -143,11 +144,42 @@ func cmdSettings(args []string) int {
 	return 0
 }
 
+// toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).
+type toolsFlag struct {
+	set   bool
+	names []string
+}
+
+func (t *toolsFlag) String() string {
+	if t == nil || !t.set {
+		return ""
+	}
+	return strings.Join(t.names, ",")
+}
+
+func (t *toolsFlag) Set(s string) error {
+	t.set = true
+	if s != "" && s != "true" {
+		t.names = strings.Split(s, ",")
+	}
+	return nil
+}
+
+func (t *toolsFlag) IsBoolFlag() bool { return true } // allows the bare "--tools" form
+
 func cmdInstall(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
+	var tf toolsFlag
+	fs.Var(&tf, "tools", "install/update vendor CLIs into ~/.local/bin (bare = every tool; --tools=name,...); skips the settings/shim install")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if tf.set {
+		if err := tools.InstallSelected(context.Background(), os.Stdout, tf.names, *dry); err != nil {
+			return fail("install --tools: %v", err)
+		}
+		return 0
 	}
 	if err := launch.Install(os.Stdout, *dry); err != nil {
 		return fail("install: %v", err)

@@ -103,7 +103,7 @@ func TestSummarizeFileMissingFile(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileDedupesByMessageID pins the dbx-bug fix: Claude Code writes one JSONL line per
+// TestSummarizeFileDedupesByMessageID pins the dedupe: Claude Code writes one JSONL line per
 // content block of an API response, each repeating message.usage under the same message.id, and
 // output_tokens grows across a response's lines while streaming. testdata/usage_dedup.jsonl's first
 // four lines are real records sampled 2026-09-26 (trimmed) sharing one id — a naive per-line sum would

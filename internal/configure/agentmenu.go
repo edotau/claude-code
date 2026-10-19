@@ -60,8 +60,28 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 // pickAgent is the submenu picker seam; tests replace it.
 var pickAgent = tui.PickBack
 
+// displayLabel is the user-facing name for an agent row: every vendor is its own name except gemini,
+// whose runner is agy 1.4.2 (Antigravity) — the internal vendor/runner name stays "gemini" everywhere else.
+func displayLabel(name string) string {
+	if name == "gemini" {
+		return "agy (Antigravity)"
+	}
+	return name
+}
+
+// internalName undoes displayLabel: the agent page title carries the display label.
+func internalName(label string) string {
+	if label == displayLabel("gemini") {
+		return "gemini"
+	}
+	return label
+}
+
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
+	if r := modelRow(d, internalName(name)); r != nil {
+		m.rows = append(m.rows, *r)
+	}
 	title := name + " (current: " + m.state.mode
 	if m.state.verified {
 		title += " · verified"
@@ -136,8 +156,8 @@ func byokKey(reg *providers.Registry) (*providers.Provider, string) {
 }
 
 // byokRow is copilot's and opencode's API key row: shows which fallback key resolves, sets the anthropic one.
-func byokRow(d *dialog, label, login string) billingRow {
-	r := keyRow(d, label, anthropicRow, "pay per token · ANTHROPIC_API_KEY, else GEMINI_API_KEY, used without a "+login+" login")
+func byokRow(d *dialog, label string) billingRow {
+	r := keyRow(d, label, anthropicRow, "pay per token via a stored key")
 	if _, env := byokKey(d.reg); env != "" {
 		r.desc = strings.TrimSuffix(r.desc, "[no key]") + "[" + env + " set]"
 	}
@@ -230,13 +250,13 @@ func copilotMenu(d *dialog) agentMenu {
 			}
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		byokRow(d, "copilot", "GitHub"),
+		byokRow(d, "copilot"),
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
 	}
 	if !copilotEnvTokenSet() { // an env token override would make gh's refresh rotate the wrong credential
-		rows = append(rows, billingRow{"OAuth token", "gh auth refresh · mints a new gh token, rotates the session copilot reads", "", func() bool {
+		rows = append(rows, billingRow{"OAuth token", "gh auth refresh · mints a token for copilot's session", "", func() bool {
 			return signIn(d, "copilot", []string{"gh", "auth", "refresh"})
 		}})
 	}
@@ -253,7 +273,7 @@ func opencodeMenu(d *dialog) agentMenu {
 			}
 			return signIn(d, "opencode", []string{"opencode", "auth", "login"})
 		}},
-		byokRow(d, "opencode", "Copilot"),
+		byokRow(d, "opencode"),
 		{"Login", "opencode auth login · browser sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "opencode", []string{"opencode", "auth", "login"})
 		}},

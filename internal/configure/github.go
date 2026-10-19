@@ -2,11 +2,8 @@ package configure
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -239,69 +236,9 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	if fallback == "auto" {
 		return errors.New(`github-copilot opencode_fallback: "auto" is not a valid fallback (opencode's own catalog has no alias by that name)`)
 	}
-	return writeGithubCopilotOverlay(picks, fallback)
-}
-
-// writeGithubCopilotOverlay does the raw-JSON merge: read-modify-write at the map level (never through
-// Provider's own MarshalJSON, which redacts headers and would corrupt a round trip), a timestamped backup
-// of the file it is about to replace, then an atomic rename so a reader never sees a half-written overlay.
-func writeGithubCopilotOverlay(picks map[string]string, fallback string) error {
-	file := providers.UserFile()
-	return paths.WithFileLock(file, func() error {
-		raw, err := os.ReadFile(file)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		doc := map[string]json.RawMessage{}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &doc); err != nil {
-				return fmt.Errorf("%s: %w", file, err)
-			}
-		}
-		provs := map[string]json.RawMessage{}
-		if b, ok := doc["providers"]; ok {
-			if err := json.Unmarshal(b, &provs); err != nil {
-				return fmt.Errorf("%s: providers: %w", file, err)
-			}
-		}
-		entry := map[string]json.RawMessage{}
-		if b, ok := provs["github-copilot"]; ok {
-			if err := json.Unmarshal(b, &entry); err != nil {
-				return fmt.Errorf("%s: providers.github-copilot: %w", file, err)
-			}
-		}
-		picksB, err := json.Marshal(picks)
-		if err != nil {
-			return err
-		}
-		entry["models"] = picksB
-		if fallback != "" {
-			fbB, err := json.Marshal(fallback)
-			if err != nil {
-				return err
-			}
-			entry["opencode_fallback"] = fbB
-		}
-		entryB, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		provs["github-copilot"] = entryB
-		provsB, err := json.Marshal(provs)
-		if err != nil {
-			return err
-		}
-		doc["providers"] = provsB
-		out, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
-			return err
-		}
-		if len(raw) > 0 {
-			backup := file + ".bak-" + time.Now().Format("20060102-150405")
-			if err := paths.AtomicWrite(backup, raw, 0o600); err != nil {
-				return err
-			}
-		}
-		return paths.AtomicWrite(file, out, 0o600)
-	})
+	fields := map[string]any{"models": picks}
+	if fallback != "" {
+		fields["opencode_fallback"] = fallback
+	}
+	return providers.SetProviderFields("github-copilot", fields)
 }
