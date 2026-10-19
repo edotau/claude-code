@@ -31,7 +31,7 @@ Dispatch on the argument:
   Report the default/pinned provider, resolved tier→model slots, credential state, and
   whether the loopback router is needed. Change nothing.
 
-- **A provider name** (e.g. `anthropic`, `openrouter`, any name in `providers.json`) — run:
+- **A provider name** (e.g. `anthropic`, `gemini`, any name in `providers.json`) — run:
   ```bash
   claude-code switch <name>
   ```

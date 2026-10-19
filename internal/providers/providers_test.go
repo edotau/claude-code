@@ -15,6 +15,7 @@ const overlay = `{
   "default": "gw",
   "fallback": ["anthropic"],
   "providers": {
+    "gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
     "gw": {"kind": "anthropic", "base_url": "https://gw.example.com",
       "routes": {"openai": "/v1", "responses": "https://other.example.com/r/"},
       "auth": {"type": "bearer", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
@@ -177,7 +178,7 @@ func TestNeedsRouterPassthroughFallback(t *testing.T) {
 func TestFailoverTarget(t *testing.T) {
 	reg := load(t)
 	gw, _ := reg.Get("gw")
-	or, _ := reg.Get("openrouter")
+	or, _ := reg.Get("gateway")
 	oa, _ := reg.Get("openai")
 	if tg, ok := FailoverTarget(gw, "claude-sonnet-5", or); !ok || tg.Model != "anthropic/claude-sonnet-5" {
 		t.Errorf("slot mapping: %+v", tg)

@@ -37,7 +37,7 @@ const (
 	thinkingHigh     = "64000"
 )
 
-// Tolerates vendor prefixes like "anthropic/" (OpenRouter) or "us.anthropic." (Bedrock) before "claude-".
+// Tolerates vendor prefixes like "anthropic/" (gateways) or "us.anthropic." (Bedrock) before "claude-".
 var claudeRE = regexp.MustCompile(`(?:^|[/.:])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?`)
 
 // ParseClaudeID extracts (family, major, minor); a >2-digit trailing group is a date stamp, not a minor.

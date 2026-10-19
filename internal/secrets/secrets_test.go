@@ -106,7 +106,7 @@ func TestRedact(t *testing.T) {
 // SetFile/Get must round-trip through the file plane, and the written file must be 0600.
 func TestSetFileGetRoundTripAndPerms(t *testing.T) {
 	setConfigDir(t)
-	if err := SetFile("OPENROUTER_API_KEY", "sk-test-abc123"); err != nil {
+	if err := SetFile("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
 		t.Fatalf("SetFile: %v", err)
 	}
 	fi, err := os.Stat(EnvFile())
@@ -116,7 +116,7 @@ func TestSetFileGetRoundTripAndPerms(t *testing.T) {
 	if perm := fi.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("perm = %04o, want 0600", perm)
 	}
-	val, source, ok := Get("OPENROUTER_API_KEY")
+	val, source, ok := Get("GATEWAY_API_KEY")
 	if !ok || val != "sk-test-abc123" || source != "file" {
 		t.Fatalf("Get = (%q, %q, %v), want (sk-test-abc123, file, true)", val, source, ok)
 	}
@@ -217,10 +217,17 @@ func TestScanFileClean(t *testing.T) {
 
 // Status must never print a credential value, even when every registered provider resolves one.
 func TestStatusNeverPrintsAValue(t *testing.T) {
-	setConfigDir(t)
+	dir := setConfigDir(t)
+	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gw := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "env.d", "providers.json"), []byte(gw), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	secretValue := "sk-super-secret-value-0123456789"
 	t.Setenv("ANTHROPIC_API_KEY", secretValue)
-	if err := SetFile("OPENROUTER_API_KEY", secretValue); err != nil {
+	if err := SetFile("GATEWAY_API_KEY", secretValue); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("OPENAI_API_KEY", "") // keep deterministic: unset sources read as "none"
@@ -238,8 +245,8 @@ func TestStatusNeverPrintsAValue(t *testing.T) {
 	if !strings.Contains(out, "anthropic") || !strings.Contains(out, "env") {
 		t.Errorf("status did not report anthropic as env-sourced:\n%s", out)
 	}
-	if !strings.Contains(out, "openrouter") || !strings.Contains(out, "file") {
-		t.Errorf("status did not report openrouter as file-sourced:\n%s", out)
+	if !strings.Contains(out, "gateway") || !strings.Contains(out, "file") {
+		t.Errorf("status did not report gateway as file-sourced:\n%s", out)
 	}
 }
 

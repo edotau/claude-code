@@ -6,7 +6,7 @@ Workflow scripts every session loads.
 
 What the binary adds to a stock install:
 
-- **Provider registry** — Anthropic, a Claude subscription, ChatGPT and GitHub Copilot subscriptions (via their own CLIs), OpenRouter, OpenAI, Gemini, Ollama, or any
+- **Provider registry** — Anthropic, a Claude subscription, ChatGPT and GitHub Copilot subscriptions (via their own CLIs), OpenAI, Gemini, Nvidia, Ollama, or any
   gateway, selected per launch or pinned; tier slots (opus/sonnet/haiku/fable) map to model ids per provider.
 - **Loopback router** — lets Claude Code talk to OpenAI-dialect upstreams (translation), mix providers per
   tier (`haiku=openai:gpt-5-nano`), and fail over on 429/5xx.
@@ -43,7 +43,7 @@ The first word picks what to launch:
 ```bash
 claude-code opus        # Claude Code, opus as the main model (also sonnet | haiku | fable); args pass to claude
 claude-code codex       # a vendor CLI through the registry (also gemini | opencode | copilot)
-claude-code openrouter  # Claude Code on that registered provider; a verb wins a name clash (gemini is the CLI)
+claude-code ollama      # Claude Code on that registered provider; a verb wins a name clash (gemini is the CLI)
 claude-code --resume    # a leading flag is a claude flag: Claude Code on the session provider
 ```
 
@@ -130,16 +130,16 @@ set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
 
 ```jsonc
 {
-  "default": "litellm",
-  "fallback": ["litellm", "openrouter"],        // 429/5xx ladder (implies the router)
+  "default": "gateway",
+  "fallback": ["gateway", "anthropic"],         // 429/5xx ladder (implies the router)
   "providers": {
-    "litellm": {
+    "gateway": {
       "kind": "anthropic",                       // dialect base_url itself speaks
       "base_url": "https://llm.example.com",
       "routes": {                                // extra dialects: path suffix or absolute URL
         "openai": "/v1"
       },
-      "auth": {"type": "bearer", "env": "LITELLM_API_KEY"},
+      "auth": {"type": "bearer", "env": "GATEWAY_API_KEY"},
       "headers": {"x-team": "platform"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "gpt-5-nano"},
       "one_m": true                              // upstream serves 1M context for Claude ids
@@ -160,13 +160,13 @@ set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
 
 ```bash
 claude-code profile                        # * = default, credential state, dialects, fallback ladder (alias: providers)
-claude-code profile litellm                # routes, auth, models
-claude-code switch litellm                 # pin the session provider (env.d/provider.env) (alias: use)
+claude-code profile gateway                # routes, auth, models
+claude-code switch gateway                 # pin the session provider (env.d/provider.env) (alias: use)
 claude-code models                         # resolved slots and whether the router is needed
 claude-code models --pin haiku=openai:gpt-5-nano --pin opus=claude-opus-5
 claude-code models --unpin
-claude-code models --live --provider openrouter   # what the upstream serves
-claude --provider openrouter --model anthropic/claude-sonnet-5   # this launch only
+claude-code models --live --provider gateway      # what the upstream serves
+claude --provider gateway --model claude-sonnet-5                # this launch only
 ```
 
 Selection order — provider: `--provider` → `HARNESS_PROVIDER` → registry `default`. Slot:
@@ -177,7 +177,7 @@ Selection order — provider: `--provider` → `HARNESS_PROVIDER` → registry `
 
 A provider's credential resolves through a ladder; the first non-empty source wins:
 
-1. **Process env** — `auth.env` (e.g. `OPENROUTER_API_KEY`)
+1. **Process env** — `auth.env` (e.g. `GATEWAY_API_KEY`)
 2. **`~/.claude/env.d/secrets.env`** — `KEY=value` lines for the same name
    ([`env.d/secrets.env.example`](env.d/secrets.env.example); chmod 600; gitignored)
 3. **`auth.file`** — a file holding the credential (`~` expanded)
@@ -185,10 +185,10 @@ A provider's credential resolves through a ladder; the first non-empty source wi
    re-run after an upstream 401:
 
 ```json
-"auth": {"type": "bearer", "command": "security find-generic-password -w -s openrouter", "ttl": 3600}
+"auth": {"type": "bearer", "command": "security find-generic-password -w -s gateway", "ttl": 3600}
 ```
 
-Other commands that fit: `op read op://Private/openrouter/credential`, `pass show openrouter`, or a
+Other commands that fit: `op read op://Private/gateway/credential`, `pass show gateway`, or a
 script that mints a short-lived gateway token. `claude-code token --provider <p>` prints the resolved
 credential — it is the `apiKeyHelper` Claude Code calls, so no key is stored in `settings.json`.
 
@@ -286,7 +286,7 @@ claude-code ask --agent codex "Review the diff on this branch for correctness bu
 claude-code ask --log                                 # recent dispatches: id, status, agent, duration, prompt preview
 claude-code ask --retry <id> [--timeout 20m]          # replay one exactly; flags typed here override the record
 claude-code ask --agent gemini --format json "Map every caller of providers.Select."
-claude-code run opencode --provider openrouter --model qwen/qwen3-coder
+claude-code run opencode --provider ollama --model qwen3-coder
 claude-code run codex --print-env                    # show the env/argv wiring, launch nothing
 claude-code codex ask "Review the diff on this branch for correctness bugs."   # top-level: codex|copilot|opencode
 claude-code codex --print-env                         # bare verb = `run codex`; `ask` = one-shot task
