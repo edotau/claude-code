@@ -1,0 +1,9 @@
+{
+  "//": "Only slots that must WIN over the inherited VS Code theme. Everything else (BG, Fg, FgMuted)",
+  "//2": "comes from ~/.vscode-server/data/User/settings.json colorCustomizations. 8-digit #RRGGBBAA is",
+  "//3": "composited over BG by the resolver, so alpha works here.",
+  "//4": "Sel is opaque on purpose: #80808080 was byte-identical to VS Code's ansiBrightBlack, so",
+  "//5": "tmux mode-style highlighted dim text gray-on-gray. Matches terminal.selectionBackground.",
+  "Sel":    "#2D4A7A",
+  "Border": "#4796E4"
+}
