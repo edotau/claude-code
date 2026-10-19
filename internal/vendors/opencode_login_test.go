@@ -37,9 +37,9 @@ func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Sele
 }
 
 // opencode's own `auth login` store for a NON-copilot provider (e.g. "anthropic") is no longer a
-// fallback leg by itself: DescribeRoute's opencode chain is copilot-login -> anthropic-key -> gemini-free
-// -> none, so an opencode-stored "anthropic" login with no ANTHROPIC_API_KEY/GEMINI_API_KEY resolves to
-// LegNone, never ErrOwnLogin — and the subscription session provider is never chosen either.
+// fallback leg by itself: DescribeRoute's opencode chain is copilot-login -> anthropic-key -> none,
+// so an opencode-stored "anthropic" login with no ANTHROPIC_API_KEY resolves to LegNone, never
+// ErrOwnLogin — and the subscription session provider is never chosen either.
 func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 	data, _ := isolateOpencodeRouteEnv(t)
 	t.Setenv("HARNESS_PROVIDER", "subscription")
@@ -79,9 +79,9 @@ func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 	}
 }
 
-// DescribeRoute's opencode chain in priority order: copilot-login, then anthropic-key, then
-// gemini-free, then none — each leg layered on top of the last so a higher leg is proven to outrank
-// a lower one, and the subscription provider is never selected at any point in the chain.
+// DescribeRoute's opencode chain in priority order: copilot-login, then anthropic-key, then none —
+// each leg layered on top of the last so a higher leg is proven to outrank a lower one, and the
+// subscription provider is never selected at any point in the chain.
 func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	reg, err := providers.Load()
@@ -93,14 +93,9 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
 	}
 
-	t.Setenv("GEMINI_API_KEY", secret)
-	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegGeminiFree || ri.Provider != "gemini" {
-		t.Fatalf("with only GEMINI_API_KEY, want gemini-free; got %+v", ri)
-	}
-
 	t.Setenv("ANTHROPIC_API_KEY", secret)
 	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegAnthropicKey || ri.Provider != "anthropic" {
-		t.Fatalf("anthropic-key must outrank gemini-free; got %+v", ri)
+		t.Fatalf("with only ANTHROPIC_API_KEY, want anthropic-key; got %+v", ri)
 	}
 
 	data := t.TempDir()
@@ -127,7 +122,7 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	}
 }
 
-// Same chain order for copilot: copilot-login, then byok-anthropic, then byok-gemini, then none.
+// Same chain order for copilot: copilot-login, then byok-anthropic, then none.
 func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	reg, err := providers.Load()
@@ -139,14 +134,9 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
 	}
 
-	t.Setenv("GEMINI_API_KEY", secret)
-	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegByokGemini || ri.Provider != "gemini" {
-		t.Fatalf("with only GEMINI_API_KEY, want byok-gemini; got %+v", ri)
-	}
-
 	t.Setenv("ANTHROPIC_API_KEY", secret)
 	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegByokAnthropic || ri.Provider != "anthropic" {
-		t.Fatalf("byok-anthropic must outrank byok-gemini; got %+v", ri)
+		t.Fatalf("with only ANTHROPIC_API_KEY, want byok-anthropic; got %+v", ri)
 	}
 
 	t.Setenv("GH_TOKEN", secret)
@@ -156,7 +146,6 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GEMINI_API_KEY", "")
 	none := DescribeRoute(reg, "copilot")
 	if none.OK || none.Leg != LegNone || !strings.Contains(none.Reason, "claude-code configure github") {
 		t.Fatalf("LegNone's reason must name `claude-code configure github`; got %+v", none)
@@ -272,7 +261,7 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 }
 
 // A model set in the user's own opencode.jsonc is no longer a fallback leg: DescribeRoute's chain
-// (copilot-login -> anthropic-key -> gemini-free -> none) replaced it, so it has no effect on routing.
+// (copilot-login -> anthropic-key -> none) replaced it, so it has no effect on routing.
 func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
 	_, cfg := isolateOpencodeRouteEnv(t)
 	t.Setenv("HARNESS_PROVIDER", "subscription")

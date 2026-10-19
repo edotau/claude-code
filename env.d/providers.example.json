@@ -8,7 +8,6 @@
   "opencodeLadder": [
     "chatgpt",
     "github-copilot",
-    "gemini",
     "nvidia"
   ],
   "opencodePlugins": [],

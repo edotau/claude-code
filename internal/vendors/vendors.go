@@ -229,6 +229,9 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 	if p.Auth.Login != "" {
 		return login(name, p, models.Strip1M(t.Model), h)
 	}
+	if name == "gemini" {
+		return nil, nil, fmt.Errorf("gemini: agy has no custom base URL; it runs only on its Google sign-in, not provider %s", p.Name)
+	}
 	dialect, base := "", ""
 	for _, d := range spec.Dialects {
 		if r, ok := p.Route(d); ok {
@@ -241,9 +244,6 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
 	cred, err := providers.Credential(ctx, p)
-	if name == "gemini" {
-		cred, err = "", nil // agy runs on its own Google sign-in, never a key
-	}
 	if errors.Is(err, providers.ErrPassthrough) {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
@@ -254,8 +254,6 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 	switch name {
 	case "codex":
 		return codex(p, base, model, cred, h)
-	case "gemini":
-		return gemini(p, base, model, cred, h)
 	case "opencode":
 		return opencode(p, dialect, base, model, cred, h)
 	default:
@@ -314,6 +312,8 @@ func login(name string, p *providers.Provider, model string, h *Headless) ([]str
 		return codexLogin(model, h)
 	case name == "copilot":
 		return copilotLogin(model, h)
+	case name == "gemini":
+		return geminiLogin(model, h)
 	}
 	return nil, nil, fmt.Errorf("%s: no subscription sign-in support", name)
 }
@@ -420,7 +420,7 @@ func codexHeadless(argv []string, h *Headless) []string {
 	return append(argv, "-")
 }
 
-// googleHost is Gemini's own API host; any other gemini route is a gateway.
+// googleHost is Gemini's own API host; a gemini-dialect route anywhere else is a gateway.
 const googleHost = "generativelanguage.googleapis.com"
 
 func isGateway(base string) bool {
@@ -428,12 +428,8 @@ func isGateway(base string) bool {
 	return err == nil && u.Host != googleHost
 }
 
-// gemini: agy speaks only Google's own backend — a gateway base (anything but googleHost) is a hard error.
-// It runs only on agy's cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
-func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
-	if isGateway(base) {
-		return nil, nil, errors.New("agy has no custom base URL; gemini runs on Google's backend only")
-	}
+// geminiLogin runs agy on its own cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
+func geminiLogin(model string, h *Headless) ([]string, []string, error) {
 	if !GeminiLoginPresent() {
 		return nil, nil, errors.New("gemini: agy is not signed in; " + ConfigureHint("gemini"))
 	}
