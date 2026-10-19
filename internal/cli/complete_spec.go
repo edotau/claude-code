@@ -117,6 +117,7 @@ func specTree() map[string]*compNode {
 			"promote":  {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"archive": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("dupes"), flag("split"),
 				boolFlag("apply"), boolFlag("restore")}},
+			"alias":   {flags: []flagInfo{flag("repo"), valuedFlag("into", memoryRepoNames), boolFlag("dry-run")}},
 			"migrate": {flags: []flagInfo{boolFlag("dry-run"), flag("manifest"), boolFlag("supersede"), flag("origin"), formatFlag()}},
 		}},
 	}
