@@ -73,24 +73,3 @@ func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 		t.Errorf("gemini loginArgv = %v, want [agy]", kt.loginArgv)
 	}
 }
-
-// gemini present via a plain API key offers "API key" (its envVar+provider are wired), never a login CLI.
-func TestVendorKeyTargetGeminiAPIKeyRotateWiring(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GEMINI_CLI_HOME", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("GEMINI_API_KEY", "sk-test-key")
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"gemini": {Name: "gemini", Auth: providers.Auth{Type: providers.AuthAPIKey, Env: "GEMINI_API_KEY"}},
-	}}
-	kt := vendorKeyTarget(reg, "gemini")
-	if !kt.present || kt.envVar != "GEMINI_API_KEY" || kt.provider == nil {
-		t.Fatalf("gemini API key target = %+v, want present+envVar+provider", kt)
-	}
-	opts := rotateOptions(kt)
-	if len(opts) != 1 || opts[0].action != "API key" {
-		t.Errorf("rotateOptions(gemini key target) = %v, want [Replace key]", opts)
-	}
-}

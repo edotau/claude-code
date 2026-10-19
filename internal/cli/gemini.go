@@ -62,7 +62,7 @@ func cmdGeminiBridge(args []string) int {
 	}
 	task := fs.String("task", "", "explicit task text (else trailing args)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
-	provider := fs.String("provider", "", "provider (default: gemini, or agy if logged in)")
+	provider := fs.String("provider", "", "API-key provider instead of agy's Google sign-in")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh")
 	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
 	files := fs.String("files", "", "comma-separated file globs to ingest")

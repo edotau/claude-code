@@ -61,11 +61,13 @@ func TestConfigure(t *testing.T) {
 		{vendor: "codex", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "-hi", Effort: "high", SessionID: "s1"},
 			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "-"}},
 		{vendor: "codex", provider: "gateway", model: "x", wantErr: "no responses route"},
+		// gemini runs only on agy's own Google login (no GEMINI_API_KEY fallback); target() isolates
+		// HOME with no agy login marker, so both headless and interactive configure must refuse.
+		// Success-with-login-marker is covered by TestGeminiLoginPrecedence.
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
-			wantEnv: map[string]string{"GEMINI_API_KEY": secret}},
+			wantErr: "agy is not signed in"},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro",
-			wantArgv: []string{"--model", "gemini-2.5-pro"},
-			wantEnv:  map[string]string{"GEMINI_API_KEY": secret}},
+			wantErr: "agy is not signed in"},
 		{vendor: "gemini", provider: "openai", model: "gpt-5", wantErr: "no gemini route"},
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
 			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
@@ -230,7 +232,8 @@ func TestGeminiGateway(t *testing.T) {
 	}
 }
 
-// A cached agy Google login (AgyLoginMarker under HOME) wins over GEMINI_API_KEY: no login means the key rides.
+// gemini runs only on agy's cached Google login (AgyLoginMarker under HOME): no marker refuses to
+// configure (no GEMINI_API_KEY fallback), a marker on disk lets it through with no key injected.
 func TestGeminiLoginPrecedence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -241,12 +244,8 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
 	t.Setenv("HOME", home)
 
-	env, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := envMap(env)["GEMINI_API_KEY"]; got != secret {
-		t.Errorf("without a login marker, GEMINI_API_KEY = %q, want %q", got, secret)
+	if _, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
+		t.Fatalf("without a login marker, err = %v, want a not-signed-in error", err)
 	}
 
 	marker := AgyLoginMarker(home)
@@ -260,7 +259,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 		t.Fatal("marker on disk must read as logged in")
 	}
 
-	env, _, err = ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	env, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,35 +817,6 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 	if note != "" || target.Provider != sub {
 		t.Fatalf("explicit provider must not fall back, got target=%v note=%q", target.Provider, note)
-	}
-}
-
-func TestResolveTargetGeminiFallsBackToKeyedGemini(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("HOME", t.TempDir()) // no agy login marker
-	t.Setenv("GEMINI_API_KEY", secret)
-	for _, k := range []string{"OPENAI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
-		t.Setenv(k, "")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sub, err := reg.Get("subscription")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
-	target, note, err := ResolveTarget(reg, "gemini", sel, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.Provider == nil || target.Provider.Name != "gemini" {
-		t.Fatalf("expected fallback to the gemini provider, got %v", target.Provider)
-	}
-	if !strings.Contains(note, "GEMINI_API_KEY") {
-		t.Fatalf("expected a note naming GEMINI_API_KEY, got %q", note)
 	}
 }
 

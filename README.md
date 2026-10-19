@@ -299,18 +299,17 @@ claude-code agents sync --dry-run                    # agents/ → state/project
 
 Exec runners (codex, gemini, opencode) and the interactive `run` launch share one wiring function, so a
 gateway route written once serves both. Without `--tools`, claude and opencode get no tools, codex a read-only
-sandbox, and gemini its read-only plan mode. The gemini leg runs `agy` and reads `GEMINI_API_KEY` only when no
-cached Google login marker (`~/.gemini/jetski-standalone-oauth-token`) exists; a login there wins over every env
-var, so the runner refuses a gateway route (agy has no base-URL override) for this leg. An interactive
+sandbox, and gemini its read-only plan mode. The gemini leg runs only on `agy` and its cached Google sign-in
+(`~/.gemini/antigravity-cli/antigravity-oauth-token`); there is no API-key or gateway route for it. An interactive
 `run opencode` also imports your Claude permissions (`settings.json` allow/deny/ask → opencode's `permission`
 block) and MCP servers (`~/.claude.json`, plus project `.mcp.json` entries Claude Code has approved for that
 directory — unapproved ones are named in `HARNESS_OPENCODE_MCP_SKIPPED`) and lists every tier model the provider
 serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
 
-`claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini --provider gemini`
-(drives the Antigravity CLI `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides
-the subscription via `agy` when a Google login is present, else makes a single call on the `gemini` provider
-(`GEMINI_API_KEY`, default `gemini-3.8-flash`, `--model opus` for the reasoning tier) — the 1M-context sweep the
+`claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini` (drives the
+Antigravity CLI `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides the
+subscription via `agy` (default `gemini-3.8-flash-high`, `--model` to override; `--provider` sends it to an
+API-key provider instead) — the 1M-context sweep the
 `gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
 tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`,
 `*.pem`/`*.key` are always skipped; the inlined path list is printed to stderr before the call. Anything else

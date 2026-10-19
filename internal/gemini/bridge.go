@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -60,10 +61,10 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	prompt := BuildPrompt(task, ctxFiles)
 	logContextStats(log, ctxFiles)
 
-	useAgy := o.Provider == "" && vendors.GeminiLoginPresent()
-	if useAgy {
-		if _, lookErr := exec.LookPath("agy"); lookErr != nil {
-			useAgy = false
+	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
+	if useAgy && !o.PrintCommand {
+		if _, lookErr := exec.LookPath("agy"); lookErr != nil || !vendors.GeminiLoginPresent() {
+			return agent.Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
 		}
 	}
 
