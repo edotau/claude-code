@@ -216,7 +216,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | Agent | Purpose | Phase |
 |-------|---------|-------|
 | `Explore` (built-in) | Codebase scanning | 2 |
-| `Plan` (built-in) | Task vetting, plan-only architecture | 1, 4 |
+| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; preloads the `planning` skill | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-workers` | Parallel fan-out leaf — one scoped sub-task | 6 |
 | `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |
