@@ -40,5 +40,19 @@ func Science(env, args []string) (Plan, error) {
 	return plan, nil
 }
 
-// ScienceEnv is Science over the live environment.
-func ScienceEnv(args []string) (Plan, error) { return Science(os.Environ(), args) }
+// ScienceEnv is Science over the live environment, with the site config and pinned serve ports applied.
+func ScienceEnv(args []string) (Plan, error) {
+	port, rest, err := scienceArgs(args, scienceConfigPort(scienceTOML))
+	if err != nil {
+		return Plan{}, err
+	}
+	cfg, err := scienceDefaultsFile()
+	if err != nil {
+		return Plan{}, err
+	}
+	argv, err := scienceArgv(rest, cfg, port, portBusy)
+	if err != nil {
+		return Plan{}, err
+	}
+	return Science(os.Environ(), argv)
+}

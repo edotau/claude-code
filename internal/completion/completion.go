@@ -41,8 +41,7 @@ complete -o default -F %[2]s_verb %[3]s
 
 // Dir resolves bash-completion's lazy-load dir per its own convention: BASH_COMPLETION_USER_DIR (if
 // set) names the base dir directly; otherwise XDG_DATA_HOME/bash-completion, falling back to
-// ~/.local/share/bash-completion. claude-dbx's completion only checked XDG_DATA_HOME — a user with
-// BASH_COMPLETION_USER_DIR set (common on non-default bash-completion installs) got silently ignored.
+// ~/.local/share/bash-completion.
 func Dir() (string, error) {
 	if dir := os.Getenv("BASH_COMPLETION_USER_DIR"); dir != "" {
 		return filepath.Join(dir, "completions"), nil

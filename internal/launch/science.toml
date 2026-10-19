@@ -1,0 +1,10 @@
+# claude-science defaults shipped with claude-code (generic: no hosts, repos or company detail).
+# Unknown keys are dropped silently by claude-science; `claude-science status --config F` type-checks (exit 4).
+# Top-level `port` is the app port; claude-code pins --port N --sandbox-port N+1 for `serve`.
+port = 3000
+
+[sandbox]
+# On: kernels are confined; `disabled = true` would expose all of $HOME (~/.ssh, token caches) to the agent.
+disabled = false
+# The harness checkout is readable for context, never writable.
+user_read_paths = ["~/.claude"]

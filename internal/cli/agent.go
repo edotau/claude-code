@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -25,7 +26,8 @@ func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (an unavailable vendor falls back per --fallback)")
 	fallback := fs.String("fallback", agent.FallbackAll, "when a vendor agent is unavailable: all (other vendors, then claude) | vendors (never claude) | none")
-	provider := fs.String("provider", "", "provider (default: pin, then registry default)")
+	native := fs.Bool("native", false, "codex/gemini/opencode/copilot: skip the opencode hub, run the vendor's own CLI directly")
+	provider := fs.String("provider", "", "provider (default: pin, then registry default; a hub agent's opencode ladder start)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
 	workdir := fs.String("workdir", "", "working directory for the agent")
@@ -41,6 +43,9 @@ func cmdAsk(args []string) int {
 	}
 	if *format != "text" && *format != "json" {
 		return fail("ask: --format %q unknown (text|json)", *format)
+	}
+	if !slices.Contains(agent.FallbackModes, *fallback) {
+		return fail("ask: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
 	}
 	if *showLog {
 		return printDispatchLog(*format)
@@ -74,6 +79,19 @@ func cmdAsk(args []string) int {
 	if err != nil {
 		return fail("ask: %v", err)
 	}
+	chain := agent.FallbackChain(r, *fallback)
+	if !*native && agent.IsHubAgent(*name) {
+		reg, err := providers.Load()
+		if err != nil {
+			return fail("ask: %v", err)
+		}
+		start, err := agent.HubStart(reg, *name, *provider)
+		if err != nil {
+			return fail("ask: %v", err)
+		}
+		r = agent.NewHubLeg(*name, start, reg)
+		chain = agent.HubChain(reg, *name, start, *fallback)
+	}
 	if *rubric != "" {
 		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {
 			return fail("ask: %v", err)
@@ -89,12 +107,9 @@ func cmdAsk(args []string) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
-	if !slices.Contains(agent.FallbackModes, *fallback) {
-		return fail("ask: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
-	}
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	res, err := agent.RunWithFallback(ctx, r, agent.FallbackChain(r, *fallback), req, stream, notify)
+	res, err := agent.RunWithFallback(ctx, r, chain, req, stream, notify)
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	for _, d := range res.Dropped {

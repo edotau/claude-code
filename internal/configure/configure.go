@@ -68,6 +68,8 @@ type dialog struct {
 	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
 	// pending holds keys entered in the menu until Submit; nil outside the menu (writes go straight through).
 	pending map[string]stagedKey
+	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
+	changed bool
 }
 
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
@@ -589,11 +591,9 @@ func openBrowser(url string) {
 	_ = exec.Command(bin, url).Start()
 }
 
-// errCancelled is a declined or Esc'd confirmation; callers report it like any failed login and change nothing.
-var errCancelled = errors.New("cancelled")
-
-// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a login or mint CLI; a stray Enter
-// must never start a sign-in that rewrites a vendor's own auth settings. Non-terminal runs proceed.
+// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
+// never start a run that rewrites a vendor's own auth settings. Non-terminal runs proceed. Sign-in itself
+// needs no second confirm — picking its menu row already was the confirmation.
 var actionConfirmed = func(question string) bool {
 	if !isStdinTTY() {
 		return true
@@ -601,11 +601,26 @@ var actionConfirmed = func(question string) bool {
 	return tui.ConfirmKey(question+"?", false)
 }
 
-// runLogin execs a vendor's own login CLI attached to the real terminal.
-func runLogin(argv []string) error {
-	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to sign in") {
-		return errCancelled
+// saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
+// Non-terminal runs save.
+var saveConfirmed = func(question string) bool {
+	if !isStdinTTY() {
+		return true
 	}
+	return tui.ConfirmKey(question+"?", true)
+}
+
+// confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
+func confirmLeave(n int, what string) bool {
+	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
+}
+
+// enterRow is every configure page's last row: Enter leaves the page, asking first when it has unsaved changes.
+func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
+
+// runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
+// already was the confirmation, so it runs directly rather than asking [y/N] a second time.
+func runLogin(argv []string) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
@@ -685,7 +700,12 @@ func runAgents(d *dialog) bool {
 			ok = false
 			continue
 		}
-		if _, _, cerr := vendors.Configure(context.Background(), name, target, ""); cerr != nil {
+		_, _, cerr := vendors.Configure(context.Background(), name, target, "")
+		if errors.Is(cerr, vendors.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
+			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
+			continue
+		}
+		if cerr != nil {
 			d.printf("%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))
 			ok = false
 			continue
@@ -736,12 +756,18 @@ func confirm(d *dialog, question string) bool {
 }
 
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
-func secretLine(d *dialog, prompt string) (string, error) {
+// Every non-empty paste is echoed as a masked preview, so a wrong or doubled paste shows before it is saved.
+func secretLine(d *dialog, prompt string) (val string, err error) {
+	defer func() {
+		if _, v := ParseAssignment(val); err == nil && v != "" { // a NAME=value paste previews only its value
+			d.printf("  pasted  %s\n", secrets.Preview(v))
+		}
+	}()
 	if isStdinTTY() && d.o.In == os.Stdin {
 		return tui.Secret(prompt)
 	}
 	fmt.Fprint(d.out, prompt)
-	val, err := readSecret(d.br)
+	val, err = readSecret(d.br)
 	fmt.Fprintln(d.out)
 	return val, err
 }

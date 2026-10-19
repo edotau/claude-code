@@ -1,0 +1,368 @@
+// home.go — the configure home page's tools and settings sections, and the settings re-render on exit.
+package configure
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/generate"
+	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/tui"
+)
+
+// homeRow is one selectable home-page row: name, state, check, and what picking it does.
+type homeRow struct {
+	name, state, check string
+	run                func(*dialog)
+}
+
+func toolsRows(d *dialog) []homeRow {
+	return []homeRow{tailscaleRow(), webSearchRow(), browsersRow()}
+}
+
+func settingsRows(d *dialog) []homeRow {
+	n := len(providers.CustomEnv())
+	return []homeRow{
+		{"secrets", "keyring", "API keys & tokens", func(d *dialog) { secretsLoop(d, false) }},
+		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
+	}
+}
+
+// rowsOf lays homeRows out like the agent rows (name · state · check).
+func rowsOf(rs []homeRow) ([][2]string, []func(*dialog)) {
+	names := make([]string, len(rs))
+	cols := make([][2]string, len(rs))
+	acts := make([]func(*dialog), len(rs))
+	for i, r := range rs {
+		names[i], cols[i], acts[i] = r.name, [2]string{r.state, r.check}, r.run
+	}
+	return withChecks(names, cols), acts
+}
+
+func tailscaleRow() homeRow {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	state, host := "not connected", ""
+	if st, err := tailscale.Status(ctx); err == nil {
+		state = "running"
+		host, _, _ = strings.Cut(st.DNSName, ".")
+	}
+	check := "no admin key"
+	if hasAdminCredential() {
+		check = "admin key"
+	}
+	if host != "" {
+		check = host + " · " + check
+	}
+	return homeRow{"tailscale", state, check, func(d *dialog) { runRemote(d) }}
+}
+
+func browsersRow() homeRow {
+	rep := browser.Detect(browser.NewEnv())
+	state := "default " + cmpOr(rep.Default, "none")
+	n := 0
+	for _, b := range rep.Browsers {
+		if b.Installed {
+			n++
+		}
+	}
+	return homeRow{"browsers", state, fmt.Sprintf("%d installed", n), func(d *dialog) { runBrowser(d) }}
+}
+
+func cmpOr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+// webSearchKey is the Tavily key the web_search MCP server reads.
+const webSearchKey = "TAVILY_API_KEY"
+
+func webSearchRow() homeRow {
+	state := "no key"
+	if _, _, ok := secrets.Get(webSearchKey); ok {
+		state = "key set"
+	}
+	var wired []string
+	for _, c := range webSearchClients() {
+		if c.wired() {
+			wired = append(wired, c.name)
+		}
+	}
+	check := "mcp: " + cmpOr(strings.Join(wired, ","), "none")
+	return homeRow{"web search", state, check, runWebSearch}
+}
+
+// mcpClient is one agent config that can register the web_search MCP server.
+type mcpClient struct {
+	name     string
+	wired    func() bool
+	register func(bin string) error
+}
+
+func webSearchClients() []mcpClient {
+	home, _ := os.UserHomeDir()
+	codexCfg := filepath.Join(home, ".codex", "config.toml")
+	return []mcpClient{
+		{"claude", func() bool { return claudeJSONWired(filepath.Join(home, ".claude.json")) }, registerClaudeMCP},
+		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error { return registerCodexMCP(codexCfg, bin) }},
+	}
+}
+
+// claudeJSONWired: ~/.claude.json's user-scope web_search runs `claude-code web-search`.
+func claudeJSONWired(path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return false
+	}
+	s, ok := cfg.MCPServers["web_search"]
+	return ok && filepath.Base(s.Command) == "claude-code" && slices.Equal(s.Args, []string{"web-search"})
+}
+
+// codexMCPBlock matches config.toml's [mcp_servers.web_search] table up to the next table.
+var codexMCPBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.web_search\]\n(?:[^\[\n].*\n|\n)*`)
+
+func codexWired(path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	b := codexMCPBlock.Find(raw)
+	return b != nil && strings.Contains(string(b), "claude-code") && strings.Contains(string(b), `"web-search"`)
+}
+
+func registerClaudeMCP(bin string) error {
+	claude, err := paths.LookPathReal("claude")
+	if err != nil {
+		return err
+	}
+	_ = exec.Command(claude, "mcp", "remove", "-s", "user", "web_search").Run()
+	out, err := exec.Command(claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "web-search").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude mcp add: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// registerCodexMCP replaces (or appends) the web_search table, keeping a .bak of the previous file.
+func registerCodexMCP(path, bin string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"web-search\"]\n\n", bin)
+	next := codexMCPBlock.ReplaceAllLiteral(raw, []byte(block))
+	if !codexMCPBlock.Match(raw) {
+		next = append(append(raw, '\n'), block...)
+	}
+	if len(raw) > 0 {
+		if err := os.WriteFile(path+".bak", raw, 0o600); err != nil {
+			return err
+		}
+	}
+	return paths.AtomicWrite(path, next, 0o600)
+}
+
+// runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
+func runWebSearch(d *dialog) {
+	if _, _, ok := secrets.Get(webSearchKey); !ok {
+		val, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
+		if err != nil || strings.TrimSpace(val) == "" {
+			d.println("web search: no key entered; nothing changed")
+			return
+		}
+		if !storeValue(d, webSearchKey, strings.TrimSpace(val), false) {
+			return
+		}
+	}
+	bin := filepath.Join(paths.BinDir(), "claude-code")
+	for _, c := range webSearchClients() {
+		if c.wired() {
+			d.printf("web search: %s already runs claude-code web-search\n", c.name)
+			continue
+		}
+		if err := c.register(bin); err != nil {
+			d.printf("web search: %s: %v\n", c.name, err)
+			continue
+		}
+		d.printf("web search: %s now runs %s web-search\n", c.name, bin)
+	}
+	d.changed = true // opencode inherits Claude's MCP list on the re-render below
+}
+
+// envEdit is one staged change on the environment page: raw "" deletes; keyring holds the value bound for the keyring.
+type envEdit struct{ raw, keyring string }
+
+// runCustomEnv edits env.d/custom.env: + New adds NAME, picking a var replaces or deletes it. Nothing is written
+// until the page is left, which asks once whether to save every change made on it.
+func runCustomEnv(d *dialog) {
+	edits := map[string]envEdit{}
+	defer saveEnvEdits(d, edits)
+	for {
+		env := providers.CustomEnv()
+		for k, e := range edits {
+			if e.raw == "" {
+				delete(env, k)
+			} else {
+				env[k] = e.raw
+			}
+		}
+		names := slices.Sorted(maps.Keys(env))
+		rows := make([][2]string, 0, len(names)+2)
+		for _, n := range names {
+			kind, shown := "plain", secrets.Redact(env[n])
+			if env[n] == providers.KeyringRef {
+				kind, shown = "keyring", ""
+			}
+			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
+		}
+		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or keyring"}, enterRow("save and go back"))
+		idx, err := pickPlain(d, "environment — injected into every launch", rows)
+		if err != nil || idx < 0 || idx == len(rows)-1 {
+			return
+		}
+		name := ""
+		if idx < len(names) {
+			name = names[idx]
+		}
+		if n, e, ok := editCustomEnv(d, name); ok {
+			if sameAsSaved(n, e) {
+				delete(edits, n) // back to what is on disk: nothing left to save
+			} else {
+				edits[n] = e
+			}
+		}
+	}
+}
+
+// editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then where it lives.
+func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
+	if name == "" {
+		name = strings.TrimSpace(textLine(d, "NAME: "))
+		if name == "" {
+			return "", envEdit{}, false
+		}
+	}
+	val, err := secretLine(d, "Value for "+name+" (input hidden; empty deletes it): ")
+	if err != nil {
+		return "", envEdit{}, false
+	}
+	if val = strings.TrimSpace(val); val == "" {
+		return name, envEdit{}, true
+	}
+	where, err := pickPlain(d, "store "+name+" as", [][2]string{
+		{"plain", "value in env.d/custom.env"}, {"keyring", "value in the OS keyring, name in custom.env"}})
+	if err != nil || where < 0 {
+		return "", envEdit{}, false
+	}
+	if where == 1 {
+		return name, envEdit{raw: providers.KeyringRef, keyring: val}, true
+	}
+	return name, envEdit{raw: val}, true
+}
+
+// sameAsSaved reports an edit that matches what custom.env (and the keyring, for a ref) already holds.
+func sameAsSaved(name string, e envEdit) bool {
+	cur := providers.CustomEnv()[name]
+	if e.raw != cur {
+		return false
+	}
+	if e.keyring == "" {
+		return true
+	}
+	v, _, ok := secrets.Get(name)
+	return ok && v == e.keyring
+}
+
+// saveEnvEdits asks once, on leaving the page, whether to write the page's changes; N drops them all.
+func saveEnvEdits(d *dialog, edits map[string]envEdit) {
+	if len(edits) == 0 {
+		return
+	}
+	if !confirmLeave(len(edits), "environment change(s)") {
+		d.printf("environment: %d change(s) discarded\n", len(edits))
+		return
+	}
+	for _, name := range slices.Sorted(maps.Keys(edits)) {
+		e := edits[name]
+		if e.keyring != "" {
+			if _, err := secrets.Store(name, e.keyring, false); err != nil {
+				d.printf("environment: %s: %v\n", name, err)
+				continue
+			}
+		}
+		if err := providers.SetCustomEnv(name, e.raw); err != nil {
+			d.printf("environment: %s: %v\n", name, err)
+			continue
+		}
+		d.printf("environment: %s %s\n", name, map[bool]string{true: "removed", false: "saved"}[e.raw == ""])
+	}
+	d.changed = true
+}
+
+// pickPlain is tui.Pick on the terminal (the list's own Done is its exit, so no Back row), else the numbered prompt.
+func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
+	if isStdinTTY() && d.o.In == os.Stdin {
+		return tui.Pick(title, rows, 0)
+	}
+	return pick(d, title, rows)
+}
+
+// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the vendor configs.
+func rerenderConfigs(d *dialog) {
+	file := launch.SettingsFile()
+	existing, err := os.ReadFile(file)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		d.printf("settings.json: %v\n", err)
+		return
+	}
+	rendered, err := settings.Render()
+	if err != nil {
+		d.printf("settings.json: %v\n", err)
+		return
+	}
+	merged, _, err := settings.Merge(existing, rendered)
+	switch {
+	case err != nil:
+		d.printf("settings.json: %v\n", err)
+	case string(merged) == string(existing):
+		d.println("settings.json unchanged")
+	default:
+		backup, err := settings.WriteWithBackup(file, merged)
+		if err != nil {
+			d.printf("settings.json: %v\n", err)
+			return
+		}
+		d.printf("settings.json updated (backup %s)\n", backup)
+	}
+	if _, err := generate.Run(generate.Options{Out: d.out}); err != nil {
+		d.printf("vendor configs: %v\n", err)
+	}
+}

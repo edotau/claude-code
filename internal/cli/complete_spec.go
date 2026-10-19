@@ -15,7 +15,7 @@ func specTree() map[string]*compNode {
 
 	askFlags := []flagInfo{
 		valuedFlag("agent", agentNames), valuedFlag("provider", providerNames), flag("model"),
-		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"),
+		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 	}
 
@@ -28,7 +28,7 @@ func specTree() map[string]*compNode {
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},
-		"install":  {flags: []flagInfo{boolFlag("dry-run")}},
+		"install":  {flags: []flagInfo{boolFlag("dry-run"), valuedFlag("tools", toolNames)}},
 		"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),
 			flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
@@ -94,6 +94,7 @@ func specTree() map[string]*compNode {
 			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),
 				flag("n"), boolFlag("follow"), formatFlag()}},
 		}},
+		"web-search": {flags: []flagInfo{flag("query"), flag("max-results")}},
 		"worktree": {sub: map[string]*compNode{
 			"list":   {flags: []flagInfo{formatFlag()}},
 			"create": {flags: []flagInfo{flag("branch")}},

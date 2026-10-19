@@ -2,6 +2,7 @@ package configure
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/tui"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 // the real keyring, and loads the real registry on the subscription provider (no live network calls).
 func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Helper()
+	origExtra := extraSections
+	t.Cleanup(func() { extraSections = origExtra })
+	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { return nil, nil }
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
@@ -41,7 +45,7 @@ func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	for _, r := range rows {
 		labels = append(labels, r[0])
 	}
-	want := []string{"claude", "codex", "gemini", "opencode", "copilot"}
+	want := []string{"claude", "codex", "agy (Antigravity)", "opencode", "copilot"}
 	if strings.Join(labels, ",") != strings.Join(want, ",") {
 		t.Fatalf("menu rows = %v, want %v", labels, want)
 	}
@@ -68,10 +72,10 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	origMenu := pickMenu
 	t.Cleanup(func() { pickMenu = origMenu })
 	calls := 0
-	pickMenu = func(title string, rows [][2]string, start int) (int, error) {
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
 		calls++
 		return -1, nil // Esc
-	}
+	})
 	cur := providers.Pin(providers.PinProvider)
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
 	if rc != 0 || calls != 1 {
@@ -89,10 +93,10 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	origMenu := pickMenu
 	t.Cleanup(func() { pickMenu = origMenu })
 	calls := 0
-	pickMenu = func(title string, rows [][2]string, start int) (int, error) {
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
 		calls++
 		return -1, nil
-	}
+	})
 	var out bytes.Buffer
 	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "")
 	if calls != 0 {

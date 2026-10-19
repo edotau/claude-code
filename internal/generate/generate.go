@@ -341,7 +341,8 @@ func renderOpenCode(reg *providers.Registry, sel providers.Selection, home strin
 		maps.Copy(merged, rp)
 	}
 	next["provider"] = merged
-	next["x-claude-code-managed"] = append(append([]string{}, openCodeOwnedKeys...), "provider")
+	managed := append(append([]string{}, openCodeOwnedKeys...), "provider")
+	next["x-claude-code-managed"] = applyOpenCodePlugin(reg, existing, next, managed)
 	body, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
@@ -395,13 +396,40 @@ func renderOpenCodeCopilot(reg *providers.Registry, home string, o Options, out 
 	} else {
 		delete(next, "mcp")
 	}
-	next["x-claude-code-managed"] = append([]string{}, openCodeCopilotOwnedKeys...)
+	managed := append([]string{}, openCodeCopilotOwnedKeys...)
+	next["x-claude-code-managed"] = applyOpenCodePlugin(reg, existing, next, managed)
 	body, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
 	body = append(body, '\n')
 	return commitFile(path, raw, body, existed, o, out, "opencode")
+}
+
+// applyOpenCodePlugin sets next["plugin"] from reg.OpencodePlugins and appends "plugin" to managed when
+// non-empty. Empty leaves any existing plugin key untouched and unclaimed, except: if this tool wrote it
+// on a previous run (named in existing's own x-claude-code-managed), the list going empty means drop it,
+// the same way every other managed key is retired here.
+func applyOpenCodePlugin(reg *providers.Registry, existing, next map[string]any, managed []string) []string {
+	if len(reg.OpencodePlugins) > 0 {
+		next["plugin"] = append([]string{}, reg.OpencodePlugins...)
+		return append(managed, "plugin")
+	}
+	if wasManagedKey(existing, "plugin") {
+		delete(next, "plugin")
+	}
+	return managed
+}
+
+// wasManagedKey reports whether key was named in existing's own x-claude-code-managed list.
+func wasManagedKey(existing map[string]any, key string) bool {
+	list, _ := existing["x-claude-code-managed"].([]any)
+	for _, v := range list {
+		if s, ok := v.(string); ok && s == key {
+			return true
+		}
+	}
+	return false
 }
 
 // openCodeDefaultTheme draws on the terminal's own colors, so opencode inherits the VS Code terminal background.
