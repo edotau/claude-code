@@ -290,9 +290,9 @@ func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request,
 		if !legUnavailable(prev, res, err) {
 			break
 		}
-		reasons = append(reasons, prev.Name()+": "+fallbackReason(err))
+		reasons = append(reasons, legLabel(prev)+": "+fallbackReason(err))
 		if notify != nil {
-			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", prev.Name(), fallbackReason(err), fb.Name()))
+			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", legLabel(prev), fallbackReason(err), legLabel(fb)))
 		}
 		res, err = Run(ctx, fb, fallbackRequest(r, fb, req), stream, notify)
 		prev = fb
@@ -301,6 +301,14 @@ func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request,
 		res.Fallback, res.FallbackReason = r.Name(), strings.Join(reasons, "; ")
 	}
 	return res, err
+}
+
+// legLabel names a leg in fallback reasons: a hub leg by its account, since every hub leg shares the agent name.
+func legLabel(r Runner) string {
+	if l, ok := r.(hubLeg); ok {
+		return l.provider.Name
+	}
+	return r.Name()
 }
 
 // fallbackRequest drops the original leg's provider and vendor model: a vendor leg takes its own default, and

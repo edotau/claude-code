@@ -543,6 +543,10 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 	return env, argv, nil
 }
 
+// OpencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
+// `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
+func OpencodeRunArgv(model string, h Headless) (env, argv []string) { return opencodeRun(model, h) }
+
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h Headless) (env, argv []string) {
 	if !h.Tools {

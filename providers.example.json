@@ -2,6 +2,8 @@
   "_comment": "Copy to ~/.claude/providers.json. Entries replace built-ins by name; null removes one. Keep keys out of this file: use auth.env (+ env.d/secrets.env) or auth.command.",
   "default": "litellm",
   "fallback": ["litellm", "openrouter", "anthropic"],
+  "opencodeLadder": ["chatgpt", "github-copilot", "gemini", "nvidia"],
+  "opencodePlugins": [],
   "providers": {
     "litellm": {
       "kind": "anthropic",
