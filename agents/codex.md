@@ -100,12 +100,12 @@ When dispatched as a one-shot leg (`claude-code ask --agent codex`), you run wit
 and edit rights, so every mode is available.
 
 **Dispatched as a Claude Code subagent, the work runs on the real codex CLI, not on you.** Brief the
-mode's task and run it there — `claude-code ask --agent codex --native --tools --workdir <repo>
+mode's task and run it there — `claude-code ask --agent codex --tools --workdir <repo>
 "<mode + brief>"` (drop `--tools` for read-only REVIEW) — then relay its verdict. You
 only check that the answer addresses the brief. Fallback order (built into `ask`): codex → Copilot on the
-same model → Claude on the subscription; report who answered (`fallback` in the result). Run the mode yourself only if `ask` fails.
+same model → opencode → Claude on the subscription; report who answered (`fallback` in the result). Run the mode yourself only if `ask` fails.
 `claude-code ask --agent codex` falls back when the codex CLI is unavailable (binary missing, login/quota
-failure), never on a timeout: first to Copilot on the same model, then to Claude. The result carries `fallback` + `fallback_reason` and `ask --log` shows `codex→<who answered>`.
+failure), never on a timeout: first to Copilot on the same model, then opencode, then Claude. The result carries `fallback` + `fallback_reason` and `ask --log` shows `codex→<who answered>`.
 `--fallback vendors` keeps a second-family review off Claude; `--fallback none` fails loudly instead.
 
 ---

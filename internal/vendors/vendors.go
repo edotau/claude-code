@@ -297,6 +297,9 @@ func login(name string, p *providers.Provider, model string, h *Headless) ([]str
 	case name == "opencode" && p.Name == "github-copilot":
 		// github-copilot's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
 		// Copilot login (opencode auth login), never the harness's copilot-vendor credential.
+		if model == "auto" && p.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
+			model = p.OpencodeFallback
+		}
 		return opencodeCopilotLogin(model, h)
 	case p.Auth.Login != name:
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
