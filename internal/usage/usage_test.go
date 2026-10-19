@@ -25,15 +25,17 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 // writeUsageFixture writes one project/session/subagents/agent-*.jsonl tree under claudeDir and
-// backdates the session dir's mtime — usageFilesWithinDays filters on it.
+// backdates the transcript and directories — usageFilesWithinDays uses the newest mtime.
 func writeUsageFixture(t *testing.T, claudeDir, project, session string, age time.Duration, lines ...string) string {
 	t.Helper()
 	p := filepath.Join(claudeDir, "projects", project, session, "subagents", "agent-a.jsonl")
 	writeFile(t, p, strings.Join(lines, "\n"))
 	mtime := time.Now().Add(-age)
 	sessionDir := filepath.Join(claudeDir, "projects", project, session)
-	if err := os.Chtimes(sessionDir, mtime, mtime); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{p, filepath.Dir(p), sessionDir} {
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return p
 }
@@ -44,19 +46,25 @@ func usageRecordLine(model string, input, output int, ts string) string {
 }
 
 // writeWorkflowAgentFixture writes one <session>/subagents/workflows/<runID>/agent-<name>.jsonl,
-// its optional sibling .meta.json (workflowPhase), and backdates the session dir's mtime.
+// its optional sibling .meta.json (workflowPhase), and backdates the files and directories.
 func writeWorkflowAgentFixture(t *testing.T, claudeDir, project, session, runID, name, phase string, age time.Duration, lines ...string) string {
 	t.Helper()
 	dir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
 	p := filepath.Join(dir, "agent-"+name+".jsonl")
 	writeFile(t, p, strings.Join(lines, "\n"))
+	mtime := time.Now().Add(-age)
 	if phase != "" {
-		writeFile(t, filepath.Join(dir, "agent-"+name+".meta.json"), `{"workflowPhase":"`+phase+`"}`)
+		metaPath := filepath.Join(dir, "agent-"+name+".meta.json")
+		writeFile(t, metaPath, `{"workflowPhase":"`+phase+`"}`)
+		if err := os.Chtimes(metaPath, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
 	}
 	sessionDir := filepath.Join(claudeDir, "projects", project, session)
-	mtime := time.Now().Add(-age)
-	if err := os.Chtimes(sessionDir, mtime, mtime); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{p, dir, filepath.Dir(dir), filepath.Dir(filepath.Dir(dir)), sessionDir} {
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return p
 }
@@ -65,8 +73,19 @@ func writeWorkflowAgentFixture(t *testing.T, claudeDir, project, session, runID,
 // name is derived from.
 func writeWorkflowScript(t *testing.T, claudeDir, project, session, name, runID string) {
 	t.Helper()
-	p := filepath.Join(claudeDir, "projects", project, session, "workflows", "scripts", name+"-"+runID+".js")
+	sessionDir := filepath.Join(claudeDir, "projects", project, session)
+	info, err := os.Stat(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtime := info.ModTime()
+	p := filepath.Join(sessionDir, "workflows", "scripts", name+"-"+runID+".js")
 	writeFile(t, p, "// stub")
+	for _, path := range []string{p, filepath.Dir(p), filepath.Dir(filepath.Dir(p)), sessionDir} {
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // readTestdata returns the real-byte fixture content at internal/usage/testdata/<name>.
