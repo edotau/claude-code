@@ -54,10 +54,10 @@ func commands() []command {
 		{name: "opencode", group: groupVendors, summary: "OpenCode on your Copilot plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
 		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
-		{name: "resolve", group: groupAuth, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
+		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers + credential state; <name> shows its routes", run: cmdProviders},
 		// SESSION
-		{name: "switch", group: groupSession, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
+		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
 		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
@@ -74,8 +74,8 @@ func commands() []command {
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map: verbs, providers, runners, hooks", run: cmdDescribe},
 		{name: "tailscale", group: groupDiagnostics, summary: "tailnet: status | machines | connect | key | exit-node", run: cmdTailscale},
 		// SETTINGS
-		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
+		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
