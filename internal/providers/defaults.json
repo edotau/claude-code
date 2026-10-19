@@ -35,7 +35,7 @@
       "kind": "openai",
       "base_url": "https://api.githubcopilot.com",
       "auth": {"type": "passthrough", "login": "copilot"},
-      "models": {"opus": "gpt-6.1-sol", "sonnet": "gpt-5.3-codex", "haiku": "gpt-5.4-mini"},
+      "models": {"opus": "auto", "sonnet": "auto", "haiku": "auto"},
       "opencode_fallback": "mai-code-1.1-flash",
       "opencodeID": "github-copilot"
     },

@@ -142,12 +142,17 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 // directly — the raw-id case only ever reaches the first leg, since fallbackRequest resets Model to ""
 // for every leg after that.
 func (l hubLeg) resolveModel(reqModel string) string {
+	var id string
 	switch {
 	case reqModel == "":
-		return models.Strip1M(l.provider.Models[models.Opus])
+		id = l.provider.Models[models.Opus]
 	case slices.Contains(models.Slots, reqModel):
-		return models.Strip1M(l.provider.Models[reqModel])
+		id = l.provider.Models[reqModel]
 	default:
-		return models.Strip1M(providers.ParseTarget(l.reg, reqModel, l.provider).Model)
+		id = providers.ParseTarget(l.reg, reqModel, l.provider).Model
 	}
+	if id == "auto" && l.provider.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
+		id = l.provider.OpencodeFallback
+	}
+	return models.Strip1M(id)
 }
