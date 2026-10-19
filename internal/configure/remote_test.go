@@ -111,6 +111,7 @@ func TestHasAdminCredential(t *testing.T) {
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
 	t.Setenv("TAILSCALE_API_KEY", "")
+	t.Setenv("PATH", t.TempDir()) // no secret-tool: the host keyring must not answer
 	if hasAdminCredential() {
 		t.Error("hasAdminCredential() = true with nothing set, want false")
 	}
