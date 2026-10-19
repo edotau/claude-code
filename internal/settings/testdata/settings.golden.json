@@ -97,7 +97,8 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook access-trace",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -132,7 +133,8 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook safety",
-            "timeout": 5
+            "timeout": 5,
+            "statusMessage": "Checking command safety"
           },
           {
             "type": "command",
@@ -147,7 +149,8 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook docs-placement",
-            "timeout": 5
+            "timeout": 5,
+            "statusMessage": "Checking doc placement"
           }
         ]
       },
@@ -199,7 +202,8 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook session-start",
-            "timeout": 10
+            "timeout": 10,
+            "statusMessage": "Loading session memory"
           }
         ]
       }
@@ -239,6 +243,11 @@
     "UserPromptSubmit": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook wsl-path-normalize",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook memory-recall",
