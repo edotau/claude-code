@@ -116,6 +116,7 @@ type Env struct {
 	Probe      func() string       // CDP /json/version "Browser" on localhost:CDPPort, "" when nothing answers
 	Sleep      func(time.Duration) // wait seam for the CDP start poll
 	ClaudeBin  string              // the real claude binary for `claude mcp add` (never our shim)
+	HasNPX     bool                // npx is on PATH: chrome-devtools-mcp runs through it
 }
 
 // sleep is e.Sleep when set, else a no-op (tests never wait).

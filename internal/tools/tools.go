@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -194,14 +195,21 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 	}
 }
 
-// installBrowser runs `web setup` on the default browser: on WSL it starts the Windows browser with CDP and
-// registers chrome-devtools-mcp; elsewhere it opens the Claude in Chrome install page.
+// installBrowser: on WSL it runs `web setup` (start the Windows browser with CDP, register chrome-devtools-mcp);
+// elsewhere it only reports — the Claude in Chrome page opens on an explicit `web setup`, never on install.
 func installBrowser(_ context.Context, w io.Writer, dryRun bool) error {
 	env := browser.NewEnv()
 	env.DryRun = dryRun
+	if !env.WSL {
+		def, _ := browser.Default(env)
+		fmt.Fprintf(w, "  %-17s %s\n", "report", cmp.Or(def.DisplayName, "no default browser")+
+			" — run `claude-code web setup` to connect Claude in Chrome")
+		return nil
+	}
 	acts, err := browser.Setup(env, "default")
-	if err != nil {
-		return err
+	if err != nil { // no Windows browser or default: nothing to drive, not an install failure
+		fmt.Fprintf(w, "  %-17s %v\n", "skip", err)
+		return nil
 	}
 	var errs []error
 	for _, a := range acts.Items {

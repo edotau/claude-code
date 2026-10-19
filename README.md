@@ -269,6 +269,7 @@ claude-code dispatch --list --host <h> --status      # tmux pane state per dispa
 claude-code web browsers                             # per installed browser: extension | cdp | webdriver | gui control paths, and the system default
 claude-code web setup --browser edge                 # opens the Claude in Chrome install page in that browser; never writes Claude Code's host manifests
 claude-code web search [--query q]                   # Tavily: bare = the stdio MCP server agents register; --query = one-shot
+claude-code install --tools=browser                  # WSL: start the Windows default browser with CDP :9222 (own profile) + register chrome-devtools-mcp; needs Node.js
 ```
 
 `worktree` is the deterministic engine behind the `worktree-create`/`worktree-remove` hooks and `/workflow:worktree`:

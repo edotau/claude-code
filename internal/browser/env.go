@@ -20,10 +20,11 @@ func NewEnv() Env {
 		Now:        time.Now,
 		GOOS:       runtime.GOOS,
 		WSL:        runtime.GOOS == "linux" && isWSL(),
-		WinRoot:    "/mnt/c",
+		WinRoot:    winRoot(),
 		Probe:      probeCDP,
 		Sleep:      time.Sleep,
 		ClaudeBin:  realClaude(),
+		HasNPX:     onPath("npx"),
 	}
 }
 
@@ -45,4 +46,20 @@ func runReal(name string, args ...string) (string, error) {
 func realClaude() string {
 	p, _ := paths.LookPathReal("claude")
 	return p
+}
+
+// winRoot is where WSL mounts C: (wslpath honors a custom /etc/wsl.conf automount root), else /mnt/c.
+func winRoot() string {
+	if out, err := exec.Command("wslpath", "-u", `C:\`).Output(); err == nil {
+		if p := strings.TrimRight(strings.TrimSpace(string(out)), "/"); p != "" {
+			return p
+		}
+	}
+	return "/mnt/c"
+}
+
+// onPath reports whether name resolves on PATH.
+func onPath(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
