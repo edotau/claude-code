@@ -1,6 +1,7 @@
 {
   "default": "subscription",
   "fallback": ["gemini"],
+  "opencodeLadder": ["chatgpt", "github-copilot", "gemini", "nvidia"],
   "providers": {
     "anthropic": {
       "kind": "anthropic",
@@ -34,21 +35,31 @@
       "kind": "responses",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "auth": {"type": "passthrough", "login": "codex"},
-      "models": {"opus": "gpt-6-astra", "sonnet": "gpt-6-astra", "haiku": "gpt-6-astra"}
+      "models": {"opus": "gpt-6-astra", "sonnet": "gpt-6-astra", "haiku": "gpt-6-astra"},
+      "opencodeID": "openai"
     },
     "github-copilot": {
       "kind": "openai",
       "base_url": "https://api.githubcopilot.com",
       "auth": {"type": "passthrough", "login": "copilot"},
       "models": {"opus": "gpt-6.1-sol", "sonnet": "gpt-5.3-codex", "haiku": "gpt-5.4-mini"},
-      "opencode_fallback": "mai-code-1.1-flash"
+      "opencode_fallback": "mai-code-1.1-flash",
+      "opencodeID": "github-copilot"
     },
     "gemini": {
       "kind": "openai",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
       "routes": {"gemini": "https://generativelanguage.googleapis.com"},
       "auth": {"type": "bearer", "env": "GEMINI_API_KEY"},
-      "models": {"opus": "gemini-4-argon", "sonnet": "gemini-3.8-flash", "haiku": "gemini-3.5-flash-lite"}
+      "models": {"opus": "gemini-4-argon", "sonnet": "gemini-3.8-flash", "haiku": "gemini-3.5-flash-lite"},
+      "opencodeID": "google"
+    },
+    "nvidia": {
+      "kind": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "auth": {"type": "bearer", "env": "NVIDIA_API_KEY"},
+      "models": {"opus": "z-ai/glm-5.3", "sonnet": "z-ai/glm-5.3", "haiku": "z-ai/glm-5.3"},
+      "opencodeID": "nvidia"
     },
     "ollama": {
       "kind": "openai",

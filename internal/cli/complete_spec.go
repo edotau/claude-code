@@ -15,7 +15,7 @@ func specTree() map[string]*compNode {
 
 	askFlags := []flagInfo{
 		valuedFlag("agent", agentNames), valuedFlag("provider", providerNames), flag("model"),
-		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"),
+		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 	}
 

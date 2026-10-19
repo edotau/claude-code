@@ -43,6 +43,9 @@ type Provider struct {
 	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
+	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
+	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
+	OpencodeID string `json:"opencodeID,omitempty"`
 }
 
 // MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
@@ -116,6 +119,10 @@ type Registry struct {
 	Default   string               `json:"default"`
 	Fallback  []string             `json:"fallback,omitempty"`
 	Providers map[string]*Provider `json:"providers"`
+	// OpencodeLadder is the opencode hub's account order (provider names); a user overlay replaces it whole.
+	OpencodeLadder []string `json:"opencodeLadder,omitempty"`
+	// OpencodePlugins renders opencode's own `plugin` config key; empty (the default) leaves it untouched.
+	OpencodePlugins []string `json:"opencodePlugins,omitempty"`
 }
 
 // Get returns the named provider or an error naming the known ones.
@@ -168,6 +175,11 @@ func (r *Registry) Validate() error {
 	for _, n := range append([]string{r.Default}, r.Fallback...) {
 		if _, ok := r.Providers[n]; n != "" && !ok {
 			errs = append(errs, fmt.Sprintf("default/fallback names unknown provider %q", n))
+		}
+	}
+	for _, n := range r.OpencodeLadder {
+		if _, ok := r.Providers[n]; !ok {
+			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown provider %q", n))
 		}
 	}
 	if len(errs) > 0 {
