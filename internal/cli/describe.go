@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -71,6 +72,10 @@ const describeUsage = "usage: claude-code describe [--format json|text]"
 
 func cmdDescribe(args []string) int {
 	fs := flag.NewFlagSet("describe", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(os.Stderr)
 	format := fs.String("format", "json", "json (the full map) or text (a short listing)")
 	if fs.Parse(args) != nil {
@@ -88,7 +93,7 @@ func cmdDescribe(args []string) int {
 	case "text":
 		printDescribe(d)
 	default:
-		fmt.Fprintln(os.Stderr, describeUsage)
+		helptext.Fprint(os.Stderr, describeUsage+"\n")
 		return 2
 	}
 	return 0

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/plan"
@@ -31,27 +32,29 @@ func cmdReview(args []string) int {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	text := fmt.Sprintf("usage: claude-code review <tool> [args...]  (each takes -h)\n       tools: %s\n", strings.Join(names, "|"))
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Printf("usage: claude-code review <%s>\n       [args...]  (each takes -h)\n", strings.Join(names, "|"))
+		helptext.Fprint(os.Stdout, text)
 		return 0
 	}
 	if len(args) == 0 || reviewTools[args[0]] == nil {
-		fmt.Fprintf(os.Stderr, "usage: claude-code review <%s>\n       [args...]  (each takes -h)\n", strings.Join(names, "|"))
+		helptext.Fprint(os.Stderr, text)
 		return 2
 	}
 	return reviewTools[args[0]](args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
-const workflowUsage = "usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator> [--name <name>]\n" +
-	"       claude-code workflow lint [<root>]    flag unpinned model/effort agent() calls + registry-hiding meta/throw"
+const workflowUsage = "usage: claude-code workflow skeleton <pipeline|parallel|evaluator|orchestrator>\n" +
+	"                            [--name <name>]\n" +
+	"       claude-code workflow lint [<root>]  check model/effort pins + meta/throw"
 
 func cmdWorkflow(args []string) int {
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Println(workflowUsage)
+		helptext.Fprint(os.Stdout, workflowUsage+"\n")
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, workflowUsage)
+		helptext.Fprint(os.Stderr, workflowUsage+"\n")
 		return 2
 	}
 	switch args[0] {
@@ -63,6 +66,6 @@ func cmdWorkflow(args []string) int {
 		}
 		return plan.RunWorkflowLint(args[1:], os.Stdout, os.Stderr)
 	}
-	fmt.Fprintln(os.Stderr, workflowUsage)
+	helptext.Fprint(os.Stderr, workflowUsage+"\n")
 	return 2
 }

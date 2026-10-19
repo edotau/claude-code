@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/dispatch"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
 // dispatchUsage documents the three modes: start, --list, --attach.
-const dispatchUsage = `usage: claude-code dispatch --host <name> [--dir <path>] [--agent <a>] [--name <n>] [--dry-run] "<task>"
-       claude-code dispatch --list --host <name> [--status] [--interval <dur>] [--format text|json]
+const dispatchUsage = `usage: claude-code dispatch --host <name> [--dir <path>] [--agent <a>]
+                           [--name <n>] [--dry-run] "<task>"
+       claude-code dispatch --list --host <name> [--status] [--interval <dur>]
+                           [--format text|json]
        claude-code dispatch --attach --host <name> <session>
 `
 
@@ -26,10 +29,14 @@ const sshTimeout = 20 * time.Second
 
 func cmdDispatch(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(os.Stderr, dispatchUsage)
+		helptext.Fprint(os.Stderr, dispatchUsage)
 		return 2
 	}
 	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(os.Stderr)
 	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	dir := fs.String("dir", "", "remote working directory (default ~)")
@@ -37,8 +44,8 @@ func cmdDispatch(args []string) int {
 	name := fs.String("name", "", "tmux session name (default cc-<agent>-<id>)")
 	dryRun := fs.Bool("dry-run", false, "print the ssh argv instead of running it")
 	list := fs.Bool("list", false, "list cc-* tmux sessions on --host")
-	status := fs.Bool("status", false, "with --list, classify each pane's working/input-needed/ready/unknown state")
-	interval := fs.Duration("interval", 0, "with --status, re-sample every interval until interrupted (0 = sample once)")
+	status := fs.Bool("status", false, "with --list, classify each pane's state")
+	interval := fs.Duration("interval", 0, "with --status, sample every interval (0 = once)")
 	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
 	format := fs.String("format", outfmt.Text, "--list output format: text|json")
 	if fs.Parse(args) != nil {

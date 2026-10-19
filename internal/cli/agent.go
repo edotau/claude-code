@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,17 +25,21 @@ import (
 
 func cmdAsk(args []string) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot (an unavailable vendor falls back per --fallback)")
-	fallback := fs.String("fallback", agent.FallbackAll, "when a vendor agent is unavailable: all (other vendors, then claude) | vendors (never claude) | none")
-	native := fs.Bool("native", false, "codex/gemini/opencode/copilot: skip the opencode hub, run the vendor's own CLI directly")
-	provider := fs.String("provider", "", "provider (default: pin, then registry default; a hub agent's opencode ladder start)")
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
+	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot")
+	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (vendors, then claude)|vendors|none")
+	native := fs.Bool("native", false, "run the vendor CLI directly; skip the opencode hub")
+	provider := fs.String("provider", "", "provider or hub start (default: pin, then registry)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
 	workdir := fs.String("workdir", "", "working directory for the agent")
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
-	format := fs.String("format", "text", "text streams the answer; json prints the Result envelope (fallback set when codex ran as claude instead)")
+	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
@@ -71,8 +76,8 @@ func cmdAsk(args []string) int {
 		prompt = string(raw)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code ask [flags] <prompt | ->")
-		fs.PrintDefaults()
+		helptext.Fprint(os.Stderr, "usage: claude-code ask [flags] <prompt | ->\n")
+		helptext.Defaults(fs)
 		return 2
 	}
 	r, err := agent.Lookup(*name)
@@ -136,8 +141,9 @@ func cmdAsk(args []string) int {
 }
 
 const agentsUsage = `usage: claude-code agents
-       claude-code agents sync [--vendor codex|copilot|gemini|opencode] [--dry-run] [--check] [--no-prune]
-       claude-code agents tree [--days N] [--session ID] [--running] [--all] [--watch [--interval D]] [--format text|json]`
+       claude-code agents sync [--vendor V] [--dry-run] [--check] [--no-prune]
+       claude-code agents tree [--days N] [--session ID] [--running] [--all]
+                              [--watch [--interval D]] [--format text|json]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
@@ -149,22 +155,28 @@ func cmdAgents(args []string) int {
 	case "tree":
 		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "-h", "--help":
-		fmt.Fprintln(os.Stderr, agentsUsage)
+		helptext.Fprint(os.Stderr, agentsUsage+"\n")
 		return 2
 	}
-	return fail("agents: unknown subcommand %q\n%s", args[0], agentsUsage)
+	fail("agents: unknown subcommand %q", args[0])
+	helptext.Fprint(os.Stderr, agentsUsage+"\n")
+	return 1
 }
 
 // cmdAgentsSync renders agents/ into state/projections/<vendor>/agents plus each vendor's global instruction file, installs the
 // copies into the vendor homes, and links skills/ into ~/.agents/skills; --vendor narrows the run to one target.
 func cmdAgentsSync(args []string) int {
 	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	vendor := fs.String("vendor", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, agentsUsage)
+		helptext.Fprint(os.Stderr, agentsUsage+"\n")
 		return 2
 	}
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})

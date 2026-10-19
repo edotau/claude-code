@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -23,8 +24,8 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
                           NAME: prompts for the value; no NAME: guided dialog
   get <NAME> [--export]   print a secret (keyring -> secrets.env -> env)
   delete <NAME>           remove a secret from the keyring and secrets.env
-  import <file> [--file]  store every NAME=value line of a .env (# lines skipped)
-  export [NAME...] [--out f] append stored secrets to ./.env or f (0600)
+  import <file> [--file]  store each NAME=value line of a .env (# lines skipped)
+  export [NAME...]        append stored secrets to ./.env, or --out f (0600)
   list [NAME...]          stored secrets: name, keyring|file, masked value
   status                  credential source per provider (never the value)
   scan [paths...]         find plaintext secrets in config files
@@ -36,7 +37,7 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
 // cmdSecrets dispatches the `secrets` verb.
 func cmdSecrets(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(os.Stderr, secretsUsage)
+		helptext.Fprint(os.Stderr, secretsUsage)
 		return 2
 	}
 	op, rest := args[0], args[1:]
@@ -64,7 +65,7 @@ func cmdSecrets(args []string) int {
 	case "all":
 		return cmdSecretsAll(rest)
 	}
-	fmt.Fprint(os.Stderr, secretsUsage)
+	helptext.Fprint(os.Stderr, secretsUsage)
 	return fail("secrets: unknown op %q", op)
 }
 
@@ -138,14 +139,14 @@ func cmdSecretsSet(args []string) int {
 	forceFile, rest := extractBool(args, "file")
 	dryRun, rest := extractBool(rest, "dry-run")
 	if slices.Contains(rest, "--help") || slices.Contains(rest, "-h") {
-		fmt.Fprint(os.Stderr, secretsUsage)
+		helptext.Fprint(os.Stderr, secretsUsage)
 		return 2
 	}
 	if len(rest) == 0 && !dryRun && tui.StdinIsTerminal() {
 		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true}, forceFile)
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--file] [--dry-run]   (value on stdin; no NAME on a terminal = dialog)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--file] [--dry-run]  (no NAME = dialog)")
 		return 2
 	}
 	name := rest[0]
@@ -282,7 +283,7 @@ func cmdSecretsAll(args []string) int {
 func cmdSecretsImport(args []string) int {
 	forceFile, rest := extractBool(args, "file")
 	if len(rest) != 1 || rest[0] == "-h" || rest[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env> [--file]   (NAME=value lines; # lines skipped)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env> [--file]  (NAME=value lines)")
 		return 2
 	}
 	f, err := os.Open(rest[0])
@@ -320,7 +321,7 @@ func cmdSecretsImport(args []string) int {
 func cmdSecretsExport(args []string) int {
 	out, rest, err := extractValue(args, "out")
 	if err != nil || slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file]   (default ./.env; appends, 0600)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file]  (appends, 0600)")
 		return 2
 	}
 	if out == "" {

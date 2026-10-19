@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/helptext"
 	"io"
 	"os"
 	"path/filepath"
@@ -129,6 +130,10 @@ func targets() []target {
 // Run is `claude-code clean`: applies unless --dry-run.
 func Run(args []string, out, errw io.Writer) int {
 	fs := flag.NewFlagSet("clean", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(errw)
 	want := fs.String("target", "", "comma-separated targets (default: every target); --list names them")
 	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h)")

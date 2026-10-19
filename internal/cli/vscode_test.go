@@ -157,7 +157,7 @@ func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 		if code != 0 {
 			t.Errorf("vscode %s exit %d, want 0", flagArg, code)
 		}
-		if !strings.Contains(errOut, "Machine") || !strings.Contains(errOut, "not Settings-Synced") {
+		if !strings.Contains(errOut, "Machine") || !strings.Contains(errOut, "excluded from Settings Sync") {
 			t.Errorf("vscode %s help missing Machine-scope note: %q", flagArg, errOut)
 		}
 	}

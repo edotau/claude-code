@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
 )
 
@@ -253,10 +254,10 @@ func cmdCompletion(args []string) int {
 		case "--install":
 			install = true
 		case "-h", "--help":
-			fmt.Println(completionUsage)
-			fmt.Println("  (no flag)   print the bash completion script (eval or source it)")
-			fmt.Println("  --install   write it to the bash-completion user dir; new shells complete on Tab")
-			fmt.Println("  zsh: run 'autoload -U bashcompinit && bashcompinit' first, then source the script")
+			helptext.Fprint(os.Stdout, completionUsage+"\n")
+			helptext.Fprint(os.Stdout, "  (no flag)   print the bash completion script (eval or source it)\n")
+			helptext.Fprint(os.Stdout, "  --install   install bash completion for new shells\n")
+			helptext.Fprint(os.Stdout, "  zsh: run 'autoload -U bashcompinit && bashcompinit', then source it\n")
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "completion: unknown argument %q (try -h)\n", a)

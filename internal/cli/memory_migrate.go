@@ -8,13 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
-const memoryMigrateUsage = `usage: claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--supersede] [--format text|json]
+const memoryMigrateUsage = `usage: claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...
+                                  [--supersede] [--format text|json]
        claude-code memory migrate --manifest MANIFEST [--supersede]
-Applies by default (inventory → manifest → apply); --dry-run writes the manifest only.`
+Inventory, write manifest, and apply (--dry-run writes the manifest only).`
 
 // originFlag collects repeatable --origin SLUG=PATH pins.
 type originFlag map[string]string
@@ -35,9 +37,13 @@ func (o originFlag) Set(v string) error {
 func cmdMemoryMigrate(args []string) int {
 	fs := flag.NewFlagSet("memory migrate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of memory migrate:\n")
+		helptext.Defaults(fs)
+	}
 	dryRun := fs.Bool("dry-run", false, "inventory and write a manifest only; apply nothing")
 	manifest := fs.String("manifest", "", "apply this reviewed manifest instead of taking a fresh inventory")
-	supersede := fs.Bool("supersede", false, "set another manifest's unfinished journal aside (kept as *.journal.superseded.json)")
+	supersede := fs.Bool("supersede", false, "set aside an unfinished journal as *.journal.superseded.json")
 	origins := originFlag{}
 	fs.Var(origins, "origin", "pin a legacy slug to its checkout: SLUG=PATH (repeatable)")
 	format := outfmt.Flag(fs)

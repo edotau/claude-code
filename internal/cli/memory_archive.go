@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/memory"
 )
 
@@ -57,12 +58,12 @@ func hoistArchiveFlags(args []string) ([]string, error) {
 // --apply moves named topics to/from the archive, or --split N trims MEMORY.md to N pointer lines.
 func cmdMemoryArchive(args []string) int {
 	fs := flag.NewFlagSet("memory archive", flag.ContinueOnError)
-	fs.Usage = func() { fmt.Fprintln(os.Stderr, memoryArchiveUsage) }
+	fs.Usage = func() { helptext.Fprint(os.Stderr, memoryArchiveUsage+"\n") }
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 	apply := fs.Bool("apply", false, "perform the moves/split (default: dry run)")
 	restore := fs.Bool("restore", false, "move the named topics back out of the archive")
 	dupes := fs.Bool("dupes", false, "report near-duplicate topic files (no writes)")
-	split := fs.Int("split", -1, "trim MEMORY.md to N pointer lines, moving the rest to SEARCHABLE.md")
+	split := fs.Int("split", -1, "trim MEMORY.md to N pointers; move rest to SEARCHABLE.md")
 	args, err := hoistArchiveFlags(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)

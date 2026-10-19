@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
@@ -16,11 +17,15 @@ const clearScreen = "\x1b[H\x1b[2J"
 // ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs := flag.NewFlagSet("agents tree", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(errw)
-	days := fs.Int("days", 1, "scope to sessions modified within the last N days (ignored with --session)")
+	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	running := fs.Bool("running", false, "keep only sessions with an active session or a running subagent")
-	all := fs.Bool("all", false, "show every session in scope, including idle sessions with no subagents/workflows")
+	all := fs.Bool("all", false, "show every session in scope, idle ones included")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	format := outfmt.Flag(fs)

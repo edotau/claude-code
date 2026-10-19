@@ -14,14 +14,15 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/helptext"
 )
 
 const geminiVerbUsage = `claude-code gemini — the gemini agent
 
 USAGE
-  claude-code gemini [vendor args…]      launch agy (the Antigravity CLI), args untouched
-  claude-code gemini ask …               one-shot on agy (= ask --agent gemini)
-  claude-code gemini bridge [flags] …    in-process large-context bridge (--dirs/--files/--task)
+  claude-code gemini [vendor args…]      launch agy; forward args unchanged
+  claude-code gemini ask …              one-shot on agy (= ask --agent gemini)
+  claude-code gemini bridge [flags] …    ingest files for a large-context task
 `
 
 // cmdGemini is the gemini agent verb: ask/bridge reach the harness's own runners; everything else
@@ -36,7 +37,7 @@ func cmdGemini(args []string) int {
 		}
 	}
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		fmt.Fprint(os.Stderr, geminiVerbUsage)
+		helptext.Fprint(os.Stderr, geminiVerbUsage)
 		return 2
 	}
 	return launchVendor("gemini", args)
@@ -55,9 +56,13 @@ func splitCSV(s string) []string {
 
 func cmdGeminiBridge(args []string) int {
 	fs := flag.NewFlagSet("gemini bridge", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	task := fs.String("task", "", "explicit task text (else trailing args)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
-	provider := fs.String("provider", "", "provider to run against (default: gemini, or agy when logged in)")
+	provider := fs.String("provider", "", "provider (default: gemini, or agy if logged in)")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh")
 	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
 	files := fs.String("files", "", "comma-separated file globs to ingest")
@@ -88,8 +93,8 @@ func cmdGeminiBridge(args []string) int {
 		taskText = strings.Join(fs.Args(), " ")
 	}
 	if strings.TrimSpace(taskText) == "" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code gemini bridge [flags] <task>")
-		fs.PrintDefaults()
+		helptext.Fprint(os.Stderr, "usage: claude-code gemini bridge [flags] <task>\n")
+		helptext.Defaults(fs)
 		return 2
 	}
 	cwd, err := os.Getwd()

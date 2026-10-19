@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/statusline"
@@ -101,9 +102,9 @@ func vendorVerb(vendor string, args []string) int {
 		return cmdAsk(append([]string{"--agent", vendor}, args[1:]...))
 	}
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		fmt.Fprintf(os.Stderr, "claude-code %s — launch the vendor CLI on the registry\n\n"+
-			"USAGE\n  claude-code %[1]s [vendor args…]   launch the vendor CLI, args untouched\n"+
-			"  claude-code %[1]s ask …              one-shot on the %[1]s runner (= ask --agent %[1]s)\n", vendor)
+		helptext.Fprint(os.Stderr, fmt.Sprintf("claude-code %s — launch the vendor CLI on the registry\n\n"+
+			"USAGE\n  claude-code %[1]s [vendor args…]  launch the vendor CLI\n"+
+			"  claude-code %[1]s ask …           run ask --agent %[1]s\n", vendor))
 		return 2
 	}
 	return launchVendor(vendor, args)

@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/helptext"
 )
+
+const skeletonUsage = "usage: workflow_skeleton.py [-h] [--name NAME]\n" +
+	"                            {evaluator,orchestrator,parallel,pipeline}\n"
 
 const noteText = "\n// ── Fill in before running ──\n" +
 	"//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).\n" +
@@ -95,7 +100,7 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 		case strings.HasPrefix(a, "--name="):
 			name = strings.TrimPrefix(a, "--name=")
 		case a == "-h" || a == "--help":
-			fmt.Fprintln(stdout, "usage: workflow_skeleton.py [-h] [--name NAME] {evaluator,orchestrator,parallel,pipeline}")
+			helptext.Fprint(stdout, skeletonUsage)
 			return 0
 		case strings.HasPrefix(a, "-") && a != "-":
 			unrecognized = append(unrecognized, a)
@@ -106,13 +111,13 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if len(unrecognized) > 0 {
-		fmt.Fprintln(stderr, "usage: workflow_skeleton.py [-h] [--name NAME] {evaluator,orchestrator,parallel,pipeline}")
+		helptext.Fprint(stderr, skeletonUsage)
 		fmt.Fprintf(stderr, "workflow_skeleton.py: error: unrecognized arguments: %s\n", strings.Join(unrecognized, " "))
 		return 2
 	}
 
 	if len(positionals) == 0 {
-		fmt.Fprintln(stderr, "usage: workflow_skeleton.py [-h] [--name NAME] {evaluator,orchestrator,parallel,pipeline}")
+		helptext.Fprint(stderr, skeletonUsage)
 		fmt.Fprintln(stderr, "workflow_skeleton.py: error: the following arguments are required: pattern")
 		return 2
 	}
@@ -120,7 +125,7 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 	pattern := positionals[0]
 	fn, ok := skeletonPatterns[pattern]
 	if !ok {
-		fmt.Fprintln(stderr, "usage: workflow_skeleton.py [-h] [--name NAME] {evaluator,orchestrator,parallel,pipeline}")
+		helptext.Fprint(stderr, skeletonUsage)
 		fmt.Fprintf(stderr, "workflow_skeleton.py: error: argument pattern: invalid choice: %q (choose from 'evaluator', 'orchestrator', 'parallel', 'pipeline')\n", pattern)
 		return 2
 	}

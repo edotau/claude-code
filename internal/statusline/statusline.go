@@ -90,7 +90,7 @@ func (v values) text(key string) string {
 // Run is `claude-code statusline [--style S]`: payload on r, rendered line(s) on w.
 func Run(args []string, r io.Reader, w io.Writer) int {
 	fs := flag.NewFlagSet("statusline", flag.ContinueOnError)
-	style := fs.String("style", "", "gradient|powerline|capsule|minimal|dashboard (default: statusline/config.json, else gradient)")
+	style := fs.String("style", "", "gradient|powerline|capsule|minimal|dashboard (default: config.json)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

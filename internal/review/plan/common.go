@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/edotau/claude-code/internal/helptext"
 )
 
 var lineSplitRe = regexp.MustCompile(`\r\n|\r|\n`)
@@ -54,7 +56,7 @@ func parseInputJSONArgs(prog string, args []string, stdout, stderr io.Writer) (i
 		case a == "--json":
 			jsonOut = true
 		case a == "-h" || a == "--help":
-			fmt.Fprintf(stdout, "usage: %s [-h] [--json] [input]\n", prog)
+			helptext.Fprint(stdout, fmt.Sprintf("usage: %s [-h] [--json] [input]\n", prog))
 			return input, jsonOut, 0, true
 		case (strings.HasPrefix(a, "-") && a != "-") || seen:
 			fmt.Fprintf(stderr, "%s: error: unrecognized arguments: %s\n", prog, a)

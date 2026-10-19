@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -548,6 +549,10 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 func RunReport(args []string, stdout, stderr io.Writer) int {
 	positional, flagArgs := splitPositional(args, map[string]bool{"json": true})
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(stderr)
 	base := fs.String("base", "main", "")
 	fs.StringVar(base, "b", "main", "")

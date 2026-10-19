@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/theme"
@@ -20,6 +21,10 @@ import (
 // every palette, painted in its own gradient on a terminal; a name sets it; an unknown name exits 2.
 func cmdTheme(args []string) int {
 	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of theme:\n")
+		helptext.Defaults(fs)
+	}
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -91,6 +96,10 @@ func setGradient(name string) error {
 // themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json into that tool's config.
 func themeApply(args []string) int {
 	fs := flag.NewFlagSet("theme apply", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of theme apply:\n")
+		helptext.Defaults(fs)
+	}
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
 	if err := fs.Parse(args); err != nil {
 		return 2

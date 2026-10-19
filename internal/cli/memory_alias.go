@@ -6,16 +6,21 @@ import (
 	"os"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/memory"
 )
 
 const memoryAliasUsage = `usage: claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]
-Records CHECKOUT as an explicit alias of store KEY and folds its separate store (if any) into KEY.`
+Record CHECKOUT as an alias of store KEY and fold any separate store into KEY.`
 
 // cmdMemoryAlias is `memory alias`: --dry-run prints the plan and writes nothing.
 func cmdMemoryAlias(args []string) int {
 	fs := flag.NewFlagSet("memory alias", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of memory alias:\n")
+		helptext.Defaults(fs)
+	}
 	repo := fs.String("repo", "", "second checkout of the repo to record as an alias")
 	into := fs.String("into", "", "store key that absorbs it (see the catalog)")
 	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
