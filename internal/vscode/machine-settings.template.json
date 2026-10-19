@@ -41,6 +41,9 @@
         "-lic",
         "exec __CLAUDE_BIN__/claude"
       ],
+      "env": {
+        "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
+      },
       "icon": "sparkle",
       "color": "terminal.ansiYellow"
     },
@@ -95,6 +98,9 @@
         "-lic",
         "exec __CLAUDE_BIN__/claude"
       ],
+      "env": {
+        "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
+      },
       "icon": "sparkle",
       "color": "terminal.ansiYellow"
     },
