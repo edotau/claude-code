@@ -155,7 +155,7 @@ func Run(argv []string) int {
 	if strings.HasPrefix(name, "-") {
 		return cmdClaude(argv[1:])
 	}
-	// A provider name no verb shadows launches Claude Code on it: `claude-code openrouter`.
+	// A provider name no verb shadows launches Claude Code on it: `claude-code ollama`.
 	if reg, err := providers.Load(); err == nil {
 		if _, ok := reg.Providers[name]; ok {
 			return cmdClaude(append([]string{"--provider", name}, args...))

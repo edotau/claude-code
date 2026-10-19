@@ -73,7 +73,7 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("PATH", t.TempDir())
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(`{"providers": {"openrouter": null}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(`{"providers": {"openai": null}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := secrets.Store("MY_CUSTOM", "v", false); err != nil {
@@ -87,8 +87,8 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	for _, s := range trackedSecrets(reg) {
 		rows[s.name] = s.users
 	}
-	if _, ok := rows["OPENROUTER_API_KEY"]; ok {
-		t.Error("OPENROUTER_API_KEY listed although its provider is disabled")
+	if _, ok := rows["OPENAI_API_KEY"]; ok {
+		t.Error("OPENAI_API_KEY listed although its provider is disabled")
 	}
 	if rows["MY_CUSTOM"] != "custom" || rows[providers.OAuthTokenEnv] == "" {
 		t.Errorf("rows = %v, want MY_CUSTOM (custom) and the setup-token", rows)

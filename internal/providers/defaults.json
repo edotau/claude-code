@@ -17,13 +17,6 @@
       "models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5", "fable": "claude-fable-5-1"},
       "one_m": true
     },
-    "openrouter": {
-      "kind": "anthropic",
-      "base_url": "https://openrouter.ai/api",
-      "routes": {"openai": "/v1"},
-      "auth": {"type": "bearer", "env": "OPENROUTER_API_KEY"},
-      "models": {"opus": "anthropic/claude-opus-5", "sonnet": "anthropic/claude-sonnet-5", "haiku": "anthropic/claude-haiku-4-5"}
-    },
     "openai": {
       "kind": "openai",
       "base_url": "https://api.openai.com/v1",

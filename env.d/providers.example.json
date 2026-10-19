@@ -1,9 +1,8 @@
 {
   "_comment": "Copy to env.d/providers.json. Entries replace built-ins by name; null removes one. Keep keys out of this file: use auth.env (+ env.d/secrets.env) or auth.command.",
-  "default": "litellm",
+  "default": "gateway",
   "fallback": [
-    "litellm",
-    "openrouter",
+    "gateway",
     "anthropic"
   ],
   "opencodeLadder": [
@@ -54,7 +53,7 @@
     ]
   },
   "providers": {
-    "litellm": {
+    "gateway": {
       "kind": "anthropic",
       "base_url": "https://llm.example.com",
       "routes": {
@@ -63,10 +62,10 @@
       },
       "auth": {
         "type": "bearer",
-        "env": "LITELLM_API_KEY"
+        "env": "GATEWAY_API_KEY"
       },
       "headers": {
-        "x-litellm-tags": "claude-code"
+        "x-team": "platform"
       },
       "models": {
         "opus": "claude-opus-5",
@@ -74,24 +73,6 @@
         "haiku": "gpt-5-nano"
       },
       "one_m": true
-    },
-    "openrouter": {
-      "kind": "anthropic",
-      "base_url": "https://openrouter.ai/api",
-      "routes": {
-        "openai": "/v1"
-      },
-      "auth": {
-        "type": "bearer",
-        "env": "OPENROUTER_API_KEY",
-        "command": "security find-generic-password -w -s openrouter",
-        "ttl": 3600
-      },
-      "models": {
-        "opus": "anthropic/claude-opus-5",
-        "sonnet": "anthropic/claude-sonnet-5",
-        "haiku": "qwen/qwen3-coder"
-      }
     },
     "ollama": null
   }

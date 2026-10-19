@@ -19,9 +19,11 @@ const secret = "sk-SECRET-123"
 
 func target(t *testing.T, provider, model string) providers.Target {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", t.TempDir()) // isolates GeminiLoginPresent's AgyLoginMarker lookup from the real machine
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+	writeGatewayOverlay(t, dir)
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, secret)
 	}
 	reg, err := providers.Load()
@@ -58,7 +60,7 @@ func TestConfigure(t *testing.T) {
 			wantEnv:  map[string]string{CodexKeyEnv: secret}},
 		{vendor: "codex", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "-hi", Effort: "high", SessionID: "s1"},
 			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "-"}},
-		{vendor: "codex", provider: "openrouter", model: "x", wantErr: "no responses route"},
+		{vendor: "codex", provider: "gateway", model: "x", wantErr: "no responses route"},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
 			wantEnv: map[string]string{"GEMINI_API_KEY": secret}},
 		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro",
@@ -165,7 +167,7 @@ func TestCopilotLogin(t *testing.T) {
 }
 
 func TestOpenCodeConfigShape(t *testing.T) {
-	tg := target(t, "openrouter", "anthropic/claude-opus-5")
+	tg := target(t, "gateway", "anthropic/claude-opus-5")
 	env, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
@@ -178,15 +180,15 @@ func TestOpenCodeConfigShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	prov := cfg.Provider["harness-openrouter"]
+	prov := cfg.Provider["harness-gateway"]
 	opts := prov["options"].(map[string]any)
-	if prov["npm"] != "@ai-sdk/anthropic" || opts["baseURL"] != "https://openrouter.ai/api/v1" {
+	if prov["npm"] != "@ai-sdk/anthropic" || opts["baseURL"] != "https://gateway.example.com/api/v1" {
 		t.Errorf("provider block = %v", prov)
 	}
 	if opts["apiKey"] != "{env:"+OpenCodeKeyEnv+"}" || opts["headers"].(map[string]any)["Authorization"] != "Bearer {env:"+OpenCodeKeyEnv+"}" {
 		t.Errorf("auth must reference the env var, got %v", opts)
 	}
-	if cfg.Permission != "deny" || cfg.Model != "harness-openrouter/anthropic/claude-opus-5" {
+	if cfg.Permission != "deny" || cfg.Model != "harness-gateway/anthropic/claude-opus-5" {
 		t.Errorf("tools-off permission/model wrong: %+v", cfg)
 	}
 	if strings.Contains(envMap(env)["OPENCODE_CONFIG_CONTENT"], secret) || strings.Contains(strings.Join(argv, " "), secret) {
@@ -766,7 +768,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
 	t.Setenv("GH_TOKEN", "")
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, "")
 	}
 	reg, err := providers.Load()
@@ -824,7 +826,7 @@ func TestResolveTargetGeminiFallsBackToKeyedGemini(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", t.TempDir()) // no agy login marker
 	t.Setenv("GEMINI_API_KEY", secret)
-	for _, k := range []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"} {
+	for _, k := range []string{"OPENAI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, "")
 	}
 	reg, err := providers.Load()
@@ -939,5 +941,17 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 		if strings.HasPrefix(kv, "GEMINI_API_KEY=") {
 			t.Fatalf("login run must not inject a key: %v", env)
 		}
+	}
+}
+
+// writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
+func writeGatewayOverlay(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "env.d", "providers.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

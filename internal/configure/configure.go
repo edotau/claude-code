@@ -295,7 +295,6 @@ var consoleURLs = map[string]string{
 	"ANTHROPIC_API_KEY":  "https://console.anthropic.com/settings/keys",
 	"GEMINI_API_KEY":     "https://aistudio.google.com/apikey",
 	"OPENAI_API_KEY":     "https://platform.openai.com/api-keys",
-	"OPENROUTER_API_KEY": "https://openrouter.ai/settings/keys",
 }
 
 // authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.

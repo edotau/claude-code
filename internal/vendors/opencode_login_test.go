@@ -229,6 +229,9 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 		`"auth":{"type":"passthrough","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
 		`"opencode_fallback":"mai-code-1.1-flash"}}}`
+	if err := os.MkdirAll(filepath.Dir(providers.UserFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(providers.UserFile(), []byte(overlay), 0o600); err != nil {
 		t.Fatal(err)
 	}
