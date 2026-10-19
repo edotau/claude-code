@@ -27,6 +27,10 @@ func Detect(env Env) Report {
 // detectOne builds one browser's full result: identity, install state, then its control paths.
 func detectOne(env Env, s spec) Browser {
 	b := Browser{Name: s.name, DisplayName: s.displayName, Family: s.family}
+	if env.WSL && winExePath(env, s.name) != "" { // WSL: the Windows host's browser, reached over CDP
+		detectWindows(env, s, &b)
+		return b
+	}
 	switch env.goos() {
 	case "darwin":
 		b.BundleID = s.darwinBundleID

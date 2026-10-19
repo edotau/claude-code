@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,11 @@ func NewEnv() Env {
 		Run:        runReal,
 		Now:        time.Now,
 		GOOS:       runtime.GOOS,
+		WSL:        runtime.GOOS == "linux" && isWSL(),
+		WinRoot:    "/mnt/c",
+		Probe:      probeCDP,
+		Sleep:      time.Sleep,
+		ClaudeBin:  realClaude(),
 	}
 }
 
@@ -33,4 +39,10 @@ func appSupportRoot(home, goos string) string {
 func runReal(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// realClaude resolves the claude binary past our own shim dir, or "" (then plain "claude" on PATH).
+func realClaude() string {
+	p, _ := paths.LookPathReal("claude")
+	return p
 }

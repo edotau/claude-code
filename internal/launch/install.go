@@ -391,7 +391,7 @@ func browserDoctorDetail() string {
 	rep := browser.Detect(browser.NewEnv())
 	for _, b := range rep.Browsers {
 		if b.Default {
-			return b.Name + " default, extension=" + b.Paths.Extension + " (claude-code web browsers)"
+			return b.Name + " default, extension=" + b.Paths.Extension + " cdp=" + b.Paths.CDP + " (claude-code web browsers)"
 		}
 	}
 	return "no Chromium-family default (claude-code web browsers)"

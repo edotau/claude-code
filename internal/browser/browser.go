@@ -11,7 +11,9 @@
 package browser
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -109,7 +111,30 @@ type Env struct {
 	Now        func() time.Time
 	GOOS       string
 	DryRun     bool
+	WSL        bool                // a WSL distro: browsers live on the Windows host under WinRoot
+	WinRoot    string              // the C: drive as seen from WSL (/mnt/c)
+	Probe      func() string       // CDP /json/version "Browser" on localhost:CDPPort, "" when nothing answers
+	Sleep      func(time.Duration) // wait seam for the CDP start poll
+	ClaudeBin  string              // the real claude binary for `claude mcp add` (never our shim)
 }
+
+// sleep is e.Sleep when set, else a no-op (tests never wait).
+func (e Env) sleep(d time.Duration) {
+	if e.Sleep != nil {
+		e.Sleep(d)
+	}
+}
+
+// claudeBin is e.ClaudeBin, else plain "claude" from PATH.
+func (e Env) claudeBin() string {
+	if e.ClaudeBin != "" {
+		return e.ClaudeBin
+	}
+	return "claude"
+}
+
+// decodeJSON decodes one JSON value from r into v.
+func decodeJSON(r io.Reader, v any) error { return json.NewDecoder(r).Decode(v) }
 
 // goos is e.GOOS when set (tests pin it to exercise macOS logic off-machine), else runtime.GOOS.
 func (e Env) goos() string {

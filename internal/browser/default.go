@@ -19,6 +19,9 @@ func Default(env Env) (Browser, error) {
 	case "darwin":
 		return defaultDarwin(env)
 	case "linux":
+		if env.WSL {
+			return defaultWSL(env)
+		}
 		return defaultLinux(env)
 	default:
 		return Browser{}, fmt.Errorf("browser: default-browser detection is unsupported on %s", env.goos())
