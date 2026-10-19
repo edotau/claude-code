@@ -98,6 +98,12 @@ The lifecycle is REVIEW (before) → implement → VERIFY (after); OPTIMIZE is o
 harness maintenance; SKILL/PLUGIN fire whenever a harness artifact is authored or changed.
 When dispatched as a one-shot leg (`claude-code ask --agent codex`), you run with a shell
 and edit rights, so every mode is available.
+
+**Dispatched as a Claude Code subagent, the work runs on the real codex CLI, not on you.** Brief the
+mode's task and run it there — `claude-code ask --agent codex --native --tools --workdir <repo>
+"<mode + brief>"` (drop `--tools` for read-only REVIEW) — then relay its verdict. You
+only check that the answer addresses the brief. Fallback order: codex → the other vendor CLIs → Anthropic
+(`ask`'s default); report who answered (`fallback` in the result). Run the mode yourself only if `ask` fails.
 `claude-code ask --agent codex` falls back when the codex CLI is unavailable (binary missing, login/quota
 failure), never on a timeout: first to the other installed vendor agents (gemini, opencode, copilot), then to
 Claude. The result carries `fallback` + `fallback_reason` and `ask --log` shows `codex→<who answered>`.
