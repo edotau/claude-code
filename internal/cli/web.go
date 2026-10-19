@@ -21,7 +21,9 @@ const webUsage = `usage: claude-code web [--addr ip:port] [--hosts h1,h2] [--day
        claude-code web browsers [--format text|json]
        claude-code web setup [--browser name] [--dry-run] [--format text|json]
        claude-code web view <agentId|prefix> [--session id] [--days N]
-                            [--n 40] [--follow] [--format text|json]`
+                            [--n 40] [--follow] [--format text|json]
+       claude-code web search [--query q] [--max-results N]
+                              bare = stdio MCP server; --query = one-shot`
 
 // cmdWeb is the one agent-web verb: serve the dashboard, or the browser-control subcommands it also hosts.
 func cmdWeb(args []string) int {
@@ -33,6 +35,8 @@ func cmdWeb(args []string) int {
 			return cmdWebSetup(args[1:])
 		case "view":
 			return cmdWebView(args[1:])
+		case "search":
+			return cmdWebSearch(args[1:])
 		case "-h", "--help":
 			helptext.Fprint(os.Stderr, webUsage+"\n")
 			return 2
