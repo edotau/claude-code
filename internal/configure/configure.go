@@ -756,12 +756,18 @@ func confirm(d *dialog, question string) bool {
 }
 
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
-func secretLine(d *dialog, prompt string) (string, error) {
+// Every non-empty paste is echoed as a masked preview, so a wrong or doubled paste shows before it is saved.
+func secretLine(d *dialog, prompt string) (val string, err error) {
+	defer func() {
+		if _, v := ParseAssignment(val); err == nil && v != "" { // a NAME=value paste previews only its value
+			d.printf("  pasted  %s\n", secrets.Preview(v))
+		}
+	}()
 	if isStdinTTY() && d.o.In == os.Stdin {
 		return tui.Secret(prompt)
 	}
 	fmt.Fprint(d.out, prompt)
-	val, err := readSecret(d.br)
+	val, err = readSecret(d.br)
 	fmt.Fprintln(d.out)
 	return val, err
 }
