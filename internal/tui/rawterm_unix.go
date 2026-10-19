@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"syscall"
 	"unsafe"
@@ -60,34 +61,48 @@ func getSize(fd int) (int, int, error) {
 	return int(ws.Col), int(ws.Row), nil
 }
 
-// readPassword reads one line from fd with echo off, restoring the terminal before returning.
-func readPassword(fd int) ([]byte, error) {
+// ErrCanceled is what readPassword returns when Ctrl-C or Ctrl-D ends the read before Enter.
+var ErrCanceled = errors.New("tui: input canceled")
+
+// readPassword reads one line from fd with echo off, calling onChange (if set) after every read so a paste shows
+// as it lands; Backspace and Ctrl-U edit, Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
+func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 	var t syscall.Termios
 	if err := ioctlTermios(fd, ioctlGet, &t); err != nil {
 		return nil, err
 	}
 	prev := t
-	t.Lflag &^= syscall.ECHO
-	t.Lflag |= syscall.ICANON | syscall.ISIG
+	t.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG
 	t.Iflag |= syscall.ICRNL
+	t.Cc[syscall.VMIN], t.Cc[syscall.VTIME] = 1, 0
 	if err := ioctlTermios(fd, ioctlSet, &t); err != nil {
 		return nil, err
 	}
 	defer func() { _ = ioctlTermios(fd, ioctlSet, &prev) }()
 	f := os.NewFile(uintptr(fd), "stdin")
 	var line []byte
-	buf := make([]byte, 1)
+	buf := make([]byte, 4096)
 	for {
 		n, err := f.Read(buf)
-		if n == 1 {
-			if buf[0] == '\n' || buf[0] == '\r' {
-				break
+		for _, c := range buf[:n] {
+			switch {
+			case c == '\n' || c == '\r':
+				return line, nil
+			case c == 0x03 || c == 0x04:
+				return nil, ErrCanceled
+			case c == 0x7f || c == 0x08:
+				line = line[:max(0, len(line)-1)]
+			case c == 0x15:
+				line = line[:0]
+			case c >= 0x20:
+				line = append(line, c)
 			}
-			line = append(line, buf[0])
+		}
+		if onChange != nil && n > 0 {
+			onChange(line)
 		}
 		if err != nil {
 			return line, err
 		}
 	}
-	return line, nil
 }

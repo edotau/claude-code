@@ -31,16 +31,28 @@ func Confirm(question string, def bool) bool {
 	}
 }
 
-// Secret prints prompt and reads one line with local echo off, so a pasted key never lands in the
-// scrollback or shell history. Falls back to a plain read when stdin is not a terminal.
-func Secret(prompt string) (string, error) {
-	fmt.Fprint(os.Stdout, prompt)
+// Secret prints prompt and reads one line with local echo off, so a pasted key never lands in the scrollback or
+// shell history. A non-nil preview redraws a masked line under the prompt as input arrives, so a paste shows on paste.
+// Falls back to a plain read when stdin is not a terminal.
+func Secret(prompt string, preview func(string) string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !isTerminal(fd) {
+		fmt.Fprint(os.Stdout, prompt)
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		return strings.TrimRight(line, "\r\n"), err
 	}
-	b, err := readPassword(fd)
+	var onChange func([]byte)
+	if preview == nil {
+		fmt.Fprint(os.Stdout, prompt)
+	} else {
+		fmt.Fprintln(os.Stdout, strings.TrimRight(prompt, " "))
+		onChange = func(b []byte) {
+			if fmt.Fprint(os.Stdout, "\r\x1b[K"); len(b) > 0 {
+				fmt.Fprintf(os.Stdout, "  pasted  %s", preview(string(b)))
+			}
+		}
+	}
+	b, err := readPassword(fd, onChange)
 	fmt.Fprintln(os.Stdout)
 	return string(b), err
 }
