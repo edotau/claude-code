@@ -58,12 +58,12 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 }
 
 // describeCopilotRoute: 1) copilot's own GitHub login; 2) BYOK with the registry anthropic provider's
-// key; 3) BYOK with the registry gemini provider's key; 4) none.
+// key; 3) none.
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
-	if copilotLoginPresent() {
+	if a, ok := copilotAuthSource(); ok {
 		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok {
 			return RouteInfo{Vendor: "copilot", Leg: LegCopilotLogin, Provider: p.Name, Model: p.Models[models.Opus],
-				Reason: "github-copilot (GH_TOKEN/gh auth)", OK: true}
+				Reason: "github-copilot (" + a.Label() + ")", OK: true}
 		}
 	}
 	if p, ok := reg.Providers["anthropic"]; ok && providers.CredentialPresent(p) {

@@ -62,15 +62,19 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, opencodeOK bool) {
 	case !gh.found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
 	case gh.loggedIn:
-		d.printf("%-16s present (account %s)\n", "gh CLI", gh.account)
+		acct := vendors.GHActiveAccount()
+		if acct == "" {
+			acct = gh.account
+		}
+		d.printf("%-16s present (active account %s)\n", "gh CLI", acct)
 		ghOK = true
 	default:
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")
 	}
 
-	copilotOK = vendors.CopilotLoginPresent()
+	auth, copilotOK := vendors.ResolveCopilotAuth()
 	if copilotOK {
-		d.printf("%-16s present (gh auth / GH_TOKEN)\n", "copilot CLI")
+		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
 	} else {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
 	}

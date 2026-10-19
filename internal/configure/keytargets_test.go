@@ -9,22 +9,13 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-func TestCopilotEnvTokenSet(t *testing.T) {
-	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
-		t.Setenv(k, "")
-	}
-	if copilotEnvTokenSet() {
-		t.Error("copilotEnvTokenSet must be false with none of the three vars set")
-	}
-	t.Setenv("GH_TOKEN", "ghp_fake")
-	if !copilotEnvTokenSet() {
-		t.Error("copilotEnvTokenSet must be true once GH_TOKEN is set")
-	}
-}
-
-// copilot present via a raw env token override offers no rotate CLI (`gh auth refresh` would rotate gh's
-// own session, not the override); present via gh's own session does.
+// copilot present via a raw env token override offers no rotate CLI (`copilot login` would rotate
+// copilot's own session, not the override); present via copilot's/gh's own login does.
 func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())              // no real gh/secret-tool on PATH
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no real secrets.env: managedCopilotToken reads nothing
+	t.Setenv("COPILOT_HOME", t.TempDir())      // no real copilot config.json: CopilotStoredLogin reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
 	t.Setenv("GH_TOKEN", "ghp_env_override")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	kt := vendorKeyTarget(reg, "copilot")

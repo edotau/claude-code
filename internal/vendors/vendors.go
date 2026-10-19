@@ -172,18 +172,10 @@ func loginProvider(reg *providers.Registry, providerName, vendor string) (*provi
 	return p, true
 }
 
-// copilotLoginPresent checks GH_TOKEN first, then `gh auth token` (copilot's own sign-in surface) — the
-// offline form: `gh auth status` validates over the network and blew its 2 s budget, dropping the fallback.
-// copilotLoginPresent: copilot's token precedence is COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, then `gh`.
+// copilotLoginPresent reports any GitHub credential copilot would use (copilotAuthSource order, no network).
 func copilotLoginPresent() bool {
-	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
-		if strings.TrimSpace(os.Getenv(k)) != "" {
-			return true
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "gh", "auth", "token").Run() == nil
+	_, ok := copilotAuthSource()
+	return ok
 }
 
 // ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
@@ -564,6 +556,9 @@ const copilotMaxOutputTokens = 32_000
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
 func copilotLogin(model string, h *Headless) ([]string, []string, error) {
 	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
+	if tok := managedCopilotToken(); tok != "" { // the secrets manager's account beats any inherited token
+		env = append(env, CopilotTokenEnv+"="+tok)
+	}
 	if h == nil {
 		return env, nil, nil
 	}
@@ -713,7 +708,8 @@ func tomlInline(pairs [][2]string) string {
 // CodexChatGPTLoginPresent reports whether codex's own ChatGPT sign-in (~/.codex/auth.json) is on disk.
 func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
 
-// CopilotLoginPresent reports a usable GitHub login for copilot: GH_TOKEN or an authenticated `gh`.
+// CopilotLoginPresent reports a usable GitHub login for copilot: a token env var, the keyring token, its own
+// stored login, or gh's active account.
 func CopilotLoginPresent() bool { return copilotLoginPresent() }
 
 // GeminiLoginPresent reports whether agy's cached Google login is on disk; agy itself owns and refreshes the token.

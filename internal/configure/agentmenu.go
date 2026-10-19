@@ -236,16 +236,17 @@ func codexUseKey(d *dialog) bool {
 }
 
 func copilotMenu(d *dialog) agentMenu {
-	loggedIn := vendors.CopilotLoginPresent()
+	auth, loggedIn := vendors.ResolveCopilotAuth()
 	tier := ""
 	if loggedIn {
 		tier = copilotTier()
 	}
 	st := loginOrKey(d, loggedIn, tier)
+	_, _, tokenSet := secrets.Get(vendors.CopilotTokenEnv)
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot · plan limits " + bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
-				d.printf("%-10s on its GitHub login (kept)\n", "copilot")
+				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
 			}
 			return signIn(d, "copilot", []string{"copilot", "login"})
@@ -254,13 +255,82 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-	}
-	if !copilotEnvTokenSet() { // an env token override would make gh's refresh rotate the wrong credential
-		rows = append(rows, billingRow{"OAuth token", "gh auth refresh · mints a token for copilot's session", "", func() bool {
-			return signIn(d, "copilot", []string{"gh", "auth", "refresh"})
-		}})
+		{"GitHub account", "pick the account copilot runs as " + bracket(tokenSet, "pinned", "copilot login"), "", func() bool {
+			return pickCopilotAccount(d, auth)
+		}},
 	}
 	return agentMenu{st, rows}
+}
+
+// pickCopilotAccount lists every GitHub account on this box; a gh account pins its token as COPILOT_GITHUB_TOKEN
+// in the secrets manager, "copilot login" clears the pin, and the last two rows add a token or a new sign-in.
+func pickCopilotAccount(d *dialog, cur vendors.CopilotAuth) bool {
+	if !isStdinTTY() || d.o.In != os.Stdin {
+		d.printf("copilot: runs as %s; accounts: %s\n", cur.Label(), strings.Join(vendors.GHAccounts(), ", "))
+		return false
+	}
+	gh := vendors.GHAccounts()
+	active := vendors.GHActiveAccount()
+	var rows [][2]string
+	for _, u := range gh {
+		desc := "personal"
+		if strings.Contains(u, "_") { // only enterprise managed users carry the _shortcode suffix
+			desc = "enterprise"
+		}
+		if u == active {
+			desc += " · gh active"
+		}
+		if u == cur.Account {
+			desc += " · in use"
+		}
+		rows = append(rows, [2]string{u, desc})
+	}
+	stored := vendors.CopilotStoredLogin()
+	rows = append(rows, [2]string{"copilot login", "unpin; use copilot's own sign-in " + bracket(stored != "", stored, "none")},
+		[2]string{"Paste token", "a GitHub OAuth token (gho_/ghp_/github_pat_)"},
+		[2]string{"New sign-in", "gh auth login · adds another account to this list"})
+	idx, err := tui.PickBack("copilot — which GitHub account? (now: "+cur.Label()+")", rows, 0)
+	if err != nil || idx < 0 {
+		return false
+	}
+	switch n := len(gh); {
+	case idx < n:
+		tok := vendors.GHToken(gh[idx])
+		if tok == "" || vendors.GitHubLogin(tok) != gh[idx] {
+			d.printf("copilot: gh has no working token for %s; run gh auth login\n", gh[idx])
+			return false
+		}
+		d.printf("%-10s pinned to %s (%s in the secrets manager)\n", "copilot", gh[idx], vendors.CopilotTokenEnv)
+		return storeValue(d, vendors.CopilotTokenEnv, tok, false)
+	case idx == n:
+		if err := secrets.Delete(vendors.CopilotTokenEnv); err != nil {
+			d.printf("copilot: %v\n", err)
+			return false
+		}
+		d.printf("%-10s unpinned; runs on copilot's own sign-in %s\n", "copilot", bracket(stored != "", stored, "(none yet)"))
+		return true
+	case idx == n+1:
+		return setCopilotToken(d)
+	default:
+		return signIn(d, "gh", []string{"gh", "auth", "login"})
+	}
+}
+
+// setCopilotToken stores a pasted GitHub OAuth token as COPILOT_GITHUB_TOKEN after naming the account it belongs to.
+func setCopilotToken(d *dialog) bool {
+	val, err := secretLine(d, "Paste a GitHub OAuth token (gho_/ghp_/github_pat_; input hidden): ")
+	if err != nil || strings.TrimSpace(val) == "" {
+		d.println("copilot: no token entered; nothing changed")
+		return false
+	}
+	val = strings.TrimSpace(val)
+	login := vendors.GitHubLogin(val)
+	if login == "" {
+		d.println("copilot: GitHub rejected that token (api.github.com/user); nothing stored")
+		return false
+	}
+	d.printf("%-10s token belongs to %s; copilot launches will run as it\n", "copilot", login)
+	return storeValue(d, vendors.CopilotTokenEnv, val, false)
 }
 
 func opencodeMenu(d *dialog) agentMenu {

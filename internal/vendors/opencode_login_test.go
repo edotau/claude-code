@@ -20,7 +20,9 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no real `gh`: copilotLoginPresent's shell-out leg can't fire by accident
+	t.Setenv("PATH", t.TempDir())          // no real `gh`: copilotLoginPresent's shell-out leg can't fire by accident
+	t.Setenv("COPILOT_HOME", t.TempDir())  // no real copilot config.json: CopilotStoredLogin reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir()) // no real gh hosts.yml: GHActiveAccount reads nothing
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}

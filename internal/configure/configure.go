@@ -358,17 +358,6 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 	return out, nil
 }
 
-// copilotEnvTokenSet reports whether copilot's credential comes from a raw env var override rather
-// than gh's own session — `gh auth refresh` would rotate the wrong thing in that case.
-func copilotEnvTokenSet() bool {
-	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
-		if strings.TrimSpace(os.Getenv(k)) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
 	fallback := func() keyTarget {
@@ -398,10 +387,10 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		}
 		return kt
 	case "copilot":
-		if vendors.CopilotLoginPresent() {
-			kt := keyTarget{label: name, present: true, source: "GH_TOKEN / gh auth status"}
-			if !copilotEnvTokenSet() {
-				kt.loginArgv = []string{"gh", "auth", "refresh"} // rotate: gh's own session, not an env override
+		if a, ok := vendors.ResolveCopilotAuth(); ok {
+			kt := keyTarget{label: name, present: true, source: a.Label()}
+			if a.Source == "copilot login" || a.Source == "gh" {
+				kt.loginArgv = []string{"copilot", "login"} // rotate: re-run copilot's own sign-in
 			}
 			return kt
 		}
@@ -513,7 +502,11 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 			rows = append(rows, [2]string{o.action, o.desc})
 		}
 		rows = append(rows, [2]string{"Skip", kt.fixCmd})
-		idx, err := tui.PickBack(kt.label+" — no credential found; how do you want to authenticate?", rows, 0)
+		title := kt.label + " — no credential found; how do you want to authenticate?"
+		if kt.envVar != "" {
+			title = kt.label + " — no " + kt.envVar + "; how do you want to set it?"
+		}
+		idx, err := tui.PickBack(title, rows, 0)
 		if err == nil {
 			if idx < 0 || idx >= len(opts) {
 				return false
