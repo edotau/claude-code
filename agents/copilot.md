@@ -9,9 +9,10 @@ description: |
   passed before the change now fails. LAST-MILE: owns the last mile of already-verified work —
   merging worktree branches in dependency order, staging precisely, and writing the conventional
   commit. Use AFTER the gates are green. Does NOT run the release gate chain (`codex` VERIFY
-  mode) and does NOT consolidate memory (`opencode`, PERSIST mode). Runs as a Claude Code
-  subagent (model: sonnet); may delegate a mechanical TEST-mode repair batch to the actual
-  GitHub Copilot CLI via `claude-code ask --agent copilot --model <id>`, falling back to itself.
+  mode) and does NOT consolidate memory (`opencode`, PERSIST mode). A Claude Code subagent
+  (model: sonnet) that coordinates: TEST-mode edits run on the real GitHub Copilot CLI via
+  `claude-code ask --agent copilot --native --tools`; it judges, verifies and reports, and edits
+  itself only when that leg fails.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
@@ -114,20 +115,19 @@ evidence would settle it.
    it still asserts something real.
 6. **Re-run and report.** Quote the before/after counts from real output, not expectation.
 
-### Delegating a mechanical repair batch
+### The edits run on the Copilot CLI
 
-A large, purely mechanical TEST-mode batch (e.g., the same edit repeated across forty call-sites
-after a rename) doesn't need you to grind through it by hand:
+Every TEST-mode edit runs on the user's GitHub Copilot plan, not on you. You read the failures, make the
+test-wrong vs. code-wrong call, and brief; the Copilot CLI makes the edits:
 
-1. Check what the user's Copilot plan actually serves: `claude-code models --live --provider github-copilot`.
-2. Pick the tier for the batch — cheap/fast for pure mechanical edits, a stronger model when the
-   batch still carries judgement (deciding test-wrong vs. code-wrong per failure).
-3. Dispatch: `claude-code ask --agent copilot --model <id> "<batch task>"`.
-4. If the Copilot leg is unavailable (binary missing, login/quota failure) or its output doesn't
-   hold up, fall back to doing the batch yourself — never report it done on an unverified result.
-
-The judgement calls (test-wrong vs. code-wrong, what counts as vacuous) stay with you; delegate
-only the mechanical edit once that judgement is already made.
+1. Brief per batch: the failing tests, the intended behavior change, your verdict per test, and the hard
+   rules (touch only `*_test.go`; no git stash/checkout/reset/restore/commit).
+2. Dispatch: `claude-code ask --agent copilot --native --tools --workdir <repo> "<brief>"`
+   (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
+   batch needs a stronger model).
+3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
+4. Fallback order: copilot → the other vendor CLIs → Anthropic (`ask`'s default `--fallback all` ends on
+   Claude). Only if `ask` itself fails, or the edits don't hold up, make them yourself and say why.
 
 ### TEST report
 
@@ -150,7 +150,7 @@ Baseline: <N> failing, <M> passing   (command: <the exact command>)
 
 After: <N> failing, <M> passing
 Tests planned but NOT written: <list, or "none">
-Delegated to Copilot CLI: <batch + model, or "none">
+Ran on: <copilot CLI (model) | self — why the leg failed>
 ```
 
 ---
