@@ -727,13 +727,27 @@ func CopilotLoginPresent() bool { return copilotLoginPresent() }
 // GeminiLoginPresent reports whether agy's cached Google login is on disk; it beats GEMINI_API_KEY (even a bogus key).
 func GeminiLoginPresent() bool {
 	home, _ := os.UserHomeDir()
-	_, err := os.Stat(AgyLoginMarker(home))
-	return err == nil
+	for _, p := range agyLoginMarkers(home) {
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
+// agy 1.4.2 moved this from jetski-standalone-oauth-token to antigravity-cli/antigravity-oauth-token;
+// this is the current path a fresh sign-in writes.
 func AgyLoginMarker(home string) string {
-	return filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
+	return agyLoginMarkers(home)[0]
+}
+
+// agyLoginMarkers lists every path agy has used for its cached Google OAuth token, newest first.
+func agyLoginMarkers(home string) []string {
+	return []string{
+		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
+		filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
+	}
 }
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> the "github-copilot"

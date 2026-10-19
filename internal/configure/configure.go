@@ -589,11 +589,9 @@ func openBrowser(url string) {
 	_ = exec.Command(bin, url).Start()
 }
 
-// errCancelled is a declined or Esc'd confirmation; callers report it like any failed login and change nothing.
-var errCancelled = errors.New("cancelled")
-
-// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a login or mint CLI; a stray Enter
-// must never start a sign-in that rewrites a vendor's own auth settings. Non-terminal runs proceed.
+// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
+// never start a run that rewrites a vendor's own auth settings. Non-terminal runs proceed. Sign-in itself
+// needs no second confirm — picking its menu row already was the confirmation.
 var actionConfirmed = func(question string) bool {
 	if !isStdinTTY() {
 		return true
@@ -601,11 +599,9 @@ var actionConfirmed = func(question string) bool {
 	return tui.ConfirmKey(question+"?", false)
 }
 
-// runLogin execs a vendor's own login CLI attached to the real terminal.
+// runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
+// already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func runLogin(argv []string) error {
-	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to sign in") {
-		return errCancelled
-	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()

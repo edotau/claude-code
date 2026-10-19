@@ -15,6 +15,7 @@ func TestDecodeBasicKeys(t *testing.T) {
 		{"esc-alone", []byte{0x1b}, Key{Kind: KeyEsc}, 1},
 		{"up", []byte("\x1b[A"), Key{Kind: KeyUp}, 3},
 		{"down", []byte("\x1b[B"), Key{Kind: KeyDown}, 3},
+		{"left", []byte("\x1b[D"), Key{Kind: KeyLeft}, 3},
 		{"rune-j", []byte("j"), Key{Kind: KeyRune, Rune: 'j'}, 1},
 		{"rune-q", []byte("q"), Key{Kind: KeyRune, Rune: 'q'}, 1},
 		{"rune-utf8", []byte("é"), Key{Kind: KeyRune, Rune: 'é'}, 2},
