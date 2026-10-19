@@ -26,7 +26,10 @@ func registry(t *testing.T, srv *httptest.Server) {
 	body := fmt.Sprintf(`{"providers":{
 	  "tanth":{"kind":"anthropic","base_url":%q,"auth":{"type":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}},
 	  "toai":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}`, srv.URL, srv.URL+"/v1")
-	if err := writeFile(filepath.Join(dir, "providers.json"), body); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(filepath.Join(dir, "env.d", "providers.json"), body); err != nil {
 		t.Fatal(err)
 	}
 }

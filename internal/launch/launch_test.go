@@ -40,7 +40,7 @@ func hermetic(t *testing.T, userProviders string) {
 		t.Setenv(k, "")
 	}
 	if userProviders != "" {
-		if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(userProviders), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(userProviders), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

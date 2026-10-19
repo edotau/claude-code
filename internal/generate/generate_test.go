@@ -28,7 +28,7 @@ func scratch(t *testing.T) string {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	overlay := `{"default": "openai"}`
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
-	if err := os.WriteFile(filepath.Join(configDir, "providers.json"), []byte(overlay), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, configDir), "providers.json"), []byte(overlay), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
@@ -240,7 +240,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 
 func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	home := scratch(t)
-	overlay := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "providers.json")
+	overlay := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "env.d", "providers.json")
 	if err := os.WriteFile(overlay, []byte(`{"default": "chatgpt"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

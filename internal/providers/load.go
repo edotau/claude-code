@@ -16,7 +16,7 @@ import (
 var defaultsJSON []byte
 
 // UserFile is the per-user registry overlay: providers replace built-ins by name; default/fallback override when set.
-func UserFile() string { return filepath.Join(paths.ConfigDir(), "providers.json") }
+func UserFile() string { return filepath.Join(paths.EnvDir(), "providers.json") }
 
 // Load merges the embedded defaults with UserFile and validates the result.
 func Load() (*Registry, error) {

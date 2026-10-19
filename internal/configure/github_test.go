@@ -29,7 +29,7 @@ func githubScratch(t *testing.T) (cfg string) {
 
 func readOverlay(t *testing.T, cfg string) map[string]json.RawMessage {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(cfg, "providers.json"))
+	raw, err := os.ReadFile(filepath.Join(cfg, "env.d", "providers.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func readOverlay(t *testing.T, cfg string) map[string]json.RawMessage {
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	cfg := githubScratch(t)
 	existing := `{"default":"gw","providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example.com"},"github-copilot":{"auth":{"type":"passthrough","login":"copilot"}}}}`
-	if err := os.WriteFile(filepath.Join(cfg, "providers.json"), []byte(existing), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
@@ -82,14 +82,14 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 func TestWriteGithubCopilotModelsWritesBackup(t *testing.T) {
 	cfg := githubScratch(t)
 	original := `{"providers":{"github-copilot":{"models":{"opus":"old-opus"}}}}`
-	if err := os.WriteFile(filepath.Join(cfg, "providers.json"), []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	picks := map[string]string{models.Opus: "new-opus", models.Sonnet: "new-sonnet", models.Haiku: "new-haiku"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	ents, err := os.ReadDir(cfg)
+	ents, err := os.ReadDir(filepath.Join(cfg, "env.d"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestWriteGithubCopilotModelsWritesBackup(t *testing.T) {
 	if backup == "" {
 		t.Fatalf("no providers.json.bak-* backup written; dir has %v", ents)
 	}
-	got, err := os.ReadFile(filepath.Join(cfg, backup))
+	got, err := os.ReadFile(filepath.Join(cfg, "env.d", backup))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 	if !strings.Contains(err.Error(), "auto") {
 		t.Errorf("error = %v, want it to name \"auto\"", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "providers.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(cfg, "env.d", "providers.json")); err == nil {
 		t.Error("a rejected fallback must not write the overlay at all")
 	}
 }
@@ -132,7 +132,7 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing.T) {
 	cfg := githubScratch(t)
 	original := `{"providers":{"github-copilot":{"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}`
-	if err := os.WriteFile(filepath.Join(cfg, "providers.json"), []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	picks := map[string]string{models.Opus: "claude-opus-5.5", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
@@ -162,7 +162,7 @@ func TestWriteGithubCopilotModelsRejectsEmptySlot(t *testing.T) {
 	if err := WriteGithubCopilotModels(picks, ""); err == nil {
 		t.Fatal("WriteGithubCopilotModels: want an error for an empty sonnet slot")
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "providers.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(cfg, "env.d", "providers.json")); err == nil {
 		t.Error("a rejected pick set must not write the overlay at all")
 	}
 }

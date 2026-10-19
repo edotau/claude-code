@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to ~/.claude/providers.json. Entries replace built-ins by name; null removes one. Keep keys out of this file: use auth.env (+ env.d/secrets.env) or auth.command.",
+  "_comment": "Copy to env.d/providers.json. Entries replace built-ins by name; null removes one. Keep keys out of this file: use auth.env (+ env.d/secrets.env) or auth.command.",
   "default": "litellm",
   "fallback": [
     "litellm",

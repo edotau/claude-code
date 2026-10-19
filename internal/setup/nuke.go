@@ -179,7 +179,7 @@ func dirSize(path string) int64 {
 // under a few tracked trees (a project's own agent/command/skill). Never env.d/secrets.env.
 func userContentPaths(dir string, hasGit bool) []string {
 	var out []string
-	for _, rel := range []string{"providers.json", "settings.local.json", "env.d/provider.env"} {
+	for _, rel := range []string{"env.d/providers.json", "settings.local.json", "env.d/provider.env"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
 		}

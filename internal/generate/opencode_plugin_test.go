@@ -21,7 +21,7 @@ func writeOpencodePluginsOverlay(t *testing.T, plugins []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "providers.json"), body, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, configDir), "providers.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

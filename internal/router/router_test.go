@@ -54,7 +54,7 @@ func setup(t *testing.T, overlay string) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(overlay), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(overlay), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := newRouter(secret)
@@ -425,7 +425,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	overlay := fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"anthropic","base_url":%q,"auth":{"type":"none"},"models":{"opus":"m"}}}}`, up.URL)
-	if err := os.WriteFile(filepath.Join(dir, "providers.json"), []byte(overlay), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(overlay), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
