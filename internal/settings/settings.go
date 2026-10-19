@@ -45,6 +45,9 @@ type Summary struct {
 // retiredKeys are dropped from existing settings: autoMemoryDirectory is flat, so it merges every repo's memory.
 var retiredKeys = []string{"autoMemoryDirectory"}
 
+// retiredEnvPrefix drops the retired claude-dbx harness's env keys, which no template owns and merge would keep.
+const retiredEnvPrefix = "CLAUDE_CODE_DBX_"
+
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them.
 func Merge(existing, rendered []byte) ([]byte, Summary, error) {
@@ -79,7 +82,9 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 		var merged json.RawMessage
 		switch k {
 		case "env":
-			merged, err = mergeObject(ex.vals[k], v)
+			if merged, err = mergeObject(ex.vals[k], v); err == nil {
+				merged, err = dropPrefixed(merged, retiredEnvPrefix, &sum)
+			}
 		case "permissions":
 			merged, err = mergePermissions(ex.vals[k], v)
 		case "hooks":
@@ -94,6 +99,23 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	}
 	out, err := ex.marshal()
 	return out, sum, err
+}
+
+// dropPrefixed removes keys starting with prefix, recording each as retired.
+func dropPrefixed(raw json.RawMessage, prefix string, sum *Summary) (json.RawMessage, error) {
+	o, err := parseObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	kept := &object{vals: map[string]json.RawMessage{}}
+	for _, k := range o.keys {
+		if strings.HasPrefix(k, prefix) {
+			sum.Retired = append(sum.Retired, "env."+k)
+			continue
+		}
+		kept.set(k, o.vals[k])
+	}
+	return kept.marshal()
 }
 
 // mergeObject sets every overlay key onto base, keeping base's other keys and order.

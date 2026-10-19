@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -168,5 +169,18 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 	}
 	if len(sum2.Retired) != 0 {
 		t.Errorf("second merge retired %v", sum2.Retired)
+	}
+}
+
+func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
+	out, sum, err := Merge([]byte(`{"env":{"CLAUDE_CODE_DBX_HOST":"x","KEEP":"1"}}`), []byte(`{"env":{"A":"b"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(out); strings.Contains(s, "CLAUDE_CODE_DBX_HOST") || !strings.Contains(s, `"KEEP"`) {
+		t.Errorf("merged env = %s", s)
+	}
+	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") {
+		t.Errorf("retired = %v", sum.Retired)
 	}
 }
