@@ -26,6 +26,10 @@ func writeOpencodeCopilotLogin(t *testing.T, home string) {
 // github-copilot/ prefix and no provider/apiKey wiring, while preserving keys this tool doesn't own.
 func TestRenderOpenCodeCopilotWritesModelAndSmallModel(t *testing.T) {
 	home := scratch(t)
+	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
+	// test still proves slot ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
+	t.Setenv("HARNESS_SONNET_MODEL", "gpt-5.3-codex")
+	t.Setenv("HARNESS_HAIKU_MODEL", "gpt-5.4-mini")
 	writeOpencodeCopilotLogin(t, home)
 	ocPath := filepath.Join(home, ".config", "opencode", "opencode.json")
 	if err := os.MkdirAll(filepath.Dir(ocPath), 0o755); err != nil {

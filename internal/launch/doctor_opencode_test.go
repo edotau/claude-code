@@ -56,6 +56,10 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 // swap for OpencodeFallback any more — that swap path is covered directly in internal/vendors).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
+	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
+	// test still proves slot ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
+	t.Setenv("HARNESS_SONNET_MODEL", "gpt-5.3-codex")
+	t.Setenv("HARNESS_HAIKU_MODEL", "gpt-5.4-mini")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
