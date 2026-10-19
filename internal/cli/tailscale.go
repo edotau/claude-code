@@ -154,6 +154,11 @@ func tailscaleKey(ctx context.Context, args []string) int {
 		Tags: tagList, Expiry: exp, Description: *desc,
 	})
 	if err != nil {
+		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
+		if strings.Contains(err.Error(), "HTTP 404") {
+			return fail("tailscale key: %v\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
+				"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
+		}
 		return fail("tailscale key: %v", err)
 	}
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
