@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -49,7 +50,14 @@ func Inventory(o InventoryOptions) (Manifest, error) {
 	inv.nativeStores()
 	inv.handoffs()
 	inv.agentMemory()
+	inv.docsPlans()
+	inv.docsReports()
+	inv.docsNative()
+	inv.agentScaffolds()
+	inv.generatedIndexes()
+	inv.codemaps()
 	inv.precheck()
+	inv.retireEmptied()
 	return *m, nil
 }
 
@@ -217,7 +225,7 @@ func (inv *inventory) add(it MigrateItem) string {
 	if it.Source != "" {
 		it.ID = itemID(configRel(it.Source))
 		if it.Kind != KindEmptyDir {
-			h, n, err := sha256File(it.Source)
+			h, n, err := fileOrLinkHash(it)
 			if err != nil {
 				it.Action, it.Reason = ActionSkip, "unreadable: "+err.Error()
 				inv.finding("skip %s: %v", it.Source, err)
@@ -255,7 +263,7 @@ func (inv *inventory) tree(root, destRoot, kind, action, reason string) {
 		switch {
 		case err != nil || d.IsDir():
 		case !d.Type().IsRegular():
-			inv.finding("left in place (not a regular file): %s", p)
+			inv.nonRegular(p)
 		case destRoot == "":
 			inv.add(MigrateItem{Kind: kind, Source: p, Action: action, Reason: reason})
 		default:
@@ -264,6 +272,25 @@ func (inv *inventory) tree(root, destRoot, kind, action, reason string) {
 		}
 		return nil
 	})
+}
+
+// nonRegular plans a dangling bare-name symlink for deletion (the link, never its target); else it stays in place.
+func (inv *inventory) nonRegular(p string) {
+	if danglingLink(p) {
+		inv.add(MigrateItem{Kind: KindSymlink, Source: p, Action: ActionDelete, Reason: "dangling relative symlink"})
+		return
+	}
+	inv.finding("left in place (not a regular file): %s", p)
+}
+
+// danglingLink: p is a symlink to a bare relative name that no longer resolves.
+func danglingLink(p string) bool {
+	t, err := os.Readlink(p)
+	if err != nil || t == "" || filepath.IsAbs(t) || strings.ContainsRune(t, filepath.Separator) {
+		return false
+	}
+	_, err = os.Stat(p)
+	return os.IsNotExist(err)
 }
 
 func (inv *inventory) quarantineTree(root, reason string) {
@@ -278,7 +305,11 @@ func (inv *inventory) legacyTree() {
 		name, p := e.Name(), filepath.Join(g, e.Name())
 		switch {
 		case e.Type()&fs.ModeSymlink != 0:
-			inv.finding("left in place (symlink): %s", p)
+			if !danglingLink(p) {
+				inv.finding("left in place (symlink): %s", p)
+				continue
+			}
+			inv.nonRegular(p)
 		case e.IsDir() && name == "archive":
 			inv.legacyArchive(p)
 		case e.IsDir() && hasTypedFile(p):
@@ -344,14 +375,20 @@ func (inv *inventory) nativeArchive(root, pslug string) {
 // legacyBank plans one GlobalDir()/<slug>/ bank: pristine → delete; resolved → import; unresolved → skip.
 func (inv *inventory) legacyBank(dir, slug string) {
 	ents, _ := os.ReadDir(dir)
-	if isPristine(dir) {
+	if pristineDir(dir, true) {
 		var deps []string
 		for _, e := range ents {
-			kind, why := KindPristine, "byte-equal to the legacy template (C.5)"
+			kind, why := KindPristine, "byte-equal to a legacy template (C.5)"
+			p := filepath.Join(dir, e.Name())
 			if isLockFile(e.Name()) {
 				kind, why = KindLockFile, "stale lock file"
 			}
-			deps = append(deps, inv.add(MigrateItem{Kind: kind, Source: filepath.Join(dir, e.Name()), Action: ActionDelete, Reason: why}))
+			if e.Name() == "access.log" {
+				deps = append(deps, inv.add(MigrateItem{Kind: KindAccessLog, Source: p, Dest: filepath.Join(AccessStateDir(), inv.accessKey(slug)+".log"),
+					Action: ActionCopy, Reason: "access log → state"}))
+				continue
+			}
+			deps = append(deps, inv.add(MigrateItem{Kind: kind, Source: p, Action: ActionDelete, Reason: why}))
 		}
 		inv.add(MigrateItem{Kind: KindEmptyDir, Source: dir, Action: ActionDelete, Reason: "pristine bank " + slug, Deps: deps})
 		return
@@ -371,11 +408,19 @@ func (inv *inventory) legacyBank(dir, slug string) {
 		case e.IsDir():
 			inv.quarantineTree(p, "unknown directory in legacy bank "+slug)
 		case !e.Type().IsRegular():
-			inv.finding("left in place (not a regular file): %s", p)
+			inv.nonRegular(p)
 		default:
 			inv.bankFile(dir, name, dest, filepath.Base(dest), KindRepoBank)
 		}
 	}
+}
+
+// accessKey names a bank's access log in state: its store dir's base once the slug resolves, else the slug.
+func (inv *inventory) accessKey(slug string) string {
+	if dest, ok := inv.destOf(slug); ok {
+		return filepath.Base(dest)
+	}
+	return slug
 }
 
 // nativeStores plans projects/*/memory: a link is done, a real dir is imported file by file.
@@ -456,8 +501,10 @@ func (inv *inventory) handoffs() {
 	for _, e := range ents {
 		name, p := e.Name(), filepath.Join(dir, e.Name())
 		switch {
+		case e.IsDir():
+			inv.tree(p, filepath.Join(HandoffsDir(HarnessStoreDir()), name), KindHandoff, ActionCopy, "handoff bundle → harness store")
 		case !e.Type().IsRegular():
-			inv.finding("left in place (not a regular file): %s", p)
+			inv.nonRegular(p)
 		case name == "HANDOFF.md":
 			inv.add(MigrateItem{Kind: KindArtifact, Source: p, Action: ActionDelete, Reason: "stale beacon (C.5)"})
 		case strings.HasSuffix(name, ".plan.json") || strings.HasSuffix(name, ".critic.json"):
@@ -499,7 +546,7 @@ func (inv *inventory) agentMemory() {
 func (inv *inventory) precheck() {
 	for i := range inv.m.Items {
 		it := &inv.m.Items[i]
-		if it.Action != ActionCopy || it.Dest == "" || it.Inline != nil || !exists(it.Dest) {
+		if it.Action != ActionCopy || it.Dest == "" || it.Inline != nil || it.Kind == KindIndexMerge || !exists(it.Dest) {
 			continue
 		}
 		if h, _, err := sha256File(it.Dest); err == nil && h == it.SHA256 {
@@ -509,4 +556,168 @@ func (inv *inventory) precheck() {
 		it.Action, it.Reason = ActionSkip, "conflict: dest exists with different content"
 		inv.finding("%s: conflict: %s exists with different content", it.Source, it.Dest)
 	}
+}
+
+// docsDir is <cfg>/docs/<parts…>.
+func (inv *inventory) docsDir(parts ...string) string {
+	return filepath.Join(append([]string{inv.cfg, "docs"}, parts...)...)
+}
+
+// docsPlans plans docs/plans → <cfg>/plans; the legacy dream-backup tree goes to the harness store archive.
+func (inv *inventory) docsPlans() {
+	root := inv.docsDir("plans")
+	// dream-backup first: add() ignores a source it has already planned, so the whole-tree pass skips it
+	inv.tree(filepath.Join(root, "dream-backup"), filepath.Join(ArchiveDir(HarnessStoreDir()), "dream-backup"), KindRepoArchive, ActionCopy, "dream backup → harness archive")
+	inv.tree(root, filepath.Join(inv.cfg, "plans"), KindPlan, ActionCopy, "plan → plans/")
+}
+
+// docsReports plans docs/reports: a subdir named for a resolved repo → that repo's store, the rest → the harness store.
+func (inv *inventory) docsReports() {
+	root, harness := inv.docsDir("reports"), HarnessStoreDir()
+	ents, _ := os.ReadDir(root)
+	for _, e := range ents {
+		name, p := e.Name(), filepath.Join(root, e.Name())
+		switch {
+		case e.IsDir():
+			if dest, ok := inv.destOf(name); ok {
+				inv.tree(p, ReportsDir(dest), KindReport, ActionCopy, "report → "+filepath.Base(dest))
+			} else {
+				inv.tree(p, filepath.Join(ReportsDir(harness), name), KindReport, ActionCopy, "report → harness store")
+			}
+		case e.Type().IsRegular():
+			inv.add(MigrateItem{Kind: KindReport, Source: p, Dest: filepath.Join(ReportsDir(harness), name), Action: ActionCopy, Reason: "report → harness store"})
+		default:
+			inv.nonRegular(p)
+		}
+	}
+}
+
+// docsNative plans docs/memory/native (the legacy autoMemoryDirectory) into the harness store; MEMORY.md merges.
+func (inv *inventory) docsNative() {
+	mem, dest := inv.docsDir("memory", "native"), HarnessStoreDir()
+	ents, _ := os.ReadDir(mem)
+	for _, e := range ents {
+		name, p := e.Name(), filepath.Join(mem, e.Name())
+		switch {
+		case e.IsDir():
+			inv.quarantineTree(p, "unknown directory in the legacy native store")
+		case !e.Type().IsRegular():
+			inv.nonRegular(p)
+		case name == "MEMORY.md":
+			inv.add(MigrateItem{Kind: KindIndexMerge, Source: p, Dest: filepath.Join(dest, name), Action: ActionCopy, Reason: "pointer lines merged into the store MEMORY.md"})
+		default:
+			inv.nativeFile(mem, name, dest)
+		}
+	}
+}
+
+var agentHeading = regexp.MustCompile(`(?m)^# \S+ — agent memory \(index\)$`)
+
+// agentScaffold returns the MEMORY.md at p with its heading name blanked; "" unless it has exactly one such heading.
+func agentScaffold(p string) string {
+	data, err := os.ReadFile(p)
+	if err != nil || len(agentHeading.FindAllIndex(data, -1)) != 1 {
+		return ""
+	}
+	return string(agentHeading.ReplaceAll(data, []byte("# - agent memory (index)")))
+}
+
+// agentScaffolds plans docs/memory/agents/<name>/MEMORY.md for deletion when it equals claude's, name aside.
+func (inv *inventory) agentScaffolds() {
+	root := inv.docsDir("memory", "agents")
+	ref := agentScaffold(filepath.Join(root, "claude", "MEMORY.md"))
+	ents, _ := os.ReadDir(root)
+	for _, e := range ents {
+		p := filepath.Join(root, e.Name())
+		file := filepath.Join(p, "MEMORY.md")
+		sub, _ := os.ReadDir(p)
+		switch {
+		case !e.IsDir():
+			inv.add(MigrateItem{Kind: KindUnknownItem, Source: p, Action: ActionQuarantine, Reason: "unknown file in agent memory"})
+		case ref != "" && len(sub) == 1 && sub[0].Name() == "MEMORY.md" && agentScaffold(file) == ref:
+			inv.add(MigrateItem{Kind: KindPristine, Source: file, Action: ActionDelete, Reason: "agent memory scaffold, never filled"})
+		default:
+			inv.quarantineTree(p, "agent memory differs from the scaffold")
+		}
+	}
+}
+
+const generatedIndexMark = "<!-- GENERATED by `claude-dbx docs index`"
+
+// generatedIndexes plans docs/index.md and docs/index-*.md for deletion when claude-dbx generated them.
+func (inv *inventory) generatedIndexes() {
+	dir := inv.docsDir()
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		name, p := e.Name(), filepath.Join(dir, e.Name())
+		if !e.Type().IsRegular() || !(name == "index.md" || (strings.HasPrefix(name, "index-") && strings.HasSuffix(name, ".md"))) {
+			continue
+		}
+		if data, err := os.ReadFile(p); err == nil && strings.HasPrefix(string(data), generatedIndexMark) {
+			inv.add(MigrateItem{Kind: KindArtifact, Source: p, Action: ActionDelete, Reason: "knowledge router generated by claude-dbx; its pages are gone"})
+		}
+	}
+}
+
+// codemaps plans docs/CODEMAPS for deletion when it holds only .stamp files and directories.
+func (inv *inventory) codemaps() {
+	var stamps []string
+	clean := true
+	_ = filepath.WalkDir(inv.docsDir("CODEMAPS"), func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil || d.IsDir():
+		case d.Type().IsRegular() && d.Name() == ".stamp":
+			stamps = append(stamps, p)
+		default:
+			clean = false
+			inv.finding("left in place (CODEMAPS holds more than .stamp): %s", p)
+		}
+		return nil
+	})
+	for _, p := range stamps {
+		if clean {
+			inv.add(MigrateItem{Kind: KindArtifact, Source: p, Action: ActionDelete, Reason: "codemap stamp with no maps"})
+		}
+	}
+}
+
+// retireEmptied plans every legacy docs directory whose whole subtree is planned for removal, deepest first.
+func (inv *inventory) retireEmptied() {
+	gone := map[string]string{}
+	for _, it := range inv.m.Items {
+		if it.Source != "" && it.Action != ActionSkip {
+			gone[it.Source] = it.ID
+		}
+	}
+	for _, name := range []string{"plans", "reports", "handoffs", "memory", "CODEMAPS"} {
+		inv.emptied(inv.docsDir(name), gone)
+	}
+}
+
+// emptied plans dir's removal when everything below is planned away; it returns the dir's item ID.
+func (inv *inventory) emptied(dir string, gone map[string]string) (string, bool) {
+	if id, ok := gone[dir]; ok {
+		return id, true
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	var deps []string
+	all := true
+	for _, e := range ents {
+		p := filepath.Join(dir, e.Name())
+		id, ok := gone[p]
+		if e.IsDir() {
+			id, ok = inv.emptied(p, gone)
+		}
+		all = all && ok
+		deps = append(deps, id)
+	}
+	if !all {
+		return "", false
+	}
+	id := inv.add(MigrateItem{Kind: KindEmptyDir, Source: dir, Action: ActionDelete, Reason: "retired legacy directory", Deps: deps})
+	gone[dir] = id
+	return id, true
 }

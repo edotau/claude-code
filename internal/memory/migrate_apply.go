@@ -293,6 +293,8 @@ func (a *applier) copyPhase() error {
 			err = a.mark(it, stepConflict, a.j.Steps[it.ID].DestSHA256)
 		case act == ActionCopy && it.Kind == KindAccessLog: // append-only state: merge, never conflict on growth
 			err = a.mergeAccessLog(it)
+		case act == ActionCopy && it.Kind == KindIndexMerge:
+			err = a.mergeIndex(it)
 		case it.Inline != nil:
 			err = a.originItem(it)
 		default:
@@ -317,9 +319,12 @@ func (a *applier) badDest(it MigrateItem) bool {
 // destRel proves it.Dest lands under its root through plain directories (validateRel's walk: a symlinked ancestor
 // could carry the copy anywhere): the store (committed; rel is the store path) or, for an access log, state/access.
 func destRel(it MigrateItem) (string, bool, error) {
-	root, inStore := StoreDir(), it.Kind != KindAccessLog
-	if !inStore {
-		root = StateDir()
+	root, inStore := StoreDir(), true
+	switch it.Kind {
+	case KindAccessLog:
+		root, inStore = StateDir(), false
+	case KindPlan:
+		root, inStore = filepath.Join(paths.ConfigDir(), "plans"), false
 	}
 	rel, err := filepath.Rel(root, filepath.Clean(it.Dest))
 	if err != nil {
@@ -329,7 +334,7 @@ func destRel(it MigrateItem) (string, bool, error) {
 		return "", false, err
 	}
 	rel = filepath.ToSlash(rel)
-	if !inStore && !strings.HasPrefix(rel, "access/") {
+	if it.Kind == KindAccessLog && !strings.HasPrefix(rel, "access/") {
 		return "", false, fmt.Errorf("%s: not an allowed destination under %s", it.Dest, root)
 	}
 	return rel, inStore, nil
@@ -382,6 +387,71 @@ func (a *applier) mergeAccessLog(it MigrateItem) error {
 		return err
 	}
 	return a.mark(it, stepRetired, sha256Hex([]byte(merged)))
+}
+
+// mergeIndex appends the source MEMORY.md's missing lines to dest (outside the bank region); the source retires later.
+func (a *applier) mergeIndex(it MigrateItem) error {
+	if a.resumed(it, it.Dest) {
+		return nil
+	}
+	if h, _, err := sha256File(it.Source); err != nil || h != it.SHA256 {
+		return a.mark(it, stepChanged, "")
+	}
+	src, err := os.ReadFile(it.Source)
+	if err != nil {
+		return err
+	}
+	dst, err := os.ReadFile(it.Dest)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	merged := mergeIndexLines(string(dst), string(src))
+	if err := os.MkdirAll(filepath.Dir(it.Dest), 0o755); err != nil {
+		return err
+	}
+	if err := paths.AtomicWrite(it.Dest, []byte(merged), 0o600); err != nil {
+		return err
+	}
+	return a.recordCopy(it, stepCopied, sha256Hex([]byte(merged)))
+}
+
+const (
+	bankBegin = "<!-- bank:begin"
+	bankEnd   = "<!-- bank:end -->"
+)
+
+// mergeIndexLines appends src's non-blank lines dst lacks (src's own bank region skipped), keeping dst's region intact.
+func mergeIndexLines(dst, src string) string {
+	have := map[string]bool{}
+	for _, l := range strings.Split(dst, "\n") {
+		have[strings.TrimSpace(l)] = true
+	}
+	var add []string
+	inBank := false
+	for _, l := range strings.Split(src, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case strings.HasPrefix(t, bankBegin):
+			inBank = true
+		case inBank:
+			inBank = !strings.HasPrefix(t, bankEnd)
+		case t != "" && !have[t]:
+			have[t] = true
+			add = append(add, l)
+		}
+	}
+	if len(add) == 0 {
+		return dst
+	}
+	block := strings.Join(add, "\n") + "\n"
+	begin := strings.Index(dst, bankBegin)
+	if begin >= 0 && !strings.Contains(dst[begin:], bankEnd) { // a torn region: stay clear of it
+		return dst[:begin] + block + dst[begin:]
+	}
+	if dst != "" && !strings.HasSuffix(dst, "\n") {
+		dst += "\n"
+	}
+	return dst + block
 }
 
 // mergeAppendOnly keeps dst and appends src's lines it lacks; a pure prefix relation keeps the longer log.
@@ -744,7 +814,7 @@ func (a *applier) retireDirs(dirs []MigrateItem) error {
 
 // retireSource unlinks it.Source when it still hashes to the manifest; an already-absent source counts as done.
 func (a *applier) retireSource(it MigrateItem, state string) error {
-	h, _, err := sha256File(it.Source)
+	h, _, err := fileOrLinkHash(it)
 	switch {
 	case os.IsNotExist(err):
 	case err != nil:
@@ -763,6 +833,21 @@ func (a *applier) retireSource(it MigrateItem, state string) error {
 		a.res.Quarantined++
 	}
 	return a.mark(it, state, a.j.Steps[it.ID].DestSHA256)
+}
+
+// fileOrLinkHash is the current hash of it.Source; a symlink item hashes its target and must still dangle.
+func fileOrLinkHash(it MigrateItem) (string, int64, error) {
+	if it.Kind != KindSymlink {
+		return sha256File(it.Source)
+	}
+	target, err := os.Readlink(it.Source)
+	if err != nil {
+		return "", 0, err
+	}
+	if _, err := os.Stat(it.Source); err == nil {
+		return "", 0, nil // no longer dangling: the empty hash reads as changed
+	}
+	return sha256Hex([]byte(target)), 0, nil
 }
 
 // tally derives Skipped and Complete from the journal; idempotent across runs.

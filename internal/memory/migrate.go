@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -50,6 +51,10 @@ const (
 	KindPristine      = "pristine"
 	KindArtifact      = "artifact"
 	KindEmptyDir      = "empty-dir"
+	KindPlan          = "plan"        // docs/plans file → <cfg>/plans (outside the store, not committed)
+	KindReport        = "report"      // docs/reports file → <store>/reports
+	KindIndexMerge    = "index-merge" // legacy native MEMORY.md merged into the store's MEMORY.md
+	KindSymlink       = "symlink"     // dangling relative link; SHA256 is of its target string
 	KindUnknownItem   = "unknown"
 )
 
@@ -90,8 +95,8 @@ func WriteManifest(m Manifest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(MigrateStateDir(), "manifest-"+m.Created.UTC().Format(migrateStamp)+".json")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	stem := filepath.Join(MigrateStateDir(), "manifest-"+m.Created.UTC().Format(migrateStamp))
+	path, f, err := createUnique(stem, ".json")
 	if err != nil {
 		return "", err
 	}
@@ -100,6 +105,20 @@ func WriteManifest(m Manifest) (string, error) {
 		return "", err
 	}
 	return path, f.Close()
+}
+
+// createUnique O_EXCL-creates stem+ext, trying stem-2, stem-3 … while the name exists.
+func createUnique(stem, ext string) (string, *os.File, error) {
+	for n := 1; ; n++ {
+		path := stem + ext
+		if n > 1 {
+			path = fmt.Sprintf("%s-%d%s", stem, n, ext)
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if !os.IsExist(err) {
+			return path, f, err
+		}
+	}
 }
 
 // LoadManifest reads path and proves it was made for this schema and config dir, with every Dep listed earlier.
@@ -187,18 +206,29 @@ func hasTypedFile(dir string) bool {
 }
 
 // isPristine: every typed file byte-equals its template and nothing but lock files sits beside them.
-func isPristine(dir string) bool {
+func isPristine(dir string) bool { return pristineDir(dir, false) }
+
+// olderTemplates are exact earlier texts of a template; a legacy bank holding only these is still untouched.
+var olderTemplates = map[string][]string{
+	"conventions.md": {"# Conventions\n\n> Learned patterns/preferences. APPEND; `/reflection:consolidate` prunes. Promote durable,\n" +
+		"> cross-project lessons up to the shared `docs/` corpus via `/memory:promote`.\n"},
+}
+
+// pristineDir: typed files equal a template (or, when legacy, a known older one); legacy also tolerates access.log.
+func pristineDir(dir string, legacy bool) bool {
 	ents, _ := os.ReadDir(dir)
 	typed := 0
 	for _, e := range ents {
-		if isLockFile(e.Name()) && e.Type().IsRegular() {
+		name := e.Name()
+		if e.Type().IsRegular() && (isLockFile(name) || (legacy && name == "access.log")) {
 			continue
 		}
-		body, ok := templates[e.Name()]
+		body, ok := templates[name]
 		if !ok || !e.Type().IsRegular() {
 			return false
 		}
-		if data, err := os.ReadFile(filepath.Join(dir, e.Name())); err != nil || string(data) != body {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || (string(data) != body && !(legacy && slices.Contains(olderTemplates[name], string(data)))) {
 			return false
 		}
 		typed++
