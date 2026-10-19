@@ -39,6 +39,9 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 			pairs = append(pairs, Pair{name, value})
 		}
 	}
+	if err := sc.Err(); err != nil { // e.g. a line past the scanner's 64 KiB limit: nothing after it was read
+		problems = append(problems, fmt.Sprintf("read stopped early: %v", err))
+	}
 	return pairs, problems
 }
 
@@ -114,6 +117,10 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
+		return 0, nil, err
+	}
+	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
+		f.Close()
 		return 0, nil, err
 	}
 	if _, err := f.WriteString(b.String()); err != nil {
