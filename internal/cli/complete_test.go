@@ -81,8 +81,8 @@ func TestGeminiSubverbsCompleteDespiteBareLauncherGuard(t *testing.T) {
 // TestCompletionFlags: a partial word beginning with "-" resolves the typed path and offers its own
 // flags; a leaf with no flagsFor entry offers nothing.
 func TestCompletionFlags(t *testing.T) {
-	if got := completionCandidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run"}) {
-		t.Errorf("install -- = %v, want [--dry-run]", got)
+	if got := completionCandidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run", "--tools"}) {
+		t.Errorf("install -- = %v, want [--dry-run --tools]", got)
 	}
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
 		t.Errorf("theme -- = %v, want [--preview]", got)
