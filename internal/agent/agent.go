@@ -252,11 +252,14 @@ func FallbackChain(r Runner, mode string) []Runner {
 		if !isVendor(c.Name()) || c.Name() == r.Name() || c.Available() != nil {
 			continue
 		}
-		// codex and gemini: first party, then Copilot on the same model, then claude (user decision) — no other vendor.
-		if copilotOnly[r.Name()] && c.Name() != "copilot" {
+		// codex and gemini: first party, then Copilot (same model for codex), then opencode, then claude (user decision).
+		if firstPartyChain[r.Name()] && c.Name() != "copilot" && c.Name() != "opencode" {
 			continue
 		}
 		chain = append(chain, c)
+	}
+	if firstPartyChain[r.Name()] {
+		slices.SortStableFunc(chain, func(a, b Runner) int { return copilotFirst(a) - copilotFirst(b) })
 	}
 	if mode == FallbackAll {
 		chain = append(chain, claudeRunner{})
@@ -264,8 +267,15 @@ func FallbackChain(r Runner, mode string) []Runner {
 	return chain
 }
 
-// copilotOnly names the first-party legs whose only vendor stand-in is Copilot.
-var copilotOnly = map[string]bool{"codex": true, "gemini": true}
+// firstPartyChain names the first-party legs whose vendor stand-ins are only Copilot, then opencode.
+var firstPartyChain = map[string]bool{"codex": true, "gemini": true}
+
+func copilotFirst(r Runner) int {
+	if r.Name() == "copilot" {
+		return 0
+	}
+	return 1
+}
 
 // sameModelOnCopilot names the legs whose model ids Copilot also serves (GPT); Copilot has no Gemini models.
 var sameModelOnCopilot = map[string]bool{"codex": true}

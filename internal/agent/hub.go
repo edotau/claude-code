@@ -12,25 +12,17 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// HubAgents are the exposed agent names `ask` routes through the opencode hub by default; --native
-// (or another agent name) keeps the vendor's own CLI.
-var HubAgents = []string{"codex", "copilot", "opencode"}
+// HubAgents are the agent names `ask` routes through the opencode hub by default; --native skips it. codex and
+// copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
+var HubAgents = []string{"opencode"}
 
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set.
 func IsHubAgent(name string) bool { return slices.Contains(HubAgents, name) }
 
-// hubStart fixes each agent's first ladder step; "opencode" has none here and falls to the registry's
-// own ladder[0] in HubStart.
-var hubStart = map[string]string{"codex": "chatgpt", "copilot": "github-copilot"}
-
 // HubStart resolves the provider a hub agent's first leg targets: explicitProvider when the caller set
-// one, else the agent's fixed start, else (opencode) the registry's ladder[0]. The provider must carry
-// an OpencodeID — the hub has no route to one that doesn't.
+// one, else the registry's ladder[0]. The provider must carry an OpencodeID — the hub has no route to one that doesn't.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	name := explicitProvider
-	if name == "" {
-		name = hubStart[agentName]
-	}
 	if name == "" && len(reg.OpencodeLadder) > 0 {
 		name = reg.OpencodeLadder[0]
 	}

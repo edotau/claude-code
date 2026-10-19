@@ -11,7 +11,7 @@ description: |
   commit. Use AFTER the gates are green. Does NOT run the release gate chain (`codex` VERIFY
   mode) and does NOT consolidate memory (`opencode`, PERSIST mode). A Claude Code subagent
   (model: sonnet) that coordinates: TEST-mode edits run on the real GitHub Copilot CLI via
-  `claude-code ask --agent copilot --native --tools`; it judges, verifies and reports, and edits
+  `claude-code ask --agent copilot --tools`; it judges, verifies and reports, and edits
   itself only when that leg fails.
 
   <example>
@@ -122,7 +122,7 @@ test-wrong vs. code-wrong call, and brief; the Copilot CLI makes the edits:
 
 1. Brief per batch: the failing tests, the intended behavior change, your verdict per test, and the hard
    rules (touch only `*_test.go`; no git stash/checkout/reset/restore/commit).
-2. Dispatch: `claude-code ask --agent copilot --native --tools --workdir <repo> "<brief>"`
+2. Dispatch: `claude-code ask --agent copilot --tools --workdir <repo> "<brief>"`
    (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
    batch needs a stronger model).
 3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.

@@ -324,7 +324,11 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureHeadless: %v", err)
 	}
-	want := "github-copilot/" + target.Model
+	wantModel := target.Model
+	if wantModel == "auto" && target.Provider != nil && target.Provider.OpencodeFallback != "" {
+		wantModel = target.Provider.OpencodeFallback
+	}
+	want := "github-copilot/" + wantModel
 	if !slices.Contains(argv, want) {
 		t.Errorf("argv = %v, want it to carry -m %q", argv, want)
 	}

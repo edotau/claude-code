@@ -31,7 +31,7 @@ func cmdAsk(args []string) int {
 	}
 	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot")
 	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (vendors, then claude)|vendors|none")
-	native := fs.Bool("native", false, "run the vendor CLI directly; skip the opencode hub")
+	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("provider", "", "provider or hub start (default: pin, then registry)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
