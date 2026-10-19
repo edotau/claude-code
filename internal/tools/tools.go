@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,17 +66,19 @@ func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bo
 	if err != nil {
 		return err
 	}
+	var errs []error
 	for _, t := range sel {
 		fmt.Fprintf(w, "== %s ==\n", t.Name)
 		old, _ := paths.LookPathReal(t.Binary)
 		if err := runOne(ctx, w, t, old, dryRun); err != nil {
 			fmt.Fprintf(w, "  error: %v\n", err)
+			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
 			continue
 		}
 		npmCleanupFor(ctx, w, t.Name, old, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
-	return nil
+	return errors.Join(errs...)
 }
 
 func resolve(names []string) ([]Tool, error) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // scienceWipePrefixes are Claude Code / harness namespaces: a live session's IPC tokens and routing ride them.
@@ -34,6 +35,11 @@ func Science(env, args []string) (Plan, error) {
 	plan := Plan{Binary: bin, Set: map[string]string{}, Argv: args}
 	for _, kv := range env {
 		if k, _, _ := strings.Cut(kv, "="); scienceWiped(k) {
+			plan.Unset = append(plan.Unset, k)
+		}
+	}
+	for k := range providers.CustomEnv() {
+		if scienceWiped(k) {
 			plan.Unset = append(plan.Unset, k)
 		}
 	}

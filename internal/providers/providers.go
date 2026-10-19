@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -106,8 +107,8 @@ func (p Provider) Dialects() []string {
 
 // SlotOf reverse-maps a model id to the slot it occupies in this provider, for cross-provider failover.
 func (p Provider) SlotOf(model string) string {
-	for slot, id := range p.Models {
-		if id == model {
+	for _, slot := range models.Slots {
+		if id, ok := p.Models[slot]; ok && id == model {
 			return slot
 		}
 	}

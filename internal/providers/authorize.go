@@ -26,6 +26,10 @@ func Authorize(ctx context.Context, p *Provider, h http.Header) error {
 	h.Del("Authorization")
 	h.Del("X-Api-Key")
 	switch p.Auth.Type {
+	case AuthNone:
+		for k, v := range p.Headers {
+			h.Set(k, v)
+		}
 	case AuthAPIKey:
 		h.Set("X-Api-Key", cred)
 	case AuthBearer:
