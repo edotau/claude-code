@@ -16,9 +16,21 @@ const (
 
 // pickState is the panel's pure state, separated from I/O so key handling tests without a TTY.
 type pickState struct {
-	rows   []string // "name  detail" rows, already column-aligned
-	header string   // optional column header, drawn in place of the blank line under the title; never selectable
+	rows   []string     // "name  detail" rows, already column-aligned
+	header string       // optional column header, drawn in place of the blank line under the title; never selectable
+	heads  map[int]bool // rows that are section titles: drawn after a blank line, never selectable
 	sel    int
+}
+
+// step moves the cursor by dir past any section-title rows; it stays put when nothing selectable lies that way.
+func (s pickState) step(dir int) pickState {
+	for i := s.sel + dir; i >= 0 && i < len(s.rows); i += dir {
+		if !s.heads[i] {
+			s.sel = i
+			break
+		}
+	}
+	return s
 }
 
 // handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C/Left (no choice, same as Back), pickChoose
@@ -29,13 +41,9 @@ func handlePickKey(s pickState, k Key) (pickState, int) {
 	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyLeft, k.Kind == KeyRune && k.Rune == 'q':
 		return s, pickQuit
 	case k.Kind == KeyDown, k.Kind == KeyRune && k.Rune == 'j':
-		if s.sel < len(s.rows)-1 {
-			s.sel++
-		}
+		s = s.step(1)
 	case k.Kind == KeyUp, k.Kind == KeyRune && k.Rune == 'k':
-		if s.sel > 0 {
-			s.sel--
-		}
+		s = s.step(-1)
 	case k.Kind == KeyEnter:
 		if len(s.rows) > 0 {
 			return s, pickChoose
@@ -81,8 +89,11 @@ func panelLines(title string, s pickState, cols int) int {
 	} else {
 		lines++
 	}
-	for _, row := range s.rows {
+	for i, row := range s.rows {
 		lines += wrappedLines(2+len([]rune(row)), cols)
+		if s.heads[i] {
+			lines++ // the blank line above a section title
+		}
 	}
 	if len(s.rows) > 1 {
 		lines++ // blank line separating the trailing Submit/Back row from the rest
@@ -106,6 +117,10 @@ func render(title string, s pickState, color bool) string {
 	for i, row := range s.rows {
 		if i == len(s.rows)-1 && len(s.rows) > 1 {
 			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
+		}
+		if s.heads[i] {
+			b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Bold+ansi.Cyan, row) + "\x1b[K\r\n")
+			continue
 		}
 		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
@@ -136,14 +151,22 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 
 // pickLaid runs the picker over already-aligned rows, with an optional non-selectable header line.
 func pickLaid(title, header string, rows []string, start int) (int, error) {
+	return pickHeads(title, header, rows, nil, start)
+}
+
+// pickHeads is pickLaid with section-title rows (heads); the cursor never lands on one.
+func pickHeads(title, header string, rows []string, heads map[int]bool, start int) (int, error) {
 	t, err := Open()
 	if err != nil {
 		return -1, err
 	}
 	defer t.Close()
-	s := pickState{rows: rows, header: header}
+	s := pickState{rows: rows, header: header, heads: heads}
 	if start >= 0 && start < len(s.rows) {
 		s.sel = start
+	}
+	if s.heads[s.sel] {
+		s = s.step(1)
 	}
 	color := ansi.Enabled(os.Stdout)
 	cols, _ := t.Size() // re-queried each frame below: a mid-session resize keeps rewind's count honest
@@ -188,4 +211,52 @@ func PickBack(title string, rows [][2]string, start int) (int, error) {
 		return -1, err
 	}
 	return idx, nil
+}
+
+// Section is one titled block of rows in PickSections.
+type Section struct {
+	Title string
+	Rows  [][2]string
+}
+
+// PickSections draws every section's rows under its own title (columns aligned across all of them), then
+// trailing after a blank line. It returns the index among selectable rows in order (trailing = the last),
+// or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
+func PickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
+	var all [][2]string
+	for _, sec := range sections {
+		all = append(all, sec.Rows...)
+	}
+	laid := layoutRows(append(all, trailing))
+	var rows []string
+	heads := map[int]bool{}
+	var pos []int // display index of each selectable row
+	k := 0
+	for i, sec := range sections {
+		if i > 0 {
+			heads[len(rows)] = true
+			rows = append(rows, sec.Title)
+		}
+		for range sec.Rows {
+			pos = append(pos, len(rows))
+			rows = append(rows, laid[k])
+			k++
+		}
+	}
+	pos = append(pos, len(rows))
+	rows = append(rows, laid[k])
+	at := 0
+	if start >= 0 && start < len(pos) {
+		at = pos[start]
+	}
+	idx, err := pickHeads(title, "", rows, heads, at)
+	if err != nil || idx < 0 {
+		return -1, err
+	}
+	for n, p := range pos {
+		if p == idx {
+			return n, nil
+		}
+	}
+	return -1, nil
 }

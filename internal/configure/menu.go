@@ -12,22 +12,27 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// pickMenu is the top-level menu's picker seam; tests replace it.
-var pickMenu = tui.Pick
+// pickMenu is the home page's sectioned picker seam; tests replace it.
+var pickMenu = tui.PickSections
 
 // submitRow ends the menu: y saves the keys entered in it to the secrets manager, n discards them like Esc.
 var submitRow = [2]string{"Submit", "save keys to the secrets manager [y/N]"}
 
-// runMenu is `configure`'s interactive entry with no section named: a pick-one menu over claude and every agent
-// CLI; picking a row opens that agent's submenu, then the menu re-renders with fresh status, cursor kept, until
-// Submit (y saves keys, n leaves) or Esc. --agent narrows it to that one row.
+// runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
+// picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
+// narrows it to that agent's row. Any change made here re-renders settings.json and the vendor configs on exit.
 func runMenu(d *dialog) int {
 	d.pending = map[string]stagedKey{}
 	defer discardKeys(d)
+	defer func() {
+		if d.changed {
+			rerenderConfigs(d)
+		}
+	}()
 	start := 0
 	for {
-		rows, actions := menuRows(d)
-		idx, err := pickMenu("== agents ==", append(rows, submitRow), start)
+		sections, actions := homeSections(d)
+		idx, err := pickMenu("== agents ==", sections, submitRow, start)
 		if err != nil || idx < 0 {
 			return 0
 		}
@@ -35,11 +40,38 @@ func runMenu(d *dialog) int {
 		if idx == len(actions) {
 			if actionConfirmed("Save keys to the secrets manager") {
 				saveKeys(d)
+				d.changed = true
 			}
 			return 0
 		}
 		actions[idx](d)
 	}
+}
+
+// homeSections is the agents block, then tools and settings (both hidden under --agent).
+func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
+	rows, actions := menuRows(d)
+	sections := []tui.Section{{Title: "== agents ==", Rows: rows}}
+	if d.o.Vendor != "" {
+		return sections, actions
+	}
+	extra, acts := extraSections(d)
+	return append(sections, extra...), append(actions, acts...)
+}
+
+// extraSections is the tools and settings blocks; a seam so menu tests stay free of live probes.
+var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
+	var sections []tui.Section
+	var actions []func(*dialog)
+	for _, sec := range []struct {
+		title string
+		rows  []homeRow
+	}{{"== tools ==", toolsRows(d)}, {"== settings ==", settingsRows(d)}} {
+		r, a := rowsOf(sec.rows)
+		sections = append(sections, tui.Section{Title: sec.title, Rows: r})
+		actions = append(actions, a...)
+	}
+	return sections, actions
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Vendor when set.

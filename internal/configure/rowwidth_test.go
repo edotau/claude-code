@@ -52,3 +52,20 @@ func TestMenuRowWidthsFitEightyColumns(t *testing.T) {
 		}
 	}
 }
+
+// TestHomeExtraRowsFitEightyColumns renders the tools/settings rows with worst-case state text.
+func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
+	menuTestEnv(t)
+	rows := []homeRow{
+		{"tailscale", "not connected", "a-long-hostname-01 · no admin key", nil},
+		{"web search", "no key", "mcp: claude,codex", nil},
+		{"browsers", "default chrome", "12 installed", nil},
+	}
+	rows = append(rows, settingsRows(&dialog{})...)
+	laid, _ := rowsOf(rows)
+	for _, r := range laid {
+		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
+			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
+		}
+	}
+}
