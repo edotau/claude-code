@@ -29,7 +29,8 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory promote [--repo R]
        claude-code memory archive [--dupes] [--apply] [--restore] [--split N] [<topic>...]
        claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--format text|json]
-       claude-code memory migrate --manifest MANIFEST`
+       claude-code memory migrate --manifest MANIFEST
+       claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]`
 
 func cmdMemory(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -41,6 +42,9 @@ func cmdMemory(args []string) int {
 	}
 	if args[0] == "migrate" {
 		return cmdMemoryMigrate(args[1:])
+	}
+	if args[0] == "alias" {
+		return cmdMemoryAlias(args[1:])
 	}
 	fs := flag.NewFlagSet("memory "+args[0], flag.ContinueOnError)
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
