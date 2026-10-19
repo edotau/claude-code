@@ -15,13 +15,13 @@ import (
 // TestCompletionTopLevel: an empty partial offers every visible command (+help), never a hidden one.
 func TestCompletionTopLevel(t *testing.T) {
 	got := completionCandidates([]string{""})
-	for _, want := range []string{"memory", "switch", "doctor", "install", "help"} {
+	for _, want := range []string{"memory", "doctor", "install", "help"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("top-level candidates missing %q: %v", want, got)
 		}
 	}
 	for _, hidden := range []string{"models", "router", "ask", "agents", "review", "workflow",
-		"completion", "__complete", "hook", "statusline", "version", "run"} {
+		"completion", "__complete", "hook", "statusline", "version", "run", "switch", "resolve"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("top-level candidates must not offer hidden %q: %v", hidden, got)
 		}
