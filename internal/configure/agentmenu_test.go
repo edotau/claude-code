@@ -2,6 +2,7 @@ package configure
 
 import (
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/tui"
 	"strings"
 	"testing"
 )
@@ -13,12 +14,12 @@ func fakePickMenu(t *testing.T, answers ...int) (starts *[]int, titles *[]string
 	var ss []int
 	var ts []string
 	i := 0
-	pickMenu = func(title string, rows [][2]string, start int) (int, error) {
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
 		ss, ts = append(ss, start), append(ts, title)
 		a := answers[i]
 		i++
 		return a, nil
-	}
+	})
 	return &ss, &ts
 }
 
@@ -29,7 +30,7 @@ func TestRunMenuAppendsExitRowAfterAgentRows(t *testing.T) {
 	orig := pickMenu
 	t.Cleanup(func() { pickMenu = orig })
 	var got [][2]string
-	pickMenu = func(_ string, rows [][2]string, _ int) (int, error) { got = rows; return -1, nil }
+	pickMenu = flatPick(func(_ string, rows [][2]string, _ int) (int, error) { got = rows; return -1, nil })
 	runMenu(d)
 	if len(got) != len(actions)+1 || got[len(actions)] != submitRow {
 		t.Fatalf("rows = %v, want %d agent rows then %v", got, len(actions), submitRow)
@@ -43,10 +44,10 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 		d := &dialog{reg: reg, out: &out}
 		_, actions := menuRows(d)
 		origPick := pickMenu
-		pickMenu = func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
+		pickMenu = flatPick(func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
 			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789", false)
 			return len(actions), nil
-		}
+		})
 		orig := actionConfirmed
 		var asked []string
 		actionConfirmed = func(q string) bool { asked = append(asked, q); return yes }
@@ -162,5 +163,16 @@ func TestSubmenuRowLabels(t *testing.T) {
 				t.Errorf("%s submenu still lists a foreign backend row %q", name, l)
 			}
 		}
+	}
+}
+
+// flatPick adapts a flat-rows picker stub to the sectioned home picker: rows = every section's rows, then trailing.
+func flatPick(f func(string, [][2]string, int) (int, error)) func(string, []tui.Section, [2]string, int) (int, error) {
+	return func(title string, secs []tui.Section, trailing [2]string, start int) (int, error) {
+		var rows [][2]string
+		for _, s := range secs {
+			rows = append(rows, s.Rows...)
+		}
+		return f(title, append(rows, trailing), start)
 	}
 }

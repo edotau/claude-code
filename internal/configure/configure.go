@@ -68,6 +68,8 @@ type dialog struct {
 	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
 	// pending holds keys entered in the menu until Submit; nil outside the menu (writes go straight through).
 	pending map[string]stagedKey
+	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
+	changed bool
 }
 
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
