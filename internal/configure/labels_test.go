@@ -1,43 +1,41 @@
 package configure
 
-import "testing"
+import (
+	"testing"
 
-func TestMatchLabelPrecedence(t *testing.T) {
-	labels := map[string]string{
-		"claude":                        "bare",
-		"claude:*max*":                  "short glob",
-		"claude:*claude_max_20x":        "longer glob",
-		"claude:default_claude_max_20x": "exact",
-		"*:*claude-opus*":               "any agent opus",
-	}
-	cases := []struct{ agent, id, want string }{
-		{"claude", "default_claude_max_20x", "exact"},
-		{"claude", "team_claude_max_20x", "longer glob"},
-		{"claude", "max_5x", "short glob"},
-		{"claude", "pro", "bare"},
-		{"codex", "system.ai.claude-opus-5", "any agent opus"},
-	}
-	for _, c := range cases {
-		if got, _ := matchLabel(labels, c.agent, c.id); got != c.want {
-			t.Errorf("matchLabel(%s, %s) = %q, want %q", c.agent, c.id, got, c.want)
+	"github.com/edotau/claude-code/internal/providers"
+)
+
+func TestMatchPlanExactThenLongestGlob(t *testing.T) {
+	plans := []providers.Plan{{ID: "*max*", Tier: "short"}, {ID: "*claude_max_20x", Tier: "long"}, {ID: "pro", Tier: "exact"}}
+	cases := map[string]string{"pro": "exact", "default_claude_max_20x": "long", "max_5x": "short"}
+	for id, want := range cases {
+		if p, ok := matchPlan(plans, id); !ok || p.Tier != want {
+			t.Errorf("matchPlan(%q) = %+v %v, want tier %q", id, p, ok, want)
 		}
 	}
-	if _, ok := matchLabel(labels, "copilot", "individual_pro"); ok {
-		t.Error("an unlisted agent must fall back to the computed label")
+	if _, ok := matchPlan(plans, "free"); ok {
+		t.Error("an unmatched id must fall back to the computed label")
+	}
+	if _, ok := matchPlan([]providers.Plan{{ID: "*"}}, ""); !ok {
+		t.Error(`"*" must match an agent that reports no plan id`)
 	}
 }
 
-func TestModeLabelPlaceholdersAndCap(t *testing.T) {
+func TestModeLabelJoinsGivenFieldsAndFallsBack(t *testing.T) {
 	reg := menuTestEnv(t)
-	reg.AgentLabels = map[string]string{"codex": "{mode} ({tier}) · ChatGPT", "copilot": string(make([]rune, 60))}
+	reg.AgentPlans = map[string][]providers.Plan{
+		"antigravity": {{ID: "*", Tier: "Google AI Pro", Desc: "5h quota"}},
+		"codex":       {{ID: "*", Provider: "ChatGPT"}},
+	}
 	d := &dialog{reg: reg, out: discardWriter{}}
+	if got := modeLabel(d, "gemini", agentState{mode: modeSubscription}); got != "Google AI Pro · 5h quota" {
+		t.Errorf("antigravity label = %q", got)
+	}
 	if got := modeLabel(d, "codex", agentState{mode: modeSubscription, tier: "Plus"}); got != "subscription (Plus) · ChatGPT" {
-		t.Errorf("codex label = %q", got)
+		t.Errorf("codex label keeps the detected tier when tier is omitted: %q", got)
 	}
-	if got := []rune(modeLabel(d, "copilot", agentState{mode: modeAPIKey})); len(got) != labelMax {
-		t.Errorf("long label is %d runes, want capped at %d", len(got), labelMax)
-	}
-	if got := modeLabel(d, "claude", agentState{mode: modeNone}); got != "not set up" {
-		t.Errorf("unlisted agent label = %q, want the computed one", got)
+	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: "Pro+"}); got != "subscription (Pro+)" {
+		t.Errorf("unlisted agent = %q, want the computed label", got)
 	}
 }
