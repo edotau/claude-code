@@ -65,13 +65,7 @@ func CopilotLaunchToken() string {
 	if !ok {
 		return ""
 	}
-	how, tok := a.Source, a.token
-	if a.Source == srcPinned || a.Source == srcActive {
-		how = "gh auth token --user " + a.Account
-		if tok = GHToken(a.Account); tok == "" {
-			how = srcCopilot + " (" + how + " failed)"
-		}
-	}
+	tok, how := copilotToken(a)
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
 	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
 	return tok
@@ -198,4 +192,26 @@ func GHToken(account string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// CopilotToken is the token copilot would run with, resolved quietly (no stderr, no audit) for catalog lookups.
+func CopilotToken() string {
+	a, ok := copilotAuthSource()
+	if !ok {
+		return ""
+	}
+	tok, _ := copilotToken(a)
+	return tok
+}
+
+// copilotToken fetches a gh-sourced account's token; how names the command used (or why it fell back).
+func copilotToken(a CopilotAuth) (tok, how string) {
+	how, tok = a.Source, a.token
+	if a.Source == srcPinned || a.Source == srcActive {
+		how = "gh auth token --user " + a.Account
+		if tok = GHToken(a.Account); tok == "" {
+			how = srcCopilot + " (" + how + " failed)"
+		}
+	}
+	return tok, how
 }
