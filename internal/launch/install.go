@@ -113,6 +113,9 @@ func Install(w io.Writer, dryRun bool) error {
 	}
 	fmt.Fprintf(w, "settings %s\n  keep   %s\n  merge  %s\n  hooks  %d harness + %d foreign kept\n",
 		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
+	if len(sum.Retired) > 0 {
+		fmt.Fprintf(w, "  drop   %s (retired)\n", strings.Join(sum.Retired, ", "))
+	}
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
 		syncVendors(w, dryRun)
