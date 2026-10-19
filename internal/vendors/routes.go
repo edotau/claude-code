@@ -13,9 +13,7 @@ import (
 const (
 	LegCopilotLogin  = "copilot-login"
 	LegAnthropicKey  = "anthropic-key"
-	LegGeminiFree    = "gemini-free"
 	LegByokAnthropic = "byok-anthropic"
-	LegByokGemini    = "byok-gemini"
 	LegNone          = "none"
 )
 
@@ -56,10 +54,6 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 		return RouteInfo{Vendor: "opencode", Leg: LegAnthropicKey, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "ANTHROPIC_API_KEY resolves", OK: true}
 	}
-	if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
-		return RouteInfo{Vendor: "opencode", Leg: LegGeminiFree, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "GEMINI_API_KEY resolves (Gemini free tier)", OK: true}
-	}
 	return RouteInfo{Vendor: "opencode", Leg: LegNone, Reason: fmt.Sprintf("no route for opencode: %s", ConfigureHint("opencode"))}
 }
 
@@ -75,10 +69,6 @@ func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 	if p, ok := reg.Providers["anthropic"]; ok && providers.CredentialPresent(p) {
 		return RouteInfo{Vendor: "copilot", Leg: LegByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
-	}
-	if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
-		return RouteInfo{Vendor: "copilot", Leg: LegByokGemini, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "BYOK via GEMINI_API_KEY", OK: true}
 	}
 	return RouteInfo{Vendor: "copilot", Leg: LegNone, Reason: fmt.Sprintf("no route for copilot: %s", ConfigureHint("copilot"))}
 }

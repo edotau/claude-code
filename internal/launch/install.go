@@ -324,7 +324,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 }
 
 // altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:
-// claude runs on its OAuth login (or headless token) without ANTHROPIC_API_KEY, gemini on agy's Google login.
+// claude runs on its OAuth login (or headless token) without ANTHROPIC_API_KEY.
 func altAuth(reg *providers.Registry, name string) string {
 	switch name {
 	case "anthropic":
@@ -333,10 +333,6 @@ func altAuth(reg *providers.Registry, name string) string {
 		}
 		if ok, plan := providers.ClaudeLoginStatus(); ok {
 			return "claude uses the OAuth login" + plan + " instead"
-		}
-	case "gemini":
-		if vendors.GeminiLoginPresent() {
-			return "gemini uses the Google login (agy) instead"
 		}
 	}
 	return ""

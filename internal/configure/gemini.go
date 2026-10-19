@@ -10,9 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// geminiRow is the registry provider whose key copilot/opencode BYOK can still use (agentmenu.go byokKey).
-const geminiRow = "gemini"
-
 // agyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
 var agyCommand = func() *exec.Cmd { return exec.Command("agy") }
 

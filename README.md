@@ -238,8 +238,8 @@ claude-code router serve --port 18765      # foreground, for debugging
 claude --router                            # force the router for a direct-capable provider
 ```
 
-The built-in default is `subscription` with `fallback: ["gemini"]`, so a plain `claude` routes: a subscription
-session sends the router secret in `X-Claude-Code-Router` (via `ANTHROPIC_CUSTOM_HEADERS`, no `apiKeyHelper`) and
+The built-in default is `subscription` with no fallback ladder, so a plain `claude` runs direct. When a ladder or
+cross-provider slot puts a subscription session on the router, it sends the router secret in `X-Claude-Code-Router` (via `ANTHROPIC_CUSTOM_HEADERS`, no `apiKeyHelper`) and
 keeps its OAuth login in `Authorization`, which the router forwards to `passthrough` providers only. A
 `passthrough` slot under an API-key session provider is refused — that session carries no login to forward.
 

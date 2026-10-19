@@ -41,6 +41,7 @@ func TestAltAuthAnthropicNone(t *testing.T) {
 	}
 }
 
+// gemini has no altAuth case: GeminiLoginPresent (not altAuth) now reports the agy Google login.
 func TestAltAuthGemini(t *testing.T) {
 	home := altAuthScratch(t)
 	if got := altAuth(nil, "gemini"); got != "" {
@@ -52,8 +53,8 @@ func TestAltAuthGemini(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := altAuth(nil, "gemini"); got != "gemini uses the Google login (agy) instead" {
-		t.Errorf("altAuth(gemini) with the agy marker = %q", got)
+	if got := altAuth(nil, "gemini"); got != "" {
+		t.Errorf("altAuth(gemini) with the agy marker = %q, want \"\" (altAuth has no gemini case)", got)
 	}
 }
 

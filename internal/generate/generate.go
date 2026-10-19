@@ -463,7 +463,7 @@ func renderOpenCodeTUI(home string, o Options, out io.Writer) (bool, error) {
 
 // --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker or GEMINI_API_KEY at launch time (see vendors.GeminiLoginPresent).
+// auth is the cached Google login marker at launch time (see vendors.GeminiLoginPresent).
 
 func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	if sel.Provider.Auth.Type == providers.AuthPassthrough {

@@ -79,7 +79,7 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 // A vendor running on its own stored config (opencode.jsonc sets `model`) is configured, not ABSENT: the runner
 // launches it untouched, so `--check` must not demand a key for it.
 // opencode's own opencode.jsonc "model" setting is no longer a fallback leg (DescribeRoute's
-// copilot-login -> anthropic-key -> gemini-free -> none chain replaced it): with no credential on
+// copilot-login -> anthropic-key -> none chain replaced it): with no credential on
 // that chain, the vendor reads ABSENT and the fix command names `claude-code configure github`.
 func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
@@ -116,9 +116,9 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("PATH", t.TempDir()) // no `security`/`secret-tool` on PATH: Store must fall back to the file plane
-	kt := keyTarget{label: "gemini", envVar: "GEMINI_API_KEY", loginArgv: []string{"gemini"}, fixCmd: "x"}
+	kt := keyTarget{label: "openai", envVar: "OPENAI_API_KEY", loginArgv: []string{"openai", "login"}, fixCmd: "x"}
 	opts := authOptions(kt)
-	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "GEMINI_API_KEY" || !strings.Contains(opts[1].desc, "aistudio") {
+	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "OPENAI_API_KEY" || !strings.Contains(opts[1].desc, "platform.openai.com") {
 		t.Fatalf("authOptions = %+v, want browser login then key with its console URL", opts)
 	}
 	in := strings.NewReader("n\ny\nn\n  sk-test-value \n")
@@ -128,13 +128,13 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 		t.Fatalf("resolveKey = false\n%s", out.String())
 	}
 	got, err := os.ReadFile(filepath.Join(cfg, "env.d", "secrets.env"))
-	if err != nil || !strings.Contains(string(got), "GEMINI_API_KEY=sk-test-value") {
+	if err != nil || !strings.Contains(string(got), "OPENAI_API_KEY=sk-test-value") {
 		t.Errorf("secrets.env = %q (%v)", got, err)
 	}
 	if strings.Contains(out.String(), "logged in") {
 		t.Error("login must not have run after being declined")
 	}
-	for _, want := range []string{"Browser login — gemini? [Y/n]", "Paste API key — create at aistudio.google.com/apikey"} {
+	for _, want := range []string{"Browser login — openai login? [Y/n]", "Paste API key — create at platform.openai.com/api-keys"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("dialog lacks %q:\n%s", want, out.String())
 		}

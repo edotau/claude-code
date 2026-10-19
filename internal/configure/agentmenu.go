@@ -145,9 +145,9 @@ func keyRow(d *dialog, label, provider, desc string) billingRow {
 }
 
 // byokKey is the key copilot and opencode fall back to without their login (vendors.DescribeRoute order): the
-// anthropic key, else the gemini key; the harness hands it over as generated config, never `auth login`.
+// anthropic key; the harness hands it over as generated config, never `auth login`.
 func byokKey(reg *providers.Registry) (*providers.Provider, string) {
-	for _, name := range []string{anthropicRow, geminiRow} {
+	for _, name := range []string{anthropicRow} {
 		if p, ok := keyPresent(reg, name); ok {
 			return p, p.Auth.Env
 		}

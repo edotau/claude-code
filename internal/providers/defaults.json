@@ -1,6 +1,6 @@
 {
   "default": "subscription",
-  "fallback": ["gemini"],
+  "fallback": [],
   "opencodeLadder": ["chatgpt", "github-copilot", "nvidia"],
   "providers": {
     "anthropic": {
@@ -42,10 +42,8 @@
     "gemini": {
       "kind": "openai",
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-      "routes": {"gemini": "https://generativelanguage.googleapis.com"},
-      "auth": {"type": "bearer", "env": "GEMINI_API_KEY"},
-      "models": {"opus": "gemini-4-argon", "sonnet": "gemini-3.8-flash", "haiku": "gemini-3.5-flash-lite"},
-      "opencodeID": "google"
+      "auth": {"type": "passthrough", "login": "gemini"},
+      "models": {"opus": "gemini-4-argon", "sonnet": "gemini-3.8-flash", "haiku": "gemini-3.5-flash-lite"}
     },
     "nvidia": {
       "kind": "openai",
