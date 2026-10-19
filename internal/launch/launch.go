@@ -237,6 +237,10 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		fmt.Fprintln(os.Stderr, note)
 	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
+	if errors.Is(err, vendors.ErrOwnLogin) {
+		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
+		return plainPlan(spec, args)
+	}
 	if err != nil {
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
@@ -251,6 +255,9 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 				}
 				env, prefix, err = vendors.Configure(ctx, name, target, "")
 			}
+		}
+		if errors.Is(err, vendors.ErrOwnLogin) {
+			return plainPlan(spec, args)
 		}
 		if err != nil {
 			return passthrough(spec, name, reason, args)
