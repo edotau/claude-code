@@ -62,7 +62,7 @@ func knownPath(words []string) (path []string, node *compNode, rest []string) {
 	i := 1
 	for i < len(words) && n.sub != nil {
 		next, ok := n.sub[words[i]]
-		if !ok || strings.HasPrefix(words[i], "-") {
+		if !ok { // a sub keyed "--setup" is the only one a flag word can enter
 			break
 		}
 		n, path = next, append(path, words[i])

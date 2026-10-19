@@ -61,8 +61,6 @@ func commands() []command {
 		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
-		{name: "memory", group: groupSession, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
-		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
 		{name: "worktree", group: groupSession, summary: "~/worktrees/<repo>/<name>: list|clean|clean-all|create", run: cmdWorktree},
 		{name: "web", group: groupSession, summary: "tailnet agent page and dashboard; web search = Tavily", run: cmdWeb},
@@ -78,6 +76,7 @@ func commands() []command {
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
+		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
 		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},

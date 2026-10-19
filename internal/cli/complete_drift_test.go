@@ -48,7 +48,6 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"theme":     {"apply"},
 		"gemini":    {"ask", "bridge"},
 		"tailscale": {"status", "machines", "connect", "key", "exit-node"},
-		"setup":     {"adopt", "nuke", "workspace"},
 		"worktree":  {"list", "create", "merge", "clean", "clean-all"},
 	}
 	tree := specTree()
@@ -67,6 +66,25 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("%s subwords = %v, want %v", verb, got, want)
 		}
+	}
+	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
+	installNode := tree["install"]
+	if installNode == nil {
+		t.Fatal("install: no node in specTree()")
+	}
+	setupNode := installNode.sub["--setup"]
+	if setupNode == nil {
+		t.Fatal(`install: no "--setup" sub-node in specTree()`)
+	}
+	var gotSetup []string
+	for w := range setupNode.sub {
+		gotSetup = append(gotSetup, w)
+	}
+	wantSetup := []string{"adopt", "nuke", "workspace"}
+	slices.Sort(gotSetup)
+	slices.Sort(wantSetup)
+	if !slices.Equal(gotSetup, wantSetup) {
+		t.Errorf("install --setup subwords = %v, want %v", gotSetup, wantSetup)
 	}
 	// review derives its subwords from reviewTools itself (same source its dispatch switch reads),
 	// so there is no separate hand list to drift — assert the derivation is wired, not duplicate it.

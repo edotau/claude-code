@@ -110,16 +110,16 @@ Pointer → "Right button single click" → Paste from clipboard; Terminal.app h
 
 ### Setup modes: adopt, nuke, workspace
 
-`git clone` refuses a non-empty `~/.claude`; `claude-code setup` is the one verb for that and two
+`git clone` refuses a non-empty `~/.claude`; `claude-code install --setup` is the one entry point for that and two
 other migrations — `adopt` backs up colliding tracked paths (never `secrets.env`) then restores the
 index; `nuke --apply` (typed-path confirm) archives untracked content by name, never value, before
 removing the dir; `workspace` scopes a project's own `.claude/`, global harness untouched.
 
 ```bash
 scripts/bootstrap.sh                                           # fresh box: clone, build, adopt, install
-claude-code setup adopt --from <clone> --into ~/.claude [--dry-run]
-claude-code setup nuke [--apply] [--keep-memory] [--account] [--cli]
-claude-code setup workspace init|link|status
+claude-code install --setup adopt --from <clone> --into ~/.claude [--dry-run]
+claude-code install --setup nuke [--apply] [--keep-memory] [--account] [--cli]
+claude-code install --setup workspace init|link|status
 ```
 
 ## Providers

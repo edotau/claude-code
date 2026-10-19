@@ -28,7 +28,6 @@ func specTree() map[string]*compNode {
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},
-		"install":  {flags: []flagInfo{boolFlag("dry-run"), valuedFlag("tools", toolNames)}},
 		"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),
 			flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
@@ -84,11 +83,11 @@ func specTree() map[string]*compNode {
 				flag("tags"), flag("expiry"), flag("description")}},
 			"exit-node": {flags: []flagInfo{boolFlag("enable"), boolFlag("disable"), boolFlag("approve")}},
 		}},
-		"setup": {sub: map[string]*compNode{
+		"install": {flags: []flagInfo{boolFlag("dry-run"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
 			"adopt":     {flags: []flagInfo{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 			"nuke":      {flags: []flagInfo{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 			"workspace": {args: []func() []string{setupWorkspaceSubwords}, flags: []flagInfo{flag("with"), boolFlag("dry-run")}},
-		}},
+		}}}},
 		"dispatch": {flags: []flagInfo{valuedFlag("host", dispatchHostNames), flag("dir"), valuedFlag("agent", dispatchAgentNames),
 			flag("name"), boolFlag("dry-run"), boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
 		"web": {flags: []flagInfo{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}, sub: map[string]*compNode{

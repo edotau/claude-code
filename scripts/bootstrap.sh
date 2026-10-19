@@ -14,5 +14,5 @@ fi
 STAGE="$INTO.stage"
 git clone "$REPO" "$STAGE"
 make -C "$STAGE" compile
-"$STAGE/bin/claude-code" setup adopt --from "$STAGE" --into "$INTO" "$@"
+"$STAGE/bin/claude-code" install --setup adopt --from "$STAGE" --into "$INTO" "$@"
 make -C "$INTO" install

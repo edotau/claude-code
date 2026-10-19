@@ -27,6 +27,8 @@ func formatValues() []string { return []string{outfmt.Text, outfmt.JSON} }
 
 func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
 
+func setupModes() []string { return []string{"adopt", "nuke", "workspace"} }
+
 func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
 
 // toolNames derives from tools.Tools (internal/tools), the install --tools roster.

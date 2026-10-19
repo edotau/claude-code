@@ -175,6 +175,9 @@ func (t *toolsFlag) Set(s string) error {
 func (t *toolsFlag) IsBoolFlag() bool { return true } // allows the bare "--tools" form
 
 func cmdInstall(args []string) int {
+	if len(args) > 0 && (args[0] == "--setup" || args[0] == "-setup") {
+		return cmdSetup(args[1:])
+	}
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.Usage = func() {
 		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
@@ -183,8 +186,12 @@ func cmdInstall(args []string) int {
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
 	var tf toolsFlag
 	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
+	setup := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *setup != "" {
+		return fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
 		if err := tools.InstallSelected(context.Background(), os.Stdout, tf.names, *dry); err != nil {
