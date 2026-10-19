@@ -53,6 +53,8 @@ You have **two engines** for scanning:
 2. **Scope heuristic** otherwise:
    - `ask --agent gemini --tools` if the task names specific files / packages / a bounded subsystem
    - `gemini bridge` if the task says "entire repo", "all files", "map everything", "every package that", "1M context", or asks for repo-wide cross-references
+2b. **Model and effort**: the default (`gemini-3.8-flash-high`) fits normal scans; only for an unusually complex task add
+   `--model gemini-4-argon --effort high`.
 3. Fallback order (built into `ask`): gemini → Copilot (`auto`; Copilot serves no Gemini models) → opencode →
    Claude on the subscription; Sonnet in-process only if `ask` itself fails. Say in the report who answered.
 
