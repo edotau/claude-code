@@ -11,19 +11,25 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
 func cmdRouter(args []string) int {
-	if len(args) == 0 {
-		return fail("usage: claude-code router serve [--port N] | start | stop | status")
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		helptext.Fprint(os.Stderr, "usage: claude-code router serve [--port N] | start | stop | status\n")
+		return 1
 	}
 	ctx := context.Background()
 	switch args[0] {
 	case "serve":
 		fs := flag.NewFlagSet("router serve", flag.ContinueOnError)
-		port := fs.Int("port", router.DefaultPort, "loopback port (the default falls back to a free port when busy)")
+		fs.Usage = func() {
+			helptext.Fprint(fs.Output(), "Usage of router serve:\n")
+			helptext.Defaults(fs)
+		}
+		port := fs.Int("port", router.DefaultPort, "loopback port (falls back to a free port when busy)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}

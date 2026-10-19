@@ -8,17 +8,19 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/setup"
 )
 
 const setupUsage = `usage: claude-code setup adopt --from DIR [--into DIR] [--dry-run] [--label S]
-       claude-code setup nuke [--dir DIR] [--apply] [--keep-memory] [--account] [--cli]
+       claude-code setup nuke [--dir DIR] [--apply] [--keep-memory]
+                              [--account] [--cli]
        claude-code setup workspace init|link|status ...`
 
 func cmdSetup(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, setupUsage)
+		helptext.Fprint(os.Stderr, setupUsage+"\n")
 		return 2
 	}
 	switch args[0] {
@@ -35,8 +37,12 @@ func cmdSetup(args []string) int {
 func cmdSetupAdopt(args []string) int {
 	fs := flag.NewFlagSet("setup adopt", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of setup adopt:\n")
+		helptext.Defaults(fs)
+	}
 	from := fs.String("from", "", "the staged clone to adopt from")
-	into := fs.String("into", paths.ConfigDir(), "the existing ~/.claude to adopt into")
+	into := fs.String("into", paths.ConfigDir(), "existing ~/.claude to adopt into")
 	dryRun := fs.Bool("dry-run", false, "report clashes and stop")
 	label := fs.String("label", "adopt", "backup directory label")
 	if fs.Parse(args) != nil {
@@ -53,9 +59,13 @@ func cmdSetupAdopt(args []string) int {
 func cmdSetupNuke(args []string) int {
 	fs := flag.NewFlagSet("setup nuke", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of setup nuke:\n")
+		helptext.Defaults(fs)
+	}
 	dir := fs.String("dir", paths.ConfigDir(), "the harness directory to remove")
 	apply := fs.Bool("apply", false, "actually remove it (dry-run without this flag)")
-	keepMemory := fs.Bool("keep-memory", false, "also archive memory/ (the local memory Git store, incl. .git), plans/, any unmigrated legacy docs/memory/bank and projects/*/memory")
+	keepMemory := fs.Bool("keep-memory", false, "archive memory/, plans/, and any legacy memory dirs before removing")
 	account := fs.Bool("account", false, "report what removing the Claude Code account state would take")
 	removeCLI := fs.Bool("cli", false, "report what removing the Claude Code CLI install would take")
 	if fs.Parse(args) != nil {

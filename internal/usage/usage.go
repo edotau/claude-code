@@ -14,6 +14,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -22,10 +23,14 @@ import (
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
 	fs.SetOutput(errw)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of usage:\n")
+		helptext.Defaults(fs)
+	}
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	daysFlag := fs.Int("days", 1, "scope to sessions modified within the last N days (ignored with --session)")
+	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
 	formatFlag := outfmt.Flag(fs)
-	workflowsFlag := fs.Bool("workflows", false, "one per-phase block per Workflow run, newest first, with a MODEL split and per-run/cross-run model rollups")
+	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0

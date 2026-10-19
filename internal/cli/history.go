@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/outfmt"
 )
@@ -13,7 +14,7 @@ import (
 const historyUsage = `usage: claude-code history snapshot [--note N]
        claude-code history log [-n N] [--format text|json]
        claude-code history diff [rev]
-Config files only; memory history is the store's own git: git -C ~/.claude/memory log`
+Config files only. Memory history: git -C ~/.claude/memory log`
 
 // cmdHistory reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
 func cmdHistory(args []string) int {
@@ -24,7 +25,7 @@ func cmdHistory(args []string) int {
 	}
 	switch sub {
 	case "", "-h", "--help":
-		fmt.Println(historyUsage)
+		helptext.Fprint(os.Stdout, historyUsage+"\n")
 		return 0
 	case "snapshot":
 		return historySnapshot(args)
@@ -33,13 +34,18 @@ func cmdHistory(args []string) int {
 	case "diff":
 		return historyDiff(args)
 	}
-	fmt.Fprintf(os.Stderr, "history: unknown subcommand %q\n%s\n", sub, historyUsage)
+	fmt.Fprintf(os.Stderr, "history: unknown subcommand %q\n", sub)
+	helptext.Fprint(os.Stderr, historyUsage+"\n")
 	return 2
 }
 
 // historySnapshot records the config plane now; unchanged files report so rather than committing.
 func historySnapshot(args []string) int {
 	fs := flag.NewFlagSet("history snapshot", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	note := fs.String("note", "manual", "note recorded in the commit subject")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -75,6 +81,10 @@ func printSnapshot(plane string, r history.Result) {
 // historyLog prints the config plane's log.
 func historyLog(args []string) int {
 	fs := flag.NewFlagSet("history log", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	n := fs.Int("n", 20, "commits per plane")
 	format := outfmt.Flag(fs)
 	if err := fs.Parse(args); err != nil {
@@ -139,6 +149,10 @@ func printLog(plane string, lines []string) {
 // historyDiff shows one config-plane commit's patch.
 func historyDiff(args []string) int {
 	fs := flag.NewFlagSet("history diff", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

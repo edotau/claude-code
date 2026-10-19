@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
@@ -22,6 +23,10 @@ const githubCopilotProvider = "github-copilot"
 
 func cmdProviders(args []string) int {
 	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of profile:\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	args, err := outfmt.Parse(fs, args)
 	if err != nil {
@@ -102,6 +107,10 @@ func profileJSON(reg *providers.Registry, args []string) int {
 
 func cmdModels(args []string) int {
 	fs := flag.NewFlagSet("models", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of models:\n")
+		helptext.Defaults(fs)
+	}
 	provider := fs.String("provider", "", "provider to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the provider serves (GET /models)")
@@ -301,8 +310,9 @@ func printModelTable(infos []providers.ModelInfo) {
 
 func cmdUse(args []string) int {
 	dryRun, args := extractBool(args, "dry-run")
-	if len(args) != 1 {
-		return fail("usage: claude-code switch <provider> [--dry-run]")
+	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
+		helptext.Fprint(os.Stderr, "usage: claude-code switch <provider> [--dry-run]\n")
+		return 1
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -324,6 +334,10 @@ func cmdUse(args []string) int {
 // cmdToken is the apiKeyHelper: --router prints the loopback router's client secret instead.
 func cmdToken(args []string) int {
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of token:\n")
+		helptext.Defaults(fs)
+	}
 	provider := fs.String("provider", "", "provider name")
 	viaRouter := fs.Bool("router", false, "print the loopback router client secret")
 	if err := fs.Parse(args); err != nil {

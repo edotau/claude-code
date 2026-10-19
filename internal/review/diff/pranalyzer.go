@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/helptext"
 )
 
 type fileCategory struct {
@@ -415,6 +417,10 @@ func printPRReport(w io.Writer, r PRReport) {
 func RunPR(args []string, stdout, stderr io.Writer) int {
 	positional, flagArgs := splitPositional(args, map[string]bool{"json": true})
 	fs := flag.NewFlagSet("pr", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(stderr)
 	base := fs.String("base", "main", "Base branch for comparison (default: main)")
 	fs.StringVar(base, "b", "main", "Base branch for comparison (default: main)")

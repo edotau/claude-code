@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/web"
@@ -18,8 +19,9 @@ import (
 
 const webUsage = `usage: claude-code web [--addr ip:port] [--hosts h1,h2] [--days N]
        claude-code web browsers [--format text|json]
-       claude-code web setup [--browser chrome|edge|brave|arc|vivaldi|chromium|default] [--dry-run] [--format text|json]
-       claude-code web view <agentId|prefix> [--session id] [--days N] [--n 40] [--follow] [--format text|json]`
+       claude-code web setup [--browser name] [--dry-run] [--format text|json]
+       claude-code web view <agentId|prefix> [--session id] [--days N]
+                            [--n 40] [--follow] [--format text|json]`
 
 // cmdWeb is the one agent-web verb: serve the dashboard, or the browser-control subcommands it also hosts.
 func cmdWeb(args []string) int {
@@ -32,7 +34,7 @@ func cmdWeb(args []string) int {
 		case "view":
 			return cmdWebView(args[1:])
 		case "-h", "--help":
-			fmt.Fprintln(os.Stderr, webUsage)
+			helptext.Fprint(os.Stderr, webUsage+"\n")
 			return 2
 		}
 	}
@@ -43,6 +45,10 @@ func cmdWeb(args []string) int {
 func cmdWebBrowsers(args []string) int {
 	fs := flag.NewFlagSet("web browsers", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of web browsers:\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	if _, err := outfmt.Parse(fs, args); err != nil {
 		return 2
@@ -62,7 +68,11 @@ func cmdWebBrowsers(args []string) int {
 func cmdWebSetup(args []string) int {
 	fs := flag.NewFlagSet("web setup", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (the system default)")
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of web setup:\n")
+		helptext.Defaults(fs)
+	}
+	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default")
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them")
 	format := outfmt.Flag(fs)
 	if _, err := outfmt.Parse(fs, args); err != nil {
@@ -98,6 +108,10 @@ func cmdWebSetup(args []string) int {
 func cmdWebView(args []string) int {
 	fs := flag.NewFlagSet("web view", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of web view:\n")
+		helptext.Defaults(fs)
+	}
 	session := fs.String("session", "", "session id to search (default: every session in --days)")
 	days := fs.Int("days", 1, "session scope in days")
 	n := fs.Int("n", 40, "trailing events in the snapshot")
@@ -108,7 +122,8 @@ func cmdWebView(args []string) int {
 		return 2
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code web view <agentId|prefix> [--session id] [--days N] [--n 40] [--follow] [--format text|json]")
+		helptext.Fprint(os.Stderr, "usage: claude-code web view <agentId|prefix> [--session id] [--days N]\n"+
+			"                            [--n 40] [--follow] [--format text|json]\n")
 		return 2
 	}
 	opts := agenttree.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
@@ -137,6 +152,10 @@ func cmdWebView(args []string) int {
 func cmdWebServe(args []string) int {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of web:\n")
+		helptext.Defaults(fs)
+	}
 	addr := fs.String("addr", "", "bind address (default: this node's tailnet IPv4 on port 7777)")
 	hosts := fs.String("hosts", "", "comma-separated dispatch hosts (default: tailnet machines)")
 	days := fs.Int("days", 1, "agent-tree scope in days")

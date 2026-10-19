@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/helptext"
 )
 
 // lintOpusOK marks a deliberate reasoning-tier agent() call (on the line the call closes on).
@@ -29,7 +31,7 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	root := "."
 	if len(args) > 0 && args[0] != "" {
 		if args[0] == "-h" || args[0] == "--help" {
-			fmt.Fprintln(stdout, "usage: claude-code workflow lint [<root>]   (lints <root>/workflows/*.js)")
+			helptext.Fprint(stdout, "usage: claude-code workflow lint [<root>]   (lints <root>/workflows/*.js)\n")
 			return 0
 		}
 		root = args[0]

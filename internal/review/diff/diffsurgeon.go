@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/helptext"
 )
 
 var (
@@ -250,6 +252,10 @@ func printDiffReport(w io.Writer, result diffSurgeonResult) {
 // --file is a real usage error (exit 2 / 1 respectively).
 func RunDiff(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	fs.SetOutput(stderr)
 	diffRange := fs.String("diff", "", "Git diff range (e.g. HEAD~1..HEAD). Default: staged.")
 	file := fs.String("file", "", "Read diff from a file instead of git")

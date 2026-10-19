@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/tailscale"
 )
@@ -19,8 +20,9 @@ import (
 const tailscaleUsage = "usage: claude-code tailscale status|machines|connect|key|exit-node"
 
 func cmdTailscale(args []string) int {
-	if len(args) == 0 {
-		return fail(tailscaleUsage)
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		helptext.Fprint(os.Stderr, tailscaleUsage+"\n")
+		return 1
 	}
 	ctx := context.Background()
 	switch args[0] {
@@ -41,6 +43,10 @@ func cmdTailscale(args []string) int {
 func tailscaleStatus(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("tailscale status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of tailscale status:\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	if fs.Parse(args) != nil {
 		return 2
@@ -69,6 +75,10 @@ func tailscaleStatus(ctx context.Context, args []string) int {
 func tailscaleMachines(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("tailscale machines", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of tailscale machines:\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	if fs.Parse(args) != nil {
 		return 2
@@ -98,6 +108,10 @@ func tailscaleMachines(ctx context.Context, args []string) int {
 func tailscaleConnect(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("tailscale connect", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of tailscale connect:\n")
+		helptext.Defaults(fs)
+	}
 	authKey := fs.String("auth-key", "", "an auth key to connect with (tskey-auth-…)")
 	keyEnv := fs.String("key-env", "", "read the auth key from this env var instead")
 	exitNode := fs.Bool("exit-node", false, "also advertise this box as an exit node")
@@ -128,6 +142,10 @@ func tailscaleConnect(ctx context.Context, args []string) int {
 func tailscaleKey(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("tailscale key", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of tailscale key:\n")
+		helptext.Defaults(fs)
+	}
 	ephemeral := fs.Bool("ephemeral", false, "the key's device is removed on logout/offline")
 	preauth := fs.Bool("preauthorized", false, "new devices skip admin approval")
 	reusable := fs.Bool("reusable", false, "the key can register more than one device")
@@ -181,6 +199,10 @@ func parseKeyExpiry(s string) (time.Duration, error) {
 func tailscaleExitNode(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("tailscale exit-node", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of tailscale exit-node:\n")
+		helptext.Defaults(fs)
+	}
 	enable := fs.Bool("enable", false, "advertise this box as an exit node")
 	disable := fs.Bool("disable", false, "stop advertising this box as an exit node")
 	approve := fs.Bool("approve", false, "approve this box's exit-node routes via the admin API")

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory"
@@ -16,25 +17,26 @@ import (
 )
 
 const memoryUsage = `usage: claude-code memory init [--repo R]
-       claude-code memory search [--repo R|--all] [--k 8] [--format text|json] <terms>
+       claude-code memory search [--repo R|--all] [-k 8] [--format fmt] <terms>
        claude-code memory show <id>
        claude-code memory digest [--repo R]
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
-       claude-code memory watch --session S --transcript T --cwd C [--owner PID] [--idle 10m]
+       claude-code memory watch --session S --transcript T --cwd C
+                                [--owner PID] [--idle 10m]
        claude-code memory doctor [--stale-days 90] [--notice]
        claude-code memory stats
        claude-code memory timeline [--repo R] [-n 20]
        claude-code memory promote [--repo R]
-       claude-code memory archive [--dupes] [--apply] [--restore] [--split N] [<topic>...]
-       claude-code memory migrate [--dry-run] [--origin SLUG=PATH]... [--format text|json]
+       claude-code memory archive [--dupes|--split N] [--restore] [--apply] [t]
+       claude-code memory migrate [--dry-run] [--origin S=P]... [--format fmt]
        claude-code memory migrate --manifest MANIFEST
        claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]`
 
 func cmdMemory(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, memoryUsage)
+		helptext.Fprint(os.Stderr, memoryUsage+"\n")
 		return 2
 	}
 	if args[0] == "archive" {
@@ -47,6 +49,10 @@ func cmdMemory(args []string) int {
 		return cmdMemoryAlias(args[1:])
 	}
 	fs := flag.NewFlagSet("memory "+args[0], flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 	switch args[0] {
 	case "index", "promote", "update": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it

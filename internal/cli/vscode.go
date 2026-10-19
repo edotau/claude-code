@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
 )
@@ -16,21 +17,22 @@ import (
 func cmdVSCode(args []string) int {
 	fs := flag.NewFlagSet("vscode", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: claude-code vscode [--check] [--dry-run] [--dest <settings.json>] [--template <file>]")
-		fmt.Fprintln(os.Stderr, "                           [--keybindings-dest <file>] [--keybindings-template <file>]")
-		fmt.Fprintln(os.Stderr, "                           [--extensions-dir <dir>]")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Merges the embedded first-party settings template into VS Code's MACHINE settings —")
-		fmt.Fprintln(os.Stderr, "that scope is not Settings-Synced, so each box renders its own copy from this template.")
-		fmt.Fprintln(os.Stderr, "Also merges the embedded keybindings template into the local client's keybindings.json")
-		fmt.Fprintln(os.Stderr, "(keybindings are UI-side, so a headless box with only ~/.vscode-server skips them).")
-		fmt.Fprintln(os.Stderr, "Also symlinks the Claude Code Agents extension into the detected extensions dir.")
-		fmt.Fprintln(os.Stderr, "")
-		fs.PrintDefaults()
+		helptext.Fprint(os.Stderr, `usage: claude-code vscode [--check] [--dry-run] [--dest <settings.json>]
+                          [--template <file>] [--keybindings-dest <file>]
+                          [--keybindings-template <file>]
+                          [--extensions-dir <dir>]
+
+Merge embedded templates into VS Code's Machine settings and local keybindings.
+Machine settings are per-box and excluded from Settings Sync.
+Skip keybindings on headless boxes with only ~/.vscode-server.
+Link the Claude Code Agents extension into the detected extensions directory.
+
+`)
+		helptext.Defaults(fs)
 	}
 	template := fs.String("template", "", "settings template to merge (default: the one embedded in the binary)")
 	dest := fs.String("dest", "", "VS Code Machine settings.json (default: platform-detected)")
-	extensionsDir := fs.String("extensions-dir", "", "VS Code extensions dir to link the Agents extension into (default: platform-detected)")
+	extensionsDir := fs.String("extensions-dir", "", "link the Agents extension here (default: platform-detected)")
 	keybindingsTemplate := fs.String("keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
 	keybindingsDest := fs.String("keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")

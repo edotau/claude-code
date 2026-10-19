@@ -7,24 +7,29 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/setup"
 )
 
-const setupWorkspaceUsage = `usage: claude-code setup workspace init [<root>] [--with agents,commands,skills,settings,memory] [--dry-run]
+const setupWorkspaceUsage = `usage: claude-code setup workspace init [<root>] [--with LIST] [--dry-run]
        claude-code setup workspace link <agents|commands|skills> <name> [<root>]
        claude-code setup workspace status [<root>]
-<root> defaults to the current directory and must be a git toplevel outside ~/.claude.`
+<root> defaults to cwd and must be a git toplevel outside ~/.claude.`
 
 // cmdSetupWorkspace is the `setup workspace` leg: a project .claude/ scaffold, link and status.
 func cmdSetupWorkspace(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, setupWorkspaceUsage)
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
 		return 2
 	}
 	fs := flag.NewFlagSet("setup workspace "+args[0], flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	with := fs.String("with", "", "comma-separated subset of agents,commands,skills,settings,memory (default all)")
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
+	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
 	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
 	pos, err := outfmt.Parse(fs, args[1:])
 	if err != nil {
@@ -35,21 +40,21 @@ func cmdSetupWorkspace(args []string) int {
 		return setupWorkspaceInit(pos, *with, *dryRun)
 	case "link":
 		if len(pos) < 2 || len(pos) > 3 {
-			fmt.Fprintln(os.Stderr, setupWorkspaceUsage)
+			helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
 			return 2
 		}
 		return setupWorkspaceErr(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout))
 	case "status":
 		return setupWorkspaceErr(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout))
 	}
-	fmt.Fprintln(os.Stderr, setupWorkspaceUsage)
+	helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
 	return 2
 }
 
 // setupWorkspaceInit runs init on the optional positional root.
 func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if len(pos) > 1 {
-		fmt.Fprintln(os.Stderr, setupWorkspaceUsage)
+		helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
 		return 2
 	}
 	var parts []string

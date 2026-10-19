@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/history"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/generate"
+	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/outfmt"
@@ -41,8 +42,8 @@ func tierVerb(tier string) func([]string) int {
 
 func cmdRun(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p]\n"+
-			"       claude-code run [--model [provider:]model] [--print-env] [args...]")
+		helptext.Fprint(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p]\n"+
+			"       claude-code run [--model [provider:]model] [--print-env] [args...]\n")
 		return 2
 	}
 	return launchVendor(args[0], args[1:])
@@ -81,9 +82,11 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 }
 
 func cmdHook(args []string) int {
-	if len(args) == 0 {
-		return fail("usage: claude-code hook <safety|stop-format|context-checkpoint|session-start|\n" +
-			"        memory-recall|session-harvest|session-harvest-end> < payload.json")
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		helptext.Fprint(os.Stderr, "usage: claude-code hook <name> < payload.json\n"+
+			"  names: safety|stop-format|context-checkpoint|session-start|\n"+
+			"         memory-recall|session-harvest|session-harvest-end\n")
+		return 1
 	}
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
@@ -92,9 +95,13 @@ func cmdStatusline(args []string) int { return statusline.Run(args, os.Stdin, os
 
 func cmdSettings(args []string) int {
 	fs := flag.NewFlagSet("settings", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	out := fs.String("out", "", "write the render here (atomically, after a timestamped backup)")
-	agents := fs.String("agents", "", "comma-separated vendors to render (default codex,opencode,gemini,copilot)")
-	dryRun := fs.Bool("dry-run", false, "print every rendered block (settings.json and vendor configs); write nothing")
+	agents := fs.String("agents", "", "vendors to render (default: codex,opencode,gemini,copilot)")
+	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
 	check := fs.Bool("check", false, "exit 1 if any rendered file has drifted; write nothing")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -169,9 +176,13 @@ func (t *toolsFlag) IsBoolFlag() bool { return true } // allows the bare "--tool
 
 func cmdInstall(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
 	var tf toolsFlag
-	fs.Var(&tf, "tools", "install/update vendor CLIs into ~/.local/bin (bare = every tool; --tools=name,...); skips the settings/shim install")
+	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -189,6 +200,10 @@ func cmdInstall(args []string) int {
 
 func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	auditMode := fs.Bool("audit", false, "print the typed action log instead of health checks")
 	days := fs.Int("days", 7, "with --audit: events from the last N days")
@@ -223,7 +238,7 @@ func cmdDoctor(args []string) int {
 // failovers. Shared by `doctor --audit`.
 func printAudit(days int, format string) int {
 	if days <= 0 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code doctor --audit [--days 7] [--format text|json]")
+		helptext.Fprint(os.Stderr, "usage: claude-code doctor --audit [--days 7] [--format text|json]\n")
 		return 2
 	}
 	ev, err := audit.Read(time.Now().AddDate(0, 0, -days))

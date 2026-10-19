@@ -12,26 +12,30 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
 const worktreeUsage = `usage: claude-code worktree list [--format text|json]
        claude-code worktree create <name> [--branch <b>]
-       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean] [--verify "<cmd>"|--no-verify] [--resolve-agent claude|codex] <name>
-       claude-code worktree merge --resume [--target <ref>] [--no-clean] [--verify "<cmd>"|--no-verify] <name>
+       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean]
+                                 [--verify "<cmd>"|--no-verify]
+                                 [--resolve-agent claude|codex] <name>
+       claude-code worktree merge --resume [--target <ref>] [--no-clean]
+                                 [--verify "<cmd>"|--no-verify] <name>
        claude-code worktree clean [--dry-run] <name>
        claude-code worktree clean-all [--dry-run|--yes]
 
-worktree merge runs a verification gate inside the worktree after integration and before promotion:
---verify sets it explicitly, otherwise it is auto-detected from the worktree (Makefile test target,
-go.mod, pyproject, package.json, Cargo.toml). Neither explicit nor detected refuses to promote —
---no-verify is the only way to skip it.
+Verify inside the worktree after integration, before promotion.
+Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
+package.json, or Cargo.toml. Without a gate, promotion is refused.
+Only --no-verify skips the gate.
 `
 
 func cmdWorktree(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(os.Stderr, worktreeUsage)
+		helptext.Fprint(os.Stderr, worktreeUsage)
 		return 2
 	}
 	cwd, err := os.Getwd()
@@ -55,7 +59,7 @@ func cmdWorktree(args []string) int {
 	case "clean-all":
 		return cmdWorktreeCleanAll(repo, rest)
 	default:
-		fmt.Fprint(os.Stderr, worktreeUsage)
+		helptext.Fprint(os.Stderr, worktreeUsage)
 		return 2
 	}
 }
@@ -63,6 +67,10 @@ func cmdWorktree(args []string) int {
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree list", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of worktree list:\n")
+		helptext.Defaults(fs)
+	}
 	format := outfmt.Flag(fs)
 	if fs.Parse(args) != nil {
 		return 2
@@ -131,6 +139,10 @@ func eligibleForClean(e worktree.Entry) bool {
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree create", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of worktree create:\n")
+		helptext.Defaults(fs)
+	}
 	branch := fs.String("branch", "", "branch to use (default worktree-<name>; reused if it already exists)")
 	if fs.Parse(args) != nil {
 		return 2
@@ -158,13 +170,17 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree merge", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	dryRun := fs.Bool("dry-run", false, "preview the plan, including predicted conflicts, without integrating or promoting")
-	target := fs.String("target", "", "require the main checkout to be on this branch (default: whatever it's on)")
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of worktree merge:\n")
+		helptext.Defaults(fs)
+	}
+	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
+	target := fs.String("target", "", "require this main branch (default: current branch)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
-	verify := fs.String("verify", "", "run this command inside the worktree after integration instead of auto-detecting one; a nonzero exit stops before promotion and preserves the worktree")
+	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
 	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
-	resolveAgent := fs.String("resolve-agent", "", "resolve a predicted conflict with this agent instead of stopping: claude|codex")
-	resume := fs.Bool("resume", false, "resume a previously started --resolve-agent operation for <name> (never re-invokes the agent)")
+	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with claude|codex")
+	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -489,6 +505,10 @@ func oidSuffix(oid string) string {
 func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree clean", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of worktree clean:\n")
+		helptext.Defaults(fs)
+	}
 	dryRun := fs.Bool("dry-run", false, "preview the recheck without removing anything")
 	if fs.Parse(args) != nil {
 		return 2
@@ -511,6 +531,10 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 	fs := flag.NewFlagSet("worktree clean-all", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of worktree clean-all:\n")
+		helptext.Defaults(fs)
+	}
 	dryRun := fs.Bool("dry-run", false, "preview without removing anything")
 	yes := fs.Bool("yes", false, "required to actually remove every eligible worktree")
 	if fs.Parse(args) != nil {
