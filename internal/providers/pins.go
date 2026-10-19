@@ -18,6 +18,8 @@ import (
 const (
 	PinProvider = "HARNESS_PROVIDER"
 	PinModel    = "HARNESS_MODEL" // fills every slot
+	// PinGitHubUser names the gh account copilot runs as (`gh auth token --user`); unset = gh's active one.
+	PinGitHubUser = "COPILOT_GITHUB_USER"
 )
 
 // SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.

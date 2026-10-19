@@ -556,7 +556,7 @@ const copilotMaxOutputTokens = 32_000
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
 func copilotLogin(model string, h *Headless) ([]string, []string, error) {
 	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
-	if tok := managedCopilotToken(); tok != "" { // the secrets manager's account beats any inherited token
+	if tok := CopilotLaunchToken(); tok != "" { // the harness's chosen account beats any inherited token
 		env = append(env, CopilotTokenEnv+"="+tok)
 	}
 	if h == nil {

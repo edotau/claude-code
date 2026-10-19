@@ -147,7 +147,7 @@ func TestSubmenuRowLabels(t *testing.T) {
 		"codex":    "Subscription,API key,Login",
 		"gemini":   "Subscription,Login",
 		"opencode": "Subscription,API key,Login",
-		"copilot":  "Subscription,API key,Login,GitHub account",
+		"copilot":  "Subscription,API key,Login,GitHub user",
 	}
 	for name, want := range cases {
 		var labels []string

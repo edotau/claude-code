@@ -1,6 +1,7 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
 // (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
-// per-model (MODEL column) split and a per-run plus cross-run model rollup.
+// per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas follow
+// the table (providers.go).
 package usage
 
 import (
@@ -31,6 +32,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
 	formatFlag := outfmt.Flag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
+	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -64,27 +66,37 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "usage:", err)
 		return 1
 	}
-	if len(files) == 0 {
-		fmt.Fprintln(errw, "usage: no matching subagent transcripts found")
-		return 0
-	}
-
 	agg := transcript.NewUsageAggregate()
 	for _, f := range files {
 		if addErr := agg.AddFile(f); addErr != nil {
 			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, addErr)
 		}
 	}
+	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
+	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
+
+	var quotas []quota
+	if *providersFlag {
+		quotas = fetchQuotas()
+	}
 
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(agg); err != nil {
+		if err := enc.Encode(struct {
+			*transcript.UsageAggregate
+			Providers []quota `json:"providers,omitempty"`
+		}{agg, quotas}); err != nil {
 			return 1
 		}
 		return 0
 	}
-	printUsageTable(out, agg, len(files))
+	if len(files) == 0 {
+		fmt.Fprintln(errw, "usage: no matching subagent transcripts found")
+	} else {
+		printUsageTable(out, agg, len(files))
+	}
+	printQuotas(out, quotas)
 	return 0
 }
 

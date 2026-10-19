@@ -45,24 +45,13 @@ func claudeRateTier() string {
 // codexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.
 func codexTier() string { return title(vendors.CodexPlan()) }
 
-// copilotPlans maps GitHub's copilot_plan values to the plan names GitHub sells.
-var copilotPlans = map[string]string{
-	"free": "Free", "individual": "Pro", "individual_pro": "Pro+", "business": "Business", "enterprise": "Enterprise",
-}
-
 // copilotTierCmd is the plan lookup seam; tests replace it.
 var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "gh", "api", "/copilot_internal/user").Output()
 }
 
 // copilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
-func copilotTier() string {
-	raw := copilotRawPlan()
-	if name, ok := copilotPlans[raw]; ok {
-		return name
-	}
-	return raw
-}
+func copilotTier() string { return vendors.CopilotPlanName(copilotRawPlan()) }
 
 // copilotPlanCache holds the one gh lookup per run; the plan does not change while configure is open.
 var copilotPlanCache = map[string]string{}
