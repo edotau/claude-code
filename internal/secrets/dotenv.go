@@ -2,8 +2,11 @@ package secrets
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -80,10 +83,56 @@ func ListStored(reg *providers.Registry, only []string) []Stored {
 	return out
 }
 
+// AppendDotenv appends pairs to path as NAME=value lines, creating it (with a header) when absent and skipping names
+// it already defines; the file ends 0600 either way. added counts lines written, skipped names the kept ones.
+func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err error) {
+	have := map[string]bool{}
+	existing, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		for _, line := range strings.Split(string(existing), "\n") {
+			if name, _, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(line, "#") {
+				have[strings.TrimSpace(strings.TrimPrefix(name, "export "))] = true
+			}
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return 0, nil, err
+	}
+	var b strings.Builder
+	if len(existing) == 0 {
+		b.WriteString(dotenvHeader)
+	} else if !strings.HasSuffix(string(existing), "\n") {
+		b.WriteString("\n")
+	}
+	for _, p := range pairs {
+		if have[p.Name] {
+			skipped = append(skipped, p.Name)
+			continue
+		}
+		b.WriteString(p.Name + "=" + p.Value + "\n")
+		added++
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return 0, nil, err
+	}
+	if _, err := f.WriteString(b.String()); err != nil {
+		f.Close()
+		return 0, nil, err
+	}
+	if err := f.Close(); err != nil {
+		return 0, nil, err
+	}
+	return added, skipped, os.Chmod(path, 0o600)
+}
+
+// dotenvHeader opens a .env that export creates.
+const dotenvHeader = "# claude-code secrets export — plaintext credentials; keep this file private and out of git.\n"
+
 // FormatDotenv renders pairs as NAME=value lines under a header comment.
 func FormatDotenv(pairs []Pair) string {
 	var b strings.Builder
-	b.WriteString("# claude-code secrets export — plaintext credentials; keep it private and delete it after use.\n")
+	b.WriteString(dotenvHeader)
 	for _, p := range pairs {
 		b.WriteString(p.Name + "=" + p.Value + "\n")
 	}

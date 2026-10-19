@@ -24,7 +24,7 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
   get <NAME> [--export]   print a secret (keyring -> secrets.env -> env)
   delete <NAME>           remove a secret from the keyring and secrets.env
   import <file> [--file]  store every NAME=value line of a .env (# lines skipped)
-  export <file> [NAME...] write stored secrets to a new .env (0600)
+  export [NAME...] [--out f] append stored secrets to ./.env or f (0600)
   list [NAME...]          stored secrets: name, keyring|file, masked value
   status                  credential source per provider (never the value)
   scan [paths...]         find plaintext secrets in config files
@@ -82,6 +82,26 @@ func extractBool(args []string, name string) (bool, []string) {
 		rest = append(rest, a)
 	}
 	return found, rest
+}
+
+// extractValue pulls a `--name V` (or `--name=V`) string flag out of args wherever it appears.
+func extractValue(args []string, name string) (string, []string, error) {
+	flag, val := "--"+name, ""
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == flag:
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("%s needs a value", flag)
+			}
+			val, i = args[i+1], i+1
+		case strings.HasPrefix(a, flag+"="):
+			val = strings.TrimPrefix(a, flag+"=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return val, rest, nil
 }
 
 // extractInt pulls a `--name N` (or `--name=N`) int flag out of args wherever it appears.
@@ -295,29 +315,30 @@ func cmdSecretsImport(args []string) int {
 	return 0
 }
 
-// cmdSecretsExport writes stored secrets (all, or the NAMEs given) to a NEW .env file, mode 0600.
+// cmdSecretsExport appends stored secrets (all, or the NAMEs given) to --out (default ./.env): keys the file
+// already defines are skipped, and the file is left 0600 whether it was created or appended to.
 func cmdSecretsExport(args []string) int {
-	if len(args) < 1 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export <file.env> [NAME...]   (refuses an existing file)")
+	out, rest, err := extractValue(args, "out")
+	if err != nil || slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file]   (default ./.env; appends, 0600)")
 		return 2
 	}
+	if out == "" {
+		out = ".env"
+	}
 	reg, _ := providers.Load()
-	pairs := secrets.ExportPairs(reg, args[1:])
+	pairs := secrets.ExportPairs(reg, rest)
 	if len(pairs) == 0 {
 		return fail("secrets export: no stored secrets to export")
 	}
-	f, err := os.OpenFile(args[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	added, skipped, err := secrets.AppendDotenv(out, pairs)
 	if err != nil {
 		return fail("secrets export: %v", err)
 	}
-	if _, err := f.WriteString(secrets.FormatDotenv(pairs)); err != nil {
-		f.Close()
-		return fail("secrets export: %v", err)
+	if len(skipped) > 0 {
+		fmt.Fprintf(os.Stderr, "kept %s (already in %s)\n", strings.Join(skipped, ", "), out)
 	}
-	if err := f.Close(); err != nil {
-		return fail("secrets export: %v", err)
-	}
-	fmt.Fprintf(os.Stderr, "wrote %d secret(s) to %s (0600, plaintext — delete it after use)\n", len(pairs), args[0])
+	fmt.Fprintf(os.Stderr, "wrote %d secret(s) to %s (0600, plaintext — keep it out of git)\n", added, out)
 	return 0
 }
 
