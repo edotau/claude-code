@@ -13,6 +13,7 @@ const (
 	KeyEsc
 	KeyUp
 	KeyDown
+	KeyLeft
 	KeyCtrlC
 )
 
@@ -66,6 +67,8 @@ func decodeEscape(buf []byte) (Key, int) {
 		return Key{Kind: KeyUp}, 3
 	case 'B':
 		return Key{Kind: KeyDown}, 3
+	case 'D':
+		return Key{Kind: KeyLeft}, 3
 	}
 	return dropped, 3
 }

@@ -52,14 +52,16 @@ func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 	}
 }
 
-// gemini present via agy's cached Google login (~/.gemini/jetski-standalone-oauth-token) offers `agy` as the rotate CLI.
+// gemini present via agy's cached Google login (~/.gemini/antigravity-cli/antigravity-oauth-token) offers
+// `agy` as the rotate CLI.
 func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+	marker := vendors.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(vendors.AgyLoginMarker(home), []byte("tok"), 0o600); err != nil {
+	if err := os.WriteFile(marker, []byte("tok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}

@@ -65,7 +65,7 @@ func claudeMenu(d *dialog) agentMenu {
 			}
 			return keepOrPin(d, cur, subscriptionName)
 		}},
-		{"API key", "pay per token · paste to set or rotate · no Remote Control " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
+		{"API key", "pay per token · paste to set or rotate · no RC " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
 				provider: fp.reg.Providers[anthropicRow]}
 			if !ensureKey(d, kt, keyOK) {
@@ -77,7 +77,7 @@ func claudeMenu(d *dialog) agentMenu {
 		{"Login", "claude auth login · browser sign-in, refreshes the session", "", func() bool {
 			return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
 		}},
-		{"OAuth token", "claude setup-token · mints a new token, rotates " + providers.OAuthTokenEnv, "", func() bool {
+		{"OAuth token", "setup-token · mints a token, rotates " + providers.OAuthTokenEnv, "", func() bool {
 			kt := keyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
 			return regenerate(d, kt, []string{"claude", "setup-token"}, true)
 		}},

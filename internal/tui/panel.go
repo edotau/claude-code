@@ -21,10 +21,12 @@ type pickState struct {
 	sel    int
 }
 
-// handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C (no choice), pickChoose on Enter.
+// handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C/Left (no choice, same as Back), pickChoose
+// on Enter. Left is the same "go back" signal as Back/Esc at this level: a submenu's caller is the top
+// menu, so pickQuit there already is "back to the first page".
 func handlePickKey(s pickState, k Key) (pickState, int) {
 	switch {
-	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyRune && k.Rune == 'q':
+	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyLeft, k.Kind == KeyRune && k.Rune == 'q':
 		return s, pickQuit
 	case k.Kind == KeyDown, k.Kind == KeyRune && k.Rune == 'j':
 		if s.sel < len(s.rows)-1 {
@@ -57,8 +59,38 @@ func layoutRows(rows [][2]string) []string {
 	return out
 }
 
-// panelLines is how many terminal lines render emits: title, blank, rows, blank, hint.
-func panelLines(s pickState) int { return len(s.rows) + 4 }
+// hintText is the key-hint line render draws last; panelLines counts it by the same literal.
+const hintText = "↑/↓ to navigate · enter to select"
+
+// wrappedLines is how many terminal rows a plain (unstyled) line of length n occupies at cols columns -
+// 1 below cols, ceil(n/cols) at or above it. cols<=0 (size query failed) never wraps.
+func wrappedLines(n, cols int) int {
+	if cols <= 0 || n <= cols {
+		return 1
+	}
+	return (n + cols - 1) / cols
+}
+
+// panelLines is how many terminal lines render emits at cols columns: title, blank/header, one per row
+// (each 2 cols wider for its marker/space prefix), blank, hint - each counted by its wrapped height, not
+// 1, so a row too long for a narrow terminal doesn't make rewind undercount and leave stale frames behind.
+func panelLines(title string, s pickState, cols int) int {
+	lines := wrappedLines(len([]rune(title)), cols)
+	if s.header != "" {
+		lines += wrappedLines(2+len([]rune(s.header)), cols)
+	} else {
+		lines++
+	}
+	for _, row := range s.rows {
+		lines += wrappedLines(2+len([]rune(row)), cols)
+	}
+	if len(s.rows) > 1 {
+		lines++ // blank line separating the trailing Submit/Back row from the rest
+	}
+	lines++ // blank line before the hint
+	lines += wrappedLines(len([]rune(hintText)), cols)
+	return lines
+}
 
 // render draws the panel at the cursor: title, one row per option (▸ plus reverse video on the highlighted
 // row), status tokens painted on the others, then the key hint. Each line clears to its end so a redraw
@@ -72,6 +104,9 @@ func render(title string, s pickState, color bool) string {
 	}
 	b.WriteString("\x1b[K\r\n")
 	for i, row := range s.rows {
+		if i == len(s.rows)-1 && len(s.rows) > 1 {
+			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
+		}
 		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
 			prefix = ansi.Style(color, ansi.Cyan, "▸") + " "
@@ -79,16 +114,18 @@ func render(title string, s pickState, color bool) string {
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
-	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, "↑/↓ to navigate · enter to select") + "\x1b[K")
+	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, hintText) + "\x1b[K")
 	return b.String()
 }
 
 // rewind moves the cursor back to the panel's first line so the next render overdraws the last frame.
-func rewind(s pickState) string { return fmt.Sprintf("\r\x1b[%dA", panelLines(s)-1) }
+func rewind(title string, s pickState, cols int) string {
+	return fmt.Sprintf("\r\x1b[%dA", panelLines(title, s, cols)-1)
+}
 
 // erase removes the panel once a choice is made, so the dialogue continues with one result line instead
 // of leaving the whole menu in the scrollback.
-func erase(s pickState) string { return rewind(s) + "\x1b[J" }
+func erase(title string, s pickState, cols int) string { return rewind(title, s, cols) + "\x1b[J" }
 
 // Pick runs an arrow-key single-choice panel titled title over rows (name, detail pairs), opening on
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
@@ -109,8 +146,9 @@ func pickLaid(title, header string, rows []string, start int) (int, error) {
 		s.sel = start
 	}
 	color := ansi.Enabled(os.Stdout)
+	cols, _ := t.Size() // re-queried each frame below: a mid-session resize keeps rewind's count honest
 	fmt.Fprint(os.Stdout, render(title, s, color))
-	defer func() { fmt.Fprint(os.Stdout, erase(s)) }()
+	defer func() { cols, _ = t.Size(); fmt.Fprint(os.Stdout, erase(title, s, cols)) }()
 	for k := range t.Keys() {
 		var act int
 		s, act = handlePickKey(s, k)
@@ -120,7 +158,8 @@ func pickLaid(title, header string, rows []string, start int) (int, error) {
 		case pickChoose:
 			return s.sel, nil
 		}
-		fmt.Fprint(os.Stdout, rewind(s)+render(title, s, color))
+		fmt.Fprint(os.Stdout, rewind(title, s, cols)+render(title, s, color))
+		cols, _ = t.Size()
 	}
 	return -1, nil
 }
