@@ -256,7 +256,7 @@ func Run(ctx context.Context) int {
 // MCP handshake). Returns a non-zero exit code on error.
 func OneShot(ctx context.Context, query string, maxResults int, search Searcher, out io.Writer) int {
 	if strings.TrimSpace(query) == "" {
-		fmt.Fprintln(os.Stderr, "web-search: --query is required")
+		fmt.Fprintln(os.Stderr, "web search: --query is required")
 		return 2
 	}
 	if maxResults <= 0 {

@@ -65,8 +65,7 @@ func commands() []command {
 		{name: "setup", group: groupSession, summary: "adopt|nuke|workspace: migrate, wipe, or scope .claude/", run: cmdSetup},
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},
 		{name: "worktree", group: groupSession, summary: "~/worktrees/<repo>/<name>: list|clean|clean-all|create", run: cmdWorktree},
-		{name: "web", group: groupSession, summary: "phone-friendly tailnet page: watch agents, dispatch new ones", run: cmdWeb},
-		{name: "web-search", group: groupSession, summary: "Tavily web search: stdio MCP server, or --query one-shot", run: cmdWebSearch},
+		{name: "web", group: groupSession, summary: "tailnet agent page and dashboard; web search = Tavily", run: cmdWeb},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only harness health checks (--audit: typed action log)", run: cmdDoctor},
 		{name: "generate", group: groupDiagnostics, aliases: []string{"settings"}, summary: "renders settings.json from the template (--out writes)", run: cmdSettings},
