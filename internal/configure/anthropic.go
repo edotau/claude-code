@@ -39,7 +39,9 @@ func (f *firstParty) login() (loggedIn bool, plan string) {
 
 func (f *firstParty) key() bool {
 	if !f.keyDone {
-		f.keyOK = providers.CredentialPresent(f.reg.Providers[anthropicRow])
+		if p := f.reg.Providers[anthropicRow]; p != nil {
+			f.keyOK = providers.CredentialPresent(p)
+		}
 		f.keyDone = true
 	}
 	return f.keyOK
@@ -58,9 +60,13 @@ func claudeMenu(d *dialog) agentMenu {
 	}
 	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
 		{"Subscription", "OAuth · plan limits · Remote Control " + bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
-			if !loggedIn && confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
+			if !loggedIn {
+				if !confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
+					return false
+				}
 				if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
 					d.printf("anthropic: %v\n", err)
+					return false
 				}
 			}
 			return keepOrPin(d, cur, subscriptionName)
