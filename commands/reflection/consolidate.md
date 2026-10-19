@@ -45,10 +45,10 @@ Review the conversation so far. Produce a structured summary:
 
 ### Step 2: Update Native Project Memory
 
-Update the current project's native memory at `~/.claude/projects/<slug>/memory/` — a symlink
-into `~/.claude/memory/<repo>/`, the same dir the typed bank files live in:
+Update the current project's native memory in its store dir (`claude-code memory path`, under
+`~/.claude/memory/<repo>/`), the same dir the typed bank files live in:
 
-1. Resolve the project's memory dir: `~/.claude/projects/<slug>/memory/MEMORY.md`
+1. Resolve the project's memory dir: `$(claude-code memory path)/MEMORY.md`
 2. Read its `MEMORY.md` index (+ any linked topic files)
 3. Summarize new learnings into a **topic file** (`<topic>.md` beside `MEMORY.md`), then add or refine its one-line TOC entry in `MEMORY.md`:
    - Patterns that recur in this project
@@ -87,10 +87,9 @@ If this session revealed a mistake, wrong pattern, or missing constraint:
 
 Launch the **opencode** agent (PERSIST mode) for consolidation. Pass it all memory file contents as context.
 
-### Phase 1: Backup
+### Phase 1: Baseline
 
-Before any edits, create timestamped backups under `backups/dream/<yyyy-mm-dd-HHMM>/` of
-every file about to be modified (memory bank files, touched native memory).
+No file backup: `~/.claude/memory/` is a local git repo, so `git -C ~/.claude/memory diff` / `log` is the undo path.
 
 ### Phase 2: Audit All Memory Layers
 
@@ -107,7 +106,7 @@ Run `claude-code memory timeline` for the recent harvest/dream/session trail:
 
 ### Phase 4: Consolidate Native Project Memory
 
-For each `~/.claude/projects/*/memory/MEMORY.md` (index) + its topic files:
+For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
 
 1. **Remove duplicates**: Entries/topic files that say the same thing in different words
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
@@ -128,7 +127,7 @@ Run `claude-code memory doctor` for cap/staleness findings, then:
 
 ### Phase 6: Cross-Pollinate (via subagent)
 
-Hand the dream consolidator (opencode) every touched `~/.claude/projects/*/memory/MEMORY.md` (+
+Hand the dream consolidator (opencode) every touched `~/.claude/memory/<repo>/MEMORY.md` (+
 topic files). Ask it to:
 
 1. Detect rules that recur across **3+ project memories** and are hard prohibitions.
@@ -146,8 +145,6 @@ Output a structured summary:
 ```
 Reflection & Consolidation Report
 ══════════════════════════════════
-
-Backup: backups/dream/2026-04-13-1430/
 
 Session Summary: [written / skipped (dream-only)]
 

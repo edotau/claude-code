@@ -28,7 +28,7 @@ Only `settings.local.json` is safe to hand-edit — it holds per-workstation pre
    `internal/hookspec/hookspec.go` first — see `hooks.md`).
 2. Preview without a rebuild: `claude-code generate` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
-   previous one under `backups/`).
+   previous one as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
 
 ## Why

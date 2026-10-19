@@ -31,7 +31,7 @@ consider it later — that is the only path. `promote` also never edits `rules/w
 ## Step 1: Find the entry in native project memory
 
 ```bash
-grep -rni "<keywords>" ~/.claude/projects/*/memory/   # symlinks into ~/.claude/memory/<repo>/
+grep -rni "<keywords>" ~/.claude/memory/*/   # one store dir per repo
 ```
 
 Show the matching topic file(s) + `MEMORY.md` index line and confirm with the user this is
@@ -72,8 +72,7 @@ frontmatter** unless the file is meant to be on-demand.
 
 After the target write lands:
 
-1. Delete the topic file (`rm ~/.claude/memory/<repo>/<topic>.md`, reachable also via the
-   `~/.claude/projects/<slug>/memory` symlink) — or, if the fact
+1. Archive the topic file (`claude-code memory archive <topic> --apply`; `--restore` undoes it; memory git keeps history) — or, if the fact
    shared a file with still-relevant content, edit out only the promoted portion.
 2. Remove its index line from that project's `MEMORY.md`.
 3. Confirm the index no longer references a deleted file (no dangling links).
