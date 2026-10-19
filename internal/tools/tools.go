@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/browser"
 	"io"
 	"os"
 	"os/exec"
@@ -38,6 +39,7 @@ var Tools = []Tool{
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
 	{Name: "agy", Binary: "agy", Update: updateAgy, Hint: "no known install URL; claude-code configure signs it in"},
 	{Name: "tailscale", Binary: "tailscale", Hint: "system install: make tailscale-cli"},
+	{Name: "browser", Install: installBrowser, Hint: "claude-code web setup; CDP + chrome-devtools-mcp on WSL"},
 }
 
 // Names lists every tool in roster order.
@@ -190,4 +192,23 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 	if err != nil {
 		fmt.Fprintf(w, "    npm uninstall failed (best-effort): %v %s\n", err, strings.TrimSpace(string(out)))
 	}
+}
+
+// installBrowser runs `web setup` on the default browser: on WSL it starts the Windows browser with CDP and
+// registers chrome-devtools-mcp; elsewhere it opens the Claude in Chrome install page.
+func installBrowser(_ context.Context, w io.Writer, dryRun bool) error {
+	env := browser.NewEnv()
+	env.DryRun = dryRun
+	acts, err := browser.Setup(env, "default")
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, a := range acts.Items {
+		fmt.Fprintf(w, "  %-17s %s\n", a.Kind, a.Description)
+		if a.Error != "" {
+			errs = append(errs, fmt.Errorf("%s: %s", a.Kind, a.Error))
+		}
+	}
+	return errors.Join(errs...)
 }

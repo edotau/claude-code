@@ -22,9 +22,11 @@ type Status struct {
 
 // StatusAll reports every tool in roster order.
 func StatusAll() []Status {
-	out := make([]Status, len(Tools))
-	for i, t := range Tools {
-		out[i] = statusOne(t)
+	var out []Status
+	for _, t := range Tools {
+		if t.Binary != "" { // a setup-only row (browser) has no binary to report; doctor has its own browser row
+			out = append(out, statusOne(t))
+		}
 	}
 	return out
 }

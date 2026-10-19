@@ -44,6 +44,9 @@ func Setup(env Env, name string) (Actions, error) {
 		return Actions{}, fmt.Errorf("browser: %s is not installed", s.displayName)
 	}
 
+	if b.Host == stateUnsupportedWSL {
+		return setupWSL(env, b), nil
+	}
 	actions := Actions{Browser: b.Name}
 	switch b.Paths.Extension {
 	case stateNoHost:
