@@ -813,7 +813,10 @@ func TestTomlString(t *testing.T) {
 
 // copilot's own token precedence: COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, then an authenticated gh.
 func TestCopilotLoginPresentHonoursEveryTokenVar(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // no gh on PATH
+	t.Setenv("PATH", t.TempDir())              // no gh on PATH
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no real secrets.env: managedCopilotToken reads nothing
+	t.Setenv("COPILOT_HOME", t.TempDir())      // no real copilot config.json: CopilotStoredLogin reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}
