@@ -87,11 +87,10 @@ claude-code gemini bridge --files "<glob>,<glob>" -- "<TASK>"
 claude-code gemini bridge --dirs <d> --index -- "<TASK>"
 ```
 
-Rides the subscription (Free/Pro/Ultra) via the Antigravity CLI `agy` when a Google login is
-cached, else runs in-process against Google's API (`gemini` provider) using `GEMINI_API_KEY` — no
-node/python at runtime either way. Default model is the provider's sonnet tier (`gemini-3.8-flash`);
-override only when the caller explicitly asks (resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` →
-`GEMINI_MODEL` → default).
+Rides the subscription (Free/Pro/Ultra) via the Antigravity CLI `agy` and its cached Google sign-in
+(run `agy` once to sign in); `--provider` picks an API-key provider instead. Default model is
+`gemini-3.8-flash-high`; override only when the caller explicitly asks (resolution: `--model` →
+`CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → default).
 
 Guidance: say what to focus on, what to skip, what shape the output should take. Narrow `--dirs` /
 `--files`, lower `--max-files`, or add `--index` when context overflows. If it can't auth, report the

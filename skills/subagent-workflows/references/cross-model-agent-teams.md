@@ -41,8 +41,7 @@ Demonstrated calls per named role:
 provider come from the registry: `claude-code providers`, `claude-code models`. Interactive sessions on
 another vendor CLI: `claude-code run codex|gemini|opencode|copilot`.
 
-The Gemini bridge needs either a cached Google login (so `agy` carries the subscription) or
-`GEMINI_API_KEY` set (in `env.d/secrets.env`) as the fallback.
+The Gemini bridge needs a cached Google sign-in (run `agy` once) so `agy` carries the subscription.
 
 ## Team rules
 

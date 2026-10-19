@@ -153,9 +153,6 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 		if p, ok := reg.Providers["gemini"]; ok && GeminiLoginPresent() {
 			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (Google login via agy)", true
 		}
-		if p, ok := reg.Providers["gemini"]; ok && providers.CredentialPresent(p) {
-			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (GEMINI_API_KEY)", true
-		}
 	case "opencode":
 		// opencode's own chain (DescribeRoute): its own GitHub Copilot login, then an anthropic or gemini key.
 		if ri := DescribeRoute(reg, "opencode"); ri.OK {
@@ -197,7 +194,7 @@ func ConfigureHint(name string) string {
 	case "copilot", "opencode":
 		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
 	case "gemini":
-		return "sign in with `agy`, or `claude-code configure` → gemini → API key"
+		return "sign in with `agy` (Google login)"
 	default:
 		return "run `claude-code configure agents`"
 	}
@@ -244,8 +241,8 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
 	cred, err := providers.Credential(ctx, p)
-	if name == "gemini" && GeminiLoginPresent() {
-		cred, err = "", nil // agy's cached Google login wins over any key
+	if name == "gemini" {
+		cred, err = "", nil // agy runs on its own Google sign-in, never a key
 	}
 	if errors.Is(err, providers.ErrPassthrough) {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
@@ -432,19 +429,18 @@ func isGateway(base string) bool {
 }
 
 // gemini: agy speaks only Google's own backend — a gateway base (anything but googleHost) is a hard error.
-// A cached agy login (AgyLoginMarker) always wins over GEMINI_API_KEY, so the key rides only without one.
+// It runs only on agy's cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
 func gemini(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
 	if isGateway(base) {
 		return nil, nil, errors.New("agy has no custom base URL; gemini runs on Google's backend only")
 	}
-	var env []string
 	if !GeminiLoginPresent() {
-		env = append(env, "GEMINI_API_KEY="+cred)
+		return nil, nil, errors.New("gemini: agy is not signed in; " + ConfigureHint("gemini"))
 	}
 	if h != nil {
-		return env, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
+		return nil, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
 	}
-	return env, []string{"--model", model}, nil
+	return nil, []string{"--model", model}, nil
 }
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
@@ -724,7 +720,7 @@ func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
 // CopilotLoginPresent reports a usable GitHub login for copilot: GH_TOKEN or an authenticated `gh`.
 func CopilotLoginPresent() bool { return copilotLoginPresent() }
 
-// GeminiLoginPresent reports whether agy's cached Google login is on disk; it beats GEMINI_API_KEY (even a bogus key).
+// GeminiLoginPresent reports whether agy's cached Google login is on disk; agy itself owns and refreshes the token.
 func GeminiLoginPresent() bool {
 	home, _ := os.UserHomeDir()
 	for _, p := range agyLoginMarkers(home) {

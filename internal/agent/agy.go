@@ -14,8 +14,7 @@ import (
 )
 
 // AgyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
-// Env carries the resolved credential vars (vendors.ConfigureHeadless/OwnLoginHeadless); not part of
-// the shared migration spec, but RunAgy needs it to inject GEMINI_API_KEY without a custom exec path.
+// Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
 type AgyRequest struct {
 	Prompt, Model, Effort, Cwd string
 	Tools                      bool

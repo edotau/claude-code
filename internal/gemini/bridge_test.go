@@ -467,28 +467,23 @@ func loginHome(t *testing.T, present bool) string {
 	return home
 }
 
-// TestBridgeRunNoLoginUsesAPI: Provider=="" (no explicit --provider) with no cached agy login still
-// resolves to the api runner against the default "gemini" provider slot.
-func TestBridgeRunNoLoginUsesAPI(t *testing.T) {
+// TestBridgeRunNoLoginErrors: Provider=="" (no explicit --provider) with no cached agy login and no
+// PrintCommand now refuses outright — the bridge's default path never falls back to an API key.
+func TestBridgeRunNoLoginErrors(t *testing.T) {
 	t.Setenv("HOME", loginHome(t, false))
+	t.Setenv("PATH", t.TempDir()) // no agy on PATH either
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupGeminiProviderOverride(t, srv)
 
 	dir := t.TempDir()
-	res, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, io.Discard)
-	if err != nil {
-		t.Fatal(err)
+	_, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "agy is not signed in") {
+		t.Fatalf("err = %v, want an agy-not-signed-in error", err)
 	}
-	if len(hits) != 1 {
-		t.Fatalf("hits = %d, want 1 (api path)", len(hits))
-	}
-	if got := decodeBody(t, hits[0]).Model; got != "g-flash" {
-		t.Errorf("model = %q, want g-flash", got)
-	}
-	if res.Provider != "gemini" {
-		t.Errorf("provider = %q, want gemini", res.Provider)
+	if len(hits) != 0 {
+		t.Errorf("hits = %d, want 0 (no API fallback)", len(hits))
 	}
 }
 

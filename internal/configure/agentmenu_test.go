@@ -145,7 +145,7 @@ func TestSubmenuRowLabels(t *testing.T) {
 	cases := map[string]string{
 		"claude":   "Subscription,API key,Login,OAuth token",
 		"codex":    "Subscription,API key,Login",
-		"gemini":   "Subscription,API key,Login,Mint key",
+		"gemini":   "Subscription,Login",
 		"opencode": "Subscription,API key,Login",
 		"copilot":  "Subscription,API key,Login,OAuth token",
 	}

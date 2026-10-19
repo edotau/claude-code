@@ -60,8 +60,7 @@ claude-code gemini bridge [--model <MODEL>] [--dirs <DIRS>] [--files <FILES>] [-
 ```
 
 Guidance:
-- Routing rides the subscription via `agy` when a Google login is present, else the in-process
-  Google API path (`GEMINI_API_KEY` via the `google.golang.org/genai` SDK) — no node/python either way.
+- Routing rides the subscription via `agy` and its Google sign-in; `--provider` picks an API-key provider.
 - Use `--dirs` for broad package or module areas.
 - Use `--files` for precise globs or structured data slices.
 - `--index` appends a path index to the inlined bodies; pair with `--max-files 0` for an index-only run with no bodies.
@@ -128,7 +127,7 @@ backend) via the `Agent` tool instead of chaining `/gemini` calls.
 
 | Error | Solution |
 |-------|----------|
-| No credential | Set `GEMINI_API_KEY` in `env.d/secrets.env` |
+| agy is not signed in | Run `agy` once and sign in with Google |
 | HTTP 404 model | The model id isn't served. Run `claude-code models --live --provider gemini` and pick a listed id. |
 | HTTP 400 input token limit | Narrow the inlined scope with `--dirs`/`--files`, lower `--max-files`, or add `--index` instead of full file bodies |
 | HTTP 429 | The runner retries honouring `Retry-After` — no action needed unless it persists |
@@ -145,11 +144,8 @@ Keep the bridge context lean — reference files/lines, don't paste large snippe
 ## Notes
 
 - Native command: `claude-code gemini bridge` — in-process Go, no node/python.
-- **Routing**: rides the subscription (Free/Pro/Ultra) via `agy` when a cached Google login is
-  present, else one call to the `gemini` provider (registry entry, `kind: openai`) via the
-  `google.golang.org/genai` SDK, authenticated with `GEMINI_API_KEY` from `env.d/secrets.env`.
-  `agy` has no gateway/base-URL override, so a gateway-routed `gemini` provider only serves the
-  API-key fallback leg.
+- **Routing**: rides the subscription (Free/Pro/Ultra) via `agy` and its cached Google sign-in; there
+  is no API-key fallback. `--provider <name>` sends the sweep to that API-key provider instead.
 - Model tiers: `opus` = `gemini-4-argon` (reasoning; use for second-opinion review),
   `sonnet` = `gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`.
 - Model resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet
