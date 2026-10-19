@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -122,11 +124,14 @@ func installOpencode(ctx context.Context, w io.Writer, dryRun bool) error {
 
 // ghRelease is the subset of a GitHub releases/latest response this package reads.
 type ghRelease struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
-		Name string `json:"name"`
-		URL  string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName string    `json:"tag_name"`
+	Assets  []ghAsset `json:"assets"`
+}
+
+// ghAsset is one downloadable file of a release.
+type ghAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
 }
 
 // codexAssetName is the exact codex release asset for goos/goarch (musl on Linux: no glibc version
@@ -179,8 +184,11 @@ func extractTarGzSingleFile(data []byte) ([]byte, error) {
 	return io.ReadAll(tr)
 }
 
-// installCodex resolves the latest codex release, downloads its linux/darwin binary asset, and
-// extracts the single file it contains into ~/.local/bin.
+// codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
+var codexCompanions = []string{"codex-code-mode-host"}
+
+// installCodex resolves the latest codex release, downloads its linux/darwin binary asset plus each companion
+// binary, and extracts the single file each contains into ~/.local/bin.
 func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
 	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)
 	data, err := httpGet(ctx, codexReleaseURL)
@@ -197,18 +205,36 @@ func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
 	}
 	fmt.Fprintf(w, "  release  %s %s\n", rel.TagName, assetName)
 	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would download and extract codex)")
+		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
 		return nil
 	}
-	tgz, err := httpGet(ctx, dlURL)
+	if err := installReleaseBinary(ctx, w, "codex", dlURL); err != nil {
+		return err
+	}
+	for _, name := range codexCompanions {
+		asset := strings.Replace(assetName, "codex", name, 1)
+		i := slices.IndexFunc(rel.Assets, func(a ghAsset) bool { return a.Name == asset })
+		if i < 0 {
+			return fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
+		}
+		if err := installReleaseBinary(ctx, w, name, rel.Assets[i].URL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installReleaseBinary downloads one single-file .tar.gz release asset and installs it as name.
+func installReleaseBinary(ctx context.Context, w io.Writer, name, url string) error {
+	tgz, err := httpGet(ctx, url)
 	if err != nil {
 		return err
 	}
 	bin, err := extractTarGzSingleFile(tgz)
 	if err != nil {
-		return fmt.Errorf("codex: %w", err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
-	return installBinary(w, "codex", bin)
+	return installBinary(w, name, bin)
 }
 
 // claudeScienceAssetName mirrors claude.ai/install.sh's own os/arch naming (x64/arm64), verified by
