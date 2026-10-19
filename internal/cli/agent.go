@@ -80,7 +80,7 @@ func cmdAsk(args []string) int {
 		return fail("ask: %v", err)
 	}
 	chain := agent.FallbackChain(r, *fallback)
-	if !*native && agent.IsHubAgent(*name) {
+	if !*native && agent.IsHubAgent(*name) && !agent.AgyServes(*name, *provider) {
 		reg, err := providers.Load()
 		if err != nil {
 			return fail("ask: %v", err)

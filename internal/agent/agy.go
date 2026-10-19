@@ -25,6 +25,9 @@ type AgyRequest struct {
 // agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
 var agyEffort = map[string]string{"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
 
+// AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless legs.
+const AgyDefaultModel = "gemini-3.8-flash-high"
+
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
 const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"
 

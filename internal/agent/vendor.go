@@ -107,8 +107,13 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
+		model := t.Model
+		if req.Model == "" {
+			model = AgyDefaultModel
+		}
+		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
-			Prompt: req.Prompt, Model: t.Model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Env: env,
+			Prompt: req.Prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Env: env,
 		}, stream)
 		res.Answer, res.Usage = out.Answer, out.Usage
 		if out.SessionID != "" {

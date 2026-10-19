@@ -19,6 +19,12 @@ var HubAgents = []string{"codex", "copilot", "gemini", "opencode"}
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set.
 func IsHubAgent(name string) bool { return slices.Contains(HubAgents, name) }
 
+// AgyServes reports whether a gemini ask with no explicit provider goes straight to agy: its cached Google
+// sign-in, never an API key, serves it.
+func AgyServes(name, explicitProvider string) bool {
+	return name == "gemini" && explicitProvider == "" && vendors.GeminiLoginPresent()
+}
+
 // hubStart fixes each agent's first ladder step; "opencode" has none here and falls to the registry's
 // own ladder[0] in HubStart.
 var hubStart = map[string]string{"codex": "chatgpt", "copilot": "github-copilot", "gemini": "gemini"}
