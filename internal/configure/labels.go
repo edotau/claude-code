@@ -1,4 +1,4 @@
-// labels.go — an agent's mode column from the user's agentPlans (providers.json), else the computed one.
+// labels.go — an agent's mode column from agentPlans + agentPlanFormat (env.d/providers.json), else today's text.
 package configure
 
 import (
@@ -13,30 +13,37 @@ import (
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
 const labelMax = 48
 
-// modeLabel builds the mode column from the agentPlans entry matching the plan the sign-in reports: the entry's
-// tier (else today's mode text), then its desc and provider when set. No entry keeps today's label.
+// defaultPlanFormat renders lowercase ("anthropic subscription max 20x"); a user's agentPlanFormat renders as written.
+const defaultPlanFormat = "{provider} {mode} {tier}"
+
+// agentVendor is the provider a plan names when its entry gives none.
+var agentVendor = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
+
+// modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry (tier and provider
+// default to the detected plan and the agent's vendor). No entry and no format keeps today's label.
 func modeLabel(d *dialog, name string, st agentState) string {
-	if d.reg == nil || len(d.reg.AgentPlans) == 0 {
+	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
 	}
 	plans, ok := d.reg.AgentPlans[name]
 	if !ok {
 		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
 	}
-	plan, ok := matchPlan(plans, rawPlanID(d, name, st))
-	if !ok {
+	id := rawPlanID(d, name, st)
+	plan, matched := matchPlan(plans, id)
+	if !matched && d.reg.AgentPlanFormat == "" {
 		return st.label()
 	}
-	parts := []string{withTier(st.mode, st.tier)}
-	if plan.Tier != "" && st.mode == modeSubscription {
-		parts[0] = plan.Tier // the plan name already says it is a subscription
+	format, lower := d.reg.AgentPlanFormat, false
+	if format == "" {
+		format, lower = defaultPlanFormat, true
 	}
-	for _, f := range []string{plan.Desc, plan.Provider} {
-		if f != "" {
-			parts = append(parts, f)
-		}
+	out := strings.NewReplacer("{provider}", cmpOr(plan.Provider, agentVendor[name]), "{mode}", st.mode,
+		"{tier}", cmpOr(plan.Tier, st.tier), "{id}", id).Replace(format)
+	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
+	if lower {
+		out = strings.ToLower(out)
 	}
-	out := strings.Join(parts, " · ")
 	if r := []rune(out); len(r) > labelMax {
 		out = string(r[:labelMax-1]) + "…"
 	}
