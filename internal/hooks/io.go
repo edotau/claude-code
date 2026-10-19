@@ -126,6 +126,7 @@ var Registry = map[string]Handler{
 	"context-checkpoint":  func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
 	"session-start":       func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":       func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
+	"wsl-path-normalize":  func(in io.Reader, out, _ io.Writer) int { return WSLPathNormalize(in, out) },
 	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
 	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"agent-effort":        func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },

@@ -93,9 +93,9 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 	store := memory.Dir(root)
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
-		"  plan             -> %s/<date>-<title>.md\n"+
-		"  report/review    -> %s/%s\n"+
-		"  handoff          -> %s/<date>-<topic>.md\n"+
+		"  plan             -> %s/YYYY-MM-DD-<slug>.md\n"+
+		"  report/review    -> %s/YYYY-MM-DD-%s\n"+
+		"  handoff          -> %s/YYYY-MM-DD-<topic>.md\n"+
 		"  promoted, public-safe knowledge -> %s (tracked)\n"+
 		"Re-issue the write at one of those paths. A genuine repo doc the user asked for: create it with\n"+
 		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
