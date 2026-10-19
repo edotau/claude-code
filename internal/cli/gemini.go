@@ -20,7 +20,7 @@ const geminiVerbUsage = `claude-code gemini — the gemini agent
 
 USAGE
   claude-code gemini [vendor args…]      launch agy (the Antigravity CLI), args untouched
-  claude-code gemini ask …               one-shot on the agy runner (= ask --agent gemini --provider gemini)
+  claude-code gemini ask …               one-shot on agy (= ask --agent gemini)
   claude-code gemini bridge [flags] …    in-process large-context bridge (--dirs/--files/--task)
 `
 
@@ -30,7 +30,7 @@ func cmdGemini(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "ask":
-			return cmdAsk(append([]string{"--agent", "gemini", "--provider", "gemini"}, args[1:]...))
+			return cmdAsk(append([]string{"--agent", "gemini"}, args[1:]...))
 		case "bridge":
 			return cmdGeminiBridge(args[1:])
 		}

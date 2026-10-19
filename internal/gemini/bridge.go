@@ -77,7 +77,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	if useAgy {
 		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
 		return agent.RunAgy(ctx, agent.AgyRequest{
-			Prompt: prompt, Model: resolvedModelID(reg, sel, p, model), Effort: o.Effort, Cwd: o.Cwd, Tools: false,
+			Prompt: prompt, Model: agyModel(reg, sel, p, o.Model), Effort: o.Effort, Cwd: o.Cwd, Tools: false,
 		}, stream)
 	}
 
@@ -155,7 +155,7 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 		route, _ = p.Route(providers.DialectOpenAI)
 		suffix = "/chat/completions"
 	}
-	shown := resolvedModelID(reg, sel, p, model) // a slot name or provider:id resolves the way agent.Run will
+	shown := agyModel(reg, sel, p, model) // a slot name or provider:id resolves the way agent.Run will
 	fmt.Fprintf(log, "POST %s%s model=%s provider=%s files=%d prompt_bytes=%d\n",
 		route, suffix, shown, p.Name, len(ctxFiles.Included), len(prompt))
 	return agent.Result{Provider: p.Name, Model: shown}
@@ -164,7 +164,7 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 // printAgyCommand logs the resolved agy argv for --print-command on the agy backend and returns its Result.
 func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
 	o Options, ctxFiles Context, prompt string, log io.Writer) agent.Result {
-	shown := resolvedModelID(reg, sel, p, model)
+	shown := agyModel(reg, sel, p, o.Model)
 	argv := []string{"agy", "--model", shown}
 	if o.Effort != "" {
 		argv = append(argv, "--effort", o.Effort)
@@ -173,4 +173,13 @@ func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *provid
 	fmt.Fprintf(log, "%s (stdin stream-json) files=%d prompt_bytes=%d\n",
 		strings.Join(argv, " "), len(ctxFiles.Included), len(prompt))
 	return agent.Result{Provider: "agy", Model: shown}
+}
+
+// agyModel is the named (flag or env) model resolved for agy, or agent.AgyDefaultModel when none was named.
+func agyModel(reg *providers.Registry, sel providers.Selection, p *providers.Provider, named string) string {
+	model := ResolveModel(named, ModelEnvKeys, "")
+	if model == "" {
+		return agent.AgyDefaultModel
+	}
+	return resolvedModelID(reg, sel, p, model)
 }

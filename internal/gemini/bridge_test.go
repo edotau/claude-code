@@ -580,7 +580,7 @@ func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
 	if len(hits) != 0 {
 		t.Errorf("hits = %d, want 0 (print-command sends nothing)", len(hits))
 	}
-	if !strings.Contains(log.String(), "agy --model g-flash") || !strings.Contains(log.String(), "stream-json") {
+	if !strings.Contains(log.String(), "agy --model "+agent.AgyDefaultModel) || !strings.Contains(log.String(), "stream-json") {
 		t.Errorf("log missing the resolved agy argv:\n%s", log.String())
 	}
 	if res.Provider != "agy" {
