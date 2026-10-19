@@ -39,10 +39,11 @@ echo "tasks (| -separated): $ARGS"
 ```
 
 If the task list is empty, read the approved plan — the most recent
-`$HOME/.claude/plans/*.md` — and extract its task breakdown as the task list.
+`$HOME/.claude/plans/*.md`, or this repo's `plans/<repo>/*.md` — and extract its task breakdown as the task list.
 
 ```bash
-[ -z "$ARGS" ] && ls -t "$HOME/.claude/plans/"*.md 2>/dev/null | head -1
+REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+[ -z "$ARGS" ] && ls -t "$HOME/.claude/plans/$REPO/"*.md "$HOME/.claude/plans/"*.md 2>/dev/null | head -1
 ```
 
 State the resolved task list before dispatching. For `auto`, decide the shape (independent → parallel;
