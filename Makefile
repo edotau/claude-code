@@ -2,8 +2,7 @@
 # claude-code — recipe wrappers for build/install/test.
 #
 # Run `make help` for the catalogue.
-# Shape ported from claude-dbx's Makefile (that harness is being retired); scope narrowed to a
-# robust build+install story for THIS repo — no Databricks/OpenShift/VS Code/workspace-sync targets.
+# Scope: a robust build+install story for THIS repo — no Databricks/OpenShift/VS Code/workspace-sync targets.
 # =============================================================================
 SHELL          := /bin/bash
 .SHELLFLAGS    := -euo pipefail -c

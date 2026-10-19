@@ -268,9 +268,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 }
 
-// TestCompletionInstallHonorsBashCompletionUserDirOverride is the dbx bug fix: dbx's completionsDir
-// only ever checked XDG_DATA_HOME, silently ignoring BASH_COMPLETION_USER_DIR — the override
-// bash-completion itself honors. This pins both the override and the XDG fallback.
+// TestCompletionInstallHonorsBashCompletionUserDirOverride pins BASH_COMPLETION_USER_DIR and the XDG fallback.
 func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	override := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", override)

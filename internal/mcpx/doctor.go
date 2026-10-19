@@ -1,8 +1,6 @@
 // Package mcpx is a read-only diagnostic for Claude Code's MCP config surface: it lists every
 // defined server, runs `claude mcp list` for live connect health, flags a server name defined with
-// different commands/urls across scopes, and flags inline plaintext secrets. Ported from claude-dbx's
-// internal/mcpx/doctor.go (that repo is being retired); the Databricks-specific registry-token-file
-// check and secret-shape helper were dropped — not applicable outside that harness.
+// different commands/urls across scopes, and flags inline plaintext secrets.
 package mcpx
 
 import (
@@ -137,7 +135,7 @@ func readFlatScoped(files []string, prefix string) []Def {
 
 // mcpList runs `claude mcp list`, capturing stdout+stderr through a regular FILE — never a pipe. The
 // node CLI truncates a piped stdout at a power-of-two boundary when it exits without flushing
-// (measured in claude-dbx: 10/12 pipe reads short, 0/12 file reads), and a dropped failure line reads
+// (measured: 10/12 pipe reads short, 0/12 file reads), and a dropped failure line reads
 // as an all-clear.
 func mcpList(claude string) ([]byte, error) {
 	f, err := os.CreateTemp("", "claude-mcp-list-*.txt")
