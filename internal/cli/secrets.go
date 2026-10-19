@@ -23,6 +23,8 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
                           NAME: prompts for the value; no NAME: guided dialog
   get <NAME> [--export]   print a secret (keyring -> secrets.env -> env)
   delete <NAME>           remove a secret from the keyring and secrets.env
+  import <file> [--file]  store every NAME=value line of a .env (# lines skipped)
+  export <file> [NAME...] write stored secrets to a new .env (0600)
   status                  credential source per provider (never the value)
   scan [paths...]         find plaintext secrets in config files
   git [--since N]         find secret-shaped additions in git history
@@ -44,6 +46,10 @@ func cmdSecrets(args []string) int {
 		return cmdSecretsGet(rest)
 	case "delete":
 		return cmdSecretsDelete(rest)
+	case "import":
+		return cmdSecretsImport(rest)
+	case "export":
+		return cmdSecretsExport(rest)
 	case "status":
 		return cmdSecretsStatus(rest)
 	case "scan":
@@ -167,7 +173,7 @@ func cmdSecretsDelete(args []string) int {
 // with no prompt at all); a pipe still supplies the value on stdin.
 func readSecretValue(name string) (string, error) {
 	if tui.StdinIsTerminal() {
-		v, err := tui.Secret("Paste the value for " + name + " (input hidden, Enter when done): ")
+		v, err := tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secrets.Preview)
 		return strings.TrimSpace(v), err
 	}
 	raw, err := io.ReadAll(os.Stdin)
@@ -247,4 +253,67 @@ func cmdSecretsAll(args []string) int {
 		rc = docRC
 	}
 	return rc
+}
+
+// cmdSecretsImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
+func cmdSecretsImport(args []string) int {
+	forceFile, rest := extractBool(args, "file")
+	if len(rest) != 1 || rest[0] == "-h" || rest[0] == "--help" {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env> [--file]   (NAME=value lines; # lines skipped)")
+		return 2
+	}
+	f, err := os.Open(rest[0])
+	if err != nil {
+		return fail("secrets import: %v", err)
+	}
+	defer f.Close()
+	pairs, problems := secrets.ParseDotenv(f)
+	if len(problems) > 0 {
+		return fail("secrets import: %s: nothing written\n  %s", rest[0], strings.Join(problems, "\n  "))
+	}
+	if len(pairs) == 0 {
+		return fail("secrets import: %s has no NAME=value lines", rest[0])
+	}
+	for _, p := range pairs {
+		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secrets.Preview(p.Value))
+	}
+	if tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
+		fmt.Fprintln(os.Stderr, "secrets import: nothing written")
+		return 1
+	}
+	for _, p := range pairs {
+		plane, err := secrets.Store(p.Name, p.Value, forceFile)
+		if err != nil {
+			return fail("secrets import: %s: %v", p.Name, err)
+		}
+		audit.Log(audit.SecretSet, p.Name, plane)
+		fmt.Fprintf(os.Stderr, "stored %s in %s\n", p.Name, plane)
+	}
+	return 0
+}
+
+// cmdSecretsExport writes stored secrets (all, or the NAMEs given) to a NEW .env file, mode 0600.
+func cmdSecretsExport(args []string) int {
+	if len(args) < 1 || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export <file.env> [NAME...]   (refuses an existing file)")
+		return 2
+	}
+	reg, _ := providers.Load()
+	pairs := secrets.ExportPairs(reg, args[1:])
+	if len(pairs) == 0 {
+		return fail("secrets export: no stored secrets to export")
+	}
+	f, err := os.OpenFile(args[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fail("secrets export: %v", err)
+	}
+	if _, err := f.WriteString(secrets.FormatDotenv(pairs)); err != nil {
+		f.Close()
+		return fail("secrets export: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		return fail("secrets export: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %d secret(s) to %s (0600, plaintext — delete it after use)\n", len(pairs), args[0])
+	return 0
 }
