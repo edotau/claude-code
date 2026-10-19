@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,10 +36,14 @@ func Render() ([]byte, error) {
 // Summary describes what Merge did, for `install --dry-run`.
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
+	Retired      []string // existing keys the harness removes (retiredKeys)
 	Owned        []string // template keys written (env/permissions unioned, others replaced)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
 }
+
+// retiredKeys are dropped from existing settings: autoMemoryDirectory is flat, so it merges every repo's memory.
+var retiredKeys = []string{"autoMemoryDirectory"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them.
@@ -55,11 +60,19 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	if err != nil {
 		return nil, sum, err
 	}
+	kept := &object{vals: map[string]json.RawMessage{}}
 	for _, k := range ex.keys {
-		if _, owned := tp.vals[k]; !owned {
+		_, owned := tp.vals[k]
+		switch {
+		case slices.Contains(retiredKeys, k):
+			sum.Retired = append(sum.Retired, k)
+			continue
+		case !owned:
 			sum.Kept = append(sum.Kept, k)
 		}
+		kept.set(k, ex.vals[k])
 	}
+	ex = kept
 	for _, k := range tp.keys {
 		sum.Owned = append(sum.Owned, k)
 		v := tp.vals[k]

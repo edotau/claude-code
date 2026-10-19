@@ -136,3 +136,37 @@ func TestMergeEmptyAndBackup(t *testing.T) {
 		t.Errorf("backup content %q", old)
 	}
 }
+
+func TestMergeDropsRetiredKeys(t *testing.T) {
+	rendered, err := Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := `{"cleanupPeriodDays":7,"autoMemoryDirectory":"/flat/memory","zzForeign":{"a":1}}`
+	out, sum, err := Merge([]byte(in), rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "autoMemoryDirectory") {
+		t.Errorf("retired key survived:\n%s", out)
+	}
+	if strings.Join(sum.Retired, ",") != "autoMemoryDirectory" {
+		t.Errorf("retired = %v", sum.Retired)
+	}
+	if strings.Join(sum.Kept, ",") != "cleanupPeriodDays,zzForeign" {
+		t.Errorf("kept = %v (want foreign keys in order, no retired key)", sum.Kept)
+	}
+	if i, j := strings.Index(string(out), "cleanupPeriodDays"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
+		t.Errorf("foreign key order lost:\n%s", out)
+	}
+	again, sum2, err := Merge(out, rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(out) {
+		t.Error("merge is not idempotent")
+	}
+	if len(sum2.Retired) != 0 {
+		t.Errorf("second merge retired %v", sum2.Retired)
+	}
+}
