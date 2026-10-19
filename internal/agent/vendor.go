@@ -39,22 +39,24 @@ func vendorTarget(req Request, name string) (t providers.Target, own bool, err e
 	if note != "" {
 		fmt.Fprintln(os.Stderr, note)
 	}
-	if errors.Is(err, vendors.ErrOwnLogin) {
-		return ft, true, nil
+	own = errors.Is(err, vendors.ErrOwnLogin)
+	if own {
+		err = nil
 	}
-	if err != nil || ft.Provider == t.Provider {
+	if err != nil || (!own && ft.Provider == t.Provider) {
 		return t, false, err // no fallback: the caller's slot or model id stands
 	}
 	switch {
 	case req.Model == "":
 	case slices.Contains(models.Slots, req.Model):
-		if m := ft.Provider.Models[req.Model]; m != "" {
+		if ft.Provider != nil && ft.Provider.Models[req.Model] != "" {
+			m := ft.Provider.Models[req.Model]
 			ft.Model = m
 		}
 	default:
 		ft.Model = req.Model
 	}
-	return ft, false, nil
+	return ft, own, nil
 }
 
 // namesProvider is true for the provider:model form, where the prefix is a registered provider.
@@ -108,7 +110,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
 		model := t.Model
-		if req.Model == "" {
+		if req.Model == "" || model == "" { // the slot table's opus is not agy's default: flash-high unless named
 			model = AgyDefaultModel
 		}
 		res.Model = model
@@ -285,26 +287,37 @@ func (copilotRunner) Caps() Caps {
 func (copilotRunner) Available() error { _, err := paths.LookPathReal("copilot"); return err }
 
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
-	t, _, err := vendorTarget(req, "copilot")
+	t, own, err := vendorTarget(req, "copilot")
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: t.Provider.Name, Model: models.Strip1M(t.Model)}
-	env, _, err := vendors.Configure(ctx, "copilot", t, "")
-	if err != nil {
-		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+	res := Result{Provider: ownLoginProvider, Model: models.Strip1M(t.Model)}
+	if !own {
+		res.Provider = t.Provider.Name
+	}
+	var env []string
+	if !own {
+		env, _, err = vendors.Configure(ctx, "copilot", t, "")
+		if err != nil {
+			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+		}
 	}
 	bin, err := paths.LookPathReal("copilot")
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
 	var model string
-	if t.Provider.Auth.Login != "" {
+	if own || t.Provider.Auth.Login != "" {
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	opts := copilotsdk.Options{
 		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true,
+	}
+	if own {
+		if tok := vendors.CopilotLaunchToken(); tok != "" {
+			opts.GitHubToken, opts.UseLoggedInUser = tok, false
+		}
 	}
 	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
 		if tok, ok := strings.CutPrefix(kv, vendors.CopilotTokenEnv+"="); ok && tok != "" {

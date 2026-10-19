@@ -106,6 +106,9 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
 func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
+	if stream == nil {
+		stream = io.Discard
+	}
 	req, dropped := applyCaps(r.Caps(), req)
 	res := Result{Agent: r.Name(), Dropped: dropped}
 	if err := r.Available(); err != nil {
@@ -249,7 +252,7 @@ func FallbackChain(r Runner, mode string) []Runner {
 	}
 	var chain []Runner
 	for _, c := range Runners() {
-		if !isVendor(c.Name()) || c.Name() == r.Name() || c.Available() != nil {
+		if !isVendor(c.Name()) || c.Name() == r.Name() {
 			continue
 		}
 		// codex and gemini: first party, then Copilot (same model for codex), then opencode, then claude (user decision).

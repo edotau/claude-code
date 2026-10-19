@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"syscall"
@@ -26,6 +27,10 @@ var agyStopGrace = 3 * time.Second
 // (SIGINT, then SIGTERM after agyStopGrace) the moment the marker appears — or on agySignInTimeout, or
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
 func runAgy(d *dialog) bool {
+	home, _ := os.UserHomeDir()
+	marker := vendors.AgyLoginMarker(home)
+	before, _ := os.ReadFile(marker)
+	beforeInfo, _ := os.Stat(marker)
 	cmd := agyCommand()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -34,20 +39,18 @@ func runAgy(d *dialog) bool {
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	home, _ := os.UserHomeDir()
-	marker := vendors.AgyLoginMarker(home)
 	deadline := time.Now().Add(agySignInTimeout)
 	ticker := time.NewTicker(agySignInPoll)
 	defer ticker.Stop()
 	for {
-		if agySignedIn(marker) {
+		if agySignedInSince(marker, before, beforeInfo) {
 			stopAgy(cmd, done)
 			d.printf("%-10s signed in\n", "agy")
 			return true
 		}
 		select {
 		case <-done:
-			if agySignedIn(marker) { // agy may have written the marker right before exiting
+			if agySignedInSince(marker, before, beforeInfo) { // agy may have written the marker right before exiting
 				d.printf("%-10s signed in\n", "agy")
 				return true
 			}
@@ -63,10 +66,16 @@ func runAgy(d *dialog) bool {
 	}
 }
 
-// agySignedIn reports whether agy's login marker is on disk and non-empty (fully written, not mid-write).
-func agySignedIn(marker string) bool {
-	fi, err := os.Stat(marker)
-	return err == nil && fi.Size() > 0
+func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool {
+	after, err := os.ReadFile(marker)
+	if err != nil || len(after) == 0 {
+		return false
+	}
+	if !bytes.Equal(after, before) {
+		return true
+	}
+	afterInfo, err := os.Stat(marker)
+	return err == nil && (beforeInfo == nil || !afterInfo.ModTime().Equal(beforeInfo.ModTime()))
 }
 
 // stopAgy asks a still-running agy to exit: SIGINT, SIGTERM after agyStopGrace if that didn't land.
