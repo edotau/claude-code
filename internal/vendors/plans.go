@@ -41,3 +41,34 @@ func CodexPlan() string {
 	}
 	return claims.Auth.Plan
 }
+
+// CodexAccessToken is codex's ChatGPT access token and account id from $CODEX_HOME/auth.json; "" when absent.
+func CodexAccessToken() (token, accountID string) {
+	b, err := os.ReadFile(filepath.Join(codexHome(), "auth.json"))
+	if err != nil {
+		return "", ""
+	}
+	var auth struct {
+		Tokens struct {
+			Access  string `json:"access_token"`
+			Account string `json:"account_id"`
+		} `json:"tokens"`
+	}
+	if json.Unmarshal(b, &auth) != nil {
+		return "", ""
+	}
+	return auth.Tokens.Access, auth.Tokens.Account
+}
+
+// copilotPlans maps GitHub's copilot_plan values to the plan names GitHub sells.
+var copilotPlans = map[string]string{
+	"free": "Free", "individual": "Pro", "individual_pro": "Pro+", "business": "Business", "enterprise": "Enterprise",
+}
+
+// CopilotPlanName is the sold name of a copilot_plan value ("individual_pro" → "Pro+"); the raw value when unknown.
+func CopilotPlanName(raw string) string {
+	if name, ok := copilotPlans[raw]; ok {
+		return name
+	}
+	return raw
+}

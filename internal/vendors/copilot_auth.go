@@ -1,20 +1,24 @@
 package vendors
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
-// CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from the keyring.
+// CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from `gh auth token`.
 const CopilotTokenEnv = "COPILOT_GITHUB_TOKEN"
 
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
@@ -23,15 +27,25 @@ var copilotTokenEnvs = []string{CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
 // CopilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
 type CopilotAuth struct {
 	Account string // GitHub login; "" when it needs a network lookup the caller skipped, or that failed
-	Source  string // "secrets manager", an env var name, "copilot login", or "gh"
+	Source  string // srcPinned, srcActive, an env var name, or srcCopilot
 	token   string
 }
 
-// copilotAuthSource (no network): a COPILOT_GITHUB_TOKEN in the secrets manager wins (injected at launch), then
-// copilot's own order — env token, its stored login, then gh's active account (verified live: it falls back to gh).
+// Credential sources, highest first; the gh ones resolve a token at launch with `gh auth token --user`.
+const (
+	srcPinned  = "gh (pinned)"
+	srcActive  = "gh (active)"
+	srcCopilot = "copilot login"
+)
+
+// copilotAuthSource (no network): the pinned gh user (COPILOT_GITHUB_USER), then gh's active account, then
+// copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
-	if tok := managedCopilotToken(); tok != "" {
-		return CopilotAuth{Source: "secrets manager", token: tok}, true
+	if pin := providers.Pin(providers.PinGitHubUser); pin != "" && slices.Contains(GHAccounts(), pin) {
+		return CopilotAuth{Account: pin, Source: srcPinned}, true
+	}
+	if login := GHActiveAccount(); login != "" {
+		return CopilotAuth{Account: login, Source: srcActive}, true
 	}
 	for _, k := range copilotTokenEnvs {
 		if tok := strings.TrimSpace(os.Getenv(k)); tok != "" {
@@ -39,20 +53,28 @@ func copilotAuthSource() (CopilotAuth, bool) {
 		}
 	}
 	if login := CopilotStoredLogin(); login != "" {
-		return CopilotAuth{Account: login, Source: "copilot login"}, true
-	}
-	if login := GHActiveAccount(); login != "" {
-		return CopilotAuth{Account: login, Source: "gh"}, true
+		return CopilotAuth{Account: login, Source: srcCopilot}, true
 	}
 	return CopilotAuth{}, false
 }
 
-// managedCopilotToken is COPILOT_GITHUB_TOKEN from the keyring or env.d/secrets.env (never the process env).
-func managedCopilotToken() string {
-	if tok, src, ok := secrets.Get(CopilotTokenEnv); ok && src != "env" {
-		return strings.TrimSpace(tok)
+// CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
+// the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
+func CopilotLaunchToken() string {
+	a, ok := copilotAuthSource()
+	if !ok {
+		return ""
 	}
-	return ""
+	how, tok := a.Source, a.token
+	if a.Source == srcPinned || a.Source == srcActive {
+		how = "gh auth token --user " + a.Account
+		if tok = GHToken(a.Account); tok == "" {
+			how = srcCopilot + " (" + how + " failed)"
+		}
+	}
+	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
+	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
+	return tok
 }
 
 // ResolveCopilotAuth is copilotAuthSource plus a GitHub /user lookup (3 s) naming a token's account.

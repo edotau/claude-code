@@ -302,10 +302,16 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if t.Provider.Auth.Login != "" {
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
-	out, err := copilotsdk.Ask(ctx, copilotsdk.Options{
+	opts := copilotsdk.Options{
 		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true,
-	}, req.Prompt)
+	}
+	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
+		if tok, ok := strings.CutPrefix(kv, vendors.CopilotTokenEnv+"="); ok && tok != "" {
+			opts.GitHubToken, opts.UseLoggedInUser = tok, false
+		}
+	}
+	out, err := copilotsdk.Ask(ctx, opts, req.Prompt)
 	if err != nil {
 		return res, err
 	}

@@ -242,7 +242,7 @@ func copilotMenu(d *dialog) agentMenu {
 		tier = copilotTier()
 	}
 	st := loginOrKey(d, loggedIn, tier)
-	_, _, tokenSet := secrets.Get(vendors.CopilotTokenEnv)
+	pinned := providers.Pin(providers.PinGitHubUser)
 	rows := []billingRow{
 		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -255,21 +255,21 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		{"GitHub account", "pick the account copilot runs as " + bracket(tokenSet, "pinned", "copilot login"), "", func() bool {
-			return pickCopilotAccount(d, auth)
+		{"GitHub user", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
+			return pickGitHubUser(d, auth)
 		}},
 	}
 	return agentMenu{st, rows}
 }
 
-// pickCopilotAccount lists every GitHub account on this box; a gh account pins its token as COPILOT_GITHUB_TOKEN
-// in the secrets manager, "copilot login" clears the pin, and the last two rows add a token or a new sign-in.
-func pickCopilotAccount(d *dialog, cur vendors.CopilotAuth) bool {
+// pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
+// only the name, COPILOT_GITHUB_USER — launches fetch the token with `gh auth token --user`.
+func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
+	gh := vendors.GHAccounts()
 	if !isStdinTTY() || d.o.In != os.Stdin {
-		d.printf("copilot: runs as %s; accounts: %s\n", cur.Label(), strings.Join(vendors.GHAccounts(), ", "))
+		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
 		return false
 	}
-	gh := vendors.GHAccounts()
 	active := vendors.GHActiveAccount()
 	var rows [][2]string
 	for _, u := range gh {
@@ -285,52 +285,35 @@ func pickCopilotAccount(d *dialog, cur vendors.CopilotAuth) bool {
 		}
 		rows = append(rows, [2]string{u, desc})
 	}
-	stored := vendors.CopilotStoredLogin()
-	rows = append(rows, [2]string{"copilot login", "unpin; use copilot's own sign-in " + bracket(stored != "", stored, "none")},
-		[2]string{"Paste token", "a GitHub OAuth token (gho_/ghp_/github_pat_)"},
+	rows = append(rows, [2]string{"gh active", "unpin; follow gh's active account " + bracket(active != "", active, "none")},
 		[2]string{"New sign-in", "gh auth login · adds another account to this list"})
-	idx, err := tui.PickBack("copilot — which GitHub account? (now: "+cur.Label()+")", rows, 0)
+	idx, err := tui.PickBack("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
 	if err != nil || idx < 0 {
 		return false
 	}
 	switch n := len(gh); {
 	case idx < n:
-		tok := vendors.GHToken(gh[idx])
-		if tok == "" || vendors.GitHubLogin(tok) != gh[idx] {
-			d.printf("copilot: gh has no working token for %s; run gh auth login\n", gh[idx])
+		u := gh[idx]
+		if tok := vendors.GHToken(u); tok == "" || vendors.GitHubLogin(tok) != u {
+			d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
 			return false
 		}
-		d.printf("%-10s pinned to %s (%s in the secrets manager)\n", "copilot", gh[idx], vendors.CopilotTokenEnv)
-		return storeValue(d, vendors.CopilotTokenEnv, tok, false)
+		return pinGitHubUser(d, u)
 	case idx == n:
-		if err := secrets.Delete(vendors.CopilotTokenEnv); err != nil {
-			d.printf("copilot: %v\n", err)
-			return false
-		}
-		d.printf("%-10s unpinned; runs on copilot's own sign-in %s\n", "copilot", bracket(stored != "", stored, "(none yet)"))
-		return true
-	case idx == n+1:
-		return setCopilotToken(d)
+		return pinGitHubUser(d, "")
 	default:
 		return signIn(d, "gh", []string{"gh", "auth", "login"})
 	}
 }
 
-// setCopilotToken stores a pasted GitHub OAuth token as COPILOT_GITHUB_TOKEN after naming the account it belongs to.
-func setCopilotToken(d *dialog) bool {
-	val, err := secretLine(d, "Paste a GitHub OAuth token (gho_/ghp_/github_pat_; input hidden): ")
-	if err != nil || strings.TrimSpace(val) == "" {
-		d.println("copilot: no token entered; nothing changed")
+// pinGitHubUser writes (or clears, user "") COPILOT_GITHUB_USER in env.d/provider.env.
+func pinGitHubUser(d *dialog, user string) bool {
+	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: user}); err != nil {
+		d.printf("copilot: %v\n", err)
 		return false
 	}
-	val = strings.TrimSpace(val)
-	login := vendors.GitHubLogin(val)
-	if login == "" {
-		d.println("copilot: GitHub rejected that token (api.github.com/user); nothing stored")
-		return false
-	}
-	d.printf("%-10s token belongs to %s; copilot launches will run as it\n", "copilot", login)
-	return storeValue(d, vendors.CopilotTokenEnv, val, false)
+	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned)", "gh's active account"))
+	return true
 }
 
 func opencodeMenu(d *dialog) agentMenu {

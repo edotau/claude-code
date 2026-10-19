@@ -25,7 +25,7 @@ func specTree() map[string]*compNode {
 		"profile":  {args: []func() []string{providerNames}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"generate": {flags: []flagInfo{flag("out")}},
-		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows")}},
+		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},
 		"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),

@@ -13,7 +13,7 @@ import (
 // copilot's own session, not the override); present via copilot's/gh's own login does.
 func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())              // no real gh/secret-tool on PATH
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no real secrets.env: managedCopilotToken reads nothing
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // CLAUDE_CONFIG_DIR isolated so nothing real leaks in
 	t.Setenv("COPILOT_HOME", t.TempDir())      // no real copilot config.json: CopilotStoredLogin reads nothing
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
 	t.Setenv("GH_TOKEN", "ghp_env_override")
