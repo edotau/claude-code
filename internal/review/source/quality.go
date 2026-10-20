@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,10 +82,8 @@ var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
 func detectLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	for _, lang := range languageOrder {
-		for _, e := range Extensions[lang] {
-			if e == ext {
-				return lang
-			}
+		if slices.Contains(Extensions[lang], ext) {
+			return lang
 		}
 	}
 	return ""
@@ -170,7 +169,7 @@ func submatchStrings(content string, loc []int, pattern *regexp.Regexp) []string
 // splitParams mirrors `[p.strip() for p in params_str.split(",") if p.strip()]`.
 func splitParams(s string) []string {
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if strings.TrimSpace(p) != "" {
 			out = append(out, strings.TrimSpace(p))
 		}
@@ -467,7 +466,7 @@ var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__
 
 // pathHasSkippedPart mirrors `SKIP_PARTS & set(filepath.parts)`.
 func pathHasSkippedPart(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+	for part := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		if skipParts[part] {
 			return true
 		}
@@ -541,7 +540,7 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
 // pairs above U+FFFF) and no HTML-escaping of <, >, & (Go's default does the opposite on both counts).
-func writeJSON(w io.Writer, v interface{}) error {
+func writeJSON(w io.Writer, v any) error {
 	b, err := marshalPyJSON(v)
 	if err != nil {
 		return err
@@ -550,7 +549,7 @@ func writeJSON(w io.Writer, v interface{}) error {
 	return err
 }
 
-func marshalPyJSON(v interface{}) ([]byte, error) {
+func marshalPyJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)

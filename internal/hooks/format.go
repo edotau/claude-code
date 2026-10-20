@@ -97,10 +97,10 @@ var makeFormatCache = map[string][]makeFormatCandidate{}
 func makeRecipe(body, target string) string {
 	var recipe []string
 	collecting := false
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "\t") {
+	for line := range strings.SplitSeq(body, "\n") {
+		if after, ok := strings.CutPrefix(line, "\t"); ok {
 			if collecting {
-				recipe = append(recipe, strings.TrimPrefix(line, "\t"))
+				recipe = append(recipe, after)
 			}
 			continue
 		}

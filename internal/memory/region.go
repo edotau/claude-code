@@ -134,7 +134,7 @@ func BuildCatalog(now time.Time) (string, error) {
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.
 func storeHook(dir string) string {
 	if data, err := os.ReadFile(filepath.Join(dir, "projectContext.md")); err == nil {
-		for _, l := range strings.Split(stripFrontmatter(string(data)), "\n") {
+		for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
 			l = strings.TrimSpace(l)
 			if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(") {
 				continue
@@ -297,7 +297,7 @@ func storeHookFile(path string) string {
 	if err != nil {
 		return filepath.Base(path)
 	}
-	for _, l := range strings.Split(stripFrontmatter(string(data)), "\n") {
+	for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
 			return truncate(l, 100)
 		}

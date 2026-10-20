@@ -48,7 +48,7 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	return &copilot.ClientOptions{
 		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(os.Environ(), o.Env...)},
 		WorkingDirectory: o.WorkingDirectory,
-		UseLoggedInUser:  copilot.Bool(o.UseLoggedInUser),
+		UseLoggedInUser:  new(o.UseLoggedInUser),
 		GitHubToken:      o.GitHubToken,
 	}, nil
 }

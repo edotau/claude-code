@@ -93,7 +93,7 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 	existing, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		for _, line := range strings.Split(string(existing), "\n") {
+		for line := range strings.SplitSeq(string(existing), "\n") {
 			if name, _, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(line, "#") {
 				have[strings.TrimSpace(strings.TrimPrefix(name, "export "))] = true
 			}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -236,9 +237,7 @@ var codexTrustedHashRE = regexp.MustCompile(`^(\s*(?:trusted_hash|"trusted_hash"
 // mergeCodexTrust changes only the emitted hooks' hashes, retaining unrelated tables, fields, and comments.
 func mergeCodexTrust(raw string, entries map[string]string) string {
 	remaining := make(map[string]string, len(entries))
-	for key, hash := range entries {
-		remaining[key] = hash
-	}
+	maps.Copy(remaining, entries)
 	var out strings.Builder
 	active, multiline := "", ""
 	flush := func() {

@@ -120,7 +120,7 @@ func TestWidthClip(t *testing.T) {
 	for _, style := range []string{"gradient", "powerline", "dashboard"} {
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Width = style, 40
-		for _, line := range strings.Split(render(sample(), cfg, embeddedPalettes()), "\n") {
+		for line := range strings.SplitSeq(render(sample(), cfg, embeddedPalettes()), "\n") {
 			if w := visibleWidth(line); w > 40 {
 				t.Errorf("%s: width %d > 40: %q", style, w, plain(line))
 			}

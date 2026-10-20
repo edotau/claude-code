@@ -49,7 +49,7 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 				break
 			}
 		}
-		for _, line := range strings.Split(patch, "\n") {
+		for line := range strings.SplitSeq(patch, "\n") {
 			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
 				if path, ok := strings.CutPrefix(line, prefix); ok {
 					if code := docsPlacementPath(in, strings.TrimSpace(path), stderr); code != ExitProceed {

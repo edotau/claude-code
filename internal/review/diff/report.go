@@ -190,7 +190,7 @@ func getChangedSourceFiles(repo, base, head string) []string {
 			continue
 		}
 		var files []string
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -371,8 +371,11 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 	return "block", "Significant issues prevent approval"
 }
 
-func intPtr(i int) *int       { return &i }
-func strPtr(s string) *string { return &s }
+//go:fix inline
+func intPtr(i int) *int { return new(i) }
+
+//go:fix inline
+func strPtr(s string) *string { return new(s) }
 
 func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding {
 	findings := []Finding{}
@@ -386,7 +389,7 @@ func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding 
 				}
 				findings = append(findings, Finding{
 					Source: "pr_analysis", Severity: sev, Category: orDefault(mStr(im, "name"), "unknown"),
-					Message: mStr(im, "message"), File: mStr(im, "file"), Count: intPtr(count),
+					Message: mStr(im, "message"), File: mStr(im, "file"), Count: new(count),
 				})
 			}
 		}
@@ -394,7 +397,7 @@ func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding 
 	for _, issue := range extractQualityIssues(qualityAnalysis) {
 		findings = append(findings, Finding{
 			Source: "quality_analysis", Severity: issue["severity"], Category: orDefault(issue["type"], "unknown"),
-			Message: issue["message"], File: issue["file"], Line: strPtr(issue["line"]),
+			Message: issue["message"], File: issue["file"], Line: new(issue["line"]),
 		})
 	}
 	sort.SliceStable(findings, func(i, j int) bool {

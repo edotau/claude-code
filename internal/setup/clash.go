@@ -49,7 +49,7 @@ func trackedFiles(repo string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	for _, p := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+	for p := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if p != "" {
 			files = append(files, p)
 		}

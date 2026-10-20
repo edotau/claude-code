@@ -341,7 +341,7 @@ func selectTargets(all []target, want string) ([]target, error) {
 		byName[t.name] = t
 	}
 	var out []target
-	for _, name := range strings.Split(want, ",") {
+	for name := range strings.SplitSeq(want, ",") {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue

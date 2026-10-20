@@ -69,7 +69,7 @@ func ReadHarvestResult(sessionID string) (HarvestResult, bool) {
 		return HarvestResult{}, false
 	}
 	m := map[string]string{}
-	for _, ln := range strings.Split(string(data), "\n") {
+	for ln := range strings.SplitSeq(string(data), "\n") {
 		if k, v, ok := strings.Cut(ln, "="); ok {
 			m[k] = v
 		}

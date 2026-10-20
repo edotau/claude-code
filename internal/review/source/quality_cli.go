@@ -81,7 +81,7 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	var report interface{}
+	var report any
 	if info.IsDir() {
 		if dr, derr := analyzeDirectory(target, parsed.language); derr != nil {
 			report = errorResult{Error: derr.Error()}
@@ -107,7 +107,7 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func emitQualityJSON(report interface{}, output string, stdout io.Writer) error {
+func emitQualityJSON(report any, output string, stdout io.Writer) error {
 	var buf strings.Builder
 	writeJSON(&buf, report)
 	if output != "" {
@@ -121,7 +121,7 @@ func emitQualityJSON(report interface{}, output string, stdout io.Writer) error 
 	return nil
 }
 
-func printQualityReport(report interface{}, w io.Writer) {
+func printQualityReport(report any, w io.Writer) {
 	if e, ok := report.(errorResult); ok {
 		fmt.Fprintf(w, "Error: %s\n", e.Error)
 		return

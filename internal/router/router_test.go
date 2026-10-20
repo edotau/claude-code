@@ -429,7 +429,7 @@ func TestServeStateAndEnsure(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, 0) }()
 	var st State
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if s, ok := Running(context.Background()); ok {
 			st = s
 			break

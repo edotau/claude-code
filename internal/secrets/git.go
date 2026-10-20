@@ -93,10 +93,8 @@ func ScanGit(out io.Writer, dir string, since int) int {
 
 // isTestFixture reports test/testdata paths, whose synthetic keys are noise (GitHub push protection skips them too).
 func isTestFixture(p string) bool {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "testdata" {
-			return true
-		}
+	if slices.Contains(strings.Split(p, "/"), "testdata") {
+		return true
 	}
 	base := path.Base(p)
 	for _, suf := range []string{"_test.go", "_test.py", ".test.ts", ".test.js", ".spec.ts", ".spec.js"} {

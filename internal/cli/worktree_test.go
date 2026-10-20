@@ -279,7 +279,7 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 		t.Fatalf("list: code=%d stderr=%q", code, errb)
 	}
 	var reopenLine string
-	for _, line := range strings.Split(listOut, "\n") {
+	for line := range strings.SplitSeq(listOut, "\n") {
 		if strings.Contains(line, "reopen:") {
 			reopenLine = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "reopen:"))
 		}

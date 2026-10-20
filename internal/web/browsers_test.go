@@ -96,7 +96,7 @@ func TestHandleBrowsersServesWithinTTLFromCacheWithoutReDetecting(t *testing.T) 
 	fakeNow := time.Now()
 	s := newBrowserTestServer(t, env, func() time.Time { return fakeNow })
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
 		if w.Code != http.StatusOK {
 			t.Fatalf("request %d: status = %d, want 200", i, w.Code)

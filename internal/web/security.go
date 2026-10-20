@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -46,12 +47,7 @@ func (s *Server) hostAllowed(hostHeader string) bool {
 	if hostOnly == "localhost" {
 		return true
 	}
-	for _, n := range s.dnsNames {
-		if hostOnly == n {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.dnsNames, hostOnly)
 }
 
 // checkOrigin rejects a cross-origin request when the browser sent Origin or Sec-Fetch-Site: same

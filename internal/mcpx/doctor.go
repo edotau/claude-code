@@ -175,7 +175,7 @@ func RunHealth(claude string) HealthResult {
 	}
 	out, listErr := mcpList(claude)
 	var res HealthResult
-	for _, ln := range strings.Split(string(out), "\n") {
+	for ln := range strings.SplitSeq(string(out), "\n") {
 		switch {
 		case strings.Contains(ln, "✔"):
 			res.Connected++

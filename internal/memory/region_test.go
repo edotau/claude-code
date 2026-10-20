@@ -126,7 +126,7 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 		}
 	}
 	lines := 0
-	for _, l := range strings.Split(catalog, "\n") {
+	for l := range strings.SplitSeq(catalog, "\n") {
 		if strings.HasPrefix(l, "- rule ") {
 			lines++
 		}

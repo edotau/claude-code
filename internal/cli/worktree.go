@@ -339,7 +339,7 @@ func hasMakeTarget(makefile, target string) bool {
 		return false
 	}
 	prefix := target + ":"
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(line, prefix) {
 			return true
 		}

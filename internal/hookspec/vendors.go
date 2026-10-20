@@ -64,7 +64,7 @@ func CopilotJSON() ([]byte, error) {
 func copilotMatcher(m string) string {
 	var out []string
 	seen := map[string]bool{}
-	for _, n := range strings.Split(m, "|") {
+	for n := range strings.SplitSeq(m, "|") {
 		for _, v := range []string{n, strings.ToLower(n)} {
 			if !seen[v] {
 				seen[v] = true

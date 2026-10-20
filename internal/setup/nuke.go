@@ -242,7 +242,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
 	var rels []string
-	for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
 		if l != "" {
 			rels = append(rels, l)
 		}

@@ -54,9 +54,7 @@ func StopFormat(r io.Reader) int {
 		return ExitProceed
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
-	for file, key := range formatAll(eligible) {
-		carry[file] = key
-	}
+	maps.Copy(carry, formatAll(eligible))
 	if data, err := json.Marshal(carry); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}

@@ -97,7 +97,7 @@ func assertNpmNotRun(t *testing.T, marker string) {
 
 func npmCleanupLines(output string) []string {
 	var lines []string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if strings.HasPrefix(line, "  npm      uninstall ") {
 			lines = append(lines, line)
 		}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -64,10 +65,8 @@ func codeFiles(files []string, limit int) []string {
 
 func isSourceExt(ext string) bool {
 	for _, exts := range source.Extensions {
-		for _, e := range exts {
-			if e == ext {
-				return true
-			}
+		if slices.Contains(exts, ext) {
+			return true
 		}
 	}
 	return false

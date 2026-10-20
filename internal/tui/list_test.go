@@ -287,7 +287,7 @@ func TestListRenderSnapshot(t *testing.T) {
 
 func TestListWindowsToTerminalHeight(t *testing.T) {
 	spec := ListSpec{Title: "t", Search: true}
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		spec.Rows = append(spec.Rows, ListRow{Label: "row" + string(rune('A'+i%26)), Section: []string{"a", "b"}[i/20]})
 	}
 	s := newListState(spec, 30)

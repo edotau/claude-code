@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -156,12 +157,7 @@ func Vendor(name string, interactive bool, out io.Writer) (changed bool, err err
 }
 
 func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }
 
 func readLine(br *bufio.Reader) string {

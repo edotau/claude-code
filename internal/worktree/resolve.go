@@ -238,7 +238,7 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 		if readErr != nil {
 			continue // tracked as resolved but no longer on disk (e.g. deleted) — nothing to scan
 		}
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			for _, prefix := range conflictMarkerPrefixes {
 				if strings.HasPrefix(line, prefix) {
 					return false, p, nil
@@ -259,7 +259,7 @@ func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
 		return nil, fmt.Errorf("git status in %s: %w", worktreePath, err)
 	}
 	var result []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if len(line) < 4 {
 			continue
 		}
@@ -414,7 +414,7 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 		return nil, fmt.Errorf("git diff --diff-filter=U in %s: %w", path, err)
 	}
 	var paths []string
-	for _, f := range strings.Split(string(out), "\x00") {
+	for f := range strings.SplitSeq(string(out), "\x00") {
 		if f != "" {
 			paths = append(paths, f)
 		}

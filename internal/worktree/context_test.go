@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,11 +59,8 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	orig := runGit
 	runGit = func(ctx2 context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
-		for _, a := range args {
-			if a == "--ff-only" {
-				cancel() // simulate the cancellation landing right before the real ff-only merge call
-				break
-			}
+		if slices.Contains(args, "--ff-only") {
+			cancel()
 		}
 		return orig(ctx2, dir, extraEnv, args...)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"strings"
 )
@@ -134,9 +135,7 @@ func (in *Input) cloneToolInput() map[string]any {
 		return nil
 	}
 	clone := make(map[string]any, len(input)+1)
-	for key, value := range input {
-		clone[key] = value
-	}
+	maps.Copy(clone, input)
 	return clone
 }
 
