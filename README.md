@@ -126,8 +126,10 @@ launch exports: run `claude-code codex` / `claude-code opencode` (or `claude-cod
 merge harness hooks while retaining foreign hooks (including Orca's); invalid existing hook JSON aborts
 rather than being overwritten. Copilot also merges `~/.copilot/settings.json`.
 `vscode` does the same for VS
-Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
-Copilot extensions pointed at `~/.claude/bin`, terminal profiles that launch `claude-code <vendor>`, right-click = paste in the integrated terminal
+Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): terminal profiles launch
+`claude-code <vendor>` (`claude-code claude` for Claude Code itself) — the retired `claudeProcessWrapper`
+setting is dropped; the ChatGPT extension's `cliExecutable` still runs the real codex unrouted (D2);
+right-click = paste in the integrated terminal
 (the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
 box renders its own. Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences →
 Pointer → "Right button single click" → Paste from clipboard; Terminal.app has no right-click paste.
