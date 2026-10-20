@@ -39,7 +39,7 @@
   "effortLevel": "high",
   "alwaysThinkingEnabled": true,
   "theme": "auto",
-  "tui": "fullscreen",
+  "tui": "default",
   "feedbackDrafts": "off",
   "awaySummaryEnabled": false,
   "agentPushNotifEnabled": false,
