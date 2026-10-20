@@ -90,6 +90,50 @@ func TestRunGoalsBadFlag(t *testing.T) {
 	}
 }
 
+func TestRunGoalsFlagsOversizedTasks(t *testing.T) {
+	text := readGoalsGolden(t, "oversized-tasks.md")
+	tasks := findOversizedTasks(text)
+	if len(tasks) != 3 {
+		var titles []string
+		for _, ot := range tasks {
+			titles = append(titles, ot.Title+" :: "+ot.Reason)
+		}
+		t.Fatalf("oversized tasks = %d, want 3; got: %v", len(tasks), titles)
+	}
+	if !strings.Contains(tasks[0].Reason, "packages") {
+		t.Errorf("task 0 reason = %q, want a package-count reason", tasks[0].Reason)
+	}
+	if !strings.Contains(tasks[1].Reason, "findings") {
+		t.Errorf("task 1 reason = %q, want a findings-count reason", tasks[1].Reason)
+	}
+	if !strings.Contains(tasks[2].Reason, "owns:") {
+		t.Errorf("task 2 reason = %q, want a missing-owns reason", tasks[2].Reason)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := RunGoals([]string{filepath.Join("testdata", "goals", "oversized-tasks.md"), "--json"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"oversized_tasks"`) {
+		t.Errorf("json output missing oversized_tasks: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	if code := RunGoals([]string{filepath.Join("testdata", "goals", "oversized-tasks.md")}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Oversized tasks:") {
+		t.Errorf("text output missing Oversized tasks section: %s", stdout.String())
+	}
+}
+
+func TestRunGoalsLeafSizedTasksClean(t *testing.T) {
+	text := readGoalsGolden(t, "leaf-sized-tasks.md")
+	if tasks := findOversizedTasks(text); len(tasks) != 0 {
+		t.Fatalf("leaf-sized fixture flagged as oversized: %v", tasks)
+	}
+}
+
 func TestExtractStepsPhaseBoundaries(t *testing.T) {
 	text := "## Phase 1 — Parse\n**Verify:** go test ./internal/paths\n### Details\n1. Read input\n### Phase 2 — Render\n**Verify:** should work\n## Tasks\n- [ ] go test ./...\n## Risks\ngrep final\n## Context\ndiff final\n"
 	steps := extractSteps(text)

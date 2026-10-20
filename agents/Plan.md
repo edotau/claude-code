@@ -58,11 +58,17 @@ Why this change, what it must achieve, what is out of scope.
 
 ## Tasks
 
-Tick `[x]` with the commit id as each item lands (`- [x] Phase 1 — parse input (abc1234)`); this list is the
-recovery point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it.
+A phase is a group of tasks, not a unit of work: each `### Phase` section lists its task ids. Every task is
+leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and
+names its `runner:` and `owns:` files, e.g.:
+`- [ ] Phase 2.1 — Add --attach to the copilot runner — runner: claude — owns: internal/agent/vendor.go, internal/copilotsdk/copilotsdk.go`
 
-- [ ] Phase 1 — <name>
-- [ ] Phase 2 — <name>
+Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
+point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
+multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.
+
+- [ ] Phase 1.1 — <name> — runner: <runner> — owns: <files>
+- [ ] Phase 2.1 — <name> — runner: <runner> — owns: <files>
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages
 - [ ] Review (`claude-code ask --agent codex`)
@@ -88,6 +94,8 @@ Every phase is:
 - **Placeholder-free** — never "TBD", "implement as needed", "add appropriate error handling", "handle edge
   cases", "similar to Phase N", or a reference to a type/function no phase defines.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
+- **Leaf-sized tasks** — each `## Tasks` line is one package (or ≤3 tightly coupled files), ≤10 findings or
+  edits, fits one 45-minute leaf, and names `runner:` and `owns:`; a phase groups several such tasks.
 
 ## Self-review before returning
 
