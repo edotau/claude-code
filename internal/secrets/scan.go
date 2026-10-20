@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -102,6 +103,12 @@ func walkJSONStrings(prefix string, node any, visit func(path, val string)) {
 	}
 }
 
+// Metadata paths skip only the generic heuristic, never known credential shapes.
+var claudeMetadataPath = regexp.MustCompile(
+	`(^|\.)(userID|machineID|remoteControlMachineId|lastSessionId|sessionId|accountUuid|organizationUuid|orgUuid|experimentId|originalHeadCommit|clientDataCacheSlots\.[^.]+\.org)$`)
+
+var marketplaceRepoPath = regexp.MustCompile(`(^|\.)extraKnownMarketplaces\.[^.]+\.source\.repo$`)
+
 // ScanFile inspects one config file: JSON leaves when it parses as JSON, else KEY=value lines (so
 // the one scanner also covers env.d/provider.env). A missing file is silently fine.
 func (s *Scanner) ScanFile(path string) {
@@ -117,7 +124,9 @@ func (s *Scanner) ScanFile(path string) {
 	var doc any
 	if json.Unmarshal(raw, &doc) == nil {
 		walkJSONStrings("", doc, func(p, val string) {
-			if LooksLikeSecret(val) {
+			metadata := marketplaceRepoPath.MatchString(p) ||
+				(filepath.Base(path) == ".claude.json" && claudeMetadataPath.MatchString(p))
+			if looksLikeSecret(val, !metadata) {
 				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, p))
 			}
 		})
