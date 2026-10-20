@@ -88,8 +88,16 @@ func installClaude(ctx context.Context, w io.Writer, _ string, dryRun bool) erro
 	return runInstallScript(ctx, w, dryRun, claudeInstallScriptURL, nil, nil)
 }
 
-// installCopilot forces PREFIX=<dir>/.. so the installer's root default (/usr/local) never applies; it lands in dir.
+// installCopilot forces PREFIX so the installer (which writes $PREFIX/bin) lands in dir. dir is
+// usually bin/ already, so PREFIX=filepath.Dir(dir); when installDir handed back some other
+// directory (e.g. an existing install's own non-bin/ tree), filepath.Dir(dir) would be the wrong
+// PREFIX, so this installs into paths.BinDir() instead and reports the corrected target.
 func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	if filepath.Base(dir) != "bin" {
+		corrected := paths.BinDir()
+		fmt.Fprintf(w, "  into     %s (not a bin/ dir; installing into BinDir instead)\n", corrected)
+		dir = corrected
+	}
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 

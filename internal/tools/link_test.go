@@ -86,6 +86,42 @@ func TestLinkVendorsRemovesDanglingLink(t *testing.T) {
 	}
 }
 
+func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
+	setupToolsTestEnv(t)
+	target := filepath.Join(t.TempDir(), "opencode-real")
+	writeToolsFixture(t, target, "#!/bin/sh\nexit 0\n", 0o755)
+	dst := filepath.Join(paths.BinDir(), "opencode")
+	symlinkToolsFixture(t, target, dst)
+
+	var out bytes.Buffer
+	LinkVendors(&out, []string{"opencode"}, false)
+	if got := readlink(dst); got != target {
+		t.Fatalf("existing link target changed: got %q, want untouched %q", got, target)
+	}
+	if want := "keep     " + dst + " → " + target + " (existing link)"; !strings.Contains(out.String(), want) {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}
+
+func TestReplaceLinkKeepsRegularFileWithoutReplacing(t *testing.T) {
+	setupToolsTestEnv(t)
+	dst := filepath.Join(t.TempDir(), "codex")
+	writeToolsFixture(t, dst, "#!/bin/sh\nexit 0\n", 0o755)
+	target := filepath.Join(t.TempDir(), "codex-on-path")
+	writeToolsFixture(t, target, "#!/bin/sh\nexit 0\n", 0o755)
+
+	kept, err := replaceLink(dst, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !kept {
+		t.Error("kept = false, want true: dst is a regular file and must never be replaced by a link")
+	}
+	if fi, err := os.Lstat(dst); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("dst changed: stat = %v, err = %v", fi, err)
+	}
+}
+
 func TestLinkVendorsReportsMissingTool(t *testing.T) {
 	setupToolsTestEnv(t)
 	var out bytes.Buffer
