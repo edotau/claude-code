@@ -67,12 +67,13 @@ func docsPlacementPath(in *Input, path string, stderr io.Writer) int {
 		return ExitProceed
 	}
 	// The harness's own docs/ holds only images + tracked knowledge; anything else there is a retired home.
-	if harnessDocs := canonDeep(filepath.Join(paths.ConfigDir(), "docs")); underDir(harnessDocs, abs) {
+	config := canonDeep(paths.ConfigDir())
+	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
 		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) ||
-			isTracked(canonDeep(paths.ConfigDir()), strings.TrimPrefix(abs, canonDeep(paths.ConfigDir())+string(filepath.Separator))) {
+			isTracked(config, strings.TrimPrefix(abs, config+string(filepath.Separator))) {
 			return ExitProceed
 		}
-		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", canonDeep(paths.ConfigDir()))
+		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 	}
 	// Two gated shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
 	root := repoRootOf(dir)

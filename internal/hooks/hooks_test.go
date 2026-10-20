@@ -51,14 +51,14 @@ func TestSafety(t *testing.T) {
 	}
 	for _, c := range cases {
 		var errb bytes.Buffer
-		if got := safetyOutput(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+		if got := BashGuard(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
 		}
 	}
-	if got := safetyOutput(strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := BashGuard(strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("malformed input must fail open")
 	}
-	if got := safetyOutput(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := BashGuard(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("non-Bash tools pass")
 	}
 }
@@ -110,7 +110,7 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		if c.block {
 			want = ExitBlock
 		}
-		if got := safetyOutput(bytes.NewReader(payload), io.Discard, &errb); got != want {
+		if got := BashGuard(bytes.NewReader(payload), io.Discard, &errb); got != want {
 			t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, want, errb.String())
 		}
 	}

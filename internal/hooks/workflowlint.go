@@ -58,7 +58,7 @@ func workflowLintInline(in *Input, script string, stdout, errw io.Writer) int {
 		return ExitProceed
 	}
 	filled := filledModelLines(script, amb)
-	updated := agentToolInput(in)
+	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}
@@ -100,7 +100,7 @@ func workflowLintByName(in *Input, name string, stdout, errw io.Writer) int {
 	if hits := lintSavedFile(path); len(hits) > 0 {
 		return blockSavedLint(path, hits, errw)
 	}
-	updated := agentToolInput(in)
+	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}

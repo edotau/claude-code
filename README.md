@@ -336,8 +336,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, … |
-| `rtk-wrap` | PreToolUse (Bash) | Routes noisy commands (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the [rtk](https://github.com/rtk-ai/rtk) output compressor when it is on PATH; machine-readable flags (`--porcelain`, `--json`, …) and value subcommands (`rev-parse`, …) bypass it. `HARNESS_RTK_BIN` overrides the binary |
+| `bash-guard` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, … Then routes a noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the [rtk](https://github.com/rtk-ai/rtk) output compressor when it is on PATH (Claude sessions only); machine-readable flags (`--porcelain`, `--json`, …) and value subcommands (`rev-parse`, …) bypass it. `HARNESS_RTK_BIN` overrides the binary |
 | `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home (`~/.claude/memory/<repo>/reports\|handoffs`, `~/.claude/plans/` for a plan); root anchors and tracked files pass. `HARNESS_DOCS_PLACEMENT=0` disables |
 | `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet); an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |

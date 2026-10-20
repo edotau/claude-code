@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -94,9 +95,7 @@ func formatAll(files []string) map[string]string {
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	for _, f := range files {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if !formatFile(f) {
@@ -107,7 +106,7 @@ func formatAll(files []string) map[string]string {
 				out[f] = stampKey(fi)
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	go func() { wg.Wait(); close(done) }()
 	select {
@@ -142,22 +141,34 @@ func loadStamps(path string) map[string]string {
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.
 func changedFiles(cwd string) []string {
+	data, err := exec.Command("git", "-C", cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all").Output()
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	root := cwd
+	if _, err := os.Stat(filepath.Join(cwd, ".git")); err != nil {
+		root = memory.GitToplevel(cwd)
+		if root == "" {
+			return nil
+		}
+	}
 	var out []string
-	seen := map[string]bool{}
-	for _, args := range [][]string{
-		{"diff", "--name-only", "--relative", "-z"},
-		{"diff", "--name-only", "--cached", "--relative", "-z"},
-		{"ls-files", "--others", "--exclude-standard", "-z"},
-	} {
-		b, err := exec.Command("git", append([]string{"-C", cwd}, args...)...).Output()
-		if err != nil {
+	records := strings.Split(string(data), "\x00")
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if len(record) < 4 {
 			continue
 		}
-		for _, p := range strings.Split(string(b), "\x00") {
-			if p != "" && !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+		status, path := record[:2], record[3:]
+		if strings.ContainsAny(status, "RC") {
+			i++
+		}
+		if status == "  " || status == "!!" {
+			continue
+		}
+		rel, err := filepath.Rel(cwd, filepath.Join(root, path))
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			out = append(out, rel)
 		}
 	}
 	return out

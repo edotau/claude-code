@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"os"
@@ -93,7 +94,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop-format") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
-	// PreToolUse carries every registry PreToolUse spec: safety, rtk-wrap, docs-placement, agent-inflight.
+	// PreToolUse carries every registry PreToolUse spec: bash-guard, docs-placement, agent-inflight.
 	wantPre := 0
 	for _, s := range hookspec.Registry {
 		if s.Event == hookspec.EventPreToolUse {
@@ -182,5 +183,26 @@ func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
 	}
 	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") {
 		t.Errorf("retired = %v", sum.Retired)
+	}
+}
+
+func TestMergeHooksPreservesForeignFieldsAndOrder(t *testing.T) {
+	base := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[
+		{"custom":1,"type":"command","command":"first","tail":false},
+		{"command":"$HOME/.claude/bin/claude-code hook retired-hook"},
+		{"type":"prompt","prompt":"keep this","custom":2}
+	],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
+	want := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[{"custom":1,"type":"command","command":"first","tail":false},{"type":"prompt","prompt":"keep this","custom":2}],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
+	var sum Summary
+	got, err := mergeHooks(json.RawMessage(base), json.RawMessage(`{}`), &sum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, got); err != nil {
+		t.Fatal(err)
+	}
+	if compact.String() != want || sum.ForeignHooks != 3 || sum.HarnessHooks != 0 {
+		t.Fatalf("mergeHooks = %s, %+v", got, sum)
 	}
 }

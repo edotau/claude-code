@@ -65,8 +65,16 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 	})
 }
 
-func safetyOutput(r io.Reader, stdout, stderr io.Writer) (code int) {
+// BashGuard applies safety before the optional Claude rtk rewrite.
+func BashGuard(r io.Reader, stdout, stderr io.Writer) int {
 	in := ParseInput(r)
+	if code := safetyInput(in, stdout, stderr); code != ExitProceed {
+		return code
+	}
+	return rtkWrap(in, stdout)
+}
+
+func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	if in.Vendor() == VendorCopilot {
 		var reason strings.Builder
 		stderr = io.MultiWriter(stderr, &reason)
@@ -85,6 +93,7 @@ func safetyOutput(r io.Reader, stdout, stderr io.Writer) (code int) {
 	if cmd == "" {
 		return ExitProceed
 	}
+	cmd = withoutHeredocBodies(cmd)
 	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
 			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
@@ -137,8 +146,7 @@ var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "-
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
-	harness := canonPath(paths.ConfigDir())
-	worktrees := canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees")) // linked worktrees are separate checkouts
+	var harness, worktrees string
 	for _, seg := range shellSegments(cmd) {
 		toks := shellTokens(seg)
 		if len(toks) == 0 {
@@ -155,6 +163,10 @@ func harnessGitBlocked(cmd, cwd string) bool {
 			target, verb, args := gitInvocation(toks[i+1:], cwd)
 			if !bannedGitVerbs[verb] || (verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")) {
 				continue
+			}
+			if harness == "" {
+				harness = canonPath(paths.ConfigDir())
+				worktrees = canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
 			}
 			if tp := canonPath(target); tp == harness || strings.HasPrefix(tp, harness+string(filepath.Separator)) {
 				if strings.HasPrefix(tp, worktrees+string(filepath.Separator)) {
@@ -271,6 +283,7 @@ func canonPath(p string) string {
 
 // shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func shellSegments(cmd string) []string {
+	cmd = withoutHeredocBodies(cmd)
 	var out []string
 	var b strings.Builder
 	var quote byte
@@ -302,6 +315,108 @@ func shellSegments(cmd string) []string {
 		}
 	}
 	return append(out, b.String())
+}
+
+// withoutHeredocBodies preserves command text while consuming queued heredocs in shell order.
+func withoutHeredocBodies(cmd string) string {
+	type heredoc struct {
+		word string
+		tabs bool
+	}
+	var pending []heredoc
+	var out strings.Builder
+	var quote byte
+	for i := 0; i < len(cmd); {
+		c := cmd[i]
+		out.WriteByte(c)
+		i++
+		if c == '\\' && quote != '\'' && i < len(cmd) {
+			out.WriteByte(cmd[i])
+			i++
+			continue
+		}
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quote = c
+			continue
+		}
+		if c == '<' && i < len(cmd) && cmd[i] == '<' {
+			start := i
+			for i < len(cmd) && cmd[i] == '<' {
+				i++
+			}
+			if i-start != 1 {
+				out.WriteString(cmd[start:i])
+				continue
+			}
+			h := heredoc{}
+			if i < len(cmd) && cmd[i] == '-' {
+				h.tabs = true
+				i++
+			}
+			for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
+				i++
+			}
+			var word strings.Builder
+			var q byte
+			beg := i
+			for i < len(cmd) {
+				ch := cmd[i]
+				if q == 0 && strings.ContainsRune(" \t\r\n;|&<>()", rune(ch)) {
+					break
+				}
+				i++
+				if ch == '\\' && q != '\'' && i < len(cmd) {
+					word.WriteByte(cmd[i])
+					i++
+					continue
+				}
+				if q != 0 {
+					if ch == q {
+						q = 0
+					} else {
+						word.WriteByte(ch)
+					}
+				} else if ch == '\'' || ch == '"' {
+					q = ch
+				} else {
+					word.WriteByte(ch)
+				}
+			}
+			out.WriteString(cmd[start:i])
+			if i > beg {
+				h.word = word.String()
+				pending = append(pending, h)
+			}
+		}
+		if c == '\n' {
+			for _, h := range pending {
+				for i < len(cmd) {
+					line := cmd[i:]
+					if n := strings.IndexByte(line, '\n'); n >= 0 {
+						line = line[:n]
+						i += n + 1
+					} else {
+						i = len(cmd)
+					}
+					if h.tabs {
+						line = strings.TrimLeft(line, "\t")
+					}
+					if line == h.word {
+						out.WriteString(line + "\n") // the terminator stays, so a second pass is a no-op
+						break
+					}
+				}
+			}
+			pending = nil
+		}
+	}
+	return out.String()
 }
 
 // shellTokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.
