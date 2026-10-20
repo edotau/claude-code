@@ -20,7 +20,7 @@ var skipSimplifyAgents = map[string]bool{
 }
 
 // SimplifyAfterEdits blocks a subagent's FIRST stop when it edited source code, sending it back to run the
-// simplicity pass on those files. Exit 2 on SubagentStop keeps the subagent going with stderr as its next input.
+// simplify pass on those files. Exit 2 on SubagentStop keeps the subagent going with stderr as its next input.
 func SimplifyAfterEdits(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
 	if in.StopHookActive || in.AgentTranscriptPath == "" {
@@ -41,10 +41,10 @@ func SimplifyAfterEdits(r io.Reader, stderr io.Writer) int {
 	}
 	_ = os.MkdirAll(filepath.Dir(flag), 0o700)
 	_ = os.WriteFile(flag, nil, 0o600)
-	fmt.Fprintf(stderr, "You modified source code. Before finishing, run the simplicity pass on it: read "+
+	fmt.Fprintf(stderr, "You modified source code. Before finishing, run the simplify pass on it: read "+
 		"%s and apply its checklist (reuse, needless abstraction, duplicate logic, dead code), and run "+
 		"`claude-code review quality <file>` on each (Go, Python, JS/TS). Make behavior-preserving fixes only, then finish. Files:\n%s\n",
-		filepath.Join(paths.ConfigDir(), "skills", "simplicity", "SKILL.md"), strings.Join(files, "\n"))
+		filepath.Join(paths.ConfigDir(), "skills", "simplify", "SKILL.md"), strings.Join(files, "\n"))
 	return ExitBlock
 }
 

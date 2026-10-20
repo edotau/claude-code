@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
-// reviewTools are the evaluate-code/simplicity detectors, each keeping its former Python CLI.
+// reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.
 var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr io.Writer) int{
 	"quality":     func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunQuality(a, o, e) },
 	"complexity":  func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunComplexity(a, o, e) },

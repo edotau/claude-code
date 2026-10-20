@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 
 One entry point for the coding lifecycle. Dispatches the **claude** agent, which owns
 architecture, quality review, and simplification. It drives the `evaluate-code` and
-`simplicity` skills as its review/cleanup procedures, and pairs with `/security` for the
+`simplify` skills as its review/cleanup procedures, and pairs with `/security` for the
 OWASP pass.
 
 ## Mode (first arg, optional)
@@ -14,7 +14,7 @@ OWASP pass.
 | Arg | Phase | What runs |
 |-----|-------|-----------|
 | *(blank)* or `review` | Review & Simplify | Detectors → quality review (discipline lens) → apply simplifications → verdict |
-| `simplify` | Simplify only | Behavior-preserving cleanups in the diff (`simplicity` skill); no bug hunt |
+| `simplify` | Simplify only | Behavior-preserving cleanups in the diff (`simplify` skill); no bug hunt |
 | `architect <task>` | Architect | Assess codebase, weigh 2-3 approaches, emit a phased `## Plan` |
 
 The remaining args are the scope: an explicit diff range, a path, or blank for the current diff.
@@ -33,11 +33,9 @@ If there's no branch divergence and nothing staged, fall back to `git diff --cac
 ## 2. Detector first pass (advisory)
 
 ```bash
-CR="$HOME/.claude/skills/evaluate-code/scripts"
-SIMP="$HOME/.claude/skills/simplicity/scripts"
 mapfile -d '' -t CHANGED < <(git diff --name-only -z ${RANGE:---cached} | grep -zE '\.(py|ts|tsx|js|jsx|go)$' || true)
-[ "${#CHANGED[@]}" -gt 0 ] && python3 "$SIMP/complexity_checker.py" "${CHANGED[@]}" --threshold medium --json
-python3 "$CR/diff_surgeon.py" --diff "${RANGE:-HEAD~1..HEAD}" --json
+[ "${#CHANGED[@]}" -gt 0 ] && claude-code review complexity "${CHANGED[@]}" --threshold medium --json
+claude-code review diff --diff "${RANGE:-HEAD~1..HEAD}" --json
 ```
 Fold findings into the report by citing specific functions/lines, not raw JSON.
 

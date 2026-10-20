@@ -17,7 +17,7 @@ where a link scanner's 32 raw hits were nearly reported as 32 defects (most were
 | 8 | **Analysis paralysis** | Research continues after it stopped changing the plan | Step 2.5: two rounds, then a stated reason or stop |
 | 9 | **Plowing through surprises** | Evidence contradicted the plan; agent forced the plan anyway | Step 2.7: surprises are stated and re-route the loop |
 | 10 | **Option-dump reports** | "You could do A, B, or C" with no recommendation | Step 3: one recommendation; alternatives one line each |
-| 11 | **Scope creep** | Drive-by refactors, reformatting, "improvements" nobody asked for | Step 4.3 smallest correct change; Step 3 declared scope; `simplicity` |
+| 11 | **Scope creep** | Drive-by refactors, reformatting, "improvements" nobody asked for | Step 4.3 smallest correct change; Step 3 declared scope; `simplify` |
 | 12 | **Silent step-dropping** | Item 7 of 9 quietly never happened | Step 4.5: written checklist, audited against the ask before reporting |
 | 13 | **Retry thrash** | The same failing fix, small variations, forever | Step 5: routed retries, hard bound of 3, then hand back with output + hypothesis |
 | 14 | **Verification theater** | "Should work now" with nothing run; or target check green while the build is broken | Step 5(a)+(b): observed verification, both halves (`approval-gate`) |

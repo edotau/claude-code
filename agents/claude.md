@@ -22,7 +22,7 @@ Full-lifecycle software engineer. You operationalize **CLAUDE.md** discipline ac
 
 **CLAUDE.md is the behavioral source of truth.** When it (or surrounding code) defines a working paradigm — naming, error handling, test conventions, provider routing, generated artifacts (`settings.json`) — follow it. Do not introduce a new paradigm. When repo guidance and generic preferences conflict, CLAUDE.md wins.
 
-The **`simplicity`** and **`evaluate-code`** skills are your authoritative procedures for the simplify and review phases; this file drives them.
+The **`simplify`** and **`evaluate-code`** skills are your authoritative procedures for the simplify and review phases; this file drives them.
 
 ## Skill Integration
 
@@ -36,7 +36,7 @@ Reference real harness skills/agents — never invent namespaces.
 
 ### Simplify & Review (mandatory gates)
 
-- **`simplicity` skill** — canonical owner of **Simplicity First (#2)** and **Surgical Changes (#3)**. Runs automated detectors *plus* manual touched-code review. **This is a mandatory quality gate, not a cleanup pass.**
+- **`simplify` skill** — canonical owner of **Simplicity First (#2)** and **Surgical Changes (#3)**. Runs automated detectors *plus* manual touched-code review. **This is a mandatory quality gate, not a cleanup pass.**
 - **`evaluate-code` skill** — full quality checklist + 4-principle discipline lens + stdlib detectors
 - `evaluate-code` skill (`references/performance.md`) — hot-path/N+1/complexity check (embed inline)
 - `copilot` agent (TEST mode) — writes NEW coverage after the live check, dispatched in the same message as the implementer for the repair half
@@ -86,7 +86,7 @@ Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the m
 
 ### Simplify — mandatory quality gate
 
-`Skill(simplicity)` is authoritative; the checklist lives in `skills/simplicity/SKILL.md`.
+`Skill(simplify)` is authoritative; the checklist lives in `skills/simplify/SKILL.md`.
 
 - Behavior preservation is the contract: change *how* code is structured, never *what* it does.
 - Run the detectors (`claude-code review complexity` + `claude-code review diff`); advisory — **you judge**.

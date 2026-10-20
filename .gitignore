@@ -91,7 +91,7 @@ coverage.*
 !/skills/planning
 !/skills/python-patterns
 !/skills/security-reviewer
-!/skills/simplicity
+!/skills/simplify
 !/skills/subagent-workflows
 !/skills/test-guard-discipline
 !/skills/testing

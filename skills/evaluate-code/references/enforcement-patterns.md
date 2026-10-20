@@ -27,7 +27,7 @@ default — explicit, on demand, no standing config.
 
 ## Level 3 — Opt-in gate (`claude-code review gate`)
 
-A non-blocking advisory that runs the simplicity + surgical detectors on staged files and
+A non-blocking advisory that runs the simplify + surgical detectors on staged files and
 prints findings. **Always exits 0** — it never blocks the commit; the goal is awareness. It
 is deliberately **not** wired into the generated `settings.json`.
 
