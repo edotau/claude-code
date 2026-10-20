@@ -30,6 +30,166 @@ func receipts(t *testing.T) []string {
 	return files
 }
 
+// commitLocked runs one batch under the writable bank lock, the shape every caller uses.
+func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, error) {
+	t.Helper()
+	var rec Receipt
+	err := WithWritableBankLock(BankLockWait, func() error {
+		var err error
+		rec, err = commitChangesLocked(subject, changes)
+		return err
+	})
+	return rec, err
+}
+
+func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
+	store, decoy := storeFixture(t)
+	rec, err := commitLocked(t, "import", []Change{
+		{Rel: "repo/MEMORY.md", Data: []byte("- a\n")},
+		{Rel: "repo/activeContext.md", Data: []byte("# Active\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Applied) != 2 || rec.Commit == "" || len(rec.Divergent)+len(rec.Skipped) != 0 {
+		t.Fatalf("receipt = %+v", rec)
+	}
+	if !strings.Contains(strings.Join(rec.Preexisting, ","), ".gitignore") {
+		t.Fatalf("seeded .gitignore must be swept as preexisting: %+v", rec.Preexisting)
+	}
+	if got := receipts(t); len(got) != 1 {
+		t.Fatalf("receipts = %v", got)
+	}
+	var onDisk Receipt
+	if err := json.Unmarshal([]byte(readStore(t, "receipts/"+rec.ID+".json")), &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.ID != rec.ID || onDisk.Commit != "" || len(onDisk.Applied) != 2 {
+		t.Fatalf("tracked receipt = %+v", onDisk)
+	}
+	st, _ := StoreRepo().Status()
+	if len(st) != 0 {
+		t.Fatalf("store dirty after commit: %+v", st)
+	}
+	if got := journals(t); len(got) != 0 {
+		t.Fatalf("journal left behind: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(store, ".git", "hooks", "pre-push")); err != nil {
+		t.Fatal(err)
+	}
+	// A second identical batch changes no bytes: no receipt, no commit.
+	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n"), Checked: true}})
+	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
+		t.Fatalf("no-op batch = %+v, %v", rec2, err)
+	}
+	if head, _ := StoreRepo().Head(); head != rec.Commit {
+		t.Fatalf("empty commit created: %s != %s", head, rec.Commit)
+	}
+	if got := receipts(t); len(got) != 1 {
+		t.Fatalf("no-op batch wrote a receipt: %v", got)
+	}
+	assertDecoyUntouched(t, decoy)
+}
+
+func TestCommitChangesLockedPreimageRules(t *testing.T) {
+	store, _ := storeFixture(t)
+	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}, {Rel: "r/b.md", Data: []byte("v1\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "r", "b.md"), "edited by native\n")
+	write(t, filepath.Join(store, "r", "native.md"), "native topic\n")
+	rec, err := commitLocked(t, "settle", []Change{
+		{Rel: "r/a.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
+		{Rel: "r/b.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
+		{Rel: "r/new.md", Data: []byte("new\n"), Checked: true},
+		{Rel: "r/also-new.md", Data: []byte("x\n"), Preimage: nil, Checked: true},
+	})
+	if !errors.Is(err, ErrDivergent) {
+		t.Fatalf("err = %v, want ErrDivergent", err)
+	}
+	if strings.Join(rec.Applied, ",") != "r/a.md,r/new.md,r/also-new.md" || strings.Join(rec.Divergent, ",") != "r/b.md" {
+		t.Fatalf("receipt = %+v", rec)
+	}
+	if strings.Join(rec.Preexisting, ",") != "r/native.md" {
+		t.Fatalf("preexisting = %v", rec.Preexisting)
+	}
+	if readStore(t, "r/b.md") != "edited by native\n" {
+		t.Fatal("divergent bytes were overwritten")
+	}
+	if readStore(t, "r/a.md") != "v2\n" {
+		t.Fatal("matching preimage not applied")
+	}
+	st, _ := StoreRepo().Status()
+	if len(st) != 1 || st[0].Path != "r/b.md" {
+		t.Fatalf("only the divergent edit may stay dirty: %+v", st)
+	}
+	// Delete: absent is skipped, present with matching preimage is removed and committed.
+	rec, err = commitLocked(t, "delete", []Change{
+		{Rel: "r/gone.md", Delete: true, Checked: true},
+		{Rel: "r/new.md", Delete: true, Preimage: []byte("new\n"), Checked: true},
+	})
+	if err != nil || strings.Join(rec.Skipped, ",") != "r/gone.md" || strings.Join(rec.Applied, ",") != "r/new.md" {
+		t.Fatalf("delete batch = %+v, %v", rec, err)
+	}
+	if _, err := os.Stat(filepath.Join(store, "r", "new.md")); !os.IsNotExist(err) {
+		t.Fatal("r/new.md not removed")
+	}
+	if out, _ := StoreRepo().run("ls-files", "r/new.md"); out != "" {
+		t.Fatal("deletion not committed")
+	}
+}
+
+// Regression: validateRel rejects an escaping rel, and a symlinked ANCESTOR directory, not just a symlinked
+// leaf file — both must be refused before a journal is ever written (a symlink two levels up could otherwise
+// carry the write anywhere on disk).
+func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *testing.T) {
+	store, _ := storeFixture(t)
+	if _, err := commitLocked(t, "x", []Change{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
+		t.Fatal("escaping rel accepted")
+	}
+	if len(journals(t)) != 0 {
+		t.Fatal("rejected batch wrote a journal")
+	}
+	if StoreRepo().Exists() {
+		t.Fatal("rejected batch initialized the repo")
+	}
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(store, "repo")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commitLocked(t, "escape", []Change{{Rel: "repo/sub/MEMORY.md", Data: []byte("x\n")}}); err == nil {
+		t.Fatal("commit accepted a write through a symlinked ancestor directory")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "sub", "MEMORY.md")); !os.IsNotExist(err) {
+		t.Fatal("bytes escaped through the symlinked ancestor")
+	}
+	if len(journals(t)) != 0 {
+		t.Fatal("refused batch wrote a journal")
+	}
+}
+
+func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
+	store, _ := storeFixture(t)
+	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("a\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	os.WriteFile(outside, []byte("secret-ish"), 0o600)
+	if err := os.Symlink(outside, filepath.Join(store, "r", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := commitLocked(t, "settle", []Change{{Rel: "r/a.md", Data: []byte("b\n")}})
+	if err != nil || len(rec.Preexisting) != 0 {
+		t.Fatalf("symlink swept: %+v, %v", rec, err)
+	}
+	if out, _ := StoreRepo().run("ls-files", "r/link.md"); out != "" {
+		t.Fatal("symlink was committed")
+	}
+}
+
 func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	store, decoy := storeFixture(t)
 	if err := StoreRepo().Ensure(); err != nil {

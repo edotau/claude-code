@@ -52,16 +52,19 @@ func editStore(edit func(*state)) error {
 		s := &state{file: ReadAll(), meta: meta}
 		file0, meta0 := maps.Clone(s.file), maps.Clone(s.meta)
 		edit(s)
-		metaChanged := !maps.Equal(meta0, s.meta)
-		if metaChanged && metaErr != nil { // a bad meta file fails only meta edits; file-plane writes still land
+		fileChanged := !maps.Equal(file0, s.file)
+		// A bad meta file fails a meta-only edit even when it looks like a no-op against the empty
+		// stand-in (e.g. deleting/updating a row the real file holds but this read never saw) — a
+		// silent nil would report success while the corrupt row stays untouched.
+		if metaErr != nil && !fileChanged {
 			return metaErr
 		}
-		if !maps.Equal(file0, s.file) {
+		if fileChanged {
 			if err := writeFile(s.file); err != nil {
 				return err
 			}
 		}
-		if metaChanged {
+		if !maps.Equal(meta0, s.meta) {
 			return writeMeta(s.meta)
 		}
 		return nil
