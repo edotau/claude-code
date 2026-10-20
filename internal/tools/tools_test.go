@@ -169,9 +169,11 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 			if err := InstallSelected(ctx, &out, []string{tc.name}, true); err != nil {
 				t.Fatal(err)
 			}
+			// The code prints symlink-resolved prefixes; macOS TempDir lives under /var → /private/var.
+			realA, realB := mustEvalSymlinks(t, prefixA), mustEvalSymlinks(t, prefixB)
 			want := []string{
-				"  npm      uninstall -g --prefix " + prefixA + " " + tc.pkg,
-				"  npm      uninstall -g --prefix " + prefixB + " " + tc.pkg,
+				"  npm      uninstall -g --prefix " + realA + " " + tc.pkg,
+				"  npm      uninstall -g --prefix " + realB + " " + tc.pkg,
 			}
 			if got := npmCleanupLines(out.String()); !reflect.DeepEqual(got, want) {
 				t.Errorf("cleanup lines = %q, want %q\noutput:\n%s", got, want, out.String())
@@ -322,4 +324,13 @@ func TestInstallSelectedCopilotDryRunReportsInstallDir(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustEvalSymlinks(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
