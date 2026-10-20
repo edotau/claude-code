@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"os"
@@ -13,6 +14,39 @@ import (
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
+
+func TestWriteBackupPreservesCollision(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "settings.json.bak-20261020-120000.123456789")
+	original := []byte("original backup\n")
+	data := []byte("new backup\n")
+	if err := os.WriteFile(base, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	backup, err := writeBackup(base, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backup != base+"-1" {
+		t.Fatalf("backup = %q, want %q", backup, base+"-1")
+	}
+	for path, want := range map[string][]byte{base: original, backup: data} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+	info, err := os.Stat(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("backup mode = %o, want 600", info.Mode().Perm())
+	}
+}
 
 func TestRenderGolden(t *testing.T) {
 	got, err := Render()
@@ -93,7 +127,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop-format") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
-	// PreToolUse carries every registry PreToolUse spec: safety, rtk-wrap, docs-placement, agent-inflight.
+	// PreToolUse carries every registry PreToolUse spec: bash-guard, docs-placement, agent-inflight.
 	wantPre := 0
 	for _, s := range hookspec.Registry {
 		if s.Event == hookspec.EventPreToolUse {
@@ -135,6 +169,32 @@ func TestMergeEmptyAndBackup(t *testing.T) {
 	}
 	if old, _ := os.ReadFile(b); string(old) != "{}\n" {
 		t.Errorf("backup content %q", old)
+	}
+}
+
+func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	original := []byte("{\"original\":true}\n")
+	if err := os.WriteFile(file, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := WriteWithBackup(file, []byte("{\"updated\":true}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := WriteWithBackup(file, []byte("{}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Errorf("back-to-back writes reused backup path %q", first)
+	}
+	got, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("first backup = %q, want %q", got, original)
 	}
 }
 
@@ -182,5 +242,26 @@ func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
 	}
 	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") {
 		t.Errorf("retired = %v", sum.Retired)
+	}
+}
+
+func TestMergeHooksPreservesForeignFieldsAndOrder(t *testing.T) {
+	base := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[
+		{"custom":1,"type":"command","command":"first","tail":false},
+		{"command":"$HOME/.claude/bin/claude-code hook retired-hook"},
+		{"type":"prompt","prompt":"keep this","custom":2}
+	],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
+	want := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[{"custom":1,"type":"command","command":"first","tail":false},{"type":"prompt","prompt":"keep this","custom":2}],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
+	var sum Summary
+	got, err := mergeHooks(json.RawMessage(base), json.RawMessage(`{}`), &sum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, got); err != nil {
+		t.Fatal(err)
+	}
+	if compact.String() != want || sum.ForeignHooks != 3 || sum.HarnessHooks != 0 {
+		t.Fatalf("mergeHooks = %s, %+v", got, sum)
 	}
 }

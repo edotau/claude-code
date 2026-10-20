@@ -367,7 +367,7 @@ func assertStoreCommitCoversImports(t *testing.T, items []MigrateItem) {
 		t.Fatal(err)
 	}
 	tracked := map[string]bool{}
-	for _, l := range strings.Split(lsOut, "\n") {
+	for l := range strings.SplitSeq(lsOut, "\n") {
 		tracked[l] = true
 	}
 	for _, it := range items {

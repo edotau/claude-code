@@ -303,7 +303,7 @@ func (s *streamer) end(err error) error {
 	if err := s.closeBlock(); err != nil {
 		return err
 	}
-	var usage any = map[string]any{"output_tokens": 0}
+	usage := map[string]any{"output_tokens": 0}
 	if s.usage != nil {
 		usage = anthropicUsage(s.usage)
 	}

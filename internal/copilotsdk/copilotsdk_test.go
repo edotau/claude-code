@@ -3,11 +3,44 @@ package copilotsdk
 import (
 	"context"
 	"errors"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
 )
+
+// funcName compares function VALUES by the symbol they point to (PermissionHandlerFunc values are not
+// comparable with ==); it tells approveToolOnce apart from denyAllTools.
+func funcName(f any) string {
+	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
+}
+
+// EnableMemory turns into SessionConfig.Memory only when set, and permissionHandler follows AllowAllTools
+// alone — a session (new or resumed) must carry both consistently.
+func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
+	cfg := BuildSessionConfig(Options{EnableMemory: true, AllowAllTools: true})
+	if cfg.Memory == nil || !cfg.Memory.Enabled {
+		t.Errorf("Memory = %+v, want enabled", cfg.Memory)
+	}
+	if funcName(cfg.OnPermissionRequest) != funcName(approveToolOnce) {
+		t.Errorf("OnPermissionRequest = %s, want approveToolOnce (AllowAllTools=true)", funcName(cfg.OnPermissionRequest))
+	}
+
+	off := BuildSessionConfig(Options{})
+	if off.Memory != nil {
+		t.Errorf("Memory = %+v, want nil (EnableMemory=false)", off.Memory)
+	}
+	if funcName(off.OnPermissionRequest) != funcName(denyAllTools) {
+		t.Errorf("OnPermissionRequest = %s, want denyAllTools (AllowAllTools=false)", funcName(off.OnPermissionRequest))
+	}
+
+	resumed := buildResumeSessionConfig(Options{EnableMemory: true})
+	if resumed.Memory == nil || !resumed.Memory.Enabled {
+		t.Errorf("resumed Memory = %+v, want enabled (mirrors BuildSessionConfig)", resumed.Memory)
+	}
+}
 
 // ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
 func TestListModelsMapsFields(t *testing.T) {

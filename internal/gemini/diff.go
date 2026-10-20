@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -9,16 +10,20 @@ import (
 // ChangedFilesVsHEAD lists tracked files changed against HEAD (staged + unstaged + untracked), which is
 // what a review run is actually about — reviewing the whole tree buries the diff. An error from either
 // git command (not found, no HEAD, not a repo, …) is returned with its stderr instead of being masked.
-func ChangedFilesVsHEAD(root string) ([]string, error) {
+func ChangedFilesVsHEAD(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
 		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
 		{"-C", root, "diff", "--name-only", "--relative", "HEAD"},
 		{"-C", root, "ls-files", "--others", "--exclude-standard"},
 	} {
-		out, err := exec.Command("git", args...).Output()
+		out, err := exec.CommandContext(ctx, "git", args...).Output()
 		if err != nil {
-			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderrOf(err))
+			stderr := stderrOf(err)
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
 		}
 		all = append(all, strings.Split(strings.TrimSpace(string(out)), "\n")...)
 	}

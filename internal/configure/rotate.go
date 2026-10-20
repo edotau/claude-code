@@ -5,6 +5,7 @@ package configure
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -25,12 +26,14 @@ func planeOf(name string) (forceFile bool, source string) {
 // providers.Credential already checks ahead of any stored plane; the previous env is restored after.
 func probeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
 	prev, had := os.LookupEnv(envVar)
-	os.Setenv(envVar, candidate)
+	if err := os.Setenv(envVar, candidate); err != nil {
+		return "unreachable", fmt.Sprintf("cannot set %s for credential probe: %v", envVar, err)
+	}
 	defer func() {
 		if had {
-			os.Setenv(envVar, prev)
+			_ = os.Setenv(envVar, prev)
 		} else {
-			os.Unsetenv(envVar)
+			_ = os.Unsetenv(envVar)
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -86,7 +89,11 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 		d.printf("%-10s logged in again\n", kt.label)
 		return true
 	}
-	tok := runMint(argv)
+	tok, err := runMint(argv)
+	if err != nil {
+		d.printf("%s: %v\n", kt.label, err)
+		return false
+	}
 	if tok == "" {
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
 		return false

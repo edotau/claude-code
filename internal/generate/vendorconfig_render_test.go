@@ -23,7 +23,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -54,7 +54,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out2 bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out2, Agents: []string{"codex"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("second Run: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
@@ -98,7 +98,7 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -133,7 +133,7 @@ func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -171,7 +171,7 @@ func TestCopilotSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -205,7 +205,7 @@ func TestCopilotSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"copilot"}}); err != nil {
+				if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 					t.Fatalf("Run: %v\n%s", err, out.String())
 				}
 			}()

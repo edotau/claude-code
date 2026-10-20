@@ -1,7 +1,6 @@
 package configure
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -133,5 +132,5 @@ func billingLabel(cur string) string {
 	case anthropicRow:
 		return "API key"
 	}
-	return fmt.Sprintf("%s (not anthropic)", cur)
+	return cur + " (not anthropic)"
 }

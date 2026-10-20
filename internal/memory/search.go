@@ -51,8 +51,13 @@ func (h SearchHit) Title() string {
 }
 
 func contentTerms(s string) []string {
+	return ContentQueryTerms(textsim.Tokenize(s))
+}
+
+// ContentQueryTerms filters already tokenized query terms without changing their order or multiplicity.
+func ContentQueryTerms(tokens []string) []string {
 	var out []string
-	for _, t := range textsim.Tokenize(s) {
+	for _, t := range tokens {
 		if !stopwords[t] {
 			out = append(out, t)
 		}
@@ -60,18 +65,14 @@ func contentTerms(s string) []string {
 	return out
 }
 
-// QueryTermCount is the number of distinct content terms in q.
-func QueryTermCount(q string) int {
-	seen := map[string]bool{}
-	for _, t := range contentTerms(q) {
-		seen[t] = true
-	}
-	return len(seen)
-}
-
 // SearchBanks ranks every block of root's local, global and archive banks plus native topics; top k (0 = all).
 func SearchBanks(root, query string, k int) []SearchHit {
-	return rankBlocks(query, k, append(corpusBlocks(root), routedBlocks(root, query)...))
+	return SearchBanksTerms(root, query, contentTerms(query), k)
+}
+
+// SearchBanksTerms ranks banks using the caller's pretokenized content terms.
+func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
+	return rankTermBlocks(terms, k, append(corpusBlocks(root), routedBlocks(root, query)...))
 }
 
 // SearchAll ranks the global tier plus every repo store as one corpus (`memory search --all`).
@@ -89,7 +90,10 @@ func SearchAll(query string, k int) []SearchHit {
 
 // rankBlocks is BM25 over blocks (title line weighted); top k (0 = all).
 func rankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
-	qTerms := contentTerms(query)
+	return rankTermBlocks(contentTerms(query), k, blocks)
+}
+
+func rankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHit {
 	if len(qTerms) == 0 {
 		return nil
 	}
@@ -161,6 +165,7 @@ type searchSource struct {
 	bank      string
 	knowledge bool // whole-file blocks: a knowledge note is one topic, not a heading grammar
 	files     []string
+	data      map[string][]byte
 	native    bool // one-fact topic files with frontmatter, not entry-block bank files
 }
 
@@ -169,9 +174,13 @@ func corpusBlocks(root string) []SearchHit {
 	var out []SearchHit
 	for _, src := range searchSources(root) {
 		for _, path := range src.files {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
+			data, loaded := src.data[path]
+			if !loaded {
+				var err error
+				data, err = os.ReadFile(path)
+				if err != nil {
+					continue
+				}
 			}
 			base := filepath.Base(path)
 			if src.knowledge {
@@ -211,8 +220,8 @@ func searchSources(root string) []searchSource {
 		out = append(out, searchSource{bank: "archive", files: archived})
 	}
 	for _, dir := range NativeDirs(root) {
-		if topics := topicPaths(dir); len(topics) > 0 {
-			out = append(out, searchSource{bank: "native", files: topics, native: true})
+		if topics, data := topicContents(dir); len(topics) > 0 {
+			out = append(out, searchSource{bank: "native", files: topics, data: data, native: true})
 		}
 	}
 	if CutOver() { // tracked long-term knowledge: cross-repo top plus this repo's subdir

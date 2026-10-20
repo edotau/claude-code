@@ -19,6 +19,10 @@ built-in Plan agent, so plan mode uses it too). It holds the plan template (Cont
 the phase rules, the self-review checklist, the detector pass, and where plans are filed
 (`~/.claude/plans/[<repo-slug>/]YYYY-MM-DD-<slug>.md`, via the `save-plan` hook). Edit Mode 1 there, not here.
 `/workflow:orchestrate` stage handoffs sit beside plans as `~/.claude/plans/stages/YYYY-MM-DD-<task-id>.md`.
+The `plan-template` gate and `plan-mirror` hook keep plan mode's native undated draft mirrored to that dated
+name from its first write, so it is never the file of record even mid-draft.
+Every `## Tasks` line is leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings/edits, named
+`runner:` and `owns:` — so more agents can fan out and none dies mid-task.
 
 ## Mode 2: Generate Blueprints
 

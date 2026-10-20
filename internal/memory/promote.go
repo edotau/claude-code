@@ -155,10 +155,8 @@ func promoteFile(localPath, globalPath string, capLines int, now time.Time) (int
 
 	// Credential gate: refuse the whole promote rather than spread a leaked value into the shared
 	// global bank (whence it rides every session's injection). Scrub the block to unblock.
-	for _, b := range overflow {
-		if credentialPattern.MatchString(b) {
-			return 0, fmt.Errorf("%s: possible credential in overflow block — scrub it, then re-run promote", base)
-		}
+	if slices.ContainsFunc(overflow, credentialPattern.MatchString) {
+		return 0, fmt.Errorf("%s: possible credential in overflow block — scrub it, then re-run promote", base)
 	}
 
 	// Dedup overflow against what's already in the global file.

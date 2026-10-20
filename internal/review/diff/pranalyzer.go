@@ -137,7 +137,7 @@ func changedFiles(repo, base, head string) []PRFileAnalysis {
 	if !ok {
 		return files
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -181,7 +181,7 @@ func categorizeFile(filepath string) (string, int) {
 func analyzeDiffForRisks(diffContent, filepath string) []PRRisk {
 	risks := []PRRisk{}
 	var added []string
-	for _, line := range strings.Split(diffContent, "\n") {
+	for line := range strings.SplitSeq(diffContent, "\n") {
 		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
 			added = append(added, line[1:])
 		}
@@ -197,7 +197,7 @@ func analyzeDiffForRisks(diffContent, filepath string) []PRRisk {
 }
 
 func countChanges(diffContent string) (additions, deletions int) {
-	for _, line := range strings.Split(diffContent, "\n") {
+	for line := range strings.SplitSeq(diffContent, "\n") {
 		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
 			additions++
 		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
@@ -232,9 +232,10 @@ func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
 	}
 	critical, high := 0, 0
 	for _, r := range allRisks {
-		if r.Severity == "critical" {
+		switch r.Severity {
+		case "critical":
 			critical++
-		} else if r.Severity == "high" {
+		case "high":
 			high++
 		}
 	}

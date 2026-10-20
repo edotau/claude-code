@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -46,7 +48,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if p.Auth.Command != "" {
 		return commandCredential(ctx, p, false)
 	}
-	return "", fmt.Errorf("%s: no credential (set %s in the env or %s%s)", p.Name, orDash(p.Auth.Env), SecretsFile(), hint(p))
+	return "", fmt.Errorf("%s: no credential (set %s in the env or %s%s)", p.Name, orDash(p.Auth.Env), paths.SecretsFile(), hint(p))
 }
 
 // Refresh drops a cached command credential and re-runs it; used after an upstream 401.

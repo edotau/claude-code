@@ -35,7 +35,7 @@ func ParseFrontmatter(content string) (map[string]any, string) {
 	var currentList []string
 	haveList := false
 
-	for _, line := range strings.Split(m[1], "\n") {
+	for line := range strings.SplitSeq(m[1], "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -76,7 +76,7 @@ func parseScalar(value string) any {
 	}
 	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
 		items := []string{}
-		for _, part := range strings.Split(value[1:len(value)-1], ",") {
+		for part := range strings.SplitSeq(value[1:len(value)-1], ",") {
 			if part = strings.TrimSpace(part); part != "" {
 				items = append(items, stripQuotes(part))
 			}
@@ -115,8 +115,8 @@ func stripQuotes(s string) string { return strings.Trim(s, "\"'") }
 // firstSentence collapses a multi-line description to its first sentence.
 func firstSentence(description string) string {
 	text := strings.Join(strings.Fields(description), " ")
-	if idx := strings.Index(text, ". "); idx >= 0 {
-		return text[:idx] + "."
+	if before, _, ok := strings.Cut(text, ". "); ok {
+		return before + "."
 	}
 	return text
 }

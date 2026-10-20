@@ -74,6 +74,11 @@ func TestConfigure(t *testing.T) {
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
 			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
 			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
+		// --auto and each -f ride before the "--" that stops -f from swallowing the prompt as another path.
+		{vendor: "opencode", provider: "openai", model: "gpt-5",
+			h:        &Headless{Prompt: "hi", Autonomous: true, Attach: []string{"/tmp/a.txt", "/tmp/b.txt"}},
+			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--auto", "-f", "/tmp/a.txt", "-f", "/tmp/b.txt", "--", "hi"},
+			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
 		{vendor: "copilot", provider: "anthropic", model: "claude-opus-5",
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "anthropic", "COPILOT_PROVIDER_API_KEY": secret, "COPILOT_PROVIDER_BEARER_TOKEN": "", "COPILOT_MODEL": "claude-opus-5"}},
 		{vendor: "copilot", provider: "openai", model: "gpt-5",
@@ -303,6 +308,42 @@ func TestOpenCodeConfigShape(t *testing.T) {
 	if strings.Contains(envMap(env)["OPENCODE_CONFIG_CONTENT"], secret) || strings.Contains(strings.Join(argv, " "), secret) {
 		t.Error("secret inlined into config or argv")
 	}
+}
+
+// TestOpenCodeDirArgv covers both argv builders opencode's workdir plumbing goes through: the BYOK/gateway
+// builder (opencode(), reached via ConfigureHeadless) and the hub ladder's own (OpencodeRunArgv). Both must
+// add --dir only when Headless.WorkDir is set, and never otherwise.
+func TestOpenCodeDirArgv(t *testing.T) {
+	t.Run("BYOK builder", func(t *testing.T) {
+		tg := target(t, "gateway", "anthropic/claude-opus-5")
+		_, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i := slices.Index(argv, "--dir"); i == -1 || argv[i+1] != "/work/dir" {
+			t.Errorf("argv = %q, want --dir /work/dir", argv)
+		}
+
+		_, argv, err = ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(argv, "--dir") {
+			t.Errorf("argv = %q, must not contain --dir when WorkDir is unset", argv)
+		}
+	})
+
+	t.Run("hub ladder", func(t *testing.T) {
+		_, argv := OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		if i := slices.Index(argv, "--dir"); i == -1 || argv[i+1] != "/work/dir" {
+			t.Errorf("argv = %q, want --dir /work/dir", argv)
+		}
+
+		_, argv = OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
+		if slices.Contains(argv, "--dir") {
+			t.Errorf("argv = %q, must not contain --dir when WorkDir is unset", argv)
+		}
+	})
 }
 
 // agy has no custom base URL, so a gateway provider for the gemini vendor must fail fast with a clear error.

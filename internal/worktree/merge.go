@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -25,12 +26,18 @@ func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeRe
 	} else if issue != nil {
 		return nil, fmt.Errorf("integrate: %s: %v", issue.Code, issue.Detail)
 	}
-	before := headOf(plan.WorktreePath)
+	before, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
 	out, err := runGit(ctx, plan.WorktreePath, nil, "merge", "--no-edit", plan.TargetOID)
 	if err != nil {
 		return nil, fmt.Errorf("git merge inside worktree: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}
-	after := headOf(plan.WorktreePath)
+	after, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
 	plan.IntegratedOID = after // pins exactly what Promote is allowed to fast-forward onto
 	return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 }
@@ -55,7 +62,7 @@ func Promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, er
 
 func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if plan.IntegratedOID == "" {
-		return nil, fmt.Errorf("promote: no verified integration OID pinned — call IntegrateTarget first")
+		return nil, errors.New("promote: no verified integration OID pinned — call IntegrateTarget first")
 	}
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
@@ -75,8 +82,14 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
 	}
 
-	freshTarget := headOf(repo.Main)
-	freshSource := headOf(plan.WorktreePath)
+	freshTarget, err := headOfContext(ctx, repo.Main)
+	if err != nil {
+		return nil, err
+	}
+	freshSource, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
 	if freshTarget != plan.TargetOID {
 		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree merge to re-integrate and retry"},
 			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)

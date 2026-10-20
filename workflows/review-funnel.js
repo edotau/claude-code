@@ -134,10 +134,18 @@ log(
 // ── The funnel: find -> per-finding refute -> verify survivors ──────────────
 // pipeline(): dimension A's findings refute/verify while dimension B is still finding.
 // Sequential per finding by design — half the verify tokens vs parallel 2x reasoning-tier.
+// Shared pool: ≤8 deep-context agents at once (rules/workflow/agents.md).
+const MAX_CONC = 8;
+let running = 0;
+const waiters = [];
+const acquire = () => running < MAX_CONC ? (running++, Promise.resolve()) : new Promise(r => waiters.push(r));
+const release = () => { const w = waiters.shift(); if (w) w(); else running-- };
+const pooled = async (fn) => { await acquire(); try { return await fn() } finally { release() } };
+
 const funneled = await pipeline(
   dimensions,
   (d) =>
-    agent(
+    pooled(() => agent(
       `You are one dimension of a code-review fan-out. Read code, report findings — do NOT edit anything.\n\n` +
         `${scopeText}\n\n` +
         `Your ONE dimension — report only findings of this kind: ${d.prompt}\n\n` +
@@ -150,12 +158,12 @@ const funneled = await pipeline(
         agentType: "code-worker", model: "sonnet",
         effort: "medium",
       },
-    ),
+    )),
   (found, d) =>
     parallel(
       (found?.findings || []).map(
         (f) => () =>
-          agent(
+          pooled(() => agent(
             `Adversarially REFUTE this code-review finding. Read the actual code at ${f.file}:${f.line} and around it.\n\n` +
               `Finding [${f.severity}] (${d.key}): ${f.title}\n${f.detail}\n\n` +
               `Set refuted=true ONLY when you can concretely show it is wrong (the reviewer misread the code), ` +
@@ -168,14 +176,14 @@ const funneled = await pipeline(
               agentType: "code-worker", model: "sonnet",
               effort: "medium",
             },
-          ).then((r) =>
+          )).then((r) =>
             !r || r.refuted
               ? {
                   finding: f,
                   dimension: d.key,
                   killed: r?.reason || "refuter returned no result",
                 }
-              : agent(
+              : pooled(() => agent(
                   `Final verification of a code-review finding that survived a first adversarial pass. ` +
                     `Read ${f.file}:${f.line} and every caller/dependency needed to be certain.\n\n` +
                     `Finding [${f.severity}] (${d.key}): ${f.title}\n${f.detail}\n\n` +
@@ -188,7 +196,7 @@ const funneled = await pipeline(
                     model: "opus",
                     effort: "high",
                   }, // funnel stage 2: the one reasoning-tier call — pinned opus so it never inherits the session model
-                ).then((v) => ({ finding: f, dimension: d.key, verdict: v })),
+                )).then((v) => ({ finding: f, dimension: d.key, verdict: v })),
           ),
       ),
     ),

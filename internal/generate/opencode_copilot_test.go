@@ -41,7 +41,7 @@ func TestRenderOpenCodeCopilotWritesModelAndSmallModel(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -99,7 +99,7 @@ func TestRenderOpenCodeCopilotBacksUpStaleJSONC(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -133,7 +133,7 @@ func TestRenderOpenCodeCopilotBacksUpStaleJSONC(t *testing.T) {
 func TestOpenCodeNonCopilotRouteUnchangedByTheCopilotFeature(t *testing.T) {
 	home := scratch(t) // no github-copilot login written: openai (the registry default) serves opencode as before
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"opencode", "gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode", "gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	raw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))

@@ -70,7 +70,7 @@ func validateBindAddr(addr string) (net.IP, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("web: --addr %q: host must be a literal IP, not a name", addr)
 	}
-	if !(ip.IsLoopback() || isCGNAT(ip)) {
+	if !ip.IsLoopback() && !isCGNAT(ip) {
 		return nil, fmt.Errorf("web: --addr %q: refused — only a loopback or tailnet 100.64.0.0/10 address may be bound", addr)
 	}
 	return ip, nil

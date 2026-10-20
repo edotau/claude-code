@@ -65,7 +65,7 @@ func SeenBlocks(sessionID string) map[string]bool {
 		return out
 	}
 	data, _ := os.ReadFile(p)
-	for _, k := range strings.Fields(string(data)) {
+	for k := range strings.FieldsSeq(string(data)) {
 		out[k] = true
 	}
 	return out

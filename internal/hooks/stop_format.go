@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -37,8 +38,10 @@ func StopFormat(r io.Reader) int {
 	if cwd == "" {
 		return ExitProceed
 	}
+	ctx, cancel := hookContext("stop-format")
+	defer cancel()
 	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
-	changed := changedFiles(cwd)
+	changed := changedFiles(ctx, cwd)
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
 		return ExitProceed
@@ -53,9 +56,7 @@ func StopFormat(r io.Reader) int {
 		return ExitProceed
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
-	for file, key := range formatAll(eligible) {
-		carry[file] = key
-	}
+	maps.Copy(carry, formatAll(eligible))
 	if data, err := json.Marshal(carry); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}
@@ -94,9 +95,7 @@ func formatAll(files []string) map[string]string {
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	for _, f := range files {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if !formatFile(f) {
@@ -107,7 +106,7 @@ func formatAll(files []string) map[string]string {
 				out[f] = stampKey(fi)
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	go func() { wg.Wait(); close(done) }()
 	select {
@@ -141,23 +140,32 @@ func loadStamps(path string) map[string]string {
 }
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.
-func changedFiles(cwd string) []string {
+func changedFiles(ctx context.Context, cwd string) []string {
+	data, err := exec.CommandContext(ctx, "git", "-C", cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all").Output()
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	root := repoRootOf(cwd)
+	if root == "" {
+		return nil
+	}
 	var out []string
-	seen := map[string]bool{}
-	for _, args := range [][]string{
-		{"diff", "--name-only", "--relative", "-z"},
-		{"diff", "--name-only", "--cached", "--relative", "-z"},
-		{"ls-files", "--others", "--exclude-standard", "-z"},
-	} {
-		b, err := exec.Command("git", append([]string{"-C", cwd}, args...)...).Output()
-		if err != nil {
+	records := strings.Split(string(data), "\x00")
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if len(record) < 4 {
 			continue
 		}
-		for _, p := range strings.Split(string(b), "\x00") {
-			if p != "" && !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+		status, path := record[:2], record[3:]
+		if strings.ContainsAny(status, "RC") {
+			i++
+		}
+		if status == "  " || status == "!!" {
+			continue
+		}
+		rel, err := filepath.Rel(cwd, filepath.Join(root, path))
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			out = append(out, rel)
 		}
 	}
 	return out

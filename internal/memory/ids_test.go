@@ -24,7 +24,7 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 	}
 	data, _ := os.ReadFile(log)
 	var id string
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(l, "## 2026-10-18") {
 			id = BlockID(l)
 		}

@@ -56,7 +56,7 @@ func TestRunComplexityPythonShapeOnly(t *testing.T) {
 	if code := RunComplexity([]string{"assumption_linter.py", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
 	}
-	var got map[string]interface{}
+	var got map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("invalid JSON: %v\noutput: %s", err, stdout.String())
 	}
@@ -65,11 +65,11 @@ func TestRunComplexityPythonShapeOnly(t *testing.T) {
 			t.Errorf("missing key %q in output: %s", key, stdout.String())
 		}
 	}
-	results, ok := got["results"].([]interface{})
+	results, ok := got["results"].([]any)
 	if !ok || len(results) != 1 {
 		t.Fatalf("expected 1 result, got %v", got["results"])
 	}
-	r0 := results[0].(map[string]interface{})
+	r0 := results[0].(map[string]any)
 	if r0["file"] != "assumption_linter.py" || r0["language"] != "python" {
 		t.Errorf("result[0] shape wrong: %v", r0)
 	}
@@ -95,5 +95,30 @@ func TestRunComplexityBadFlag(t *testing.T) {
 	code := RunComplexity([]string{"--nope", "x.py"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	}
+}
+
+func TestRunComplexityWarnsAndSkipsUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "broken.go")
+	if err := os.Symlink(filepath.Join(dir, "missing.go"), broken); err != nil {
+		t.Skipf("cannot create dangling symlink: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := RunComplexity([]string{dir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("[warning] could not read "+broken+":")) {
+		t.Fatalf("stderr = %q, want unreadable-file warning", stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("0 files")) {
+		t.Fatalf("stdout = %q, want a report excluding the unreadable file", stdout.String())
+	}
+}
+
+func TestAnalyzeFileComplexityReturnsReadError(t *testing.T) {
+	_, err := analyzeFileComplexity(filepath.Join(t.TempDir(), "missing.go"), complexityThresholds["medium"])
+	if err == nil {
+		t.Fatal("analyzeFileComplexity did not report a read error")
 	}
 }

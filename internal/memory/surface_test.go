@@ -75,7 +75,7 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 	}
 	var cat strings.Builder
 	cat.WriteString("# Memory catalog\n\n")
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
 	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
@@ -87,7 +87,7 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 	if strings.Contains(s, "- repo-199") {
 		t.Error("catalog truncation did not actually cut the tail")
 	}
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if strings.HasPrefix(l, "- repo-") && !strings.Contains(l, "/MEMORY.md") {
 			t.Errorf("a catalog row was cut mid-line: %q", l)
 		}

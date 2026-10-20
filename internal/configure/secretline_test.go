@@ -22,3 +22,23 @@ func TestSecretLineEchoesMaskedPreview(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretLineFallbackPreservesInputAndOutput(t *testing.T) {
+	for _, in := range []string{"", "\n", "  plain value  \r\n", "NAME=private-value\n", "unterminated-value"} {
+		t.Run(strings.TrimSpace(in), func(t *testing.T) {
+			d, out := newDialog(in)
+			got, err := secretLine(d, "> ")
+			want := strings.TrimRight(in, "\r\n")
+			if err != nil || got != want {
+				t.Fatalf("secretLine = (%q, %v), want (%q, nil)", got, err, want)
+			}
+			wantOut := "> \n"
+			if _, value := ParseAssignment(want); value != "" {
+				wantOut += "  pasted  " + pastePreview(want) + "\n"
+			}
+			if out.String() != wantOut {
+				t.Errorf("output = %q, want %q", out.String(), wantOut)
+			}
+		})
+	}
+}

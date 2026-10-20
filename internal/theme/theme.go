@@ -3,8 +3,11 @@
 package theme
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +16,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
 )
+
+var beforeWrite func(dest string)
 
 // Dir is the tracked theme directory.
 func Dir() string { return filepath.Join(paths.ConfigDir(), "theme") }
@@ -114,21 +119,50 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return false, "", err
 	}
+	if beforeWrite != nil {
+		beforeWrite(dest)
+	}
+	fresh, err := os.ReadFile(dest)
+	if err != nil && !os.IsNotExist(err) {
+		return false, "", err
+	}
+	if !bytes.Equal(fresh, raw) {
+		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
+	}
 	if len(raw) > 0 {
-		backup = dest + ".bak-" + time.Now().Format("20060102-150405")
-		if err := paths.AtomicWrite(backup, raw, 0o600); err != nil {
+		backup, err = writeBackup(dest+".bak-"+time.Now().Format("20060102-150405.000000000"), raw)
+		if err != nil {
 			return false, "", err
 		}
 	}
 	return true, backup, paths.AtomicWrite(dest, append(body, '\n'), 0o600)
 }
 
+func writeBackup(base string, data []byte) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Close()); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
+}
+
 // deepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.
 func deepMerge(base, overlay map[string]any) map[string]any {
 	out := make(map[string]any, len(base)+len(overlay))
-	for k, v := range base {
-		out[k] = v
-	}
+	maps.Copy(out, base)
 	for k, v := range overlay {
 		if ov, ok := v.(map[string]any); ok {
 			if bv, ok := out[k].(map[string]any); ok {

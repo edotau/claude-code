@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -111,13 +112,13 @@ func ComposePromotedSurface(dir string, budget int) string {
 		used += len(head)
 		var kept []string
 		omitted := 0
-		for i := len(blocks) - 1; i >= 0; i-- {
-			cost := len(blocks[i]) + 2
+		for i, block := range slices.Backward(blocks) {
+			cost := len(block) + 2
 			if used+cost > budget {
 				omitted = i + 1
 				break
 			}
-			kept = append(kept, blocks[i])
+			kept = append(kept, block)
 			used += cost
 		}
 		if omitted > 0 {
@@ -238,7 +239,7 @@ func nativeLinked(root, dir string) bool {
 func sectionBody(text, heading string) string {
 	var out []string
 	in := false
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if strings.HasPrefix(l, "## ") {
 			if in {
 				break

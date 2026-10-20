@@ -228,7 +228,7 @@ func pickCopilotModels(d *dialog) {
 		suffix = " opencode_fallback=" + fallback
 	}
 	d.printf("copilot models: wrote %s (opus=%s sonnet=%s haiku=%s%s)\n",
-		providers.UserFile(), picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
+		paths.ProvidersOverlay(), picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
 }
 
 // WriteGithubCopilotModels validates picks (must name exactly opus/sonnet/haiku, each a non-empty id) and

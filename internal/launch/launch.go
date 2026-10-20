@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -29,6 +31,7 @@ type Options struct {
 	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	Router   bool
 	PrintEnv bool
+	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 }
 
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
@@ -58,6 +61,15 @@ func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
 			o.Router = true
 		case a == "--print-env":
 			o.PrintEnv = true
+		case name == "--keep-env":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return o, nil, fmt.Errorf("%s needs a value", name)
+				}
+				i++
+				val = args[i]
+			}
+			o.KeepEnv = append(o.KeepEnv, strings.Split(val, ",")...)
 		default:
 			rest = append(rest, a)
 		}
@@ -71,6 +83,7 @@ type Plan struct {
 	Argv        []string
 	Set         map[string]string
 	Unset       []string
+	Keep        []string // names the credential scrub must not drop, from Options.KeepEnv
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
@@ -132,18 +145,39 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
+	setModelSlotEnv(&plan, sel)
+	main := models.Opus
+	if o.Tier != "" {
+		main = o.Tier
+	}
+	if err := setMainModel(&plan, sel, p, main); err != nil {
+		return Plan{}, err
+	}
+	plan.Set[providers.PinProvider] = p.Name
+	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
+	if err != nil {
+		return Plan{}, err
+	}
+	applyOverlay(&plan, passthrough, args, helper)
+	plan.Argv = append(plan.Argv, args...)
+	plan.Keep = o.KeepEnv
+	return plan, nil
+}
+
+// setModelSlotEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every slot the selection resolved.
+func setModelSlotEnv(plan *Plan, sel providers.Selection) {
 	for _, slot := range models.Slots {
 		if m := sel.ClientModel(slot); m != "" {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = m
 		}
 	}
-	main := models.Opus
-	if o.Tier != "" {
-		main = o.Tier
-	}
-	opus := sel.ClientModel(main)
+}
+
+// setMainModel resolves the main-loop model for tier and sets ANTHROPIC_MODEL + thinking knobs.
+func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, tier string) error {
+	opus := sel.ClientModel(tier)
 	if opus == "" {
-		return Plan{}, fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, main, main)
+		return fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, tier, tier)
 	}
 	plan.Set["ANTHROPIC_MODEL"] = opus
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
@@ -152,41 +186,50 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 			plan.Set["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = disable
 		}
 	}
-	plan.Set[providers.PinProvider] = p.Name
+	return nil
+}
+
+// configureRouting wires the router base URL/headers when needed, else the provider's own route, and
+// returns the apiKeyHelper command for the overlay.
+func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
 	helper := shellQuote(self) + " token --provider " + shellQuote(p.Name)
 	if o.Router || sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
 			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
-				return Plan{}, fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
+				return "", fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
 			}
 		}
 		base, err := ensureRouter(ctx)
 		if err != nil {
-			return Plan{}, fmt.Errorf("router: %w", err)
+			return "", fmt.Errorf("router: %w", err)
 		}
 		plan.Set["ANTHROPIC_BASE_URL"] = router.SessionBase(base, p.Name)
 		if passthrough {
 			// The login stays in Authorization, so the router secret rides in its own header.
 			secret, err := router.ClientSecret()
 			if err != nil {
-				return Plan{}, fmt.Errorf("router secret: %w", err)
+				return "", fmt.Errorf("router secret: %w", err)
 			}
 			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = router.ClientHeader + ": " + secret
 		}
-		helper = shellQuote(self) + " token --router"
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
-	} else {
-		if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
-			plan.Set["ANTHROPIC_BASE_URL"] = route
-		}
-		if h := customHeaders(p.Headers); h != "" {
-			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = h
-		}
-		if !providers.CredentialPresent(p) {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
-		}
-		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json")
+		return shellQuote(self) + " token --router", nil
 	}
+	if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
+		plan.Set["ANTHROPIC_BASE_URL"] = route
+	}
+	if h := customHeaders(p.Headers); h != "" {
+		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = h
+	}
+	if !providers.CredentialPresent(p) {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
+	}
+	plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json")
+	return helper, nil
+}
+
+// applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
+func applyOverlay(plan *Plan, passthrough bool, args []string, helper string) {
 	if passthrough {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
 		if !headless(args) {
@@ -198,13 +241,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 				plan.Set[oauthKey] = tok
 			}
 		}
-	} else {
-		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
-		plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
-		plan.Argv = []string{"--settings", plan.OverlayPath}
+		return
 	}
-	plan.Argv = append(plan.Argv, args...)
-	return plan, nil
+	plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
+	plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
+	plan.Argv = []string{"--settings", plan.OverlayPath}
 }
 
 // headless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
@@ -216,6 +257,12 @@ func headless(args []string) bool {
 // back to the vendor's own subscription login or a keyed provider when the session provider cannot
 // serve it and the caller named no provider explicitly.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
+	plan, err := vendorPlan(ctx, name, o, args)
+	plan.Keep = o.KeepEnv
+	return plan, err
+}
+
+func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	spec, ok := vendors.Lookup(name)
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
@@ -227,35 +274,33 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	// Only --provider is explicit: the session pin (env or file) is Claude Code's default, not a per-vendor choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
+	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
+	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
 	if errors.Is(err, vendors.ErrOwnLogin) {
-		fmt.Fprintln(os.Stderr, note)
+		if showOwnLoginNote {
+			fmt.Fprintln(os.Stderr, note)
+		}
 		return plainPlan(spec, args)
 	}
 	if err != nil {
 		return Plan{}, err
 	}
-	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
-	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
+		if showOwnLoginNote {
+			fmt.Fprintln(os.Stderr, note)
+		}
 		return plainPlan(spec, args)
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
 	}
 	if err != nil {
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
-			reg, sel, err = selection(o)
-			if err == nil {
-				target, note, err = vendors.ResolveTarget(reg, name, sel, explicit)
-			}
-			if err == nil {
-				if note != "" {
-					fmt.Fprintln(os.Stderr, note)
-				}
-				env, prefix, err = vendors.Configure(ctx, name, target, "")
-			}
+			env, prefix, err = retryVendorConfigure(ctx, name, o)
 		}
 		if errors.Is(err, vendors.ErrOwnLogin) {
 			return plainPlan(spec, args)
@@ -269,6 +314,34 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		return Plan{}, err
 	}
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
+}
+
+func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
+	reg, sel, err := selection(o)
+	if err != nil {
+		return nil, nil, err
+	}
+	target, note, err := vendors.ResolveTarget(reg, name, sel, o.Provider != "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	return vendors.Configure(ctx, name, target, "")
+}
+
+func interactiveVendorArgs(args []string) bool {
+	if len(args) > 0 && args[0] == "run" {
+		return false
+	}
+	for _, arg := range args {
+		switch arg {
+		case "--version", "-v", "-V", "--help", "-h":
+			return false
+		}
+	}
+	return true
 }
 
 // envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
@@ -319,8 +392,9 @@ func (p Plan) envWith(base []string, custom map[string]string) []string {
 	return p.plainEnv(base)
 }
 
-// plainEnv is base minus Unset/Set keys, plus Set.
+// plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
 func (p Plan) plainEnv(base []string) []string {
+	base, _ = envscrub.Scrub(base, envscrub.KeepSet(p.Keep))
 	drop := map[string]bool{}
 	for _, k := range p.Unset {
 		drop[k] = true
@@ -343,10 +417,8 @@ func (p Plan) plainEnv(base []string) []string {
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
 func (p Plan) Print(w io.Writer) {
 	fmt.Fprintf(w, "binary   %s\nargv     %s\n", p.Binary, strings.Join(p.Argv, " "))
-	for _, k := range p.Unset {
-		if _, set := p.Set[k]; !set && os.Getenv(k) != "" {
-			fmt.Fprintf(w, "unset    %s\n", k)
-		}
+	for _, k := range p.unsetNames() {
+		fmt.Fprintf(w, "unset    %s\n", k)
 	}
 	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		v := p.Set[k]
@@ -372,6 +444,24 @@ func (p Plan) Print(w io.Writer) {
 	for _, warn := range p.Warnings {
 		fmt.Fprintf(w, "warning  %s\n", warn)
 	}
+}
+
+// unsetNames is every inherited var this plan drops from the real environment: the fixed Anthropic
+// wipe list plus whatever the credential scrub catches, minus anything the plan itself sets.
+func (p Plan) unsetNames() []string {
+	names := map[string]bool{}
+	for _, k := range p.Unset {
+		if _, set := p.Set[k]; !set && os.Getenv(k) != "" {
+			names[k] = true
+		}
+	}
+	_, dropped := envscrub.Scrub(os.Environ(), envscrub.KeepSet(p.Keep))
+	for _, k := range dropped {
+		if _, set := p.Set[k]; !set {
+			names[k] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(names))
 }
 
 // WriteOverlay writes the --settings overlay the argv names, when the plan has one.

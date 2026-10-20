@@ -32,7 +32,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		return agent.Result{}, err
 	}
 
-	files, err := diffFiles(o)
+	files, err := diffFiles(ctx, o)
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -51,7 +51,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	} else if maxFiles <= 0 {
 		maxFiles = DefaultMaxFiles
 	}
-	ctxFiles, err := CollectContext(o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
+	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -123,17 +123,17 @@ func resolveProvider(o Options) (*providers.Registry, providers.Selection, *prov
 
 // diffFiles returns o.Files, plus files changed vs HEAD when o.Diff is set; a git failure or an empty
 // diff is a usage error, not a silent full-tree fallback.
-func diffFiles(o Options) ([]string, error) {
+func diffFiles(ctx context.Context, o Options) ([]string, error) {
 	files := append([]string{}, o.Files...)
 	if !o.Diff {
 		return files, nil
 	}
-	changed, err := ChangedFilesVsHEAD(o.Cwd)
+	changed, err := ChangedFilesVsHEAD(ctx, o.Cwd)
 	if err != nil {
 		return nil, fmt.Errorf("--diff: %w", err)
 	}
 	if len(changed) == 0 {
-		return nil, fmt.Errorf("--diff: nothing changed vs HEAD")
+		return nil, errors.New("--diff: nothing changed vs HEAD")
 	}
 	return append(files, changed...), nil
 }

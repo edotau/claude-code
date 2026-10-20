@@ -2,9 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // writeFixtureFile creates path (with parents) holding content.
@@ -52,6 +57,150 @@ func TestCmdAgentsTreeRejectsBadFormat(t *testing.T) {
 	}
 	if stderr == "" {
 		t.Error("expected an error on stderr for an unknown --format value")
+	}
+}
+
+// attachFlag.Set resolves a real file to an absolute path and errors on anything else: missing,
+// directory, or a path flag.Abs itself cannot resolve.
+func TestAttachFlagSet(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "a.txt")
+	writeFixtureFile(t, f, "hi")
+
+	var a attachFlag
+	if err := a.Set(f); err != nil {
+		t.Fatalf("Set(%q): %v", f, err)
+	}
+	if len(a) != 1 || a[0] != f {
+		t.Errorf("a = %q, want [%q]", a, f)
+	}
+
+	if err := a.Set(filepath.Join(dir, "missing.txt")); err == nil {
+		t.Error("Set on a missing path: want an error, got nil")
+	}
+	if err := a.Set(dir); err == nil {
+		t.Error("Set on a directory: want an error, got nil")
+	}
+}
+
+// keepEnvFlag.Set comma-splits each occurrence and accumulates across repeats.
+func TestKeepEnvFlagSet(t *testing.T) {
+	var k keepEnvFlag
+	if err := k.Set("DATABRICKS_HOST,DATABRICKS_TOKEN"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := k.Set("HOME"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !slices.Equal([]string(k), []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN", "HOME"}) {
+		t.Errorf("k = %q, want accumulated comma-split names", k)
+	}
+}
+
+// timeoutExplicit distinguishes a --timeout the caller typed from the flag's own zero-cost default,
+// so the --tools-aware 45m default never clobbers an explicit value.
+func TestTimeoutExplicit(t *testing.T) {
+	newFS := func() (*flag.FlagSet, *time.Duration) {
+		fs := flag.NewFlagSet("ask", flag.ContinueOnError)
+		return fs, fs.Duration("timeout", 10*time.Minute, "")
+	}
+	fs, _ := newFS()
+	if err := fs.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if timeoutExplicit(fs) {
+		t.Error("timeoutExplicit() = true with no flags parsed, want false")
+	}
+
+	fs, timeout := newFS()
+	if err := fs.Parse([]string{"-timeout", "5m"}); err != nil {
+		t.Fatal(err)
+	}
+	if !timeoutExplicit(fs) {
+		t.Error("timeoutExplicit() = false with -timeout on the command line, want true")
+	}
+	if *timeout != 5*time.Minute {
+		t.Errorf("timeout = %v, want 5m", *timeout)
+	}
+}
+
+func TestCmdAskRetryFlags(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		retry       bool
+		flags       []string
+		attachments []string
+		wantTimeout time.Duration
+		wantAttach  []string
+		wantKeepEnv []string
+	}{
+		{name: "retry keeps recorded timeout and attachments", retry: true,
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}},
+		{name: "retry typed timeout wins", retry: true, flags: []string{"--timeout", "2m"},
+			wantTimeout: 2 * time.Minute, wantAttach: []string{"a.txt"}},
+		{name: "fresh tools default", flags: []string{"--tools"},
+			wantTimeout: 45 * time.Minute},
+		{name: "fresh tools typed timeout wins", flags: []string{"--tools", "--timeout", "5m"},
+			wantTimeout: 5 * time.Minute},
+		{name: "fresh without tools default", wantTimeout: 10 * time.Minute},
+		{name: "retry attachment replaces recorded", retry: true, attachments: []string{"b.txt"},
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
+		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
+		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "DATABRICKS_HOST,HOME"},
+			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"DATABRICKS_HOST", "HOME"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			t.Setenv("HOME", dir)
+			t.Setenv("PATH", dir)
+			for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+				writeFixtureFile(t, filepath.Join(dir, name), name)
+			}
+			args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
+			wantRecords := 1
+			if tt.retry {
+				rec := agent.NewRecord("claude", agent.Request{
+					Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
+					Attach: []string{filepath.Join(dir, "a.txt")},
+				}, time.Now().Add(-time.Hour))
+				if err := rec.Save(); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--retry", rec.ID)
+				wantRecords++
+			}
+			args = append(args, tt.flags...)
+			for _, name := range tt.attachments {
+				args = append(args, "--attach", filepath.Join(dir, name))
+			}
+			if !tt.retry {
+				args = append(args, "say ok")
+			}
+			code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) })
+			if code != 1 {
+				t.Fatalf("exit = %d, want 1 for unavailable runner; stderr=%s", code, stderr)
+			}
+			records := agent.RecentRecords(2)
+			if len(records) != wantRecords {
+				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
+			}
+			req := records[0].Request
+			if req.Timeout != tt.wantTimeout {
+				t.Errorf("timeout = %v, want %v", req.Timeout, tt.wantTimeout)
+			}
+			var wantAttach []string
+			for _, name := range tt.wantAttach {
+				wantAttach = append(wantAttach, filepath.Join(dir, name))
+			}
+			if !slices.Equal(req.Attach, wantAttach) {
+				t.Errorf("attachments = %q, want %q", req.Attach, wantAttach)
+			}
+			if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
+				t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
+			}
+		})
 	}
 }
 

@@ -650,7 +650,7 @@ func (inv *inventory) generatedIndexes() {
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
 		name, p := e.Name(), filepath.Join(dir, e.Name())
-		if !e.Type().IsRegular() || !(name == "index.md" || (strings.HasPrefix(name, "index-") && strings.HasSuffix(name, ".md"))) {
+		if !e.Type().IsRegular() || (name != "index.md" && (!strings.HasPrefix(name, "index-") || !strings.HasSuffix(name, ".md"))) {
 			continue
 		}
 		if data, err := os.ReadFile(p); err == nil && strings.HasPrefix(string(data), generatedIndexMark) {

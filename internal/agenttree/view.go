@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -100,7 +101,7 @@ func View(opts ViewOptions) (Snapshot, error) {
 // — for exactly one agent id matching opts.Agent exactly or as a unique prefix.
 func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocation, error) {
 	if opts.Agent == "" {
-		return agentLocation{}, fmt.Errorf("view: no agent id given")
+		return agentLocation{}, errors.New("view: no agent id given")
 	}
 	sessionFiles, err := sessionTranscriptsInScope(claudeDir, Options{Days: opts.Days, Session: opts.Session}, now)
 	if err != nil {

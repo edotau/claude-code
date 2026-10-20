@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // fakeClaude drops an executable `claude` on a fresh PATH whose `auth status` subcommand prints script.
@@ -42,8 +44,8 @@ func TestHeadlessOAuthToken(t *testing.T) {
 		t.Errorf("HeadlessOAuthToken() with nothing set = %q, want \"\"", got)
 	}
 
-	os.MkdirAll(filepath.Dir(SecretsFile()), 0o700)
-	if err := os.WriteFile(SecretsFile(), []byte(OAuthTokenEnv+"=from-file\n"), 0o600); err != nil {
+	os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700)
+	if err := os.WriteFile(paths.SecretsFile(), []byte(OAuthTokenEnv+"=from-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := HeadlessOAuthToken(); got != "from-file" {

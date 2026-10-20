@@ -99,7 +99,7 @@ func formatPyFloat(v float64) string {
 
 // marshalPyJSON matches Python's json.dumps(v, indent=2): ensure_ascii escapes every non-ASCII rune to
 // \uXXXX (Go's stdlib doesn't), and HTML-escaping of <, >, & must be off (Python never escapes those).
-func marshalPyJSON(v interface{}) ([]byte, error) {
+func marshalPyJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)

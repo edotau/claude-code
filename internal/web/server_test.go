@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -78,6 +79,16 @@ func newReq(t *testing.T, method, target, host string) *http.Request {
 	req := httptest.NewRequest(method, target, nil)
 	req.Host = host
 	return req
+}
+
+func TestRunCanceledContextShutsDownCleanly(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := Run(ctx, Options{Addr: "127.0.0.1:0", ErrOut: io.Discard})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil after clean shutdown", err)
+	}
 }
 
 // --- Host header allow/deny ---
@@ -449,7 +460,7 @@ func TestHandleDispatchesServesWithinTTLFromCacheWithoutResampling(t *testing.T)
 	fakeNow := time.Now()
 	s := newStatusTestServer(t, Options{}, run, func() time.Time { return fakeNow })
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
 		if w.Code != http.StatusOK {
 			t.Fatalf("request %d: status = %d, want 200", i, w.Code)

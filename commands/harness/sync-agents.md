@@ -38,6 +38,8 @@ more (banner-marked copies an earlier sync left there are pruned).
 Only banner-marked files whose source is gone (in the projections and the homes), harness symlinks in `~/.agents/skills`
 whose skill is gone, and legacy banner-marked dirs in `~/.gemini/skills`. Never `RemoveAll`. `--no-prune` skips it;
 an empty roster refuses to prune.
+An agent/skill discovery error aborts the sync before pruning, rather than treating a partial
+source scan as a complete roster.
 
 ## Execution
 

@@ -2,7 +2,7 @@ package worktree
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -398,7 +398,7 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	// --resume: never re-invokes the agent (the fake would fail the test if called again).
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
-		return resolveAgentResult{}, fmt.Errorf("unreachable")
+		return resolveAgentResult{}, errors.New("unreachable")
 	})
 	resumedOp, resumeResult, resumeErr := ResolveWithAgent(context.Background(), repo, plan, "claude", failedOp)
 	if resumeErr != nil {
@@ -456,7 +456,7 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
-		return resolveAgentResult{}, fmt.Errorf("unreachable")
+		return resolveAgentResult{}, errors.New("unreachable")
 	})
 
 	gotOp, result, err := ResolveWithAgent(context.Background(), repo, plan, op.Agent, op)

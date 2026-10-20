@@ -27,16 +27,47 @@ var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
 
 // Options controls one generate pass.
 type Options struct {
-	Agents []string  // vendors to render; default DefaultAgents
-	DryRun bool      // print the rendered blocks; write nothing
-	Check  bool      // report drift; never writes
-	Home   string    // overrides os.UserHomeDir() for vendor config paths (tests)
-	Out    io.Writer // status lines; nil -> os.Stdout
+	Agents  []string  // vendors to render; default DefaultAgents
+	DryRun  bool      // print the rendered blocks; write nothing
+	Check   bool      // report drift; never writes
+	Home    string    // overrides os.UserHomeDir() for vendor config paths (tests)
+	Out     io.Writer // status lines; nil -> os.Stdout
+	Vendors bool      // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
+	// Prepare's write queue: commitFile and the JSONC retire append to it, Apply runs it.
+	staged *[]func() error
+}
+
+// Prepared holds ordered vendor writes after all selected renders have validated.
+type Prepared struct {
+	writes []func() error
+}
+
+// Apply performs the staged writes in order, stopping at the first error.
+func (p *Prepared) Apply() error {
+	for _, write := range p.writes {
+		if err := write(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Run renders every selected vendor's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).
-func Run(o Options) (drift bool, err error) {
+func Run(o Options) (bool, error) {
+	p, drift, err := Prepare(o)
+	if err != nil {
+		return drift, err
+	}
+	return drift, p.Apply()
+}
+
+// Prepare validates all selected renders without writing; dry-run/check output remains immediate.
+func Prepare(o Options) (*Prepared, bool, error) {
+	p := &Prepared{}
+	o.staged = &p.writes
+	var drift bool
+	var err error
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = DefaultAgents
@@ -49,16 +80,20 @@ func Run(o Options) (drift bool, err error) {
 	if home == "" {
 		home, err = os.UserHomeDir()
 		if err != nil {
-			return false, fmt.Errorf("generate: %w", err)
+			return nil, false, fmt.Errorf("generate: %w", err)
 		}
+	}
+	if !o.Vendors && !configDirIsDefault() {
+		fmt.Fprintf(out, "generate: skipping vendor configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --vendors to include them\n", paths.ConfigDir())
+		return p, false, nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return false, fmt.Errorf("generate: %w", err)
+		return nil, false, fmt.Errorf("generate: %w", err)
 	}
 	sel, err := providers.Select(reg, "")
 	if err != nil {
-		return false, fmt.Errorf("generate: %w", err)
+		return nil, false, fmt.Errorf("generate: %w", err)
 	}
 	want := map[string]bool{}
 	for _, a := range agents {
@@ -90,11 +125,22 @@ func Run(o Options) (drift bool, err error) {
 			d, err = renderCopilot(reg, sel, home, o, out)
 		}
 		if err != nil {
-			return drift, err
+			return nil, drift, err
 		}
 		drift = drift || d
 	}
-	return drift, nil
+	return p, drift, nil
+}
+
+// configDirIsDefault reports whether CLAUDE_CONFIG_DIR resolves to the default ~/.claude for the
+// process's real HOME: a worktree or test run that points CLAUDE_CONFIG_DIR elsewhere (while vendor
+// configs stay $HOME-rooted) must not write into the real vendor homes without --vendors.
+func configDirIsDefault() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return paths.ConfigDir() == filepath.Join(home, ".claude")
 }
 
 // backupAndWrite writes a single `.backup` of oldRaw (only when the file already existed) before
@@ -247,10 +293,13 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return false, nil
 	}
-	if err := backupAndWrite(path, raw, next, existed); err != nil {
-		return false, fmt.Errorf("%s: %w", label, err)
-	}
-	fmt.Fprintf(out, "%s: wrote %s\n", label, path)
+	*o.staged = append(*o.staged, func() error {
+		if err := backupAndWrite(path, raw, next, existed); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
+		return nil
+	})
 	return true, nil
 }
 
@@ -277,16 +326,43 @@ func retireStaleOpenCodeJSONC(home string, o Options, out io.Writer) error {
 	if _, err := os.Stat(jsoncPath); err != nil {
 		return nil
 	}
-	bak := jsoncPath + ".bak-" + time.Now().UTC().Format("20060102T150405Z")
+	bak := jsoncPath + ".bak-" + time.Now().UTC().Format("20060102T150405.000000000Z")
 	if o.DryRun || o.Check {
 		fmt.Fprintf(out, "opencode: would move %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
 		return nil
 	}
-	if err := os.Rename(jsoncPath, bak); err != nil {
-		return fmt.Errorf("opencode: %w", err)
-	}
-	fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
+	*o.staged = append(*o.staged, func() error {
+		backup, err := moveBackup(jsoncPath, bak)
+		if err != nil {
+			return fmt.Errorf("opencode: %w", err)
+		}
+		fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, backup)
+		return nil
+	})
 	return nil
+}
+
+func moveBackup(path, base string) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		if err := os.Rename(path, dest); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
 }
 
 func renderOpenCode(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
@@ -552,7 +628,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 		return false, err
 	}
 	path := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
-	drift, err := renderHooksFile(path, body, o, out, "copilot-hooks")
+	drift, err := renderHooksFile(path, body, mergeCopilotHooks, o, out, "copilot-hooks")
 	if err != nil {
 		return drift, err
 	}

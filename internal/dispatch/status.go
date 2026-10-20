@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -64,8 +65,8 @@ func isShellAfterExit(c PaneCapture) bool {
 // lastNonEmptyLine returns the last line of s with any content, or "" if s is blank.
 func lastNonEmptyLine(s string) string {
 	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if t := strings.TrimSpace(lines[i]); t != "" {
+	for _, line := range slices.Backward(lines) {
+		if t := strings.TrimSpace(line); t != "" {
 			return t
 		}
 	}

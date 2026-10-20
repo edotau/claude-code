@@ -10,10 +10,12 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/browser"
@@ -162,12 +164,29 @@ func codexWired(path string) bool {
 }
 
 func registerClaudeMCP(bin string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return registerClaudeMCPContext(ctx, bin)
+}
+
+func registerClaudeMCPContext(ctx context.Context, bin string) error {
+	if err := ctxErr(ctx, "claude mcp"); err != nil {
+		return err
+	}
 	claude, err := paths.LookPathReal("claude")
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(claude, "mcp", "remove", "-s", "user", "web_search").Run()
-	out, err := exec.Command(claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "web", "search").CombinedOutput()
+	_ = exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run()
+	if err := ctxErr(ctx, "claude mcp remove"); err != nil {
+		return err
+	}
+	out, err := exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "web", "search").CombinedOutput()
+	if cerr := ctxErr(ctx, "claude mcp add"); cerr != nil {
+		return cerr
+	}
 	if err != nil {
 		return fmt.Errorf("claude mcp add: %v: %s", err, strings.TrimSpace(string(out)))
 	}

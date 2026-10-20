@@ -142,7 +142,7 @@ func mcpList(claude string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "mcp", "list")
@@ -175,7 +175,7 @@ func RunHealth(claude string) HealthResult {
 	}
 	out, listErr := mcpList(claude)
 	var res HealthResult
-	for _, ln := range strings.Split(string(out), "\n") {
+	for ln := range strings.SplitSeq(string(out), "\n") {
 		switch {
 		case strings.Contains(ln, "✔"):
 			res.Connected++

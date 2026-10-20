@@ -222,13 +222,11 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			send(rpcError(nil, -32700, "Parse error"))
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if resp := s.handle(ctx, req); resp != nil {
 				send(resp)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	mu.Lock()
@@ -256,7 +254,7 @@ func Run(ctx context.Context) int {
 // MCP handshake). Returns a non-zero exit code on error.
 func OneShot(ctx context.Context, query string, maxResults int, search Searcher, out io.Writer) int {
 	if strings.TrimSpace(query) == "" {
-		fmt.Fprintln(os.Stderr, "web search: --query is required")
+		fmt.Fprintln(os.Stderr, "web search: a query is required")
 		return 2
 	}
 	if maxResults <= 0 {
@@ -332,9 +330,8 @@ const (
 func enrichResults(ctx context.Context, results []tavilyResult) {
 	var wg sync.WaitGroup
 	for i := range results {
-		wg.Add(1)
-		go func(r *tavilyResult) {
-			defer wg.Done()
+		r := &results[i]
+		wg.Go(func() {
 			if text := fetchPageText(ctx, r.URL); text != "" && text != r.Content {
 				if r.Content == "" {
 					r.Content = text
@@ -342,7 +339,7 @@ func enrichResults(ctx context.Context, results []tavilyResult) {
 					r.Content += "\n\n" + text
 				}
 			}
-		}(&results[i])
+		})
 	}
 	wg.Wait()
 }

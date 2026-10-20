@@ -88,7 +88,7 @@ func TestSimplifyAfterEditsStopHookActiveProceeds(t *testing.T) {
 		agentID: "a1", agentType: "general-purpose", stopHookActive: true, agentTranscriptPath: tr,
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 		t.Errorf("stop_hook_active must proceed, got %d: %s", code, stderr.String())
 	}
 }
@@ -99,7 +99,7 @@ func TestSimplifyAfterEditsEmptyAgentTranscriptPathProceeds(t *testing.T) {
 		agentID: "a1", agentType: "general-purpose", agentTranscriptPath: "",
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 		t.Errorf("empty agent_transcript_path must proceed, got %d: %s", code, stderr.String())
 	}
 }
@@ -114,7 +114,7 @@ func TestSimplifyAfterEditsSkipsSkipAgents(t *testing.T) {
 				agentID: "a1", agentType: agentType, agentTranscriptPath: tr,
 			})
 			var stderr bytes.Buffer
-			if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+			if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 				t.Errorf("skip-listed agent_type %q must proceed, got %d: %s", agentType, code, stderr.String())
 			}
 		})
@@ -129,7 +129,7 @@ func TestSimplifyAfterEditsBlocksOnSourceEditThenProceedsOnce(t *testing.T) {
 		agentID: "a1", agentType: "general-purpose", agentTranscriptPath: tr,
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitBlock {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitBlock {
 		t.Fatalf("first stop after a source edit must block, got %d: %s", code, stderr.String())
 	}
 	out := stderr.String()
@@ -140,7 +140,7 @@ func TestSimplifyAfterEditsBlocksOnSourceEditThenProceedsOnce(t *testing.T) {
 	}
 	// Second stop for the same subagent: the flag written by the first block makes it proceed.
 	var stderr2 bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr2); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr2); code != ExitProceed {
 		t.Errorf("second stop for the same subagent must proceed (block-once), got %d: %s", code, stderr2.String())
 	}
 }
@@ -156,7 +156,7 @@ func TestSimplifyAfterEditsNonSourceEditsProceed(t *testing.T) {
 		agentID: "a1", agentType: "general-purpose", agentTranscriptPath: tr,
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 		t.Errorf(".txt/.md-only edits must proceed, got %d: %s", code, stderr.String())
 	}
 }
@@ -174,7 +174,7 @@ func TestSimplifyAfterEditsMetaJSONFallbackForAgentType(t *testing.T) {
 		agentID: "a1", agentType: "", agentTranscriptPath: tr,
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 		t.Errorf("meta.json agentType=Explore fallback must proceed, got %d: %s", code, stderr.String())
 	}
 }
@@ -195,7 +195,7 @@ func TestSimplifyAfterEditsParentTranscriptEditsIgnored(t *testing.T) {
 		transcriptPath: parentTranscript, agentTranscriptPath: subTranscript,
 	})
 	var stderr bytes.Buffer
-	if code := SimplifyAfterEdits(strings.NewReader(payload), &stderr); code != ExitProceed {
+	if code := simplifyAfterEdits(ParseInput(strings.NewReader(payload)), &stderr); code != ExitProceed {
 		t.Errorf("edits in the parent transcript alone must not trigger the gate, got %d: %s", code, stderr.String())
 	}
 }

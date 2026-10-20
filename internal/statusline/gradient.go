@@ -21,6 +21,39 @@ const sepPath = " | "
 // velocity counts; separators, troughs and the dot keep their own tones.
 func renderGradient(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode string) string {
 	dim := ansi.Hex(pal.sem("dim"))
+	cells := gradientCells(v, cfg)
+	total := max(len(cells)-1, 1)
+	trough := troughTone(cfg.Bar)
+	var out strings.Builder
+	if cfg.seg("path", true) {
+		if cfg.UserColor == "ansi" {
+			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
+		} else {
+			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("user")), v.userHost, true))
+		}
+		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("punct")), ":", false))
+	}
+	for i, c := range cells {
+		rgb := ansi.GradAt(stops, float64(i)/float64(total))
+		switch c.kind {
+		case "sep":
+			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
+		case "empty":
+			out.WriteString(ansi.Paint(mode, trough, string(c.ch), false))
+		case "dot":
+			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
+		default:
+			out.WriteString(ansi.Paint(mode, rgb, string(c.ch), true))
+		}
+	}
+	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
+		out.WriteString(ansi.Paint(mode, dim, cfg.sep("minor", " · "), false))
+		out.WriteString(velocityText(v, mode, pal))
+	}
+	return out.String()
+}
+
+func gradientCells(v values, cfg Config) []cell {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
 	sepGit := cfg.sep("git", " │ ")
@@ -79,35 +112,7 @@ func renderGradient(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode s
 		push(truncBranch(v.branch, cfg.BranchMax), "g")
 	}
 
-	total := max(len(cells)-1, 1)
-	trough := troughTone(cfg.Bar)
-	var out strings.Builder
-	if cfg.seg("path", true) {
-		if cfg.UserColor == "ansi" {
-			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
-		} else {
-			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("user")), v.userHost, true))
-		}
-		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("punct")), ":", false))
-	}
-	for i, c := range cells {
-		rgb := ansi.GradAt(stops, float64(i)/float64(total))
-		switch c.kind {
-		case "sep":
-			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
-		case "empty":
-			out.WriteString(ansi.Paint(mode, trough, string(c.ch), false))
-		case "dot":
-			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
-		default:
-			out.WriteString(ansi.Paint(mode, rgb, string(c.ch), true))
-		}
-	}
-	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(ansi.Paint(mode, dim, sepMinor, false))
-		out.WriteString(velocityText(v, mode, pal))
-	}
-	return out.String()
+	return cells
 }
 
 // velocityText paints "+A -D" in the add/del tones, omitting a zero side.

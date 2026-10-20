@@ -27,8 +27,13 @@ func TestGuardedClientLiteralVsResolved(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
 	defer srv.Close()
 	c := guardedClient()
-	if resp, err := c.Get(srv.URL); err != nil || resp.StatusCode != 204 {
-		t.Fatalf("literal loopback: resp=%v err=%v", resp, err)
+	resp, err := c.Do(testRequest(t, http.MethodGet, srv.URL, nil))
+	if err != nil {
+		t.Fatalf("literal loopback: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 204 {
+		t.Fatalf("literal loopback: status=%d", resp.StatusCode)
 	}
 	for _, host := range []string{"localhost", "api.localhost"} {
 		if !literalLocal(host) {
@@ -36,11 +41,14 @@ func TestGuardedClientLiteralVsResolved(t *testing.T) {
 		}
 	}
 	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
-	if _, err := c.Get("http://localhost.:" + port); err != nil { // trailing dot is still literal
+	localResp, err := c.Do(testRequest(t, http.MethodGet, "http://localhost.:"+port, nil)) // trailing dot is still literal
+	if err != nil {
 		t.Errorf("localhost. must dial: %v", err)
+	} else {
+		_ = localResp.Body.Close()
 	}
 	// The guarded dialer is what a non-literal name reaches; its Control refuses the loopback it resolved to.
-	_, err := guardedDialer.DialContext(context.Background(), "tcp", "127.0.0.1:"+port)
+	_, err = guardedDialer.DialContext(context.Background(), "tcp", "127.0.0.1:"+port)
 	if err == nil || !strings.Contains(err.Error(), "resolves into the local network") {
 		t.Errorf("guarded dialer must refuse a loopback target: %v", err)
 	}

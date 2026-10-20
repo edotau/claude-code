@@ -287,6 +287,23 @@ func TestEditStoreBadMetaFailsOnlyMetaEdits(t *testing.T) {
 	}
 }
 
+// removeMeta/RecordProbe against an existing row look like a no-op against the corrupt-file's empty
+// stand-in map (nothing to delete/update there), so the read error must still surface rather than
+// being swallowed as a silent success that leaves the corrupt row untouched.
+func TestEditStoreBadMetaSurfacesErrorOnApparentNoOp(t *testing.T) {
+	setConfigDir(t)
+	future := writeFutureMeta(t)
+	if err := removeMeta("X"); err == nil {
+		t.Fatal("removeMeta against a corrupt meta file must surface the read error, not report success")
+	}
+	if err := RecordProbe("X", "verified", time.Now()); err == nil {
+		t.Fatal("RecordProbe against a corrupt meta file must surface the read error, not report success")
+	}
+	if b, _ := os.ReadFile(MetaFile()); string(b) != future {
+		t.Fatalf("meta file rewritten: %q", b)
+	}
+}
+
 // Names must fall back to the file plane's names when the meta file is unreadable, never go blank.
 func TestNamesFallsBackToFilePlane(t *testing.T) {
 	setConfigDir(t)

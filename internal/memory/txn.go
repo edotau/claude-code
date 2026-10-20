@@ -119,7 +119,9 @@ func recoverJournals() error {
 			return fmt.Errorf("memory journal %s: id %q does not match its file name", f, j.ID)
 		}
 		if j.State == "complete" {
-			os.Remove(f)
+			if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 			continue
 		}
 		if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, ErrDivergent) {
@@ -309,7 +311,9 @@ func (j *journal) commit(repo Repo, rec *Receipt, stage []string) error {
 		return err
 	}
 	if !committed {
-		os.Remove(filepath.Join(repo.Dir, receiptRel))
+		if err := os.Remove(filepath.Join(repo.Dir, receiptRel)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 		return nil
 	}
 	rec.Commit = sha

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,6 +213,153 @@ func TestScanFileClean(t *testing.T) {
 	s.ScanFile(path)
 	if len(s.Findings) != 0 {
 		t.Fatalf("Findings = %v, want none", s.Findings)
+	}
+}
+
+func TestScanFileClaudeMetadataFixtures(t *testing.T) {
+	dir := t.TempDir()
+	fixtures := map[string]string{
+		".claude.json": `{"userID":"` + strings.Repeat("ab", 32) +
+			`","machineID":"` + strings.Repeat("cd", 32) +
+			`","projects":{"/home/u/.claude":{"lastSessionId":"12345678-1234-1234-1234-123456789abc"}}}`,
+		"settings.json": `{"extraKnownMarketplaces":{"x":{"source":{"repo":"anthropics/claude-plugins-official"}}}}`,
+	}
+	var buf bytes.Buffer
+	s := &Scanner{Out: &buf}
+	for name, doc := range fixtures {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.ScanFile(path)
+		if !strings.Contains(buf.String(), path+" — clean") {
+			t.Errorf("%s did not scan clean", name)
+		}
+	}
+	if len(s.Findings) != 0 {
+		t.Fatalf("Findings = %v, want none", s.Findings)
+	}
+}
+
+func TestScanFileMetadataExemptions(t *testing.T) {
+	type scanCase struct {
+		name   string
+		file   string
+		keys   []string
+		exempt bool
+	}
+	cases := []scanCase{
+		{"cache org", ".claude.json", []string{"clientDataCacheSlots", "slot", "org"}, true},
+		{"marketplace", "settings.json", []string{"extraKnownMarketplaces", "x", "source", "repo"}, true},
+		{"marketplace other JSON", "other.json", []string{"extraKnownMarketplaces", "x", "source", "repo"}, true},
+		{"ordinary token", ".claude.json", []string{"token"}, false},
+		{"userID other file", "settings.json", []string{"userID"}, false},
+		{"cache other file", "settings.json", []string{"clientDataCacheSlots", "slot", "org"}, false},
+		{"unrelated org", ".claude.json", []string{"other", "org"}, false},
+		{"leaf prefix", ".claude.json", []string{"notuserID"}, false},
+		{"leaf suffix", ".claude.json", []string{"userIDExtra"}, false},
+		{"cache prefix", ".claude.json", []string{"notclientDataCacheSlots", "slot", "org"}, false},
+		{"cache extra depth", ".claude.json", []string{"clientDataCacheSlots", "slot", "child", "org"}, false},
+		{"marketplace prefix", "settings.json", []string{"notextraKnownMarketplaces", "x", "source", "repo"}, false},
+		{"marketplace extra depth", "settings.json", []string{"extraKnownMarketplaces", "x", "child", "source", "repo"}, false},
+		{"MCP header sessionId", ".claude.json", []string{"mcpServers", "api", "headers", "sessionId"}, false},
+		{"project MCP env sessionId", ".claude.json", []string{"projects", "/home/x/y", "mcpServers", "s", "env", "sessionId"}, false},
+		{"dotted project metadata", ".claude.json", []string{"projects", "/home/x/.config/project.name", "sessionId"}, true},
+		{"dotted project MCP env", ".claude.json", []string{"projects", "/home/x/.config/project.name", "mcpServers", "s", "env", "sessionId"}, false},
+		{"dotted project MCP header", ".claude.json", []string{"projects", "/home/x/.config/project.name", "mcpServers", "s", "headers", "sessionId"}, false},
+		{"metadata wrapper", ".claude.json", []string{"wrapper", "sessionId"}, false},
+		{"project metadata wrapper", ".claude.json", []string{"projects", "/home/x/y", "wrapper", "sessionId"}, false},
+		{"wrapped project metadata", ".claude.json", []string{"wrapper", "projects", "/home/x/y", "sessionId"}, false},
+		{"MCP marketplace", "settings.json", []string{"mcpServers", "s", "extraKnownMarketplaces", "x", "source", "repo"}, false},
+		{"MCP header marketplace", "settings.json", []string{"mcpServers", "s", "headers", "extraKnownMarketplaces", "x", "source", "repo"}, false},
+		{"dotted project prefix", ".claude.json", []string{"projects./home/x/y", "sessionId"}, false},
+		{"dotted project leaf", ".claude.json", []string{"projects", "/home/x/y", "wrapper.sessionId"}, false},
+		{"dotted cache prefix", ".claude.json", []string{"clientDataCacheSlots.slot", "org"}, false},
+		{"dotted cache leaf", ".claude.json", []string{"clientDataCacheSlots", "slot.org"}, false},
+		{"dotted marketplace prefix", "settings.json", []string{"extraKnownMarketplaces.x", "source", "repo"}, false},
+		{"dotted marketplace container", "settings.json", []string{"extraKnownMarketplaces", "x.source", "repo"}, false},
+		{"dotted marketplace leaf", "settings.json", []string{"extraKnownMarketplaces", "x", "source.repo"}, false},
+		{"oauth account UUID", ".claude.json", []string{"oauthAccount", "accountUuid"}, true},
+		{"oauth organization UUID", ".claude.json", []string{"oauthAccount", "organizationUuid"}, true},
+		{"oauth other metadata", ".claude.json", []string{"oauthAccount", "sessionId"}, false},
+		{"oauth extra depth", ".claude.json", []string{"oauthAccount", "wrapper", "accountUuid"}, false},
+		{"dotted oauth hierarchy", ".claude.json", []string{"oauthAccount.accountUuid"}, false},
+		{"worktree original commit", ".claude.json", []string{"projects", "/home/x/.config/project.name", "activeWorktreeSession", "originalHeadCommit"}, true},
+		{"worktree session ID", ".claude.json", []string{"projects", "/home/x/y", "activeWorktreeSession", "sessionId"}, true},
+		{"worktree extra depth", ".claude.json", []string{"projects", "/home/x/y", "wrapper", "activeWorktreeSession", "sessionId"}, false},
+		{"worktree prefix", ".claude.json", []string{"projects", "/home/x/y", "notactiveWorktreeSession", "sessionId"}, false},
+		{"dotted worktree hierarchy", ".claude.json", []string{"projects", "/home/x/y", "activeWorktreeSession.sessionId"}, false},
+		{"cached experiment ID", ".claude.json", []string{"cachedExperimentData", "experiment.name", "experimentId"}, true},
+		{"cached experiment extra depth", ".claude.json", []string{"cachedExperimentData", "experiment", "wrapper", "experimentId"}, false},
+		{"cached experiment prefix", ".claude.json", []string{"notcachedExperimentData", "experiment", "experimentId"}, false},
+		{"promo account UUID", ".claude.json", []string{"promoStartupStatusCache", "accountUuid"}, true},
+		{"artifact account UUID", ".claude.json", []string{"cachedArtifactRoster", "accountUuid"}, true},
+		{"artifact organization UUID", ".claude.json", []string{"cachedArtifactRoster", "organizationUuid"}, true},
+		{"github account UUID", ".claude.json", []string{"githubWebConnectionStatusCache", "accountUuid"}, true},
+		{"github org UUID", ".claude.json", []string{"githubWebConnectionStatusCache", "orgUuid"}, true},
+		{"usage account UUID", ".claude.json", []string{"cachedUsageUtilization", "accountUuid"}, true},
+		{"usage extra depth", ".claude.json", []string{"cachedUsageUtilization", "wrapper", "accountUuid"}, false},
+		{"usage prefix", ".claude.json", []string{"notcachedUsageUtilization", "accountUuid"}, false},
+		{"usage other metadata", ".claude.json", []string{"cachedUsageUtilization", "sessionId"}, false},
+		{"usage other file", "settings.json", []string{"cachedUsageUtilization", "accountUuid"}, false},
+	}
+	for _, key := range []string{
+		"userID", "machineID", "remoteControlMachineId", "lastSessionId", "sessionId",
+		"accountUuid", "organizationUuid", "orgUuid", "experimentId", "originalHeadCommit",
+	} {
+		cases = append(cases, scanCase{key, ".claude.json", []string{"projects", "/home/u/.claude", key}, true})
+		cases = append(cases, scanCase{"top-level " + key, ".claude.json", []string{key}, true})
+	}
+	values := []struct {
+		name  string
+		value string
+		known bool
+	}{
+		{"hex", strings.Repeat("ab", 32), false},
+		{"UUID", "12345678-1234-1234-1234-123456789abc", false},
+		{"base64", strings.Repeat("Ab01", 10), false},
+		{"sk", "sk-" + strings.Repeat("a", 40), true},
+		{"github", "ghp_" + strings.Repeat("a", 40), true},
+		{"AWS", "AKIA" + strings.Repeat("A", 16), true},
+		{"JWT", "eyJheader.payload.signature", true},
+		{"Slack", "xoxb-" + strings.Repeat("a", 40), true},
+	}
+	for _, tc := range cases {
+		for _, value := range values {
+			t.Run(tc.name+"/"+value.name, func(t *testing.T) {
+				if !LooksLikeSecret(value.value) {
+					t.Fatal("exported heuristic must still flag the value")
+				}
+				var doc any = value.value
+				for _, k := range slices.Backward(tc.keys) {
+					doc = map[string]any{k: doc}
+				}
+				raw, err := json.Marshal(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(t.TempDir(), tc.file)
+				if err := os.WriteFile(path, raw, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				var buf bytes.Buffer
+				s := &Scanner{Out: &buf}
+				s.ScanFile(path)
+				want := 0
+				if !tc.exempt || value.known {
+					want = 1
+				}
+				if len(s.Findings) != want {
+					t.Fatalf("Findings = %v, want %d", s.Findings, want)
+				}
+				if want == 1 && !strings.Contains(s.Findings[0], strings.Join(tc.keys, ".")) {
+					t.Error("finding must identify the key path")
+				}
+				if strings.Contains(buf.String(), value.value) || strings.Contains(strings.Join(s.Findings, "\n"), value.value) {
+					t.Fatal("scan must never echo the value")
+				}
+			})
+		}
 	}
 }
 

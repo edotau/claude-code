@@ -23,14 +23,23 @@ const (
 // LogAccess appends one `<RFC3339> -- <entry> -- <reason>` line to dir's access log. Fail-open:
 // errors are swallowed. A credential-shaped reason is redacted whole (unscanned-sink risk).
 func LogAccess(dir string, now time.Time, entry, reason string) {
-	if dir == "" {
+	LogAccessBatch(dir, now, []string{entry}, reason)
+}
+
+// LogAccessBatch appends a recall batch with one open and write per bank.
+func LogAccessBatch(dir string, now time.Time, entries []string, reason string) {
+	if dir == "" || len(entries) == 0 {
 		return
 	}
 	if credentialPattern.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
-	line := now.UTC().Format(time.RFC3339) + " -- " + sanitizeField(entry, accessEntryMax) +
-		" -- " + sanitizeField(reason, accessReasonMax) + "\n"
+	var lines strings.Builder
+	prefix := now.UTC().Format(time.RFC3339) + " -- "
+	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
+	for _, entry := range entries {
+		lines.WriteString(prefix + sanitizeField(entry, accessEntryMax) + suffix)
+	}
 	path := AccessLogPath(dir)
 	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
 		return // symlink/oddity planted at the log name — never write through it
@@ -44,7 +53,7 @@ func LogAccess(dir string, now time.Time, entry, reason string) {
 		return
 	}
 	defer f.Close()
-	_, _ = f.WriteString(line)
+	_, _ = f.WriteString(lines.String())
 }
 
 // sanitizeField makes a value single-line, bounded, delimiter-free: "--" becomes an em dash so a
@@ -104,7 +113,7 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 	stats := map[string]AccessStat{}
 	days := map[string]map[string]bool{} // entry → set of in-window UTC days
 	oldest := time.Time{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		parts := strings.SplitN(line, " -- ", 3)
 		if len(parts) < 2 {
 			continue

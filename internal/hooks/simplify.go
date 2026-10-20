@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,10 +20,9 @@ var skipSimplifyAgents = map[string]bool{
 	"Explore": true, "Plan": true, "gemini": true, "claude-code-guide": true, "statusline-setup": true,
 }
 
-// SimplifyAfterEdits blocks a subagent's FIRST stop when it edited source code, sending it back to run the
+// simplifyAfterEdits blocks a subagent's FIRST stop when it edited source code, sending it back to run the
 // simplify pass on those files. Exit 2 on SubagentStop keeps the subagent going with stderr as its next input.
-func SimplifyAfterEdits(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+func simplifyAfterEdits(in *Input, stderr io.Writer) int {
 	if in.StopHookActive || in.AgentTranscriptPath == "" {
 		return ExitProceed
 	}
@@ -61,10 +61,8 @@ func codeFiles(files []string, limit int) []string {
 
 func isSourceExt(ext string) bool {
 	for _, exts := range source.Extensions {
-		for _, e := range exts {
-			if e == ext {
-				return true
-			}
+		if slices.Contains(exts, ext) {
+			return true
 		}
 	}
 	return false

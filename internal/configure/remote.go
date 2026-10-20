@@ -19,8 +19,8 @@ func runRemote(d *dialog) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	st, err := tailscale.Status(ctx)
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		d.printf("tailscale   running (%s)\n", strings.TrimSuffix(st.DNSName, "."))
 	default:
 		d.printf("tailscale   not connected → claude-code tailscale connect\n")

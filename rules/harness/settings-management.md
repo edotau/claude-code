@@ -7,8 +7,8 @@ paths:
 ---
 # Settings Management
 
-> `.claude/settings.json` and `.claude/settings.local.json` are **generated artifacts**.
-> Edit the template, not the output.
+> `.claude/settings.json` is **generated**; `settings.local.json` is hand-edited.
+> Edit the template, not the generated output.
 
 ## Rule
 
@@ -30,6 +30,13 @@ Only `settings.local.json` is safe to hand-edit — it holds per-workstation pre
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
    previous one as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
+
+In a linked worktree, cwd alone does not isolate writes (CLAUDE.md hard rule 4).
+Use `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"` for that checkout's
+settings. A non-default config dir skips vendor renders, previews, and drift checks by default.
+`--vendors` opts them back in, but destinations remain the live `~/.codex`, `~/.copilot`,
+`~/.config/opencode`, and `~/.gemini` homes; `--dry-run`/`--check` still write nothing.
+`make install` without the override still installs into the live harness.
 
 ## Why
 

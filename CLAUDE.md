@@ -45,14 +45,15 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 8. **Parallel by default; keep the main thread free.** For every code change the main thread plans and
    briefs, then dispatches `code-worker` (implements) ‖ `copilot` (repairs tests) in one message, in the
    background, and stays free for discussion, follow-ups and the live check. Inline only for a one-line
-   edit. Brief completely up front; never re-steer a running agent. → `rules/standards/quality.md`
+   edit. Brief completely up front; never re-steer a running agent. Many leaf tasks: one Claude lane
+   orchestrator per lane → `skills/subagent-workflows/references/lane-orchestrator.md`, `rules/standards/quality.md`
 
 ## How-to (task → command → depth)
 
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
+| Render settings + vendor configs | `claude-code generate [--out f] [--check] [--dry-run] [--vendors]` | Non-default `CLAUDE_CONFIG_DIR`: vendors skipped unless `--vendors` (still targets live vendor homes); see hard rule 4 + `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
@@ -63,6 +64,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini/gemini.md`, `agents/gemini.md` |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider <p> --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
+| Project agents + this file into every vendor CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | renders under `state/projections/`; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `clean [--dry-run] <name>` · `clean-all [--yes]` | same engine as the worktree hooks; never forces a removal |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |

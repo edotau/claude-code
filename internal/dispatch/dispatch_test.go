@@ -92,6 +92,15 @@ func TestValidName(t *testing.T) {
 	}
 }
 
+func TestRandIDLowerHex(t *testing.T) {
+	for range 20 {
+		got := randID()
+		if len(got) != 8 || strings.Trim(got, "0123456789abcdef") != "" {
+			t.Fatalf("randID() = %q, want eight lowercase hex digits", got)
+		}
+	}
+}
+
 // TestAgentLaunchArgs_Interactive pins agy's attached `-i=<task>` form (verified live on this box;
 // `-i <task>` as two argv elements would swallow the next flag the same way `-p` does headless) against
 // copilot's separate `-i <task>` form, which the two previously shared.

@@ -12,10 +12,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/ansi"
@@ -156,12 +159,7 @@ func Vendor(name string, interactive bool, out io.Writer) (changed bool, err err
 }
 
 func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }
 
 func readLine(br *bufio.Reader) string {
@@ -431,43 +429,52 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	}
 	allOK = true
 	for _, kt := range targets {
+		var ok, targetChanged bool
 		if kt.present {
-			status, detail, age := probeCached(kt)
-			if status == "rejected" {
-				d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
-				if d.o.Interactive && !d.o.Check {
-					if runRotate(d, kt) || (kt.envVar != "" && resolveKey(d, kt)) {
-						changed = true
-						continue
-					}
-				}
-				allOK = false
-				continue
-			}
-			if status != "" && status != "login" {
-				d.printf("%-10s present (%s; %s%s)\n", kt.label, kt.source, status, ageSuffix(age))
-			} else {
-				d.printf("%-10s present (%s)\n", kt.label, kt.source)
-			}
-			if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
-				confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
-				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false) {
-					changed = true
-				}
-				continue
-			}
-			continue
+			ok, targetChanged = runPresentKey(d, kt)
+		} else {
+			ok, targetChanged = runAbsentKey(d, kt)
 		}
-		if d.o.Interactive && !d.o.Check {
-			if resolveKey(d, kt) {
-				changed = true
-				continue
-			}
-		}
-		allOK = false
-		d.printf("%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
+		allOK = allOK && ok
+		changed = changed || targetChanged
 	}
 	return allOK, changed
+}
+
+func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
+	status, detail, age := probeCached(kt)
+	if status == "rejected" {
+		return runRejectedKey(d, kt, detail)
+	}
+	if status != "" && status != "login" {
+		d.printf("%-10s present (%s; %s%s)\n", kt.label, kt.source, status, ageSuffix(age))
+	} else {
+		d.printf("%-10s present (%s)\n", kt.label, kt.source)
+	}
+	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
+		confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
+		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false)
+	}
+	return true, false
+}
+
+func runRejectedKey(d *dialog, kt keyTarget, detail string) (ok, changed bool) {
+	d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
+	if !d.o.Interactive || d.o.Check {
+		return false, false
+	}
+	if runRotate(d, kt) || (kt.envVar != "" && resolveKey(d, kt)) {
+		return true, true
+	}
+	return false, false
+}
+
+func runAbsentKey(d *dialog, kt keyTarget) (ok, changed bool) {
+	if d.o.Interactive && !d.o.Check && resolveKey(d, kt) {
+		return true, true
+	}
+	d.printf("%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
+	return false, false
 }
 
 // probe live-checks a present keyed credential (4s cap); "" when there is nothing to probe.
@@ -504,7 +511,7 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	}
 	status, detail = probe(kt)
 	if status == "verified" || status == "rejected" || status == "unreachable" {
-		secrets.RecordProbe(env, status, time.Now())
+		_ = secrets.RecordProbe(env, status, time.Now()) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
@@ -596,7 +603,12 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 		return true
 	}
 	if len(o.mint) > 0 {
-		if tok := runMint(o.mint); tok != "" {
+		tok, err := runMint(o.mint)
+		if err != nil {
+			d.printf("%s: %v\n", kt.label, err)
+			return false
+		}
+		if tok != "" {
 			return storeValue(d, o.env, tok, forceFile)
 		}
 		d.printf("%s: no token found in the output; paste it instead\n", o.env)
@@ -613,17 +625,41 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 	return storeValue(d, o.env, v, forceFile)
 }
 
-// runMint runs the token-minting CLI on the real terminal with stdout tee'd, and returns the token it printed.
-func runMint(argv []string) string {
+// runMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
+func runMint(argv []string) (string, error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runMintContext(ctx, argv)
+}
+
+func runMintContext(ctx context.Context, argv []string) (string, error) {
+	if err := ctxErr(ctx, "mint token"); err != nil {
+		return "", err
+	}
 	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
-		return ""
+		return "", nil
 	}
 	var buf bytes.Buffer
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	_ = cmd.Run()
-	return setupTokenRE.FindString(buf.String())
+	err := cmd.Run()
+	if cerr := ctxErr(ctx, "mint token"); cerr != nil {
+		return "", cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return setupTokenRE.FindString(buf.String()), nil
+}
+
+// ctxErr wraps ctx's error under verb when ctx is already done, else nil — the one cancellation check
+// shared by every exec.CommandContext caller here and in home.go's registerClaudeMCPContext.
+func ctxErr(ctx context.Context, verb string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%s: %w", verb, err)
+	}
+	return nil
 }
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
@@ -632,7 +668,13 @@ func openBrowser(url string) {
 	if runtime.GOOS == "darwin" {
 		bin = "open"
 	}
-	_ = exec.Command(bin, url).Start()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := exec.CommandContext(ctx, bin, url).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "configure: warning: browser opener failed: %v\n", err)
+		}
+	}()
 }
 
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
@@ -665,24 +707,19 @@ func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
 // runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func runLogin(argv []string) error {
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runLoginContext(ctx, argv)
 }
 
-// readSecret reads one line, toggling local echo off only when br wraps the real controlling terminal
-// (a test's fake reader is never os.Stdin, so it is read back plainly).
-func readSecret(br *bufio.Reader) (string, error) {
-	if isStdinTTY() {
-		echo := exec.Command("stty", "echo")
-		echo.Stdin = os.Stdin
-		off := exec.Command("stty", "-echo")
-		off.Stdin = os.Stdin
-		_ = off.Run()
-		defer echo.Run()
+func runLoginContext(ctx context.Context, argv []string) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := cmd.Run()
+	if cerr := ctxErr(ctx, "login"); cerr != nil {
+		return cerr
 	}
-	line := readLine(br)
-	return line, nil
+	return err
 }
 
 func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
@@ -806,12 +843,12 @@ func secretLine(d *dialog, prompt string) (string, error) {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)
-	val, err := readSecret(d.br)
+	val := readLine(d.br)
 	fmt.Fprintln(d.out)
-	if _, v := ParseAssignment(val); err == nil && v != "" {
+	if _, v := ParseAssignment(val); v != "" {
 		d.printf("  pasted  %s\n", pastePreview(val))
 	}
-	return val, err
+	return val, nil
 }
 
 // pastePreview masks a value for display; a NAME=value paste previews only its value.

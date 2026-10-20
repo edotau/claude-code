@@ -447,8 +447,23 @@ func TestWorkflowNameForRunScriptPathFallback(t *testing.T) {
 	}
 }
 
-// TestWorkflowNameForRunNoFallbackMatch: when neither the script glob nor the transcript scan finds
-// anything, the run id itself is the name (today's behavior, unchanged).
+func TestScanWorkflowNamesPairsResults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	writeFile(t, path, strings.Join([]string{
+		`not json`,
+		`{"type":"assistant","message":{"content":"not blocks"}}`,
+		`{"type":"user","message":{"content":"not blocks"}}`,
+		`{"type":"api-request-blob","message":{"content":[{"type":"tool_use","id":"ignored","input":{"name":"ignored"}}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"","input":{"name":"no-id"}},{"type":"tool_use","id":"a","input":{"name":"named","scriptPath":"/tmp/unused.js"}},{"type":"tool_use","id":"b","input":{"scriptPath":"/tmp/from-path.js"}},{"type":"tool_use","id":"inline","input":{}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"text","content":"Run ID: wf_text"},{"type":"tool_result","tool_use_id":"ignored","content":"Run ID: wf_ignored"},{"type":"tool_result","tool_use_id":"missing","content":"Run ID: wf_unknown"},{"type":"tool_result","tool_use_id":"inline","content":"Run ID: wf_inline"},{"type":"tool_result","tool_use_id":"a","content":"no run id"},{"type":"tool_result","tool_use_id":"a","content":"Run ID: wf_named"},{"type":"tool_result","tool_use_id":"b","content":"Run ID: wf_named"},{"type":"tool_result","tool_use_id":"b","content":[{"type":"text","text":"Transcript dir: /tmp/wf_path"}]}]}}`,
+	}, "\n"))
+	names := scanWorkflowNamesFromTranscript(path)
+	if len(names) != 2 || names["wf_named"] != "named" || names["wf_path"] != "from-path" {
+		t.Fatalf("workflow names = %v", names)
+	}
+}
+
+// With no matching script or transcript launch, the run id itself is the name.
 func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 	claudeDir := t.TempDir()
 	project, session, runID := "-home-edotau-repoA", "target-session", "wf_no_such_run"
@@ -465,7 +480,7 @@ func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 
 // findLineContaining returns the first line of s containing substr, or "".
 func findLineContaining(s, substr string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.Contains(line, substr) {
 			return line
 		}

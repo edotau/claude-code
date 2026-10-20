@@ -44,12 +44,12 @@ func Clashes(repo, dir string) ([]Clash, error) {
 
 // trackedFiles runs `git -C repo ls-files -z` and returns repo-relative, slash-separated paths.
 func trackedFiles(repo string) ([]string, error) {
-	out, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output()
+	out, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, p := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+	for p := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if p != "" {
 			files = append(files, p)
 		}

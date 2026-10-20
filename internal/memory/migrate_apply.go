@@ -423,12 +423,12 @@ const (
 // mergeIndexLines appends src's non-blank lines dst lacks (src's own bank region skipped), keeping dst's region intact.
 func mergeIndexLines(dst, src string) string {
 	have := map[string]bool{}
-	for _, l := range strings.Split(dst, "\n") {
+	for l := range strings.SplitSeq(dst, "\n") {
 		have[strings.TrimSpace(l)] = true
 	}
 	var add []string
 	inBank := false
-	for _, l := range strings.Split(src, "\n") {
+	for l := range strings.SplitSeq(src, "\n") {
 		t := strings.TrimSpace(l)
 		switch {
 		case strings.HasPrefix(t, bankBegin):
@@ -463,16 +463,17 @@ func mergeAppendOnly(dst, src string) string {
 		return dst
 	}
 	have := map[string]bool{}
-	for _, l := range strings.Split(dst, "\n") {
+	for l := range strings.SplitSeq(dst, "\n") {
 		have[l] = true
 	}
-	out := strings.TrimRight(dst, "\n")
-	for _, l := range strings.Split(strings.TrimRight(src, "\n"), "\n") {
+	var out strings.Builder
+	out.WriteString(strings.TrimRight(dst, "\n"))
+	for l := range strings.SplitSeq(strings.TrimRight(src, "\n"), "\n") {
 		if l != "" && !have[l] {
-			out += "\n" + l
+			out.WriteString("\n" + l)
 		}
 	}
-	return out + "\n"
+	return out.String() + "\n"
 }
 
 // resumed trusts a journal step only after the dest still hashes to what it recorded.
@@ -594,7 +595,7 @@ func (a *applier) verifyCommit(repo Repo, rels []string) error {
 		return err
 	}
 	in := map[string]bool{}
-	for _, p := range strings.Split(out, "\x00") {
+	for p := range strings.SplitSeq(out, "\x00") {
 		in[p] = true
 	}
 	for _, rel := range rels {

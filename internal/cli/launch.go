@@ -44,7 +44,8 @@ func tierVerb(tier string) func([]string) int {
 func cmdRun(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		helptext.Fprint(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p]\n"+
-			"       claude-code run [--model [provider:]model] [--print-env] [args...]\n")
+			"       claude-code run [--model [provider:]model] [--print-env]\n"+
+			"                       [--keep-env NAME[,NAME]] [args...]\n")
 		return 2
 	}
 	return launchVendor(args[0], args[1:])
@@ -104,6 +105,7 @@ func cmdSettings(args []string) int {
 	agents := fs.String("agents", "", "vendors to render (default: codex,opencode,gemini,copilot)")
 	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
 	check := fs.Bool("check", false, "exit 1 if any rendered file has drifted; write nothing")
+	vendors := fs.Bool("vendors", false, "render vendor configs even when CLAUDE_CONFIG_DIR is not the default ~/.claude")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -111,50 +113,73 @@ func cmdSettings(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if *out != "" && !*dryRun && !*check {
-		if r, err := history.SnapshotConfig("pre-generate"); err != nil {
-			fmt.Fprintln(os.Stderr, "generate: history snapshot:", err)
-		} else if r.Commit != "" {
-			fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
-		}
-	}
-	outDrift := false
-	switch {
-	case *out != "" && *check: // drift report only: the rendered settings against the --out file, then the vendors
-		if cur, err := os.ReadFile(*out); err != nil || !bytes.Equal(cur, data) {
-			fmt.Printf("settings: %s has drifted from the render\n", *out)
-			outDrift = true
-		}
-	case *out == "" || *dryRun: // a preview: --out names where it WOULD go, never a write
-		if !*check {
-			os.Stdout.Write(data)
-		}
-	default:
-		backup, err := settings.WriteWithBackup(*out, data)
-		if err != nil {
-			return fail("%v", err)
-		}
-		fmt.Printf("wrote %s", *out)
-		if backup != "" {
-			fmt.Printf(" (backup %s)", backup)
-		}
-		fmt.Println()
-	}
-
-	var vendorAgents []string
-	if *agents != "" {
-		vendorAgents = strings.Split(*agents, ",")
-	}
-	// Without --out the settings render is a preview, so the vendor configs preview too: nothing is written.
-	preview := *dryRun || (*out == "" && !*check)
-	drift, err := generate.Run(generate.Options{Agents: vendorAgents, DryRun: preview, Check: *check, Out: os.Stdout})
+	prepared, drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun, *vendors)
 	if err != nil {
+		return fail("%v", err)
+	}
+	snapshotSettingsHistory(*out, *dryRun, *check)
+	outDrift, err := writeSettingsOutput(*out, *check, *dryRun, data)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := prepared.Apply(); err != nil {
 		return fail("%v", err)
 	}
 	if *check && (drift || outDrift) {
 		return 1
 	}
 	return 0
+}
+
+func snapshotSettingsHistory(out string, dryRun, check bool) {
+	if out == "" || dryRun || check {
+		return
+	}
+	if r, err := history.SnapshotConfig("pre-generate"); err != nil {
+		fmt.Fprintln(os.Stderr, "generate: history snapshot:", err)
+	} else if r.Commit != "" {
+		fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
+	}
+}
+
+// writeSettingsOutput writes the rendered settings per --out/--check/--dry-run and reports drift.
+func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, error) {
+	switch {
+	case out != "" && check: // drift report only: the rendered settings against the --out file
+		if cur, err := os.ReadFile(out); err != nil || !bytes.Equal(cur, data) {
+			fmt.Printf("settings: %s has drifted from the render\n", out)
+			return true, nil
+		}
+		return false, nil
+	case out == "" || dryRun: // a preview: --out names where it WOULD go, never a write
+		if !check {
+			_, err := os.Stdout.Write(data)
+			return false, err
+		}
+		return false, nil
+	default:
+		backup, err := settings.WriteWithBackup(out, data)
+		if err != nil {
+			return false, err
+		}
+		fmt.Printf("wrote %s", out)
+		if backup != "" {
+			fmt.Printf(" (backup %s)", backup)
+		}
+		fmt.Println()
+		return false, nil
+	}
+}
+
+// renderVendorConfigs prepares the vendor configs; without --out the settings render is a preview,
+// so the vendor configs preview too: nothing is written.
+func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*generate.Prepared, bool, error) {
+	var vendorAgents []string
+	if agents != "" {
+		vendorAgents = strings.Split(agents, ",")
+	}
+	preview := dryRun || (out == "" && !check)
+	return generate.Prepare(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors})
 }
 
 // toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).
@@ -230,7 +255,7 @@ func cmdDoctor(args []string) int {
 	if *auditMode {
 		return printAudit(*days, *format)
 	}
-	ok := true
+	var ok bool
 	if *format == outfmt.JSON {
 		var checks []launch.Check
 		checks, ok = launch.DoctorChecks()

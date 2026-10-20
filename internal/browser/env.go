@@ -1,16 +1,18 @@
 package browser
 
 import (
-	"github.com/edotau/claude-code/internal/paths"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
-// NewEnv builds the real Env: the actual home dir, Application Support root, exec.Command, time.Now.
+// NewEnv builds the real Env with actual paths, bounded commands, and time.Now.
 func NewEnv() Env {
 	home, _ := os.UserHomeDir()
 	return Env{
@@ -36,9 +38,17 @@ func appSupportRoot(home, goos string) string {
 	return filepath.Join(home, ".config")
 }
 
-// runReal runs name with args and returns trimmed stdout; the real Env.Run, never called in tests.
+// runReal bounds detection/setup commands and returns trimmed stdout.
 func runReal(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+	return runCommand(30*time.Second, name, args...)
+}
+
+func runCommand(timeout time.Duration, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -50,8 +60,8 @@ func realClaude() string {
 
 // winRoot is where WSL mounts C: (wslpath honors a custom /etc/wsl.conf automount root), else /mnt/c.
 func winRoot() string {
-	if out, err := exec.Command("wslpath", "-u", `C:\`).Output(); err == nil {
-		if p := strings.TrimRight(strings.TrimSpace(string(out)), "/"); p != "" {
+	if out, err := runCommand(2*time.Second, "wslpath", "-u", `C:\`); err == nil {
+		if p := strings.TrimRight(out, "/"); p != "" {
 			return p
 		}
 	}

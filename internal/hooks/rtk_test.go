@@ -2,15 +2,17 @@ package hooks
 
 import (
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	var sb strings.Builder
-	if rc := RTKWrap(strings.NewReader(in), &sb); rc != ExitProceed {
-		t.Fatalf("rc = %d, want ExitProceed (%d) — this hook must never block", rc, ExitProceed)
+	if rc := BashGuard(strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
+		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, ExitProceed)
 	}
 	if strings.TrimSpace(sb.String()) == "" {
 		return "", false
@@ -43,11 +45,92 @@ func TestRTKWrapsEligibleCommand(t *testing.T) {
 	}
 }
 
+func TestRTKSkipsCodex(t *testing.T) {
+	t.Setenv(rtkBinaryEnv, "echo")
+	payload := rtkBashIn("git log --oneline -20")
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCodex {
+		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCodex)
+	}
+	if got, ok := rtkOut(t, payload); ok {
+		t.Fatalf("Codex command rewritten to %q", got)
+	}
+	t.Setenv("HARNESS_HOOK_VENDOR", "")
+	if got, ok := rtkOut(t, payload); !ok || got != "echo git log --oneline -20" {
+		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
+	}
+}
+
+func TestCodexBashGuardStillBlocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	t.Setenv(rtkBinaryEnv, "echo")
+	var stdout, stderr strings.Builder
+	rc := BashGuard(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
+	if rc != ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "BLOCKED") {
+		t.Fatalf("want stderr denial without Copilot JSON: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
+	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCopilot {
+		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCopilot)
+	}
+	var stdout strings.Builder
+	if rc := BashGuard(strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	}
+	var out struct {
+		PermissionDecision string `json:"permissionDecision"`
+	}
+	if err := json.Unmarshal([]byte(stdout.String()), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.PermissionDecision != "deny" {
+		t.Fatalf("Copilot permission decision = %q, want deny", out.PermissionDecision)
+	}
+}
+
+func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
+	t.Setenv(rtkBinaryEnv, "echo")
+	for _, cmd := range []string{
+		"git checkout feature-zero",
+		`git commit -m "add -z flag"`,
+		"git checkout feature--json",
+		"git log --formatter=short",
+		"kubectl get pods -o wide json",
+	} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != "echo "+cmd {
+			t.Errorf("%q: got %q (emitted=%v), want rewrite", cmd, got, ok)
+		}
+	}
+	for _, flag := range rtkMachineReadable {
+		variants := []string{flag, strings.ToUpper(flag)}
+		if flag != "-o json" {
+			variants = append(variants, flag+"=value")
+		}
+		for _, suffix := range variants {
+			if got, ok := rtkOut(t, rtkBashIn("git log "+suffix)); ok {
+				t.Errorf("real flag %q was wrapped to %q", suffix, got)
+			}
+		}
+	}
+	if got, ok := rtkOut(t, rtkBashIn(`kubectl get pods -o "json"`)); ok {
+		t.Errorf("quoted JSON output was wrapped to %q", got)
+	}
+}
+
 // updatedInput REPLACES the whole record, so every sibling key must survive the rewrite.
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
 	var sb strings.Builder
-	RTKWrap(strings.NewReader(rtkBashIn("npm install")), &sb)
+	BashGuard(strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
 	var out struct {
 		HookSpecificOutput struct {
 			UpdatedInput map[string]any `json:"updatedInput"`

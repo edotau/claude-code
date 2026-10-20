@@ -85,8 +85,7 @@ func Classify(agent string, err error, progressed bool) *Error {
 	if err == nil {
 		return nil
 	}
-	var done *Error
-	if errors.As(err, &done) {
+	if done, ok := errors.AsType[*Error](err); ok {
 		done.Progressed = done.Progressed || progressed
 		return done
 	}

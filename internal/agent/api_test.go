@@ -149,3 +149,35 @@ func TestAPIRunnerPassthroughRefused(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestParseChatStream(t *testing.T) {
+	const first = `data: {"model":"served-model","choices":[{"delta":{"content":"one"}},{"delta":{"content":""}},{"delta":{"content":"two"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}` + "\n\n"
+	cases := []struct {
+		name, suffix, output, err string
+		writer                    io.Writer
+	}{
+		{name: "done ignores trailing data", suffix: "data: [DONE]\ndata: invalid\n", output: "onetwo"},
+		{name: "EOF", output: "onetwo"},
+		{name: "malformed chunk", suffix: "data: invalid\n", output: "onetwo", err: "decode chat chunk:"},
+		{name: "upstream error", suffix: "data: {\"error\":{\"message\":\"failed\"}}\n", output: "onetwo", err: `upstream error mid-stream: {"message":"failed"}`},
+		{name: "scanner error", suffix: strings.Repeat("x", 4<<20), output: "onetwo", err: "bufio.Scanner: token too long"},
+		{name: "writer error", writer: failingStreamWriter{}, err: io.ErrClosedPipe.Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			w := tc.writer
+			if w == nil {
+				w = &out
+			}
+			stream := ": comment\nevent: message\ndata:\ndata:  \n" + first + tc.suffix
+			usage, model, err := parseChatStream(strings.NewReader(stream), w)
+			if (err == nil) != (tc.err == "") || err != nil && !strings.HasPrefix(err.Error(), tc.err) {
+				t.Fatalf("err = %v, want prefix %q", err, tc.err)
+			}
+			if usage != (Usage{InputTokens: 7, OutputTokens: 3}) || model != "served-model" || out.String() != tc.output {
+				t.Fatalf("usage = %+v, model = %q, output = %q", usage, model, out.String())
+			}
+		})
+	}
+}

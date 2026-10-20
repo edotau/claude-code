@@ -37,8 +37,8 @@ func runAgy(d *dialog) bool {
 		d.printf("agy: %v\n", err)
 		return false
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	done := make(chan struct{}) // closed on exit; the login marker, not agy's exit status, decides sign-in
+	go func() { _ = cmd.Wait(); close(done) }()
 	deadline := time.Now().Add(agySignInTimeout)
 	ticker := time.NewTicker(agySignInPoll)
 	defer ticker.Stop()
@@ -79,7 +79,7 @@ func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool
 }
 
 // stopAgy asks a still-running agy to exit: SIGINT, SIGTERM after agyStopGrace if that didn't land.
-func stopAgy(cmd *exec.Cmd, done <-chan error) {
+func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 	_ = cmd.Process.Signal(syscall.SIGINT)
 	select {
 	case <-done:

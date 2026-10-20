@@ -33,16 +33,17 @@ const (
 	SetupWorkspace    Action = "setup_workspace"
 	CopilotAuth       Action = "copilot_auth"
 	KeyRotate         Action = "key_rotate"
+	PlanSaved         Action = "plan_saved"
 )
 
 // Actions lists every valid action in report order.
 var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, KeyRotate}
+	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, KeyRotate, PlanSaved}
 
 func (a Action) Valid() bool {
 	switch a {
 	case ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, KeyRotate:
+		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, KeyRotate, PlanSaved:
 		return true
 	default:
 		return false
@@ -102,7 +103,7 @@ func Log(a Action, resource, detail string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(append(line, '\n'))
 }
 
@@ -140,7 +141,7 @@ func Read(since time.Time) ([]Event, error) {
 				out = append(out, e)
 			}
 			if readErr != nil {
-				fh.Close()
+				_ = fh.Close()
 				if readErr != io.EOF {
 					return out, readErr
 				}

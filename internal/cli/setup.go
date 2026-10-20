@@ -81,7 +81,9 @@ func cmdSetupNuke(args []string) int {
 	confirm := ""
 	if *apply {
 		fmt.Print("type the directory path to confirm: ")
-		fmt.Scanln(&confirm)
+		if _, err := fmt.Scanln(&confirm); err != nil {
+			return setupExit(fmt.Errorf("%w: %v", setup.ErrConfirmMismatch, err), "setup nuke")
+		}
 	}
 	err := setup.Nuke(setup.NukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
 	return setupExit(err, "setup nuke")

@@ -31,6 +31,10 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	if err != nil {
 		return Result{}, err
 	}
+	prompt, err := attachInline(req.Prompt, req.Attach)
+	if err != nil {
+		return Result{}, err
+	}
 	p := t.Provider
 	res := Result{Provider: p.Name, Model: t.Model}
 	if p.Auth.Type == providers.AuthPassthrough {
@@ -40,7 +44,7 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	w := io.MultiWriter(stream, &answer)
 	if base, ok := p.Route(providers.DialectAnthropic); ok {
 		out, err := anthropicsdk.Stream(ctx, anthropicsdk.Request{
-			BaseURL: base, Model: t.Model, Prompt: req.Prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
+			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
 			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
 		}, w)
 		if out.Model != "" {
@@ -53,7 +57,7 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	if !ok {
 		return res, &Error{Kind: KindFatal, Agent: "api", Err: fmt.Errorf("provider %s has neither an anthropic nor an openai route", p.Name)}
 	}
-	usage, model, err := chatStream(ctx, base, p, t.Model, req.Prompt, req.Effort, w)
+	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)
 	if model != "" {
 		res.Model = model
 	}
@@ -107,9 +111,13 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 		return Usage{}, "", &httpError{status: resp.StatusCode, after: time.Duration(after) * time.Second,
 			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
+	return parseChatStream(resp.Body, w)
+}
+
+func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 	var usage Usage
 	var served string
-	sc := bufio.NewScanner(resp.Body)
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
 		data, ok := bytes.CutPrefix(sc.Bytes(), []byte("data:"))

@@ -58,7 +58,7 @@ func readClaudeImport(cwd string) claudeImport {
 		if project := jsonField(filepath.Join(cwd, ".mcp.json"), "mcpServers"); project != nil {
 			enabled, disabled, allEnabled := projectMCPApproval(claudeDoc, cwd)
 			for name, raw := range project {
-				if disabled[name] || !(allEnabled || enabled[name]) {
+				if disabled[name] || !allEnabled && !enabled[name] {
 					imp.skippedMCP = append(imp.skippedMCP, name)
 					continue
 				}

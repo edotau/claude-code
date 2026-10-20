@@ -106,6 +106,8 @@ Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the m
 
 Orchestrate by hand: `code-worker` leaves on disjoint packages ‖ `copilot` test agents in one message. Saved Workflows (`implement-and-verify`, `audit-fix-verify`, `gate-loop`) run only when the user asks for one; a dispatched subagent cannot start a Workflow.
 
+**Handed a lane** (a lane plan, not one task): you dispatch, verify and commit its vendor leaves via `claude-code ask` per `skills/subagent-workflows/references/lane-orchestrator.md`.
+
 **You are the ONE manager layer; leaves are terminal.** Fan-out lives here and only here — a dispatched subagent cannot dispatch further; tell every leaf it is terminal. Never run implementer leaves on overlapping code; merge in dependency order and re-gate after each merge.
 
 Dispatch fan-out leaves as `code-worker` (never `inherit`); concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.

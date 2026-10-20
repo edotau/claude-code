@@ -28,7 +28,7 @@ func SetProviderFields(name string, fields map[string]any) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	file := UserFile()
+	file := paths.ProvidersOverlay()
 	return paths.WithFileLock(file, func() error {
 		raw, err := os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -64,12 +64,33 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 			return err
 		}
 		if len(raw) > 0 {
-			if err := paths.AtomicWrite(file+".bak-"+time.Now().Format("20060102-150405"), raw, 0o600); err != nil {
+			if _, err := writeBackup(file+".bak-"+time.Now().Format("20060102-150405.000000000"), raw); err != nil {
 				return err
 			}
 		}
 		return paths.AtomicWrite(file, append(out, '\n'), 0o600)
 	})
+}
+
+func writeBackup(base string, data []byte) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Close()); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
 }
 
 // SetProviderModel sets one slot's model id for name, keeping its other slots.

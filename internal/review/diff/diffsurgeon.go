@@ -98,13 +98,13 @@ func getDiff(diffRange, file string, stderr io.Writer) (string, int) {
 func parseDiffFiles(diffText string) []*diffFileEntry {
 	var files []*diffFileEntry
 	var current *diffFileEntry
-	for _, line := range strings.Split(diffText, "\n") {
+	for line := range strings.SplitSeq(diffText, "\n") {
 		switch {
 		case strings.HasPrefix(line, "diff --git"):
-			idx := strings.LastIndex(line, " b/")
+			_, after, ok := strings.CutLast(line, " b/")
 			name := line
-			if idx != -1 {
-				name = line[idx+3:]
+			if ok {
+				name = after
 			}
 			current = &diffFileEntry{file: name}
 			files = append(files, current)
@@ -144,11 +144,8 @@ func detectQuoteSwaps(changes []string) []diffFinding {
 	sort.Strings(adds)
 	sort.Strings(dels)
 	var findings []diffFinding
-	n := len(adds)
-	if len(dels) < n {
-		n = len(dels)
-	}
-	for i := 0; i < n; i++ {
+	n := min(len(dels), len(adds))
+	for i := range n {
 		a, d := adds[i], dels[i]
 		aBody := strings.TrimSpace(a[1:])
 		dBody := strings.TrimSpace(d[1:])

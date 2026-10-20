@@ -2,6 +2,30 @@
 
 This reference covers Playwright's Python async API for browser automation tasks — NOT testing. For test-specific work (assertions, fixtures, test runners), see the `testing-guidelines` skill.
 
+## Setup
+
+Playwright is not installed by default here. Install on demand:
+
+```bash
+pip install playwright
+playwright install chromium   # only needed for the bundled-chromium fallback below
+```
+
+**Browser channel — Edge by default.** Launches use the locally installed Microsoft Edge
+(`channel="msedge"`, Chromium-based) unless overridden via `BROWSER_CHANNEL`:
+
+```python
+import os
+
+def launch_kwargs() -> dict:
+    # BROWSER_CHANNEL: msedge (default) | chrome | msedge-beta | chromium (bundled fallback)
+    channel = os.environ.get("BROWSER_CHANNEL", "msedge")
+    kwargs = {"headless": os.environ.get("HEADLESS", "true") == "true"}
+    if channel != "chromium":
+        kwargs["channel"] = channel
+    return kwargs
+```
+
 ## Browser Launch & Context
 
 ### Launching the Browser

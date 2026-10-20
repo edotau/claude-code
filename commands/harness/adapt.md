@@ -34,7 +34,7 @@ For each signal found, classify it:
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
 | Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
-| Docs/communication pattern | `rules/standards/documentation.md` or `communication.md` | Markdown/living-docs, or response style |
+| Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/communication.md` | Markdown/living-docs, or response style |
 | Performance insight | `rules/standards/performance.md` | Relevant subsection |
 | Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
 | Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
