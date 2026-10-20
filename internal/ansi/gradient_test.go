@@ -65,11 +65,7 @@ func legacySpan(n int, t float64) int {
 // gradAtSpan mirrors GradAt's own selector so a sweep can compare the two decisions directly.
 func gradAtSpan(n int, t float64) int {
 	step := 100 / float64(n-1)
-	k := int(t / step)
-	if k > n-2 {
-		k = n - 2
-	}
-	return k
+	return min(int(t/step), n-2)
 }
 
 func TestGradAtSpanMatchesTheLegacyScan(t *testing.T) {

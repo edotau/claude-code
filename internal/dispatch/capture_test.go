@@ -91,7 +91,7 @@ func TestCapturePanes_MalformedRecordIsSkipped(t *testing.T) {
 
 func TestCapturePanes_CapsPaneCount(t *testing.T) {
 	var blob strings.Builder
-	for i := 0; i < maxPanes+10; i++ {
+	for range maxPanes + 10 {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
