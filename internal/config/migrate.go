@@ -125,7 +125,14 @@ func migrate(w io.Writer, dryRun bool) error {
 	var committed []*migrationGroup
 	var keyringNames []string
 	for _, g := range groups {
-		if len(g.items) == 0 || g.err != nil {
+		if g.err != nil {
+			continue
+		}
+		// Every other group needs a file to import; the secrets group also has keyring-only
+		// candidates (an `@keyring` ref, provider auth.env, CLAUDE_CODE_OAUTH_TOKEN) with no
+		// secrets.env/secrets.meta.json file, so it must still run or those names are silently
+		// stranded once their ref is rewritten to @secret with nothing sealed to back it.
+		if g.kind != "secrets" && len(g.items) == 0 {
 			continue
 		}
 		var err error
@@ -136,14 +143,19 @@ func migrate(w io.Writer, dryRun bool) error {
 				keyringNames = append(keyringNames, found...)
 			}
 		} else {
-			err = migrateConfigGroup(g, dryRun)
+			err = migrateConfigGroup(w, g, dryRun)
 		}
 		if err != nil {
 			report(err)
 			continue
 		}
 		committed = append(committed, g)
-		fmt.Fprintf(w, "%-9s %d imported from %s\n", g.kind, len(g.names), legacyLabel(g.items[0].Source))
+		switch {
+		case len(g.items) != 0:
+			fmt.Fprintf(w, "%-9s %d imported from %s\n", g.kind, len(g.names), legacyLabel(g.items[0].Source))
+		case len(g.names) != 0:
+			fmt.Fprintf(w, "%-9s %d imported from the keyring\n", g.kind, len(g.names))
+		}
 	}
 	count := 0
 	for _, g := range committed {
@@ -186,7 +198,7 @@ func migrate(w io.Writer, dryRun bool) error {
 		return errors.Join(append(failures, err)...)
 	}
 	for i := start; i < len(m.Items); i++ {
-		if err := finishRename(m, i, false); err != nil {
+		if err := finishRename(m, i, false, false); err != nil {
 			return errors.Join(append(failures, err)...)
 		}
 	}
@@ -251,7 +263,7 @@ func parseMigration(sources []legacySource, m *Manifest) []*migrationGroup {
 	return groups
 }
 
-func migrateConfigGroup(g *migrationGroup, dryRun bool) error {
+func migrateConfigGroup(w io.Writer, g *migrationGroup, dryRun bool) error {
 	run := vault.Update
 	if dryRun {
 		run = vault.View
@@ -260,6 +272,9 @@ func migrateConfigGroup(g *migrationGroup, dryRun bool) error {
 		g.names = nil
 		if g.kind == "providers" || g.kind == "vendors" {
 			if _, ok := t.Get(vault.Overlay, g.kind); ok {
+				fmt.Fprintf(w, "migrate: %s overlay already present in the vault; %s was not imported "+
+					"(finalize will refuse unless you --discard %s)\n",
+					g.kind, legacyLabel(g.items[0].Source), g.kind)
 				return nil
 			}
 			g.names = append(g.names, g.kind)
@@ -462,7 +477,7 @@ func resumeMigration(w io.Writer, m *Manifest, dryRun bool) error {
 		if m.Items[i].Done {
 			continue
 		}
-		if err := finishRename(m, i, dryRun); err != nil {
+		if err := finishRename(m, i, dryRun, true); err != nil {
 			return err
 		}
 		count++
@@ -477,7 +492,47 @@ func resumeMigration(w io.Writer, m *Manifest, dryRun bool) error {
 	return nil
 }
 
-func finishRename(m *Manifest, i int, dryRun bool) error {
+// verifyResumeSource guards a pending migrate-side rename: a crash can land between the manifest
+// save and finishRename's os.Rename, and an old binary still on disk may update the source in that
+// window. Resuming must not rename (and thus silently "finish migrating") content that was never
+// actually imported.
+func verifyResumeSource(item Item) error {
+	changed := fmt.Errorf("%s: source changed since migration; re-run after rollback", item.Source)
+	if item.Kind != "secrets" {
+		raw, err := os.ReadFile(item.Source)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(raw)
+		if hex.EncodeToString(sum[:]) != item.SHA256 {
+			return changed
+		}
+		return nil
+	}
+	values, err := parseEnvFile(item.Source)
+	if err != nil {
+		return changed
+	}
+	for name, value := range values {
+		// A keyring value took precedence over the file at seal time (migrateSecrets); match that.
+		expect := value
+		if kv, found, err := legacyKeyringLookup(name); err == nil && found {
+			expect = kv
+		}
+		stored, found, err := vault.ReadSecret(name)
+		if err != nil {
+			return err
+		}
+		if !found || stored != expect {
+			return changed
+		}
+	}
+	return nil
+}
+
+// finishRename completes a pending source->backup rename; verify is true only when resuming a
+// prior incomplete migration, where the source may have been touched again since it was recorded.
+func finishRename(m *Manifest, i int, dryRun, verify bool) error {
 	item := &m.Items[i]
 	_, sourceErr := os.Lstat(item.Source)
 	_, backupErr := os.Lstat(item.Backup)
@@ -489,6 +544,11 @@ func finishRename(m *Manifest, i int, dryRun bool) error {
 	}
 	switch {
 	case sourceErr == nil && errors.Is(backupErr, fs.ErrNotExist):
+		if verify {
+			if err := verifyResumeSource(*item); err != nil {
+				return err
+			}
+		}
 		if !dryRun {
 			if err := os.Rename(item.Source, item.Backup); err != nil {
 				return err
