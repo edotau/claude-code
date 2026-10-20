@@ -67,7 +67,7 @@ func resolvePath(p string) string {
 	return abs
 }
 
-// RunQuality is the code_quality_checker.py CLI: same flags, same exit codes (1 only on a missing path).
+// RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a missing path or output write error.
 func RunQuality(args []string, stdout, stderr io.Writer) int {
 	parsed, err := parseQualityArgs(args)
 	if err != nil {
@@ -97,22 +97,28 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if parsed.jsonOut {
-		emitQualityJSON(report, parsed.output, stdout)
+		if err := emitQualityJSON(report, parsed.output, stdout); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
 	} else {
 		printQualityReport(report, stdout)
 	}
 	return 0
 }
 
-func emitQualityJSON(report interface{}, output string, stdout io.Writer) {
+func emitQualityJSON(report interface{}, output string, stdout io.Writer) error {
 	var buf strings.Builder
 	writeJSON(&buf, report)
 	if output != "" {
-		os.WriteFile(output, []byte(buf.String()), 0o644)
+		if err := os.WriteFile(output, []byte(buf.String()), 0o644); err != nil {
+			return err
+		}
 		fmt.Fprintf(stdout, "Results written to %s\n", output)
 	} else {
 		fmt.Fprintln(stdout, buf.String())
 	}
+	return nil
 }
 
 func printQualityReport(report interface{}, w io.Writer) {

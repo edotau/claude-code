@@ -3,6 +3,7 @@
 package theme
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
 )
+
+var beforeWrite func(dest string)
 
 // Dir is the tracked theme directory.
 func Dir() string { return filepath.Join(paths.ConfigDir(), "theme") }
@@ -113,6 +116,16 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return false, "", err
+	}
+	if beforeWrite != nil {
+		beforeWrite(dest)
+	}
+	fresh, err := os.ReadFile(dest)
+	if err != nil && !os.IsNotExist(err) {
+		return false, "", err
+	}
+	if !bytes.Equal(fresh, raw) {
+		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
 	}
 	if len(raw) > 0 {
 		backup = dest + ".bak-" + time.Now().Format("20060102-150405")

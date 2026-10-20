@@ -39,7 +39,10 @@ func List(repo *Repo) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries := unionFilesystem(repo, registered)
+	entries, err := unionFilesystem(repo, registered)
+	if err != nil {
+		return nil, err
+	}
 	target, targetErr := currentBranch(repo.Main)
 	now := time.Now()
 	for i := range entries {
@@ -114,7 +117,7 @@ func parseRecord(rec string) Entry {
 
 // unionFilesystem adds an Exists=true, Registered=false entry for every immediate directory under
 // repo.Root that listPorcelain didn't already find, and marks every registered entry's Exists by stat.
-func unionFilesystem(repo *Repo, registered []Entry) []Entry {
+func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	byPath := map[string]int{}
 	for i, e := range registered {
 		byPath[e.Path] = i
@@ -122,7 +125,10 @@ func unionFilesystem(repo *Repo, registered []Entry) []Entry {
 			registered[i].Exists = true
 		}
 	}
-	dirs, _ := os.ReadDir(repo.Root)
+	dirs, err := os.ReadDir(repo.Root)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	for _, d := range dirs {
 		if !d.IsDir() {
 			continue
@@ -136,7 +142,7 @@ func unionFilesystem(repo *Repo, registered []Entry) []Entry {
 		}
 		registered = append(registered, Entry{Path: path, Exists: true})
 	}
-	return registered
+	return registered, nil
 }
 
 // Classify derives Orphaned from a registration/filesystem mismatch; Prunable/Locked already come

@@ -97,3 +97,28 @@ func TestRunComplexityBadFlag(t *testing.T) {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
 	}
 }
+
+func TestRunComplexityWarnsAndSkipsUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "broken.go")
+	if err := os.Symlink(filepath.Join(dir, "missing.go"), broken); err != nil {
+		t.Skipf("cannot create dangling symlink: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := RunComplexity([]string{dir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("[warning] could not read "+broken+":")) {
+		t.Fatalf("stderr = %q, want unreadable-file warning", stderr.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("0 files")) {
+		t.Fatalf("stdout = %q, want a report excluding the unreadable file", stdout.String())
+	}
+}
+
+func TestAnalyzeFileComplexityReturnsReadError(t *testing.T) {
+	_, err := analyzeFileComplexity(filepath.Join(t.TempDir(), "missing.go"), complexityThresholds["medium"])
+	if err == nil {
+		t.Fatal("analyzeFileComplexity did not report a read error")
+	}
+}

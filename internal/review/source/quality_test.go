@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,5 +72,20 @@ func TestRunQualityBadFlag(t *testing.T) {
 	code := RunQuality([]string{"--nope", "x.go"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	}
+}
+
+func TestRunQualityOutputWriteError(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "nonexistent", "out.json")
+	var stdout, stderr bytes.Buffer
+	code := RunQuality([]string{filepath.Join("testdata", "quality", "paths.go"), "--json", "--output", output}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.HasPrefix(stderr.String(), "Error: ") || !strings.Contains(stderr.String(), output) {
+		t.Errorf("stderr = %q, want write error containing %q", stderr.String(), output)
 	}
 }
