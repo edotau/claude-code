@@ -35,17 +35,39 @@ func Doctor(ctx context.Context) (ok bool, detail string) {
 	return true, fmt.Sprintf("%s, node %s, %s%s", st.BackendState, st.DNSName, exit, note)
 }
 
+// CredState is one credential's presence, by name only — never its value.
+type CredState struct {
+	Name    string
+	Source  string
+	Present bool
+}
+
+// credentialNames is the fixed order Credentials and credentialNote report in.
+var credentialNames = []string{
+	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
+}
+
+// Credentials reports presence and source for every Tailscale credential name, never a value.
+func Credentials() []CredState {
+	out := make([]CredState, len(credentialNames))
+	for i, name := range credentialNames {
+		_, source, ok := secrets.Get(name)
+		out[i] = CredState{Name: name, Source: source, Present: ok}
+	}
+	return out
+}
+
 // credentialNote reports whether an admin API credential is configured, by name only.
 func credentialNote() string {
-	_, _, id := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID")
-	_, _, sec := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+	cs := Credentials()
+	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
 	switch {
 	case id && sec:
 		return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET"
-	case id != sec:
+	case id != sec && !api:
 		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET"
 	}
-	if _, _, ok := secrets.Get("TAILSCALE_API_KEY"); ok {
+	if api {
 		return "; api credential TAILSCALE_API_KEY"
 	}
 	return "; no admin credential"

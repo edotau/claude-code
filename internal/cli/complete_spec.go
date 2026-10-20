@@ -83,7 +83,8 @@ func buildSpecTree() map[string]*compNode {
 			"all":    {flags: []flagInfo{flag("since")}}, // forwards its args to `secrets git`
 		}},
 		"vault": {sub: map[string]*compNode{
-			"show": {}, "edit": {}, "rollback": {}, "rotate-key": {},
+			"show": {flags: []flagInfo{boolFlag("tailscale")}}, "edit": {}, "rollback": {}, "rotate-key": {},
+			"set":      {flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"), boolFlag("dry-run")}},
 			"migrate":  {flags: []flagInfo{boolFlag("dry-run")}},
 			"finalize": {flags: []flagInfo{valuedFlag("discard", secretNames)}},
 		}},
@@ -102,7 +103,7 @@ func buildSpecTree() map[string]*compNode {
 			"machines": {flags: []flagInfo{formatFlag()}},
 			"connect":  {flags: []flagInfo{flag("auth-key"), flag("key-env"), boolFlag("exit-node")}},
 			"key": {flags: []flagInfo{boolFlag("ephemeral"), boolFlag("preauthorized"), boolFlag("reusable"),
-				flag("tags"), flag("expiry"), flag("description")}},
+				flag("tags"), flag("expiry"), flag("description"), boolFlag("save")}},
 			"exit-node": {flags: []flagInfo{boolFlag("enable"), boolFlag("disable"), boolFlag("approve")}},
 		}},
 		"install": {flags: []flagInfo{boolFlag("dry-run"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
