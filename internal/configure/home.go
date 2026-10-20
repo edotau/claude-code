@@ -172,20 +172,20 @@ func registerClaudeMCP(bin string) error {
 }
 
 func registerClaudeMCPContext(ctx context.Context, bin string) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("claude mcp: %w", err)
+	if err := ctxErr(ctx, "claude mcp"); err != nil {
+		return err
 	}
 	claude, err := paths.LookPathReal("claude")
 	if err != nil {
 		return err
 	}
 	_ = exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run()
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("claude mcp remove: %w", err)
+	if err := ctxErr(ctx, "claude mcp remove"); err != nil {
+		return err
 	}
 	out, err := exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "web", "search").CombinedOutput()
-	if ctx.Err() != nil {
-		return fmt.Errorf("claude mcp add: %w", ctx.Err())
+	if cerr := ctxErr(ctx, "claude mcp add"); cerr != nil {
+		return cerr
 	}
 	if err != nil {
 		return fmt.Errorf("claude mcp add: %v: %s", err, strings.TrimSpace(string(out)))

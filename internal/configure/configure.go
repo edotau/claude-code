@@ -633,8 +633,8 @@ func runMint(argv []string) (string, error) {
 }
 
 func runMintContext(ctx context.Context, argv []string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("mint token: %w", err)
+	if err := ctxErr(ctx, "mint token"); err != nil {
+		return "", err
 	}
 	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
 		return "", nil
@@ -644,13 +644,22 @@ func runMintContext(ctx context.Context, argv []string) (string, error) {
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
 	err := cmd.Run()
-	if ctx.Err() != nil {
-		return "", fmt.Errorf("mint token: %w", ctx.Err())
+	if cerr := ctxErr(ctx, "mint token"); cerr != nil {
+		return "", cerr
 	}
 	if err != nil {
 		return "", err
 	}
 	return setupTokenRE.FindString(buf.String()), nil
+}
+
+// ctxErr wraps ctx's error under verb when ctx is already done, else nil — the one cancellation check
+// shared by every exec.CommandContext caller here and in home.go's registerClaudeMCPContext.
+func ctxErr(ctx context.Context, verb string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%s: %w", verb, err)
+	}
+	return nil
 }
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
@@ -707,8 +716,8 @@ func runLoginContext(ctx context.Context, argv []string) error {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Run()
-	if ctx.Err() != nil {
-		return fmt.Errorf("login: %w", ctx.Err())
+	if cerr := ctxErr(ctx, "login"); cerr != nil {
+		return cerr
 	}
 	return err
 }
