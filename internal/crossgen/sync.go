@@ -113,7 +113,7 @@ func Sync(opts SyncOptions) int {
 	var res syncResult
 	pruned := 0
 	for _, vendor := range vendors {
-		r, p := syncVendorAssets(out, vendor, root, home, agents, skills, docs, hasDocs, dryRun, prune)
+		r, p := syncVendorAssets(out, vendor, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune)
 		res.add(r)
 		pruned += p
 	}
@@ -145,12 +145,12 @@ func Sync(opts SyncOptions) int {
 	return 0
 }
 
-func syncVendorAssets(out io.Writer, vendor, root, home string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
+func syncVendorAssets(out io.Writer, vendor, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
 	fmt.Fprintf(out, "== %s ==\n", vendor)
 	res, pruned := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
 	if vendor == "gemini" {
 		// agy reads its own skills dir rather than ~/.agents/skills.
-		skillsDir, geminiSkills := filepath.Join(root, "skills"), GeminiSkillsDir(home)
+		geminiSkills := GeminiSkillsDir(home)
 		res.add(linkSkills(out, skills, skillsDir, geminiSkills, dryRun))
 		if prune {
 			pruned += pruneSkillLinks(out, geminiSkills, skillsDir, projectedSkillNames(skills), dryRun)
