@@ -36,7 +36,7 @@
       "base_url": "https://api.githubcopilot.com",
       "auth": {"type": "passthrough", "login": "copilot"},
       "models": {"opus": "auto", "sonnet": "auto", "haiku": "auto"},
-      "opencode_fallback": "mai-code-1.1-flash",
+      "opencode_fallback": "claude-opus-5.5",
       "opencodeID": "github-copilot"
     },
     "gemini": {
