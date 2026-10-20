@@ -36,7 +36,12 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		}
 		root = args[0]
 	}
-	files, _ := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
+	pattern := filepath.Join(root, "workflows", "*.js")
+	files, _ := filepath.Glob(pattern)
+	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
+		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", pattern)
+		return 1
+	}
 	bad := 0
 	for _, f := range files {
 		data, err := os.ReadFile(f)

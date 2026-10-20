@@ -131,6 +131,16 @@ func TestRunWorkflowLint(t *testing.T) {
 	}
 }
 
+// A root with no workflows/*.js is an error naming the searched path, not "0 script(s) clean".
+func TestRunWorkflowLintNoScripts(t *testing.T) {
+	root := t.TempDir()
+	var out, errb bytes.Buffer
+	want := filepath.Join(root, "workflows")
+	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || !strings.Contains(errb.String(), want) || out.Len() != 0 {
+		t.Fatalf("empty root: rc=%d out=%q err=%q; want 1, stderr naming %s", rc, out.String(), errb.String(), want)
+	}
+}
+
 // badPinValues flags a literal pin value outside the allow-list; a ternary/identifier value can't be
 // checked statically and passes, a string literal elsewhere containing "model:" text must not be
 // read as a pin, and lint:opus-ok exempts the whole call (not just the effort axis, unlike LintPins).
