@@ -46,3 +46,24 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 		t.Error("a clean tree must drop the stale stamp file")
 	}
 }
+
+// TestChangedFilesFromSubdir: from a repo subdirectory (no `.git` there) dirty paths still resolve cwd-relative.
+func TestChangedFilesFromSubdir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repo, _ := filepath.EvalSymlinks(t.TempDir())
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	src := filepath.Join(repo, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(src, "a.go"), []byte("package a\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(repo, "top.go"), []byte("package top\n"), 0o644)
+	got := changedFiles(t.Context(), src)
+	if len(got) != 1 || got[0] != "a.go" {
+		t.Fatalf("changedFiles(src) = %v, want [a.go]", got)
+	}
+}
