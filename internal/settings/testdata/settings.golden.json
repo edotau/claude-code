@@ -24,7 +24,8 @@
       "Bash(git push -f origin master:*)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/credentials)",
-      "Read(**/env.d/secrets.env)",
+      "Read(**/env.d/**)",
+      "Read(**/state/vault.db)",
       "Read(**/.credentials.json)",
       "Bash(security add-generic-password:*)",
       "Bash(security delete-generic-password:*)"
