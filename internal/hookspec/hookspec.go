@@ -50,6 +50,8 @@ var Registry = []Spec{
 	{Name: "bash-guard", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// Markdown at a repo root or in a git-ignored docs dir is sent to its canonical docs/ home.
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
+	// A native plan-mode draft's first write must already carry agents/Plan.md's template headings.
+	{Name: "plan-template", Event: EventPreToolUse, Matcher: "Write", Timeout: 5, StatusMessage: "Checking plan template", Gate: true},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
 	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
@@ -61,6 +63,8 @@ var Registry = []Spec{
 	// One SubagentStop hook, run in order: an editing subagent's first stop is sent back for one simplify
 	// pass, and its inflight slot retires only on the stop that actually ends it.
 	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
+	// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
+	{Name: "plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Timeout: 10},
 	// An approved plan is filed under plans/, tagged with its repo.
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
 	// A model read of a bank file is traced to that bank's access log (memory doctor's hot/cold signal).

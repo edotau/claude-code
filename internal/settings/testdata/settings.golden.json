@@ -82,6 +82,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook plan-mirror",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {
@@ -146,6 +156,17 @@
             "command": "$HOME/.claude/bin/claude-code hook docs-placement",
             "timeout": 5,
             "statusMessage": "Checking doc placement"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook plan-template",
+            "timeout": 5,
+            "statusMessage": "Checking plan template"
           }
         ]
       },

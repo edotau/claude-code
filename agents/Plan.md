@@ -74,6 +74,9 @@ recovery point if a session, agent or worktree is lost. Mark an item **you** whe
 Suggest the slug. Plans live only in `~/.claude/plans/` (untracked): `YYYY-MM-DD-<slug>.md` for this repo,
 `<repo-slug>/YYYY-MM-DD-<slug>.md` for any other — never a repo root or a repo's own `.claude/`. The `save-plan`
 hook appends a `## Tasks` list (built from Phase/Step/Part headings) to an approved plan that has none.
+Plan mode's native draft lands first as an undated file directly under `~/.claude/plans/`: the `plan-template`
+gate denies its first write unless it already has this template's four headings, and `plan-mirror` copies every
+later write/edit to its dated, repo-tagged name, so the draft is never the file of record.
 
 ## Phase rules
 
