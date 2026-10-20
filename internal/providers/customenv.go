@@ -6,8 +6,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// KeyringRef marks a custom env value held in the OS keyring under the variable's own name.
-const KeyringRef = "@keyring"
+// SecretRef marks a custom env value held in the vault under the variable's own name.
+const SecretRef = "@secret"
 
 // CustomEnv is the raw vault env bucket (values unresolved); a read error yields an empty table.
 func CustomEnv() map[string]string {
@@ -16,11 +16,16 @@ func CustomEnv() map[string]string {
 	return m
 }
 
-// ResolveCustomEnv resolves @keyring refs through get; a ref get cannot resolve is listed in missing, not set.
-func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, missing []string) {
+// ResolveCustomEnv resolves secret refs through get and returns env-bucket read errors.
+func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, missing []string, err error) {
 	vals = map[string]string{}
-	for k, v := range CustomEnv() {
-		if v != KeyringRef {
+	var raw map[string]string
+	err = vault.View(func(tx *vault.Tx) error { raw = tx.All(vault.Env); return nil })
+	if err != nil {
+		return vals, nil, err
+	}
+	for k, v := range raw {
+		if v != SecretRef {
 			vals[k] = v
 			continue
 		}
@@ -31,7 +36,7 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 		}
 	}
 	sort.Strings(missing)
-	return vals, missing
+	return vals, missing, nil
 }
 
 // SetCustomEnv writes (raw != "") or deletes (raw == "") name in the vault env bucket, raw and unquoted.

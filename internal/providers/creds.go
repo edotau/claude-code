@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -25,7 +23,7 @@ type cached struct {
 
 var cmdCache sync.Map // provider name → cached
 
-// Credential resolves the provider's secret: env var → OS keyring → env.d/secrets.env → file → command (cached for TTL).
+// Credential resolves env → vault → file → command (cached for TTL).
 func Credential(ctx context.Context, p *Provider) (string, error) {
 	switch p.Auth.Type {
 	case AuthNone:
@@ -33,8 +31,11 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	case AuthPassthrough:
 		return "", ErrPassthrough
 	}
+	var vaultErr error
 	if p.Auth.Env != "" {
-		if v, _ := EffectiveSecret(p.Auth.Env); v != "" {
+		v, _, err := EffectiveSecret(p.Auth.Env)
+		vaultErr = err
+		if err == nil && v != "" {
 			return v, nil
 		}
 	}
@@ -48,7 +49,10 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if p.Auth.Command != "" {
 		return commandCredential(ctx, p, false)
 	}
-	return "", fmt.Errorf("%s: no credential (set %s in the env or %s%s)", p.Name, orDash(p.Auth.Env), paths.SecretsFile(), hint(p))
+	if vaultErr != nil {
+		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
+	}
+	return "", fmt.Errorf("%s: no credential (set %s with `claude-code secrets set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
 }
 
 // Refresh drops a cached command credential and re-runs it; used after an upstream 401.
@@ -81,7 +85,7 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 	return v, nil
 }
 
-// CredentialPresent reports whether Credential would succeed without running a command.
+// CredentialPresent checks configured credential sources without decrypting or running commands.
 func CredentialPresent(p *Provider) bool {
 	switch p.Auth.Type {
 	case AuthNone, AuthPassthrough:
@@ -90,8 +94,14 @@ func CredentialPresent(p *Provider) bool {
 	if p.Auth.Command != "" {
 		return true
 	}
-	v, err := Credential(context.Background(), p)
-	return err == nil && v != ""
+	if p.Auth.Env != "" && HasSecret(p.Auth.Env) != "" {
+		return true
+	}
+	if p.Auth.File != "" {
+		b, err := os.ReadFile(expandHome(p.Auth.File))
+		return err == nil && strings.TrimSpace(string(b)) != ""
+	}
+	return false
 }
 
 func expandHome(p string) string {
