@@ -113,26 +113,15 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 			if ev.Message.Model != "" {
 				res.Model = ev.Message.Model
 			}
-			for _, b := range ev.Message.Content {
-				if b.Type != "text" || b.Text == "" {
-					continue
-				}
-				if wrote {
-					io.WriteString(w, "\n")
-				}
-				if _, err := io.WriteString(w, b.Text); err != nil {
-					return res, err
-				}
-				wrote = true
+			var err error
+			wrote, err = writeClaudeAssistant(w, ev, wrote)
+			if err != nil {
+				return res, err
 			}
 		case "result":
 			sawResult = true
-			res.Answer = ev.Result
-			u := ev.Usage
-			res.Usage = Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
-				CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
-			if ev.IsError {
-				return res, fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
+			if err := applyClaudeResult(&res, ev); err != nil {
+				return res, err
 			}
 		}
 	}
@@ -140,4 +129,31 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 		return res, errors.New("claude: stream ended without a result event")
 	}
 	return res, nil
+}
+
+func writeClaudeAssistant(w io.Writer, ev claudeEvent, wrote bool) (bool, error) {
+	for _, b := range ev.Message.Content {
+		if b.Type != "text" || b.Text == "" {
+			continue
+		}
+		if wrote {
+			io.WriteString(w, "\n")
+		}
+		if _, err := io.WriteString(w, b.Text); err != nil {
+			return wrote, err
+		}
+		wrote = true
+	}
+	return wrote, nil
+}
+
+func applyClaudeResult(res *Result, ev claudeEvent) error {
+	res.Answer = ev.Result
+	u := ev.Usage
+	res.Usage = Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
+		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
+	if ev.IsError {
+		return fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
+	}
+	return nil
 }
