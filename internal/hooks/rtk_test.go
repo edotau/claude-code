@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -9,8 +10,8 @@ import (
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
 	var sb strings.Builder
-	if rc := RTKWrap(strings.NewReader(in), &sb); rc != ExitProceed {
-		t.Fatalf("rc = %d, want ExitProceed (%d) — this hook must never block", rc, ExitProceed)
+	if rc := BashGuard(strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
+		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, ExitProceed)
 	}
 	if strings.TrimSpace(sb.String()) == "" {
 		return "", false
@@ -47,7 +48,7 @@ func TestRTKWrapsEligibleCommand(t *testing.T) {
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
 	var sb strings.Builder
-	RTKWrap(strings.NewReader(rtkBashIn("npm install")), &sb)
+	BashGuard(strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
 	var out struct {
 		HookSpecificOutput struct {
 			UpdatedInput map[string]any `json:"updatedInput"`

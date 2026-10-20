@@ -17,7 +17,7 @@ func TestSettingsJSON(t *testing.T) {
 	if len(block[EventStop]) != 1 || len(block[EventStop][0].Hooks) != 3 || len(block[EventSessionStart]) != 1 || len(block[EventSessionEnd]) != 1 || len(block[EventUserPromptSubmit]) != 1 || block[EventPreToolUse][0].Matcher != "Bash" {
 		t.Errorf("block %s", b)
 	}
-	if !IsHarness("$HOME/.claude/bin/claude-code hook safety") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("orca hook") {
+	if !IsHarness("$HOME/.claude/bin/claude-code hook bash-guard") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("orca hook") {
 		t.Error("IsHarness")
 	}
 }

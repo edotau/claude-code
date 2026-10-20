@@ -47,9 +47,7 @@ func IsHarness(command string) bool {
 
 // Registry is the whole chain in per-event execution order.
 var Registry = []Spec{
-	{Name: "safety", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
-	// Noisy Bash output is routed through rtk when it is on PATH; a no-op otherwise.
-	{Name: "rtk-wrap", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5},
+	{Name: "bash-guard", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// Markdown at a repo root or in a git-ignored docs dir is sent to its canonical docs/ home.
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).

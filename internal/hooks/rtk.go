@@ -1,5 +1,4 @@
-// `rtk-wrap` — PreToolUse(Bash): routes noisy commands through the rtk CLI proxy, which compresses
-// their output before it reaches the model. No-op unless rtk is on PATH, so it is safe to leave on.
+// bash-guard checks command safety before routing eligible output through rtk.
 package hooks
 
 import (
@@ -46,29 +45,34 @@ var rtkValueSubcommands = map[string]bool{
 // rtk's output onward, which is what the caller asked for.
 var rtkChainOperators = []string{"&&", "||", ";", "\n"}
 
-// RTKWrap rewrites an eligible Bash command to run through the rtk proxy. Emits nothing (and always
+// rtkWrap rewrites an eligible Bash command to run through the rtk proxy. Emits nothing (and always
 // proceeds) when rtk is absent, the tool is not Bash, or the command is ineligible.
-func RTKWrap(r io.Reader, stdout io.Writer) int {
-	in := ParseInput(r)
+func rtkWrap(in *Input, stdout io.Writer) int {
+	if in.Vendor() != VendorClaude {
+		return ExitProceed
+	}
 	if in.ToolName != "" && in.ToolName != "Bash" {
 		return ExitProceed
 	}
 	cmd := in.ToolCommand()
+	if !rtkEligible(cmd, os.Getenv(rtkBinaryEnv)) {
+		return ExitProceed
+	}
 	bin := rtkBinary()
-	if bin == "" || !rtkEligible(cmd, bin) {
+	if bin == "" {
 		return ExitProceed
 	}
 
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (description, timeout, run_in_background) would silently alter the call.
-	updated := rtkToolInput(in)
+	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}
 	updated["command"] = bin + " " + cmd
 
 	note := fmt.Sprintf(
-		"rtk-wrap: routed through the rtk output compressor (%s). Output is summarized, not literal — "+
+		"bash-guard: routed through the rtk output compressor (%s). Output is summarized, not literal — "+
 			"re-run without rtk if you need exact bytes.", bin)
 	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})
@@ -77,21 +81,6 @@ func RTKWrap(r io.Reader, stdout io.Writer) int {
 	}
 	fmt.Fprintln(stdout, string(out))
 	return ExitProceed
-}
-
-// rtkToolInput clones tool_input so the caller can rewrite one key without mutating the parsed doc.
-func rtkToolInput(in *Input) map[string]any {
-	var doc struct {
-		ToolInput map[string]any `json:"tool_input"`
-	}
-	if json.Unmarshal(in.Raw, &doc) != nil || doc.ToolInput == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(doc.ToolInput)+1)
-	for k, v := range doc.ToolInput {
-		clone[k] = v
-	}
-	return clone
 }
 
 // RTKBinary reports the resolved rtk binary for the CLI's status line, or "".

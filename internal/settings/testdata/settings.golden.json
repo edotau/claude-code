@@ -132,14 +132,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook safety",
+            "command": "$HOME/.claude/bin/claude-code hook bash-guard",
             "timeout": 5,
             "statusMessage": "Checking command safety"
-          },
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook rtk-wrap",
-            "timeout": 5
           }
         ]
       },
