@@ -275,3 +275,21 @@ func TestListUnionsFilesystemAndRegistration(t *testing.T) {
 		t.Fatalf("entries = %+v, missing expected registered/unregistered pair", entries)
 	}
 }
+
+func TestListPropagatesFilesystemReadError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(repo.Root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(repo.Root, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := List(repo); err == nil {
+		t.Fatal("List succeeded despite a non-directory worktree root")
+	}
+}

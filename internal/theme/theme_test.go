@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,37 @@ func TestApplyMergesKeepsForeignKeysAndIsIdempotent(t *testing.T) {
 	}
 	if o := find(out, "gemini"); o.Skipped == "" {
 		t.Errorf("missing theme file must be skipped, got %+v", o)
+	}
+}
+
+func TestMergeFileRejectsConcurrentEdit(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "settings.json")
+	initial := []byte(`{"theme":"old"}`)
+	concurrent := []byte(`{"theme":"concurrent"}`)
+	if err := os.WriteFile(dest, initial, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldBeforeWrite := beforeWrite
+	t.Cleanup(func() { beforeWrite = oldBeforeWrite })
+	beforeWrite = func(path string) {
+		if err := os.WriteFile(path, concurrent, 0o600); err != nil {
+			t.Errorf("simulate concurrent edit: %v", err)
+		}
+	}
+
+	changed, backup, err := mergeFile(dest, map[string]any{"theme": "new"}, false)
+	if err == nil {
+		t.Fatal("merge accepted a concurrent edit")
+	}
+	if changed || backup != "" {
+		t.Fatalf("merge result = changed %v, backup %q; want no write or backup", changed, backup)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, concurrent) {
+		t.Fatalf("destination = %q, want concurrent contents %q", got, concurrent)
 	}
 }
 

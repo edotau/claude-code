@@ -9,9 +9,31 @@ import (
 	"testing"
 )
 
+func scrubGitEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
+	} {
+		value, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+		t.Cleanup(func() {
+			if err := os.Setenv(key, value); err != nil {
+				t.Errorf("restore %s: %v", key, err)
+			}
+		})
+	}
+}
+
 // gitRepoCLI makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepoCLI(t *testing.T) string {
 	t.Helper()
+	scrubGitEnv(t)
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
@@ -41,6 +63,7 @@ func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 }
 
 func TestCmdWorktreeNonRepoCWD(t *testing.T) {
+	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir()) // not a git repository
 	code, _, errb := captureOutput(t, func() int { return cmdWorktree([]string{"list"}) })

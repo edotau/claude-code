@@ -486,10 +486,7 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 		}
 	}
 
-	var results []QualityReport
-	for _, ext := range extensions {
-		results = append(results, walkExtension(dir, ext)...)
-	}
+	results := walkExtensions(dir, extensions)
 	if len(results) == 0 {
 		return directoryReport{}, fmt.Errorf("no supported files found")
 	}
@@ -512,23 +509,31 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 	}, nil
 }
 
-// walkExtension collects files under dir named *ext (recursive), matching Path.glob(f"**/*{ext}").
-func walkExtension(dir, ext string) []QualityReport {
-	var matches []string
+// walkExtensions collects supported files in one traversal, retaining extension and path ordering.
+func walkExtensions(dir string, extensions []string) []QualityReport {
+	byExtension := make(map[string][]string, len(extensions))
+	for _, ext := range extensions {
+		byExtension[ext] = nil
+	}
 	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || pathHasSkippedPart(p) {
 			return nil
 		}
-		if strings.HasSuffix(p, ext) {
-			matches = append(matches, p)
+		for ext := range byExtension {
+			if strings.HasSuffix(p, ext) {
+				byExtension[ext] = append(byExtension[ext], p)
+			}
 		}
 		return nil
 	})
-	sort.Strings(matches)
 	var out []QualityReport
-	for _, m := range matches {
-		if r, err := Quality(m, ""); err == nil {
-			out = append(out, r)
+	for _, ext := range extensions {
+		matches := byExtension[ext]
+		sort.Strings(matches)
+		for _, m := range matches {
+			if r, err := Quality(m, ""); err == nil {
+				out = append(out, r)
+			}
 		}
 	}
 	return out

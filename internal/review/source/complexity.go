@@ -125,16 +125,16 @@ func deepestIndentUnits(text string) int {
 }
 
 // analyzeFileComplexity ports complexity_checker.analyze_file.
-func analyzeFileComplexity(path string, th ComplexityThresholds) *FileResult {
+func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
 	lang := detectComplexityLang(path)
 	if lang == "" {
-		return nil
+		return nil, nil
 	}
 	data, err := os.ReadFile(path)
-	text := ""
-	if err == nil {
-		text = string(data)
+	if err != nil {
+		return nil, err
 	}
+	text := string(data)
 	lineCount := len(strings.Split(text, "\n"))
 	if text != "" && strings.HasSuffix(text, "\n") {
 		lineCount-- // splitlines() drops a trailing newline's empty tail; strings.Split does not.
@@ -165,7 +165,7 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) *FileResult {
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNilFindings(findings)}
+	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNilFindings(findings)}, nil
 }
 
 func nonNilFindings(f []Finding) []Finding {
@@ -181,21 +181,21 @@ func collectComplexityFiles(target string, extensions []string) []string {
 	if err == nil && !info.IsDir() {
 		return []string{target}
 	}
+	extensionSet := complexityExtensionSet(extensions)
 	var files []string
-	for _, ext := range extensions {
-		filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			if pathHasSkippedPart(p) {
-				return nil
-			}
-			if strings.HasSuffix(p, "."+ext) {
-				files = append(files, p)
-			}
+	filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
 			return nil
-		})
-	}
+		}
+		if pathHasSkippedPart(p) {
+			return nil
+		}
+		// Keep suffix matching: callers may request multi-part or overlapping extensions.
+		if hasComplexityExtension(p, extensionSet) {
+			files = append(files, p)
+		}
+		return nil
+	})
 	return files
 }
 
@@ -335,7 +335,12 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	sort.Strings(files)
 	var results []FileResult
 	for _, f := range files {
-		if r := analyzeFileComplexity(f, th); r != nil {
+		r, err := analyzeFileComplexity(f, th)
+		if err != nil {
+			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
+			continue
+		}
+		if r != nil {
 			results = append(results, *r)
 		}
 	}
@@ -379,4 +384,21 @@ func pyListRepr(items []string) string {
 		quoted[i] = "'" + s + "'"
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func complexityExtensionSet(extensions []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(extensions))
+	for _, ext := range extensions {
+		set[ext] = struct{}{}
+	}
+	return set
+}
+
+func hasComplexityExtension(path string, extensions map[string]struct{}) bool {
+	for ext := range extensions {
+		if strings.HasSuffix(path, "."+ext) {
+			return true
+		}
+	}
+	return false
 }
