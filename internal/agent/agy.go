@@ -102,6 +102,7 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 	var res Result
 	var answer strings.Builder
 	var response string
+	var sawResult bool
 	dec := json.NewDecoder(r)
 	for {
 		var ev agyEvent
@@ -122,6 +123,7 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 			}
 			answer.WriteString(ev.StepUpdate.TextDelta)
 		case "result":
+			sawResult = true
 			out := ev.Result
 			response = out.Response
 			if out.ConversationID != "" {
@@ -153,5 +155,8 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 		answer.WriteString(response)
 	}
 	res.Answer = strings.TrimSpace(answer.String())
+	if !sawResult {
+		return res, errors.New("agy: stream ended without a result event")
+	}
 	return res, nil
 }

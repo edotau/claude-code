@@ -157,8 +157,9 @@ func (p Policy) Delay(retryAfter time.Duration, attempt int, jitter float64) tim
 
 // Do runs fn under the policy; fn gets a per-attempt context and the 1-based attempt number.
 func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int) *Error) *Error {
+	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
-	for attempt := 1; attempt <= max(p.MaxAttempts, 1); attempt++ {
+	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {
 		actx, cancel := ctx, context.CancelFunc(func() {})
 		if p.AttemptTimeout > 0 {
 			actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)

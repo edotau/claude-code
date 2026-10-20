@@ -175,8 +175,10 @@ func snapshotFrom(loc agentLocation, now time.Time, n int) Snapshot {
 	}
 }
 
-// effortForLabel best-effort-extracts the agent()'s effort argument from the workflow manifest's own
-// script, matched by this agent's journal label ("" when not in a workflow, or not found).
+var effortLabelPattern = regexp.MustCompile(`label:\s*'([^']*)'`)
+var effortValuePattern = regexp.MustCompile(`^[^}]*effort:\s*'([^']+)'`)
+
+// effortForLabel extracts effort from the workflow script for the matching journal label.
 func effortForLabel(loc agentLocation, label string) string {
 	if loc.RunID == "" || label == "" {
 		return ""
@@ -185,9 +187,12 @@ func effortForLabel(loc agentLocation, label string) string {
 	if m == nil {
 		return ""
 	}
-	pattern := regexp.MustCompile(`label:\s*'` + regexp.QuoteMeta(label) + `'[^}]*effort:\s*'([^']+)'`)
-	if match := pattern.FindStringSubmatch(m.Script); len(match) == 2 {
-		return match[1]
+	for _, match := range effortLabelPattern.FindAllStringSubmatchIndex(m.Script, -1) {
+		if m.Script[match[2]:match[3]] == label {
+			if effort := effortValuePattern.FindStringSubmatch(m.Script[match[1]:]); len(effort) == 2 {
+				return effort[1]
+			}
+		}
 	}
 	return ""
 }
@@ -282,6 +287,9 @@ func Follow(ctx context.Context, opts ViewOptions, w io.Writer) error {
 	defer ticker.Stop()
 	for {
 		all := events(loc.TranscriptPath, loc.Cwd, 0)
+		if len(all) < seen {
+			seen = 0
+		}
 		for _, e := range all[seen:] {
 			fmt.Fprintln(w, formatEvent(e))
 		}

@@ -98,7 +98,11 @@ func CollectContext(cwd string, dirs, patterns []string, maxFiles, maxFileBytes 
 		maxFileBytes = DefaultMaxFileBytes
 	}
 
-	tracked, inRepo := gitTrackedFiles(cwd)
+	var tracked map[string]bool
+	var inRepo bool
+	if len(dirs) > 0 {
+		tracked, inRepo = gitTrackedFiles(cwd)
+	}
 	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
 	skipped = append(skipped, globPatterns(cwd, patterns, matches)...)
 
@@ -155,6 +159,10 @@ func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (
 					skipped = append(skipped, SkippedFile{relSlash(cwd, p), "ignored-path"})
 					return fs.SkipDir
 				}
+				return nil
+			}
+			if !d.Type().IsRegular() {
+				skipped = append(skipped, SkippedFile{relSlash(cwd, p), "non-regular-file"})
 				return nil
 			}
 			rel := relSlash(cwd, p)
@@ -216,6 +224,9 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	info, err := os.Stat(abs)
 	if err != nil {
 		return IncludedFile{}, "read-error: " + err.Error(), nil
+	}
+	if !info.Mode().IsRegular() {
+		return IncludedFile{}, "non-regular-file", nil
 	}
 	f, err := os.Open(abs)
 	if err != nil {
