@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // fakeKeyedProvider is a provider whose catalog route is a local server; want is the only candidate the
@@ -36,32 +37,6 @@ func newDialog(in string) (*dialog, *bytes.Buffer) {
 	r := strings.NewReader(in)
 	var out bytes.Buffer
 	return &dialog{o: Options{Interactive: true, In: r, Out: &out}, br: bufio.NewReader(r), out: &out}, &out
-}
-
-// --- planeOf ---
-
-func TestPlaneOfFile(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("PATH", t.TempDir()) // no keyring tool: forces the file plane
-	if _, err := secrets.Store("ROT_FILE", "v", false); err != nil {
-		t.Fatal(err)
-	}
-	forceFile, src := planeOf("ROT_FILE")
-	if !forceFile || src != "file" {
-		t.Errorf("planeOf = (%v, %q), want (true, file)", forceFile, src)
-	}
-}
-
-func TestPlaneOfEnv(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("ROT_ENV", "raw-process-value")
-	forceFile, src := planeOf("ROT_ENV")
-	if forceFile || src != "env" {
-		t.Errorf("planeOf = (%v, %q), want (false, env)", forceFile, src)
-	}
 }
 
 // --- rotateOptions ---
@@ -119,12 +94,11 @@ func TestRunRotateSingleLoginOptionNoBinary(t *testing.T) {
 	}
 }
 
-// A single mint option runs unconditionally; the printed token lands in the same plane the old value came from.
-func TestRunRotateSingleMintOptionStoresSamePlane(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+// A single mint option runs unconditionally; the printed token lands in the vault.
+func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
-	if _, err := secrets.Store(providers.OAuthTokenEnv, "old-token-value", false); err != nil {
+	if err := secrets.Store(providers.OAuthTokenEnv, "old-token-value"); err != nil {
 		t.Fatal(err)
 	}
 	d, out := newDialog("")
@@ -133,8 +107,8 @@ func TestRunRotateSingleMintOptionStoresSamePlane(t *testing.T) {
 		t.Fatalf("runRotate(mint) = false:\n%s", out.String())
 	}
 	val, src, ok := secrets.Get(providers.OAuthTokenEnv)
-	if !ok || src != "file" || !strings.Contains(val, "newtokenabc") {
-		t.Errorf("secrets.Get after mint = (%q, %q, %v), want the new token still on the file plane", val, src, ok)
+	if !ok || src != "vault" || !strings.Contains(val, "newtokenabc") {
+		t.Errorf("secrets.Get after mint = (%q, %q, %v), want the new token in the vault", val, src, ok)
 	}
 }
 
@@ -152,8 +126,7 @@ func TestRunRotateTwoOptionsPipedPicksSecondOnDecline(t *testing.T) {
 // --- regenerate ---
 
 func TestRegenerateMintEnvOnlyRefuses(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_MINT_ENV", "set-via-process-env")
 	d, out := newDialog("")
@@ -161,7 +134,7 @@ func TestRegenerateMintEnvOnlyRefuses(t *testing.T) {
 	if regenerate(d, kt, []string{"/bin/echo", "sk-ant-oat1-newvaluevalue0123456789abcdef"}, true) {
 		t.Fatal("regenerate(mint) on an env-only credential must refuse")
 	}
-	if !strings.Contains(out.String(), "process environment") {
+	if !strings.Contains(out.String(), "env-only") {
 		t.Errorf("output must explain the env-only refusal:\n%s", out.String())
 	}
 	if v := os.Getenv("ROT_MINT_ENV"); v != "set-via-process-env" {
@@ -183,8 +156,7 @@ func TestRegenerateLoginFailurePrintsError(t *testing.T) {
 // --- replaceKey ---
 
 func TestReplaceKeyEnvOnlyRefuses(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_REPLACE_ENV", "set-via-process-env")
 	d, out := newDialog("new-pasted-value\n")
@@ -192,7 +164,7 @@ func TestReplaceKeyEnvOnlyRefuses(t *testing.T) {
 	if replaceKey(d, kt) {
 		t.Fatal("replaceKey on an env-only credential must refuse")
 	}
-	if !strings.Contains(out.String(), "process environment") {
+	if !strings.Contains(out.String(), "env-only") {
 		t.Errorf("output must explain the refusal:\n%s", out.String())
 	}
 }
@@ -200,11 +172,10 @@ func TestReplaceKeyEnvOnlyRefuses(t *testing.T) {
 // A rejected probe asks to keep the old value; answering yes keeps it, writes nothing, and never echoes
 // either the old or the new raw value — only a 5-char-prefix redaction ever appears.
 func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	const oldVal = "old-good-secret-value-0001"
-	if _, err := secrets.Store("ROT_REPLACE_KEY", oldVal, true); err != nil {
+	if err := secrets.Store("ROT_REPLACE_KEY", oldVal); err != nil {
 		t.Fatal(err)
 	}
 	p := fakeKeyedProvider(t, "ROT_REPLACE_KEY", "the-only-accepted-value")
@@ -215,7 +186,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 		t.Fatalf("replaceKey must report false when the old value is kept:\n%s", out.String())
 	}
 	val, src, ok := secrets.Get("ROT_REPLACE_KEY")
-	if !ok || src != "file" || val != oldVal {
+	if !ok || src != "vault" || val != oldVal {
 		t.Errorf("secrets.Get = (%q, %q, %v), want the old value untouched", val, src, ok)
 	}
 	for _, raw := range []string{oldVal, newVal} {
@@ -225,13 +196,12 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	}
 }
 
-// An accepted probe stores the new value back to the same plane it came from, and the transcript shows
+// An accepted probe stores the new value back to the vault, and the transcript shows
 // only its 5-char-prefix redaction, never the full value.
-func TestReplaceKeyProbeAcceptedStoresSamePlaneRedacted(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
-	if _, err := secrets.Store("ROT_REPLACE_OK", "old-value-irrelevant-here", true); err != nil {
+	if err := secrets.Store("ROT_REPLACE_OK", "old-value-irrelevant-here"); err != nil {
 		t.Fatal(err)
 	}
 	const newVal = "accepted-fresh-secret-value-99"
@@ -242,8 +212,8 @@ func TestReplaceKeyProbeAcceptedStoresSamePlaneRedacted(t *testing.T) {
 		t.Fatalf("replaceKey must succeed on an accepted probe:\n%s", out.String())
 	}
 	val, src, ok := secrets.Get("ROT_REPLACE_OK")
-	if !ok || src != "file" || val != newVal {
-		t.Errorf("secrets.Get = (%q, %q, %v), want the new value on the file plane", val, src, ok)
+	if !ok || src != "vault" || val != newVal {
+		t.Errorf("secrets.Get = (%q, %q, %v), want the new value in the vault", val, src, ok)
 	}
 	if strings.Contains(out.String(), newVal) {
 		t.Fatalf("transcript leaked the raw new value:\n%s", out.String())
@@ -264,8 +234,7 @@ func TestEnsureKeyPresentKeepsOnConfirm(t *testing.T) {
 }
 
 func TestEnsureKeyPresentDeclineRunsReplace(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_ENSURE_ENV", "env-only-so-replace-must-refuse")
 	d, out := newDialog("n\n")
@@ -273,14 +242,13 @@ func TestEnsureKeyPresentDeclineRunsReplace(t *testing.T) {
 	if ensureKey(d, kt, true) {
 		t.Fatal("ensureKey declining keep must fall to replaceKey, which refuses an env-only credential")
 	}
-	if !strings.Contains(out.String(), "process environment") {
+	if !strings.Contains(out.String(), "env-only") {
 		t.Errorf("replaceKey's env-only refusal must surface through ensureKey:\n%s", out.String())
 	}
 }
 
 func TestEnsureKeyAbsentRunsResolve(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("y\npasted-value-here\n")
 	kt := keyTarget{label: "x", envVar: "ROT_ENSURE_ABSENT", fixCmd: "x"}

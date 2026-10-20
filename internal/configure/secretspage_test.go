@@ -13,9 +13,9 @@ func TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys(t *testing.T) {
 		t.Setenv("OLD_KEY", "")
 		os.Unsetenv("PAGE_KEY")
 		d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{}}
-		d.stage("OLD_KEY", "old", true)
+		d.stage("OLD_KEY", "old")
 		before := map[string]stagedKey{"OLD_KEY": d.pending["OLD_KEY"]}
-		d.stage("PAGE_KEY", "page-value", true)
+		d.stage("PAGE_KEY", "page-value")
 		orig := saveConfirmed
 		saveConfirmed = func(string) bool { return yes }
 		confirmPageKeys(d, before)
