@@ -14,8 +14,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/settings.tmpl.json`
    (hooks: `internal/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
-2. **Secrets live only in the OS keyring, `env.d/secrets.env`, or a provider's `auth.command`** — never in
-   `providers.json`, `settings.json`, a commit, or a log line.
+2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code secrets set`) or a provider's
+   `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
+   comes from the OS keyring, `HARNESS_VAULT_KEY`, or `key_command`.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
@@ -56,10 +57,10 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Render settings + vendor configs | `claude-code generate [--out f] [--check] [--dry-run] [--vendors]` | Non-default `CLAUDE_CONFIG_DIR`: vendors skipped unless `--vendors` (still targets live vendor homes); see hard rule 4 + `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
-| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
+| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in the vault (`claude-code config show`) |
+| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
-| Set a credential | `claude-code secrets set [NAME]` (OS keyring; bare on a terminal = guided dialog; `--file` → `env.d/secrets.env`), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
+| Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini/gemini.md`, `agents/gemini.md` |
@@ -88,9 +89,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
-- `internal/providers/defaults.json` — built-in providers; `~/.claude/env.d/providers.json` overlays by name.
-- `env.d/` — `provider.env` (pins, `switch`/`models`), `secrets.env` (credentials), `providers.json` (overlay),
-  `custom.env` (launch env); untracked; each has a tracked `*.example` beside it.
+- `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
+- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code config show|edit`) and
+  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `config migrate` (`README.md` → Credentials).
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`

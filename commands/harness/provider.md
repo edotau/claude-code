@@ -6,9 +6,9 @@ allowed-tools: "Bash(claude-code switch:*), Bash(claude-code profile:*), Bash(cl
 
 # /harness:provider — Switch LLM Provider
 
-Flip Claude Code between the providers registered in `~/.claude/env.d/providers.json`
-(overlaying `internal/providers/defaults.json` by name). The command pins the session
-provider via `claude-code switch` (alias: `use`), which writes `env.d/provider.env`.
+Flip Claude Code between the registered providers (the vault's provider overlay, edited with
+`claude-code config edit`, overlaying `internal/providers/defaults.json` by name). The command pins
+the session provider via `claude-code switch` (alias: `use`), which writes the vault pins.
 
 > **Relaunch to apply.** `claude-code switch <provider>` only rewrites the pin; the running
 > session keeps its current provider and auth intact. The new provider takes effect on the
@@ -31,11 +31,11 @@ Dispatch on the argument:
   Report the default/pinned provider, resolved tier→model slots, credential state, and
   whether the loopback router is needed. Change nothing.
 
-- **A provider name** (e.g. `anthropic`, `gemini`, any name in `providers.json`) — run:
+- **A provider name** (e.g. `anthropic`, `gemini`, any name `claude-code profile` lists) — run:
   ```bash
   claude-code switch <name>
   ```
-  This pins the session provider in `env.d/provider.env`. The next launch regenerates the
+  This pins the session provider in the vault. The next launch regenerates the
   routing env for that provider; credentials resolve through its `auth` ladder
   (`README.md` → Credentials).
 
@@ -47,11 +47,11 @@ restart Claude Code** — the running session keeps its old settings until relau
 
 ## Notes
 
-- `providers.json` overlays the built-ins **by name**; `"name": null` removes a built-in,
+- The provider overlay replaces the built-ins **by name**; `"name": null` removes a built-in,
   and `default`/`fallback` override when set.
 - A one-launch override never touches the durable pin: `claude --provider <p> --model <m>`.
 - Selection order (provider): `--provider` → `HARNESS_PROVIDER` → registry `default`; process
-  env always beats `env.d/provider.env`.
+  env always beats the vault pins.
 
 ## See also
 
