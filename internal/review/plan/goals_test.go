@@ -145,6 +145,7 @@ func TestFindOversizedTasksBoundaries(t *testing.T) {
 		{"A1", ""},                   // nested segments (sub/, deep/, x/) are not packages
 		{"A2", "names 4 packages"},   // backtick, `(`, whitespace and `,` all start a path token
 		{"A3", "names 4 packages"},   // ./internal/<x> in a verify command still counts
+		{"A4", ""},                   // (codex/copilot) is a runner alternative, not a package
 		{"B1", "names 4 packages"},   // cmd/cli and internal/cli are distinct
 		{"C1", "no `owns:` segment"}, // owns: at end of line is empty
 		{"C2", "no `owns:` segment"}, // owns: followed by an em dash is empty
