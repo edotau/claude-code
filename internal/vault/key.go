@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,7 +93,7 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 		if err != nil {
 			return nil, "env", err
 		}
-		return matchKey(id, k, "env", kid)
+		return matchKey(id, k, "env", kid, command)
 	}
 	keyCache.Lock()
 	defer keyCache.Unlock()
@@ -126,7 +127,7 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 	if err != nil {
 		return nil, source, err
 	}
-	k, source, err = matchKey(id, k, source, kid)
+	k, source, err = matchKey(id, k, source, kid, command)
 	if err != nil {
 		return nil, source, err
 	}
@@ -168,34 +169,59 @@ func runKeyCommand(raw, vaultID string) (*Key, error) {
 		return nil, fmt.Errorf("vault: key_command: %w", ctx.Err())
 	}
 	if err != nil {
-		return nil, err
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			stderr := strings.TrimSpace(string(exit.Stderr))
+			if len(stderr) > 200 {
+				stderr = stderr[:200]
+			}
+			if stderr != "" {
+				return nil, fmt.Errorf("vault: key_command: %w: %s", err, stderr)
+			}
+		}
+		return nil, fmt.Errorf("vault: key_command: %w", err)
 	}
 	return parseKey(string(out), vaultID)
 }
 
 // matchKey resolves k against the vault's recorded kid: a direct hit returns k unchanged; a
-// mismatch falls back to the immutable per-kid account, which every key — current or retired —
-// is durably stored under regardless of what the convenience pointer currently says (R1, R2).
-func matchKey(id string, k *Key, source, kid string) (*Key, string, error) {
+// mismatch falls back to the immutable per-kid account, then to key_command if one is configured
+// and wasn't already the source, before giving up with an error naming every source tried (R1,
+// R2). A genuine keyring error on the fallback lookup is folded into that error text, never
+// surfaced raw, so a locked/no-tool keyring never masquerades as "wrong key".
+func matchKey(id string, k *Key, source, kid, command string) (*Key, string, error) {
 	if k != nil && (kid == "" || k.Kid == kid) {
 		return k, source, nil
 	}
 	if kid == "" {
 		return nil, "", ErrLocked
 	}
+	tried := []string{source}
 	v, found, err := keyringLookup(account(id) + "." + kid)
-	if err != nil {
-		return nil, source, err
-	}
-	if found {
+	switch {
+	case err == nil && found:
 		if rk, perr := parseKey(v, id); perr == nil && rk.Kid == kid {
 			return rk, "keyring", nil
+		}
+		tried = append(tried, "keyring")
+	case err != nil:
+		tried = append(tried, fmt.Sprintf("keyring (%v)", err))
+	default:
+		tried = append(tried, "keyring")
+	}
+	if command != "" && source != "command" {
+		if ck, cerr := runKeyCommand(command, id); cerr == nil && ck.Kid == kid {
+			return ck, "command", nil
+		} else if cerr != nil {
+			tried = append(tried, fmt.Sprintf("key_command (%v)", cerr))
+		} else {
+			tried = append(tried, "key_command")
 		}
 	}
 	if k == nil {
 		return nil, "", ErrLocked
 	}
-	return nil, source, ErrWrongKey
+	return nil, source, fmt.Errorf("%w: tried %s", ErrWrongKey, strings.Join(tried, ", "))
 }
 
 // wrapKeyringUnavailable turns a keyring that could not positively establish absence into a
@@ -307,6 +333,15 @@ func randomKey(vaultID string) (*Key, string, error) {
 	return k, value, err
 }
 
+// RotateKeyOption configures RotateKey; the zero value is the default (guarded) behavior.
+type RotateKeyOption func(*rotateKeyOpts)
+
+type rotateKeyOpts struct{ force bool }
+
+// ForceRotate bypasses the guard that refuses rotation while HARNESS_VAULT_KEY or meta/key_command
+// is set — use only once the caller has updated that source with the new key immediately after.
+func ForceRotate() RotateKeyOption { return func(o *rotateKeyOpts) { o.force = true } }
+
 // RotateKey generates a new master key, re-seals every secret under it, and retains every key —
 // outgoing and incoming — forever under its own immutable kid account so an archive, a stalled
 // writer, or a sibling root sharing this vault_id mid-rotation can still open records sealed
@@ -320,23 +355,30 @@ func randomKey(vaultID string) (*Key, string, error) {
 // rotation overwriting the shared pointer with an unrelated kid — strands nothing. The only
 // outcome of an interrupted rotation is a harmless, never-read orphan key sitting under its own
 // kid account.
-func RotateKey() (oldKid, newKid string, err error) {
+func RotateKey(opts ...RotateKeyOption) (oldKid, newKid string, err error) {
+	var o rotateKeyOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
 	err = paths.WithFileLock(Path()+".key", func() error {
 		defer invalidateKey()
 		old, source, e := MasterKey()
 		if e != nil {
 			return e
 		}
-		if source != "keyring" || os.Getenv("HARNESS_VAULT_KEY") != "" {
+		if source != "keyring" {
 			return fmt.Errorf("vault: rotation requires a keyring-held master key")
 		}
 		oldKid = old.Kid
-		id, kid, _, e := keyMeta()
+		id, kid, command, e := keyMeta()
 		if e != nil {
 			return e
 		}
 		if kid != "" && kid != old.Kid {
 			return ErrWrongKey
+		}
+		if e := rotateGuard(o.force, command); e != nil {
+			return e
 		}
 		acct := account(id)
 
@@ -382,15 +424,7 @@ func RotateKey() (oldKid, newKid string, err error) {
 					return e
 				}
 			}
-			retired := Retired(t)
-			if !slices.Contains(retired, old.Kid) {
-				retired = append(retired, old.Kid)
-			}
-			data, err := json.Marshal(retired)
-			if err != nil {
-				return err
-			}
-			if err := t.Put(Meta, "retired", string(data)); err != nil {
+			if err := retireKid(t, old.Kid); err != nil {
 				return err
 			}
 			return t.Put(Meta, "kid", next.Kid)
@@ -406,6 +440,40 @@ func RotateKey() (oldKid, newKid string, err error) {
 		return nil
 	})
 	return
+}
+
+// rotateGuard refuses rotation while HARNESS_VAULT_KEY or key_command supplies the key, unless forced.
+func rotateGuard(force bool, command string) error {
+	switch {
+	case force:
+		return nil
+	case os.Getenv("HARNESS_VAULT_KEY") != "":
+		return fmt.Errorf("vault: HARNESS_VAULT_KEY is set; rotating would silently break it — " +
+			"update the env var with the new key right after, or pass --force")
+	case command != "":
+		return fmt.Errorf("vault: meta/key_command is set; rotating would silently break it — " +
+			"update that command's output with the new key right after, or pass --force")
+	}
+	return nil
+}
+
+// retireKid appends kid to meta/retired, reading it raw: a corrupt list refuses rather than losing history.
+func retireKid(t *Tx, kid string) error {
+	raw, _ := t.Get(Meta, "retired")
+	var retired []string
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &retired); err != nil {
+			return fmt.Errorf("vault: meta/retired is corrupt; refusing to rotate (history would be lost): %w", err)
+		}
+	}
+	if !slices.Contains(retired, kid) {
+		retired = append(retired, kid)
+	}
+	data, err := json.Marshal(retired)
+	if err != nil {
+		return err
+	}
+	return t.Put(Meta, "retired", string(data))
 }
 
 // UpdateSealed selects a key outside the tx and verifies meta/kid inside it; a stale key (a

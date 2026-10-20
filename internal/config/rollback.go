@@ -10,14 +10,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Rollback preflights every source before restoring backups and archiving the vault.
-func Rollback(w io.Writer) error {
+// Rollback preflights every source before restoring backups and archiving the vault; discard names
+// a secret whose current vault value is allowed to differ from its backup (--discard NAME).
+func Rollback(w io.Writer, discard ...string) error {
 	m, err := loadManifest()
 	if errors.Is(err, fs.ErrNotExist) {
 		return errors.New("no migration to roll back")
@@ -27,6 +30,10 @@ func Rollback(w io.Writer) error {
 	}
 	if m.Finalizing {
 		return errors.New("finalize already started; rollback refused")
+	}
+	drop := make(map[string]bool, len(discard))
+	for _, name := range discard {
+		drop[name] = true
 	}
 	var problems []error
 	for _, item := range m.Items {
@@ -59,6 +66,16 @@ func Rollback(w io.Writer) error {
 	}
 	var snapshot []byte
 	if hasVault {
+		if err := refuseVaultIDMismatch(m); err != nil {
+			problems = append(problems, err)
+		}
+		if changed, err := changedSecrets(m, drop); err != nil {
+			problems = append(problems, err)
+		} else if len(changed) != 0 {
+			problems = append(problems, fmt.Errorf(
+				"refused: %s changed in the vault since migration (--discard NAME to drop it)",
+				strings.Join(changed, ", ")))
+		}
 		snapshot, err = rollbackSnapshot(m)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("%s: %w", vault.Path(), err))
@@ -118,7 +135,10 @@ func Rollback(w io.Writer) error {
 		}
 	}
 	if hasVault {
-		if err := os.Rename(vault.Path(), vaultArchive); err != nil {
+		// Hold the writer lock so a concurrent vault write can't land between this rename and finish.
+		if err := paths.WithFileLock(vault.Path()+".key", func() error {
+			return os.Rename(vault.Path(), vaultArchive)
+		}); err != nil {
 			return err
 		}
 	}
@@ -144,6 +164,39 @@ func verifyResumedRestore(item Item) error {
 		return fmt.Errorf("%s: restored content does not match the manifest", item.Source)
 	}
 	return nil
+}
+
+// changedSecrets lists imported secret names whose vault value no longer matches the migration
+// backup (e.g. `secrets set` ran since migrate); rollback must not silently revert those.
+func changedSecrets(m *Manifest, drop map[string]bool) ([]string, error) {
+	var changed []string
+	for _, item := range m.Items {
+		if item.Kind != "secrets" || !item.Done {
+			continue
+		}
+		values, err := parseEnvFile(item.Backup)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // a missing backup is already a preflight problem above
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range mapNames(values) {
+			if drop[name] {
+				continue
+			}
+			// Compared against the backup file value, not the keyring (rollback never touches it).
+			current, found, err := vault.ReadSecret(name)
+			if err != nil {
+				return nil, err
+			}
+			if !found || current != values[name] {
+				changed = append(changed, name)
+			}
+		}
+	}
+	sort.Strings(changed)
+	return changed, nil
 }
 
 func rollbackSnapshot(m *Manifest) ([]byte, error) {
@@ -179,8 +232,8 @@ func rollbackSnapshot(m *Manifest) ([]byte, error) {
 }
 
 // RotateKey retains the old key so archived copies of this vault remain readable.
-func RotateKey(w io.Writer) error {
-	old, next, err := vault.RotateKey()
+func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
+	old, next, err := vault.RotateKey(opts...)
 	if err != nil {
 		return err
 	}

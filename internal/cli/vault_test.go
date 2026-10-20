@@ -1,14 +1,19 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/base64"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -47,7 +52,7 @@ func TestCmdVault(t *testing.T) {
 
 func TestVaultVerbsAndMenu(t *testing.T) {
 	vaulttest.Use(t)
-	want := []string{"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key"}
+	want := []string{"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}
@@ -76,6 +81,36 @@ func TestVaultVerbsAndMenu(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("commands() has %d vault rows, want 1", count)
+	}
+}
+
+// TestVaultRollbackDiscardReachesConfigRollback: "vault rollback --discard NAME" (repeatable)
+// must pass the names through to config.Rollback, which refuses a migrated secret that changed
+// in the vault since migration unless its name is discarded.
+func TestVaultRollbackDiscardReachesConfigRollback(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	legacyDir := filepath.Join(paths.ConfigDir(), "env.d")
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "secrets.env"), []byte("FILE_TOKEN=original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"migrate"}) }); code != 0 {
+		t.Fatalf("vault migrate = %d, want 0; stderr = %q", code, stderr)
+	}
+	vaulttest.Secret(t, "FILE_TOKEN", "changed-after-migrate")
+
+	if code, stdout, _ := captureOutput(t, func() int { return cmdVault([]string{"rollback"}) }); code != 1 {
+		t.Fatalf("vault rollback (no --discard) = %d, want 1; stdout = %q", code, stdout)
+	} else if !strings.Contains(stdout, "FILE_TOKEN changed in the vault since migration") {
+		t.Fatalf("vault rollback stdout = %q, want it to name FILE_TOKEN", stdout)
+	}
+
+	if code, _, stderr := captureOutput(t, func() int {
+		return cmdVault([]string{"rollback", "--discard", "FILE_TOKEN"})
+	}); code != 0 {
+		t.Fatalf("vault rollback --discard FILE_TOKEN = %d, want 0; stderr = %q", code, stderr)
 	}
 }
 
@@ -309,6 +344,58 @@ func TestTailscaleAPIVerdict(t *testing.T) {
 				t.Errorf("tailscaleAPIVerdict(id=%v,sec=%v,api=%v) = %q, want %q", tc.id, tc.sec, tc.api, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestCmdVaultRotateKeyRefusesWithEnvSetWithoutForce: the CLI layer surfaces vault.RotateKey's
+// guard (via configRotateKey) as exit 1 with the guard's message, and --force bypasses it.
+func TestCmdVaultRotateKeyRefusesWithEnvSetWithoutForce(t *testing.T) {
+	dir, _ := vaulttest.UseKeyring(t)
+	_ = dir
+	if _, err := vault.EnsureKey(); err != nil {
+		t.Fatal(err)
+	}
+	// A key_command (rather than env) is simplest to set up at this layer: present without
+	// --force refuses, present with --force rotates.
+	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
+
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"rotate-key"}) })
+	if code != 1 {
+		t.Fatalf("vault rotate-key = %d, want 1; stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "key_command") {
+		t.Errorf("stderr = %q, want it to name key_command", stderr)
+	}
+
+	code, _, stderr = captureOutput(t, func() int { return cmdVault([]string{"rotate-key", "--force"}) })
+	if code != 0 {
+		t.Fatalf("vault rotate-key --force = %d, want 0; stderr = %q", code, stderr)
+	}
+}
+
+// TestCmdVaultKeyShowNonTTYDecodesToMasterKey: under go test, stdout is a pipe (captureOutput),
+// never a terminal, so only the non-refusal path is reachable here — matching this repo's
+// existing convention for TTY-gated code (tui.TestListNonTTY, tui.TestOpenFailsCleanlyWithoutATTY):
+// the refusal itself, gated on tui.StdoutIsTerminal, is not exercised by an automated test.
+func TestCmdVaultKeyShowNonTTYDecodesToMasterKey(t *testing.T) {
+	vaulttest.Use(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"key", "show"}) })
+	if code != 0 {
+		t.Fatalf("vault key show = %d, want 0; stderr = %q", code, stderr)
+	}
+	got, err := base64.StdEncoding.DecodeString(strings.TrimSpace(stdout))
+	if err != nil {
+		t.Fatalf("vault key show stdout %q does not decode as base64: %v", stdout, err)
+	}
+	if len(got) != 32 {
+		t.Errorf("decoded master key is %d bytes, want 32", len(got))
+	}
+	want, err := base64.StdEncoding.DecodeString(os.Getenv("HARNESS_VAULT_KEY"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("vault key show printed a different key than HARNESS_VAULT_KEY")
 	}
 }
 

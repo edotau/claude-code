@@ -9,11 +9,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const vaultUsage = `usage: claude-code vault <subcommand>
@@ -26,14 +28,17 @@ edit        $VISUAL/$EDITOR on that JSON; saved in one transaction,
 migrate     import env.d into the vault; sources become *.bak [--dry-run]
 finalize    delete the *.bak files and imported keyring copies once
             verified [--discard NAME]...
-rollback    restore the *.bak files and set the vault aside
+rollback    restore the *.bak files and set the vault aside; refuses if a
+            migrated secret changed since [--discard NAME]...
 rotate-key  re-seal every secret under a new master key; the old key
-            stays in the keyring`
+            stays in the keyring [--force past an env/key_command guard]
+key show    print the master key (base64) to a pipe; refused on a TTY`
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"show": configShow, "set": cmdVaultSet, "edit": configEdit, "migrate": configMigrate,
 	"finalize": configFinalize, "rollback": configRollback, "rotate-key": configRotateKey,
+	"key": cmdVaultKey,
 }
 
 // cmdVault reads and edits the vault's non-secret config through one JSON document.
@@ -259,17 +264,74 @@ func configFinalize(args []string) int {
 }
 
 func configRollback(args []string) int {
-	if len(args) > 0 {
-		return vaultUsageErr("rollback", args)
+	fs := flag.NewFlagSet("vault rollback", flag.ContinueOnError)
+	var discard discardFlag
+	fs.Var(&discard, "discard", "drop NAME's migrated-secret change since migration (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return 2
 	}
-	return configRun("rollback", config.Rollback(os.Stdout))
+	if fs.NArg() > 0 {
+		return vaultUsageErr("rollback", fs.Args())
+	}
+	return configRun("rollback", config.Rollback(os.Stdout, discard...))
 }
 
 func configRotateKey(args []string) int {
-	if len(args) > 0 {
-		return vaultUsageErr("rotate-key", args)
+	fs := flag.NewFlagSet("vault rotate-key", flag.ContinueOnError)
+	force := fs.Bool("force", false, "rotate even if HARNESS_VAULT_KEY or key_command is set")
+	if err := fs.Parse(args); err != nil {
+		return 2
 	}
-	return configRun("rotate-key", config.RotateKey(os.Stdout))
+	if fs.NArg() > 0 {
+		return vaultUsageErr("rotate-key", fs.Args())
+	}
+	var opts []vault.RotateKeyOption
+	if *force {
+		opts = append(opts, vault.ForceRotate())
+	}
+	return configRun("rotate-key", config.RotateKey(os.Stdout, opts...))
+}
+
+const vaultKeyUsage = `usage: claude-code vault key <subcommand>
+show  print the master key (base64) to stdout; refused on a terminal`
+
+// cmdVaultKey routes "vault key <subcommand>".
+func cmdVaultKey(args []string) int {
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+		args = args[1:]
+	}
+	switch sub {
+	case "", "-h", "--help":
+		helptext.Fprint(os.Stdout, vaultKeyUsage+"\n")
+		return 0
+	case "show":
+		return vaultKeyShow(args)
+	}
+	fmt.Fprintf(os.Stderr, "vault key: unknown subcommand %q\n", sub)
+	helptext.Fprint(os.Stderr, vaultKeyUsage+"\n")
+	return 2
+}
+
+// vaultKeyShow prints the current master key only to a pipe, never a terminal, so the value never
+// lands in scrollback; meant for `claude-code vault key show | pass insert -m <name>`.
+func vaultKeyShow(args []string) int {
+	if len(args) > 0 {
+		return vaultUsageErr("key show", args)
+	}
+	if tui.StdoutIsTerminal() {
+		fmt.Fprintln(os.Stderr, "vault key show: refusing to print the master key to a terminal; pipe it")
+		return 2
+	}
+	k, _, err := vault.MasterKey()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vault key show:", err)
+		return 1
+	}
+	fmt.Println(k.Raw())
+	audit.Log(audit.KeyReveal, k.Kid, "")
+	return 0
 }
 
 // configRun maps a subcommand's error to its exit code.

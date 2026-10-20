@@ -36,6 +36,9 @@ func Finalize(w io.Writer, discard []string) error {
 			return errors.New("migration incomplete; re-run vault migrate")
 		}
 	}
+	if err := refuseVaultIDMismatch(m); err != nil {
+		return err
+	}
 	// Only secret checks decrypt; a pins/env/overlay-only migration never bootstrapped a key.
 	if needsKey(m) {
 		if _, _, err := vault.MasterKey(); err != nil {
@@ -47,13 +50,12 @@ func Finalize(w io.Writer, discard []string) error {
 		drop[name] = true
 	}
 	for _, item := range m.Items {
-		// A prior removal may have completed before its manifest save.
-		if m.Finalizing {
-			if _, err := os.Lstat(item.Backup); errors.Is(err, fs.ErrNotExist) {
-				continue
-			} else if err != nil {
-				return err
-			}
+		// A prior removal, or a backup deleted by hand, leaves nothing to verify; count it as gone.
+		if _, err := os.Lstat(item.Backup); errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(w, "%s: already gone\n", item.Backup)
+			continue
+		} else if err != nil {
+			return err
 		}
 		if err := verifyBackup(item, drop); err != nil {
 			return err
@@ -175,11 +177,15 @@ func verifyBackup(item Item, discard map[string]bool) error {
 		if discard[name] {
 			continue
 		}
+		expect, err := expectedImportedValue(name, values[name])
+		if err != nil {
+			return err
+		}
 		value, found, err := vault.ReadSecret(name)
 		if err != nil {
 			return err
 		}
-		if !found || value != values[name] {
+		if !found || value != expect {
 			return fmt.Errorf(
 				"refused: %s: %s differs from the vault (--discard %s to drop it)",
 				item.Backup, name, name)

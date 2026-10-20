@@ -19,6 +19,8 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vendorconfig"
+	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/websearch"
 )
 
 var (
@@ -51,8 +53,8 @@ func Migrate(w io.Writer, dryRun bool) error {
 				return err
 			}
 		}
-		fmt.Fprintln(w, "nothing to migrate")
-		return nil
+		// No legacy files, but the secrets group still runs: it may import keyring-only names.
+		return migrate(w, dryRun)
 	}
 	if dryRun {
 		return migrate(w, true)
@@ -107,10 +109,7 @@ func migrate(w io.Writer, dryRun bool) error {
 		}
 		sources = remaining
 	}
-	if len(sources) == 0 {
-		fmt.Fprintln(w, "nothing to migrate")
-		return nil
-	}
+	// sources may be empty; the secrets group below still scans the keyring and provider auth.env.
 	groups := parseMigration(sources, m)
 	var failures []error
 	report := func(err error) {
@@ -161,11 +160,19 @@ func migrate(w io.Writer, dryRun bool) error {
 	for _, g := range committed {
 		count += len(g.items)
 	}
+	imported := count != 0 || len(keyringNames) != 0
 	if dryRun {
-		fmt.Fprintf(w, "would migrate %d file(s)\n", count)
+		if imported {
+			fmt.Fprintf(w, "would migrate %d file(s)\n", count)
+		} else {
+			fmt.Fprintln(w, "nothing to migrate")
+		}
 		return errors.Join(failures...)
 	}
-	if count == 0 {
+	if !imported {
+		if len(failures) == 0 {
+			fmt.Fprintln(w, "nothing to migrate")
+		}
 		return errors.Join(failures...)
 	}
 	now := time.Now().UTC()
@@ -295,6 +302,10 @@ func migrateConfigGroup(w io.Writer, g *migrationGroup, dryRun bool) error {
 			if g.kind == "env" && value == "@keyring" {
 				value = providers.SecretRef
 			}
+			if g.kind == "env" && value != providers.SecretRef && secrets.LooksLikeSecret(value) {
+				fmt.Fprintf(w, "migrate: custom.env: %s looks like a secret; "+
+					"consider `claude-code secrets set %s` instead\n", name, name)
+			}
 			if !dryRun {
 				if err := t.Put(bucket, name, value); err != nil {
 					return err
@@ -368,7 +379,9 @@ func migrateSecrets(g *migrationGroup, groups []*migrationGroup, m *Manifest, dr
 			names = append(names, p.Auth.Env)
 		}
 	}
-	names = sortedNames(append(names, "CLAUDE_CODE_OAUTH_TOKEN"))
+	names = append(names, providers.OAuthTokenEnv, websearch.KeyName, vendors.CopilotTokenEnv)
+	names = append(names, secrets.TailscaleNames...)
+	names = sortedNames(names)
 	existing := make(map[string]bool)
 	if err := vault.View(func(t *vault.Tx) error {
 		for _, name := range t.Names(vault.Secrets) {
@@ -384,16 +397,11 @@ func migrateSecrets(g *migrationGroup, groups []*migrationGroup, m *Manifest, dr
 		if existing[name] {
 			continue
 		}
-		value, found, err := legacyKeyringLookup(name)
-		if errors.Is(err, keyring.ErrNoAnswer) ||
-			(errors.Is(err, keyring.ErrUnavailable) && legacyKeyringAvailable()) {
-			return nil, errors.New("keyring did not answer; re-run claude-code vault migrate")
+		value, found, err := resolveKeyringValue(name)
+		if err != nil {
+			return nil, err
 		}
-		if err != nil && !errors.Is(err, keyring.ErrNoTool) &&
-			!(errors.Is(err, keyring.ErrUnavailable) && !legacyKeyringAvailable()) {
-			return nil, fmt.Errorf("keyring lookup %s failed", name)
-		}
-		if found && err == nil {
+		if found {
 			keyringNames = append(keyringNames, name)
 		} else {
 			value, found = g.values[name]
@@ -514,10 +522,9 @@ func verifyResumeSource(item Item) error {
 		return changed
 	}
 	for name, value := range values {
-		// A keyring value took precedence over the file at seal time (migrateSecrets); match that.
-		expect := value
-		if kv, found, err := legacyKeyringLookup(name); err == nil && found {
-			expect = kv
+		expect, err := expectedImportedValue(name, value)
+		if err != nil {
+			return err
 		}
 		stored, found, err := vault.ReadSecret(name)
 		if err != nil {
@@ -528,6 +535,32 @@ func verifyResumeSource(item Item) error {
 		}
 	}
 	return nil
+}
+
+// resolveKeyringValue looks up name in the OS keyring with migrateSecrets's error handling: a
+// transient answer failure must propagate, never silently fall back to the file's value.
+func resolveKeyringValue(name string) (value string, found bool, err error) {
+	value, found, err = legacyKeyringLookup(name)
+	if errors.Is(err, keyring.ErrNoAnswer) ||
+		(errors.Is(err, keyring.ErrUnavailable) && legacyKeyringAvailable()) {
+		return "", false, errors.New("keyring did not answer; re-run claude-code vault migrate")
+	}
+	if err != nil && !errors.Is(err, keyring.ErrNoTool) &&
+		!(errors.Is(err, keyring.ErrUnavailable) && !legacyKeyringAvailable()) {
+		return "", false, fmt.Errorf("keyring lookup %s failed: %w", name, err)
+	}
+	return value, found && err == nil, nil
+}
+
+// expectedImportedValue returns the value verify should expect for name: the keyring value took
+// precedence over fileValue at seal time (migrateSecrets), so a verify must match that ordering.
+func expectedImportedValue(name, fileValue string) (string, error) {
+	if kv, found, err := resolveKeyringValue(name); err != nil {
+		return "", err
+	} else if found {
+		return kv, nil
+	}
+	return fileValue, nil
 }
 
 // finishRename completes a pending source->backup rename; verify is true only when resuming a

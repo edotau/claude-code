@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 type Manifest struct {
@@ -52,6 +53,25 @@ func (m *Manifest) save() error {
 		return err
 	}
 	return paths.AtomicWrite(manifestPath(), append(raw, '\n'), 0600)
+}
+
+// refuseVaultIDMismatch blocks finalize/rollback when the manifest's vault differs from the one on
+// disk now (e.g. a restored/rotated vault.db since migrate ran); m.VaultID == "" predates this check.
+func refuseVaultIDMismatch(m *Manifest) error {
+	if m.VaultID == "" {
+		return nil
+	}
+	var id string
+	if err := vault.View(func(t *vault.Tx) error {
+		id, _ = t.Get(vault.Meta, "vault_id")
+		return nil
+	}); err != nil {
+		return err
+	}
+	if id != m.VaultID {
+		return fmt.Errorf("refused: migration recorded vault %s, current vault is %s", m.VaultID, id)
+	}
+	return nil
 }
 
 // MigrationStatus reports active sources and whether a migration manifest remains.

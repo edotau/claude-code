@@ -62,6 +62,61 @@ func TestRollbackPreflightReportsAllProblemsWithoutMutation(t *testing.T) {
 	}
 }
 
+// Rollback must refuse to silently revert a secret `secrets set` changed since migrate, listing
+// only the changed name (never a value, old or new) in its refusal, and succeed once discarded.
+func TestRollbackRefusesChangedSecretWithoutDiscard(t *testing.T) {
+	useMigrationKeyring(t)
+	seedLegacyFile(t, "secrets.env", "FILE_TOKEN=original-credential\n")
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 1)
+	vaulttest.Secret(t, "FILE_TOKEN", "changed-after-migrate")
+	manifest := readMigrationFile(t, manifestPath())
+	var out bytes.Buffer
+	requireMigrationError(t, Rollback(&out), "rollback refused; nothing changed")
+	if !strings.Contains(out.String(), "refused: FILE_TOKEN changed in the vault since migration") {
+		t.Fatalf("preflight output did not name the changed secret: %q", out.String())
+	}
+	for _, value := range []string{"original-credential", "changed-after-migrate"} {
+		if strings.Contains(out.String(), value) {
+			t.Fatal("rollback refusal printed a secret value")
+		}
+	}
+	requireMigrationUnchanged(t, manifest, m)
+	var out2 bytes.Buffer
+	if err := Rollback(&out2, "FILE_TOKEN"); err != nil {
+		t.Fatalf("Rollback with FILE_TOKEN discarded = %v, want success", err)
+	}
+	requireMigrationFile(t, manifestPath(), false)
+}
+
+// Finalize and Rollback must both refuse a manifest recorded against a vault that is no longer the
+// one on disk (e.g. a restored/rotated vault.db) - acting on it would verify/restore against the
+// wrong secrets.
+func TestFinalizeAndRollbackRefuseVaultIDMismatch(t *testing.T) {
+	useMigrationKeyring(t)
+	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 1)
+	if m.VaultID == "" {
+		t.Fatal("setup: migration did not record a vault id")
+	}
+	vaulttest.Put(t, vault.Meta, "vault_id", "a-different-vault-id")
+	requireMigrationError(t, Finalize(io.Discard, nil),
+		"refused: migration recorded vault "+m.VaultID+", current vault is a-different-vault-id")
+	var out bytes.Buffer
+	requireMigrationError(t, Rollback(&out), "rollback refused; nothing changed")
+	if !strings.Contains(out.String(),
+		"refused: migration recorded vault "+m.VaultID+", current vault is a-different-vault-id") {
+		t.Fatalf("rollback preflight did not name the vault id mismatch: %q", out.String())
+	}
+	requireMigrationFile(t, manifestPath(), true)
+	requireMigrationDone(t, m)
+}
+
 func TestRollbackPreflightRejectsUnreadableVault(t *testing.T) {
 	useMigrationKeyring(t)
 	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")

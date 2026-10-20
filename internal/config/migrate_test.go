@@ -86,13 +86,14 @@ func TestMigrateAllGroupsAndIdempotency(t *testing.T) {
 	}
 	before := vaultTestState(t)
 	manifest := readMigrationFile(t, manifestPath())
-	lookups := len(kr.lookups)
 	var out bytes.Buffer
 	if err := Migrate(&out, false); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "nothing to migrate\n" || len(kr.lookups) != lookups {
-		t.Fatal("idempotent migration performed new work")
+	// The secrets/keyring group always scans its fixed name list (R: known non-provider names),
+	// so a re-run may issue fresh lookups for names not yet imported; it must still import nothing.
+	if out.String() != "nothing to migrate\n" {
+		t.Fatal("idempotent migration reported new work")
 	}
 	if !reflect.DeepEqual(before, vaultTestState(t)) {
 		t.Fatal("idempotent migration changed the vault")
@@ -392,8 +393,13 @@ func TestMigrateDeleteThenRerunDoesNotResurrect(t *testing.T) {
 	if err := Migrate(&out, false); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "nothing to migrate\n" || len(kr.lookups) != lookups {
-		t.Fatal("source-free rerun attempted a keyring import")
+	if out.String() != "nothing to migrate\n" {
+		t.Fatal("source-free rerun reported new work")
+	}
+	// The secrets/keyring group's fixed name scan may issue other lookups, but never one for the
+	// deleted secret's own name - that would resurrect it from a value never actually imported.
+	if slices.Contains(kr.lookups[lookups:], "FILE_TOKEN") {
+		t.Fatal("source-free rerun looked up the deleted secret's own name")
 	}
 	requireVaultSecret(t, "FILE_TOKEN", "", false)
 	requireMigrationDone(t, readMigrationManifest(t, 1))
