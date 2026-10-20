@@ -28,18 +28,26 @@ Spread runners per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-Run each leaf in the background (Bash `run_in_background`), output to its own file, exit line to the lane status file:
+**Step 0, bug fixes only:** capture RED before dispatch — `scripts/isolate.sh /tmp/claude-1000/<lane>/red <owned
+paths>` is HEAD for those paths; reproduce the failure there. After the leaf runs the worktree already holds the fix.
+
+Run each leaf in the background (Bash `run_in_background`). Orchestrator files live in `/tmp/claude-1000/<lane>/`;
+the leaf's own scratch is a separate `/tmp/claude-1000/<leaf>/` it may delete:
 
 ```bash
-mkdir -p /tmp/claude-1000/<leaf>
-claude-code ask --agent <runner> --tools --autonomous --attach <lane.md> --timeout 45m \
-  --workdir <worktree> "<brief>" > /tmp/claude-1000/<leaf>/<leaf>.out 2>&1
-echo "<leaf> exit=$?" >> /tmp/claude-1000/<lane>.status
+mkdir -p /tmp/claude-1000/<lane>; s=$(date +%s)
+claude-code ask --agent <runner> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
+  --workdir <worktree> "<brief>" > /tmp/claude-1000/<lane>/<leaf>.out 2>&1
+echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/status
 ```
 
+- `--fallback none`: the default `all` silently re-runs a failed leaf on claude, hiding which runner did the work.
+- Wait in one foreground Bash call (≤10m, repeat as needed):
+  `until [ "$(grep -c exit= <status> 2>/dev/null || echo 0)" -ge N ]; do timeout 5 tail -f /dev/null; done`.
 - Codex rate-limited: substitute `--agent copilot --model gpt-6-astra`.
 - Never start a test-repair leaf before its implementer's exit line lands.
 - Leaves that own disjoint files run concurrently; a leaf whose files overlap another's waits for it.
+- One-line tasks finish in under a minute; a small leaf still running at ~10m needs a look, not more waiting.
 
 Brief template (the attached lane plan carries the context, so the brief does not restate it):
 
@@ -48,8 +56,13 @@ You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/res
 Task: <the checklist line, verbatim>. Do only this line of the attached lane plan.
 Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
 Done when: <scoped test command> exits 0 and <live check> shows <expected>.
-Report: files changed, each command with its exit code, anything you needed outside your files.
+Report: files changed, each command with its exit code and the env it ran under (cwd, CLAUDE_CONFIG_DIR),
+anything you found or needed outside your files.
 ```
+
+A leaf's report is advisory (Copilot often returns prose with no exit codes); only your isolated check counts.
+A finding outside the leaf's files becomes a new task line in this lane if it is the lane's package, else a note to
+the manager.
 
 ## Verify each leaf
 
@@ -61,9 +74,11 @@ Report: files changed, each command with its exit code, anything you needed outs
 3. The leaf's live check: the verb or flow it changed, on real input.
 4. Read the diff: no weakened or deleted assertions, no edits outside `owns:`, no leftover references to removed
    names (`grep -rn <old name>`).
-5. In the worktree: stage the named files only (never a directory); commit a 1–2 line conventional message, no
-   AI footer.
-6. Tick the box with the short commit id; delete `/tmp/claude-1000/<leaf>`.
+5. In the worktree: `git diff --cached --name-only` must be empty (another lane's staged file would ride along),
+   then stage the named files only (never a directory); commit a 1–2 line conventional message, no AI footer.
+6. Tick the box with the short commit id; delete the copy and leaf scratch (`chmod -R u+w <d> && find <d> -delete`).
+
+Copies carry the user's untracked skill symlinks, dangling there; ignore them in `diff -rq`.
 
 Red at any step: re-dispatch the leaf once with the failure output, or fix a small gap in-lane; still red, report
 the item to the manager unticked.
