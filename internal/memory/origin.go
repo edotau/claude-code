@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -29,6 +30,13 @@ type Origin struct {
 // ErrOriginConflict is returned instead of ever overwriting a .origin that names a different repo.
 var ErrOriginConflict = errors.New(".origin exists with a different canonical origin")
 
+type originCacheEntry struct {
+	info   os.FileInfo
+	origin Origin
+}
+
+var originCache sync.Map
+
 // ReadOrigin loads and validates dir/.origin; dir must be a real directory, not a symlink.
 func ReadOrigin(dir string) (Origin, error) {
 	fi, err := os.Lstat(dir)
@@ -38,7 +46,21 @@ func ReadOrigin(dir string) (Origin, error) {
 	if !fi.IsDir() {
 		return Origin{}, fmt.Errorf("%s: not a directory", dir)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, OriginFile))
+	path := filepath.Join(dir, OriginFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		return Origin{}, err
+	}
+	if cached, ok := originCache.Load(path); ok {
+		c := cached.(originCacheEntry)
+		if os.SameFile(info, c.info) && info.Size() == c.info.Size() && info.ModTime() == c.info.ModTime() {
+			o := c.origin
+			o.Aliases = slices.Clone(o.Aliases)
+			o.Display = slices.Clone(o.Display)
+			return o, nil
+		}
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Origin{}, err
 	}
@@ -50,6 +72,9 @@ func ReadOrigin(dir string) (Origin, error) {
 		return Origin{}, err
 	}
 	o.Aliases = cleanAliases(o.Aliases)
+	originCache.Store(path, originCacheEntry{info, o})
+	o.Aliases = slices.Clone(o.Aliases)
+	o.Display = slices.Clone(o.Display)
 	return o, nil
 }
 
@@ -106,5 +131,6 @@ func putOrigin(dir string, o Origin) error {
 	if err != nil {
 		return err
 	}
+	originCache.Delete(filepath.Join(dir, OriginFile))
 	return paths.AtomicWrite(filepath.Join(dir, OriginFile), append(data, '\n'), 0o644)
 }

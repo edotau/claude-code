@@ -3,7 +3,6 @@ package memory
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -21,7 +20,7 @@ func RoutedRepos(query string) []RepoEntry {
 	for _, e := range entries {
 		for _, name := range []string{e.Key, filepath.Base(e.Origin.Origin)} {
 			name = strings.ToLower(strings.TrimPrefix(name, "."))
-			if len(name) >= 4 && regexp.MustCompile(`(^|[^a-z0-9.-])`+regexp.QuoteMeta(name)+`($|[^a-z0-9-])`).MatchString(q) {
+			if len(name) >= 4 && routeWord(q, name) {
 				out = append(out, e)
 				break
 			}
@@ -55,8 +54,9 @@ func storeBlocks(e RepoEntry) []SearchHit {
 			out = append(out, SearchHit{Bank: e.Key, File: name, Block: b})
 		}
 	}
-	for _, path := range topicPaths(e.Dir) {
-		if data, err := os.ReadFile(path); err == nil {
+	topics, contents := topicContents(e.Dir)
+	for _, path := range topics {
+		if data := contents[path]; data != nil {
 			if n, desc, body, ok := topicFrontmatter(string(data)); ok {
 				out = append(out, SearchHit{Bank: e.Key, File: filepath.Base(path), Block: n + " — " + desc + "\n" + body})
 			}
@@ -74,4 +74,22 @@ func RepoByName(name string) (RepoEntry, bool) {
 		}
 	}
 	return RepoEntry{}, false
+}
+
+// routeWord uses the same separator set at both ends, so dotted names stay whole.
+func routeWord(query, name string) bool {
+	word := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-' }
+	for offset := 0; offset <= len(query)-len(name); {
+		i := strings.Index(query[offset:], name)
+		if i < 0 {
+			return false
+		}
+		i += offset
+		end := i + len(name)
+		if (i == 0 || !word(query[i-1])) && (end == len(query) || !word(query[end])) {
+			return true
+		}
+		offset = i + 1
+	}
+	return false
 }
