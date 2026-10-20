@@ -61,7 +61,7 @@ func TestStoreFallsBackToFileWithoutKeyring(t *testing.T) {
 func TestDeleteRemovesFileLine(t *testing.T) {
 	setConfigDir(t)
 	noKeyring(t)
-	if err := SetFile("C_KEY", "v"); err != nil {
+	if err := setFile("C_KEY", "v"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Delete("C_KEY"); err != nil {
@@ -103,11 +103,11 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-// SetFile/Get must round-trip through the file plane, and the written file must be 0600.
+// setFile/Get must round-trip through the file plane, and the written file must be 0600.
 func TestSetFileGetRoundTripAndPerms(t *testing.T) {
 	setConfigDir(t)
-	if err := SetFile("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
-		t.Fatalf("SetFile: %v", err)
+	if err := setFile("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
+		t.Fatalf("setFile: %v", err)
 	}
 	fi, err := os.Stat(EnvFile())
 	if err != nil {
@@ -122,16 +122,16 @@ func TestSetFileGetRoundTripAndPerms(t *testing.T) {
 	}
 }
 
-// A later SetFile must replace the value, not duplicate the key or disturb an unrelated one.
+// A later setFile must replace the value, not duplicate the key or disturb an unrelated one.
 func TestSetFileReplacesAndKeepsOthers(t *testing.T) {
 	setConfigDir(t)
-	if err := SetFile("A_KEY", "first"); err != nil {
+	if err := setFile("A_KEY", "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetFile("B_KEY", "untouched"); err != nil {
+	if err := setFile("B_KEY", "untouched"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetFile("A_KEY", "second"); err != nil {
+	if err := setFile("A_KEY", "second"); err != nil {
 		t.Fatal(err)
 	}
 	got := ReadAll()
@@ -227,7 +227,7 @@ func TestStatusNeverPrintsAValue(t *testing.T) {
 	}
 	secretValue := "sk-super-secret-value-0123456789"
 	t.Setenv("ANTHROPIC_API_KEY", secretValue)
-	if err := SetFile("GATEWAY_API_KEY", secretValue); err != nil {
+	if err := setFile("GATEWAY_API_KEY", secretValue); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("OPENAI_API_KEY", "") // keep deterministic: unset sources read as "none"
@@ -253,7 +253,7 @@ func TestStatusNeverPrintsAValue(t *testing.T) {
 // Doctor must flag secrets.env perms looser than 0600.
 func TestDoctorFlagsLoosePerms(t *testing.T) {
 	setConfigDir(t)
-	if err := SetFile("A_KEY", "v"); err != nil {
+	if err := setFile("A_KEY", "v"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(EnvFile(), 0o644); err != nil {
@@ -269,7 +269,7 @@ func TestDoctorFlagsLoosePerms(t *testing.T) {
 // Doctor must flag an unknown key as a typo risk but still pass the gate (advisory only).
 func TestDoctorPassesOnCleanStore(t *testing.T) {
 	setConfigDir(t)
-	if err := SetFile("ANTHROPIC_API_KEY", "v"); err != nil {
+	if err := setFile("ANTHROPIC_API_KEY", "v"); err != nil {
 		t.Fatal(err)
 	}
 	reg, _ := providers.Load()
@@ -362,8 +362,8 @@ func TestStoreAndDeleteMaintainNamesIndex(t *testing.T) {
 	if got := Names(); !slices.Equal(got, []string{"A_KEY", "Z_KEY"}) {
 		t.Fatalf("Names = %q, want [A_KEY Z_KEY]", got)
 	}
-	if b, _ := os.ReadFile(IndexFile()); strings.Contains(string(b), "secret-value") {
-		t.Fatal("index must hold names only")
+	if b, _ := os.ReadFile(MetaFile()); strings.Contains(string(b), "secret-value") {
+		t.Fatal("meta file must hold names only, never the value")
 	}
 	if err := Delete("Z_KEY"); err != nil {
 		t.Fatal(err)

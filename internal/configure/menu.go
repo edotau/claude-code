@@ -98,9 +98,10 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 // agentPages are the agents whose row opens a tui.List page instead of runAgentMenu (opencode first).
 var agentPages = map[string]func(*dialog){"opencode": runOpencodePage}
 
-// probeStatus live-checks p's credential (4 s cap) and returns "verified" / "rejected" / "unreachable" / "".
+// probeStatus checks p's credential — a cached result within probeTTL, else a live probe (4 s cap) —
+// and returns "verified" / "rejected" / "unreachable" / "".
 func probeStatus(p *providers.Provider) string {
-	status, _ := probe(keyTarget{provider: p})
+	status, _, _ := probeCached(keyTarget{provider: p})
 	if status == "login" {
 		return ""
 	}
