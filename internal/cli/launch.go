@@ -112,13 +112,16 @@ func cmdSettings(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
+	prepared, drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun, *vendors)
+	if err != nil {
+		return fail("%v", err)
+	}
 	snapshotSettingsHistory(*out, *dryRun, *check)
 	outDrift, err := writeSettingsOutput(*out, *check, *dryRun, data)
 	if err != nil {
 		return fail("%v", err)
 	}
-	drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun, *vendors)
-	if err != nil {
+	if err := prepared.Apply(); err != nil {
 		return fail("%v", err)
 	}
 	if *check && (drift || outDrift) {
@@ -141,7 +144,7 @@ func snapshotSettingsHistory(out string, dryRun, check bool) {
 // writeSettingsOutput writes the rendered settings per --out/--check/--dry-run and reports drift.
 func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, error) {
 	switch {
-	case out != "" && check: // drift report only: the rendered settings against the --out file, then the vendors
+	case out != "" && check: // drift report only: the rendered settings against the --out file
 		if cur, err := os.ReadFile(out); err != nil || !bytes.Equal(cur, data) {
 			fmt.Printf("settings: %s has drifted from the render\n", out)
 			return true, nil
@@ -167,15 +170,15 @@ func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, err
 	}
 }
 
-// renderVendorConfigs renders the vendor configs; without --out the settings render is a preview,
+// renderVendorConfigs prepares the vendor configs; without --out the settings render is a preview,
 // so the vendor configs preview too: nothing is written.
-func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (bool, error) {
+func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*generate.Prepared, bool, error) {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	return generate.Run(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors})
+	return generate.Prepare(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors})
 }
 
 // toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).
