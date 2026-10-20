@@ -268,7 +268,7 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
-		backup = path + ".bak-" + time.Now().Format("20060102-150405")
+		backup = path + ".bak-" + time.Now().Format("20060102-150405.000000000")
 		if err := os.WriteFile(backup, old, 0o600); err != nil {
 			return "", fmt.Errorf("backup %s: %w", backup, err)
 		}

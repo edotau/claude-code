@@ -139,6 +139,32 @@ func TestMergeEmptyAndBackup(t *testing.T) {
 	}
 }
 
+func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	original := []byte("{\"original\":true}\n")
+	if err := os.WriteFile(file, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := WriteWithBackup(file, []byte("{\"updated\":true}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := WriteWithBackup(file, []byte("{}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Errorf("back-to-back writes reused backup path %q", first)
+	}
+	got, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("first backup = %q, want %q", got, original)
+	}
+}
+
 func TestMergeDropsRetiredKeys(t *testing.T) {
 	rendered, err := Render()
 	if err != nil {

@@ -64,7 +64,7 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 			return err
 		}
 		if len(raw) > 0 {
-			if err := paths.AtomicWrite(file+".bak-"+time.Now().Format("20060102-150405"), raw, 0o600); err != nil {
+			if err := paths.AtomicWrite(file+".bak-"+time.Now().Format("20060102-150405.000000000"), raw, 0o600); err != nil {
 				return err
 			}
 		}

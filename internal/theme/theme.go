@@ -129,7 +129,7 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
 	}
 	if len(raw) > 0 {
-		backup = dest + ".bak-" + time.Now().Format("20060102-150405")
+		backup = dest + ".bak-" + time.Now().Format("20060102-150405.000000000")
 		if err := paths.AtomicWrite(backup, raw, 0o600); err != nil {
 			return false, "", err
 		}
