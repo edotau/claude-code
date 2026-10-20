@@ -66,27 +66,53 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 }
 
 // claudeEvent is the union of stream-json fields the runner reads.
+// Message is raw: most event types carry it as an object, but error/system/result-type
+// events sometimes carry it as a plain string (e.g. "system","subtype":"permission_denied") —
+// typing it strictly broke decode of the whole stream on one odd event.
 type claudeEvent struct {
-	Type            string `json:"type"`
-	Subtype         string `json:"subtype"`
-	SessionID       string `json:"session_id"`
-	Model           string `json:"model"`
-	ParentToolUseID string `json:"parent_tool_use_id"`
-	Message         struct {
-		Model   string `json:"model"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"message"`
-	IsError bool   `json:"is_error"`
-	Result  string `json:"result"`
-	Usage   struct {
+	Type            string          `json:"type"`
+	Subtype         string          `json:"subtype"`
+	SessionID       string          `json:"session_id"`
+	Model           string          `json:"model"`
+	ParentToolUseID string          `json:"parent_tool_use_id"`
+	Message         json.RawMessage `json:"message"`
+	IsError         bool            `json:"is_error"`
+	Result          string          `json:"result"`
+	Usage           struct {
 		InputTokens              int `json:"input_tokens"`
 		OutputTokens             int `json:"output_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
+}
+
+// claudeMessage is the object shape of claudeEvent.Message, for assistant/user events only.
+type claudeMessage struct {
+	Model   string `json:"model"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+// object decodes ev.Message as a claudeMessage; a string or absent message yields the zero value.
+func (ev claudeEvent) object() claudeMessage {
+	var m claudeMessage
+	if len(ev.Message) == 0 || ev.Message[0] != '{' {
+		return m
+	}
+	_ = json.Unmarshal(ev.Message, &m) // best-effort: an odd shape must never fail the stream
+	return m
+}
+
+// text returns ev.Message when the event carries it as a plain string instead of an object.
+func (ev claudeEvent) text() string {
+	if len(ev.Message) == 0 || ev.Message[0] != '"' {
+		return ""
+	}
+	var s string
+	_ = json.Unmarshal(ev.Message, &s)
+	return s
 }
 
 // parseClaudeStream streams top-level assistant text to w and returns the result event's envelope.
@@ -114,11 +140,12 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 			if ev.ParentToolUseID != "" {
 				continue // a subagent's turn, not the answer
 			}
-			if ev.Message.Model != "" {
-				res.Model = ev.Message.Model
+			msg := ev.object()
+			if msg.Model != "" {
+				res.Model = msg.Model
 			}
 			var err error
-			wrote, err = writeClaudeAssistant(w, ev, wrote)
+			wrote, err = writeClaudeAssistant(w, msg, wrote)
 			if err != nil {
 				return res, err
 			}
@@ -126,6 +153,10 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
 				return res, err
+			}
+		case "error":
+			if t := ev.text(); t != "" {
+				return res, fmt.Errorf("claude: %s", t)
 			}
 		}
 	}
@@ -135,8 +166,8 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 	return res, nil
 }
 
-func writeClaudeAssistant(w io.Writer, ev claudeEvent, wrote bool) (bool, error) {
-	for _, b := range ev.Message.Content {
+func writeClaudeAssistant(w io.Writer, msg claudeMessage, wrote bool) (bool, error) {
+	for _, b := range msg.Content {
 		if b.Type != "text" || b.Text == "" {
 			continue
 		}
