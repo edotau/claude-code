@@ -45,7 +45,9 @@
       }
     },
     "gemini": {
-      "permission": {},
+      "permission": {
+        "useGuardRules": true
+      },
       "launch": {
         "args": [
           "--dangerously-skip-permissions"
