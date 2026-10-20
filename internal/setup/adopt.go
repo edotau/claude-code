@@ -71,7 +71,7 @@ func Adopt(opts AdoptOpts) error {
 	if err := os.Rename(filepath.Join(opts.From, ".git"), filepath.Join(opts.Into, ".git")); err != nil {
 		return err
 	}
-	if out, err := exec.Command("git", "-C", opts.Into, "checkout", "--", ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", opts.Into, "checkout", "--", ".").CombinedOutput(); err != nil { //nolint:noctx // one-shot local git call; no caller ctx
 		return fmt.Errorf("git checkout: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	if err := os.RemoveAll(opts.From); err != nil {
@@ -88,7 +88,7 @@ func Adopt(opts AdoptOpts) error {
 }
 
 func commitHash(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return ""
 	}

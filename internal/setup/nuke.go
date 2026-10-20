@@ -179,10 +179,10 @@ func isGitRepo(dir string) bool {
 // classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or
 // neither. A directory counts as "tracked" if any file beneath it is.
 func classify(repo, name string) string {
-	if out, err := exec.Command("git", "-C", repo, "ls-files", "--", name).Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+	if out, err := exec.Command("git", "-C", repo, "ls-files", "--", name).Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 { //nolint:noctx // one-shot local git call; no caller ctx
 		return "tracked"
 	}
-	if err := exec.Command("git", "-C", repo, "check-ignore", "-q", "--", name).Run(); err == nil {
+	if err := exec.Command("git", "-C", repo, "check-ignore", "-q", "--", name).Run(); err == nil { //nolint:noctx // one-shot local git call; no caller ctx
 		return "ignored"
 	}
 	return "untracked"
@@ -237,7 +237,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 	if !fi.IsDir() {
 		return nil, nil
 	}
-	out, err := exec.Command("git", "-C", repo, "ls-files", "--others", "--exclude-standard", "--", sub).Output()
+	out, err := exec.Command("git", "-C", repo, "ls-files", "--others", "--exclude-standard", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
@@ -263,8 +263,8 @@ func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error)
 	}
 	defer func() {
 		if err != nil {
-			f.Close()
-			os.Remove(dest)
+			_ = f.Close()
+			_ = os.Remove(dest)
 		}
 	}()
 	gz := gzip.NewWriter(f)

@@ -44,7 +44,7 @@ func Clashes(repo, dir string) ([]Clash, error) {
 
 // trackedFiles runs `git -C repo ls-files -z` and returns repo-relative, slash-separated paths.
 func trackedFiles(repo string) ([]string, error) {
-	out, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output()
+	out, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return nil, err
 	}
