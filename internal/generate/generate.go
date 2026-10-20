@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendorconfig"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -124,8 +125,13 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, out 
 		fmt.Fprintln(out, note)
 	}
 	if target.Provider != nil && target.Provider.Auth.Type == providers.AuthPassthrough {
-		fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
-		return "", nil
+		keys := codexPermissionKeys(out)
+		if keys == "" {
+			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
+			return "", nil
+		}
+		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
+		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
 	}
 	_, argv, err := vendors.Configure(ctx, "codex", target, "")
 	if err != nil {
@@ -136,7 +142,29 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, out 
 	if err != nil {
 		return "", fmt.Errorf("codex: %w", err)
 	}
+	if keys := codexPermissionKeys(out); keys != "" {
+		block = keys + "\n" + block
+	}
 	return codexBannerSection(block), nil
+}
+
+// codexPermissionKeys renders approval_policy/sandbox_mode as top-level TOML keys from the vendor
+// spec, each skipped when unset; a vendorconfig load error is reported and treated as unset.
+func codexPermissionKeys(out io.Writer) string {
+	cfg, err := vendorconfig.Load()
+	if err != nil {
+		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
+		return ""
+	}
+	perm := cfg.Vendor("codex").Permission
+	var b strings.Builder
+	if perm.ApprovalPolicy != "" {
+		fmt.Fprintf(&b, "approval_policy = %q\n", perm.ApprovalPolicy)
+	}
+	if perm.SandboxMode != "" {
+		fmt.Fprintf(&b, "sandbox_mode = %q\n", perm.SandboxMode)
+	}
+	return b.String()
 }
 
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
@@ -482,6 +510,11 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	if err != nil {
 		return drift, err
 	}
+	sd, err := renderCopilotSettings(home, o, out)
+	if err != nil {
+		return drift, err
+	}
+	drift = drift || sd
 	ctx := context.Background()
 	target, note, err := vendors.ResolveTarget(reg, "copilot", sel, false)
 	if err != nil {
@@ -497,4 +530,34 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	}
 	fmt.Fprintf(out, "copilot: launch-time env only; route = %s (%s)\n", target.Provider.Name, target.Model)
 	return drift, nil
+}
+
+// renderCopilotSettings merges defaultPermissionMode from the vendor spec into ~/.copilot/settings.json,
+// keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
+func renderCopilotSettings(home string, o Options, out io.Writer) (bool, error) {
+	cfg, err := vendorconfig.Load()
+	if err != nil {
+		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
+		return false, nil
+	}
+	mode := cfg.Vendor("copilot").Permission.DefaultPermissionMode
+	if mode == "" {
+		return false, nil
+	}
+	path := filepath.Join(home, ".copilot", "settings.json")
+	raw, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	next := map[string]any{}
+	if existed {
+		if err := json.Unmarshal(raw, &next); err != nil {
+			fmt.Fprintf(out, "copilot-settings: skipped: %s is not plain JSON: %v\n", path, err)
+			return false, nil
+		}
+	}
+	next["defaultPermissionMode"] = mode
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("copilot-settings: %w", err)
+	}
+	return commitFile(path, raw, append(body, '\n'), existed, o, out, "copilot-settings")
 }

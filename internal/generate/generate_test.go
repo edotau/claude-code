@@ -62,6 +62,16 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	if !strings.Contains(string(codexCfg), "# >>> claude-code:managed:begin >>>") {
 		t.Errorf("codex config missing banner markers:\n%s", codexCfg)
 	}
+	// Top-level approval/sandbox keys from vendorconfig must precede any [table] header.
+	approvalIdx := strings.Index(string(codexCfg), "approval_policy")
+	sandboxIdx := strings.Index(string(codexCfg), "sandbox_mode")
+	firstTable := strings.Index(string(codexCfg), "[")
+	if approvalIdx < 0 || sandboxIdx < 0 {
+		t.Fatalf("codex config missing approval_policy/sandbox_mode:\n%s", codexCfg)
+	}
+	if firstTable >= 0 && (approvalIdx > firstTable || sandboxIdx > firstTable) {
+		t.Errorf("approval_policy/sandbox_mode must precede the first [table] header:\n%s", codexCfg)
+	}
 
 	ocRaw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
 	if err != nil {
@@ -100,7 +110,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	foreign := "# a hand-written line\nsome_other_key = \"keep-me\"\n"
+	foreign := "# a hand-written line\nsome_other_key = \"keep-me\"\n\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n"
 	if err := os.WriteFile(codexPath, []byte(foreign), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +134,18 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "some_other_key = \"keep-me\"") {
 		t.Errorf("foreign codex line was dropped:\n%s", got)
+	}
+	if !strings.Contains(string(got), "[projects.\"/x\"]") || !strings.Contains(string(got), "trust_level = \"trusted\"") {
+		t.Errorf("foreign [projects] table was dropped or altered:\n%s", got)
+	}
+	// The managed banner is inserted before the first pre-existing [table] header, not appended after it.
+	bannerIdx := strings.Index(string(got), "# >>> claude-code:managed:begin >>>")
+	tableIdx := strings.Index(string(got), "[projects.\"/x\"]")
+	if bannerIdx < 0 {
+		t.Fatalf("managed banner missing:\n%s", got)
+	}
+	if bannerIdx > tableIdx {
+		t.Errorf("managed banner (%d) must precede the pre-existing [projects] table (%d):\n%s", bannerIdx, tableIdx, got)
 	}
 	if _, err := os.Stat(codexPath + ".backup"); err != nil {
 		t.Errorf("expected a .backup file: %v", err)
@@ -256,8 +278,10 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), "codex: skipped") {
-		t.Fatalf("want a codex skip line, got:\n%s", out.String())
+	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
+	// keys (vendorconfig, independent of login type) still render.
+	if !strings.Contains(out.String(), "codex: chatgpt runs on codex's own login; writing approval/sandbox keys only") {
+		t.Fatalf("want the own-login codex report line, got:\n%s", out.String())
 	}
 	// Hook trust entries land regardless of login type; only the model_providers block is skipped.
 	raw, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
@@ -269,5 +293,9 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "[hooks.state.") {
 		t.Fatalf("own-login codex should still get hook trust entries:\n%s", raw)
+	}
+	// Top-level approval/sandbox keys are vendorconfig's, independent of login type: written even here.
+	if !strings.Contains(string(raw), "approval_policy") || !strings.Contains(string(raw), "sandbox_mode") {
+		t.Fatalf("own-login codex should still get approval_policy/sandbox_mode:\n%s", raw)
 	}
 }
