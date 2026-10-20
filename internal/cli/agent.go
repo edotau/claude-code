@@ -67,7 +67,14 @@ func cmdAsk(args []string) int {
 		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-		_ = fs.Parse(args) // re-apply explicit flags over the record
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "attach" {
+				attach = nil
+			}
+		})
+		if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+			return 2
+		}
 		prompt, *rubric = rec.Request.Prompt, ""
 		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	}
@@ -95,7 +102,7 @@ func cmdAsk(args []string) int {
 	if *format == "json" {
 		stream = io.Discard
 	}
-	if *tools && !timeoutExplicit(fs) {
+	if *retry == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
 	if *enableMemory && *name != "copilot" {
