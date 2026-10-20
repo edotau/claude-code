@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,6 +45,36 @@ func cliScratch(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no copilot CLI on PATH: exercises the "not found"/"unreachable" legs
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL"} {
 		t.Setenv(k, "")
+	}
+}
+
+func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		arg  string
+	}{
+		{"plain args", []string{"foo", "bar"}, "foo"},
+		{"pin with trailing arg", []string{"--pin", "all=x", "foo"}, "foo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cliScratch(t)
+			code, stdout, stderr := captureOutput(t, func() int { return cmdModels(tc.args) })
+			if code != 2 {
+				t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty", stdout)
+			}
+			if want := "claude-code: models: unexpected argument \"" + tc.arg + "\"\n"; stderr != want {
+				t.Errorf("stderr = %q, want %q", stderr, want)
+			}
+			pinFile := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "env.d", "provider.env")
+			if _, err := os.Stat(pinFile); !os.IsNotExist(err) {
+				t.Errorf("pin file stat err = %v, want no pin-file mutation", err)
+			}
+		})
 	}
 }
 

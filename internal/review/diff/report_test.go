@@ -34,6 +34,21 @@ func readReportGolden(t *testing.T, name string) string {
 	return expandGolden(string(b))
 }
 
+func TestTitleWords(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"critical high medium low", "Critical High Medium Low"},
+		{"\tcritical  HIGH\nmedium\rLOW\vlow\fcat", "\tCritical  HIGH\nMedium\rLOW\vLow\fCat"},
+		{"cRITICAL lowerCase", "CRITICAL LowerCase"},
+	} {
+		if got := titleWords(tc.in); got != tc.want {
+			t.Errorf("titleWords(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestRunReportMatchesGolden(t *testing.T) {
 	baseArgs := []string{
 		filepath.Join("testdata", "report", "repo"),

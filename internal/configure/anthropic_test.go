@@ -15,11 +15,3 @@ func TestBillingLabel(t *testing.T) {
 		t.Errorf("billingLabel(openai) = %q", got)
 	}
 }
-
-func TestIsAnthropicBilling(t *testing.T) {
-	for name, want := range map[string]bool{"anthropic": true, "subscription": true, "openai": false} {
-		if got := isAnthropicBilling(name); got != want {
-			t.Errorf("isAnthropicBilling(%q) = %v, want %v", name, got, want)
-		}
-	}
-}

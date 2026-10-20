@@ -27,9 +27,6 @@ func TestLastUsageAndEdits(t *testing.T) {
 	if n := CountEdits(tr); n != 2 {
 		t.Errorf("CountEdits = %d, want 2 (Read excluded)", n)
 	}
-	if _, ok := LastUsageTokens(filepath.Join(t.TempDir(), "missing")); ok {
-		t.Error("missing transcript reported usage")
-	}
 }
 
 func TestWindow(t *testing.T) {

@@ -486,12 +486,12 @@ func TestArchiveNativeVersionsCollidingRevision(t *testing.T) {
 	}
 	// A third revision in the same second gets a -2 suffix rather than replacing the stamped copy.
 	write(t, filepath.Join(dir, "stale-fact.md"), first+"\nrevised again\n")
-	stamped, err := moveVersioned(filepath.Join(dir, "stale-fact.md"), filepath.Join(archive, "stale-fact.md"))
+	third, err := ArchiveNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stamped == filepath.Join(archive, res.Archived[0]) || !fileExists(filepath.Join(archive, res.Archived[0])) {
-		t.Errorf("moveVersioned reused %s", stamped)
+	if len(third.Archived) != 1 || third.Archived[0] == res.Archived[0] || !fileExists(filepath.Join(archive, res.Archived[0])) {
+		t.Errorf("third archive = %v, want a distinct version beside %s", third.Archived, res.Archived[0])
 	}
 }
 

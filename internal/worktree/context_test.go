@@ -178,41 +178,6 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 	}
 }
 
-// TestMergeRefusesWhileWorktreeLeaseHeld covers Merge's own WithWorktreeLease hold (merge.go): an
-// ordinary (no --resolve-agent) merge must refuse outright, before ever calling Preflight, while
-// another operation (a resolve, another merge, or a Clean) already holds the same worktree's lease.
-func TestMergeRefusesWhileWorktreeLeaseHeld(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	mainBefore := headOf(main)
-
-	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	held := make(chan struct{})
-	release := make(chan struct{})
-	go func() {
-		_, _ = paths.TryFileLock(operationLeasePath(repo.Main, "feature"), 2*time.Second, func() error {
-			close(held)
-			<-release
-			return nil
-		})
-	}()
-	<-held
-	defer close(release)
-
-	_, _, err := Merge(context.Background(), repo, "feature", "")
-	if err == nil {
-		t.Fatal("Merge: want an error while another operation holds the worktree lease")
-	}
-	if !strings.Contains(err.Error(), "already active") {
-		t.Fatalf("err = %q, want it to report the lease conflict", err)
-	}
-	if headOf(main) != mainBefore {
-		t.Fatalf("main HEAD = %s, want unchanged %s", headOf(main), mainBefore)
-	}
-}
-
 // TestCleanRefusesWhileWorktreeLeaseHeld covers Clean's own WithWorktreeLease hold (lifecycle.go): an
 // ordinary clean must refuse outright, before ever rechecking the worktree's state, while another
 // operation already holds the same worktree's lease — even one that would otherwise be eligible.

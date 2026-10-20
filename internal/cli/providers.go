@@ -126,6 +126,10 @@ func cmdModels(args []string) int {
 	if err != nil {
 		return 2
 	}
+	if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, "claude-code: models: unexpected argument %q\n", args[0])
+		return 2
+	}
 	if err := outfmt.Check(*format); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", err)
 		return 2

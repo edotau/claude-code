@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -140,17 +139,4 @@ func deepMerge(base, overlay map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-// ChangedKeys lists the top-level keys an overlay would change in dest, for the dry-run report.
-func ChangedKeys(dest string, overlay map[string]any) []string {
-	base, _ := readJSON(dest)
-	var keys []string
-	for k, v := range overlay {
-		if !reflect.DeepEqual(base[k], v) {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	return keys
 }

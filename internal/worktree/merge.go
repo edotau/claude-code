@@ -16,41 +16,6 @@ type MergeResult struct {
 	ResumeHint string
 }
 
-// Merge runs Preflight, refuses outright on any blocking Issue (including a predicted conflict —
-// Phase 3 resolves those), then integrates and promotes, the whole sequence under the per-worktree
-// lease (WithWorktreeLease) so it can never interleave with a resolve, another merge, or a Clean on
-// the same worktree. On a failure after IntegrateTarget it still returns the plan and the partial
-// result, so the caller can inspect state instead of guessing it. ctx cancellation stops the next git
-// call; Promote itself never starts the ff-only update once ctx is already done.
-func Merge(ctx context.Context, repo *Repo, name, target string) (*MergePlan, *MergeResult, error) {
-	var plan *MergePlan
-	var result *MergeResult
-	err := WithWorktreeLease(repo, name, func() error {
-		p, err := Preflight(ctx, repo, name, target)
-		plan = p
-		if err != nil {
-			return err
-		}
-		if len(plan.Issues) > 0 {
-			return fmt.Errorf("worktree merge blocked: %s", issueSummary(plan.Issues))
-		}
-
-		integrated, err := IntegrateTarget(ctx, repo, plan)
-		if err != nil {
-			return err
-		}
-		result = integrated
-
-		promoted, err := Promote(ctx, repo, plan)
-		if err != nil {
-			return err // result stays the integrate outcome, so the caller can inspect state
-		}
-		result = promoted
-		return nil
-	})
-	return plan, result, err
-}
-
 // IntegrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
 // integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
 // conflict) before calling this; Phase 3 adds resolution for the ones that stop here instead.
@@ -145,14 +110,6 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 		return nil, fmt.Errorf("git merge --ff-only: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}
 	return &MergeResult{Phase: "promote", BeforeOID: freshTarget, AfterOID: freshSource}, nil
-}
-
-func issueSummary(issues []Issue) string {
-	codes := make([]string, len(issues))
-	for i, iss := range issues {
-		codes[i] = iss.Code
-	}
-	return strings.Join(codes, ", ")
 }
 
 func firstNonEmpty(vals ...string) string {

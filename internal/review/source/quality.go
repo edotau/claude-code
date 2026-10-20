@@ -385,7 +385,7 @@ func Quality(path, language string) (QualityReport, error) {
 	if lang == "" {
 		lang = detectLanguage(path)
 		if lang == "" {
-			return QualityReport{}, fmt.Errorf("Unsupported file type: %s", filepath.Ext(path))
+			return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 		}
 	}
 	data, readErr := os.ReadFile(path)
@@ -394,7 +394,7 @@ func Quality(path, language string) (QualityReport, error) {
 		content = string(data)
 	}
 	if content == "" {
-		return QualityReport{}, fmt.Errorf("Could not read file: %s", path)
+		return QualityReport{}, fmt.Errorf("could not read file: %s", path)
 	}
 
 	lineMetrics := countLines(content)
@@ -491,7 +491,7 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 		results = append(results, walkExtension(dir, ext)...)
 	}
 	if len(results) == 0 {
-		return directoryReport{}, fmt.Errorf("No supported files found")
+		return directoryReport{}, fmt.Errorf("no supported files found")
 	}
 
 	total := 0.0

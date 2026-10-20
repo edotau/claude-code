@@ -279,7 +279,7 @@ func OneShot(ctx context.Context, query string, maxResults int, search Searcher,
 func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
 	apiKey := resolveKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("Error: %s is not set — %s.", KeyName, keyHint())
+		return "", fmt.Errorf("%s is not set — %s", KeyName, keyHint())
 	}
 	body, _ := json.Marshal(map[string]any{
 		"api_key":      apiKey,
@@ -291,25 +291,25 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tavilyURL, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("Error: could not build Tavily request (%v).", err)
+		return "", fmt.Errorf("could not build Tavily request (%v)", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Error: could not reach Tavily (%v).", err)
+		return "", fmt.Errorf("could not reach Tavily (%v)", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Error: Tavily search failed (HTTP %d).", resp.StatusCode)
+		return "", fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
 	}
 	var payload struct {
 		Answer  string         `json:"answer"`
 		Results []tavilyResult `json:"results"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return "", fmt.Errorf("Error: Tavily returned non-JSON payload (%v).", err)
+		return "", fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
 	enrichResults(ctx, payload.Results)
 	return formatResults(payload.Answer, payload.Results), nil

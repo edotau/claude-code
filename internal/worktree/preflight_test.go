@@ -142,13 +142,6 @@ func TestPreflightTextConflict(t *testing.T) {
 		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
 	}
 	mergeFixtureAssertMainUntouched(t, main, mainHEAD)
-
-	// Merge must refuse outright, never touching main or writing to the worktree either.
-	_, _, err = Merge(context.Background(), repo, "feature", "")
-	if err == nil {
-		t.Fatal("Merge: want error on predicted conflict")
-	}
-	mergeFixtureAssertMainUntouched(t, main, mainHEAD)
 }
 
 func TestPreflightBinaryConflict(t *testing.T) {

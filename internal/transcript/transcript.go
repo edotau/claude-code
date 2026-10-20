@@ -22,12 +22,6 @@ type Usage struct {
 	Model  string
 }
 
-// LastUsageTokens returns input + cache + output tokens from the last usage record.
-func LastUsageTokens(path string) (int, bool) {
-	u, ok := LastUsage(path)
-	return u.Tokens, ok
-}
-
 // LastUsage scans the tail back-to-front, falling back to a full scan when the tail holds no usage line.
 func LastUsage(path string) (Usage, bool) {
 	f, err := os.Open(path)

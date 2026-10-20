@@ -14,7 +14,7 @@ func TestSafetyBlockIsAuditedWithoutCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	sql := "DR" + "OP TABLE users_secretmarker" // assembled so the literal never sits in a shell command line
 	payload := `{"tool_name":"Bash","tool_input":{"command":"` + sql + `"}}`
-	if code := Safety(strings.NewReader(payload), io.Discard); code != ExitBlock {
+	if code := safetyOutput(strings.NewReader(payload), io.Discard, io.Discard); code != ExitBlock {
 		t.Fatalf("Safety = %d, want block", code)
 	}
 	ev, _ := audit.Read(time.Time{})
