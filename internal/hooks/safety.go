@@ -89,15 +89,13 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
 		return ExitProceed
 	}
-	rawCmd := in.ToolCommand()
-	if rawCmd == "" {
+	cmd := in.ToolCommand()
+	if cmd == "" {
 		return ExitProceed
 	}
-	// Heredoc bodies strip only when the owning segment is a pure data sink; an executed body stays for matching.
-	cmd := withoutHeredocBodies(rawCmd)
 	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, rawCmd)
+			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
 			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
@@ -106,25 +104,25 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	for _, seg := range shellSegments(cmd) {
 		for _, re := range hardBlocks() {
 			if re.MatchString(seg) {
-				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, rawCmd)
+				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
 				audit.Log(audit.HookBlocked, "safety", re.String())
 				return ExitBlock
 			}
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", rawCmd)
+		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
 		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
 		return ExitBlock
 	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", rawCmd)
+		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", cmd)
 		audit.Log(audit.HookBlocked, "safety", "destructive SQL")
 		return ExitBlock
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, rawCmd)
+			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, cmd)
 			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
@@ -282,8 +280,7 @@ func canonPath(p string) string {
 	return p
 }
 
-// shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline);
-// callers pass cmd already through withoutHeredocBodies, so it is not repeated here.
+// shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func shellSegments(cmd string) []string {
 	var out []string
 	var b strings.Builder
@@ -316,183 +313,6 @@ func shellSegments(cmd string) []string {
 		}
 	}
 	return append(out, b.String())
-}
-
-type heredoc struct {
-	word string
-	tabs bool
-	sink bool // true: a pure data sink (cat/tee/printf/echo, not piped onward) — its body is stripped
-}
-
-// heredocSinkWords are non-executing writers: redirecting their heredoc to a file, or just printing
-// it, never runs the body as a command.
-var heredocSinkWords = map[string]bool{"cat": true, "tee": true, "printf": true, "echo": true}
-
-// heredocPrefixSkip are wrapper words that pass their heredoc through to the command that follows.
-var heredocPrefixSkip = map[string]bool{"sudo": true, "command": true, "exec": true}
-
-var heredocAssignRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-})
-
-// heredocCommandWord returns the command word owning a heredoc redirect, skipping env assignments
-// and sudo/command/exec prefixes; "" when the segment has none (fail-closed: treated as unknown).
-func heredocCommandWord(segText string) string {
-	toks := shellTokens(segText)
-	i := 0
-	for i < len(toks) && (heredocAssignRE().MatchString(toks[i]) || heredocPrefixSkip[toks[i]]) {
-		i++
-	}
-	if i >= len(toks) {
-		return ""
-	}
-	return toks[i]
-}
-
-// heredocIsSink reports whether a heredoc redirect may be stripped: its owning command is a pure
-// sink AND its output is not piped onward into another command. Anything else — a shell, interpreter,
-// client (bash, ssh, psql, python…) or an unrecognized word — keeps (checks) the body, fail-closed.
-func heredocIsSink(segText, trailer string) bool {
-	word := heredocCommandWord(segText)
-	return word != "" && heredocSinkWords[word] && !strings.ContainsRune(trailer, '|')
-}
-
-// lineEnd is the index of the next newline at or after from, else len(cmd).
-func lineEnd(cmd string, from int) int {
-	if n := strings.IndexByte(cmd[from:], '\n'); n >= 0 {
-		return from + n
-	}
-	return len(cmd)
-}
-
-// withoutHeredocBodies preserves command text while consuming queued heredocs in shell order; a
-// heredoc body is dropped only when heredocIsSink says its owning command is a pure data sink.
-func withoutHeredocBodies(cmd string) string {
-	var pending []heredoc
-	var out strings.Builder
-	var quote byte
-	segStart := 0
-	for i := 0; i < len(cmd); {
-		c := cmd[i]
-		out.WriteByte(c)
-		i++
-		if c == '\\' && quote != '\'' && i < len(cmd) {
-			out.WriteByte(cmd[i])
-			i++
-			continue
-		}
-		if quote != 0 {
-			if c == quote {
-				quote = 0
-			}
-			continue
-		}
-		if c == '\'' || c == '"' {
-			quote = c
-			continue
-		}
-		if c == ';' || c == '&' || c == '|' {
-			segStart = i
-			continue
-		}
-		if c == '<' && i < len(cmd) && cmd[i] == '<' {
-			ltPos := i - 1
-			start := i
-			h, end, ok := parseHeredoc(cmd, i)
-			if ok {
-				h.sink = heredocIsSink(cmd[segStart:ltPos], cmd[end:lineEnd(cmd, end)])
-			}
-			i = end
-			out.WriteString(cmd[start:i])
-			if ok {
-				pending = append(pending, h)
-			}
-		}
-		if c == '\n' {
-			for _, h := range pending {
-				i = consumeHeredoc(cmd, i, h, &out)
-			}
-			pending = nil
-			segStart = i
-		}
-	}
-	return out.String()
-}
-
-func parseHeredoc(cmd string, i int) (heredoc, int, bool) {
-	start := i
-	for i < len(cmd) && cmd[i] == '<' {
-		i++
-	}
-	if i-start != 1 {
-		return heredoc{}, i, false
-	}
-	h := heredoc{}
-	if i < len(cmd) && cmd[i] == '-' {
-		h.tabs = true
-		i++
-	}
-	for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
-		i++
-	}
-	word, end := heredocWord(cmd, i)
-	h.word = word
-	return h, end, end > i
-}
-
-func heredocWord(cmd string, i int) (string, int) {
-	var word strings.Builder
-	var quote byte
-	for i < len(cmd) {
-		ch := cmd[i]
-		if quote == 0 && strings.ContainsRune(" \t\r\n;|&<>()", rune(ch)) {
-			break
-		}
-		i++
-		if ch == '\\' && quote != '\'' && i < len(cmd) {
-			word.WriteByte(cmd[i])
-			i++
-			continue
-		}
-		if quote != 0 {
-			if ch == quote {
-				quote = 0
-			} else {
-				word.WriteByte(ch)
-			}
-		} else if ch == '\'' || ch == '"' {
-			quote = ch
-		} else {
-			word.WriteByte(ch)
-		}
-	}
-	return word.String(), i
-}
-
-func consumeHeredoc(cmd string, i int, h heredoc, out *strings.Builder) int {
-	for i < len(cmd) {
-		raw := cmd[i:]
-		if n := strings.IndexByte(raw, '\n'); n >= 0 {
-			raw = raw[:n]
-			i += n + 1
-		} else {
-			i = len(cmd)
-		}
-		match := raw
-		if h.tabs {
-			match = strings.TrimLeft(match, "\t")
-		}
-		if !h.sink {
-			out.WriteString(raw + "\n") // an executed body stays so later pattern matching sees it
-		}
-		if match == h.word {
-			if h.sink {
-				out.WriteString(raw + "\n") // Keep the terminator so a second pass is a no-op.
-			}
-			break
-		}
-	}
-	return i
 }
 
 // shellTokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.

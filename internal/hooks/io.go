@@ -220,7 +220,8 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
 	"bash-guard": BashGuard,
-	// retired names kept so pre-install sessions and vendor hook files keep their guard; remove after the next release
+	// retired names kept so pre-install sessions and vendor hook files rendered before `claude-code generate`
+	// keep their guard; remove only after every box has re-run generate
 	"safety":              func(in io.Reader, out, errw io.Writer) int { return safetyInput(ParseInput(in), out, errw) },
 	"rtk-wrap":            func(in io.Reader, out, _ io.Writer) int { return rtkWrap(ParseInput(in), out) },
 	"docs-placement":      func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
