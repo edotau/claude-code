@@ -1,11 +1,19 @@
 package history
 
 import (
+	"bytes"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func write(t *testing.T, path, content string) {
@@ -15,6 +23,87 @@ func write(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
+	root := vaulttest.Use(t)
+	overlay := `{"providers":{}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
+	var files []HistoryFile
+	for _, f := range ConfigFiles() {
+		if f.Label == "providers.json" || f.Label == "provider.env" {
+			files = append(files, f)
+		}
+	}
+	if len(files) != 2 {
+		t.Fatalf("want both vault config labels, got %v", files)
+	}
+	s := &Store{Dir: filepath.Join(root, "history")}
+	first, err := s.Snapshot(files, "config", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Commit == "" || len(first.Changed) != 2 ||
+		!slices.Contains(first.Changed, "providers.json") || !slices.Contains(first.Changed, "provider.env") {
+		t.Fatalf("Snapshot = %+v, want both vault config files committed", first)
+	}
+	pins, err := providers.RenderPins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, want := range map[string][]byte{"provider.env": pins, "providers.json": []byte(overlay)} {
+		got, err := os.ReadFile(filepath.Join(s.Dir, "config", label))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s snapshot differs from vault rendering", label)
+		}
+	}
+	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "b")
+	second, err := s.Snapshot(files, "config", "changed pin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Commit == "" || !slices.Equal(second.Changed, []string{"provider.env"}) {
+		t.Fatalf("Snapshot = %+v, want only provider.env changed", second)
+	}
+	diff, err := s.Diff("", "config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-HARNESS_OPUS_MODEL=a", "+HARNESS_OPUS_MODEL=b"} {
+		if !slices.Contains(strings.Split(diff, "\n"), want) {
+			t.Errorf("Diff missing %q:\n%s", want, diff)
+		}
+	}
+}
+
+func TestSnapshotReadNotExistIsAbsent(t *testing.T) {
+	for _, readErr := range []error{fs.ErrNotExist, fmt.Errorf("vault pins: %w", fs.ErrNotExist)} {
+		t.Run(readErr.Error(), func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "provider.env")
+			write(t, path, "HARNESS_OPUS_MODEL=a\n")
+			s := &Store{Dir: filepath.Join(root, "history")}
+			files := []HistoryFile{{Label: "provider.env", Path: path}}
+			if _, err := s.Snapshot(files, "config", "first"); err != nil {
+				t.Fatal(err)
+			}
+			files[0].Read = func() ([]byte, error) { return nil, readErr }
+			res, err := s.Snapshot(files, "config", "removed")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(res.Absent, []string{"provider.env"}) || res.Commit == "" {
+				t.Fatalf("Snapshot = %+v, want committed absence despite existing Path", res)
+			}
+			if _, err := os.Stat(filepath.Join(s.Dir, "config", "provider.env")); !os.IsNotExist(err) {
+				t.Fatalf("absent callback left the old snapshot: %v", err)
+			}
+		})
 	}
 }
 
