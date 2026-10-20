@@ -141,6 +141,9 @@ func TestDefaults(t *testing.T) {
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)
 	}
+	if !gemini.Permission.UseGuardRules {
+		t.Error("gemini.Permission.UseGuardRules = false, want true")
+	}
 
 	g := cfg.Guard()
 	found := false
