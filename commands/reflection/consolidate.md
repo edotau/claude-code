@@ -4,16 +4,17 @@ description: "Session reflection + memory consolidation — persist learnings, t
 
 # /reflection:consolidate — Session Reflection & Memory Consolidation
 
-> Part of the `/reflection:*` family (see `/reflection:review`, `:promote`, `:extract`,
-> `:remember`). This command owns the end-of-session reflection + dream consolidation
-> pipeline; the rest of the family curates Claude Code's native auto-memory.
->
-> The daily background `claude-code memory dream` runs this on the Copilot CLI (claude-opus-5.5, Claude fallback); a manual run overrides it.
+> Part of the `/reflection:*` family (see `/reflection:review`, `:promote`, `:extract`, `:remember`). This command owns
+> the end-of-session reflection + dream consolidation pipeline; the rest of the family curates Claude Code's native
+> auto-memory. > The daily background `claude-code memory dream` runs this on the Copilot CLI (claude-opus-5.5, Claude
+> fallback); a manual run overrides it.
 
 Two modes in one command:
 
-- **`/reflection:consolidate`** — End-of-session: summarize work, persist learnings to native project memory and the memory bank, then consolidate
-- **`/reflection:consolidate --dream`** — Consolidation only: audit, deduplicate, prune, and cross-pollinate memory without a session summary
+- **`/reflection:consolidate`** — End-of-session: summarize work, persist learnings to native project memory and the
+  memory bank, then consolidate
+- **`/reflection:consolidate --dream`** — Consolidation only: audit, deduplicate, prune, and cross-pollinate memory
+  without a session summary
 - **`/reflection:consolidate --dry-run`** — Audit all memory layers and report what would change without editing
 
 Run before ending a session, when context pressure is high (>80% window), or periodically to keep memory clean.
@@ -52,7 +53,8 @@ Update the current project's native memory in its store dir (`claude-code memory
 
 1. Resolve the project's memory dir: `$(claude-code memory path)/MEMORY.md`
 2. Read its `MEMORY.md` index (+ any linked topic files)
-3. Summarize new learnings into a **topic file** (`<topic>.md` beside `MEMORY.md`), then add or refine its one-line TOC entry in `MEMORY.md`:
+3. Summarize new learnings into a **topic file** (`<topic>.md` beside `MEMORY.md`), then add or refine its one-line TOC
+   entry in `MEMORY.md`:
    - Patterns that recur in this project
    - Gotchas discovered this session
    - Conventions to enforce
@@ -114,7 +116,8 @@ For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
 3. **Remove stale entries**: Items referencing files, APIs, or patterns that no longer exist
 4. **Merge related items**: Fold overlapping topic files together; keep TOC entries coherent
-5. **Keep `MEMORY.md` a lean index**: only its first ~200 lines auto-load, so detail lives in topic files — trim the index to one-line TOC entries, prioritizing:
+5. **Keep `MEMORY.md` a lean index**: only its first ~200 lines auto-load, so detail lives in topic files — trim the
+   index to one-line TOC entries, prioritizing:
    - Keep: Gotchas, active conventions, recent patterns
    - Remove: Generic observations, one-time context, resolved issues
 6. **Never edit the RULES region** (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit approval
@@ -144,7 +147,7 @@ topic files). Ask it to:
 
 Output a structured summary:
 
-```
+```text
 Reflection & Consolidation Report
 ══════════════════════════════════
 

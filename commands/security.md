@@ -9,7 +9,7 @@ stack — pair it with `/code-review` (quality). Load the `security-reviewer` sk
 (`~/.claude/skills/security-reviewer/SKILL.md`) for the OWASP checklist, severity rubric, and
 read-only contract, and apply it directly in this session.
 
-## 1. Determine diff scope
+# 1. Determine diff scope
 
 ```bash
 # Explicit range wins
@@ -20,6 +20,7 @@ RANGE="$ARGUMENTS"
 git diff ${RANGE:---cached} --stat
 git diff --name-only ${RANGE:---cached}
 ```
+
 If there is no branch divergence and nothing staged, fall back to `git diff --cached` and
 say so.
 

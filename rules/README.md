@@ -26,7 +26,7 @@ Add `paths:` to any new rule unless it must apply to every turn.
 | `harness/` | This repo's own machinery — hooks, gates, settings generation, docs placement, change protocol | scoped to `internal/**` and the files each governs |
 | `software/<lang>/` | Language overlays that **extend** `standards/` where idioms differ | scoped to that language's files |
 
-```
+```text
 rules/
 ├── standards/        communication · quality · git · documentation · security · performance
 ├── workflow/         master-workflow · agents · memory-bank · memory-consolidation

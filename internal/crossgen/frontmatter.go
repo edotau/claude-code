@@ -5,37 +5,40 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // fmRes lazily compiles the package regexes: every claude-code process links crossgen via the cli table.
 var fmRes = sync.OnceValue(func() (r struct {
-	split, list, kv, example, ws, memory *regexp.Regexp
+	list, kv, example, ws *regexp.Regexp
 }) {
-	r.split = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n?(.*)$`)
 	r.list = regexp.MustCompile(`^\s+-\s+(.+)$`)
 	r.kv = regexp.MustCompile(`^(\w[\w-]*):\s*(.*)$`)
 	r.example = regexp.MustCompile(`(?s)<example>.*?</example>`)
 	r.ws = regexp.MustCompile(`\s+`)
-	r.memory = regexp.MustCompile(`(?s)## Memory\n.*?(\n## |$)`)
 	return
 })
 
 // ParseFrontmatter parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
 func ParseFrontmatter(content string) (map[string]any, string) {
-	// BOM/CRLF-normalize first: the split regex anchors on \n, so a CRLF file would silently drop the frontmatter.
+	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
-	m := fmRes().split.FindStringSubmatch(content)
-	if m == nil {
+	prefix, rest := markdown.StripFrontMatter([]byte(content))
+	if prefix == nil {
 		return map[string]any{}, content
 	}
-	body := strings.TrimSpace(m[2])
+	yaml := strings.TrimSuffix(strings.TrimPrefix(string(prefix), "---\n"), "---\n")
+	body := strings.TrimSpace(string(rest))
 
 	fm := map[string]any{}
 	currentKey := ""
 	var currentList []string
 	haveList := false
 
-	for line := range strings.SplitSeq(m[1], "\n") {
+	for line := range strings.SplitSeq(yaml, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -127,14 +130,47 @@ func cleanDescription(raw string) string {
 	return strings.TrimSpace(fmRes().ws.ReplaceAllString(withoutExamples, " "))
 }
 
-// stripMemorySection removes the first "## Memory" section (up to the next "## " or EOF), then left-trims newlines.
+// stripMemorySection removes the first "## Memory" section (up to the next level-2 heading or EOF), via the AST
+// so a "## Memory"-shaped line inside a fenced code block is never mistaken for the real heading.
 func stripMemorySection(body string) string {
-	loc := fmRes().memory.FindStringSubmatchIndex(body)
-	if loc == nil {
+	src := []byte(body)
+	root := markdown.ParseContext(src, parser.NewContext())
+	var target *mdast.Heading
+	_ = mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
+		if !entering || target != nil {
+			return mdast.WalkContinue, nil
+		}
+		if h, ok := n.(*mdast.Heading); ok && h.Level == 2 && strings.TrimSpace(string(h.Lines().Value(src))) == "Memory" {
+			target = h
+			return mdast.WalkStop, nil
+		}
+		return mdast.WalkContinue, nil
+	})
+	if target == nil || target.Lines().Len() == 0 {
 		return strings.TrimLeft(body, "\n")
 	}
-	trailing := body[loc[2]:loc[3]]
-	return strings.TrimLeft(body[:loc[0]]+trailing+body[loc[1]:], "\n")
+	start := lineStart(src, target.Lines().At(0).Start)
+	end := len(src)
+	for sib := target.NextSibling(); sib != nil; sib = sib.NextSibling() {
+		h, ok := sib.(*mdast.Heading)
+		if !ok || h.Level != 2 || h.Lines().Len() == 0 {
+			continue
+		}
+		if next := lineStart(src, h.Lines().At(0).Start); next-1 >= start {
+			end = next - 1
+		}
+		break
+	}
+	edited := markdown.Splice(src, []markdown.Edit{{Start: start, End: end}})
+	return strings.TrimLeft(string(edited), "\n")
+}
+
+// lineStart returns the byte offset of the start of the line containing pos in src.
+func lineStart(src []byte, pos int) int {
+	if i := strings.LastIndexByte(string(src[:pos]), '\n'); i >= 0 {
+		return i + 1
+	}
+	return 0
 }
 
 // yamlQuote quotes a YAML string value, escaping embedded backslashes and double quotes.

@@ -64,7 +64,7 @@ already-broken tree.
 Two worktrees both binding `:8000` collide. Assign each a deterministic, non-overlapping
 block by slot index `n` (stride ≥ number of services):
 
-```
+```text
 slot n:  app = 8000 + 10n   db = 5432 + 10n   redis = 6379 + 10n
 slot 0:  8000 / 5432 / 6379
 slot 1:  8010 / 5442 / 6389

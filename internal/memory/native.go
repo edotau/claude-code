@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
@@ -844,23 +845,22 @@ func without(names []string, drop string) []string {
 }
 
 // topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
+// The closing fence must start its own line (markdown.StripFrontMatter), so a name/description value that merely
+// contains the literal bytes "---" can't be mistaken for it.
 func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
-	lines := strings.Split(raw, "\n")
-	if strings.TrimSpace(lines[0]) != "---" {
-		return "", "", "", false
+	prefix, content := markdown.StripFrontMatter([]byte(raw))
+	if prefix == nil {
+		return "", "", "", false // an absent or unclosed block is body text, not frontmatter
 	}
-	for i, line := range lines[1:] {
-		if strings.TrimSpace(line) == "---" {
-			if name == "" {
-				return "", "", "", false
-			}
-			return name, desc, strings.TrimSpace(strings.Join(lines[i+2:], "\n")), true
-		}
+	for _, line := range strings.Split(string(prefix), "\n") {
 		if v, found := strings.CutPrefix(line, "name:"); found {
 			name = strings.Trim(strings.TrimSpace(v), `"'`)
 		} else if v, found := strings.CutPrefix(line, "description:"); found {
 			desc = strings.Trim(strings.TrimSpace(v), `"'`)
 		}
 	}
-	return "", "", "", false // an unclosed block is body text, not frontmatter
+	if name == "" {
+		return "", "", "", false
+	}
+	return name, desc, strings.TrimSpace(string(content)), true
 }

@@ -11,7 +11,7 @@
 
 ## Commit Message Format
 
-```
+```text
 <type>[optional scope][!]: <description>
 
 [optional body]
@@ -34,7 +34,7 @@ what the diff already says.
 
 ## Branch Naming
 
-```
+```text
 feature/agents-<name>   feature/skills-<name>   feature/<domain>-<component>
 docs/<component>        fix/<issue>-<description>
 hotfix/<issue>-<description>   test/<feature>

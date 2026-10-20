@@ -24,17 +24,21 @@ $ARGUMENTS
 Dispatch on the argument:
 
 - **`--status`, empty, or `status`** — run:
+
   ```bash
   claude-code profile
   claude-code models
   ```
+
   Report the default/pinned provider, resolved tier→model slots, credential state, and
   whether the loopback router is needed. Change nothing.
 
 - **A provider name** (e.g. `anthropic`, `gemini`, any name `claude-code profile` lists) — run:
+
   ```bash
   claude-code switch <name>
   ```
+
   This pins the session provider in the vault. The next launch regenerates the
   routing env for that provider; credentials resolve through its `auth` ladder
   (`README.md` → Credentials).

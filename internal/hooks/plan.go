@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"bufio"
 	"bytes"
 	"cmp"
 	"fmt"
@@ -12,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	"github.com/jeduden/mdsmith/pkg/markdown"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
@@ -98,19 +100,39 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 	return ExitProceed
 }
 
+// planHeading is one heading's level and display text, as parsed from a plan's AST — a "#" inside a
+// fenced code block or YAML front matter never produces one, unlike a raw line/substring scan.
+type planHeading struct {
+	level int
+	text  string
+}
+
+// planHeadings walks body's parsed markdown AST for every heading, in document order.
+func planHeadings(body []byte) []planHeading {
+	doc := markdown.Parse(body)
+	var out []planHeading
+	mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
+		if entering {
+			if h, ok := n.(*mdast.Heading); ok {
+				out = append(out, planHeading{level: h.Level, text: string(h.Lines().Value(doc.Body))})
+			}
+		}
+		return mdast.WalkContinue, nil
+	})
+	return out
+}
+
 // planTitle slugs the first markdown heading, minus a redundant "Plan:" lead-in.
 func planTitle(plan []byte) string {
-	sc := bufio.NewScanner(bytes.NewReader(plan))
-	for sc.Scan() {
-		if line := sc.Text(); strings.HasPrefix(line, "#") {
-			h := strings.TrimSpace(strings.TrimLeft(line, "# "))
-			if strings.HasPrefix(strings.ToLower(h), "plan:") {
-				h = h[len("plan:"):]
-			}
-			return paths.Slug(h, "", 60, "plan")
-		}
+	headings := planHeadings(plan)
+	if len(headings) == 0 {
+		return "plan"
 	}
-	return "plan"
+	h := strings.TrimSpace(headings[0].text)
+	if strings.HasPrefix(strings.ToLower(h), "plan:") {
+		h = h[len("plan:"):]
+	}
+	return paths.Slug(h, "", 60, "plan")
 }
 
 // resolveCWDPath anchors path to cwd when it isn't already absolute.
@@ -165,9 +187,9 @@ func planDest(dir, base string, plan []byte) (string, bool) {
 	}
 }
 
-// taskHeading picks the plan headings that become checklist items: phases, steps, parts and tasks.
-var taskHeading = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^#{2,4}\s+(.*\b(?:Phase|Step|Part|Task|Stage|Milestone)\b.*?)\s*$`)
+// taskHeadingWord picks the plan headings that become checklist items: phases, steps, parts and tasks.
+var taskHeadingWord = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(?:Phase|Step|Part|Task|Stage|Milestone)\b`)
 })
 
 // planCloseout is the completion tail every plan's checklist ends with.
@@ -191,8 +213,11 @@ func withTasks(plan []byte) []byte {
 	b.WriteString("\n\n## Tasks\n\nTick `[x]` with the commit id as each item lands; this list is the recovery point if a " +
 		"session, agent or worktree is lost.\n\n")
 	items := 0
-	for _, m := range taskHeading().FindAllSubmatch(plan, -1) {
-		fmt.Fprintf(&b, "- [ ] %s\n", bytes.Trim(m[1], "*_ "))
+	for _, h := range planHeadings(plan) {
+		if h.level < 2 || h.level > 4 || !taskHeadingWord().MatchString(h.text) {
+			continue
+		}
+		fmt.Fprintf(&b, "- [ ] %s\n", strings.Trim(h.text, "*_ "))
 		items++
 	}
 	if items == 0 {
@@ -227,8 +252,30 @@ func isUndatedDraft(abs string) bool {
 	return !undatedNameRe().MatchString(filepath.Base(abs))
 }
 
+// templateHeading is one section agents/Plan.md's template requires, matched by level + a text prefix.
+type templateHeading struct {
+	level  int
+	prefix string
+	label  string // original "#"-prefixed spelling, for the denial message
+}
+
 // planTemplateHeadings are the sections agents/Plan.md's template requires before a draft is treated as a plan.
-var planTemplateHeadings = []string{"# Plan:", "## Context", "## Phases", "## Tasks"}
+var planTemplateHeadings = []templateHeading{
+	{1, "Plan:", "# Plan:"},
+	{2, "Context", "## Context"},
+	{2, "Phases", "## Phases"},
+	{2, "Tasks", "## Tasks"},
+}
+
+// hasPlanHeading reports whether headings contains one matching want's level and text prefix.
+func hasPlanHeading(headings []planHeading, want templateHeading) bool {
+	for _, h := range headings {
+		if h.level == want.level && strings.HasPrefix(h.text, want.prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // checkPlanTemplate is a PreToolUse(Write) check, folded into DocsPlacement: the FIRST write to an undated
 // draft under <config>/plans/ must already carry the plan template's required headings, or it is denied
@@ -250,13 +297,14 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 		return ExitProceed // not the first write; the template was already checked
 	}
 	content := in.nested("tool_input", "content")
-	for _, heading := range planTemplateHeadings {
-		if strings.Contains(content, heading) {
+	headings := planHeadings([]byte(content))
+	for _, want := range planTemplateHeadings {
+		if hasPlanHeading(headings, want) {
 			continue
 		}
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
 			"Write the full template (# Plan:, ## Context, ## Phases, ## Tasks) from %s before filing a draft.\n",
-			filepath.Base(path), heading, filepath.Join(paths.ConfigDir(), "agents", "Plan.md"))
+			filepath.Base(path), want.label, filepath.Join(paths.ConfigDir(), "agents", "Plan.md"))
 		return ExitBlock
 	}
 	return ExitProceed

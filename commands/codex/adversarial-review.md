@@ -90,6 +90,7 @@ HANDOFF="$SESS_DIR/review-${TS_ISO//:/}.md"
 STATUS="$SESS_DIR/status.md"
 
 cat > "$STATUS" <<EOF
+
 # Codex Adversarial Review — Status
 
 - Session ID: \`$SESSION_ID\`
@@ -115,12 +116,14 @@ else
   PROMPT="You are an adversarial reviewer. Your job is to find what the author missed — not to confirm what is correct.
 
 Review the diff with these priorities, in order:
+
 1. CRITICAL: security vulnerabilities, data loss, concurrency races, resource leaks
 2. HIGH: bugs, broken error handling, incorrect async/await, API misuse
 3. MEDIUM: missing tests for new behavior, brittle assumptions, unhandled edge cases
 4. LOW: maintainability, naming, minor style drift
 
 Rules:
+
 - Skepticism default ON. Assume the author is wrong until proven right.
 - Call out hidden assumptions (what must be true for this code to work?)
 - Do NOT praise. Do NOT summarize the change. ONLY report findings.
@@ -133,10 +136,15 @@ ${FOCUS:+Additional focus: $FOCUS}
 ${DIFF:0:400000}
 </diff>"
 
-  # --fallback vendors: an unavailable codex may hand off to another vendor family, never to Claude.
+# --fallback vendors: an unavailable codex may hand off to another vendor family, never to Claude
+
   if claude-code ask --agent codex --fallback vendors "$PROMPT" 2>&1 | tee "$HANDOFF"; then
-    STATE="complete"
-    RC=0
+
+```text
+STATE="complete"
+RC=0
+```
+
   else
     RC=$?
     STATE="failed"
@@ -144,6 +152,7 @@ ${DIFF:0:400000}
 fi
 
 cat > "$STATUS" <<EOF
+
 # Codex Adversarial Review — Status
 
 - Session ID: \`$SESSION_ID\`

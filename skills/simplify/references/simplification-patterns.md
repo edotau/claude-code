@@ -10,6 +10,7 @@ A class that wraps one method, or a helper called from one place, is indirection
 payoff. Inline it; add the abstraction back when a second caller actually appears.
 
 **Bad — Strategy/ABC scaffolding for one discount type (150 lines):**
+
 ```python
 class DiscountStrategy(ABC):
     @abstractmethod
@@ -28,6 +29,7 @@ class DiscountCalculator:
 ```
 
 **Good (3 lines):**
+
 ```python
 def calculate_discount(amount: float, percent: float) -> float:
     return amount * (percent / 100)
@@ -39,6 +41,7 @@ Two near-identical try/except blocks, or the same three lines repeated across br
 collapse to one. Pull the shared part out; keep only what genuinely differs.
 
 **Bad:**
+
 ```python
 try:
     data = load(path)
@@ -49,6 +52,7 @@ except PermissionError:
 ```
 
 **Good:**
+
 ```python
 try:
     data = load(path)
@@ -63,6 +67,7 @@ Deep nesting (>4 levels) hides the happy path. Return early on the guard cases; 
 logic drops a level each time.
 
 **Bad:**
+
 ```python
 def process(user):
     if user is not None:
@@ -78,6 +83,7 @@ def process(user):
 ```
 
 **Good:**
+
 ```python
 def process(user):
     if user is None or not user.active or not user.has_quota():

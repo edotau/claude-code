@@ -30,7 +30,9 @@ documented, and secured.
 - **Promotion** — a rule that keeps recurring across agent memories and sessions is promoted by
   `/reflection:consolidate`; `CLAUDE.md` stays an index and takes only hard rules.
 - **Cross-agent bridge** — this tier reaches other tools only via `CLAUDE.md` prose, which
-  `claude-code agents sync` renders into `~/.codex/AGENTS.md`/`~/.gemini/GEMINI.md`, projects agents into every vendor home (local render in `state/projections/`), and links skills into `~/.agents/skills`. `workflow/` and `harness/` are not bridged at all.
+  `claude-code agents sync` renders into `~/.codex/AGENTS.md`/`~/.gemini/GEMINI.md`, projects agents into every vendor
+  home (local render in `state/projections/`), and links skills into `~/.agents/skills`. `workflow/` and `harness/` are
+  not bridged at all.
 
 ## Priority order (when standards conflict)
 

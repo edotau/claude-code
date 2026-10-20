@@ -13,7 +13,7 @@ When several tasks land in one package, split them so each agent CREATES its own
 explicitly forbidden from editing existing ones. The manager then does the integration edit — the
 shared file — alone. This turns a serial job into a parallel one without a single shared write.
 
-```
+```text
 LANE 1 -> internal/router/tokencache.go   (new, owned)
 LANE 2 -> internal/router/authretry.go    (new, owned)
 LANE 3 -> internal/router/diag.go         (new, owned)
@@ -53,7 +53,7 @@ reliable part of a fan-out — lanes have died with `.claude/worktrees/agent-*` 
 
 ## Example brief
 
-```
+```text
 Agent(
   subagent_type="code-worker",
   description="Token cache for the router",
@@ -80,8 +80,9 @@ Agent(
 - For a test guarding an invariant, confirm it can FAIL — disable the thing it protects and re-run.
   A test that has never failed is not yet a guard.
 - Inspect the integrated diff for changes outside every lane's assigned scope.
-- Simplify the integrated diff with `Skill(simplify)` before reviewing it — parallel lanes duplicate each
-  other's helpers, and only the integrated diff shows it. Delegated: [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md).
+- Simplify the integrated diff with `Skill(simplify)` before reviewing it — parallel lanes
+  duplicate each other's helpers, and only the integrated diff shows it.
+  Delegated: [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md).
 - Re-run scoped checks, then the full suite once (`make test`). Add `-race` for anything concurrent.
 - Rebuild before believing a binary's behavior — `go test` green says nothing about `bin/`.
 - Synthesize only verified results.

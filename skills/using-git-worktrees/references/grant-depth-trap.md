@@ -4,7 +4,7 @@
 
 A subagent or sandboxed session scoped to a path below the repo root reports:
 
-```
+```text
 fatal: not a git repository (or any parent up to mount point /path/to/repo)
 ```
 

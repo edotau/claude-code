@@ -14,7 +14,7 @@ paths:
 
 ## Pipeline Overview
 
-```
+```text
 PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
   --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (shared tree) --> MERGE --> SIMPLIFY --> VERIFY --> COMMIT
 ```
@@ -172,7 +172,7 @@ For each completed worktree, in dependency order:
 **Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow gate-loop` when the
 user asks for it):
 
-```
+```text
 Gate 1: <format>          -- auto-fix formatting
 Gate 2: <lint>            -- fix lint errors
 Gate 3: <test>            -- fix test failures (one at a time, max 3 attempts each)

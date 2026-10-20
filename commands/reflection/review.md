@@ -13,7 +13,7 @@ argument-hint: "[--brief | --quick | --stale | --candidates]"
 
 ## Usage
 
-```
+```text
 /reflection:review             # Full review (dashboard + candidates + stale + consolidation)
 /reflection:review --brief      # One-line health summary only (no agent dispatch)
 /reflection:review --quick      # Health dashboard + top 3 promotion candidates
@@ -88,7 +88,7 @@ and `memory archive --dupes` (audit mode — never pass `--apply` in ANALYZE).
 
 ### ANALYZE output format
 
-```
+```markdown
 ## Memory Health Report — <date>
 
 ### Inventory

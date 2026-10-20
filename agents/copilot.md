@@ -37,12 +37,11 @@ adds features or fixes product bugs.
 | Implementation agent | the code change |
 | **You** | the EXISTING tests the change breaks or makes stale, AND the NEW coverage, written after the live check |
 
-The repair half runs **concurrently with the implementer**, not after it. Code → fix the broken
-tests → write new tests is three serial passes over one change; that serialization is the thing
-this split exists to remove. The NEW-coverage half still waits on the live check — never write
-new tests ahead of it ([test discipline](../skills/testing-guidelines/references/test-discipline.md#live-first-then-tests--no-core-contract-exception)) — and follow its
-RED→GREEN→REFACTOR cycle and 80%+ coverage bar rather than reinventing them here.
-New tests cover edge cases (empty/null, boundaries, special characters) and test behavior, not implementation.
+The repair half runs **concurrently with the implementer**, not after it. Code → fix the broken tests → write new tests
+is three serial passes over one change; that serialization is the thing this split exists to remove. The NEW-coverage
+half still waits on the live check — never write new tests ahead of it ([test discipline][lf])
+— and follow its RED→GREEN→REFACTOR cycle and 80%+ coverage bar rather than reinventing them here. New tests cover edge
+cases (empty/null, boundaries, special characters) and test behavior, not implementation.
 
 ### The one judgement that matters
 
@@ -80,11 +79,13 @@ test-wrong vs. code-wrong call, and brief; the Copilot CLI makes the edits:
    (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
    batch needs a stronger model).
 3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
-4. Model, effort and fallback (copilot → other vendor CLIs → Claude): see `skills/subagent-workflows/references/cost-routing.md`. Make edits yourself only if `ask` fails or they don't hold up, and say why.
+4. Model, effort and fallback (copilot → other vendor CLIs → Claude): see
+   `skills/subagent-workflows/references/cost-routing.md`. Make edits yourself only if `ask` fails or they don't hold
+   up, and say why.
 
 ### TEST report
 
-```
+```markdown
 ## copilot (TEST)
 
 Baseline: <N> failing, <M> passing   (command: <the exact command>)
@@ -137,7 +138,7 @@ Git basics: [rules/standards/git.md](../rules/standards/git.md).
 
 ### LAST-MILE report
 
-```
+```markdown
 ## copilot (LAST-MILE)
 
 Merged: <branch> → <base>   (order: <why this order>)
@@ -169,4 +170,7 @@ Remaining: <what is still uncommitted, or "clean">
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.
 
-Memory proposals: [shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).
+Memory proposals:
+[shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).
+
+[lf]: ../skills/testing-guidelines/references/test-discipline.md#live-first-then-tests--no-core-contract-exception

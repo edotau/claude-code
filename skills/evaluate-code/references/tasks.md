@@ -1,3 +1,5 @@
+# Review and Simplify Task Template
+
 Run claude in Review & Simplify mode over my current diff.
 
 Priorities in this exact order:

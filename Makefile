@@ -38,6 +38,9 @@ GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh)
 GOVULN_VERSION  ?= v1.8.0
 GOLANGCI_VERSION ?= v2.15.0
 YAMLFMT_VERSION ?= v0.21.0
+# Markdown linter/fixer, installed to bin/ by `make install`; its pkg/markdown is the Go code's parser too.
+MDSMITH_VERSION ?= v0.57.0
+MDSMITH         := bin/mdsmith
 YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help
@@ -54,7 +57,7 @@ build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile  ## Build + install the harness; DEV_TOOLS=1 adds lint/vuln tools
+install: compile mdsmith  ## Build + install the harness; DEV_TOOLS=1 adds lint/vuln tools
 	$(BIN) install
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
@@ -151,7 +154,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings  ## fmt, vet, shellcheck, yamlfmt, tui width, settings
+lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## fmt, vet, shell, yaml, tui width, settings, markdown
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
@@ -173,6 +176,15 @@ lint-help:  # (folded into `lint`) every `make help` row fits 80 columns, label 
 lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
 	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install DEV_TOOLS=1)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
+
+.PHONY: mdsmith
+mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
+	@if ! $(MDSMITH) version 2>/dev/null | grep -qF '$(MDSMITH_VERSION)'; then \
+		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
+
+.PHONY: lint-docs
+lint-docs: mdsmith  ## Lint tracked markdown with mdsmith (FIX=1 auto-fixes)
+	@$(MDSMITH) $(if $(filter 1,$(FIX)),fix,check)
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist

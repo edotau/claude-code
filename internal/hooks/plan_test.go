@@ -189,6 +189,70 @@ func TestWithTasks(t *testing.T) {
 	}
 }
 
+// TestPlanTitleSkipsFrontMatter: planTitle parses via the mdsmith AST, so a "#"-prefixed line inside the
+// "---" front-matter fences is never mistaken for the real H1 below it (fixed from a raw line scan).
+func TestPlanTitleSkipsFrontMatter(t *testing.T) {
+	plan := "---\n# title: Real Title\ntitle: Something\n---\n\n# Actual Heading\n\nbody\n"
+	if got, want := planTitle([]byte(plan)), "actual-heading"; got != want {
+		t.Errorf("planTitle(frontmatter) = %q, want %q", got, want)
+	}
+}
+
+// TestPlanTitleSkipsFencedHeading: a "#" line inside a fenced code block is not an AST heading, so planTitle
+// correctly falls through to the real heading after the fence (fixed from a raw line scan).
+func TestPlanTitleSkipsFencedHeading(t *testing.T) {
+	plan := "```\n# Not A Title\n```\n\n# Real Title\n\nbody\n"
+	if got, want := planTitle([]byte(plan)), "real-title"; got != want {
+		t.Errorf("planTitle(fenced) = %q, want %q", got, want)
+	}
+}
+
+// TestWithTasksOwnTasksHeadingWithoutCheckbox characterizes CURRENT behavior: withTasks only looks for a
+// checkbox line (checkboxLine), not a "## Tasks" heading by itself — a heading with no "- [ ]" items yet
+// still gets a second "## Tasks" section appended.
+func TestWithTasksOwnTasksHeadingWithoutCheckbox(t *testing.T) {
+	plan := "# Plan: X\n\n## Tasks\n\nsome prose, no checkbox items yet\n"
+	got := string(withTasks([]byte(plan)))
+	if strings.Count(got, "## Tasks") != 2 {
+		t.Errorf("withTasks(heading-only) = %q, want two \"## Tasks\" sections (current: heading alone doesn't count)", got)
+	}
+}
+
+// TestWithTasksSkipsFencedHeadings: a Phase heading shown inside a code fence is example text, not a task.
+func TestWithTasksSkipsFencedHeadings(t *testing.T) {
+	plan := "# Plan: Z\n\n```markdown\n## Phase fake\n```\n\n## Phase real\n"
+	got := string(withTasks([]byte(plan)))
+	if !strings.Contains(got, "- [ ] Phase real\n") || strings.Contains(got, "- [ ] Phase fake") {
+		t.Errorf("withTasks(fenced) = %q, want only the real Phase as a task", got)
+	}
+}
+
+// TestWithTasksMixedHeadingLevels: phase/step/task headings at any level 2-4 all become checklist items.
+func TestWithTasksMixedHeadingLevels(t *testing.T) {
+	plan := "# Plan: Y\n\n## Phase A\n\n#### Phase B (deep)\n\n### Task: inner\n"
+	got := string(withTasks([]byte(plan)))
+	for _, want := range []string{"- [ ] Phase A\n", "- [ ] Phase B (deep)\n", "- [ ] Task: inner\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestWithTasksCRLF characterizes CURRENT behavior on CRLF input: the task-heading regex already strips the
+// trailing \r from each extracted item, but the plan/checklist join point keeps a stray \r before the \n\n.
+func TestWithTasksCRLF(t *testing.T) {
+	plan := "# Plan: X\r\n\r\n### Phase 1 \xe2\x80\x94 parse\r\n\r\n## Step 2: render\r\n"
+	got := string(withTasks([]byte(plan)))
+	for _, want := range []string{"- [ ] Phase 1 \xe2\x80\x94 parse\n", "- [ ] Step 2: render\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q (CRLF item should still be captured without \\r) in:\n%q", want, got)
+		}
+	}
+	if !strings.Contains(got, "render\r\n\n## Tasks\n") {
+		t.Errorf("current: the join before the appended checklist keeps the draft's trailing \\r, got:\n%q", got)
+	}
+}
+
 func TestSavePlanReadsPlanFilePathAndSkipsEmpty(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

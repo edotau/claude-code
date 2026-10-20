@@ -4,7 +4,9 @@ description: "Adaptive learning checkpoint — capture corrections, update rules
 
 # /harness:adapt — Adaptive Learning Checkpoint
 
-Focused, fast reinforcement loop that turns this session's corrections and patterns into permanent rules. Lighter than a full `/reflection:consolidate`, triggered automatically at 85% context (the `context-checkpoint` Stop hook) or manually anytime.
+Focused, fast reinforcement loop that turns this session's corrections and patterns into permanent rules. Lighter than a
+full `/reflection:consolidate`, triggered automatically at 85% context (the `context-checkpoint` Stop hook) or manually
+anytime.
 
 ## Usage
 
@@ -73,18 +75,20 @@ For each correction identified in Step 1:
 ### Step 4: Update the Memory Bank
 
 Update `activeContext.md` (contracts: `rules/workflow/memory-bank.md`; path via `claude-code memory path`):
+
 - **Current Focus**: Reflect where the session ended
 - **Next Steps**: Update with immediate next actions
 - (Session summaries belong in `sessionHistory.md` — `/memory:end` owns that; skip here)
 
 Update `progress.md` if:
+
 - New functionality was completed ("What Works")
 - Priorities shifted ("What's Next")
 - New issues discovered ("Known Issues")
 
 ### Step 5: Update Native Project Memory
 
-Only write what was actually learned this session. 
+Only write what was actually learned this session.
 
 1. Read the current `$(claude-code memory path)/MEMORY.md` index (+ linked topic files) —
    the store dir under `~/.claude/memory/<repo>/`, where the typed bank files live
@@ -95,7 +99,7 @@ Only write what was actually learned this session.
 
 Output a compact summary:
 
-```
+```text
 Adaptive Learning Checkpoint
 ════════════════════════════
 Context: XX% used
@@ -116,6 +120,7 @@ Session can now safely end or compact.
 
 ## Auto-Trigger
 
-This command is automatically triggered by the `context-checkpoint` Stop hook when context usage reaches 85%. The hook blocks the stop and instructs Claude to run `/harness:adapt` first.
+This command is automatically triggered by the `context-checkpoint` Stop hook when context usage reaches 85%. The hook
+blocks the stop and instructs Claude to run `/harness:adapt` first.
 
 After `/harness:adapt` completes, Claude may proceed to stop normally.

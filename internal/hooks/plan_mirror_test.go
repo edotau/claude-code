@@ -81,6 +81,43 @@ func TestPlanTemplateOnlyGatesTheFirstWrite(t *testing.T) {
 	}
 }
 
+// TestPlanTemplateAllFourHeadingsPresent: the exact template content passes with all 4 headings as plain text.
+func TestPlanTemplateAllFourHeadingsPresent(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(cfg, "plans", "all-headings.md")
+	content := "# Plan: Z\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1\n\n## Tasks\n\n- [ ] Phase 1\n"
+	code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &bytes.Buffer{})
+	if code != ExitProceed {
+		t.Fatalf("all 4 headings present: checkPlanTemplate = %d, want ExitProceed", code)
+	}
+}
+
+// TestPlanTemplateRejectsFencedOnlyHeading: checkPlanTemplate now parses the mdsmith AST, so a heading that
+// only appears inside a fenced code block does not count as present (fixed from a strings.Contains scan,
+// which previously let this through as ExitProceed).
+func TestPlanTemplateRejectsFencedOnlyHeading(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(cfg, "plans", "fenced-heading.md")
+	// "## Tasks" only appears inside the fence below, never as a real heading.
+	content := "# Plan: Z\n\n## Context\n\nwhy\n\n## Phases\n\n```\n## Tasks\n```\n"
+	var stderr bytes.Buffer
+	code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &stderr)
+	if code != ExitBlock {
+		t.Fatalf("fenced-only heading = %d, want ExitBlock (fence content must not satisfy the template check)", code)
+	}
+	if !strings.Contains(stderr.String(), "## Tasks") {
+		t.Fatalf("denial message = %q, want it to name the missing heading", &stderr)
+	}
+}
+
 func TestPlanTemplateIgnoresDatedAndOutsidePlans(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

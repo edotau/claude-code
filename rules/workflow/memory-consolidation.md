@@ -21,7 +21,7 @@ paths:
 
 ## Pipeline Overview
 
-```
+```text
 [SESSION REFLECTION — skipped in --dream and --dry-run]
   SESSION SUMMARY --> UPDATE NATIVE MEMORY --> UPDATE MEMORY BANK --> ROUTE CORRECTIONS TO RULES
 
@@ -32,7 +32,7 @@ paths:
 
 ## The promotion gradient
 
-```
+```text
 native memory ──promote (/reflection:promote)──▶ rules/standards/<topic>.md
                                                   rules/software/<lang>/<topic>.md
                                                           │ dream gate only:

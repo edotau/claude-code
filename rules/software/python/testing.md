@@ -33,7 +33,6 @@ def test_database_connection():
     ...
 ```
 
-
 ## A Unit Test Must Not Leave the Box
 
 Constructing a cloud client with its DEFAULT credential chain reaches the network. Measured: a boto3 client

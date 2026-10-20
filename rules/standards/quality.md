@@ -9,10 +9,12 @@ Code quality, immutability, testing, and completion criteria. Language specifics
    quality issues. All acceptance criteria verified through testing, not assertion.
 2. **Immutability (CRITICAL)** — create new objects, never mutate in place. Immutable
    data prevents hidden side effects and enables safe concurrency.
-   ```
+
+   ```text
    WRONG:   modify(original, field, value)  → changes original in place
    CORRECT: update(original, field, value)  → returns a new copy
    ```
+
 3. **Explicit error handling** — handle errors at every level; user-friendly messages in
    UI-facing code; detailed context server-side; never silently swallow.
 4. **Validate at boundaries** — validate all external input (user, API responses, file

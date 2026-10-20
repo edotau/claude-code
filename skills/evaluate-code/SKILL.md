@@ -14,6 +14,7 @@ skill owns it. The built-in `/code-review` fans out **both** (quality + security
 synthesizes one verdict.
 
 Pick your path:
+
 - **Reviewing a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
 - **Reviewing by hand** → [Conduct a review](#conduct-a-review) (checklist + severity).
 - **Getting review feedback** → [Receive feedback](#receive-feedback) (verify-first, no gratitude).

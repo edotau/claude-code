@@ -178,7 +178,7 @@ For async, gather with `return_exceptions=True` so one failure doesn't cancel th
 
 `src/` layout, tests mirroring source:
 
-```
+```text
 myproject/
 ├── src/mypackage/{__init__.py,main.py,api/,models/,utils/}
 ├── tests/{conftest.py,test_*.py}

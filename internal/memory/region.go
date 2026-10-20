@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // catalogGlobalMax bounds the global entry lines the catalog carries; the rest are reachable by search.
@@ -148,16 +149,11 @@ func storeHook(dir string) string {
 	return filepath.Base(dir)
 }
 
-// stripFrontmatter drops a leading --- … --- block.
+// stripFrontmatter drops a leading --- … --- block; the closing fence must start its own line, so a
+// block-scalar value that merely contains the literal bytes "---" can't be mistaken for it.
 func stripFrontmatter(s string) string {
-	if !strings.HasPrefix(s, "---\n") {
-		return s
-	}
-	if i := strings.Index(s[4:], "\n---"); i >= 0 {
-		rest := s[4+i+4:]
-		return strings.TrimPrefix(rest, "\n")
-	}
-	return s
+	_, content := markdown.StripFrontMatter([]byte(s))
+	return string(content)
 }
 
 func truncate(s string, n int) string {

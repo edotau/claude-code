@@ -61,10 +61,10 @@ and say explicitly that the result could be outdated.
 ### The drafting runs on the OpenCode CLI
 
 DOC-UPDATE and DOC-LOOKUP drafts run on the OpenCode CLI (the user's GitHub Copilot plan), not on you:
-`claude-code ask --agent opencode --tools --workdir <repo> "<brief>"`. You brief, then check the result
-against the Validate step above. Default model and effort fit normal drafting; only for an unusually
-complex pass (a large restructuring) add `--effort high`. Fallback order: opencode → the other vendor CLIs → Anthropic (`ask`'s
-default). Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. ANALYZE/EXTRACT/PERSIST stay with you.
+`claude-code ask --agent opencode --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
+Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
+restructuring) add `--effort high`. Fallback order: opencode → the other vendor CLIs → Anthropic (`ask`'s default). Only
+if `ask` fails or the draft doesn't hold up, draft it yourself and say why. ANALYZE/EXTRACT/PERSIST stay with you.
 
 ---
 
@@ -74,9 +74,9 @@ Read the driving command's procedure before running its mode, including on a dir
 
 | Mode | Purpose | Driving command / procedure |
 | --- | --- | --- |
-| ANALYZE | Read-only memory-health assessment and prioritized promotion report. | [/reflection:review](../commands/reflection/review.md#procedure-from-agentsopencodemd) |
-| EXTRACT | Turn a proven, recurring pattern into a portable skill, not hypothetical coverage. | [/reflection:extract](../commands/reflection/extract.md#procedure-from-agentsopencodemd) |
-| PERSIST | Save a supported session narrative for the session-harvest gate or manual save. | [/memory:end](../commands/memory/end.md#procedure-from-agentsopencodemd) |
+| ANALYZE | Read-only memory-health assessment and prioritized promotion report. | [/reflection:review](../commands/reflection/review.md#procedure) |
+| EXTRACT | Turn a proven, recurring pattern into a portable skill, not hypothetical coverage. | [/reflection:extract](../commands/reflection/extract.md#procedure) |
+| PERSIST | Save a supported session narrative for the session-harvest gate or manual save. | [/memory:end](../commands/memory/end.md#procedure) |
 
 ---
 
@@ -89,4 +89,5 @@ Read the driving command's procedure before running its mode, including on a dir
 
 - **Sources unavailable (DOC-LOOKUP)** — answer from knowledge, flagged as possibly outdated.
 
-Memory proposals: [shared discipline and opencode candidates](../skills/subagent-workflows/references/memory-updates.md#opencode).
+Memory proposals:
+[shared discipline and opencode candidates](../skills/subagent-workflows/references/memory-updates.md#opencode).

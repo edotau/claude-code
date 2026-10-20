@@ -52,7 +52,8 @@ def dataset_size(request):
 
 **Scopes**: `function` (default), `class`, `module`, `package`, `session`
 
-**conftest.py**: Place shared fixtures in `conftest.py` at the appropriate directory level. pytest discovers them automatically.
+**conftest.py**: Place shared fixtures in `conftest.py` at the appropriate directory level. pytest
+discovers them automatically.
 
 ## Parametrize
 
@@ -135,7 +136,7 @@ async def test_async_operation():
 
 ## Test Organization
 
-```
+```text
 tests/
 ├── conftest.py          # Shared fixtures
 ├── unit/

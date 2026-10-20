@@ -4,6 +4,8 @@ argument-hint: "[review | simplify | architect <task>] [diff range / path / blan
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
+# Claude Coding Lifecycle
+
 One entry point for the coding lifecycle. Dispatches the **claude** agent, which owns
 architecture, quality review, and simplification. It drives the `evaluate-code` and
 `simplify` skills as its review/cleanup procedures, and pairs with `/security` for the
@@ -28,6 +30,7 @@ case "$RANGE" in review|simplify|architect*) RANGE="${RANGE#* }";; esac
 git diff ${RANGE:---cached} --stat
 git diff --name-only ${RANGE:---cached}
 ```
+
 If there's no branch divergence and nothing staged, fall back to `git diff --cached` and say so.
 
 ## 2. Detector first pass (advisory)
@@ -37,6 +40,7 @@ mapfile -d '' -t CHANGED < <(git diff --name-only -z ${RANGE:---cached} | grep -
 [ "${#CHANGED[@]}" -gt 0 ] && claude-code review complexity "${CHANGED[@]}" --threshold medium --json
 claude-code review diff --diff "${RANGE:-HEAD~1..HEAD}" --json
 ```
+
 Fold findings into the report by citing specific functions/lines, not raw JSON.
 
 ## 3. Dispatch claude
@@ -44,15 +48,17 @@ Fold findings into the report by citing specific functions/lines, not raw JSON.
 Launch the **claude** agent with the resolved mode, range, and changed-file list as
 scoped context (NOT this session's history):
 
-```
+```text
 Phase: <review | simplify | architect>
 Diff scope: <RANGE>
 Files changed: <names>
 Detector findings: <complexity / diff_surgeon highlights>
 ```
 
-- **review** → quality + the four-principle discipline lens; report must-fix / should-fix / nit / question with `file:line` and a ship verdict.
-- **simplify** → apply behavior-preserving cleanups (`--extended` follows duplication to its source past the diff); name each change and confirm behavior is preserved.
+- **review** → quality + the four-principle discipline lens; report must-fix / should-fix / nit / question with
+  `file:line` and a ship verdict.
+- **simplify** → apply behavior-preserving cleanups (`--extended` follows duplication to its source past the diff); name
+  each change and confirm behavior is preserved.
 - **architect** → emit the phased `## Plan` (Approach / Changes / Risks / Verification).
 
 For the **security** half of a review, run `/security` in parallel — it applies the

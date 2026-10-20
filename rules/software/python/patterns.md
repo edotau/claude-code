@@ -59,4 +59,3 @@ always exists:
 
 Keep such a name list to the vars the project ACTUALLY sets. Padding it with another cloud's vars (Azure/GCP
 on an AWS deployment) makes it unauditable; grep each candidate before adding it.
-

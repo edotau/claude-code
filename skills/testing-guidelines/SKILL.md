@@ -123,11 +123,13 @@ Mocks isolate; they are never the thing under test.
 
 ## API & contract testing
 
-[API & contract testing](references/api-contract-testing.md#boundary-checklist) — boundary rules, route detection, matrices, and patterns.
+[API & contract testing](references/api-contract-testing.md#boundary-checklist) — boundary rules,
+route detection, matrices, and patterns.
 
 ## References
 
-- [Test discipline](references/test-discipline.md) — live checks, test-agent ownership, fixtures, gates, and injection proofs.
+- [Test discipline](references/test-discipline.md) — live checks, test-agent ownership, fixtures,
+  gates, and injection proofs.
 - `references/pytest-patterns.md` — fixtures, parametrize, mocking/patching, markers,
   exception/async tests, `tests/` layout.
 - `references/api-contract-testing.md` — route detection, auth/input matrices, DRF + httpx

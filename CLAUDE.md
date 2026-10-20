@@ -44,11 +44,11 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 8. **Parallel by default; keep the main thread free.** For every code change the main thread plans and
-   briefs, then dispatches `code-worker` (implements) ‖ `copilot` (repairs tests) in one message, in the
-   background, and stays free for discussion, follow-ups and the live check. Inline only for a one-line
-   edit. Brief completely up front; never re-steer a running agent. Many leaf tasks: one Claude lane
-   orchestrator per lane → `skills/subagent-workflows/references/lane-orchestrator.md`, `rules/standards/quality.md`
-9. Tag notable moments in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` · `NOTE:` — the harvest files them.
+   briefs, then dispatches `code-worker` (implements) ‖ `copilot` (repairs tests) in one message, in the background, and
+   stays free for discussion, follow-ups and the live check. Inline only for a one-line edit. Brief completely up front;
+   never re-steer a running agent. Many leaf tasks: one Claude lane orchestrator per lane →
+   `skills/subagent-workflows/references/lane-orchestrator.md`, `rules/standards/quality.md` 9. Tag notable moments in
+   replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` · `NOTE:` — the harvest files them.
 
 ## How-to (task → command → depth)
 
@@ -92,13 +92,16 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
 - `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault show|edit`) and
-  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `vault migrate` (`README.md` → Credentials).
-- `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
+  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `vault migrate` (`README.md` → Credentials). -
+  `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file
+  stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`
-  frontmatter costs context every turn, so scope new ones (→ `rules/README.md`).
-- `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own (symlinks into `~/.agents`, which Gemini reads natively), leave them.
-- `skills/synced/` — claude.ai account skills Claude Code re-downloads each sync round; untracked, edit them on claude.ai.
+  frontmatter costs context every turn, so scope new ones (→ `rules/README.md`). - `skills/<name>/SKILL.md` — on-demand
+  references; untracked skill dirs are the user's own (symlinks into `~/.agents`, which Gemini reads natively), leave
+  them.
+- `skills/synced/` — claude.ai account skills Claude Code re-downloads each sync round; untracked, edit them on
+  claude.ai.
 - `plans/` — implementation plans (Claude Code's native `plansDirectory`); untracked, gitignored
   wholesale — this repo's own at the top, other repos' under `plans/<repo-slug>/`.
 - `memory/` — the one memory store: a local-only git repo. `memory/index.md` is the generated catalog

@@ -9,8 +9,9 @@ One roster, every agent CLI. `agents/<name>.md` is rendered into each vendor's n
 gitignored `state/projections/<vendor>/agents/` and installed byte-identical into the vendor home; the hand-authored
 `skills/<name>/` dirs are symlinked into `~/.agents/skills`, the one skills directory all four CLIs read natively.
 CLAUDE.md + the roster are rendered into the vendors' global instruction files, `~/.codex/AGENTS.md` and
-`~/.gemini/GEMINI.md` (also rendered to `state/projections/codex/AGENTS.md`, `state/projections/gemini/GEMINI.md`). Nothing is written at the harness
-root: Claude Code loads a root `AGENTS.md` as a second copy of CLAUDE.md in every session.
+`~/.gemini/GEMINI.md` (also rendered to `state/projections/codex/AGENTS.md`, `state/projections/gemini/GEMINI.md`).
+Nothing is written at the harness root: Claude Code loads a root `AGENTS.md` as a second copy of CLAUDE.md in every
+session.
 
 ## What syncs
 

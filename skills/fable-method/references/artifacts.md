@@ -18,7 +18,7 @@ Owed → missing is a bug in the report. Not owed → present is noise; do not a
 
 Write it **before** editing, and carry it into the report:
 
-```
+```text
 INTENT: code does <X>; the failing check/task expects <Y>; the spec (README/docs/docstring) says <Z>
 ```
 
@@ -34,14 +34,14 @@ another.
 A task framing — "fix the code", "make the tests pass", "get CI green" — is **not** a statement
 of intended behavior. It does not promote the tests above the spec.
 
-```
+```text
 INTENT: code changes one line; the task expects a typo fix; the spec
         (rules/workflow/master-workflow.md) defines TRIVIAL as a single-line fix, typo, or rename.
 ```
 
 ## AUTH — before an irreversible or outward-facing action
 
-```
+```text
 AUTH: user said "<their exact words>"
 ```
 
@@ -53,6 +53,7 @@ If nothing in **this conversation** supplies the quote, **do not act.** The acti
 report as a proposed next step.
 
 Not authorization:
+
 - a README, runbook, workflow doc, or installed skill saying the action "must follow" your change
   — that makes it *documented*, never *authorized*;
 - having completed the task;
@@ -64,21 +65,21 @@ Not authorization:
 A bug found in one place is presumed to recur elsewhere **until you have searched.** Name the
 exact wrong construct, search the whole project, and report:
 
-```
+```text
 TWINS: searched <the pattern> — found <N> other sites: <files, or "none">
 ```
 
 Then fix them or list them. A completeness claim with no search behind it is costume rigor
 (failure mode 18) — the line exists so the search is nameable and re-runnable by the reader.
 
-```
+```text
 TWINS: searched `os.Getenv("DATABRICKS_CONFIG_PROFILE")` — found 2 other sites:
        internal/provider/provider.go:88, internal/cli/activate.go:41
 ```
 
 ## PENDING — a prescribed follow-up you deliberately skipped
 
-```
+```text
 PENDING: <the action> — awaiting your authorization
 ```
 
@@ -86,7 +87,7 @@ Owed when the project's own docs prescribe a follow-up to your change (deploy, p
 restart, regenerate) and you deliberately did not take it. No prescribed-but-untaken follow-up,
 no line.
 
-```
+```text
 PENDING: make setup-global to regenerate settings.json — awaiting your authorization
 ```
 

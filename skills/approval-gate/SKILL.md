@@ -12,9 +12,10 @@ Two protocols: the iron law (no claims without fresh evidence) and the verificat
 
 ## Iron Law
 
-Before claiming completion, run the verification command, read the output, then claim. Stale results from earlier in the session don't count.
+Before claiming completion, run the verification command, read the output, then claim. Stale
+results from earlier in the session don't count.
 
-```
+```text
 IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 ```
 
@@ -22,7 +23,7 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 
 Run in order. A failure blocks subsequent gates until fixed.
 
-```
+```text
 Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
 Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
 Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE, after an iteration is clean
@@ -53,7 +54,7 @@ Per-gate fix strategy:
 
 ## Report Format
 
-```
+```text
 VERIFICATION REPORT (iteration N/5)
 
 | Gate         | Status             | Details                                   |
