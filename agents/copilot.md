@@ -33,7 +33,7 @@ adds features or fixes product bugs.
 
 | Who | Owns |
 |-----|------|
-| Main thread | the live check on the real surface (or, where nothing runs live, the RED-first core test) |
+| Main thread | the live check on the real surface (or, where nothing runs live, the spec-pinned core test) |
 | Implementation agent | the code change |
 | **You** | the EXISTING tests the change breaks or makes stale, AND the NEW coverage, written after the live check |
 

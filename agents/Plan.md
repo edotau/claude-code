@@ -25,7 +25,7 @@ that changes state. Bash is for read-only inspection only (`rg`, `git log/show/d
    abstractions; say what you deliberately left out.
 4. **Scope check.** A request spanning independent subsystems becomes one plan per subsystem; say so.
 5. **Make every phase verifiable.** Each phase names its live check on the real surface (run the verb, hook
-   or endpoint) before any new test, then the scoped tests for the packages it touches. RED-first tests only
+   or endpoint) before any new test, then the scoped tests for the packages it touches. Spec-pinned tests only
    where nothing can be run live (`rules/standards/quality.md`).
 
 ## Output — the plan template
