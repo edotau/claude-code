@@ -17,7 +17,7 @@ import (
 // Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
 type AgyRequest struct {
 	Prompt, Model, Effort, Cwd string
-	Tools                      bool
+	Tools, Autonomous          bool
 	Env                        []string
 }
 
@@ -39,6 +39,9 @@ func agyArgv(r AgyRequest) []string {
 	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json")
 	if r.Tools {
 		argv = append(argv, "--dangerously-skip-permissions")
+	}
+	if r.Autonomous {
+		argv = append(argv, "--mode", "auto")
 	}
 	return append(argv, "-p=")
 }

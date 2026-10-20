@@ -60,10 +60,12 @@ func Lookup(name string) (Spec, bool) {
 
 // Headless is the non-interactive form of a run; zero Tools means tools are disabled where the CLI allows it.
 type Headless struct {
-	Prompt    string
-	Effort    string
-	SessionID string // resume this session
-	Tools     bool
+	Prompt     string
+	Effort     string
+	SessionID  string // resume this session
+	Tools      bool
+	Autonomous bool     // opencode: --auto
+	Attach     []string // opencode: one -f per path
 }
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -545,6 +547,16 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
 	}
+	if h.Autonomous {
+		argv = append(argv, "--auto")
+	}
+	for _, p := range h.Attach {
+		argv = append(argv, "-f", p)
+	}
+	if len(h.Attach) > 0 {
+		// -f is variadic: without "--", opencode reads the prompt as another file path.
+		return env, append(append(argv, "--"), h.Prompt), nil
+	}
 	return env, append(argv, positional(h.Prompt)...), nil
 }
 
@@ -583,6 +595,16 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
+	}
+	if h.Autonomous {
+		argv = append(argv, "--auto")
+	}
+	for _, p := range h.Attach {
+		argv = append(argv, "-f", p)
+	}
+	if len(h.Attach) > 0 {
+		// -f is variadic: without "--", opencode reads the prompt as another file path.
+		return env, append(append(argv, "--"), h.Prompt)
 	}
 	return env, append(argv, positional(h.Prompt)...)
 }
