@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -254,20 +255,27 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	// Only --provider is explicit: the session pin (env or file) is Claude Code's default, not a per-vendor choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
+	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
+	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
 	if errors.Is(err, vendors.ErrOwnLogin) {
-		fmt.Fprintln(os.Stderr, note)
+		if showOwnLoginNote {
+			fmt.Fprintln(os.Stderr, note)
+		}
 		return plainPlan(spec, args)
 	}
 	if err != nil {
 		return Plan{}, err
 	}
-	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
-	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
+		if showOwnLoginNote {
+			fmt.Fprintln(os.Stderr, note)
+		}
 		return plainPlan(spec, args)
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
 	}
 	if err != nil {
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
@@ -296,6 +304,19 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		return Plan{}, err
 	}
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
+}
+
+func interactiveVendorArgs(args []string) bool {
+	if len(args) > 0 && args[0] == "run" {
+		return false
+	}
+	for _, arg := range args {
+		switch arg {
+		case "--version", "-v", "-V", "--help", "-h":
+			return false
+		}
+	}
+	return true
 }
 
 // envMap turns a KEY=VALUE env list into a map, dropping malformed entries.

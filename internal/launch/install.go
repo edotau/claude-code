@@ -528,8 +528,7 @@ func settingsHasHooks(file string) (bool, error) {
 	return false, nil
 }
 
-// toolDoctorDetail renders one tool's doctor line: path + version, flagged when it's an npm-global
-// copy that `claude-code install --tools` would retire, or a report-only hint when none is found.
+// toolDoctorDetail renders one tool's doctor line: path + version, npm-global/~/.local/bin flag, then any shim shadowing or extra PATH copies.
 func toolDoctorDetail(s tools.Status) string {
 	if s.Path == "" {
 		if s.Hint != "" {
@@ -547,7 +546,75 @@ func toolDoctorDetail(s tools.Status) string {
 	case s.LocalBin:
 		detail += " (~/.local/bin)"
 	}
+	copies, shadows := toolPATHCopies(s.Name)
+	if shadows {
+		detail += " · shadows the shim " + paths.BinDir() + " (launch env bypassed)"
+	}
+	first, _ := filepath.EvalSymlinks(s.Path)
+	first, _ = filepath.Abs(first)
+	for _, path := range copies {
+		real, _ := filepath.EvalSymlinks(path)
+		real, _ = filepath.Abs(real)
+		if real == first {
+			continue
+		}
+		extra := path
+		if version := toolPATHVersion(path); version != "" {
+			extra += " " + version
+		}
+		detail += " · also on PATH: " + extra
+	}
 	return detail
+}
+
+func toolPATHCopies(name string) ([]string, bool) {
+	shimDir, _ := filepath.Abs(paths.BinDir())
+	self, _ := SelfBinary()
+	shimBinary, _ := filepath.EvalSymlinks(filepath.Join(shimDir, "claude-code"))
+	seen := map[string]bool{}
+	var copies []string
+	shimSeen, firstBeforeShim := false, false
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		if abs, _ := filepath.Abs(dir); abs == shimDir {
+			shimSeen = true
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		real, err = filepath.Abs(real)
+		if err != nil || real == self || real == shimBinary || seen[real] {
+			continue
+		}
+		seen[real] = true
+		if len(copies) == 0 {
+			firstBeforeShim = !shimSeen
+		}
+		copies = append(copies, candidate)
+	}
+	return copies, shimSeen && firstBeforeShim && slices.Contains(ShimNames, name)
+}
+
+func toolPATHVersion(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.WaitDelay = time.Millisecond
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(out), "\n")
+	return strings.TrimSpace(line)
 }
 
 func orErr(s string, err error) string {
