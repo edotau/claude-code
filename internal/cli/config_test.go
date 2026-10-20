@@ -20,6 +20,15 @@ func TestCmdConfig(t *testing.T) {
 		{"show extra arg", []string{"show", "x"}, 2},
 		{"edit extra arg", []string{"edit", "x"}, 2},
 		{"show", []string{"show"}, 0},
+		{"migrate nothing", []string{"migrate"}, 0},
+		{"migrate dry-run nothing", []string{"migrate", "--dry-run"}, 0},
+		{"migrate extra arg", []string{"migrate", "x"}, 2},
+		{"migrate bad flag", []string{"migrate", "--nope"}, 2},
+		{"finalize no manifest", []string{"finalize"}, 1},
+		{"finalize extra arg", []string{"finalize", "x"}, 2},
+		{"rollback no manifest", []string{"rollback"}, 1},
+		{"rollback extra arg", []string{"rollback", "x"}, 2},
+		{"rotate-key extra arg", []string{"rotate-key", "x"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
