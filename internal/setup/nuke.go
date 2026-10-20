@@ -81,9 +81,17 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		}
 		sort.Strings(plan.SecretNames)
 	}
-	plan.UserContent = userContentPaths(dir, hasGit)
+	userContent, err := userContentPaths(dir, hasGit)
+	if err != nil {
+		return plan, fmt.Errorf("scan user content: %w", err)
+	}
+	plan.UserContent = userContent
 	if keepMemory {
-		plan.UserContent = append(plan.UserContent, keepMemoryPaths(dir)...)
+		kept, err := keepMemoryPaths(dir)
+		if err != nil {
+			return plan, fmt.Errorf("scan memory paths: %w", err)
+		}
+		plan.UserContent = append(plan.UserContent, kept...)
 	}
 	return plan, nil
 }
@@ -126,6 +134,25 @@ func Nuke(opts NukeOpts) error {
 	// The audit log lives inside Dir and is about to be removed with it: log to stderr instead.
 	fmt.Fprintf(os.Stderr, "claude-code: %s %s apply\n", audit.SetupNuke, opts.Dir)
 	return os.RemoveAll(opts.Dir)
+}
+
+// createBackupFile opens a fresh claude-nuke-<date>.tgz under home with O_EXCL: two nukes in the
+// same second get distinct files instead of one silently truncating the other's backup.
+func createBackupFile(home string) (string, *os.File, error) {
+	base := filepath.Join(home, "claude-nuke-"+time.Now().Format("20060102-150405"))
+	for i := 0; ; i++ {
+		dest := base + ".tgz"
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d.tgz", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			return dest, f, nil
+		}
+		if !os.IsExist(err) {
+			return "", nil, err
+		}
+	}
 }
 
 func printPlan(w io.Writer, plan NukePlan) {
@@ -177,7 +204,7 @@ func dirSize(path string) int64 {
 
 // userContentPaths is the untracked-user-content set: hand-authored config plus any untracked file
 // under a few tracked trees (a project's own agent/command/skill). Never env.d/secrets.env.
-func userContentPaths(dir string, hasGit bool) []string {
+func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
 	for _, rel := range []string{"env.d/providers.json", "settings.local.json", "env.d/provider.env"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
@@ -185,21 +212,34 @@ func userContentPaths(dir string, hasGit bool) []string {
 		}
 	}
 	if !hasGit {
-		return out
+		return out, nil
 	}
 	for _, sub := range []string{"agents", "commands", "skills", "rules"} {
-		out = append(out, untrackedUnder(dir, sub)...)
+		rels, err := untrackedUnder(dir, sub)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rels...)
 	}
-	return out
+	return out, nil
 }
 
-func untrackedUnder(repo, sub string) []string {
-	if fi, err := os.Stat(filepath.Join(repo, sub)); err != nil || !fi.IsDir() {
-		return nil
+// untrackedUnder lists the untracked files under repo/sub. A scan error (e.g. an unreadable subdir
+// blocking `git ls-files`) must not be mistaken for "nothing untracked": it propagates instead.
+func untrackedUnder(repo, sub string) ([]string, error) {
+	fi, err := os.Stat(filepath.Join(repo, sub))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !fi.IsDir() {
+		return nil, nil
 	}
 	out, err := exec.Command("git", "-C", repo, "ls-files", "--others", "--exclude-standard", "--", sub).Output()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
 	var rels []string
 	for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
@@ -207,7 +247,7 @@ func untrackedUnder(repo, sub string) []string {
 			rels = append(rels, l)
 		}
 	}
-	return rels
+	return rels, nil
 }
 
 // archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,
@@ -217,8 +257,7 @@ func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error)
 	if err != nil {
 		return "", err
 	}
-	dest = filepath.Join(home, "claude-nuke-"+time.Now().Format("20060102-150405")+".tgz")
-	f, err := os.Create(dest)
+	dest, f, err := createBackupFile(home)
 	if err != nil {
 		return "", err
 	}
@@ -294,7 +333,8 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 
 // keepMemoryPaths lists every regular file under memory/ (incl. .git), docs/knowledge/, plans/, an unmigrated legacy
 // docs/memory/bank/ and real projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
-func keepMemoryPaths(dir string) []string {
+// A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
+func keepMemoryPaths(dir string) ([]string, error) {
 	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), filepath.Join("docs", "knowledge"), "plans"}
 	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
 		for _, m := range matches {
@@ -311,8 +351,11 @@ func keepMemoryPaths(dir string) []string {
 	}
 	var out []string
 	for _, root := range roots {
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || !d.Type().IsRegular() {
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.Type().IsRegular() {
 				return nil // symlinks are never read: tarWriteFile would follow an escape link
 			}
 			if rel, relErr := filepath.Rel(dir, p); relErr == nil {
@@ -320,6 +363,9 @@ func keepMemoryPaths(dir string) []string {
 			}
 			return nil
 		})
+		if err != nil {
+			return nil, fmt.Errorf("walk %s: %w", root, err)
+		}
 	}
-	return out
+	return out, nil
 }

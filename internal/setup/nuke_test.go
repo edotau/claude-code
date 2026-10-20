@@ -295,7 +295,10 @@ func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 	if err := os.Symlink(escape, filepath.Join(dir, "memory", "repo", "escape.md")); err != nil {
 		t.Fatal(err)
 	}
-	got := keepMemoryPaths(dir)
+	got, err := keepMemoryPaths(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "docs/memory/bank/repo/progress.md"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("keepMemoryPaths missing %s: %v", want, got)

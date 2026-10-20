@@ -190,7 +190,11 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 				return nil, fmt.Errorf("hooks.%s: %w", ev, err)
 			}
 			var hooks, keep []json.RawMessage
-			_ = json.Unmarshal(g.vals["hooks"], &hooks)
+			if raw := g.vals["hooks"]; len(raw) > 0 {
+				if err := json.Unmarshal(raw, &hooks); err != nil {
+					return nil, fmt.Errorf("hooks.%s group: %w", ev, err)
+				}
+			}
 			for _, h := range hooks {
 				var cmd struct {
 					Command string `json:"command"`
@@ -250,7 +254,9 @@ func rawList(items []json.RawMessage) json.RawMessage {
 // WriteWithBackup copies an existing file to <path>.bak-<timestamp>, then writes data atomically.
 func WriteWithBackup(path string, data []byte) (backup string, err error) {
 	mode := os.FileMode(0o644)
-	if old, rerr := os.ReadFile(path); rerr == nil {
+	old, rerr := os.ReadFile(path)
+	switch {
+	case rerr == nil:
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
@@ -258,6 +264,8 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if err := os.WriteFile(backup, old, 0o600); err != nil {
 			return "", fmt.Errorf("backup %s: %w", backup, err)
 		}
+	case !os.IsNotExist(rerr):
+		return "", fmt.Errorf("read %s: %w", path, rerr)
 	}
 	return backup, paths.AtomicWrite(path, data, mode)
 }

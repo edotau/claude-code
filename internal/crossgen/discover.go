@@ -29,7 +29,10 @@ func (s Source) Name() string {
 func DiscoverAgents(agentsDir string) ([]Source, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
-		return nil, nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", agentsDir, err)
 	}
 	var agents []Source
 	for _, e := range entries {
@@ -39,7 +42,7 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 		}
 		text, err := os.ReadFile(filepath.Join(agentsDir, e.Name()))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read %s: %w", filepath.Join(agentsDir, e.Name()), err)
 		}
 		fm, body := ParseFrontmatter(string(text))
 		a := Source{dirName: stem, frontmatter: fm, body: body}
@@ -54,7 +57,7 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 // DiscoverSkills reads skills/<dir>/SKILL.md sorted by dir. Symlinked dirs are skipped: they point into
 // ~/.agents/skills (read natively by codex/opencode/copilot; agy reads its own GeminiSkillsDir instead),
 // so projecting them would duplicate every name.
-func DiscoverSkills(skillsDir string) []Source {
+func DiscoverSkills(skillsDir string) ([]Source, error) {
 	return discoverSources(skillsDir, "SKILL.md")
 }
 
@@ -72,10 +75,15 @@ func validateUniqueNames(kind string, sources []Source) error {
 }
 
 // discoverSources returns every REAL child dir of root (Lstat, not a symlink) holding a regular <filename>.
-func discoverSources(root, filename string) []Source {
+// A read error on root or on one entry propagates: a partial result would otherwise look complete to a
+// caller that prunes stale projections from it.
+func discoverSources(root, filename string) ([]Source, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", root, err)
 	}
 	var dirs []string
 	for _, e := range entries {
@@ -88,17 +96,24 @@ func discoverSources(root, filename string) []Source {
 	var out []Source
 	for _, d := range dirs {
 		defPath := filepath.Join(root, d, filename)
-		if info, err := os.Stat(defPath); err != nil || !info.Mode().IsRegular() {
+		info, err := os.Stat(defPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("stat %s: %w", defPath, err)
+		}
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		text, err := os.ReadFile(defPath)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read %s: %w", defPath, err)
 		}
 		fm, body := ParseFrontmatter(string(text))
 		out = append(out, Source{dirName: d, frontmatter: fm, body: body})
 	}
-	return out
+	return out, nil
 }
 
 // readTextNoFollow reads a file, refusing to follow a symlink at the final component (TOCTOU guard).

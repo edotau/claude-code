@@ -147,7 +147,10 @@ func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills := DiscoverSkills(filepath.Join(claude, "skills"))
+	skills, err := DiscoverSkills(filepath.Join(claude, "skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(skills) != 1 || skills[0].Name() != "real" {
 		names := make([]string, 0, len(skills))
 		for _, s := range skills {
