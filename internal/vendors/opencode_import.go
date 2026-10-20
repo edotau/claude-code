@@ -1,6 +1,6 @@
 package vendors
 
-// Translates Claude Code's settings (permissions, MCP servers) into opencode's config; best-effort, never errors.
+// Translates Claude Code's MCP servers into opencode's config; best-effort, never errors.
 
 import (
 	"encoding/json"
@@ -15,40 +15,13 @@ import (
 
 // claudeImport is the Claude Code settings surface carried into an opencode launch.
 type claudeImport struct {
-	mcp              map[string]any
-	allow, deny, ask []string
-	skippedMCP       []string // project .mcp.json servers dropped for lack of ~/.claude.json approval
+	mcp        map[string]any
+	skippedMCP []string // project .mcp.json servers dropped for lack of ~/.claude.json approval
 }
 
-// readClaudeImport merges permissions + approved mcpServers; cwd=="" skips project files, malformed files are ignored.
+// readClaudeImport merges approved mcpServers; cwd=="" skips project files, malformed files are ignored.
 func readClaudeImport(cwd string) claudeImport {
 	var imp claudeImport
-	rules := func(perms map[string]any, key string) []string {
-		var out []string
-		arr, _ := perms[key].([]any)
-		for _, r := range arr {
-			if s, ok := r.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	settingsPaths := []string{filepath.Join(paths.ConfigDir(), "settings.json")}
-	if cwd != "" {
-		settingsPaths = append(settingsPaths,
-			filepath.Join(cwd, ".claude", "settings.json"),
-			filepath.Join(cwd, ".claude", "settings.local.json"),
-		)
-	}
-	for _, p := range settingsPaths {
-		perms := jsonField(p, "permissions")
-		if perms == nil {
-			continue
-		}
-		imp.allow = append(imp.allow, rules(perms, "allow")...)
-		imp.deny = append(imp.deny, rules(perms, "deny")...)
-		imp.ask = append(imp.ask, rules(perms, "ask")...)
-	}
 	mcp := map[string]any{}
 	claudeDoc := jsonDoc(paths.ClaudeJSON())
 	if global, ok := claudeDoc["mcpServers"].(map[string]any); ok {
