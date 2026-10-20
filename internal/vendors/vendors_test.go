@@ -1111,11 +1111,12 @@ func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 }
 
 // copilotAuthEnv isolates config/home/gh/keyring so copilotAuthSource reads nothing real; the fake `gh` on
-// PATH reports an active account for hosts.yml but is never `security`/`secret-tool`, so Store/Get use the
-// file plane only.
+// PATH reports an active account for hosts.yml but is never `security`/`secret-tool`, and the vault key comes
+// from HARNESS_VAULT_KEY with an in-memory keyring behind it.
 func copilotAuthEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Keyring(t)
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		t.Setenv(k, "")
@@ -1134,7 +1135,7 @@ func copilotAuthEnv(t *testing.T) {
 	t.Setenv("PATH", bin) // gh present, but no `security`/`secret-tool`: keyring.Available() is false
 }
 
-// A stored COPILOT_GITHUB_TOKEN (file plane) outranks gh's active account.
+// A stored COPILOT_GITHUB_TOKEN (vault) outranks gh's active account.
 func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 	copilotAuthEnv(t)
 	if _, _, ok := secrets.Get(CopilotTokenEnv); ok {
@@ -1144,11 +1145,11 @@ func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 	if !ok || a.Source != srcActive || a.Account != "alice" {
 		t.Fatalf("with no stored token: got %+v, want gh's active account alice", a)
 	}
-	if _, err := secrets.Store(CopilotTokenEnv, "stored-tok", false); err != nil {
+	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if v, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "file" || v != "stored-tok" {
-		t.Fatalf("secrets.Get(%s) = (%q, %q, %v), want (stored-tok, file, true)", CopilotTokenEnv, v, src, ok)
+	if v, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "vault" || v != "stored-tok" {
+		t.Fatalf("secrets.Get(%s) = (%q, %q, %v), want (stored-tok, vault, true)", CopilotTokenEnv, v, src, ok)
 	}
 	a, ok = copilotAuthSource()
 	if !ok || a.Source != SrcStoredToken || a.token != "stored-tok" {
@@ -1159,7 +1160,7 @@ func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 // A pinned gh user (COPILOT_GITHUB_USER) still outranks a stored token.
 func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
 	copilotAuthEnv(t)
-	if _, err := secrets.Store(CopilotTokenEnv, "stored-tok", false); err != nil {
+	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: "alice"}); err != nil {
