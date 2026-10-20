@@ -351,6 +351,8 @@ To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registr
 
 ## Memory bank
 
+`claude-code memory dream` runs promote + consolidation + settle once a day in the background (SessionStart, only when the bank changed), on the Copilot CLI with claude-opus-5.5 (Claude fallback). `--force` runs it now.
+
 ONE store: `~/.claude/memory/` — a local-only git repo (every settle commits; never pushed; supersede,
 never delete). `memory/index.md` is the generated catalog router (one row per repo store + newest global
 entries; never hand-edit). The top of the tree is GLOBAL (cross-repo); `memory/<repo>/` is per repo (key =

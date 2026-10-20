@@ -77,6 +77,10 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 		}
 		out = note + "\n\n" + bank
 	}
+	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
+	if !guard.Paused && !memory.IsHarvestChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
+		spawnDream(cwd)
+	}
 	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
 	if !memory.IsHarvestChild() {
 		memory.ResetSeen(sessionID, cwd, out)
@@ -233,6 +237,24 @@ var spawnHarvest = func(transcriptPath, cwd, sessionID string) bool {
 	}
 	_ = memory.WriteHarvestResult(sessionID, memory.HarvestResult{Status: memory.HarvestPending, Time: time.Now(), Log: logPath})
 	return true
+}
+
+// spawnDream is the detached memory-dream seam; tests replace it.
+var spawnDream = func(cwd string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	logPath := filepath.Join(memory.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
+	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
+		return false
+	}
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return false
+	}
+	defer log.Close()
+	return proc.SpawnDetached(self, []string{"memory", "dream", "--cwd", cwd}, cwd, log)
 }
 
 // harvestStamp is "<RFC3339>|<bg|block count>|<edits covered>".

@@ -7,6 +7,8 @@ description: "Session end — save state to the memory bank: summary, active con
 > Bank dir: `claude-code memory path`. The `session-harvest` Stop hook runs this in the background
 > (`claude-code memory update`) once a session has ≥3 file edits; run it by hand to save now or to
 > recover a harvest the session-start note reports as failed.
+>
+> The background job runs on the Copilot CLI (claude-opus-5.5, Claude fallback); a manual run overrides it.
 
 Persist the session so the next one resumes instead of rediscovering. The bank is injected every
 session, so keep it to what is wrong-and-dangerous to forget; don't fatten it with facts a lookup can serve.
