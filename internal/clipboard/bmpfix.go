@@ -4,6 +4,7 @@ package clipboard
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -159,7 +160,7 @@ func bmpColorMasks(data, dib []byte, bitCount uint16, compression uint32) (rMask
 			// classic extension: masks trail the 40-byte header, ahead of the pixel array.
 			maskOff := fileHeaderSize + 40
 			if len(data) < maskOff+12 {
-				return 0, 0, 0, fmt.Errorf("clipboard: truncated BITFIELDS masks")
+				return 0, 0, 0, errors.New("clipboard: truncated BITFIELDS masks")
 			}
 			rMask = binary.LittleEndian.Uint32(data[maskOff : maskOff+4])
 			gMask = binary.LittleEndian.Uint32(data[maskOff+4 : maskOff+8])

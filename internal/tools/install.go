@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -290,7 +291,7 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dryRun bool) error {
 func updateAgy(ctx context.Context, w io.Writer, dryRun bool) error {
 	bin, err := paths.LookPathReal("agy")
 	if err != nil {
-		return fmt.Errorf("agy: not on PATH; no known install URL (claude-code configure signs it in)")
+		return errors.New("agy: not on PATH; no known install URL (claude-code configure signs it in)")
 	}
 	fmt.Fprintf(w, "  exec     %s update\n", bin)
 	if dryRun {

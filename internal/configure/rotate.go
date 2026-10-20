@@ -5,6 +5,7 @@ package configure
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -25,7 +26,9 @@ func planeOf(name string) (forceFile bool, source string) {
 // providers.Credential already checks ahead of any stored plane; the previous env is restored after.
 func probeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
 	prev, had := os.LookupEnv(envVar)
-	os.Setenv(envVar, candidate)
+	if err := os.Setenv(envVar, candidate); err != nil {
+		return "unreachable", fmt.Sprintf("cannot set %s for credential probe: %v", envVar, err)
+	}
 	defer func() {
 		if had {
 			os.Setenv(envVar, prev)

@@ -115,14 +115,18 @@ type stagedKey struct {
 }
 
 // stage records name for Submit and exports it so status rows and probes in this run already see it.
-func (d *dialog) stage(name, val string, forceFile bool) {
+func (d *dialog) stage(name, val string, forceFile bool) bool {
 	k, seen := d.pending[name]
 	if !seen {
 		k.prev, k.had = os.LookupEnv(name)
 	}
+	if err := os.Setenv(name, val); err != nil {
+		d.printf("%s: not staged: %v\n", name, err)
+		return false
+	}
 	k.val, k.forceFile = val, forceFile
 	d.pending[name] = k
-	os.Setenv(name, val)
+	return true
 }
 
 // saveKeys stores every staged key in the secrets manager (OS keyring, else the file plane) and reports each.

@@ -118,9 +118,6 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	return p
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func plural(n int, one, many string) string {
 	if n == 1 {
 		return one

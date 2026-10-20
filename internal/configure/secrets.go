@@ -244,7 +244,9 @@ func ParseAssignment(raw string) (name, value string) {
 // storeValue writes one secret via secrets.Store and reports where it landed, redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string, forceFile bool) bool {
 	if d.pending != nil {
-		d.stage(name, val, forceFile)
+		if !d.stage(name, val, forceFile) {
+			return false
+		}
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
 		return true
 	}
