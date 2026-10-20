@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,8 +37,11 @@ var testHookAfterKey = func() {}
 // opening it — a rotation landed between selection and commit; the caller refreshes and retries.
 var errStaleKey = errors.New("vault: master key is stale")
 
-// account is the keyring account for a vault's current master key; account+".next" is a pending
-// rotation, account+"."+kid is an immutable retired key (R1, R4).
+// account is the keyring account for a vault's current master key; account+"."+kid is the
+// immutable, never-deleted account every key — current or retired — is durably stored under,
+// written BEFORE any ciphertext is committed under that kid (R1, R2, R4). account alone is a
+// convenience pointer to whichever kid is current: resolveKey/matchKey fall back to the per-kid
+// account whenever the pointer is stale, absent, or shared by a copied root mid-rotation.
 func account(id string) string { return "vault-key/" + id }
 
 var keyCache struct {
@@ -76,6 +79,12 @@ func MasterKey() (*Key, string, error) {
 // resolveKey resolves the key expected to carry kid for vault id, trying HARNESS_VAULT_KEY, the
 // per-process cache, the keyring account, then key_command — the shared core MasterKey and
 // ReadSecret both use, parameterized so a reader can anchor on a kid it captured earlier (R3).
+//
+// An explicitly configured key_command is tried whenever the keyring could not positively
+// establish absence (ErrUnavailable/ErrNoAnswer — a locked session, no tool, Windows), not only on
+// a clean miss: the keyring plane going dark must not strand the documented recovery path (R3/#3).
+// A genuine keyring error with no usable alternative still surfaces as ErrLocked with the
+// recovery instructions, never the raw keyring error.
 func resolveKey(id, kid, command string) (*Key, string, error) {
 	if v := os.Getenv("HARNESS_VAULT_KEY"); v != "" {
 		k, err := parseKey(v)
@@ -91,17 +100,21 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 		return keyCache.key, keyCache.source, nil
 	}
 	v, found, lookupErr := keyringLookup(account(id))
+	recoverable := lookupErr != nil && (errors.Is(lookupErr, keyring.ErrUnavailable) || errors.Is(lookupErr, keyring.ErrNoAnswer))
+	if lookupErr != nil && !recoverable {
+		return nil, "", lookupErr
+	}
 	var k *Key
 	var err error
 	source := "keyring"
 	switch {
-	case lookupErr != nil:
-		return nil, "", lookupErr
 	case found:
 		k, err = parseKey(v)
 	case command != "":
 		source = "command"
 		k, err = runKeyCommand(command)
+	case recoverable:
+		return nil, "", wrapKeyringUnavailable(lookupErr)
 	default:
 		return nil, "", ErrLocked
 	}
@@ -117,11 +130,30 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 	return k, source, nil
 }
 
-// runKeyCommand runs command as argv (no shell) and parses its stdout as a master key.
-func runKeyCommand(command string) (*Key, error) {
-	argv := strings.Fields(command)
+// parseKeyCommandArgv decodes meta/key_command as a validated JSON argv array: no shell is ever
+// involved, so a quoted executable path or an argument containing spaces or quotes needs no
+// quoting grammar of our own (R6).
+func parseKeyCommandArgv(raw string) ([]string, error) {
+	var argv []string
+	if err := json.Unmarshal([]byte(raw), &argv); err != nil {
+		return nil, fmt.Errorf("vault: key_command must be a JSON array of strings: %w", err)
+	}
 	if len(argv) == 0 {
-		return nil, fmt.Errorf("vault: key_command is empty")
+		return nil, fmt.Errorf("vault: key_command must not be an empty argv array")
+	}
+	for i, a := range argv {
+		if a == "" {
+			return nil, fmt.Errorf("vault: key_command argv[%d] must not be empty", i)
+		}
+	}
+	return argv, nil
+}
+
+// runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key.
+func runKeyCommand(raw string) (*Key, error) {
+	argv, err := parseKeyCommandArgv(raw)
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -138,7 +170,8 @@ func runKeyCommand(command string) (*Key, error) {
 }
 
 // matchKey resolves k against the vault's recorded kid: a direct hit returns k unchanged; a
-// mismatch tries the retired account for kid, then a pending rotation, before giving up.
+// mismatch falls back to the immutable per-kid account, which every key — current or retired —
+// is durably stored under regardless of what the convenience pointer currently says (R1, R2).
 func matchKey(id string, k *Key, source, kid string) (*Key, string, error) {
 	if k != nil && (kid == "" || k.Kid == kid) {
 		return k, source, nil
@@ -146,24 +179,13 @@ func matchKey(id string, k *Key, source, kid string) (*Key, string, error) {
 	if kid == "" {
 		return nil, "", ErrLocked
 	}
-	if v, found, err := keyringLookup(account(id) + "." + kid); err != nil {
-		return nil, source, err
-	} else if found {
-		if rk, perr := parseKey(v); perr == nil && rk.Kid == kid {
-			return rk, "keyring", nil
-		}
-	}
-	v, found, err := keyringLookup(account(id) + ".next")
+	v, found, err := keyringLookup(account(id) + "." + kid)
 	if err != nil {
 		return nil, source, err
 	}
 	if found {
-		next, perr := parseKey(v)
-		if perr != nil {
-			return nil, source, perr
-		}
-		if next.Kid == kid {
-			return next, "keyring", nil
+		if rk, perr := parseKey(v); perr == nil && rk.Kid == kid {
+			return rk, "keyring", nil
 		}
 	}
 	if k == nil {
@@ -224,6 +246,11 @@ func EnsureKey() (*Key, error) {
 		if err != nil {
 			return err
 		}
+		// Persist the genesis key under its immutable per-kid account before the convenience
+		// pointer, so matchKey can always find it even if a copied root's pointer diverges later.
+		if err := keyringSet(account(id)+"."+newK.Kid, value); err != nil {
+			return err
+		}
 		if err := keyringSet(account(id), value); err != nil {
 			return err
 		}
@@ -270,9 +297,19 @@ func randomKey() (*Key, string, error) {
 	return k, value, err
 }
 
-// RotateKey generates a new master key, re-seals every secret under it, and retains the outgoing
-// key forever under its own immutable kid account so an archive or a stalled writer can still
-// open records sealed under it (R2, R4).
+// RotateKey generates a new master key, re-seals every secret under it, and retains every key —
+// outgoing and incoming — forever under its own immutable kid account so an archive, a stalled
+// writer, or a sibling root sharing this vault_id mid-rotation can still open records sealed
+// under it (R2, R4).
+//
+// Design (R1, R2): the new key is written to its immutable account+"."+newKid account BEFORE the
+// re-seal transaction runs, and the convenience current-key pointer (account(id)) is updated only
+// AFTER that transaction commits. Recovery needs no separate "pending" bookkeeping: whatever the
+// pointer says, resolveKey/matchKey always find the key matching the committed meta/kid under its
+// own immutable account, so a crash at any point between those two writes — or a second root's
+// rotation overwriting the shared pointer with an unrelated kid — strands nothing. The only
+// outcome of an interrupted rotation is a harmless, never-read orphan key sitting under its own
+// kid account.
 func RotateKey() (oldKid, newKid string, err error) {
 	err = paths.WithFileLock(Path()+".key", func() error {
 		defer invalidateKey()
@@ -288,42 +325,15 @@ func RotateKey() (oldKid, newKid string, err error) {
 		if e != nil {
 			return e
 		}
+		if kid != "" && kid != old.Kid {
+			return ErrWrongKey
+		}
 		acct := account(id)
 
-		// Recover a rotation that committed its re-seal but crashed before promotion: nothing
-		// sealed under the stale primary account any more, so just finish the handoff.
-		pending, found, e := keyringLookup(acct + ".next")
-		if e != nil {
+		// Retain the outgoing key under its immutable kid account; idempotent if an earlier
+		// rotation (or this one, resumed after a crash) already wrote it.
+		if e := keyringSet(acct+"."+old.Kid, old.raw); e != nil {
 			return e
-		}
-		if found {
-			next, e := parseKey(pending)
-			if e != nil {
-				return e
-			}
-			if next.Kid == kid {
-				if current, found, e := keyringLookup(acct); e != nil {
-					return e
-				} else if found {
-					if primary, e := parseKey(current); e == nil {
-						oldKid = primary.Kid
-					}
-				}
-				newKid = next.Kid
-				if e := keyringSet(acct, pending); e != nil {
-					return e
-				}
-				if e := keyringDelete(acct + ".next"); e != nil {
-					return e
-				}
-				audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
-				return nil
-			}
-			// A foreign/stale pending key: the tx that would use it also sets meta/kid
-			// atomically, so nothing is sealed under it — safe to discard and continue.
-			if e := keyringDelete(acct + ".next"); e != nil {
-				return e
-			}
 		}
 
 		next, value, e := randomKey()
@@ -331,20 +341,24 @@ func RotateKey() (oldKid, newKid string, err error) {
 			return e
 		}
 		newKid = next.Kid
-		// Retain the outgoing key under its immutable kid account before anything else changes.
-		if e := keyringSet(acct+"."+old.Kid, old.raw); e != nil {
+
+		// Persist the new key under its immutable kid account BEFORE any ciphertext is committed
+		// under it (R1): a crash after this line but before (or during) the reseal below leaves
+		// the new key durable and unreferenced — harmless — never stranded or lost.
+		if e := keyringSet(acct+"."+newKid, value); e != nil {
 			return e
 		}
-		if e := keyringSet(acct+".next", value); e != nil {
-			return e
-		}
+
 		if e := Update(func(t *Tx) error {
 			curKid, _ := t.Get(Meta, "kid")
 			if curKid != "" && curKid != old.Kid {
 				return ErrWrongKey
 			}
 			for _, name := range t.Names(Secrets) {
-				r, ok := t.Record(name)
+				r, ok, rerr := t.Record(name)
+				if rerr != nil {
+					return rerr
+				}
 				if !ok {
 					return fmt.Errorf("vault: invalid record %q", name)
 				}
@@ -362,10 +376,9 @@ func RotateKey() (oldKid, newKid string, err error) {
 		}); e != nil {
 			return e
 		}
+		// Convenience pointer only, updated after the atomic reseal commits; resolveKey/matchKey
+		// never depend on this being current (R1, R2).
 		if e := keyringSet(acct, value); e != nil {
-			return e
-		}
-		if e := keyringDelete(acct + ".next"); e != nil {
 			return e
 		}
 		audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
@@ -419,8 +432,9 @@ func ReadSecret(name string) (value string, found bool, err error) {
 			id = vaultID(t)
 			kid, _ = t.Get(Meta, "kid")
 			command, _ = t.Get(Meta, "key_command")
-			record, ok = t.Record(name)
-			return nil
+			var rerr error
+			record, ok, rerr = t.Record(name)
+			return rerr
 		}); verr != nil {
 			return "", false, verr
 		}

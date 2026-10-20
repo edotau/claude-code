@@ -126,14 +126,19 @@ func candidateNames(file map[string]string) map[string]bool {
 
 // importCredentials discovers every name the harness knows of across every plane, keyringLookup only
 // here; a name found in neither the keyring nor the file plane is dropped (env-only values are
-// discovered at read time, not recorded). complete is false if any lookup hit ErrNoAnswer.
+// discovered at read time, not recorded). complete is false if any lookup hit ErrNoAnswer or
+// ErrUnavailable (an installed tool that just failed); keyring.ErrNoTool (no tool on PATH at all, or
+// an unsupported OS) is a genuine file-only install and does not block completion (R4).
 func importCredentials() (creds map[string]Meta, complete bool) {
 	file := ReadAll()
 	creds = map[string]Meta{}
 	complete = true
 	for n := range candidateNames(file) {
 		v, found, err := keyringLookup(n)
-		if errors.Is(err, keyring.ErrNoAnswer) {
+		switch {
+		case errors.Is(err, keyring.ErrNoTool):
+			// no keyring tool ever existed here: nothing to retry later.
+		case errors.Is(err, keyring.ErrNoAnswer), errors.Is(err, keyring.ErrUnavailable):
 			complete = false
 		}
 		if found {

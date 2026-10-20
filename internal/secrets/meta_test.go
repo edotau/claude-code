@@ -88,6 +88,50 @@ func TestLoadMetaNotPersistedWhenKeyringDown(t *testing.T) {
 	}
 }
 
+// A tool that is installed but failing (ErrUnavailable) must behave exactly like ErrNoAnswer: the
+// import stays incomplete so a later, healthy run retries it — distinct from an OS/box that never
+// had a keyring tool at all (R4; the review's MEDIUM #4).
+func TestLoadMetaNotPersistedWhenKeyringUnavailable(t *testing.T) {
+	setConfigDir(t)
+	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, keyring.ErrUnavailable })
+	if err := setFile("UNAVAILABLE_CASE", "v"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadMeta(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(MetaFile()); !os.IsNotExist(err) {
+		t.Fatalf("meta file must not exist after an import where an installed tool failed, stat err = %v", err)
+	}
+
+	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, nil })
+	if _, err := LoadMeta(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(MetaFile()); err != nil {
+		t.Fatalf("meta file must exist once the tool recovers and the import completes: %v", err)
+	}
+}
+
+// A box with no keyring tool at all (ErrNoTool, unsupported OS or nothing on PATH) is a genuine
+// file-only install: the import must complete and persist on the first run, with nothing left to
+// retry — distinct from a tool that is present but currently failing (R4).
+func TestLoadMetaPersistsOnNoTool(t *testing.T) {
+	setConfigDir(t)
+	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, keyring.ErrNoTool })
+	if err := setFile("NO_TOOL_CASE", "v"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadMeta(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(MetaFile()); err != nil {
+		t.Fatalf("a no-tool box must persist its import as complete on the first run: %v", err)
+	}
+}
+
 // Store must never write a stored value's raw bytes into the meta file, and the file must be 0600.
 func TestStoreNeverLeaksRawBytesIntoMetaFile(t *testing.T) {
 	setConfigDir(t)

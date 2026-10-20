@@ -46,7 +46,10 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}
 	vaulttest.Secret(t, "STORED_TOKEN", "stored-round-trip")
 	if err := vault.View(func(tx *vault.Tx) error {
-		record, ok := tx.Record("STORED_TOKEN")
+		record, ok, rerr := tx.Record("STORED_TOKEN")
+		if rerr != nil {
+			return rerr
+		}
 		if !ok {
 			t.Fatal("vaulttest.Secret did not persist the record")
 		}
@@ -114,11 +117,11 @@ func TestViewMissingVaultIsEmptyWithoutCreatingFile(t *testing.T) {
 				t.Errorf("missing %s is not empty", bucket)
 			}
 		}
-		if record, ok := tx.Record("absent"); ok || !reflect.DeepEqual(record, vault.Record{}) {
-			t.Errorf("missing Record = %+v, %t", record, ok)
+		if record, ok, err := tx.Record("absent"); ok || err != nil || !reflect.DeepEqual(record, vault.Record{}) {
+			t.Errorf("missing Record = %+v, %t, %v", record, ok, err)
 		}
-		if len(tx.Records()) != 0 {
-			t.Error("missing vault has records")
+		if recs, err := tx.Records(); err != nil || len(recs) != 0 {
+			t.Errorf("missing vault has records or errored: %v, %v", recs, err)
 		}
 		return nil
 	}); err != nil {

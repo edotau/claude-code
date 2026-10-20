@@ -2,6 +2,7 @@ package vault
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -59,6 +60,36 @@ func phase1bRead(t *testing.T, name, want string) {
 	}
 }
 
+// TestMalformedRecordSurfacesAsError reproduces the review's MEDIUM #5 scenario directly: a
+// stored value that fails to decode as JSON must be reported as an error from Record/Records and
+// from ReadSecret, never collapsed into an indistinguishable "not found" (R5).
+func TestMalformedRecordSurfacesAsError(t *testing.T) {
+	phase1bRing(t)
+	phase1bPut(t, "GOOD", "fine")
+	if err := Update(func(tx *Tx) error { return tx.Put(Secrets, "CORRUPT", "not valid json") }); err != nil {
+		t.Fatal(err)
+	}
+	if err := View(func(tx *Tx) error {
+		if _, ok, err := tx.Record("CORRUPT"); err == nil || ok {
+			t.Fatalf("Record(CORRUPT) = (ok=%t, err=%v), want a decode error", ok, err)
+		}
+		if _, err := tx.Records(); err == nil {
+			t.Fatal("Records() silently omitted the corrupt entry instead of erroring")
+		}
+		// An absent key must still read as a clean miss, not an error.
+		if _, ok, err := tx.Record("ABSENT"); ok || err != nil {
+			t.Fatalf("Record(ABSENT) = (ok=%t, err=%v), want (false, nil)", ok, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadSecret("CORRUPT"); err == nil {
+		t.Fatal("ReadSecret(CORRUPT) returned no error for a malformed stored record")
+	}
+	phase1bRead(t, "GOOD", "fine") // corruption on one key must not affect reading another
+}
+
 func TestTwoRootsBootstrapDistinctAccounts(t *testing.T) {
 	ring := phase1bRing(t)
 	roots := []string{os.Getenv("CLAUDE_CONFIG_DIR"), t.TempDir()}
@@ -90,8 +121,15 @@ func TestTwoRootsBootstrapDistinctAccounts(t *testing.T) {
 			t.Errorf("bootstrap overwrote root %d's master key", i)
 		}
 	}
-	if len(ring.values) != 2 {
-		t.Errorf("keyring has %d accounts, want exactly the two vault accounts", len(ring.values))
+	// Each root's genesis key lands under its convenience pointer AND its immutable per-kid
+	// account (R1): two roots, two accounts each.
+	if len(ring.values) != 4 {
+		t.Errorf("keyring has %d accounts, want exactly the two roots' pointer + per-kid accounts", len(ring.values))
+	}
+	for i, id := range ids {
+		if ring.values["vault-key/"+id+"."+kids[i]] != values[i] {
+			t.Errorf("root %d's genesis key missing from its immutable per-kid account", i)
+		}
 	}
 	ring.mu.Unlock()
 	for i, root := range roots {
@@ -126,7 +164,117 @@ func TestEnsureKeyUnavailableDoesNotGenerate(t *testing.T) {
 	}
 }
 
-func TestRotatePendingRecoveredFirst(t *testing.T) {
+// TestResolveKeyTriesCommandAfterUnavailableKeyring reproduces the review's HIGH #3 scenario: an
+// explicitly configured key_command must still unlock the vault when the keyring could not
+// positively establish absence (ErrUnavailable — no tool, locked session, or Windows), not only
+// on a clean miss.
+func TestResolveKeyTriesCommandAfterUnavailableKeyring(t *testing.T) {
+	ring := phase1bRing(t)
+	phase1bPut(t, "TOKEN", "value")
+	key, err := EnsureKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	program := filepath.Join(dir, "key-command")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$KEY_VALUE\"\n"
+	if err := os.WriteFile(program, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KEY_VALUE", key.raw)
+	argv, err := json.Marshal([]string{program})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(func(tx *Tx) error { return tx.Put(Meta, "key_command", string(argv)) }); err != nil {
+		t.Fatal(err)
+	}
+	invalidateKey()
+	ring.mu.Lock()
+	ring.err = keyring.ErrUnavailable
+	ring.mu.Unlock()
+
+	got, source, err := MasterKey()
+	if err != nil || got == nil || source != "command" {
+		t.Fatalf("MasterKey = (%v, %q, %v), want the configured command to unlock an unavailable keyring", got, source, err)
+	}
+	if got.Kid != key.Kid {
+		t.Fatalf("command-resolved kid %q, want %q", got.Kid, key.Kid)
+	}
+}
+
+// TestResolveKeyUnavailableNoCommandIsLockedWithActionableMessage is the other half of #3: with no
+// key_command configured, an unavailable keyring must still surface as ErrLocked with the recovery
+// instructions, not the raw keyring error.
+func TestResolveKeyUnavailableNoCommandIsLockedWithActionableMessage(t *testing.T) {
+	ring := phase1bRing(t)
+	phase1bPut(t, "TOKEN", "value")
+	invalidateKey()
+	ring.mu.Lock()
+	ring.err = keyring.ErrUnavailable
+	ring.mu.Unlock()
+
+	_, _, err := MasterKey()
+	if !errors.Is(err, ErrLocked) {
+		t.Fatalf("MasterKey = %v, want ErrLocked", err)
+	}
+	if !strings.Contains(err.Error(), "HARNESS_VAULT_KEY") || !strings.Contains(err.Error(), "key_command") {
+		t.Errorf("locked error omits recovery instructions: %v", err)
+	}
+}
+
+// TestCrossRootSequentialRotationBothDecrypt reproduces the review's HIGH #1 scenario: two config
+// roots share a vault_id (B started as a copy of A's db file). Rotating A then B sequentially must
+// not strand either copy's active key — once the per-process cache is cleared (a fresh process),
+// both roots must still decrypt their record.
+func TestCrossRootSequentialRotationBothDecrypt(t *testing.T) {
+	phase1bRing(t)
+	rootA := os.Getenv("CLAUDE_CONFIG_DIR")
+	phase1bPut(t, "TOKEN", "shared-secret")
+
+	rootB := t.TempDir()
+	data, err := os.ReadFile(Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(rootB, "state"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootB, "state", "vault.db"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, k1, err := RotateKey() // A: K0 -> K1
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", rootB)
+	invalidateKey()
+	_, k2, err := RotateKey() // B (still showing K0): K0 -> K2, overwriting the shared pointer
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k1 == k2 {
+		t.Fatal("rotations produced the same kid")
+	}
+
+	invalidateKey() // simulate a fresh process: no cached key for either root
+	t.Setenv("CLAUDE_CONFIG_DIR", rootB)
+	phase1bRead(t, "TOKEN", "shared-secret")
+
+	invalidateKey()
+	t.Setenv("CLAUDE_CONFIG_DIR", rootA)
+	phase1bRead(t, "TOKEN", "shared-secret")
+}
+
+// TestRotateSurvivesCrashBeforePointerPromotion reproduces the review's HIGH #2 scenario directly:
+// a rotation's reseal transaction commits (the new kid is current in the db, records resealed
+// under it) but the process dies before the convenience current-key pointer is advanced.
+// Immutable per-kid storage (R1) means this needs no separate "pending" bookkeeping to recover
+// (R2): the stale pointer is irrelevant, because matchKey always finds a key under its own kid
+// account regardless of what the pointer says.
+func TestRotateSurvivesCrashBeforePointerPromotion(t *testing.T) {
 	ring := phase1bRing(t)
 	phase1bPut(t, "TOKEN", "committed-before-promotion")
 	old, err := EnsureKey()
@@ -140,8 +288,9 @@ func TestRotatePendingRecoveredFirst(t *testing.T) {
 	acct := "vault-key/" + phase1bMeta(t, "vault_id")
 	ring.mu.Lock()
 	oldValue := ring.values[acct]
-	ring.values[acct+"."+old.Kid] = oldValue
-	ring.values[acct+".next"] = nextValue
+	// Simulate RotateKey's crash window: the new key is already durable under its own immutable
+	// kid account, but the pointer (acct) was never advanced past the old key.
+	ring.values[acct+"."+next.Kid] = nextValue
 	ring.mu.Unlock()
 	if err := Update(func(tx *Tx) error {
 		if err := tx.PutRecord("TOKEN", Record{
@@ -153,23 +302,25 @@ func TestRotatePendingRecoveredFirst(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ring.mu.Lock()
-	before := ring.sets
-	ring.mu.Unlock()
+	// Before any further rotation even runs, a plain read must already recover via the per-kid
+	// account — no "promotion" step is required for K1 to survive.
+	invalidateKey()
+	phase1bRead(t, "TOKEN", "committed-before-promotion")
+
 	_, gotKid, err := RotateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
 	ring.mu.Lock()
-	sets, current, pending := ring.sets-before, ring.values[acct], ring.values[acct+".next"]
-	retained := ring.values[acct+"."+old.Kid]
+	current := ring.values[acct]
+	retainedOld, retainedNext := ring.values[acct+"."+old.Kid], ring.values[acct+"."+next.Kid]
 	ring.mu.Unlock()
-	if sets != 1 || current != nextValue || pending != "" || gotKid != next.Kid || retained != oldValue {
-		t.Fatalf("pending recovery generated/overwrote a key: sets=%d promoted=%t pending=%t kid=%q retained=%t",
-			sets, current == nextValue, pending != "", gotKid, retained == oldValue)
+	if current == "" || gotKid == "" || retainedOld != oldValue || retainedNext != nextValue {
+		t.Fatalf("rotation after a crashed promotion lost a key: current=%t kid=%q retainedOld=%t retainedNext=%t",
+			current != "", gotKid, retainedOld == oldValue, retainedNext == nextValue)
 	}
-	if kid := phase1bMeta(t, "kid"); kid != next.Kid {
-		t.Fatalf("recovery changed committed kid to %q, want %q", kid, next.Kid)
+	if kid := phase1bMeta(t, "kid"); kid != gotKid {
+		t.Fatalf("recovery changed committed kid to %q, want %q", kid, gotKid)
 	}
 	phase1bRead(t, "TOKEN", "committed-before-promotion")
 }
@@ -245,7 +396,10 @@ func TestStaleWriterRetries(t *testing.T) {
 		t.Fatalf("writer selected a key %d times, want stale selection then one refreshed retry", selections.Load())
 	}
 	if err := View(func(tx *Tx) error {
-		record, ok := tx.Record("RACE")
+		record, ok, err := tx.Record("RACE")
+		if err != nil {
+			return err
+		}
 		if !ok || record.Kid != newKid {
 			t.Fatalf("writer committed under retired kid: record=%+v want kid %q", record, newKid)
 		}
@@ -298,6 +452,14 @@ func TestReadSecretRereadsAfterExternalRotation(t *testing.T) {
 	}
 }
 
+// TestNestedOpenErrors documents the architectural contract (View/Update are transaction
+// boundaries; never call one from inside another's callback) with its actual, now-unguarded
+// consequence: a same-goroutine nested open blocks on the outer transaction's own bbolt file
+// lock until the INNER open's own Timeout elapses (2s for View/MasterKey, 5s for Update), then
+// fails with bbolt.ErrTimeout. There is no process-wide or goroutine-keyed guard (deleted per the
+// Phase 1/1b review: runtime.Stack parsing is not a supported synchronization API and missed a
+// callback that hands off to another goroutine); the cost of a real violation is a bounded stall
+// and a clear error, not a silent deadlock or data race.
 func TestNestedOpenErrors(t *testing.T) {
 	phase1bRing(t)
 	for _, operation := range []string{"View", "Update", "MasterKey"} {
@@ -325,11 +487,11 @@ func TestNestedOpenErrors(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-time.After(6 * time.Second):
-				t.Fatal("nested open hung beyond bbolt timeout")
+			case <-time.After(8 * time.Second):
+				t.Fatal("nested open hung well beyond bbolt's own timeout")
 			}
-			if !errors.Is(nested, errNested) || elapsed >= 100*time.Millisecond {
-				t.Fatalf("nested %s = %v after %s, want errNested within 100ms", operation, nested, elapsed)
+			if !errors.Is(nested, bbolt.ErrTimeout) || elapsed < time.Second || elapsed >= 7*time.Second {
+				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
 			}
 		})
 	}
@@ -366,7 +528,10 @@ func TestRotateRetainsOldKey(t *testing.T) {
 		t.Fatal("rotation did not retain the old key under its immutable kid account")
 	}
 	if err := ViewAt(archive, func(tx *Tx) error {
-		record, ok := tx.Record("TOKEN")
+		record, ok, err := tx.Record("TOKEN")
+		if err != nil {
+			return err
+		}
 		if !ok || record.Kid != oldKid {
 			t.Fatal("archive fixture did not retain its original record and kid")
 		}
@@ -436,12 +601,14 @@ func TestConcurrentRotateSerialized(t *testing.T) {
 		if ring.values[acct+"."+r.old] == "" {
 			t.Errorf("rotation did not retain kid %q", r.old)
 		}
+		if ring.values[acct+"."+r.next] == "" {
+			t.Errorf("rotation did not durably store kid %q under its immutable account", r.next)
+		}
 	}
-	pending := ring.values[acct+".next"]
 	ring.mu.Unlock()
 	current, err := parseKey(currentValue)
-	if err != nil || current.Kid != finalKid || pending != "" {
-		t.Fatalf("current key/meta mismatch or pending key left: parse=%v meta=%q pending=%t", err, finalKid, pending != "")
+	if err != nil || current.Kid != finalKid {
+		t.Fatalf("current key/meta mismatch: parse=%v meta=%q", err, finalKid)
 	}
 	phase1bRead(t, "TOKEN", "serial-rotations")
 }
@@ -522,7 +689,10 @@ func TestSnapshotToConsistent(t *testing.T) {
 				count, records.Stats().KeyN, err)
 		}
 		for i := range count {
-			r, ok := (&Tx{tx}).Record(fmt.Sprintf("TOKEN_%03d", i))
+			r, ok, rerr := (&Tx{tx}).Record(fmt.Sprintf("TOKEN_%03d", i))
+			if rerr != nil {
+				return rerr
+			}
 			if !ok || r.Prefix != fmt.Sprintf("value-%d", i) || r.Len != i+1 {
 				return fmt.Errorf("snapshot lost/corrupted record %d: %+v found=%t", i, r, ok)
 			}
@@ -541,7 +711,10 @@ func TestSnapshotToConsistent(t *testing.T) {
 	}
 }
 
-func TestKeyCommandArgvNoShell(t *testing.T) {
+// TestKeyCommandArgvJSON stores meta/key_command as a validated JSON argv array (R6): no shell is
+// ever involved, so a quoted executable path, a space- or quote-bearing argument, and a
+// Windows-style backslash path all run as exactly the arguments given — never re-tokenized.
+func TestKeyCommandArgvJSON(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX executable; production argv behavior is platform independent")
 	}
@@ -551,15 +724,20 @@ func TestKeyCommandArgvNoShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	program, argsFile := filepath.Join(dir, "key-command"), filepath.Join(dir, "args")
+	program, argsFile := filepath.Join(dir, "key command"), filepath.Join(dir, "args")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$@\" > \"$ARGV_FILE\"\nprintf '%s\\n' \"$KEY_VALUE\"\n"
 	if err := os.WriteFile(program, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ARGV_FILE", argsFile)
 	t.Setenv("KEY_VALUE", raw)
+	argv := []string{program, "literal;value", `has "quotes"`, `C:\Windows\style\path.exe`}
+	encoded, err := json.Marshal(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := Update(func(tx *Tx) error {
-		return tx.Put(Meta, "key_command", program+" literal;value")
+		return tx.Put(Meta, "key_command", string(encoded))
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -574,8 +752,28 @@ func TestKeyCommandArgvNoShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(args) != "1\nliteral;value\n" {
-		t.Fatalf("key_command used shell parsing: argv capture %q, want one literal semicolon argument", args)
+	want := fmt.Sprintf("%d\n%s\n%s\n%s\n", len(argv)-1, argv[1], argv[2], argv[3])
+	if string(args) != want {
+		t.Fatalf("argv capture %q, want %q (each argument literal, no shell re-tokenizing)", args, want)
+	}
+}
+
+// TestKeyCommandArgvRejectsBadConfig covers the validation half of R6: a non-array value and an
+// empty array must both be rejected with a clear error, never silently tried as a shell string.
+func TestKeyCommandArgvRejectsBadConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw string
+	}{
+		{"not_json", "helper --label vault"},
+		{"json_string_not_array", `"helper"`},
+		{"empty_array", `[]`},
+		{"empty_argument", `["helper", ""]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseKeyCommandArgv(tc.raw); err == nil {
+				t.Fatalf("parseKeyCommandArgv(%q) succeeded, want an error", tc.raw)
+			}
+		})
 	}
 }
 
