@@ -4,6 +4,8 @@ description: "Graduate durable, cross-project lessons from a repo's local memory
 
 # /memory:promote — Graduate Local Bank Lessons to the Global Store
 
+> The daily background `claude-code memory dream` runs promote on the Copilot CLI (claude-opus-5.5); a manual run overrides it.
+
 Two scopes in one store: this repo's dir (`~/.claude/memory/<repo>/`) and the **shared global**
 store (`~/.claude/memory/`, the tree TOP — used by any non-repo cwd and reachable from every
 session via the catalog, `memory search --all`, and cross-repo routing). Settle never promotes on

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -23,6 +25,7 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory index [--repo R]
        claude-code memory path [--repo R]
        claude-code memory update --transcript T --cwd C --session S
+       claude-code memory dream [--cwd C] [--force]
        claude-code memory watch --session S --transcript T --cwd C
                                 [--owner PID] [--idle 10m]
        claude-code memory doctor [--stale-days 90] [--notice]
@@ -33,6 +36,25 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory migrate [--dry-run] [--origin S=P]... [--format fmt]
        claude-code memory migrate --manifest MANIFEST
        claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]`
+
+// memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
+func memoryAgent() memory.AgentFunc {
+	return func(ctx context.Context, prompt, workdir string) (string, error) {
+		r, err := agent.Lookup("copilot")
+		if err != nil {
+			return "", err
+		}
+		req := agent.Request{Prompt: prompt, Model: "claude-opus-5.5",
+			Effort: "medium", Tools: true, WorkDir: workdir}
+		notify := func(m string) { fmt.Fprintln(os.Stderr, m) }
+		res, err := agent.RunWithFallback(ctx, r, agent.FallbackChain(r, agent.FallbackAll), req, os.Stdout, notify)
+		who := res.Agent
+		if res.Fallback != "" {
+			who += "<-" + res.Fallback
+		}
+		return who, err
+	}
+}
 
 func cmdMemory(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -55,7 +77,7 @@ func cmdMemory(args []string) int {
 	}
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 	switch args[0] {
-	case "index", "promote", "update": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
+	case "index", "promote", "update", "dream": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
 		if g := memory.StartupGuard(); g.Paused {
 			return fail("memory %s: %s", args[0], g.Notice)
 		}
@@ -164,8 +186,26 @@ func cmdMemory(args []string) int {
 			root, _ = os.Getwd()
 		}
 		claude, _ := launch.ClaudeBinary()
-		if err := memory.Update(memory.UpdateOptions{Claude: claude, Transcript: *transcript, CWD: root, Session: *session, Out: os.Stdout}); err != nil {
+		if err := memory.Update(memory.UpdateOptions{Claude: claude, Run: memoryAgent(), Transcript: *transcript, CWD: root, Session: *session, Out: os.Stdout}); err != nil {
 			return fail("memory update: %v", err)
+		}
+		return 0
+	case "dream":
+		cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
+		force := fs.Bool("force", false, "run even when not due")
+		if fs.Parse(args[1:]) != nil {
+			return 2
+		}
+		root := *cwd
+		if root == "" {
+			root, _ = os.Getwd()
+		}
+		if !*force && !memory.DreamDue(root, time.Now()) {
+			fmt.Println("memory dream: not due")
+			return 0
+		}
+		if err := memory.Dream(memory.DreamOptions{CWD: root, Run: memoryAgent(), Out: os.Stdout}); err != nil {
+			return fail("memory dream: %v", err)
 		}
 		return 0
 	case "digest":

@@ -84,9 +84,27 @@ func (r HarvestResult) NeedsAttention(now time.Time) bool {
 	return r.Status == HarvestFailed || (r.Status == HarvestPending && now.Sub(r.Time) > harvestGrace)
 }
 
+// AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
+type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
+
+// agentHarvestPrompt inlines /memory:end for an agent that has no slash commands.
+func agentHarvestPrompt(transcript string) string {
+	body, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "commands", "memory", "end.md"))
+	if err != nil {
+		return fmt.Sprintf(HarvestPrompt, transcript)
+	}
+	return "Background harvest of a finished session (transcript: " + transcript + "). " +
+		"Read ONLY the last ~1500 lines of that transcript; it may be many MB. " +
+		"Resolve the bank directory with `claude-code memory path`. Follow this procedure, the COMPLETE pass:\n\n" +
+		strings.TrimSpace(stripFrontmatter(string(body))) + "\n\n" +
+		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
+		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else."
+}
+
 // UpdateOptions drive one background harvest.
 type UpdateOptions struct {
-	Claude     string // real claude binary; "" records a failure
+	Claude     string    // real claude binary; "" records a failure unless Run is set
+	Run        AgentFunc // preferred runner; nil = claude -p
 	Transcript string
 	CWD        string
 	Session    string
@@ -106,7 +124,7 @@ func Update(o UpdateOptions) error {
 	record := func(status string, updated bool) {
 		_ = WriteHarvestResult(o.Session, HarvestResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
 	}
-	if o.Claude == "" {
+	if o.Claude == "" && o.Run == nil {
 		record(HarvestFailed, false)
 		return errors.New("claude binary not found")
 	}
@@ -117,6 +135,13 @@ func Update(o UpdateOptions) error {
 		before, beforeGlobal = NewestMtime(dir), NewestMtime(GlobalDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
+		if o.Run != nil {
+			os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks
+			who, err := o.Run(ctx, agentHarvestPrompt(o.Transcript), o.CWD)
+			runErr = err
+			fmt.Fprintln(o.Out, "memory update: ran on", who)
+			return nil
+		}
 		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript), "--max-turns", "40")
 		cmd.Dir = o.CWD
 		cmd.Env = append(os.Environ(), HarvestChildEnv+"=1")

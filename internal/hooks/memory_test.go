@@ -15,6 +15,12 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 )
 
+// TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
+func TestMain(m *testing.M) {
+	spawnDream = func(string) bool { return true }
+	os.Exit(m.Run())
+}
+
 func writeEdits(t *testing.T, path string, n int) {
 	t.Helper()
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
@@ -29,10 +35,11 @@ func writeEdits(t *testing.T, path string, n int) {
 func stubSpawn(t *testing.T, ok bool) *atomic.Int64 {
 	t.Helper()
 	calls := new(atomic.Int64)
-	orig, origWatch := spawnHarvest, spawnWatcher
+	orig, origWatch, origDream := spawnHarvest, spawnWatcher, spawnDream
 	spawnHarvest = func(string, string, string) bool { calls.Add(1); return ok }
 	spawnWatcher = func([]string, string) bool { return true }
-	t.Cleanup(func() { spawnHarvest, spawnWatcher = orig, origWatch })
+	spawnDream = func(string) bool { return true }
+	t.Cleanup(func() { spawnHarvest, spawnWatcher, spawnDream = orig, origWatch, origDream })
 	return calls
 }
 

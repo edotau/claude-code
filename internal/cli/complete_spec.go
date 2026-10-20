@@ -113,6 +113,7 @@ func specTree() map[string]*compNode {
 			"index":    {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"path":     {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"update":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), flag("transcript"), flag("cwd"), flag("session")}},
+			"dream":    {flags: []flagInfo{flag("cwd"), boolFlag("force")}},
 			"watch":    {flags: []flagInfo{flag("session"), flag("transcript"), flag("cwd"), flag("owner"), flag("idle")}},
 			"doctor":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), flag("stale-days"), boolFlag("notice")}},
 			"stats":    {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},

@@ -7,6 +7,8 @@ description: "Session reflection + memory consolidation — persist learnings, t
 > Part of the `/reflection:*` family (see `/reflection:review`, `:promote`, `:extract`,
 > `:remember`). This command owns the end-of-session reflection + dream consolidation
 > pipeline; the rest of the family curates Claude Code's native auto-memory.
+>
+> The daily background `claude-code memory dream` runs this on the Copilot CLI (claude-opus-5.5, Claude fallback); a manual run overrides it.
 
 Two modes in one command:
 
