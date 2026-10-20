@@ -116,7 +116,7 @@ type Model struct {
 }
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
-var listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+var listModelsFn = func(ctx context.Context, o Options) (models []copilot.ModelInfo, err error) {
 	clientOpts, err := BuildClientOptions(o)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,11 @@ var listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, er
 	if err := client.Start(ctx); err != nil {
 		return nil, fmt.Errorf("start copilot runtime: %w", err)
 	}
-	defer client.Stop()
+	defer func() {
+		if stopErr := client.Stop(); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
+		}
+	}()
 	return client.ListModels(ctx)
 }
 
@@ -146,7 +150,7 @@ func ListModels(ctx context.Context, o Options) ([]Model, error) {
 }
 
 // Ask runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
-func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
+func Ask(ctx context.Context, o Options, prompt string) (result Result, err error) {
 	if strings.TrimSpace(prompt) == "" {
 		return Result{}, errors.New("empty prompt")
 	}
@@ -158,13 +162,21 @@ func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
 	if err := client.Start(ctx); err != nil {
 		return Result{}, fmt.Errorf("start copilot runtime: %w", err)
 	}
-	defer client.Stop()
+	defer func() {
+		if stopErr := client.Stop(); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
+		}
+	}()
 
 	session, err := client.CreateSession(ctx, BuildSessionConfig(o))
 	if err != nil {
 		return Result{}, fmt.Errorf("create session: %w", err)
 	}
-	defer session.Disconnect()
+	defer func() {
+		if disconnectErr := session.Disconnect(); disconnectErr != nil {
+			err = errors.Join(err, fmt.Errorf("disconnect copilot session: %w", disconnectErr))
+		}
+	}()
 
 	var (
 		mu    sync.Mutex

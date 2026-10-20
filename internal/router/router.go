@@ -161,7 +161,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 			if d, ok := r.demotion(t); ok {
 				ladder = slices.Insert(ladder, i+1, d)
 				fmt.Fprintf(r.log, "router: %s %s is quota-dead for this key, demoting to %s\n", t.Provider.Name, t.Model, d.Model)
-				audit.Log(audit.RouterFallback, t.Provider.Name, fmt.Sprintf("status=429 quota; demoted to %s", d.Model))
+				audit.Log(audit.RouterFallback, t.Provider.Name, "status=429 quota; demoted to "+d.Model)
 				continue
 			}
 		}
