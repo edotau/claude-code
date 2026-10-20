@@ -228,7 +228,7 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 		return nil, err
 	}
 	var version int
-	json.Unmarshal(renderedTop["version"], &version) // absent/malformed rendered version: fall through to 1
+	_ = json.Unmarshal(renderedTop["version"], &version) // absent/malformed rendered version: fall through to 1
 	if version == 0 {
 		version = 1
 	}
