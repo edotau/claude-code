@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/clipboard"
 	"io"
 	"os"
 	"os/exec"
@@ -41,6 +42,7 @@ var Tools = []Tool{
 	{Name: "agy", Binary: "agy", Update: updateAgy, Hint: "no known install URL; claude-code configure signs it in"},
 	{Name: "tailscale", Binary: "tailscale", Hint: "system install: make tailscale-cli"},
 	{Name: "browser", Install: installBrowser, Hint: "claude-code web setup; CDP + chrome-devtools-mcp on WSL"},
+	{Name: "clipboard", Install: installClipboard, Hint: "WSL only: wl-paste proxy for image paste"},
 }
 
 // Names lists every tool in roster order.
@@ -219,4 +221,9 @@ func installBrowser(_ context.Context, w io.Writer, dryRun bool) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// installClipboard writes the WSL wl-paste proxy (a no-op report off WSL).
+func installClipboard(_ context.Context, w io.Writer, dryRun bool) error {
+	return clipboard.InstallProxy(w, dryRun)
 }

@@ -88,6 +88,8 @@ func commands() []command {
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
 		{name: "statusline", hidden: true, summary: "render the status line (invoked by settings.json)", run: cmdStatusline},
+		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: cmdClip},
+		{name: "bmp-transcode", hidden: true, summary: "stdin BMP → stdout 24bpp BMP (--png: PNG); wl-paste proxy", run: cmdBMPTranscode},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
 		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion},
 		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},

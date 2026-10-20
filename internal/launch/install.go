@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/clean"
+	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/history"
 	"io"
 	"io/fs"
@@ -319,6 +320,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "audit (7d)", auditSummary())
 	check(true, false, "setup", setupDoctorDetail())
 	check(true, false, "browser", browserDoctorDetail())
+	clipOK, clipDetail := clipboard.DoctorDetail()
+	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
 }
