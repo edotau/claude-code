@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,76 @@ func receipts(t *testing.T) []string {
 	t.Helper()
 	files, _ := filepath.Glob(filepath.Join(ReceiptsDir(), "*.json"))
 	return files
+}
+
+func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
+	store, decoy := storeFixture(t)
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	// Hooks are disabled; a held ref lock makes git commit itself fail.
+	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
+	write(t, refLock, "")
+	var rec Receipt
+	err := WithWritableBankLock(BankLockWait, func() error {
+		var err error
+		rec, err = commitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
+		return err
+	})
+	if err == nil || errors.Is(err, ErrDivergent) {
+		t.Fatalf("commit must fail under the held ref lock: %v", err)
+	}
+	js := journals(t)
+	if len(js) != 1 {
+		t.Fatalf("journal must survive a commit failure: %v", js)
+	}
+	var j journal
+	data, err := os.ReadFile(js[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &j); err != nil {
+		t.Fatal(err)
+	}
+	if j.State != "applied" || len(j.Changes) != 1 || string(j.Changes[0].Data) != "x\n" {
+		t.Fatalf("journal = %+v", j)
+	}
+	if readStore(t, "r/x.md") != "x\n" {
+		t.Fatal("bytes not applied before the failed commit")
+	}
+	if err := os.Remove(refLock); err != nil {
+		t.Fatal(err)
+	}
+	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
+	err = WithWritableBankLock(BankLockWait, func() error {
+		var err error
+		rec, err = commitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(journals(t)) != 0 {
+		t.Fatal("journal not retired after recovery")
+	}
+	log, err := StoreRepo().Log(10)
+	if err != nil || len(log) != 2 || !strings.HasSuffix(log[0], " next") || !strings.HasSuffix(log[1], " batch") {
+		t.Fatalf("Log = %v, %v", log, err)
+	}
+	if got := receipts(t); len(got) != 2 {
+		t.Fatalf("receipts = %v, want one per batch", got)
+	}
+	if len(rec.Preexisting) != 0 {
+		t.Fatalf("recovered batch's files leaked into the next batch as preexisting: %v", rec.Preexisting)
+	}
+	st, err := StoreRepo().Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st) != 0 {
+		t.Fatalf("dirty after recovery: %+v", st)
+	}
+	assertDecoyUntouched(t, decoy)
 }
 
 // Regression: apply re-reads the live bytes right before mutating, so a native edit landing between plan
