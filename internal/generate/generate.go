@@ -332,13 +332,37 @@ func retireStaleOpenCodeJSONC(home string, o Options, out io.Writer) error {
 		return nil
 	}
 	*o.staged = append(*o.staged, func() error {
-		if err := os.Rename(jsoncPath, bak); err != nil {
+		backup, err := moveBackup(jsoncPath, bak)
+		if err != nil {
 			return fmt.Errorf("opencode: %w", err)
 		}
-		fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
+		fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, backup)
 		return nil
 	})
 	return nil
+}
+
+func moveBackup(path, base string) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		if err := os.Rename(path, dest); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
 }
 
 func renderOpenCode(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
