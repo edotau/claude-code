@@ -110,7 +110,7 @@ func TestInstallCodexDryRunUsesAssetFromServer(t *testing.T) {
 	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
 
 	var buf bytes.Buffer
-	if err := installCodex(context.Background(), &buf, true); err != nil {
+	if err := installCodex(context.Background(), &buf, localBinDir(), true); err != nil {
 		t.Fatalf("installCodex dry-run: %v", err)
 	}
 	out := buf.String()
@@ -138,7 +138,7 @@ func TestInstallClaudeScienceDryRunTouchesNoNetwork(t *testing.T) {
 	claudeScienceBaseURL = "http://127.0.0.1:1/claude-science"
 	defer func() { claudeScienceBaseURL = old }()
 	var buf bytes.Buffer
-	if err := installClaudeScience(context.Background(), &buf, true); err != nil {
+	if err := installClaudeScience(context.Background(), &buf, localBinDir(), true); err != nil {
 		t.Fatalf("dry-run must not touch the network: %v", err)
 	}
 	if !strings.Contains(buf.String(), "dry-run") {

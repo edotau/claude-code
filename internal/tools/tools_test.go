@@ -139,7 +139,7 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 
 			if tc.name == "codex" {
 				calls := 0
-				stubToolsInstall(t, tc.name, func(_ context.Context, _ io.Writer, dryRun bool) error {
+				stubToolsInstall(t, tc.name, func(_ context.Context, _ io.Writer, _ string, dryRun bool) error {
 					calls++
 					if !dryRun {
 						t.Error("expected a dry-run installer")
@@ -178,7 +178,7 @@ func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
 	prefix := npmToolsFixture(t, root, "opencode", "opencode-ai")
 	t.Setenv("PATH", localBin+string(os.PathListSeparator)+filepath.Join(prefix, "bin"))
 	wantErr := errors.New("installer failed")
-	stubToolsInstall(t, "opencode", func(context.Context, io.Writer, bool) error { return wantErr })
+	stubToolsInstall(t, "opencode", func(context.Context, io.Writer, string, bool) error { return wantErr })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -206,7 +206,7 @@ func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
 			}
 			prefix := npmToolsFixture(t, root, "opencode", "opencode-ai")
 			t.Setenv("PATH", localBin+string(os.PathListSeparator)+filepath.Join(prefix, "bin"))
-			stubToolsInstall(t, "opencode", func(_ context.Context, _ io.Writer, dryRun bool) error {
+			stubToolsInstall(t, "opencode", func(_ context.Context, _ io.Writer, _ string, dryRun bool) error {
 				if dryRun {
 					t.Error("expected a real-run version guard")
 				}
