@@ -145,12 +145,9 @@ func changedFiles(ctx context.Context, cwd string) []string {
 	if err != nil || len(data) == 0 {
 		return nil
 	}
-	root := cwd
-	if _, err := os.Stat(filepath.Join(cwd, ".git")); err != nil {
-		root = repoRootOf(ctx, cwd)
-		if root == "" {
-			return nil
-		}
+	root := repoRootOf(cwd)
+	if root == "" {
+		return nil
 	}
 	var out []string
 	records := strings.Split(string(data), "\x00")

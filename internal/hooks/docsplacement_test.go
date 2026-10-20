@@ -392,3 +392,34 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 		}
 	}
 }
+
+// TestDocsPlacementGitFileRoot: a linked worktree's `.git` is a FILE, and the stat walk-up must still
+// find its root; a `.git` file git rejects fails open rather than blocking on an unreadable repo.
+func TestDocsPlacementGitFileRoot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := placementRepo(t)
+	wt := filepath.Join(filepath.Dir(repo), "linked")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", wt).CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v (%s)", err, out)
+	}
+	bogus, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := os.WriteFile(filepath.Join(bogus, ".git"), []byte("gitdir: /nonexistent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		path string
+		want int
+	}{
+		{"root doc in a linked worktree", filepath.Join(wt, "HANDOFF.md"), ExitBlock},
+		{"tracked doc in a linked worktree", filepath.Join(wt, "ARCHITECTURE.md"), ExitProceed},
+		{"root doc under an invalid .git file", filepath.Join(bogus, "HANDOFF.md"), ExitProceed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", c.path)), &stderr); code != c.want {
+				t.Fatalf("code = %d, want %d (stderr: %s)", code, c.want, stderr.String())
+			}
+		})
+	}
+}

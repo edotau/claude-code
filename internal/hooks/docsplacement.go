@@ -90,18 +90,19 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	// The harness's own docs/ holds only images + tracked knowledge; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
 	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
-		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) ||
-			isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))) || ctx.Err() != nil {
+		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) {
+			return ExitProceed
+		}
+		if tracked, _ := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || ctx.Err() != nil {
 			return ExitProceed
 		}
 		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 	}
 	// Two gated shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
-	root := repoRootOf(ctx, dir)
+	root := repoRootOf(dir)
 	if root == "" {
 		return ExitProceed
 	}
-	root = canonDeep(root)
 	rel, ok := repoRel(root, abs)
 	if !ok {
 		return ExitProceed
@@ -111,12 +112,14 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	if !atRoot && !inDocs {
 		return ExitProceed
 	}
-	if isTracked(ctx, root, rel) || ctx.Err() != nil {
-		return ExitProceed
-	}
-	// A docs/ page the repo COULD own is merely not-yet-added — the project's business. Only a path
-	// git refuses to keep is stranded harness output: it is invisible on every fresh clone.
-	if inDocs && !isIgnored(ctx, root, rel) {
+	// One git spawn per path. A docs/ page the repo COULD own is merely not-yet-added — the project's
+	// business; only a path git refuses to keep (ignored, never tracked) is stranded harness output.
+	if inDocs {
+		if !isIgnored(ctx, root, rel) {
+			return ExitProceed
+		}
+	} else if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
+		// A git error (e.g. a `.git` git itself rejects) fails open: only a clean empty listing blocks.
 		return ExitProceed
 	}
 
@@ -156,17 +159,11 @@ func isMarkdownPath(path string) bool {
 	return ext == ".md" || ext == ".markdown"
 }
 
-// repoRootOf returns dir's git toplevel, or "" when dir is not in a work tree. It climbs to the
-// nearest EXISTING ancestor first: a Write creates its parent dirs, so a gate firing BEFORE the write
-// is handed a path whose directory does not exist yet, and `git -C <missing dir>` just errors.
-func repoRootOf(ctx context.Context, dir string) string {
+// repoRootOf climbs from dir's nearest existing ancestor to the first dir holding a `.git` entry, or "".
+func repoRootOf(dir string) string {
 	for dir != "" {
-		if isDir(dir) {
-			out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
-			if err != nil {
-				return ""
-			}
-			return strings.TrimSpace(string(out))
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -175,11 +172,6 @@ func repoRootOf(ctx context.Context, dir string) string {
 		dir = parent
 	}
 	return ""
-}
-
-func isDir(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.IsDir()
 }
 
 // canonDeep resolves p's deepest existing ancestor and re-joins the missing tail, so a nested target
@@ -202,17 +194,15 @@ func canonDeep(p string) string {
 	}
 }
 
-// isTracked reports whether rel (repo-RELATIVE, slash-separated) is already git-tracked at root — an
-// existing repo doc, so editing it is the user's business, not a placement violation.
-func isTracked(ctx context.Context, root, rel string) bool {
+// isTracked reports whether git lists rel (repo-RELATIVE, slash-separated) at root; err is git's failure.
+func isTracked(ctx context.Context, root, rel string) (bool, error) {
 	// :(literal) disables pathspec magic — a glob-shaped name ("*.md") would otherwise match some
 	// OTHER tracked file and wave the untracked write straight through the gate.
 	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--", ":(literal)"+rel).Output()
-	return err == nil && strings.TrimSpace(string(out)) != ""
+	return err == nil && strings.TrimSpace(string(out)) != "", err
 }
 
-// isIgnored reports whether root's ignore rules exclude rel. check-ignore takes PATHNAMES, not
-// pathspecs (":(literal)" is a fatal error there), and any failure reads as not-ignored: fail-open.
+// isIgnored reports whether rel is ignored AND untracked (check-ignore skips tracked paths); failure reads false.
 func isIgnored(ctx context.Context, root, rel string) bool {
 	err := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel).Run()
 	return err == nil
