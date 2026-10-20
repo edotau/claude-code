@@ -32,10 +32,11 @@ func TestCmdConfig(t *testing.T) {
 }
 
 func TestConfigVerbsAndMenu(t *testing.T) {
-	if len(configVerbs) != 2 {
-		t.Errorf("configVerbs has %d entries, want exactly show and edit", len(configVerbs))
+	want := []string{"show", "edit", "migrate", "finalize", "rollback", "rotate-key"}
+	if len(configVerbs) != len(want) {
+		t.Errorf("configVerbs has %d entries, want exactly %v", len(configVerbs), want)
 	}
-	for _, name := range []string{"show", "edit"} {
+	for _, name := range want {
 		t.Run(name, func(t *testing.T) {
 			if configVerbs[name] == nil {
 				t.Errorf("configVerbs[%q] missing or nil", name)

@@ -82,6 +82,11 @@ func buildSpecTree() map[string]*compNode {
 			"doctor": {},
 			"all":    {flags: []flagInfo{flag("since")}}, // forwards its args to `secrets git`
 		}},
+		"config": {sub: map[string]*compNode{
+			"show": {}, "edit": {}, "rollback": {}, "rotate-key": {},
+			"migrate":  {flags: []flagInfo{boolFlag("dry-run")}},
+			"finalize": {flags: []flagInfo{valuedFlag("discard", secretNames)}},
+		}},
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},
 			"log":      {flags: []flagInfo{flag("n"), formatFlag()}},

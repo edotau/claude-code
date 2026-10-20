@@ -39,6 +39,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	cases := map[string][]string{
 		"secrets":   {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
 		"history":   {"snapshot", "log", "diff"},
+		"config":    {"show", "edit", "migrate", "finalize", "rollback", "rotate-key"},
 		"web":       {"browsers", "search", "setup", "view"},
 		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "dream", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias"},
 		"router":    {"serve", "start", "stop", "status"},
