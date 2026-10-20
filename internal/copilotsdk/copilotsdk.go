@@ -51,7 +51,7 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base, _ := envscrub.Scrub(os.Environ(), envscrub.KeepSet(o.KeepEnv))
+	base, _ := envscrub.ScrubVendor(os.Environ(), envscrub.KeepSet(o.KeepEnv))
 	return &copilot.ClientOptions{
 		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(base, o.Env...)},
 		WorkingDirectory: o.WorkingDirectory,

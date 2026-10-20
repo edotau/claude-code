@@ -13,14 +13,19 @@ import (
 
 // Names returns sorted vault secret names without resolving a key; an unreadable vault yields nil.
 func Names() []string {
+	names, _ := NamesErr()
+	return names
+}
+
+// NamesErr is Names with the vault read error surfaced, for callers (secrets doctor) that must not
+// mistake an unreadable vault for an empty one.
+func NamesErr() ([]string, error) {
 	var names []string
-	if err := vault.View(func(tx *vault.Tx) error {
+	err := vault.View(func(tx *vault.Tx) error {
 		names = tx.Names(vault.Secrets)
 		return nil
-	}); err != nil {
-		return nil
-	}
-	return names
+	})
+	return names, err
 }
 
 // Store seals a single-line value in the vault, replacing its metadata and clearing any cached probe.
@@ -104,10 +109,14 @@ const (
 	redactShow = 5
 )
 
-// Lookup reads the vault before the process env, preserving vault read errors.
+// Lookup reads the vault before the process env; a vault read error (locked, wrong key) falls back to
+// env rather than discarding an exported value, and only errors when env is empty too.
 func Lookup(name string) (value, source string, err error) {
 	v, found, err := vault.ReadSecret(name)
 	if err != nil {
+		if ev := strings.TrimSpace(os.Getenv(name)); ev != "" {
+			return ev, "env", nil
+		}
 		return "", "", err
 	}
 	if found {

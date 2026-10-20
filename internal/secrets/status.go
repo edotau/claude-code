@@ -34,7 +34,11 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		return st
 	}
 	if p.Auth.Env != "" {
-		st.Source = providers.HasSecret(p.Auth.Env)
+		source, err := providers.HasSecretErr(p.Auth.Env)
+		st.Source = source
+		if err != nil {
+			st.Note = "vault unreadable: " + err.Error()
+		}
 	}
 	if st.Source == "" && p.Auth.File != "" {
 		if b, err := os.ReadFile(expandHome(p.Auth.File)); err == nil && strings.TrimSpace(string(b)) != "" {
@@ -46,7 +50,7 @@ func Resolve(p *providers.Provider) ProviderStatus {
 	}
 	if st.Source == "" {
 		st.Source = "none"
-		if p.Auth.Env != "" {
+		if p.Auth.Env != "" && st.Note == "" {
 			st.Note = "set " + p.Auth.Env
 		}
 	}

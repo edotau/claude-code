@@ -1,11 +1,14 @@
 package secrets
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/keyring"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -34,23 +37,82 @@ func checkVaultPerms(out io.Writer) bool {
 	fi, err := os.Stat(file)
 	if os.IsNotExist(err) {
 		fmt.Fprintln(out, "  ✓ no vault yet (nothing to check)")
-		return false
+		return checkArchivePerms(out)
 	}
 	if err != nil {
 		fmt.Fprintf(out, "  ⚠ could not stat %s: %v\n", file, err)
 		return true
 	}
+	fail := false
+	if fi.Mode().Perm()&0o077 != 0 {
+		fmt.Fprintf(out, "  ⚠ %s is %04o, want 0600 — run: chmod 600 %s\n", file, fi.Mode().Perm(), file)
+		fail = true
+	} else {
+		fmt.Fprintln(out, "  ✓ "+file+" is 0600")
+	}
+	return checkArchivePerms(out) || fail
+}
+
+// checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
+// state/vault-migration.json) readable/writable by anyone but their owner.
+func checkArchivePerms(out io.Writer) bool {
+	fail := false
+	matches, _ := filepath.Glob(vault.Path() + ".rolledback-*")
+	for _, m := range matches {
+		fail = flagPerm(out, m) || fail
+	}
+	for _, bak := range manifestBackups() {
+		fail = flagPerm(out, bak) || fail
+	}
+	return fail
+}
+
+// flagPerm reports a mode > 0600 file; a missing file is not a finding.
+func flagPerm(out io.Writer, file string) bool {
+	fi, err := os.Stat(file)
+	if err != nil {
+		return false
+	}
 	if fi.Mode().Perm()&0o077 != 0 {
 		fmt.Fprintf(out, "  ⚠ %s is %04o, want 0600 — run: chmod 600 %s\n", file, fi.Mode().Perm(), file)
 		return true
 	}
-	fmt.Fprintln(out, "  ✓ "+file+" is 0600")
 	return false
 }
 
-// checkMasterKey fails when the vault holds secrets the resolved master key cannot open.
+// manifestBackups reads state/vault-migration.json directly (not internal/config, which imports this
+// package) for each item's "backup" path.
+func manifestBackups() []string {
+	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "state", "vault-migration.json"))
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Items []struct {
+			Backup string `json:"backup"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+	var out []string
+	for _, item := range doc.Items {
+		if item.Backup != "" {
+			out = append(out, item.Backup)
+		}
+	}
+	return out
+}
+
+// checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the
+// vault itself can't be read (locked, wrong key) — an unreadable vault must not read as "no credential".
 func checkMasterKey(out io.Writer) bool {
-	n := len(Names())
+	names, err := NamesErr()
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ vault is unreadable: %v\n", err)
+		return true
+	}
+	n := len(names)
 	if n == 0 {
 		return false
 	}

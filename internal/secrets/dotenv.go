@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -103,7 +104,11 @@ func ListStored(only []string) ([]Stored, error) {
 
 // AppendDotenv appends pairs to path as NAME=value lines, creating it (with a header) when absent and skipping names
 // it already defines; the file ends 0600 either way. added counts lines written, skipped names the kept ones.
+// path is refused when it is a symlink — this must never write through one to an arbitrary target.
 func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err error) {
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return 0, nil, fmt.Errorf("%s is a symlink; refusing to write through it", path)
+	}
 	have := map[string]bool{}
 	existing, err := os.ReadFile(path)
 	switch {
@@ -127,7 +132,7 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 			skipped = append(skipped, p.Name)
 			continue
 		}
-		b.WriteString(p.Name + "=" + p.Value + "\n")
+		b.WriteString(p.Name + "=" + quoteDotenvValue(p.Value) + "\n")
 		added++
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
@@ -143,7 +148,38 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 	if err := f.Close(); err != nil {
 		return 0, nil, err
 	}
-	return added, skipped, os.Chmod(path, 0o600)
+	if err := os.Chmod(path, 0o600); err != nil {
+		return 0, nil, err
+	}
+	warnIfUntrackedDefault(path)
+	return added, skipped, nil
+}
+
+// quoteDotenvValue wraps v in quotes when it holds a space, `#`, `$` or a quote character; ParseDotenv
+// strips exactly one matching outer quote pair with no escaping, so wrapping (whichever quote char, picking
+// one absent from v when possible) always round-trips the original value unchanged.
+func quoteDotenvValue(v string) string {
+	if v == "" || !strings.ContainsAny(v, " \t\"'$#") {
+		return v
+	}
+	if !strings.Contains(v, "'") {
+		return "'" + v + "'"
+	}
+	return `"` + v + `"`
+}
+
+// warnIfUntrackedDefault warns on stderr when path is the default ./.env and a git work tree here does
+// not gitignore it; git absent, not a repo, or already ignored all skip silently — nothing to warn about.
+func warnIfUntrackedDefault(path string) {
+	if path != ".env" {
+		return
+	}
+	if err := exec.Command("git", "check-ignore", "-q", path).Run(); err == nil {
+		return
+	} else if _, ok := err.(*exec.ExitError); !ok {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "claude-code: warning: %s is not covered by .gitignore here; it holds plaintext secrets\n", path)
 }
 
 // dotenvHeader opens a .env that export creates.

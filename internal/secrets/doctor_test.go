@@ -153,3 +153,60 @@ func TestDoctorRetiredKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorUnreadableVaultIsFailure: a vault whose schema the running binary refuses to read must
+// fail the gate, never read as "no credentials stored" (checkMasterKey -> NamesErr).
+func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Meta, "schema", "3")
+	var out bytes.Buffer
+	if rc := Doctor(&out, &providers.Registry{}); rc != ExitFindings {
+		t.Fatalf("Doctor = %d, want findings: %s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "vault is unreadable:") || !strings.Contains(out.String(), "schema 3") {
+		t.Fatalf("Doctor missing unreadable-vault diagnostic: %s", out.String())
+	}
+}
+
+// TestDoctorFlagsArchivePerms: a .rolledback-* vault archive and a manifest-listed .bak file
+// readable/writable by anyone but their owner must each be flagged, a 0600 one must not.
+func TestDoctorFlagsArchivePerms(t *testing.T) {
+	dir := vaulttest.Use(t)
+	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	loose := vault.Path() + ".rolledback-20260101-000000"
+	if err := os.WriteFile(loose, []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tight := vault.Path() + ".rolledback-20260102-000000"
+	if err := os.WriteFile(tight, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bak := filepath.Join(dir, "providers.json.bak-20260101-000000")
+	if err := os.WriteFile(bak, []byte("backup"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(stateDir, "vault-migration.json")
+	manifestJSON := `{"items":[{"backup":"` + strings.ReplaceAll(bak, `\`, `\\`) + `"}]}`
+	if err := os.WriteFile(manifest, []byte(manifestJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if rc := Doctor(&out, &providers.Registry{}); rc != ExitFindings {
+		t.Fatalf("Doctor = %d, want findings: %s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), loose+" is 0644") {
+		t.Errorf("Doctor missing loose archive finding: %s", out.String())
+	}
+	if strings.Contains(out.String(), tight+" is") {
+		t.Errorf("Doctor flagged a 0600 archive: %s", out.String())
+	}
+	if !strings.Contains(out.String(), bak+" is 0644") {
+		t.Errorf("Doctor missing loose manifest backup finding: %s", out.String())
+	}
+}

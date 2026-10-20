@@ -121,7 +121,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir}
 	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv)
+	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := runEventStream(ctx, l.agent, cmd, tail, stream, parseOpenCodeStream)
 	res.Answer, res.Usage = out.Answer, out.Usage
 	if out.SessionID != "" {

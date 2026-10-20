@@ -70,7 +70,7 @@ func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv)
+	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream)
 }
 

@@ -109,3 +109,25 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 		t.Fatalf("explicit file scan included vault: %d, %v, %s", code, scanner.Findings, out.String())
 	}
 }
+
+// TestScanVaultCoversPrevProvidersAndVendorsOverlays: an inline secret in overlay/providers.prev or
+// overlay/vendors must surface exactly like overlay/providers — ScanVault must not scan providers only.
+func TestScanVaultCoversPrevProvidersAndVendorsOverlays(t *testing.T) {
+	vaulttest.Use(t)
+	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	vaulttest.Put(t, vault.Overlay, "providers.prev", `{"providers":{"x":{"auth":{"env":"`+value+`"}}}}`)
+	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"y":{"token":"`+value+`"}}}`)
+	var out bytes.Buffer
+	scanner := &Scanner{Out: &out}
+	scanner.ScanVault()
+	want := []string{
+		"vault:overlay/providers.prev → providers.x.auth.env holds an inline secret",
+		"vault:overlay/vendors → vendors.y.token holds an inline secret",
+	}
+	if !slices.Equal(scanner.Findings, want) {
+		t.Fatalf("ScanVault findings = %v, want %v", scanner.Findings, want)
+	}
+	if strings.Contains(out.String(), value) {
+		t.Fatal("ScanVault printed a secret value")
+	}
+}

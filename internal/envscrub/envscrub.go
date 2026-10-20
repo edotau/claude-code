@@ -4,6 +4,7 @@ package envscrub
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -21,11 +22,24 @@ var Deny = []string{
 // KeepEnvVar opts bare shims back into an inherited name; their argv belongs to the vendor, not the harness.
 const KeepEnvVar = "HARNESS_KEEP_ENV"
 
+// VendorOnlyDeny drops from a vendor CLI child's env only; the Claude Code launch itself keeps these,
+// since hooks inherit Claude's env (HARNESS_VAULT_KEY opens the vault there).
+var VendorOnlyDeny = []string{"HARNESS_VAULT_KEY"}
+
 // Scrub splits environ (KEY=VALUE entries) into kept and dropped (names only) against Deny, honoring keep.
 func Scrub(environ []string, keep map[string]bool) (kept, dropped []string) {
+	return scrub(environ, keep, Deny)
+}
+
+// ScrubVendor is Scrub plus VendorOnlyDeny: use for codex/gemini/opencode/copilot child launches.
+func ScrubVendor(environ []string, keep map[string]bool) (kept, dropped []string) {
+	return scrub(environ, keep, append(slices.Clone(Deny), VendorOnlyDeny...))
+}
+
+func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped []string) {
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if keep[name] || !denied(name) {
+		if keep[name] || !denied(name, deny) {
 			kept = append(kept, kv)
 			continue
 		}
@@ -48,8 +62,8 @@ func KeepSet(names []string) map[string]bool {
 	return keep
 }
 
-func denied(name string) bool {
-	for _, pat := range Deny {
+func denied(name string, deny []string) bool {
+	for _, pat := range deny {
 		if ok, _ := filepath.Match(pat, name); ok {
 			return true
 		}

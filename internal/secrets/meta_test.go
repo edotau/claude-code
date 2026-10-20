@@ -75,7 +75,7 @@ func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 	before := readRecord(t, "PROBE")
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	if err := RecordProbe("PROBE", "verified", at); err != nil {
+	if err := RecordProbe("PROBE", "verified", at, before.SetAt); err != nil {
 		t.Fatal(err)
 	}
 	want := before
@@ -86,11 +86,47 @@ func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 	if meta, err := LoadMeta(); err != nil || meta["PROBE"].VerifyStatus != "verified" || !meta["PROBE"].VerifiedAt.Equal(at) {
 		t.Fatalf("LoadMeta probe = %+v, %v", meta, err)
 	}
-	if err := RecordProbe("MISSING", "rejected", at); err != nil {
+	if err := RecordProbe("MISSING", "rejected", at, at); err != nil {
 		t.Fatal(err)
 	}
 	if got := Names(); len(got) != 1 || got[0] != "PROBE" {
 		t.Fatalf("RecordProbe created an absent record: %v", got)
+	}
+}
+
+// TestRecordProbeSkipsWriteWhenSetAtChanged: a `secrets set` that lands between the probe's read
+// and its write (sinceSet captured before the slow probe ran) must leave the new value's record
+// untouched — the probe's verdict was computed against the old value and must not stamp the new one.
+func TestRecordProbeSkipsWriteWhenSetAtChanged(t *testing.T) {
+	vaulttest.Use(t)
+	if err := Store("RACY", "first-value"); err != nil {
+		t.Fatal(err)
+	}
+	staleSetAt := readRecord(t, "RACY").SetAt
+
+	// Simulate a concurrent `secrets set` landing while the probe for first-value was in flight.
+	if err := Store("RACY", "second-value"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := readRecord(t, "RACY")
+
+	if err := RecordProbe("RACY", "verified", time.Now(), staleSetAt); err != nil {
+		t.Fatal(err)
+	}
+	got := readRecord(t, "RACY")
+	if got.VerifyStatus != "" || !got.VerifiedAt.IsZero() {
+		t.Fatalf("RecordProbe wrote a stale verdict onto the new value: %+v", got)
+	}
+	if !reflect.DeepEqual(got, fresh) {
+		t.Fatalf("RecordProbe mutated the record despite a SetAt mismatch: got %+v, want %+v", got, fresh)
+	}
+
+	// A probe run against the current value (sinceSet matches) must still write.
+	if err := RecordProbe("RACY", "verified", time.Now(), fresh.SetAt); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRecord(t, "RACY"); got.VerifyStatus != "verified" {
+		t.Fatalf("RecordProbe with a matching sinceSet did not write: %+v", got)
 	}
 }
 
@@ -135,7 +171,7 @@ func TestBadRecordSurfacesErrorsWithoutMutation(t *testing.T) {
 	if _, err := LoadMeta(); err == nil {
 		t.Fatal("LoadMeta must report a corrupt record")
 	}
-	if err := RecordProbe("X", "verified", time.Now()); err == nil {
+	if err := RecordProbe("X", "verified", time.Now(), time.Now()); err == nil {
 		t.Fatal("RecordProbe must report a corrupt record, not a successful no-op")
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
@@ -158,7 +194,7 @@ func TestLoadMetaRejectsNewerSchema(t *testing.T) {
 	if _, err := LoadMeta(); err == nil {
 		t.Fatal("LoadMeta must reject a newer vault schema")
 	}
-	if err := RecordProbe("X", "verified", time.Now()); err == nil {
+	if err := RecordProbe("X", "verified", time.Now(), time.Now()); err == nil {
 		t.Fatal("RecordProbe must reject a newer vault schema")
 	}
 	after, err := os.ReadFile(vault.Path())
@@ -175,8 +211,9 @@ func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
 	if err := Store("VERIFY_ME", "v1"); err != nil {
 		t.Fatal(err)
 	}
+	setAt := readRecord(t, "VERIFY_ME").SetAt
 	at := time.Now()
-	if err := RecordProbe("VERIFY_ME", "verified", at); err != nil {
+	if err := RecordProbe("VERIFY_ME", "verified", at, setAt); err != nil {
 		t.Fatal(err)
 	}
 	m, err := LoadMeta()
