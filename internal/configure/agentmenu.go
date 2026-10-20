@@ -155,7 +155,7 @@ func byokKey(reg *providers.Registry) (*providers.Provider, string) {
 	return nil, ""
 }
 
-// byokRow is copilot's and opencode's API key row: shows which fallback key resolves, sets the anthropic one.
+// byokRow is opencode's API key row: shows which fallback key resolves, sets the anthropic one.
 func byokRow(d *dialog, label string) billingRow {
 	r := keyRow(d, label, anthropicRow, "pay per token via a stored key")
 	if _, env := byokKey(d.reg); env != "" {
@@ -242,6 +242,9 @@ func copilotMenu(d *dialog) agentMenu {
 		tier = copilotTier()
 	}
 	st := loginOrKey(d, loggedIn, tier)
+	if auth.Source == vendors.SrcStoredToken {
+		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
+	}
 	pinned := providers.Pin(providers.PinGitHubUser)
 	rows := []billingRow{
 		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
@@ -251,7 +254,7 @@ func copilotMenu(d *dialog) agentMenu {
 			}
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		byokRow(d, "copilot"),
+		copilotKeyRow(d),
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
@@ -260,6 +263,20 @@ func copilotMenu(d *dialog) agentMenu {
 		}},
 	}
 	return agentMenu{st, rows}
+}
+
+// copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
+func copilotKeyRow(d *dialog) billingRow {
+	env := vendors.CopilotTokenEnv
+	_, src, ok := secrets.Get(env)
+	stored := ok && src != "env"
+	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
+		kt := keyTarget{label: "copilot", envVar: env, fixCmd: "claude-code secrets set " + env}
+		if stored {
+			return ensureKey(d, kt, true)
+		}
+		return runAuthOption(d, kt, authOption{action: "Paste API key", env: env}, false)
+	}}
 }
 
 // pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins

@@ -1,11 +1,47 @@
 package configure
 
 import (
+	"bufio"
+	"bytes"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
 	"strings"
 	"testing"
 )
+
+// copilotKeyRow's desc flips between [no token] and [token set] as COPILOT_GITHUB_TOKEN is stored.
+func TestCopilotKeyRowLabelShowsTokenState(t *testing.T) {
+	menuTestEnv(t)
+	d := &dialog{out: discardWriter{}}
+	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[no token]") {
+		t.Errorf("absent: desc = %q, want [no token]", got)
+	}
+	if _, err := secrets.Store("COPILOT_GITHUB_TOKEN", "tok", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[token set]") {
+		t.Errorf("present: desc = %q, want [token set]", got)
+	}
+}
+
+// With no token stored, selecting copilot's API key row pastes straight into COPILOT_GITHUB_TOKEN (the
+// non-TTY dialogue path) — no picker, and it must never touch the anthropic console.
+func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
+	menuTestEnv(t)
+	var out bytes.Buffer
+	in := strings.NewReader("pasted-gh-token\n")
+	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
+	if !copilotKeyRow(d).run() {
+		t.Fatalf("copilotKeyRow(d).run() = false:\n%s", out.String())
+	}
+	v, src, ok := secrets.Get("COPILOT_GITHUB_TOKEN")
+	if !ok || v != "pasted-gh-token" {
+		t.Fatalf("COPILOT_GITHUB_TOKEN = (%q, %q, %v), want pasted-gh-token stored", v, src, ok)
+	}
+	if strings.Contains(out.String(), "anthropic") {
+		t.Errorf("absent-token paste must never mention the anthropic console:\n%s", out.String())
+	}
+}
 
 func fakePickMenu(t *testing.T, answers ...int) (starts *[]int, titles *[]string) {
 	t.Helper()
