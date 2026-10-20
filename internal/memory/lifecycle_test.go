@@ -164,7 +164,7 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	dir := GlobalDir()
-	for d := 0; d < 5; d++ {
+	for d := range 5 {
 		LogAccess(dir, now.AddDate(0, 0, -d), "bank:decisionLog.md", "prompt-recall inject")
 	}
 	// Log must cover > coldDays for a cold nomination to fire at all.

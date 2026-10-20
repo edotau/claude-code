@@ -206,7 +206,7 @@ func parseSSE(t *testing.T, out string) []string {
 		t.Fatalf("output does not end with a blank line: %q", out)
 	}
 	var events []string
-	for _, frame := range strings.Split(strings.TrimSuffix(out, "\n\n"), "\n\n") {
+	for frame := range strings.SplitSeq(strings.TrimSuffix(out, "\n\n"), "\n\n") {
 		lines := strings.Split(frame, "\n")
 		if len(lines) != 2 || !strings.HasPrefix(lines[0], "event: ") || !strings.HasPrefix(lines[1], "data: ") {
 			t.Fatalf("bad frame %q", frame)

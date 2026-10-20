@@ -75,7 +75,7 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 	}
 	var cat strings.Builder
 	cat.WriteString("# Memory catalog\n\n")
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
 	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
