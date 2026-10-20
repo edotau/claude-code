@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,6 +213,112 @@ func TestScanFileClean(t *testing.T) {
 	s.ScanFile(path)
 	if len(s.Findings) != 0 {
 		t.Fatalf("Findings = %v, want none", s.Findings)
+	}
+}
+
+func TestScanFileClaudeMetadataFixtures(t *testing.T) {
+	dir := t.TempDir()
+	fixtures := map[string]string{
+		".claude.json": `{"userID":"` + strings.Repeat("ab", 32) +
+			`","machineID":"` + strings.Repeat("cd", 32) +
+			`","projects":{"/home/u/.claude":{"lastSessionId":"12345678-1234-1234-1234-123456789abc"}}}`,
+		"settings.json": `{"extraKnownMarketplaces":{"x":{"source":{"repo":"anthropics/claude-plugins-official"}}}}`,
+	}
+	var buf bytes.Buffer
+	s := &Scanner{Out: &buf}
+	for name, doc := range fixtures {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.ScanFile(path)
+		if !strings.Contains(buf.String(), path+" — clean") {
+			t.Errorf("%s did not scan clean", name)
+		}
+	}
+	if len(s.Findings) != 0 {
+		t.Fatalf("Findings = %v, want none", s.Findings)
+	}
+}
+
+func TestScanFileMetadataExemptions(t *testing.T) {
+	type scanCase struct {
+		name   string
+		file   string
+		keys   []string
+		exempt bool
+	}
+	cases := []scanCase{
+		{"cache org", ".claude.json", []string{"clientDataCacheSlots", "slot", "org"}, true},
+		{"marketplace", "settings.json", []string{"extraKnownMarketplaces", "x", "source", "repo"}, true},
+		{"marketplace other JSON", "other.json", []string{"extraKnownMarketplaces", "x", "source", "repo"}, true},
+		{"ordinary token", ".claude.json", []string{"token"}, false},
+		{"userID other file", "settings.json", []string{"userID"}, false},
+		{"cache other file", "settings.json", []string{"clientDataCacheSlots", "slot", "org"}, false},
+		{"unrelated org", ".claude.json", []string{"other", "org"}, false},
+		{"leaf prefix", ".claude.json", []string{"notuserID"}, false},
+		{"leaf suffix", ".claude.json", []string{"userIDExtra"}, false},
+		{"cache prefix", ".claude.json", []string{"notclientDataCacheSlots", "slot", "org"}, false},
+		{"cache extra depth", ".claude.json", []string{"clientDataCacheSlots", "slot", "child", "org"}, false},
+		{"marketplace prefix", "settings.json", []string{"notextraKnownMarketplaces", "x", "source", "repo"}, false},
+		{"marketplace extra depth", "settings.json", []string{"extraKnownMarketplaces", "x", "child", "source", "repo"}, false},
+	}
+	for _, key := range []string{
+		"userID", "machineID", "remoteControlMachineId", "lastSessionId", "sessionId",
+		"accountUuid", "organizationUuid", "orgUuid", "experimentId", "originalHeadCommit",
+	} {
+		cases = append(cases, scanCase{key, ".claude.json", []string{"projects", "/home/u/.claude", key}, true})
+	}
+	values := []struct {
+		name  string
+		value string
+		known bool
+	}{
+		{"hex", strings.Repeat("ab", 32), false},
+		{"UUID", "12345678-1234-1234-1234-123456789abc", false},
+		{"base64", strings.Repeat("Ab01", 10), false},
+		{"sk", "sk-" + strings.Repeat("a", 40), true},
+		{"github", "ghp_" + strings.Repeat("a", 40), true},
+		{"AWS", "AKIA" + strings.Repeat("A", 16), true},
+		{"JWT", "eyJheader.payload.signature", true},
+		{"Slack", "xoxb-" + strings.Repeat("a", 40), true},
+	}
+	for _, tc := range cases {
+		for _, value := range values {
+			t.Run(tc.name+"/"+value.name, func(t *testing.T) {
+				if !LooksLikeSecret(value.value) {
+					t.Fatal("exported heuristic must still flag the value")
+				}
+				var doc any = value.value
+				for i := len(tc.keys) - 1; i >= 0; i-- {
+					doc = map[string]any{tc.keys[i]: doc}
+				}
+				raw, err := json.Marshal(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(t.TempDir(), tc.file)
+				if err := os.WriteFile(path, raw, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				var buf bytes.Buffer
+				s := &Scanner{Out: &buf}
+				s.ScanFile(path)
+				want := 0
+				if !tc.exempt || value.known {
+					want = 1
+				}
+				if len(s.Findings) != want {
+					t.Fatalf("Findings = %v, want %d", s.Findings, want)
+				}
+				if want == 1 && !strings.Contains(s.Findings[0], strings.Join(tc.keys, ".")) {
+					t.Error("finding must identify the key path")
+				}
+				if strings.Contains(buf.String(), value.value) || strings.Contains(strings.Join(s.Findings, "\n"), value.value) {
+					t.Fatal("scan must never echo the value")
+				}
+			})
+		}
 	}
 }
 
