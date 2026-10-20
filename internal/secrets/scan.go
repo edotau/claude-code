@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -81,22 +81,16 @@ func dedupExisting(files []string) []string {
 	return out
 }
 
-// walkJSONStrings visits every string leaf of parsed JSON with its dotted path.
-func walkJSONStrings(prefix string, node any, visit func(path, val string)) {
-	join := func(k string) string {
-		if prefix == "" {
-			return k
-		}
-		return prefix + "." + k
-	}
+// walkJSONStrings visits every string leaf of parsed JSON with its structural path.
+func walkJSONStrings(prefix []string, node any, visit func(path []string, val string)) {
 	switch v := node.(type) {
 	case map[string]any:
 		for k, child := range v {
-			walkJSONStrings(join(k), child, visit)
+			walkJSONStrings(append(prefix, k), child, visit)
 		}
 	case []any:
 		for i, child := range v {
-			walkJSONStrings(join(strconv.Itoa(i)), child, visit)
+			walkJSONStrings(append(prefix, strconv.Itoa(i)), child, visit)
 		}
 	case string:
 		visit(prefix, v)
@@ -104,10 +98,47 @@ func walkJSONStrings(prefix string, node any, visit func(path, val string)) {
 }
 
 // Metadata paths skip only the generic heuristic, never known credential shapes.
-var claudeMetadataPath = regexp.MustCompile(
-	`(^|\.)(userID|machineID|remoteControlMachineId|lastSessionId|sessionId|accountUuid|organizationUuid|orgUuid|experimentId|originalHeadCommit|clientDataCacheSlots\.[^.]+\.org)$`)
+func claudeMetadataPath(path []string) bool {
+	switch len(path) {
+	case 1:
+		return claudeMetadataKey(path[0])
+	case 2:
+		switch path[0] {
+		case "oauthAccount", "cachedArtifactRoster":
+			return path[1] == "accountUuid" || path[1] == "organizationUuid"
+		case "promoStartupStatusCache", "cachedUsageUtilization":
+			return path[1] == "accountUuid"
+		case "githubWebConnectionStatusCache":
+			return path[1] == "accountUuid" || path[1] == "orgUuid"
+		}
+	case 3:
+		switch path[0] {
+		case "projects":
+			return claudeMetadataKey(path[2])
+		case "clientDataCacheSlots":
+			return path[2] == "org"
+		case "cachedExperimentData":
+			return path[2] == "experimentId"
+		}
+	case 4:
+		return path[0] == "projects" && path[2] == "activeWorktreeSession" &&
+			(path[3] == "originalHeadCommit" || path[3] == "sessionId")
+	}
+	return false
+}
 
-var marketplaceRepoPath = regexp.MustCompile(`(^|\.)extraKnownMarketplaces\.[^.]+\.source\.repo$`)
+func claudeMetadataKey(key string) bool {
+	switch key {
+	case "userID", "machineID", "remoteControlMachineId", "lastSessionId", "sessionId",
+		"accountUuid", "organizationUuid", "orgUuid", "experimentId", "originalHeadCommit":
+		return true
+	}
+	return false
+}
+
+func marketplaceRepoPath(path []string) bool {
+	return len(path) == 4 && path[0] == "extraKnownMarketplaces" && path[2] == "source" && path[3] == "repo"
+}
 
 // ScanFile inspects one config file: JSON leaves when it parses as JSON, else KEY=value lines (so
 // the one scanner also covers env.d/provider.env). A missing file is silently fine.
@@ -123,11 +154,11 @@ func (s *Scanner) ScanFile(path string) {
 	before := len(s.Findings)
 	var doc any
 	if json.Unmarshal(raw, &doc) == nil {
-		walkJSONStrings("", doc, func(p, val string) {
-			metadata := marketplaceRepoPath.MatchString(p) ||
-				(filepath.Base(path) == ".claude.json" && claudeMetadataPath.MatchString(p))
+		walkJSONStrings(nil, doc, func(p []string, val string) {
+			metadata := marketplaceRepoPath(p) ||
+				(filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
 			if looksLikeSecret(val, !metadata) {
-				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, p))
+				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
 			}
 		})
 	} else {
