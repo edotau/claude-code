@@ -266,16 +266,21 @@ key; names and metadata are readable without it, so `list`, `status`, hooks and 
 every tracked secret — mint the setup-token, paste a key (its console page opened), delete, or add a custom
 `NAME` whose pasted `NAME=value`/`export NAME="value"` line is parsed and shown only redacted; `secrets get <KEY>`
 reads it back (vault → env; `--export` prints an eval-able line); `secrets import <file.env>` seals each
-`NAME=value` line and `secrets export [NAME...] [--out f]` appends plaintext lines to a 0600 file;
-`secrets status` reports which provider is served by which source
+`NAME=value` line (an `export ` prefix and one pair of matching quotes are stripped) and
+`secrets export [NAME...] [--out f]` appends plaintext lines to a 0600 file; `export --out -` and
+`import - --yes` stream over a pipe; `secrets status` reports which provider is served by which source
 without ever printing a value; `secrets scan` and `secrets git` audit the config surface and git history for a
-leaked credential and exit 1 on a finding; `secrets doctor` checks the vault's perms, master key, retired keys
-and key names; `secrets all` runs every audit. `/harness:secrets-scan` wraps the audits.
+leaked credential and exit 1 on a finding; `secrets doctor` checks the vault's perms, master key and key names,
+and lists retired keys; `secrets all` runs every audit. `/harness:secrets-scan` wraps the audits.
 
 ```bash
 claude-code secrets set ANTHROPIC_API_KEY   # names match each provider's auth.env; a process env var wins
 claude-code secrets import keys.env         # NAME=value lines (# skipped); delete the plaintext file after
+claude-code secrets export --out - | ssh box claude-code secrets import - --yes   # move secrets over a pipe
 ```
+
+Secrets are sealed under an HKDF-SHA256 subkey of the master key (salt = the vault id), not the key itself. A
+vault from an older schema that holds secrets is refused with `re-run claude-code config migrate`.
 
 ### The vault key
 
@@ -308,12 +313,22 @@ until you finalize:
   `secrets.env`, keyring-held credentials and a pre-env.d `~/.claude/providers.json` into the vault (absent keys
   only; `@keyring` becomes `@secret`), renames each source to `<name>.bak` and records it in
   `state/vault-migration.json`. `make install` runs it before swapping the binary; a migration error aborts the
-  install and leaves the old binary in place. A keyring that does not answer skips the secrets and says to re-run.
-- `claude-code config finalize [--discard NAME]` checks every `.bak` against the vault and every imported keyring
-  value against its vault copy, then deletes the backups, those keyring entries and an empty `env.d/`. A keyring
-  value changed since the migration is kept and reported; `--discard NAME` (repeatable) drops it so finalize proceeds.
-- `claude-code config rollback` (before finalize, with the new binary) restores every `.bak` and moves `vault.db`
-  aside as `vault.db.rolledback-<ts>`; then reinstall the old binary.
+  install and leaves the old binary in place. Each file group migrates on its own: a parse error, a keyring that
+  fails or does not answer, or a `providers.json` in both locations fails only that group (exit 1, re-run after
+  fixing); the other groups import and are renamed. Legacy files parse strictly: a line without `=`, an empty
+  value or a line over 4 MiB is an error.
+- `claude-code config finalize [--discard NAME]...` checks every `.bak` against the vault and every imported
+  keyring value against its vault copy, then deletes the backups, those keyring entries and an empty `env.d/`.
+  Any keyring or `secrets.env.bak` value that differs from the vault refuses finalize entirely (exit 1, nothing
+  deleted); `--discard NAME` (repeatable, either kind) drops that value. Other files left in `env.d/` (e.g. old
+  `.bak-*` copies) are kept and listed as `env.d kept: …`.
+- `claude-code config rollback` (before finalize, with the new binary) refuses unless every source path is free.
+  It writes `state/vault-rollback-<ts>.json` (the non-secret config plus the names of secrets missing from the
+  backups, never values), restores every `.bak`, moves `vault.db` aside as `vault.db.rolledback-<ts>` and the
+  manifest to `vault-migration.rolledback-<ts>.json`; the keyring is untouched. Then reinstall the old binary.
+
+`claude-code doctor` reports the `vault` row (key source, secret and retired-key counts), `legacy env.d` while
+files await migration, and `migration backups` until finalize.
 
 ## Routing
 
