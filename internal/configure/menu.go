@@ -151,9 +151,9 @@ func saveKeys(d *dialog) {
 func discardKeys(d *dialog) {
 	for name, k := range d.pending {
 		if k.had {
-			os.Setenv(name, k.prev)
+			_ = os.Setenv(name, k.prev)
 		} else {
-			os.Unsetenv(name)
+			_ = os.Unsetenv(name)
 		}
 	}
 	d.pending = nil
