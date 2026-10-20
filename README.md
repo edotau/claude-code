@@ -20,6 +20,7 @@ What the binary adds to a stock install:
 git clone https://github.com/edotau/claude-code ~/.claude   # or into an existing ~/.claude
 cd ~/.claude
 make install                        # builds bin/claude-code, links bin/<vendor> + ~/.local/bin/claude-code, renders settings.json
+make install DEV_TOOLS=1            # also installs the pinned govulncheck, golangci-lint, yamlfmt (make dev-tools)
 claude-code doctor
 export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claude/codex/... are the real CLIs, unrouted
 ```

@@ -54,8 +54,9 @@ build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile  ## Binary, shims, settings.json, completion; router restart
+install: compile  ## Build + install the harness; DEV_TOOLS=1 also runs dev-tools
 	$(BIN) install
+	@if [ "$(DEV_TOOLS)" = 1 ]; then $(MAKE) --no-print-directory dev-tools; fi
 	@if $(BIN) router status 2>&1 | grep -qE '^router[[:space:]]+running'; then \
 		$(BIN) router stop >/dev/null && $(BIN) router start >/dev/null; \
 		echo -e "$(C_OK)router restarted (was serving the previous binary)"; \
