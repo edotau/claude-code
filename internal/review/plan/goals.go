@@ -65,9 +65,12 @@ var (
 	headingRe    = regexp.MustCompile(`^(#{1,6})\s+`)
 	finalRe      = regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
 
-	taskLineRe    = regexp.MustCompile(`(?m)^\s*-\s*\[[ xX]\]\s+(.+)$`)
-	internalPkgRe = regexp.MustCompile(`\b(?:internal|cmd)/([A-Za-z0-9_]+)`)
-	topDirRe      = regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\-]+`)
+	taskLineRe = regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s+(.+)$`)
+	fenceRe    = regexp.MustCompile("^\\s*(```|~~~)")
+	// A path's first segment starts at a token start (no lookbehind in RE2), so nested segments never count.
+	internalPkgRe = regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?(internal|cmd)/([A-Za-z0-9_]+)")
+	topDirRe      = regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\\-]+")
+	ownsRe        = regexp.MustCompile(`owns:\s*[^\s—]`)
 	findingsRe    = regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
 	codeTaskRe    = regexp.MustCompile(`(?i)\brunner:|\.go\b`)
 )
@@ -77,7 +80,7 @@ var (
 func countPackageMentions(line string) int {
 	pkgs := map[string]bool{}
 	for _, m := range internalPkgRe.FindAllStringSubmatch(line, -1) {
-		pkgs["internal/"+m[1]] = true
+		pkgs[m[1]+"/"+m[2]] = true
 	}
 	for _, m := range topDirRe.FindAllStringSubmatch(line, -1) {
 		if m[1] == "internal" || m[1] == "cmd" {
@@ -103,10 +106,23 @@ func maxFindingsCount(line string) (int, bool) {
 }
 
 // findOversizedTasks flags `## Tasks` (or phase task) checklist lines that aren't leaf-sized per
-// agents/Plan.md: >3 packages, >10 findings/items, or a code task with no `owns:` segment.
+// agents/Plan.md: >3 packages, >10 findings/items, or a code task with no (or an empty) `owns:`; fences skip.
 func findOversizedTasks(text string) []OversizedTask {
 	var out []OversizedTask
-	for _, m := range taskLineRe.FindAllStringSubmatch(text, -1) {
+	fence := ""
+	for _, raw := range splitLines(text) {
+		if f := fenceRe.FindStringSubmatch(raw); f != nil {
+			if fence == "" {
+				fence = f[1]
+			} else if fence == f[1] {
+				fence = ""
+			}
+			continue
+		}
+		m := taskLineRe.FindStringSubmatch(raw)
+		if fence != "" || m == nil {
+			continue
+		}
 		line := m[1]
 		var reasons []string
 		if n := countPackageMentions(line); n > 3 {
@@ -115,7 +131,7 @@ func findOversizedTasks(text string) []OversizedTask {
 		if n, ok := maxFindingsCount(line); ok && n >= 11 {
 			reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
 		}
-		if codeTaskRe.MatchString(line) && !strings.Contains(line, "owns:") {
+		if codeTaskRe.MatchString(line) && !ownsRe.MatchString(line) {
 			reasons = append(reasons, "code task has no `owns:` segment")
 		}
 		if len(reasons) == 0 {
