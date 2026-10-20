@@ -19,21 +19,21 @@ What the binary adds to a stock install:
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude   # or into an existing ~/.claude
 cd ~/.claude
-make install                        # builds bin/claude-code, links shims + ~/.local/bin/claude-code, renders settings.json
+make install                        # builds bin/claude-code, links bin/<vendor> + ~/.local/bin/claude-code, renders settings.json
 claude-code doctor
-export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claude/codex/... go through the shims
+export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claude/codex/... are the real CLIs, unrouted
 ```
 
-`make install` runs `claude-code install`: it copies the binary into `~/.claude/bin`, symlinks the shims
-`claude codex gemini opencode copilot` → `claude-code`, links `~/.local/bin/claude-code` (only that name, so
-the bare CLIs stay untouched unless you add `~/.claude/bin` to `PATH`), and merges the harness hooks/permissions/statusLine
+`make install` runs `claude-code install`: it copies the binary into `~/.claude/bin`, links each vendor CLI
+`bin/{claude,codex,gemini,opencode,copilot}` to its `PATH` copy (a direct install in `bin/` is kept; a missing
+CLI is reported, never downloaded — `install --tools=<name>` installs it), links `~/.local/bin/claude-code`, and merges the harness hooks/permissions/statusLine
 into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
 `claude-code install --dry-run`; print the render alone with `claude-code generate` (alias: `settings`).
 On WSL, plain install also sets up the `wl-paste` image-paste proxy; `claude-code clip` is the fallback.
 
-With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selected provider and
-`codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found
-past the shims.
+`bin/<vendor>` is the real CLI (`bin/gemini` is agy), and the harness execs it by repo path, never by a `PATH`
+search. Routed launches go through `claude-code <vendor>` / `claude-code run <vendor>` (Claude Code itself:
+`claude-code --provider <p>`); running `bin/<vendor>` directly bypasses the registry.
 
 `claude-code` with no arguments prints the menu.
 
@@ -54,7 +54,7 @@ A tier word sets only the main-loop model; subagent slots keep their own pins.
 when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, installs bash tab-completion
 (`claude-code completion --install`; `source <(claude-code completion)` for the current shell) and then
 `claude-code configure`. `make setup-env APPLY=1` puts `~/.local/go/bin` and `~/go/bin` on your shell's
-`PATH` alongside the shims. `make help` lists every target; `make audit` is the CI gate.
+`PATH` alongside `~/.claude/bin`. `make help` lists every target; `make audit` is the CI gate.
 
 ## Setup
 
@@ -99,9 +99,10 @@ first falls back to codex's own ChatGPT login, then offers `configure` for codex
 error while someone is at the terminal.
 
 `doctor`'s advisory `tool <name>` rows show the resolved executable and version, flag a real CLI
-that **shadows the shim** (bypassing launch env), and list distinct extra executables as **also on PATH**.
+behind each `bin/<vendor>` link (`<bin> → <target>`), flag a regular file or a broken link there, and list distinct
+extra executables as **also on PATH**.
 `claude-code install --tools` retires all npm-global Codex/OpenCode copies found on PATH after the
-new `~/.local/bin` copy answers `--version`, not just the first copy.
+new copy answers `--version`, not just the first copy.
 Own-login route notes print only for an interactive terminal launch or `--print-env`, not version/help
 probes or `run` subcommands.
 
@@ -119,14 +120,16 @@ Vendor destinations include codex `~/.codex/config.toml`, opencode
 `~/.gemini/antigravity-cli/settings.json` (never over a cached Google login).
 Foreign config keys are retained, with one `.backup` per changed existing file.
 Copilot routing is reported as launch-time env. The rendered codex and opencode
-blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only the shims
-export: run `codex`/`opencode` through `~/.claude/bin` (or `claude-code run <vendor>`), not the bare binary, or
-the block resolves to no key. Codex's `~/.codex/hooks.json` and Copilot's `~/.copilot/hooks/claude-code-harness.json`
+blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only a routed
+launch exports: run `claude-code codex` / `claude-code opencode` (or `claude-code run <vendor>`); the bare
+`bin/codex` gets no harness key, so the block resolves to no key. Codex's `~/.codex/hooks.json` and Copilot's `~/.copilot/hooks/claude-code-harness.json`
 merge harness hooks while retaining foreign hooks (including Orca's); invalid existing hook JSON aborts
 rather than being overwritten. Copilot also merges `~/.copilot/settings.json`.
 `vscode` does the same for VS
-Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
-Copilot extensions pointed at the shims, the terminal profile, right-click = paste in the integrated terminal
+Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): terminal profiles launch
+`claude-code <vendor>` (`claude-code claude` for Claude Code itself) — the retired `claudeProcessWrapper`
+setting is dropped; the ChatGPT extension's `cliExecutable` still runs the real codex unrouted (D2);
+right-click = paste in the integrated terminal
 (the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
 box renders its own. Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences →
 Pointer → "Right button single click" → Paste from clipboard; Terminal.app has no right-click paste.
@@ -192,7 +195,7 @@ claude-code models                         # resolved slots and whether the rout
 claude-code models --pin haiku=openai:gpt-5-nano --pin opus=claude-opus-5
 claude-code models --unpin
 claude-code models --live --provider gateway      # what the upstream serves
-claude --provider gateway --model claude-sonnet-5                # this launch only
+claude-code --provider gateway --model claude-sonnet-5           # this launch only
 ```
 
 `models` accepts flags only: stray positional arguments exit 2 with `models: unexpected argument`
@@ -238,7 +241,7 @@ every audit. `/harness:secrets-scan` wraps the audits.
 and no `fallback` is configured: `ANTHROPIC_BASE_URL` points at the route and `apiKeyHelper` is
 `claude-code token --provider <p>` (omitted for `passthrough`, so subscription login keeps working).
 A `passthrough` login also launches direct when only a `fallback` ladder would route it — the loopback
-`ANTHROPIC_BASE_URL` disables Remote Control; `claude --router` forces the router for one launch.
+`ANTHROPIC_BASE_URL` disables Remote Control; `claude-code --router` forces the router for one launch.
 
 Otherwise it launches through the **loopback router** (started on demand, `127.0.0.1:18765` by default):
 `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/p/<provider>` and `apiKeyHelper` = `claude-code token --router`,
@@ -264,7 +267,7 @@ literal IP or `localhost` in `base_url` (Ollama, a dev gateway) is your own choi
 ```bash
 claude-code router start | status | stop
 claude-code router serve --port 18765      # foreground, for debugging
-claude --router                            # force the router for a direct-capable provider
+claude-code --router                       # force the router for a direct-capable provider
 ```
 
 The built-in default is `subscription` with no fallback ladder, so a plain `claude` runs direct. When a ladder or

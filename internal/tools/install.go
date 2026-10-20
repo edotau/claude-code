@@ -21,8 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Install script URLs, verified by downloading and reading each one (see internal/tools/install.go
-// callers below for the env/arg each needs to land in ~/.local/bin).
+// Install script URLs, verified by downloading and reading each one (callers below pass the env/args each needs).
 var (
 	claudeInstallScriptURL   = "https://claude.ai/install.sh"
 	copilotInstallScriptURL  = "https://gh.io/copilot-install"
@@ -84,31 +83,31 @@ func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string,
 	return cmd.Run()
 }
 
-// installClaude runs Anthropic's own installer, which lands under ~/.local/share/claude/versions and
-// symlinks ~/.local/bin/claude itself (see internal/launch.ClaudeBinary) — no env knob needed.
-func installClaude(ctx context.Context, w io.Writer, dryRun bool) error {
+// installClaude runs Anthropic's installer, which itself lands in ~/.local/share/claude/versions + ~/.local/bin/claude.
+func installClaude(ctx context.Context, w io.Writer, _ string, dryRun bool) error {
 	return runInstallScript(ctx, w, dryRun, claudeInstallScriptURL, nil, nil)
 }
 
-// installCopilot forces PREFIX=$HOME/.local so the installer's own default (root -> /usr/local) never
-// applies; its "bin" subdir is where the copilot binary lands.
-func installCopilot(ctx context.Context, w io.Writer, dryRun bool) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+// installCopilot forces PREFIX so the installer (which writes $PREFIX/bin) lands in dir. dir is
+// usually bin/ already, so PREFIX=filepath.Dir(dir); when installDir handed back some other
+// directory (e.g. an existing install's own non-bin/ tree), filepath.Dir(dir) would be the wrong
+// PREFIX, so this installs into paths.BinDir() instead and reports the corrected target.
+func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	if filepath.Base(dir) != "bin" {
+		corrected := paths.BinDir()
+		fmt.Fprintf(w, "  into     %s (not a bin/ dir; installing into BinDir instead)\n", corrected)
+		dir = corrected
 	}
-	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Join(home, ".local")})
+	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// installOpencode runs the upstream installer (no env knob exists — INSTALL_DIR is hardcoded to
-// $HOME/.opencode/bin) with --no-modify-path so it never edits shell rc files, then copies the
-// resulting binary into ~/.local/bin alongside every other tool here.
-func installOpencode(ctx context.Context, w io.Writer, dryRun bool) error {
+// installOpencode runs upstream's installer (INSTALL_DIR is fixed at ~/.opencode/bin), then copies into dir.
+func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	if err := runInstallScript(ctx, w, dryRun, opencodeInstallScriptURL, []string{"--no-modify-path"}, nil); err != nil {
 		return err
 	}
 	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would copy ~/.opencode/bin/opencode into ~/.local/bin)")
+		fmt.Fprintf(w, "  (dry-run: would copy ~/.opencode/bin/opencode into %s)\n", dir)
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -120,7 +119,7 @@ func installOpencode(ctx context.Context, w io.Writer, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("opencode: installed but %s unreadable: %w", src, err)
 	}
-	return installBinary(w, "opencode", data)
+	return installBinary(w, dir, "opencode", data)
 }
 
 // ghRelease is the subset of a GitHub releases/latest response this package reads.
@@ -188,9 +187,8 @@ func extractTarGzSingleFile(data []byte) ([]byte, error) {
 // codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
 var codexCompanions = []string{"codex-code-mode-host"}
 
-// installCodex resolves the latest codex release, downloads its linux/darwin binary asset plus each companion
-// binary, and extracts the single file each contains into ~/.local/bin.
-func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
+// installCodex extracts the latest platform release and its companion binaries into dir.
+func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)
 	data, err := httpGet(ctx, codexReleaseURL)
 	if err != nil {
@@ -209,7 +207,7 @@ func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
 		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
 		return nil
 	}
-	if err := installReleaseBinary(ctx, w, "codex", dlURL); err != nil {
+	if err := installReleaseBinary(ctx, w, dir, "codex", dlURL); err != nil {
 		return err
 	}
 	for _, name := range codexCompanions {
@@ -218,7 +216,7 @@ func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
 		if i < 0 {
 			return fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
 		}
-		if err := installReleaseBinary(ctx, w, name, rel.Assets[i].URL); err != nil {
+		if err := installReleaseBinary(ctx, w, dir, name, rel.Assets[i].URL); err != nil {
 			return err
 		}
 	}
@@ -226,7 +224,7 @@ func installCodex(ctx context.Context, w io.Writer, dryRun bool) error {
 }
 
 // installReleaseBinary downloads one single-file .tar.gz release asset and installs it as name.
-func installReleaseBinary(ctx context.Context, w io.Writer, name, url string) error {
+func installReleaseBinary(ctx context.Context, w io.Writer, dir, name, url string) error {
 	tgz, err := httpGet(ctx, url)
 	if err != nil {
 		return err
@@ -235,7 +233,7 @@ func installReleaseBinary(ctx context.Context, w io.Writer, name, url string) er
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	return installBinary(w, name, bin)
+	return installBinary(w, dir, name, bin)
 }
 
 // claudeScienceAssetName mirrors claude.ai/install.sh's own os/arch naming (x64/arm64), verified by
@@ -254,7 +252,7 @@ func claudeScienceAssetName(goos, goarch string) string {
 }
 
 // installClaudeScience downloads the direct binary for this platform and installs it atomically.
-func installClaudeScience(ctx context.Context, w io.Writer, dryRun bool) error {
+func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	asset := claudeScienceAssetName(runtime.GOOS, runtime.GOARCH)
 	if asset == "" {
 		return fmt.Errorf("claude-science: no download mapped for %s/%s", runtime.GOOS, runtime.GOARCH)
@@ -269,14 +267,14 @@ func installClaudeScience(ctx context.Context, w io.Writer, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	return installBinary(w, "claude-science", data)
+	return installBinary(w, dir, "claude-science", data)
 }
 
 // updateClaudeScience runs the installed binary's own updater; a missing binary falls back to a fresh install.
-func updateClaudeScience(ctx context.Context, w io.Writer, dryRun bool) error {
+func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	bin, err := paths.LookPathReal("claude-science")
 	if err != nil {
-		return installClaudeScience(ctx, w, dryRun)
+		return installClaudeScience(ctx, w, dir, dryRun)
 	}
 	fmt.Fprintf(w, "  exec     %s update\n", bin)
 	if dryRun {
@@ -288,8 +286,11 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dryRun bool) error {
 }
 
 // updateAgy runs the installed binary's own updater; agy has no known fresh-install path (Hint covers that).
-func updateAgy(ctx context.Context, w io.Writer, dryRun bool) error {
-	bin, err := paths.LookPathReal("agy")
+func updateAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	bin, err := paths.VendorBin("agy")
+	if err != nil {
+		bin, err = paths.LookPathReal("agy")
+	}
 	if err != nil {
 		return errors.New("agy: not on PATH; no known install URL (claude-code configure signs it in)")
 	}

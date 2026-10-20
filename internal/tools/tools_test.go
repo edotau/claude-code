@@ -12,24 +12,35 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
-func toolsTestDir(t *testing.T) string {
+type toolsTestEnv struct {
+	home   string
+	config string
+	path1  string
+	path2  string
+}
+
+func setupToolsTestEnv(t *testing.T) toolsTestEnv {
 	t.Helper()
-	dir, err := os.MkdirTemp(".", ".tools-test-")
-	if err != nil {
-		t.Fatal(err)
+	env := toolsTestEnv{
+		home:   t.TempDir(),
+		config: t.TempDir(),
+		path1:  t.TempDir(),
+		path2:  t.TempDir(),
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Error(err)
-		}
-	})
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return abs
+	t.Setenv("HOME", env.home)
+	t.Setenv("CLAUDE_CONFIG_DIR", env.config)
+	setToolsPath(t, env.path1, env.path2)
+	return env
+}
+
+func setToolsPath(t *testing.T, dirs ...string) {
+	t.Helper()
+	dirs = append(dirs, "/usr/bin", "/bin")
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
 }
 
 func writeToolsFixture(t *testing.T, path, content string, mode os.FileMode) {
@@ -63,13 +74,12 @@ func npmToolsFixture(t *testing.T, root, name, pkg string) string {
 
 func isolateToolsEnv(t *testing.T, root string) (string, string) {
 	t.Helper()
-	home := filepath.Join(root, "home")
-	bin := filepath.Join(home, ".local", "bin")
+	env := setupToolsTestEnv(t)
+	bin := filepath.Join(env.home, ".local", "bin")
 	marker := filepath.Join(root, "npm-called")
 	writeToolsFixture(t, filepath.Join(bin, "npm"),
 		"#!/bin/sh\nprintf '%s\\n' \"$@\" >> "+strconv.Quote(marker)+"\n", 0o755)
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", bin)
+	setToolsPath(t, bin, env.path1, env.path2)
 	return bin, marker
 }
 
@@ -111,7 +121,7 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 		{"codex", "@openai/codex"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := toolsTestDir(t)
+			root := t.TempDir()
 			localBin, marker := isolateToolsEnv(t, root)
 			writeToolsFixture(t, filepath.Join(localBin, tc.name), "#!/bin/sh\nexit 0\n", 0o755)
 			prefixA := npmToolsFixture(t, filepath.Join(root, "a"), tc.name, tc.pkg)
@@ -132,14 +142,14 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 				t.Fatal(err)
 			}
 			symlinkToolsFixture(t, dirTarget, filepath.Join(dirPrefix, "bin", tc.name))
-			t.Setenv("PATH", strings.Join([]string{
+			setToolsPath(t,
 				localBin, missingBin, filepath.Join(nonexecPrefix, "bin"), filepath.Join(dirPrefix, "bin"),
 				filepath.Join(prefixA, "bin"), alias, filepath.Join(prefixA, "bin"), filepath.Join(prefixB, "bin"),
-			}, string(os.PathListSeparator)))
+			)
 
 			if tc.name == "codex" {
 				calls := 0
-				stubToolsInstall(t, tc.name, func(_ context.Context, _ io.Writer, dryRun bool) error {
+				stubToolsInstall(t, tc.name, func(_ context.Context, _ io.Writer, _ string, dryRun bool) error {
 					calls++
 					if !dryRun {
 						t.Error("expected a dry-run installer")
@@ -172,13 +182,13 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 }
 
 func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
-	root := toolsTestDir(t)
+	root := t.TempDir()
 	localBin, marker := isolateToolsEnv(t, root)
 	writeToolsFixture(t, filepath.Join(localBin, "opencode"), "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
 	prefix := npmToolsFixture(t, root, "opencode", "opencode-ai")
-	t.Setenv("PATH", localBin+string(os.PathListSeparator)+filepath.Join(prefix, "bin"))
+	setToolsPath(t, localBin, filepath.Join(prefix, "bin"))
 	wantErr := errors.New("installer failed")
-	stubToolsInstall(t, "opencode", func(context.Context, io.Writer, bool) error { return wantErr })
+	stubToolsInstall(t, "opencode", func(context.Context, io.Writer, string, bool) error { return wantErr })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -199,16 +209,23 @@ func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
 		{"empty-version", "#!/bin/sh\nexit 0\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := toolsTestDir(t)
+			root := t.TempDir()
 			localBin, marker := isolateToolsEnv(t, root)
-			if tc.script != "" {
-				writeToolsFixture(t, filepath.Join(localBin, "opencode"), tc.script, 0o755)
-			}
 			prefix := npmToolsFixture(t, root, "opencode", "opencode-ai")
-			t.Setenv("PATH", localBin+string(os.PathListSeparator)+filepath.Join(prefix, "bin"))
-			stubToolsInstall(t, "opencode", func(_ context.Context, _ io.Writer, dryRun bool) error {
+			setToolsPath(t, localBin, filepath.Join(prefix, "bin"))
+			localPath := filepath.Join(prefix, "bin", "opencode")
+			stubToolsInstall(t, "opencode", func(_ context.Context, _ io.Writer, dir string, dryRun bool) error {
 				if dryRun {
 					t.Error("expected a real-run version guard")
+				}
+				if got := filepath.Join(dir, "opencode"); got != localPath {
+					t.Errorf("local install path = %q, want %q", got, localPath)
+				}
+				if err := os.Remove(localPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+					t.Fatal(err)
+				}
+				if tc.script != "" {
+					writeToolsFixture(t, localPath, tc.script, 0o755)
 				}
 				return nil
 			})
@@ -222,7 +239,87 @@ func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
 			if got := npmCleanupLines(out.String()); len(got) != 0 {
 				t.Errorf("unverified local install planned cleanup: %q", got)
 			}
+			wantKeep := "  keep     npm-global opencode (" + localPath + " did not answer --version)"
+			if !strings.Contains(out.String(), wantKeep) {
+				t.Errorf("keep line = %q, want to name %q", out.String(), localPath)
+			}
 			assertNpmNotRun(t, marker)
+		})
+	}
+}
+
+func TestInstallDir(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		pathCopy   bool
+		direct     bool
+		wantVendor bool
+	}{
+		{name: "claude"},
+		{name: "codex", pathCopy: true, direct: true, wantVendor: true},
+		{name: "codex", pathCopy: true, wantVendor: true},
+		{name: "copilot", wantVendor: true},
+		{name: "claude-science"},
+	} {
+		t.Run(tc.name+"-"+strconv.FormatBool(tc.direct)+"-"+strconv.FormatBool(tc.pathCopy), func(t *testing.T) {
+			env := setupToolsTestEnv(t)
+			tool, ok := Lookup(tc.name)
+			if !ok {
+				t.Fatalf("Lookup(%q) failed", tc.name)
+			}
+			if tc.pathCopy {
+				writeToolsFixture(t, filepath.Join(env.path1, tool.Binary), "#!/bin/sh\nexit 0\n", 0o755)
+			}
+			if tc.direct {
+				writeToolsFixture(t, filepath.Join(paths.BinDir(), tool.Binary), "#!/bin/sh\nexit 0\n", 0o755)
+			}
+
+			want := filepath.Join(env.home, ".local", "bin")
+			if tc.wantVendor {
+				want = paths.BinDir()
+			}
+			if tc.name == "codex" && tc.pathCopy && !tc.direct {
+				want = env.path1
+			}
+			var oldPath string
+			if tc.pathCopy {
+				oldPath = filepath.Join(env.path1, tool.Binary)
+			}
+			if got := installDir(tool, oldPath); got != want {
+				t.Errorf("installDir(%s, %q) = %q, want %q", tc.name, oldPath, got, want)
+			}
+		})
+	}
+}
+
+func TestInstallSelectedCopilotDryRunReportsInstallDir(t *testing.T) {
+	for _, pathCopy := range []bool{false, true} {
+		t.Run("path-copy-"+strconv.FormatBool(pathCopy), func(t *testing.T) {
+			env := setupToolsTestEnv(t)
+			if pathCopy {
+				writeToolsFixture(t, filepath.Join(env.path1, "copilot"), "#!/bin/sh\nexit 0\n", 0o755)
+			}
+			wantDir := paths.BinDir()
+			if pathCopy {
+				wantDir = env.path1
+			}
+			stubToolsInstall(t, "copilot", func(_ context.Context, _ io.Writer, dir string, dryRun bool) error {
+				if !dryRun {
+					t.Error("expected dry-run installer")
+				}
+				if dir != wantDir {
+					t.Errorf("install dir = %q, want %q", dir, wantDir)
+				}
+				return nil
+			})
+
+			var out bytes.Buffer
+			if err := InstallSelected(context.Background(), &out, []string{"copilot"}, true); err != nil {
+				t.Fatal(err)
+			}
+			if want := "  into     " + wantDir; !strings.Contains(out.String(), want) {
+				t.Errorf("output = %q, want line containing %q", out.String(), want)
+			}
 		})
 	}
 }

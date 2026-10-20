@@ -119,7 +119,7 @@ func hint(p *Provider) string {
 
 // ClaudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
 func ClaudeLoginStatus() (loggedIn bool, plan string) {
-	bin, err := exec.LookPath("claude")
+	bin, err := paths.VendorBin("claude")
 	if err != nil {
 		return false, ""
 	}

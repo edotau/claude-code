@@ -36,17 +36,17 @@ func installOCFake(t *testing.T, f *ocFake) {
 	})
 	opencodeAuth = func() ([]vendors.OpencodeIntegration, error) { return f.ints, f.err }
 	opencodeMajor = func() int { return f.major }
-	opencodeLogoutArgv = func(id, cred string) []string {
+	opencodeLogoutArgv = func(id, cred string) ([]string, error) {
 		if f.major >= 2 {
-			return []string{"/real/opencode", "auth", "logout", id, cred}
+			return []string{"/real/opencode", "auth", "logout", id, cred}, nil
 		}
-		return []string{"/real/opencode", "auth", "logout", id}
+		return []string{"/real/opencode", "auth", "logout", id}, nil
 	}
-	opencodeSwitchArgv = func(id, cred string) []string {
+	opencodeSwitchArgv = func(id, cred string) ([]string, error) {
 		if f.major >= 2 {
-			return []string{"/real/opencode", "auth", "switch", id, cred}
+			return []string{"/real/opencode", "auth", "switch", id, cred}, nil
 		}
-		return nil
+		return nil, nil
 	}
 	invalidateOpencodeAuth = func() { f.invalidated++ }
 	opencodeList = func(spec tui.ListSpec, start int) (tui.ListResult, error) {

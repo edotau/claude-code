@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
@@ -65,24 +68,14 @@ func configureCommandEnv(t *testing.T, mode string) (bin, log, ready string) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	dir := t.TempDir()
-	shimDir := filepath.Join(cfg, "bin")
-	if err := os.MkdirAll(shimDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(shimDir, "claude"), []byte("#!/bin/sh\nexit 95\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	bin = filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nexec \"$CONFIGURE_HELPER_EXE\" -test.run='^TestConfigureCommandHelper$' -- \"$@\"\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	bin = pathstest.FakeVendor(t, "claude",
+		`exec "$CONFIGURE_HELPER_EXE" -test.run='^TestConfigureCommandHelper$' -- "$@"`)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	log, ready = filepath.Join(dir, "argv"), filepath.Join(dir, "ready")
-	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+dir)
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("CONFIGURE_COMMAND_HELPER", "1")
 	t.Setenv("CONFIGURE_HELPER_EXE", exe)
 	t.Setenv("CONFIGURE_COMMAND_MODE", mode)
@@ -177,6 +170,9 @@ func TestLoginAndMintContext(t *testing.T) {
 			t.Run(action+"/"+mode, func(t *testing.T) {
 				bin, log, ready := configureCommandEnv(t, mode)
 				argv := []string{bin, action, "argument with spaces"}
+				if !mint {
+					argv[0] = "claude"
+				}
 				var token string
 				run := func(ctx context.Context) error {
 					if mint {
@@ -219,6 +215,58 @@ func TestLoginAndMintContext(t *testing.T) {
 				assertConfigureArgv(t, log, argv[1:])
 			})
 		}
+	}
+}
+
+func TestVendorArgv(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "copilot", "opencode", "gemini", "agy"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv("PATH", t.TempDir())
+			bin := pathstest.FakeVendor(t, name, "exit 0")
+			argv := []string{name, "login", "argument with spaces"}
+			original := slices.Clone(argv)
+			got, err := vendorArgv(argv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{bin, "login", "argument with spaces"}; !slices.Equal(got, want) {
+				t.Errorf("vendorArgv = %v, want %v", got, want)
+			}
+			if !slices.Equal(argv, original) {
+				t.Errorf("input changed to %v, want %v", argv, original)
+			}
+			got[1] = "changed"
+			if !slices.Equal(argv, original) {
+				t.Errorf("result aliases input: %v", argv)
+			}
+		})
+	}
+}
+
+func TestVendorArgvGithubUnchanged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	argv := []string{"gh", "auth", "login"}
+	got, err := vendorArgv(argv)
+	if err != nil || !slices.Equal(got, argv) {
+		t.Errorf("vendorArgv = %v, %v; want %v, nil", got, err, argv)
+	}
+}
+
+func TestVendorArgvMissingVendor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	argv := []string{"copilot", "login"}
+	original := slices.Clone(argv)
+	_, wantErr := paths.VendorBin("copilot")
+	if wantErr == nil {
+		t.Fatal("expected missing vendor")
+	}
+	got, err := vendorArgv(argv)
+	if got != nil || err == nil || err.Error() != wantErr.Error() {
+		t.Errorf("vendorArgv = %v, %v; want nil, %v", got, err, wantErr)
+	}
+	if !slices.Equal(argv, original) {
+		t.Errorf("input changed to %v, want %v", argv, original)
 	}
 }
 

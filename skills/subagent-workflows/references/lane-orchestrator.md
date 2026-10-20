@@ -91,10 +91,25 @@ the item to the manager unticked.
 
 ## Lessons from the 2026-10-20 run
 
-- Raise the ask timeout: the 10m default killed 6 legs.
-- Copilot sessions die while polling: dispatch test leaves after their implementers exit.
-- Scratch lives under `/tmp/claude-1000/<leaf>` and is deleted when done: `/tmp` is a 16 GB tmpfs.
-- Prove a safety-guard change by executing payloads against main's binary, not by reading the diff.
-- Never run `generate` with a non-default config dir until you understand `--vendors` (it writes the live vendor configs).
-- Prefer narrow review leaves, one area each, over one whole-branch review.
-- The Agent-tool inflight cap is 8 machine-wide; lanes fan out via `claude-code ask`, which doesn't count against it.
+Classify a failed leaf into one bucket before changing its brief or runner; each line is symptom → the check.
+Buckets from [agent-trace-triage](https://github.com/WasayAbid/agent-trace-triage) (WasayAbid), MIT.
+
+- **recovery_policy** — loops, caps, timeouts; the leaf never finishes cleanly:
+  - 10m ask timeout killed 6 legs → `--timeout 45m` on every `--tools` leaf; ≤10 findings per leaf.
+  - 60-turn cap hit with no report → leaf ≤10 edits; a silent exit gets `git status` in its worktree, not a retry.
+  - `--fallback all` hid which runner did the work → `--fallback none`, so a red leaf stays red on its own runner.
+- **tool_execution** — the runner or its environment errors out:
+  - Copilot sessions die while polling → start a test-repair leaf only after its implementer's exit line lands.
+  - `/tmp` (16 GB tmpfs) filled and broke a test → scratch in `/tmp/claude-1000/<leaf>`, deleted when done.
+- **tool_selection** — the wrong tool or leaf shape for the job:
+  - One whole-branch review leaf → narrow review leaves, one area each.
+  - Agent-tool inflight cap (8, machine-wide) → lanes fan out via `claude-code ask`, which doesn't count against it.
+  - Safety-guard change judged by reading the diff → execute the payloads against main's binary and the new one.
+- **tool_arguments** — right tool, wrong flags, env or paths:
+  - `generate` with a non-default config dir wrote live vendor configs → read `--vendors` and `--dry-run` first.
+  - A test wrote the real `~/.claude/skills` → `HOME` and `CLAUDE_CONFIG_DIR` set to `t.TempDir()` in the test.
+  - `isolate.sh` tested with copy dir `/tmp/claude-1000` wiped every session's scratch → a fresh `mktemp -d` root.
+- **state_orchestration** — every step succeeds, but the result lands in the wrong place or is lost:
+  - opencode ignored `--workdir` and wrote the live tree → `git -C ~/.claude status --short` same before and after.
+  - A provider-only commit broke another package's build → `go build ./...` plus each consumer's tests (step 4).
+  - Copilot reports omit exit codes → rerun every command in the isolated copy; gate on its exit code.

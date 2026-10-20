@@ -4,7 +4,6 @@
   "claudeCode.hideOnboarding": true,
   "claudeCode.attachOpenFile": false,
   "claudeCode.attachSelection": false,
-  "claudeCode.claudeProcessWrapper": "__CLAUDE_BIN__/claude",
   "claudeCode.preferredLocation": "sidebar",
   "chat.useClaudeHooks": true,
   "chatgpt.cliExecutable": "__CLAUDE_BIN__/codex",
@@ -39,7 +38,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/claude"
+        "exec __CLAUDE_BIN__/claude-code claude"
       ],
       "env": {
         "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
@@ -51,7 +50,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/codex"
+        "exec __CLAUDE_BIN__/claude-code codex"
       ],
       "icon": "hubot",
       "color": "terminal.ansiWhite"
@@ -60,7 +59,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/opencode"
+        "exec __CLAUDE_BIN__/claude-code opencode"
       ],
       "icon": "terminal",
       "color": "terminal.ansiCyan"
@@ -69,7 +68,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/gemini"
+        "exec __CLAUDE_BIN__/claude-code gemini"
       ],
       "icon": "star-full",
       "color": "terminal.ansiBlue"
@@ -78,7 +77,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/copilot"
+        "exec __CLAUDE_BIN__/claude-code copilot"
       ],
       "icon": "copilot",
       "color": "terminal.ansiMagenta"
@@ -96,7 +95,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/claude"
+        "exec __CLAUDE_BIN__/claude-code claude"
       ],
       "env": {
         "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
@@ -108,7 +107,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/codex"
+        "exec __CLAUDE_BIN__/claude-code codex"
       ],
       "icon": "hubot",
       "color": "terminal.ansiWhite"
@@ -117,7 +116,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/opencode"
+        "exec __CLAUDE_BIN__/claude-code opencode"
       ],
       "icon": "terminal",
       "color": "terminal.ansiCyan"
@@ -126,7 +125,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/gemini"
+        "exec __CLAUDE_BIN__/claude-code gemini"
       ],
       "icon": "star-full",
       "color": "terminal.ansiBlue"
@@ -135,7 +134,7 @@
       "path": "bash",
       "args": [
         "-lic",
-        "exec __CLAUDE_BIN__/copilot"
+        "exec __CLAUDE_BIN__/claude-code copilot"
       ],
       "icon": "copilot",
       "color": "terminal.ansiMagenta"

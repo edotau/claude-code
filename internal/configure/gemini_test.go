@@ -12,6 +12,26 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
+func TestAgyCommandMissingVendorStartFails(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("PATH", t.TempDir())
+	cmd := agyCommand()
+	if cmd == nil {
+		t.Fatal("agyCommand returned nil")
+	}
+	if err := cmd.Start(); err == nil {
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+		t.Fatal("Start succeeded without bin/gemini")
+	} else if !strings.Contains(err.Error(), filepath.Join(cfg, "bin", "gemini")) ||
+		!strings.Contains(err.Error(), "not installed") {
+		t.Errorf("Start error = %v, want missing bin/gemini error", err)
+	}
+}
+
 // fakeAgyCommand replaces agyCommand with a shell script: setup gives it a chance to touch the marker
 // (or not) before it exits, so each case drives runAgy without a real `agy` binary.
 func fakeAgyCommand(t *testing.T, script string) {
