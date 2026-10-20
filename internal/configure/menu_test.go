@@ -240,8 +240,13 @@ func TestSaveKeysPreFixLogicDroppedTheFailedKey(t *testing.T) {
 // failure (1), not silently report success (0), so a scripted `configure` invocation can detect it.
 func TestRunMenuExitCodeReflectsSaveKeysFailure(t *testing.T) {
 	reg := menuTestEnv(t)
+	vaulttest.Use(t)
+	origConfirmed := saveConfirmed
+	t.Cleanup(func() { saveConfirmed = origConfirmed })
+	saveConfirmed = func(string) bool { return true }
 	origMenu := pickMenu
 	t.Cleanup(func() { pickMenu = origMenu })
+	t.Setenv("CONFIGURE_RUNMENU_BAD", "prior-test-value")
 	var d *dialog
 	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
 		d.stage("CONFIGURE_RUNMENU_BAD", "two\nlines") // a real Store failure, staged via the real seam
@@ -258,5 +263,34 @@ func TestRunMenuExitCodeReflectsSaveKeysFailure(t *testing.T) {
 	d2 := &dialog{reg: reg, out: discardWriter{}}
 	if rc := runMenu(d2); rc != 0 {
 		t.Fatalf("runMenu rc = %d, want 0 with nothing staged", rc)
+	}
+}
+
+// Failed saves retain the staged key and its shadowing environment after runMenu returns.
+func TestRunMenuKeepsFailedKeyStagedAfterReturn(t *testing.T) {
+	reg := menuTestEnv(t)
+	vaulttest.Use(t)
+	origConfirmed := saveConfirmed
+	t.Cleanup(func() { saveConfirmed = origConfirmed })
+	saveConfirmed = func(string) bool { return true }
+	origMenu := pickMenu
+	t.Cleanup(func() { pickMenu = origMenu })
+	const name = "CONFIGURE_RUNMENU_KEEP_BAD"
+	t.Setenv(name, "")
+	_ = os.Unsetenv(name)
+	var d *dialog
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
+		d.stage(name, "two\nlines") // secrets.Store genuinely rejects a multi-line value
+		return -1, nil
+	})
+	d = &dialog{reg: reg, out: discardWriter{}}
+	if rc := runMenu(d); rc != 1 {
+		t.Fatalf("runMenu rc = %d, want 1", rc)
+	}
+	if _, staged := d.pending[name]; !staged {
+		t.Error("failed key dropped from pending after runMenu returned, want it kept")
+	}
+	if got := os.Getenv(name); got != "two\nlines" {
+		t.Error("failed key env after return must retain the staged value")
 	}
 }
