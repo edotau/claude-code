@@ -200,11 +200,13 @@ func appendTOML(raw, section string) string {
 func insertTopLevelTOML(raw, section string) string {
 	lines := strings.SplitAfter(raw, "\n")
 	idx := -1
+	multiline := ""
 	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+		if multiline == "" && strings.HasPrefix(strings.TrimSpace(line), "[") {
 			idx = i
 			break
 		}
+		multiline = tomlMultilineState(line, multiline)
 	}
 	if idx == -1 {
 		return appendTOML(raw, section)
