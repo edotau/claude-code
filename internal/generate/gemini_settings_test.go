@@ -172,3 +172,40 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
 	}
 }
+
+// An agy settings.json whose top-level JSON value is `null` or an array (not an object) must be
+// left byte-for-byte untouched, and must never panic (a nil map write, not a type-assertion skip).
+func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
+	for _, content := range []string{"null", "[]"} {
+		t.Run(content, func(t *testing.T) {
+			home := scratch(t)
+			path := geminiSettingsPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("Run panicked on %s settings.json: %v", content, r)
+					}
+				}()
+				var out bytes.Buffer
+				if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+					t.Fatalf("Run: %v\n%s", err, out.String())
+				}
+			}()
+
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != content {
+				t.Errorf("%s settings.json was modified: got %q, want %q", content, raw, content)
+			}
+		})
+	}
+}

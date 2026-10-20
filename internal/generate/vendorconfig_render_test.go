@@ -66,6 +66,59 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 }
 
+// topLevelKeyCount counts "key = " assignments in content that land before the first top-level
+// [table] header (TOML has no way for such a key to belong to any table), skipping bracket-nested
+// and multiline-string content the same way insertTopLevelTOML does.
+func topLevelKeyCount(content, key string) int {
+	count := 0
+	for _, line := range strings.SplitAfter(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			break
+		}
+		if strings.HasPrefix(trimmed, key+" ") {
+			count++
+		}
+	}
+	return count
+}
+
+// The managed banner's approval_policy/sandbox_mode are the vendor spec's top-level keys; a
+// pre-existing top-level key of the same name must be removed (not duplicated), while a same-named
+// key inside an unrelated table ([profiles.x]) is left alone.
+func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
+	home := scratch(t)
+	path := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixture := "approval_policy = \"on-request\"\n\n[profiles.x]\napproval_policy = \"untrusted\"\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(raw)
+
+	if n := topLevelKeyCount(content, "approval_policy"); n != 1 {
+		t.Fatalf("top-level approval_policy count = %d, want 1 (stale key must be removed, not duplicated):\n%s", n, content)
+	}
+	if !strings.Contains(content, "approval_policy = \"never\"") {
+		t.Errorf("top-level approval_policy must be the banner's value (never):\n%s", content)
+	}
+	if !strings.Contains(content, "[profiles.x]") || !strings.Contains(content, "approval_policy = \"untrusted\"") {
+		t.Errorf("profiles.x table's approval_policy must stay intact:\n%s", content)
+	}
+}
+
 // renderCopilotSettings merges defaultPermissionMode into ~/.copilot/settings.json, keeping every
 // other key (foreign scalar and array alike) untouched.
 func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T) {
@@ -128,5 +181,42 @@ func TestCopilotSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 	if string(raw) != broken {
 		t.Errorf("invalid settings.json was modified: got %q, want %q", raw, broken)
+	}
+}
+
+// A copilot settings.json whose top-level JSON value is `null` or an array (not an object) must be
+// left byte-for-byte untouched, and must never panic (a nil map write, not a type-assertion skip).
+func TestCopilotSettingsNullJSONUntouched(t *testing.T) {
+	for _, content := range []string{"null", "[]"} {
+		t.Run(content, func(t *testing.T) {
+			home := scratch(t)
+			path := filepath.Join(home, ".copilot", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("Run panicked on %s settings.json: %v", content, r)
+					}
+				}()
+				var out bytes.Buffer
+				if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"copilot"}}); err != nil {
+					t.Fatalf("Run: %v\n%s", err, out.String())
+				}
+			}()
+
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != content {
+				t.Errorf("%s settings.json was modified: got %q, want %q", content, raw, content)
+			}
+		})
 	}
 }

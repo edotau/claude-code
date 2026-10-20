@@ -533,6 +533,10 @@ func renderGeminiSettings(home string, o Options, out io.Writer) (bool, error) {
 			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
 			return false, nil
 		}
+		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
+			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
+			return false, nil
+		}
 	}
 	perms, _ := next["permissions"].(map[string]any)
 	if perms == nil {
@@ -618,6 +622,10 @@ func renderCopilotSettings(home string, o Options, out io.Writer) (bool, error) 
 	if existed {
 		if err := json.Unmarshal(raw, &next); err != nil {
 			fmt.Fprintf(out, "copilot-settings: skipped: %s is not plain JSON: %v\n", path, err)
+			return false, nil
+		}
+		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
+			fmt.Fprintf(out, "copilot-settings: skipped: %s is not plain JSON: not an object\n", path)
 			return false, nil
 		}
 	}
