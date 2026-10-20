@@ -12,17 +12,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // SavePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
-// PostToolUse only fires on approval; tool_input.plan is the approved text, planFilePath its scratch copy.
+// PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
 func SavePlan(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
 	plan := []byte(in.nested("tool_input", "plan"))
 	if len(plan) == 0 {
-		plan, _ = os.ReadFile(in.nested("tool_input", "planFilePath"))
+		plan = []byte(in.nested("tool_response", "plan"))
+	}
+	for _, path := range []string{in.nested("tool_response", "filePath"), in.nested("tool_input", "planFilePath")} {
+		if len(plan) != 0 {
+			break
+		}
+		if path != "" {
+			var err error
+			plan, err = os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(stderr, "save-plan: %v\n", err)
+			}
+		}
 	}
 	if len(bytes.TrimSpace(plan)) == 0 {
 		return ExitProceed
@@ -39,6 +52,8 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "save-plan: %v\n", err)
 	} else if err := os.WriteFile(dest, plan, 0o600); err != nil {
 		fmt.Fprintf(stderr, "save-plan: %v\n", err)
+	} else {
+		audit.Log(audit.PlanSaved, "save-plan", dest)
 	}
 	return ExitProceed
 }

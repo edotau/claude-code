@@ -41,6 +41,39 @@ func placementPayload(t *testing.T, tool, path string) string {
 	return string(b)
 }
 
+func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(docsPlacementDisableEnv, "1")
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("docs/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"patch", "input", "command"} {
+		for _, directive := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
+			for _, path := range []string{"STRAY.md", "docs/STRAY.md"} {
+				t.Run(key+"/"+directive+path, func(t *testing.T) {
+					input := map[string]any{"patch": 42, "input": "not a patch", "command": "not a patch"}
+					input[key] = "*** Begin Patch\n" + directive + path + "\n+hi\n*** End Patch"
+					raw, err := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": repo, "tool_input": input})
+					if err != nil {
+						t.Fatal(err)
+					}
+					var stderr bytes.Buffer
+					if code := DocsPlacement(bytes.NewReader(raw), &stderr); code != ExitBlock {
+						t.Fatalf("code = %d, want block: %s", code, &stderr)
+					}
+					if !strings.Contains(stderr.String(), "docs-placement: BLOCKED") {
+						t.Fatalf("missing block message: %s", &stderr)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestDocsPlacementGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)

@@ -22,7 +22,10 @@ var skipSimplifyAgents = map[string]bool{
 // SimplifyAfterEdits blocks a subagent's FIRST stop when it edited source code, sending it back to run the
 // simplify pass on those files. Exit 2 on SubagentStop keeps the subagent going with stderr as its next input.
 func SimplifyAfterEdits(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+	return simplifyAfterEdits(ParseInput(r), stderr)
+}
+
+func simplifyAfterEdits(in *Input, stderr io.Writer) int {
 	if in.StopHookActive || in.AgentTranscriptPath == "" {
 		return ExitProceed
 	}

@@ -135,10 +135,17 @@ func rtkEligible(cmd, bin string) bool {
 			return false
 		}
 	}
-	lower := strings.ToLower(cmd)
-	for _, flag := range rtkMachineReadable {
-		if strings.Contains(lower, flag) {
-			return false
+	tokens := shellTokens(strings.ToLower(cmd))
+	for i, token := range tokens {
+		name, _, _ := strings.Cut(token, "=")
+		for _, flag := range rtkMachineReadable {
+			if flag == "-o json" {
+				if name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
+					return false
+				}
+			} else if name == flag {
+				return false
+			}
 		}
 	}
 	return true

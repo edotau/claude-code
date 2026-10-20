@@ -44,6 +44,35 @@ func TestRTKWrapsEligibleCommand(t *testing.T) {
 	}
 }
 
+func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
+	t.Setenv(rtkBinaryEnv, "echo")
+	for _, cmd := range []string{
+		"git checkout feature-zero",
+		`git commit -m "add -z flag"`,
+		"git checkout feature--json",
+		"git log --formatter=short",
+		"kubectl get pods -o wide json",
+	} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != "echo "+cmd {
+			t.Errorf("%q: got %q (emitted=%v), want rewrite", cmd, got, ok)
+		}
+	}
+	for _, flag := range rtkMachineReadable {
+		variants := []string{flag, strings.ToUpper(flag)}
+		if flag != "-o json" {
+			variants = append(variants, flag+"=value")
+		}
+		for _, suffix := range variants {
+			if got, ok := rtkOut(t, rtkBashIn("git log "+suffix)); ok {
+				t.Errorf("real flag %q was wrapped to %q", suffix, got)
+			}
+		}
+	}
+	if got, ok := rtkOut(t, rtkBashIn(`kubectl get pods -o "json"`)); ok {
+		t.Errorf("quoted JSON output was wrapped to %q", got)
+	}
+}
+
 // updatedInput REPLACES the whole record, so every sibling key must survive the rewrite.
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
