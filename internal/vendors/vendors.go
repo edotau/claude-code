@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
 // Spec describes one vendor CLI.
@@ -208,7 +209,37 @@ func ConfigureHeadless(ctx context.Context, name string, target providers.Target
 	return configure(ctx, name, target, &h)
 }
 
+// configure resolves the route for name, then applies the vendor's spec launch env/args — on every
+// route (own login, BYOK, gateway, router) — so no path can skip it; h != nil (a headless leg) never
+// gets Launch.Args, tools-off must stay tools-off and a tools-on leg already carries its own flags.
 func configure(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
+	env, argv, err := configureRoute(ctx, name, t, h)
+	if err != nil {
+		return env, argv, err
+	}
+	env, argv = applyLaunch(name, env, argv, h == nil)
+	return env, argv, nil
+}
+
+// applyLaunch appends vendor's spec Launch.Env (always) and Launch.Args (only when args is true) to
+// an already-built launch; a broken overlay is best-effort and must not break the launch.
+func applyLaunch(name string, env, argv []string, args bool) ([]string, []string) {
+	vc, err := vendorconfig.Load()
+	if err != nil {
+		return env, argv
+	}
+	launch := vc.Vendor(name).Launch
+	env = append(env, launch.Env...)
+	if args {
+		argv = append(argv, launch.Args...)
+	}
+	return env, argv
+}
+
+// LaunchSpec is vendor name's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
+func LaunchSpec(name string) (env, argv []string) { return applyLaunch(name, nil, nil, true) }
+
+func configureRoute(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
 	spec, ok := Lookup(name)
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown vendor %q (%s)", name, strings.Join(Names(), "|"))
@@ -485,14 +516,15 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if h == nil {
 		cwd, _ := os.Getwd()
 		imp := readClaudeImport(cwd)
-		if perm := permissionBlock(imp.allow, imp.deny, imp.ask); perm != nil {
-			cfg["permission"] = perm
-		}
-		if mcp := mcpBlock(imp.mcp); len(mcp) > 0 {
+		vc, _ := vendorconfig.Load()
+		vendor := vc.Vendor("opencode")
+		cfg["permission"] = guardPermission(vc, vendor)
+		kept, dropped := filterAllowedMCP(imp.mcp, vendor.MCP.Allow)
+		if mcp := mcpBlock(kept); len(mcp) > 0 {
 			cfg["mcp"] = mcp
 		}
-		if len(imp.skippedMCP) > 0 {
-			env = append(env, "HARNESS_OPENCODE_MCP_SKIPPED="+strings.Join(imp.skippedMCP, ","))
+		if skipped := append(imp.skippedMCP, dropped...); len(skipped) > 0 {
+			env = append(env, "HARNESS_OPENCODE_MCP_SKIPPED="+strings.Join(skipped, ","))
 		}
 	}
 	if h != nil && !h.Tools {
@@ -526,12 +558,16 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
 	}
 	env, argv = opencodeRun("", h)
+	env, argv = applyLaunch("opencode", env, argv, false) // headless: never Launch.Args
 	return env, argv, nil
 }
 
 // OpencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
-func OpencodeRunArgv(model string, h Headless) (env, argv []string) { return opencodeRun(model, h) }
+func OpencodeRunArgv(model string, h Headless) (env, argv []string) {
+	env, argv = opencodeRun(model, h)
+	return applyLaunch("opencode", env, argv, false) // headless: never Launch.Args
+}
 
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h Headless) (env, argv []string) {
@@ -815,8 +851,11 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 // from the caller's Claude settings (cwd-rooted) — reused by render paths in internal/generate that build
 // their own opencode.json directly instead of going through Configure/opencode (the github-copilot route,
 // which Configure cannot drive: a login provider's Auth.Login names "copilot", not "opencode").
-func OpenCodePermissionMCP() (permission map[string]any, mcp map[string]any, mcpSkipped []string) {
+func OpenCodePermissionMCP() (permission any, mcp map[string]any, mcpSkipped []string) {
 	cwd, _ := os.Getwd()
 	imp := readClaudeImport(cwd)
-	return permissionBlock(imp.allow, imp.deny, imp.ask), mcpBlock(imp.mcp), imp.skippedMCP
+	vc, _ := vendorconfig.Load()
+	vendor := vc.Vendor("opencode")
+	kept, dropped := filterAllowedMCP(imp.mcp, vendor.MCP.Allow)
+	return guardPermission(vc, vendor), mcpBlock(kept), append(imp.skippedMCP, dropped...)
 }

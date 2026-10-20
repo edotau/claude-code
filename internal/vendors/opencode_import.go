@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
 // claudeImport is the Claude Code settings surface carried into an opencode launch.
@@ -180,6 +181,37 @@ func permissionBlock(allow, deny, ask []string) map[string]any {
 		return nil
 	}
 	return perm
+}
+
+// filterAllowedMCP keeps only servers named in allow (a vendor's MCP.Allow spec); dropped holds every
+// other server's name, reported on the same HARNESS_OPENCODE_MCP_SKIPPED channel as an unapproved one.
+func filterAllowedMCP(servers map[string]any, allow []string) (kept map[string]any, dropped []string) {
+	allowed := make(map[string]bool, len(allow))
+	for _, name := range allow {
+		allowed[name] = true
+	}
+	kept = map[string]any{}
+	for name, raw := range servers {
+		if allowed[name] {
+			kept[name] = raw
+			continue
+		}
+		dropped = append(dropped, name)
+	}
+	return kept, dropped
+}
+
+// guardPermission is opencode's `permission` field: plain allow-all, or allow-all layered with vc's
+// guard-rule asks/denies (via permissionBlock) when vendor opts in with Permission.UseGuardRules.
+func guardPermission(vc *vendorconfig.Config, vendor vendorconfig.Vendor) any {
+	if !vendor.Permission.UseGuardRules {
+		return "allow"
+	}
+	guard := vc.Guard()
+	if perm := permissionBlock([]string{"Bash(*)", "Edit", "WebFetch"}, guard.Deny, guard.Ask); perm != nil {
+		return perm
+	}
+	return "allow"
 }
 
 // mcpBlock converts a stdio entry to {type:local,...} or a url entry to {type:remote,...}; opencode disallows extras.
