@@ -42,7 +42,7 @@ func toolsRows(d *dialog) []homeRow {
 func settingsRows(d *dialog) []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
-		{"secrets", "keyring", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
+		{"secrets", "vault", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
 		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
 	}
 }
@@ -239,8 +239,8 @@ func runWebSearch(d *dialog) {
 	d.changed = true // opencode inherits Claude's MCP list on the re-render below
 }
 
-// envEdit is one staged change on the environment page: raw "" deletes; keyring holds the value bound for the keyring.
-type envEdit struct{ raw, keyring string }
+// envEdit stages a vault env change: raw "" deletes; secret holds the value to seal for an @secret ref.
+type envEdit struct{ raw, secret string }
 
 // runCustomEnv edits the vault env bucket, staging changes until the page is left.
 func runCustomEnv(d *dialog) {
@@ -260,11 +260,11 @@ func runCustomEnv(d *dialog) {
 		for _, n := range names {
 			kind, shown := "plain", secrets.Redact(env[n])
 			if env[n] == providers.SecretRef {
-				kind, shown = "keyring", ""
+				kind, shown = "secret", ""
 			}
 			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
 		}
-		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or keyring"}, enterRow("save and go back"))
+		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
 		idx, err := pickPlain(d, "environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
@@ -299,27 +299,27 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		return name, envEdit{}, true
 	}
 	where, err := pickPlain(d, "store "+name+" as", [][2]string{
-		{"plain", "value in the vault env"}, {"keyring", "value in the OS keyring, name in the vault env"}})
+		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})
 	if err != nil || where < 0 {
 		return "", envEdit{}, false
 	}
 	if where == 1 {
-		return name, envEdit{raw: providers.SecretRef, keyring: val}, true
+		return name, envEdit{raw: providers.SecretRef, secret: val}, true
 	}
 	return name, envEdit{raw: val}, true
 }
 
-// sameAsSaved reports an edit that matches what the vault env (and the keyring, for a ref) already holds.
+// sameAsSaved reports an edit matching the vault env and, for a ref, the stored secret.
 func sameAsSaved(name string, e envEdit) bool {
 	cur := providers.CustomEnv()[name]
 	if e.raw != cur {
 		return false
 	}
-	if e.keyring == "" {
+	if e.secret == "" {
 		return true
 	}
 	v, _, ok := secrets.Get(name)
-	return ok && v == e.keyring
+	return ok && v == e.secret
 }
 
 // saveEnvEdits asks once, on leaving the page, whether to write the page's changes; N drops them all.
@@ -333,8 +333,8 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(edits)) {
 		e := edits[name]
-		if e.keyring != "" {
-			if err := secrets.Store(name, e.keyring); err != nil {
+		if e.secret != "" {
+			if err := secrets.Store(name, e.secret); err != nil {
 				d.printf("environment: %s: %v\n", name, err)
 				continue
 			}

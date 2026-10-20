@@ -129,7 +129,7 @@ func (d *dialog) stage(name, val string) bool {
 	return true
 }
 
-// saveKeys stores every staged key in the secrets manager (OS keyring, else the file plane) and reports each.
+// saveKeys stores every staged key in the vault and reports each redacted.
 func saveKeys(d *dialog) {
 	if len(d.pending) == 0 {
 		d.println("keys: nothing to save; no key was entered in this session")
@@ -137,12 +137,11 @@ func saveKeys(d *dialog) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
 		k := d.pending[name]
-		plane, err := "the vault", secrets.Store(name, k.val)
-		if err != nil {
+		if err := secrets.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
 		}
-		d.printf("saved %s to %s (%s)\n", name, plane, secrets.Redact(k.val))
+		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
 	}
 	discardKeys(d)
 }
