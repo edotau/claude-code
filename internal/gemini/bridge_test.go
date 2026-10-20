@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -65,9 +67,7 @@ func setupRegistry(t *testing.T, srv *httptest.Server) {
 	body := fmt.Sprintf(`{"providers":{
 	  "tgem":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 
 // decodeBody unmarshals one recorded request's JSON body.
@@ -433,9 +433,7 @@ func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	body := fmt.Sprintf(`{"providers":{
 	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 
 // fakeAgyScript writes an executable `agy` at dir/agy that drains stdin, drops a sentinel file (proof it
