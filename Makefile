@@ -42,7 +42,7 @@ GOVULN_VERSION  ?= v1.8.0
 ##@ Go
 .PHONY: compile
 compile:  ## Compile bin/claude-code, no install
-	$(GO) build -o $(BIN) ./cmd/claude-code
+	$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP_AUDIT=1)
@@ -151,6 +151,10 @@ lint-go:  # (folded into `lint`) gofmt -l + go vet
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 	$(GO) vet $(PKGS)
 	@echo -e "$(C_OK)gofmt + vet clean"
+
+.PHONY: lint-deep
+lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
+	golangci-lint run ./...
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist
