@@ -3,6 +3,7 @@ package paths
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,7 +76,7 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	tmp := f.Name()
-	fail := func(err error) error { f.Close(); os.Remove(tmp); return err }
+	fail := func(err error) error { return errors.Join(err, f.Close(), os.Remove(tmp)) }
 	if err := f.Chmod(mode); err != nil {
 		return fail(err)
 	}
@@ -83,18 +84,16 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 		return fail(err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, os.Remove(tmp))
 	}
 	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, os.Remove(tmp))
 	}
 	return nil
 }
 
 // WithFileLock runs fn holding an exclusive advisory lock on path+".lock".
-func WithFileLock(path string, fn func() error) error {
+func WithFileLock(path string, fn func() error) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -106,7 +105,11 @@ func WithFileLock(path string, fn func() error) error {
 	if err := lock(f); err != nil {
 		return err
 	}
-	defer unlock(f)
+	defer func() {
+		if uerr := unlock(f); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
+	}()
 	return fn()
 }
 
@@ -123,6 +126,10 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 			return false, nil
 		}
 	}
-	defer unlock(f)
+	defer func() {
+		if uerr := unlock(f); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
+	}()
 	return true, fn()
 }

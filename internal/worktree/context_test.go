@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,22 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
+	repo, _, wt := mergeFixtureSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := resolveWorktree(ctx, repo, filepath.Base(wt)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("resolveWorktree error = %v, want context.Canceled", err)
+	}
+	if _, err := ownsWorktree(ctx, repo, wt); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ownsWorktree error = %v, want context.Canceled", err)
+	}
+	if _, err := headOfContext(ctx, wt); !errors.Is(err, context.Canceled) {
+		t.Fatalf("headOfContext error = %v, want context.Canceled", err)
+	}
+}
 
 // TestPromoteCancelledContextNeverMovesMain covers Promote's own early ctx.Err() check: a context
 // already cancelled when Promote is entered must return immediately without acquiring the merge lock

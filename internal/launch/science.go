@@ -1,7 +1,7 @@
 package launch
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -30,7 +30,7 @@ func scienceWiped(key string) bool {
 func Science(env, args []string) (Plan, error) {
 	bin, err := paths.LookPathReal("claude-science")
 	if err != nil {
-		return Plan{}, fmt.Errorf("claude-science not found on PATH; install Claude for Life Sciences from https://claude.ai/download")
+		return Plan{}, errors.New("claude-science not found on PATH; install Claude for Life Sciences from https://claude.ai/download")
 	}
 	plan := Plan{Binary: bin, Set: map[string]string{}, Argv: args}
 	for _, kv := range env {

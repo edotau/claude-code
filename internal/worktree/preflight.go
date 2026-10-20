@@ -74,7 +74,7 @@ func PreflightAfterResolution(ctx context.Context, repo *Repo, name, target stri
 }
 
 func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*MergePlan, error) {
-	worktreePath, err := ResolveWorktree(repo, name)
+	worktreePath, err := resolveWorktree(ctx, repo, name)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +89,9 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
 		return plan, nil
 	}
@@ -113,8 +116,14 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 		return plan, nil // dirty or mid-operation: stop before pinning OIDs or writing anything
 	}
 
-	plan.TargetOID = headOf(repo.Main)
-	plan.SourceOID = headOf(worktreePath)
+	plan.TargetOID, err = headOfContext(ctx, repo.Main)
+	if err != nil {
+		return nil, err
+	}
+	plan.SourceOID, err = headOfContext(ctx, worktreePath)
+	if err != nil {
+		return nil, err
+	}
 	if plan.TargetOID == "" || plan.SourceOID == "" {
 		return nil, fmt.Errorf("could not resolve HEAD for %s or %s", repo.Main, worktreePath)
 	}
@@ -131,6 +140,9 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 
 	conflicts, err := SimulateMerge(ctx, repo.Main, plan.SourceOID, plan.TargetOID, true)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		plan.Issues = append(plan.Issues, Issue{Code: IssueCapability, Detail: err.Error()})
 		return plan, nil
 	}
@@ -146,7 +158,7 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 // trusted — a capability failure or an exit code outside {0,1} — and is never a signal to proceed as
 // if it were clean. dryRun isolates every object the write side effect produces into a throwaway
 // alternate object directory, removed before return, so repoPath's real store is never touched.
-func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, dryRun bool) ([]string, error) {
+func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, dryRun bool) (conflicts []string, err error) {
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
 	var env []string
 	if dryRun {
@@ -154,7 +166,7 @@ func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, d
 		if err != nil {
 			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", err)
 		}
-		defer cleanup()
+		defer func() { err = errors.Join(err, cleanup()) }()
 		env = extraEnv
 	}
 	out, err := runGit(ctx, repoPath, env, args...)
@@ -171,7 +183,7 @@ func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, d
 // isolatedObjectDir makes a scratch object directory with repoPath's real one layered as an alternate
 // (read access to every existing object, writes landing only in the scratch dir — see
 // git-merge-tree(1) and the GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES env vars it honors).
-func isolatedObjectDir(ctx context.Context, repoPath string) ([]string, func(), error) {
+func isolatedObjectDir(ctx context.Context, repoPath string) ([]string, func() error, error) {
 	commonDir, err := commonDirOf(ctx, repoPath)
 	if err != nil {
 		return nil, nil, err
@@ -182,14 +194,18 @@ func isolatedObjectDir(ctx context.Context, repoPath string) ([]string, func(), 
 	}
 	objDir := filepath.Join(tmp, "objects")
 	if err := os.MkdirAll(objDir, 0o700); err != nil {
-		os.RemoveAll(tmp)
-		return nil, nil, err
+		return nil, nil, errors.Join(err, os.RemoveAll(tmp))
 	}
 	env := []string{
 		"GIT_OBJECT_DIRECTORY=" + objDir,
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + filepath.Join(commonDir, "objects"),
 	}
-	return env, func() { os.RemoveAll(tmp) }, nil
+	return env, func() error {
+		if err := os.RemoveAll(tmp); err != nil {
+			return fmt.Errorf("remove merge-tree scratch directory: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 // parseConflicts reads merge-tree's -z/--name-only/--no-messages output: the written tree OID as the

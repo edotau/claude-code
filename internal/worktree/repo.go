@@ -4,6 +4,7 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,7 +37,7 @@ func Root(main string) string {
 // canonical git identity. --git-common-dir is absolute and identical from anywhere inside the repo, so
 // this is the one call that makes worktree/subdir/main all agree without reading .git pointer files.
 func ResolveRepo(cwd string) (*Repo, error) {
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
 	}
@@ -55,6 +56,13 @@ func ResolveRepo(cwd string) (*Repo, error) {
 // repo.Root, rejecting traversal, a symlink at the destination, and a name already occupied by a
 // directory that is not actually a worktree of this repo (a foreign basename collision).
 func ResolveWorktree(repo *Repo, name string) (string, error) {
+	return resolveWorktree(context.Background(), repo, name)
+}
+
+func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
 		return "", fmt.Errorf("worktree name %q is not usable", name)
 	}
@@ -72,7 +80,7 @@ func ResolveWorktree(repo *Repo, name string) (string, error) {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)
 	}
-	owns, err := ownsWorktree(repo, dest)
+	owns, err := ownsWorktree(ctx, repo, dest)
 	if err != nil {
 		return "", err
 	}
@@ -131,7 +139,7 @@ func canonicalExistingPrefix(p string) (string, error) {
 // resolve to the live checkout's own subdirectory), and requires dest to be a worktree *root* — its own
 // `--show-toplevel` must equal dest — so a subdirectory of some other checkout can't pass common-dir
 // equality alone and be mistaken for a worktree.
-func ownsWorktree(repo *Repo, dest string) (bool, error) {
+func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	destCanon, err := canonical(dest)
 	if err != nil {
 		return false, err
@@ -144,8 +152,11 @@ func ownsWorktree(repo *Repo, dest string) (bool, error) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
 
-	topOut, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
+	topOut, err := exec.CommandContext(ctx, "git", "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		return false, nil // not a git repo at all is a collision, not a resolution error
 	}
 	top, err := canonical(strings.TrimSpace(string(topOut)))
@@ -156,8 +167,11 @@ func ownsWorktree(repo *Repo, dest string) (bool, error) {
 		return false, nil // dest is a subdirectory of some checkout's worktree root, not a worktree root itself
 	}
 
-	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		return false, nil
 	}
 	common, err := canonical(strings.TrimSpace(string(out)))
