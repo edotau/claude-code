@@ -30,6 +30,7 @@ Spread runners per [cost-routing.md](cost-routing.md).
 
 **Step 0, bug fixes only:** capture RED before dispatch — `scripts/isolate.sh /tmp/claude-1000/<lane>/red`
 with no owned paths is pure HEAD; reproduce the failure there. After the leaf runs the worktree already holds the fix.
+Remove it after: `scripts/isolate.sh --remove /tmp/claude-1000/<lane>/red`.
 
 Run each leaf in the background (Bash `run_in_background`). Orchestrator files live in `/tmp/claude-1000/<lane>/`;
 the leaf's own scratch is a separate `/tmp/claude-1000/<leaf>/` it may delete:
@@ -66,9 +67,9 @@ the manager.
 
 ## Verify each leaf
 
-1. From the worktree: `scripts/isolate.sh /tmp/claude-1000/<leaf>/copy <owned paths>` — HEAD plus only this
-   leaf's changes ([isolate.sh](../../../scripts/isolate.sh) reverts every other changed or untracked path).
-2. In the copy (no `.git`; `/tmp` has a stray one, so set `GOFLAGS=-buildvcs=false`): build, vet, scoped tests
+1. From the worktree: `scripts/isolate.sh /tmp/claude-1000/<leaf>/copy <owned paths>` — a `git worktree add` at
+   HEAD with only this leaf's owned-path changes applied on top ([isolate.sh](../../../scripts/isolate.sh)).
+2. In the copy (it has its own `.git`, a real worktree): build, vet, scoped tests
    (`go build ./... && go vet <pkgs> && go test <pkgs>`). Commit only on exit 0; gate on the exit code itself,
    never on a piped `| tail`.
 3. The leaf's live check: the verb or flow it changed, on real input.
@@ -77,9 +78,8 @@ the manager.
 5. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
    A pathspec commit is `--only`, so other lanes' staged files never ride along; 1–2 line conventional message,
    no AI footer.
-6. Tick the box with the short commit id; delete the copy and leaf scratch (`chmod -R u+w <d> && find <d> -delete`).
-
-Copies carry the user's untracked skill symlinks, dangling there; ignore them in `diff -rq`.
+6. Tick the box with the short commit id; remove the copy (`scripts/isolate.sh --remove <copy>`) and the leaf
+   scratch (`chmod -R u+w <d> && find <d> -delete`).
 
 Red at any step: re-dispatch the leaf once with the failure output, or fix a small gap in-lane; still red, report
 the item to the manager unticked.
