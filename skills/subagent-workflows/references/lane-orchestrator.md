@@ -44,7 +44,7 @@ echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/stat
 
 - `--fallback none`: the default `all` silently re-runs a failed leaf on claude, hiding which runner did the work.
 - Wait in one foreground Bash call (≤10m, repeat as needed):
-  `until [ "$(grep -c exit= <status> 2>/dev/null || echo 0)" -ge N ]; do timeout 5 tail -f /dev/null; done`.
+  `until n=$(grep -c exit= <status> 2>/dev/null); [ "${n:-0}" -ge N ]; do timeout 5 tail -f /dev/null; done`.
 - Codex rate-limited: substitute `--agent copilot --model gpt-6-astra`.
 - Never start a test-repair leaf before its implementer's exit line lands.
 - Leaves that own disjoint files run concurrently; a leaf whose files overlap another's waits for it.
