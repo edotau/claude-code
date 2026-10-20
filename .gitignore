@@ -96,8 +96,7 @@ coverage.*
 !/skills/security-reviewer
 !/skills/simplify
 !/skills/subagent-workflows
-!/skills/test-guard-discipline
-!/skills/testing
+!/skills/testing-guidelines
 !/skills/using-git-worktrees
 !/skills/web-search
 

@@ -40,7 +40,7 @@ python3 scripts/preflight_check.py --url https://example.com/listings --script s
 **Use for:** scraping tables/listings/search results, multi-step form workflows (login → fill →
 download), screenshots/PDFs, SPA/JS-heavy extraction, repeatable data pipelines.
 
-**Not for:** E2E test suites (use the `testing` skill); hitting a public API (do that directly —
+**Not for:** E2E test suites (use the `testing-guidelines` skill); hitting a public API (do that directly —
 check the package registries / the site's own network calls for one; it's faster, more reliable,
 and lower-impact than scraping).
 
