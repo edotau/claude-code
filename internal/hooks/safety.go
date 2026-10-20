@@ -89,14 +89,15 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
 		return ExitProceed
 	}
-	cmd := in.ToolCommand()
-	if cmd == "" {
+	rawCmd := in.ToolCommand()
+	if rawCmd == "" {
 		return ExitProceed
 	}
-	cmd = withoutHeredocBodies(cmd)
+	// Heredoc bodies strip only when the owning segment is a pure data sink; an executed body stays for matching.
+	cmd := withoutHeredocBodies(rawCmd)
 	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
+			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, rawCmd)
 			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
@@ -105,25 +106,25 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	for _, seg := range shellSegments(cmd) {
 		for _, re := range hardBlocks() {
 			if re.MatchString(seg) {
-				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
+				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, rawCmd)
 				audit.Log(audit.HookBlocked, "safety", re.String())
 				return ExitBlock
 			}
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
+		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", rawCmd)
 		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
 		return ExitBlock
 	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", cmd)
+		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", rawCmd)
 		audit.Log(audit.HookBlocked, "safety", "destructive SQL")
 		return ExitBlock
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, cmd)
+			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, rawCmd)
 			audit.Log(audit.HookBlocked, "safety", re.String())
 			return ExitBlock
 		}
@@ -320,13 +321,57 @@ func shellSegments(cmd string) []string {
 type heredoc struct {
 	word string
 	tabs bool
+	sink bool // true: a pure data sink (cat/tee/printf/echo, not piped onward) — its body is stripped
 }
 
-// withoutHeredocBodies preserves command text while consuming queued heredocs in shell order.
+// heredocSinkWords are non-executing writers: redirecting their heredoc to a file, or just printing
+// it, never runs the body as a command.
+var heredocSinkWords = map[string]bool{"cat": true, "tee": true, "printf": true, "echo": true}
+
+// heredocPrefixSkip are wrapper words that pass their heredoc through to the command that follows.
+var heredocPrefixSkip = map[string]bool{"sudo": true, "command": true, "exec": true}
+
+var heredocAssignRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+})
+
+// heredocCommandWord returns the command word owning a heredoc redirect, skipping env assignments
+// and sudo/command/exec prefixes; "" when the segment has none (fail-closed: treated as unknown).
+func heredocCommandWord(segText string) string {
+	toks := shellTokens(segText)
+	i := 0
+	for i < len(toks) && (heredocAssignRE().MatchString(toks[i]) || heredocPrefixSkip[toks[i]]) {
+		i++
+	}
+	if i >= len(toks) {
+		return ""
+	}
+	return toks[i]
+}
+
+// heredocIsSink reports whether a heredoc redirect may be stripped: its owning command is a pure
+// sink AND its output is not piped onward into another command. Anything else — a shell, interpreter,
+// client (bash, ssh, psql, python…) or an unrecognized word — keeps (checks) the body, fail-closed.
+func heredocIsSink(segText, trailer string) bool {
+	word := heredocCommandWord(segText)
+	return word != "" && heredocSinkWords[word] && !strings.ContainsRune(trailer, '|')
+}
+
+// lineEnd is the index of the next newline at or after from, else len(cmd).
+func lineEnd(cmd string, from int) int {
+	if n := strings.IndexByte(cmd[from:], '\n'); n >= 0 {
+		return from + n
+	}
+	return len(cmd)
+}
+
+// withoutHeredocBodies preserves command text while consuming queued heredocs in shell order; a
+// heredoc body is dropped only when heredocIsSink says its owning command is a pure data sink.
 func withoutHeredocBodies(cmd string) string {
 	var pending []heredoc
 	var out strings.Builder
 	var quote byte
+	segStart := 0
 	for i := 0; i < len(cmd); {
 		c := cmd[i]
 		out.WriteByte(c)
@@ -346,9 +391,17 @@ func withoutHeredocBodies(cmd string) string {
 			quote = c
 			continue
 		}
+		if c == ';' || c == '&' || c == '|' {
+			segStart = i
+			continue
+		}
 		if c == '<' && i < len(cmd) && cmd[i] == '<' {
+			ltPos := i - 1
 			start := i
 			h, end, ok := parseHeredoc(cmd, i)
+			if ok {
+				h.sink = heredocIsSink(cmd[segStart:ltPos], cmd[end:lineEnd(cmd, end)])
+			}
 			i = end
 			out.WriteString(cmd[start:i])
 			if ok {
@@ -360,6 +413,7 @@ func withoutHeredocBodies(cmd string) string {
 				i = consumeHeredoc(cmd, i, h, &out)
 			}
 			pending = nil
+			segStart = i
 		}
 	}
 	return out.String()
@@ -417,18 +471,24 @@ func heredocWord(cmd string, i int) (string, int) {
 
 func consumeHeredoc(cmd string, i int, h heredoc, out *strings.Builder) int {
 	for i < len(cmd) {
-		line := cmd[i:]
-		if n := strings.IndexByte(line, '\n'); n >= 0 {
-			line = line[:n]
+		raw := cmd[i:]
+		if n := strings.IndexByte(raw, '\n'); n >= 0 {
+			raw = raw[:n]
 			i += n + 1
 		} else {
 			i = len(cmd)
 		}
+		match := raw
 		if h.tabs {
-			line = strings.TrimLeft(line, "\t")
+			match = strings.TrimLeft(match, "\t")
 		}
-		if line == h.word {
-			out.WriteString(line + "\n") // Keep the terminator so a second pass is a no-op.
+		if !h.sink {
+			out.WriteString(raw + "\n") // an executed body stays so later pattern matching sees it
+		}
+		if match == h.word {
+			if h.sink {
+				out.WriteString(raw + "\n") // Keep the terminator so a second pass is a no-op.
+			}
 			break
 		}
 	}
