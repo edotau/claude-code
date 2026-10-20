@@ -2,6 +2,38 @@
 
 Practical patterns for extracting structured data from web pages using Playwright. Each recipe is a self-contained pattern you can adapt to your target site.
 
+## Example — single-page extraction (complete, runnable)
+
+Load the [Setup launch helper](playwright-api.md#setup) before running this example.
+
+```python
+import asyncio
+from playwright.async_api import async_playwright
+
+async def extract(url: str, container: str, fields: dict[str, str]) -> list[dict]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(**launch_kwargs())  # Edge default; see Setup
+        try:
+            page = await (await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+            )).new_page()
+            await page.goto(url, wait_until="networkidle")
+            await page.wait_for_selector(container)          # wait on content, not a timer
+            rows = []
+            for card in await page.locator(container).all():
+                row = {}
+                for key, sel in fields.items():
+                    loc = card.locator(sel)
+                    row[key] = (await loc.text_content() or "").strip() if await loc.count() else None
+                rows.append(row)
+            return rows
+        finally:
+            await browser.close()                            # always clean up
+
+asyncio.run(extract("https://example.com/products", ".product-card",
+                     {"name": ".title", "price": ".price"}))
+```
+
 ## CSS Selector Patterns for Common Structures
 
 ### E-Commerce Product Listings

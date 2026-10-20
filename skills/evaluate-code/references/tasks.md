@@ -50,3 +50,11 @@ Ship verdict criteria:
   are concise.
 - Ship after must-fixes — small residual complexity or comment noise.
 - Needs rework — structural complexity that requires design changes.
+
+## Dispatch setup
+
+```bash
+BASE_SHA=$(git merge-base HEAD main)   # or: git diff --cached for staged only
+git diff ${BASE_SHA}...HEAD --stat
+make fmt && make lint                  # mechanical gate FIRST — can fail (must-fix)
+```

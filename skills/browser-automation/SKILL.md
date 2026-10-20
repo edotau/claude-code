@@ -46,31 +46,11 @@ and lower-impact than scraping).
 
 ## Setup
 
-Playwright is not installed by default here. Install on demand:
-
-```bash
-pip install playwright
-playwright install chromium   # only needed for the bundled-chromium fallback below
-```
-
-**Browser channel — Edge by default.** Launches use the locally installed Microsoft Edge
-(`channel="msedge"`, Chromium-based) unless overridden via `BROWSER_CHANNEL`:
-
-```python
-import os
-
-def launch_kwargs() -> dict:
-    # BROWSER_CHANNEL: msedge (default) | chrome | msedge-beta | chromium (bundled fallback)
-    channel = os.environ.get("BROWSER_CHANNEL", "msedge")
-    kwargs = {"headless": os.environ.get("HEADLESS", "true") == "true"}
-    if channel != "chromium":
-        kwargs["channel"] = channel
-    return kwargs
-```
-
 Set `BROWSER_CHANNEL=chromium` where Edge isn't installed (CI, remote containers, this
 harness's cloud sessions) — that omits `channel` and uses Playwright's bundled Chromium.
 `headless=True` in production/CI; `headless=False` only for local debugging.
+
+Installation and Edge-default launch helper: [Setup](references/playwright-api.md#setup).
 
 ## Core competencies
 
@@ -91,33 +71,7 @@ harness's cloud sessions) — that omits `channel` and uses Playwright's bundled
 
 ## Example — single-page extraction (complete, runnable)
 
-```python
-import asyncio
-from playwright.async_api import async_playwright
-
-async def extract(url: str, container: str, fields: dict[str, str]) -> list[dict]:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(**launch_kwargs())  # Edge default; see Setup
-        try:
-            page = await (await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-            )).new_page()
-            await page.goto(url, wait_until="networkidle")
-            await page.wait_for_selector(container)          # wait on content, not a timer
-            rows = []
-            for card in await page.locator(container).all():
-                row = {}
-                for key, sel in fields.items():
-                    loc = card.locator(sel)
-                    row[key] = (await loc.text_content() or "").strip() if await loc.count() else None
-                rows.append(row)
-            return rows
-        finally:
-            await browser.close()                            # always clean up
-
-asyncio.run(extract("https://example.com/products", ".product-card",
-                     {"name": ".title", "price": ".price"}))
-```
+[Single-page extraction example](references/data-extraction.md#example--single-page-extraction-complete-runnable).
 
 ## Quick reference
 

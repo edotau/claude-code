@@ -4,6 +4,18 @@ All detectors are `claude-code review <sub>` verbs — same flags as the scripts
 All are **advisory** and **exit 0** (never a hard gate) except where noted. All structured
 output is `--json`.
 
+## Detector index
+
+| Verb (`claude-code review …`) | Principle / role | Flags |
+|---|---|---|
+| `complexity` | #2 Simplicity | complexity/length/nesting, class density, premature ABC/Protocol |
+| `diff` | #3 Surgical | whitespace/comment churn, docstring adds, quote-style swaps |
+| `assumptions` | #1 Think | minimizing language, hopeful phrasing, absolute scope, missing verification |
+| `goals` | #4 Goal | plan steps scored 0–3 on verification quality; missing final check |
+| `quality` | quality | smells, SOLID violations, 0–100 score (6 languages) |
+| `pr` | triage | file-risk categorization, commit-message lint, complexity score |
+| `report` | orchestration | combines pr + quality into one report (text/md/json) |
+
 ---
 
 ## Lint & format gate (run before detectors)
