@@ -15,13 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/tui"
 )
 
-// planeOf reports which store currently answers name, and the forceFile a re-Store must pass to land
-// back in the same plane; source "env" is a raw process var — nothing the harness manages to overwrite.
-func planeOf(name string) (forceFile bool, source string) {
-	_, source, _ = secrets.Get(name)
-	return source == "file", source
-}
-
 // probeValue live-checks a candidate value for p without storing it first, via the env-var seam
 // providers.Credential already checks ahead of any stored plane; the previous env is restored after.
 func probeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
@@ -43,13 +36,12 @@ func probeValue(p *providers.Provider, envVar, candidate string) (status, detail
 
 // replaceKey pastes a new value for kt's keyed credential, probes it live before it overwrites the
 // stored one (a rejected/unreachable paste asks whether to keep the old one instead), and writes it
-// back to the plane it came from.
+// back to the vault.
 func replaceKey(d *dialog, kt keyTarget) bool {
 	if kt.envVar == "" {
 		return false
 	}
-	forceFile, plane := planeOf(kt.envVar)
-	if plane == "env" {
+	if _, plane, _ := secrets.Get(kt.envVar); plane == "env" {
 		d.printf("%s: set via the process environment, not a stored plane — edit it where it is exported\n", kt.envVar)
 		return false
 	}
@@ -74,7 +66,7 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 			}
 		}
 	}
-	return storeValue(d, kt.envVar, v, forceFile)
+	return storeValue(d, kt.envVar, v)
 }
 
 // regenerate re-runs a vendor's own login or mint CLI to rotate a credential that is already present.
@@ -98,12 +90,11 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
 		return false
 	}
-	forceFile, plane := planeOf(kt.envVar)
-	if plane == "env" {
+	if _, plane, _ := secrets.Get(kt.envVar); plane == "env" {
 		d.printf("%s: minted a new token, but %s is set via the process environment — update it there\n", kt.label, kt.envVar)
 		return false
 	}
-	return storeValue(d, kt.envVar, tok, forceFile)
+	return storeValue(d, kt.envVar, tok)
 }
 
 // rotateOptions lists how an already-present kt can be rotated: its own CLI first (login, then mint —

@@ -360,14 +360,21 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(base, customEnv())
 }
 
-// customEnv is the vault env bucket resolved (keyring refs via secrets.Get); an unresolved ref is warned, not set.
+// customEnv is the vault env bucket resolved (@secret refs via secrets.Lookup); an unresolved ref is warned, not set.
 var customEnv = func() map[string]string {
-	vals, missing := providers.ResolveCustomEnv(func(k string) (string, bool) {
-		v, _, ok := secrets.Get(k)
-		return v, ok
+	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
+		v, _, err := secrets.Lookup(k)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "claude-code: custom env %s: %v; not set\n", k, err)
+			return "", true
+		}
+		return v, v != ""
 	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: custom env unreadable: %v\n", err)
+	}
 	for _, k := range missing {
-		fmt.Fprintf(os.Stderr, "claude-code: custom env %s=@keyring has no keyring value; not set\n", k)
+		fmt.Fprintf(os.Stderr, "claude-code: custom env %s=@secret has no vault value; not set\n", k)
 	}
 	return vals
 }

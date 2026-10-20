@@ -42,7 +42,7 @@ func toolsRows(d *dialog) []homeRow {
 func settingsRows(d *dialog) []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
-		{"secrets", "keyring", "API keys & tokens", func(d *dialog) { secretsLoop(d, false) }},
+		{"secrets", "keyring", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
 		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
 	}
 }
@@ -220,7 +220,7 @@ func runWebSearch(d *dialog) {
 			d.println("web search: no key entered; nothing changed")
 			return
 		}
-		if !storeValue(d, webSearchKey, strings.TrimSpace(val), false) {
+		if !storeValue(d, webSearchKey, strings.TrimSpace(val)) {
 			return
 		}
 	}
@@ -259,7 +259,7 @@ func runCustomEnv(d *dialog) {
 		rows := make([][2]string, 0, len(names)+2)
 		for _, n := range names {
 			kind, shown := "plain", secrets.Redact(env[n])
-			if env[n] == providers.KeyringRef {
+			if env[n] == providers.SecretRef {
 				kind, shown = "keyring", ""
 			}
 			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
@@ -304,7 +304,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		return "", envEdit{}, false
 	}
 	if where == 1 {
-		return name, envEdit{raw: providers.KeyringRef, keyring: val}, true
+		return name, envEdit{raw: providers.SecretRef, keyring: val}, true
 	}
 	return name, envEdit{raw: val}, true
 }
@@ -334,7 +334,7 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	for _, name := range slices.Sorted(maps.Keys(edits)) {
 		e := edits[name]
 		if e.keyring != "" {
-			if _, err := secrets.Store(name, e.keyring, false); err != nil {
+			if err := secrets.Store(name, e.keyring); err != nil {
 				d.printf("environment: %s: %v\n", name, err)
 				continue
 			}

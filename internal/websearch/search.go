@@ -32,7 +32,7 @@ const (
 	defaultMaxResults = 5
 )
 
-// KeyName is the secret name Tavily's API key resolves under (keyring, env.d/secrets.env, or env).
+// KeyName is the secret name Tavily's API key resolves under (the vault, or env).
 const KeyName = "TAVILY_API_KEY"
 
 // mintHint points at where a fresh key comes from; keyHint names the fix when none is set.
@@ -42,7 +42,7 @@ func keyHint() string {
 	return fmt.Sprintf("run `claude-code secrets set %s` (%s)", KeyName, mintHint)
 }
 
-// resolveKey returns the Tavily API key through the managed ladder (keyring -> file -> env). "" when unset.
+// resolveKey returns the Tavily API key through the managed ladder (vault -> env). "" when unset.
 func resolveKey() string {
 	v, _, ok := secrets.Get(KeyName)
 	if !ok {

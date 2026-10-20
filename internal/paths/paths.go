@@ -22,11 +22,8 @@ func ConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// EnvDir is the legacy env.d dir: secrets.env and migration sources; config lives in the vault.
+// EnvDir is the legacy env.d migration source directory; config and secrets live in the vault.
 func EnvDir() string { return filepath.Join(ConfigDir(), "env.d") }
-
-// SecretsFile is the managed secrets file in env.d.
-func SecretsFile() string { return filepath.Join(EnvDir(), "secrets.env") }
 
 // LegacyProvidersFile is the pre-env.d provider registry overlay.
 func LegacyProvidersFile() string { return filepath.Join(ConfigDir(), "providers.json") }

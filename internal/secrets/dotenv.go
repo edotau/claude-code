@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // dotenvName is the only key shape import accepts: an env var name (letters, digits, _; not leading a digit).
@@ -45,45 +46,54 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	return pairs, problems
 }
 
-// Stored is one secret the harness holds: its name, the plane it resolved from, and the value.
-type Stored struct{ Name, Source, Value string }
-
-// ExportPairs is every stored secret as NAME=value pairs (single-line values only), restricted to only when given.
-func ExportPairs(reg *providers.Registry, only []string) []Pair {
-	var out []Pair
-	for _, s := range ListStored(reg, only) {
-		if !strings.ContainsAny(s.Value, "\r\n") {
-			out = append(out, Pair{s.Name, s.Value})
-		}
-	}
-	return out
+// Stored is one vault secret's display metadata, never its value.
+type Stored struct {
+	Name, Source, Prefix string
+	Len                  int
 }
 
-// ListStored is every secret the keyring or the file plane holds (meta names, file keys, provider auth.env
-// names), restricted to only when given; the process env is not ours to list or export.
-func ListStored(reg *providers.Registry, only []string) []Stored {
-	names := slices.Clone(Names())
-	for k := range ReadAll() {
-		names = append(names, k)
+func (s Stored) Masked() string {
+	if s.Prefix == "" {
+		return fmt.Sprintf("%d chars", s.Len)
 	}
-	if reg != nil {
-		for _, p := range reg.Providers {
-			if p.Auth.Env != "" {
-				names = append(names, p.Auth.Env)
-			}
+	return fmt.Sprintf("%s*** (%d chars)", s.Prefix, s.Len)
+}
+
+// ExportPairs decrypts the selected vault secrets; any failure discards all pairs before a caller can write them.
+func ExportPairs(only []string) ([]Pair, error) {
+	stored, err := ListStored(only)
+	if err != nil {
+		return nil, err
+	}
+	var out []Pair
+	for _, s := range stored {
+		value, found, err := vault.ReadSecret(s.Name)
+		if err != nil {
+			return nil, fmt.Errorf("export: %s: %w", s.Name, err)
 		}
+		if !found {
+			return nil, fmt.Errorf("export: %s: no longer stored in the vault", s.Name)
+		}
+		out = append(out, Pair{s.Name, value})
 	}
-	slices.Sort(names)
+	return out, nil
+}
+
+// ListStored lists only vault records, filtered and sorted, without decrypting or including process env values.
+func ListStored(only []string) ([]Stored, error) {
+	meta, err := LoadMeta()
+	if err != nil {
+		return nil, err
+	}
 	var out []Stored
-	for _, n := range slices.Compact(names) {
+	for _, n := range slices.Sorted(maps.Keys(meta)) {
 		if len(only) > 0 && !slices.Contains(only, n) {
 			continue
 		}
-		if v, src, ok := Get(n); ok && src != "env" {
-			out = append(out, Stored{n, src, v})
-		}
+		m := meta[n]
+		out = append(out, Stored{Name: n, Source: "vault", Prefix: m.Prefix, Len: m.Len})
 	}
-	return out
+	return out, nil
 }
 
 // AppendDotenv appends pairs to path as NAME=value lines, creating it (with a header) when absent and skipping names

@@ -71,10 +71,10 @@ func buildSpecTree() map[string]*compNode {
 				flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}},
 		}},
 		"secrets": {sub: map[string]*compNode{
-			"set":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("file"), boolFlag("dry-run")}},
+			"set":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("dry-run")}},
 			"get":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export")}},
 			"delete": {args: []func() []string{secretNames}},
-			"import": {flags: []flagInfo{boolFlag("file")}},
+			"import": {},
 			"export": {args: []func() []string{secretNames}},
 			"list":   {args: []func() []string{secretNames}},
 			"status": {}, "scan": {},

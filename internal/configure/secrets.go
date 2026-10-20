@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
@@ -41,7 +40,6 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 		}
 	}
 	meta, metaErr := secrets.LoadMeta()
-	file := secrets.ReadAll()
 	if metaErr != nil {
 		// meta unreadable: Names() falls back to file-plane names so custom names aren't dropped.
 		for _, env := range secrets.Names() {
@@ -56,16 +54,11 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 			}
 		}
 	}
-	for env := range file {
-		if _, ok := users[env]; !ok {
-			users[env] = []string{"custom"}
-		}
-	}
 	out := make([]trackedSecret, 0, len(users))
 	for name, u := range users {
 		var src, shadowed string
 		if metaErr == nil {
-			src, shadowed = secrets.Locate(name, meta, file)
+			src, shadowed = secrets.Locate(name, meta)
 		} else {
 			_, src, shadowed, _ = secrets.Effective(name)
 		}
@@ -91,8 +84,8 @@ func sourceLabel(src, shadowed string) string {
 }
 
 // Secrets is the guided `secrets set`: pick a tracked secret (or a new custom one), choose how to satisfy it,
-// and store it in the OS keyring (env.d/secrets.env when forceFile or no keyring). Loops until Esc or done.
-func Secrets(o Options, forceFile bool) int {
+// and seal it in the vault. Loops until Esc or done.
+func Secrets(o Options) int {
 	reg, err := providers.Load()
 	if err != nil {
 		fmt.Fprintf(o.writer(), "secrets: %v\n", err)
@@ -100,21 +93,18 @@ func Secrets(o Options, forceFile bool) int {
 	}
 	o.In = o.reader()
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: o.writer(), color: ansi.Enabled(o.writer())}
-	return secretsLoop(d, forceFile)
+	return secretsLoop(d)
 }
 
 // secretsLoop is the secrets page on d: standalone it stores at once; inside configure (d.pending set) every
 // value is staged and configure's Submit saves it to the keyring.
-func secretsLoop(d *dialog, forceFile bool) int {
+func secretsLoop(d *dialog) int {
 	if d.pending != nil {
 		before := maps.Clone(d.pending)
 		defer confirmPageKeys(d, before)
 	}
 	reg := d.reg
-	store := "the OS keyring"
-	if forceFile || !keyring.Available() {
-		store = secrets.EnvFile()
-	}
+	store := "the vault"
 	for {
 		list := trackedSecrets(reg)
 		rows := make([][2]string, 0, len(list)+2)
@@ -135,10 +125,10 @@ func secretsLoop(d *dialog, forceFile bool) int {
 			return 0
 		}
 		if idx == len(list) {
-			addCustom(d, forceFile)
+			addCustom(d)
 			continue
 		}
-		editSecret(d, list[idx], forceFile)
+		editSecret(d, list[idx])
 	}
 }
 
@@ -161,24 +151,18 @@ func pick(d *dialog, title string, rows [][2]string) (int, error) {
 
 // editSecret offers every action for one tracked secret: move a plaintext copy into the keyring, mint, log in
 // via the browser/console page and paste, or delete.
-func editSecret(d *dialog, s trackedSecret, forceFile bool) {
+func editSecret(d *dialog, s trackedSecret) {
 	type action struct {
 		name, desc string
 		run        func() bool
 	}
 	var acts []action
-	if (s.source == "file" || s.shadowed == "file") && !forceFile && keyring.Available() {
-		acts = append(acts, action{"Move to keyring", "drops the plaintext line", func() bool {
-			v, _, _ := secrets.Get(s.name)
-			return storeValue(d, s.name, v, false)
-		}})
-	}
 	kt := keyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code secrets set " + s.name}
 	if s.name == providers.OAuthTokenEnv {
 		kt.mintArgv = []string{"claude", "setup-token"}
 	}
 	for _, o := range authOptions(kt) {
-		acts = append(acts, action{o.action, o.desc, func() bool { return runAuthOption(d, kt, o, forceFile) }})
+		acts = append(acts, action{o.action, o.desc, func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.source == "keyring" || s.source == "file" {
 		acts = append(acts, action{"Delete", "keyring + secrets.env", func() bool {
@@ -206,7 +190,7 @@ func editSecret(d *dialog, s trackedSecret, forceFile bool) {
 
 // addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
 // parsed, so either half may carry the name.
-func addCustom(d *dialog, forceFile bool) {
+func addCustom(d *dialog) {
 	name := strings.TrimSpace(textLine(d, "Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
 	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden, Enter when done): ")
 	if err != nil {
@@ -223,7 +207,7 @@ func addCustom(d *dialog, forceFile bool) {
 	case val == "":
 		d.printf("%s: no value entered\n", name)
 	default:
-		storeValue(d, name, val, forceFile)
+		storeValue(d, name, val)
 	}
 }
 
@@ -242,15 +226,15 @@ func ParseAssignment(raw string) (name, value string) {
 }
 
 // storeValue writes one secret via secrets.Store and reports where it landed, redacted; inside the menu it stages.
-func storeValue(d *dialog, name, val string, forceFile bool) bool {
+func storeValue(d *dialog, name, val string) bool {
 	if d.pending != nil {
-		if !d.stage(name, val, forceFile) {
+		if !d.stage(name, val) {
 			return false
 		}
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
 		return true
 	}
-	plane, err := secrets.Store(name, val, forceFile)
+	plane, err := "the vault", secrets.Store(name, val)
 	if err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
@@ -295,7 +279,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	for _, name := range page {
 		k := d.pending[name]
-		plane, err := secrets.Store(name, k.val, k.forceFile)
+		plane, err := "the vault", secrets.Store(name, k.val)
 		if err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue

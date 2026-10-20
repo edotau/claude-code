@@ -275,7 +275,7 @@ func copilotKeyRow(d *dialog) billingRow {
 		if stored {
 			return ensureKey(d, kt, true)
 		}
-		return runAuthOption(d, kt, authOption{action: "Paste API key", env: env}, false)
+		return runAuthOption(d, kt, authOption{action: "Paste API key", env: env})
 	}}
 }
 

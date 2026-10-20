@@ -11,7 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
@@ -20,17 +19,17 @@ import (
 func init() { secretsRun = cmdSecrets }
 
 const secretsUsage = `usage: claude-code secrets <op> [flags]
-  set [<NAME>] [--file]   store a secret (keyring; --file = env.d/secrets.env)
+  set [<NAME>]            store a secret (sealed in the vault)
                           NAME: prompts for the value; no NAME: guided dialog
-  get <NAME> [--export]   print a secret (keyring -> secrets.env -> env)
-  delete <NAME>           remove a secret from the keyring and secrets.env
-  import <file> [--file]  store each NAME=value line of a .env (# lines skipped)
+  get <NAME> [--export]   print a secret (vault -> env)
+  delete <NAME>           remove a secret from the vault
+  import <file>           store each NAME=value line of a .env (# lines skipped)
   export [NAME...]        append stored secrets to ./.env, or --out f (0600)
-  list [NAME...]          stored secrets: name, keyring|file, masked value
+  list [NAME...]          stored secrets: name, vault, masked value
   status                  credential source per provider (never the value)
-  scan [paths...]         find plaintext secrets in config files
+  scan [paths...]         find plaintext secrets in config files and the vault
   git [--since N]         find secret-shaped additions in git history
-  doctor                  file perms, key names, duplicates, keyring tool
+  doctor                  vault perms, master key, key names, keyring tool
   all                     scan + git + doctor
 `
 
@@ -136,17 +135,16 @@ func extractInt(args []string, name string, def int) (int, []string, error) {
 }
 
 func cmdSecretsSet(args []string) int {
-	forceFile, rest := extractBool(args, "file")
-	dryRun, rest := extractBool(rest, "dry-run")
+	dryRun, rest := extractBool(args, "dry-run")
 	if slices.Contains(rest, "--help") || slices.Contains(rest, "-h") {
 		helptext.Fprint(os.Stderr, secretsUsage)
 		return 2
 	}
 	if len(rest) == 0 && !dryRun && tui.StdinIsTerminal() {
-		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true}, forceFile)
+		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--file] [--dry-run]  (no NAME = dialog)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--dry-run]  (no NAME = dialog)")
 		return 2
 	}
 	name := rest[0]
@@ -158,31 +156,28 @@ func cmdSecretsSet(args []string) int {
 		return fail("secrets set: empty value")
 	}
 	if dryRun {
-		plane, verb := secrets.EnvFile(), "add"
-		if !forceFile && keyring.Available() {
-			plane = "the OS keyring"
-		} else if _, ok := secrets.ReadAll()[name]; ok {
+		verb := "add"
+		if slices.Contains(secrets.Names(), name) {
 			verb = "replace"
 		}
-		fmt.Printf("would %s %s in %s (%d chars); nothing written\n", verb, name, plane, len(value))
+		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	plane, err := secrets.Store(name, value, forceFile)
-	if err != nil {
+	if err := secrets.Store(name, value); err != nil {
 		return fail("secrets set: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s to %s (%s); `claude-code secrets get %s` prints it\n", name, plane, secrets.Redact(value), name)
+	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code secrets get %s` prints it\n", name, secrets.Redact(value), name)
 	return 0
 }
 
-// cmdSecretsDelete removes NAME from every managed plane (keyring, secrets.env, metadata).
+// cmdSecretsDelete removes NAME from the vault.
 func cmdSecretsDelete(args []string) int {
 	if len(args) != 1 || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(os.Stderr, "usage: claude-code secrets delete <NAME>")
 		return 2
 	}
 	name := args[0]
-	if _, _, ok := secrets.Get(name); !ok {
+	if !slices.Contains(secrets.Names(), name) {
 		return fail("secrets delete: %s not set", name)
 	}
 	if err := secrets.Delete(name); err != nil {
@@ -214,9 +209,12 @@ func cmdSecretsGet(args []string) int {
 		return 2
 	}
 	name := rest[0]
-	value, _, ok := secrets.Get(name)
-	if !ok {
-		return fail("secrets get: %s not set (checked the OS keyring, env.d/secrets.env, and the process env)", name)
+	value, _, err := secrets.Lookup(name)
+	if err != nil {
+		return fail("secrets get: %s: %v", name, err)
+	}
+	if value == "" {
+		return fail("secrets get: %s not set (checked the vault and the process env)", name)
 	}
 	if export {
 		fmt.Printf("export %s=%s\n", name, shellQuote(value))
@@ -281,22 +279,21 @@ func cmdSecretsAll(args []string) int {
 
 // cmdSecretsImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
 func cmdSecretsImport(args []string) int {
-	forceFile, rest := extractBool(args, "file")
-	if len(rest) != 1 || rest[0] == "-h" || rest[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env> [--file]  (NAME=value lines)")
+	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env>  (NAME=value lines)")
 		return 2
 	}
-	f, err := os.Open(rest[0])
+	f, err := os.Open(args[0])
 	if err != nil {
 		return fail("secrets import: %v", err)
 	}
 	defer f.Close()
 	pairs, problems := secrets.ParseDotenv(f)
 	if len(problems) > 0 {
-		return fail("secrets import: %s: nothing written\n  %s", rest[0], strings.Join(problems, "\n  "))
+		return fail("secrets import: %s: nothing written\n  %s", args[0], strings.Join(problems, "\n  "))
 	}
 	if len(pairs) == 0 {
-		return fail("secrets import: %s has no NAME=value lines", rest[0])
+		return fail("secrets import: %s has no NAME=value lines", args[0])
 	}
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secrets.Preview(p.Value))
@@ -306,12 +303,10 @@ func cmdSecretsImport(args []string) int {
 		return 1
 	}
 	for _, p := range pairs {
-		plane, err := secrets.Store(p.Name, p.Value, forceFile)
-		if err != nil {
+		if err := secrets.Store(p.Name, p.Value); err != nil {
 			return fail("secrets import: %s: %v", p.Name, err)
 		}
-		audit.Log(audit.SecretSet, p.Name, plane)
-		fmt.Fprintf(os.Stderr, "stored %s in %s\n", p.Name, plane)
+		fmt.Fprintf(os.Stderr, "stored %s in the vault\n", p.Name)
 	}
 	return 0
 }
@@ -327,8 +322,10 @@ func cmdSecretsExport(args []string) int {
 	if out == "" {
 		out = ".env"
 	}
-	reg, _ := providers.Load()
-	pairs := secrets.ExportPairs(reg, rest)
+	pairs, err := secrets.ExportPairs(rest)
+	if err != nil {
+		return fail("secrets %v", err)
+	}
 	if len(pairs) == 0 {
 		return fail("secrets export: no stored secrets to export")
 	}
@@ -343,14 +340,16 @@ func cmdSecretsExport(args []string) int {
 	return 0
 }
 
-// cmdSecretsList prints each stored secret (keyring or file plane, never the process env) with a masked value.
+// cmdSecretsList prints each vault secret (never the process env) with a masked value; nothing is decrypted.
 func cmdSecretsList(args []string) int {
 	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
 		fmt.Fprintln(os.Stderr, "usage: claude-code secrets list [NAME...]")
 		return 2
 	}
-	reg, _ := providers.Load()
-	rows := secrets.ListStored(reg, args)
+	rows, err := secrets.ListStored(args)
+	if err != nil {
+		return fail("secrets list: %v", err)
+	}
 	if len(rows) == 0 {
 		fmt.Fprintln(os.Stderr, "no stored secrets")
 		return 0
@@ -360,9 +359,7 @@ func cmdSecretsList(args []string) int {
 		w = max(w, len(r.Name))
 	}
 	for _, r := range rows {
-		// name + plane + preview within 80 columns: the preview gets what the name column leaves (≥8 stars)
-		room := max(8, 80-w-2-7-2-13) // 13 = " (NNN chars)"
-		fmt.Printf("%-*s  %-7s  %s\n", w, r.Name, r.Source, secrets.PreviewWithin(r.Value, room))
+		fmt.Printf("%-*s  %-7s  %s\n", w, r.Name, r.Source, r.Masked())
 	}
 	return 0
 }
