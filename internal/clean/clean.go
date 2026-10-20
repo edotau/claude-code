@@ -4,7 +4,7 @@
 // previews without deleting.
 //
 // Invariants, in order of importance:
-//  1. Credentials are NEVER touched: env.d/*.env, settings.json, providers.json, .credentials.json.
+//  1. Credentials are NEVER touched: the vault (state/vault.db), settings.json, .credentials.json.
 //  2. The memory store (memory/** — the local memory Git repo incl. .git, raw archives)
 //     and migration state (state/harness/memory/{migrate,journal,access}, bank.lock,
 //     maintenance) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
@@ -30,6 +30,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // target is one sweepable family. globs name what may go, resolved fresh on every call (a test
@@ -290,9 +291,13 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool) ([]string, int64
 	return hit, size
 }
 
-// protected reports whether p is memory store or migration state (invariant 2): belt-and-braces behind the globs.
+// protected guards the vault, memory store, and migration state behind the sweep globs.
 func protected(p string) bool {
 	p = filepath.Clean(p)
+	vaultPath := filepath.Clean(vault.Path())
+	if p == vaultPath || strings.HasPrefix(p, vaultPath+".") {
+		return true
+	}
 	for _, exact := range []string{memory.BankLockPath(), memory.MaintenancePath()} {
 		if p == filepath.Clean(exact) {
 			return true

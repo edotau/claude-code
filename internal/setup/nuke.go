@@ -2,6 +2,7 @@ package setup
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -11,13 +12,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ErrConfirmMismatch is returned when --apply's typed confirmation doesn't match Dir exactly.
@@ -52,6 +52,8 @@ type NukePlan struct {
 	Entries     []Entry
 	HasSecrets  bool
 	SecretNames []string
+	VaultID     string
+	Kid         string
 	UserContent []string // untracked-user-content paths Nuke archives before removing dir (+ the keep-memory set when kept)
 }
 
@@ -73,13 +75,14 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		}
 		plan.Entries = append(plan.Entries, Entry{Name: e.Name(), Size: dirSize(filepath.Join(dir, e.Name())), Class: class})
 	}
-	secretsFile := filepath.Join(dir, "env.d", "secrets.env")
-	if _, err := os.Stat(secretsFile); err == nil {
-		plan.HasSecrets = true
-		for k := range providers.ReadEnvFile(secretsFile) {
-			plan.SecretNames = append(plan.SecretNames, k)
-		}
-		sort.Strings(plan.SecretNames)
+	if err := vault.ViewAt(filepath.Join(dir, "state", "vault.db"), func(tx *vault.Tx) error {
+		plan.SecretNames = tx.Names(vault.Secrets)
+		plan.HasSecrets = len(plan.SecretNames) > 0
+		plan.VaultID, _ = tx.Get(vault.Meta, "vault_id")
+		plan.Kid, _ = tx.Get(vault.Meta, "kid")
+		return nil
+	}); err != nil {
+		return plan, err
 	}
 	userContent, err := userContentPaths(dir, hasGit)
 	if err != nil {
@@ -105,9 +108,7 @@ type NukeOpts struct {
 	Out        io.Writer
 }
 
-// Nuke prints PlanFor(opts.Dir); without Apply it stops there. With Apply it requires Confirm to
-// equal opts.Dir exactly, archives the untracked-user-content set (never env.d/secrets.env) to
-// ~/claude-nuke-<date>.tgz, then removes opts.Dir.
+// Nuke previews by default; confirmed Apply archives user content and the sealed vault, then removes opts.Dir.
 func Nuke(opts NukeOpts) error {
 	if opts.Out == nil {
 		opts.Out = io.Discard
@@ -202,11 +203,10 @@ func dirSize(path string) int64 {
 	return total
 }
 
-// userContentPaths is the untracked-user-content set: hand-authored config plus any untracked file
-// under a few tracked trees (a project's own agent/command/skill). Never env.d/secrets.env.
+// userContentPaths lists the vault, local settings, and untracked files under selected authored-content trees.
 func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
-	for _, rel := range []string{"env.d/providers.json", "settings.local.json", "env.d/provider.env"} {
+	for _, rel := range []string{"state/vault.db", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
 		}
@@ -292,8 +292,13 @@ func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 		Date        time.Time `json:"date"`
 		Dir         string    `json:"dir"`
 		SecretNames []string  `json:"secretNames"`
+		VaultID     string    `json:"vaultId"`
+		Kid         string    `json:"kid"`
 		KeepMemory  bool      `json:"keepMemory"`
-	}{Date: time.Now().UTC(), Dir: plan.Dir, SecretNames: plan.SecretNames, KeepMemory: keepMemory}
+	}{
+		Date: time.Now().UTC(), Dir: plan.Dir, SecretNames: plan.SecretNames,
+		VaultID: plan.VaultID, Kid: plan.Kid, KeepMemory: keepMemory,
+	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
@@ -303,6 +308,16 @@ func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 	}
 	write := func() error {
 		for _, rel := range plan.UserContent {
+			if rel == "state/vault.db" {
+				var buf bytes.Buffer
+				if err := vault.SnapshotTo(filepath.Join(plan.Dir, rel), &buf); err != nil {
+					return err
+				}
+				if err := tarWriteBytes(tw, rel, buf.Bytes()); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
 				return err
 			}
