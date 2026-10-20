@@ -1,13 +1,13 @@
 package providers
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 func selectTestRegistry(t *testing.T) *Registry {
@@ -29,20 +29,19 @@ func slotPinKeys() []string {
 
 func writeProviderPins(t *testing.T, pins map[string]string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(paths.PinFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Create(paths.PinFile())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for key, value := range pins {
-		if _, err := fmt.Fprintf(file, "%s=%s\n", key, value); err != nil {
-			file.Close()
-			t.Fatal(err)
+	if err := vault.Update(func(tx *vault.Tx) error {
+		for key := range tx.All(vault.Pins) {
+			if err := tx.Put(vault.Pins, key, ""); err != nil {
+				return err
+			}
 		}
-	}
-	if err := file.Close(); err != nil {
+		for key, value := range pins {
+			if err := tx.Put(vault.Pins, key, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -58,13 +57,13 @@ func writeSecretsFile(t *testing.T, name, value string) {
 	}
 }
 
-func TestSelectReadsFilePinsWithSlotPrecedence(t *testing.T) {
+func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
 		PinProvider:           "gateway",
-		PinModel:              "all-from-file",
+		PinModel:              "all-from-vault",
 		SlotPin(models.Opus):  "openai:gpt-5-nano",
-		SlotPin(models.Haiku): "haiku-from-file",
+		SlotPin(models.Haiku): "haiku-from-vault",
 	})
 
 	sel, err := Select(reg, "")
@@ -72,15 +71,15 @@ func TestSelectReadsFilePinsWithSlotPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sel.Provider.Name != "gateway" {
-		t.Fatalf("provider = %q, want gateway from pin file", sel.Provider.Name)
+		t.Fatalf("provider = %q, want gateway from vault pins", sel.Provider.Name)
 	}
 	for _, slot := range models.Slots {
-		want := Target{Provider: sel.Provider, Model: "all-from-file"}
+		want := Target{Provider: sel.Provider, Model: "all-from-vault"}
 		switch slot {
 		case models.Opus:
 			want = Target{Provider: reg.Providers["openai"], Model: "gpt-5-nano"}
 		case models.Haiku:
-			want.Model = "haiku-from-file"
+			want.Model = "haiku-from-vault"
 		}
 		got, ok := sel.Slots[slot]
 		if !ok || got.Provider != want.Provider || got.Model != want.Model {
@@ -93,8 +92,8 @@ func TestSelectEnvironmentAndProviderFlagPrecedence(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
 		PinProvider:          "gateway",
-		PinModel:             "all-from-file",
-		SlotPin(models.Opus): "opus-from-file",
+		PinModel:             "all-from-vault",
+		SlotPin(models.Opus): "opus-from-vault",
 	})
 	t.Setenv(PinProvider, "  gw  ")
 	t.Setenv(PinModel, "  all-from-env  ")
@@ -107,8 +106,8 @@ func TestSelectEnvironmentAndProviderFlagPrecedence(t *testing.T) {
 	if sel.Provider.Name != "gw" {
 		t.Fatalf("provider = %q, want trimmed env pin gw", sel.Provider.Name)
 	}
-	if got := sel.Slots[models.Opus]; got.Provider != sel.Provider || got.Model != "opus-from-file" {
-		t.Errorf("opus = %+v, want file value after whitespace-only env fallback", got)
+	if got := sel.Slots[models.Opus]; got.Provider != sel.Provider || got.Model != "opus-from-vault" {
+		t.Errorf("opus = %+v, want vault value after whitespace-only env fallback", got)
 	}
 	if got := sel.Slots[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-env" {
 		t.Errorf("sonnet = %+v, want trimmed env all-model pin", got)
@@ -117,17 +116,17 @@ func TestSelectEnvironmentAndProviderFlagPrecedence(t *testing.T) {
 	t.Setenv(PinProvider, "")
 	writeProviderPins(t, map[string]string{
 		PinProvider:          "gw",
-		SlotPin(models.Opus): "opus-from-file",
+		SlotPin(models.Opus): "opus-from-vault",
 	})
 	flagSel, err := Select(reg, "gateway")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if flagSel.Provider.Name != "gateway" {
-		t.Errorf("provider flag selected %q, want gateway over file pin gw", flagSel.Provider.Name)
+		t.Errorf("provider flag selected %q, want gateway over vault pin gw", flagSel.Provider.Name)
 	}
-	if got := flagSel.Slots[models.Opus]; got.Provider != flagSel.Provider || got.Model != "opus-from-file" {
-		t.Errorf("flag-selected opus = %+v, want file value on gateway", got)
+	if got := flagSel.Slots[models.Opus]; got.Provider != flagSel.Provider || got.Model != "opus-from-vault" {
+		t.Errorf("flag-selected opus = %+v, want vault value on gateway", got)
 	}
 }
 
@@ -135,7 +134,7 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
 		PinProvider: "gateway",
-		PinModel:    "all-from-file",
+		PinModel:    "all-from-vault",
 	})
 
 	sel, err := Select(reg, "")
@@ -143,7 +142,7 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, slot := range models.Slots {
-		if got := sel.Slots[slot]; got.Provider != sel.Provider || got.Model != "all-from-file" {
+		if got := sel.Slots[slot]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
 			t.Errorf("slot %s = %+v, want all-model pin", slot, got)
 		}
 	}

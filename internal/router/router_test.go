@@ -18,6 +18,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const secret = "test-secret"
@@ -53,14 +55,11 @@ func ok(w http.ResponseWriter, _ *http.Request, _ int) {
 	io.WriteString(w, `{"type":"message","content":[]}`)
 }
 
-// setup writes a providers.json overlay into a temp config dir and serves a router over it.
+// setup seeds vault overlay/providers in a temp config dir and serves a router over it.
 func setup(t *testing.T, overlay string) *httptest.Server {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(overlay), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	r := newRouter(secret)
 	r.log = io.Discard
 	srv := httptest.NewServer(r)
@@ -527,12 +526,9 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		case <-r.Context().Done():
 		}
 	})
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	vaulttest.Use(t)
 	overlay := fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"anthropic","base_url":%q,"auth":{"type":"none"},"models":{"opus":"m"}}}}`, up.URL)
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(overlay), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

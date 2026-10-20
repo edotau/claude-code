@@ -2,23 +2,33 @@ package vendorconfig
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"errors"
+	"io/fs"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// writeOverlay isolates CLAUDE_CONFIG_DIR to a temp dir and drops body at UserFile().
+// writeOverlay isolates CLAUDE_CONFIG_DIR and seeds vault overlay/vendors.
 func writeOverlay(t *testing.T, body string) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(UserFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(UserFile(), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "vendors", body)
+}
+
+func TestOverlayDocAbsent(t *testing.T) {
+	vaulttest.Use(t)
+	for _, existing := range []bool{false, true} {
+		if existing {
+			vaulttest.Put(t, vault.Env, "PLAIN", "value")
+		}
+		if _, err := OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("OverlayDoc (existing vault %v) error = %v, want fs.ErrNotExist", existing, err)
+		}
 	}
 }
 
@@ -55,6 +65,9 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 	want := Vendor{}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Vendor(\"gemini\") after null overlay = %+v, want zero value", got)
+	}
+	if _, ok := cfg.Vendors["gemini"]; ok {
+		t.Error("null overlay must remove gemini from Vendors")
 	}
 }
 
@@ -136,14 +149,22 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 	}
 }
 
-// TestMalformedOverlayErrors: a broken overlay document surfaces an error naming the overlay file, not a silent default.
+// A broken overlay names its vault location instead of silently returning defaults.
 func TestMalformedOverlayErrors(t *testing.T) {
-	_, err := Parse([]byte(`{}`), []byte(`{not json`))
-	if err == nil {
-		t.Fatal("Parse() with malformed overlay = nil error, want error")
-	}
-	if got := err.Error(); got == "" {
-		t.Fatal("Parse() error message is empty")
+	writeOverlay(t, `{not json`)
+	for name, read := range map[string]func() (*Config, error){
+		"Load":  Load,
+		"Parse": func() (*Config, error) { return Parse([]byte(`{}`), []byte(`{not json`)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := read()
+			if err == nil {
+				t.Fatalf("%s() with malformed overlay = nil error, want error", name)
+			}
+			if !strings.Contains(err.Error(), "vault overlay/vendors") {
+				t.Fatalf("%s() error = %q, want vault overlay/vendors", name, err)
+			}
+		})
 	}
 }
 
