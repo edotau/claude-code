@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -27,8 +28,8 @@ func slowSecretTool(t *testing.T) {
 func hermetic(t *testing.T) {
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
-	down = false
-	t.Cleanup(func() { down = false })
+	down.Store(false)
+	t.Cleanup(func() { down.Store(false) })
 }
 
 // Get/Set/Delete on a box with no keyring tool on PATH must degrade, never panic or hang, and
@@ -61,8 +62,44 @@ func TestLookupTimesOutReturnsErrNoAnswer(t *testing.T) {
 	if v != "" || found || err != ErrNoAnswer {
 		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrNoAnswer)", v, found, err)
 	}
-	if !down {
+	if !down.Load() {
 		t.Fatal("down must latch true after a timeout")
+	}
+}
+
+func TestConcurrentLookupSetDeleteTimeout(t *testing.T) {
+	hermetic(t)
+	slowSecretTool(t)
+	saved := timeout
+	timeout = 10 * time.Millisecond
+	t.Cleanup(func() { timeout = saved })
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			<-start
+			if _, _, err := Lookup("CONCURRENT"); err != ErrNoAnswer {
+				t.Errorf("Lookup error = %v, want ErrNoAnswer", err)
+			}
+		})
+		wg.Go(func() {
+			<-start
+			if err := Set("CONCURRENT", "value"); err == nil {
+				t.Error("Set must fail when the tool times out")
+			}
+		})
+		wg.Go(func() {
+			<-start
+			if err := Delete("CONCURRENT"); err == nil {
+				t.Error("Delete must fail when the tool times out")
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if _, _, err := Lookup("CONCURRENT"); err != ErrNoAnswer {
+		t.Errorf("latched Lookup error = %v, want ErrNoAnswer", err)
 	}
 }
 
@@ -77,7 +114,7 @@ func TestLookupLatchedDownReturnsErrNoAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	down = true
+	down.Store(true)
 	v, found, err := Lookup("ANYTHING")
 	if v != "" || found || err != ErrNoAnswer {
 		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrNoAnswer)", v, found, err)

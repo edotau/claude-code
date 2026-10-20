@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -25,7 +26,7 @@ var timeout = 3 * time.Second
 
 // down latches once a lookup/store has already timed out this process, so a loop over many
 // names (`secrets status`) pays the timeout once, not once per name.
-var down bool
+var down atomic.Bool
 
 // ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrNoAnswer = errors.New("keyring: did not answer")
@@ -58,7 +59,7 @@ func Lookup(name string) (value string, found bool, err error) {
 	if name == "" || !Available() {
 		return "", false, nil
 	}
-	if down {
+	if down.Load() {
 		return "", false, ErrNoAnswer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -73,7 +74,7 @@ func Lookup(name string) (value string, found bool, err error) {
 	cmd.WaitDelay = 250 * time.Millisecond
 	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
-		down = true
+		down.Store(true)
 		return "", false, ErrNoAnswer
 	}
 	if err2 != nil {
@@ -105,7 +106,7 @@ func Set(name, value string) error {
 	if !Available() {
 		return fmt.Errorf("keyring: no keyring tool on PATH for %s — use the file plane instead", runtime.GOOS)
 	}
-	if down {
+	if down.Load() {
 		return fmt.Errorf("keyring: the keyring did not answer earlier this run — use the file plane instead")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
@@ -124,7 +125,7 @@ func Set(name, value string) error {
 	cmd.WaitDelay = 250 * time.Millisecond
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		down = true
+		down.Store(true)
 	}
 	// The tool's output carries the reason (unlock refused, no D-Bus); `security -i` exits 0 even on failure.
 	msg := strings.TrimSpace(strings.ReplaceAll(string(out), value, "<redacted>"))
@@ -145,7 +146,7 @@ func Delete(name string) error {
 	if name == "" || !Available() {
 		return nil
 	}
-	if down {
+	if down.Load() {
 		return fmt.Errorf("keyring: the keyring did not answer earlier this run")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -169,7 +170,7 @@ func Delete(name string) error {
 		}
 	}
 	if ctx.Err() != nil {
-		down = true
+		down.Store(true)
 	}
 	return fmt.Errorf("keyring: delete %s: %w", name, err)
 }

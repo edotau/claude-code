@@ -61,10 +61,21 @@ func ReadEnvFile(path string) map[string]string {
 
 // Pin reads key from the process env, then the pin file.
 func Pin(key string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+	return pinLookup()(key)
+}
+
+// pinLookup reads the pin file at most once, only when the process env does not answer.
+func pinLookup() func(string) string {
+	var pins map[string]string
+	return func(key string) string {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+		if pins == nil {
+			pins = ReadEnvFile(PinFile())
+		}
+		return pins[key]
 	}
-	return ReadEnvFile(PinFile())[key]
 }
 
 // SetPins writes (value != "") or clears (value == "") keys in the pin file under its lock.

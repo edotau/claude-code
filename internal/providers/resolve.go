@@ -37,9 +37,10 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 // Select resolves the session: provider = flag → HARNESS_PROVIDER pin → registry default; each slot =
 // HARNESS_<SLOT>_MODEL → HARNESS_MODEL → the provider's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
+	pin := pinLookup()
 	name := providerFlag
 	if name == "" {
-		name = Pin(PinProvider)
+		name = pin(PinProvider)
 	}
 	if name == "" {
 		name = reg.Default
@@ -49,9 +50,9 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 		return Selection{}, err
 	}
 	sel := Selection{Provider: p, Slots: map[string]Target{}}
-	all := Pin(PinModel)
+	all := pin(PinModel)
 	for _, slot := range models.Slots {
-		spec := Pin(SlotPin(slot))
+		spec := pin(SlotPin(slot))
 		if spec == "" {
 			spec = all
 		}
