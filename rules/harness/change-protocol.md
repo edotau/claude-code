@@ -42,9 +42,9 @@ made directly in `settings.json` that is silently erased on the next `make insta
    (`rules/README.md`). Moving a rule breaks any hard-coded cross-reference to its old path —
    grep and fix those in the same commit.
 
-4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate the
-   cross-tool mirrors: `claude-code agents docs` (AGENTS.md/GEMINI.md) and, if Gemini-specific
-   skill mirroring is affected, `claude-code agents sync` (projections in `state/projections/` are local — nothing to commit).
+4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate vendor
+   projections with `claude-code agents sync` (for example, `~/.codex/AGENTS.md` and
+   `~/.gemini/GEMINI.md`; local renders are under `state/projections/`).
 
 5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
    what was intentionally left for a later pass.
@@ -59,7 +59,7 @@ grep -n "<changed key>" ~/.claude/settings.json
 claude-code doctor
 
 # Cross-tool renders are current
-claude-code agents docs --check
+claude-code agents sync --check
 ```
 
 ## Related

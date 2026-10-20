@@ -16,7 +16,7 @@ skills that already own it. Do not restate those here — load them.
 | Done criteria, gate chain, claim discipline | `approval-gate` |
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, `/review-funnel` |
 | Plan artifact, task breakdown | `planning` |
-| Scope tiering (TRIVIAL→EPIC) | `rules/harness/harness-workflow.md` |
+| Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, over-engineering | `evaluate-code`, `simplify` |
 | Pre-review / post-build gating agent | `codex` (REVIEW / VERIFY modes) |
 
@@ -61,7 +61,7 @@ indistinguishable from a skipped step.
 
 ## Step 0 — Classify the deliverable shape
 
-Orthogonal to the complexity tiers in `harness-workflow.md`: that sizes the work, this decides
+Orthogonal to the complexity tiers in `rules/workflow/master-workflow.md`: that sizes the work, this decides
 what you hand back.
 
 | Shape | Signal | Deliverable |

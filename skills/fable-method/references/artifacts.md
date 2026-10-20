@@ -35,8 +35,8 @@ A task framing — "fix the code", "make the tests pass", "get CI green" — is 
 of intended behavior. It does not promote the tests above the spec.
 
 ```
-INTENT: code does token refresh at 5min buffer; the failing test expects 30s;
-        the spec (rules/harness/harness-workflow.md) says 5min → the test is wrong, not the code.
+INTENT: code changes one line; the task expects a typo fix; the spec
+        (rules/workflow/master-workflow.md) defines TRIVIAL as a single-line fix, typo, or rename.
 ```
 
 ## AUTH — before an irreversible or outward-facing action
