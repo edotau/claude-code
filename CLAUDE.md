@@ -52,44 +52,27 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Set up a box end to end (provider, logins or keys, models, vendor configs) | `claude-code configure [section] [--agent claude|codex|copilot|opencode|gemini] [--check]` (`--provider` = the model backend, `--agent` = one agent CLI) · `make bootstrap` | `README.md` → Setup |
-| Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | `README.md` → Setup modes |
 | Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
-| Sync VS Code's Machine settings + per-agent terminal keybindings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f] [--keybindings-dest f]` | `README.md` → Setup |
-| Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | `README.md` → Install |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the pin file |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
-| Add a gateway provider (corporate or self-hosted) | add it to `~/.claude/env.d/providers.json` with `routes` per dialect; copy `env.d/providers.example.json` | `README.md` → Providers |
 | Set a credential | `claude-code secrets set [NAME]` (OS keyring; bare on a terminal = guided dialog; `--file` → `env.d/secrets.env`), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
-| Set OpenCode reasoning effort | TUI: `ctrl+t` cycles variants, `<leader>v` (ctrl+x v) lists them · `opencode run --variant high` · `claude-code ask --effort high` · default: `provider.<p>.models.<id>.options` in `~/.config/opencode/opencode.json` (not a generate-managed key, survives `generate`) | `opencode models <p> --verbose` shows each model's variants |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini/gemini.md`, `agents/gemini.md` |
-| Project agents + this file into every vendor (codex, copilot, gemini, opencode; local render in `state/projections/`), link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | `commands/harness/sync-agents.md`; `state/projections/` is generated + gitignored — edit `agents/`, `skills/`, this file; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider <p> --model <m>` (or the bare shim); `--print-env` shows the wiring | `README.md` → Agents |
-| Start an agent TUI on another tailnet box, detached | `claude-code dispatch --host <name> --agent claude\|codex\|opencode\|gemini\|copilot "<task>"` (tmux session, prints the attach command); `--list --host <h>` · `--attach --host <h> <session>` | `--dry-run` prints the ssh argv |
-| Watch agents and dispatch from a phone, over the tailnet | `claude-code web [--addr ip:port] [--hosts h1,h2] [--days N]` (binds loopback or a 100.64.0.0/10 tailnet address only) | `internal/web`; CSRF token + Host-header allowlist guard every request |
-| See every subagent's status, activity and vendor legs; drill into one | `claude-code agents tree [--session id] [--watch]` · `claude-code web view <agentId> [--follow]` | journal-backed; a `codex→claude` fallback is flagged on the leg row |
-| Pane state of dispatched agents on a host | `claude-code dispatch --list --host <h> --status [--format json]` | working \| input-needed \| ready \| unknown \| gone; the web page caches the same |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `clean [--dry-run] <name>` · `clean-all [--yes]` | same engine as the worktree hooks; never forces a removal |
-| Which browsers Claude in Chrome can drive; install the extension in another one | `claude-code web browsers` · `claude-code web setup --browser edge\|default [--dry-run]` | `doctor` + `configure browser` show the default's state; Safari/Firefox need a different control path |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `/harness:mcp-doctor` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |
-| See what acted: provider switches, pins, secret sets, safety blocks, router failovers | `claude-code doctor --audit [--days 7] [--format json]` (`state/harness/audit.jsonl`) | names only, never a value or a blocked command |
-| Inspect or diff the shadow history of config (memory history: `git -C ~/.claude/memory log`) | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
-| Pick the statusline color palette · apply the whole look (VS Code, statusline, opencode, copilot, gemini) | `claude-code theme [--preview] [<palette>]` · `claude-code theme apply [--dry-run]` | `theme/README.md` — one JSON per tool, merged over its config |
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote\|alias` | `README.md` → Memory bank |
-| Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; `/workflow:orchestrate` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `vendor-leg` | `rules/workflow/master-workflow.md` → Saved Workflows |
-| Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows · the `workflow-lint` PreToolUse hook auto-fills `model:'sonnet'` on an unpinned inline `agent()` and blocks only an ambiguous rewrite |
 | Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/testing:test-and-fix` | `agents/copilot` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
@@ -97,7 +80,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `/codex:dispatch` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |
-| Tailnet: status, machines, connect, mint a key, exit node | `claude-code tailscale status\|machines\|connect\|key\|exit-node` · `make tailscale-cli` · configure row | `README.md` → Tailscale |
+| Everything else (setup, VS Code, tailscale, theme, history, web, …) | `claude-code describe` | `README.md` → Command reference |
 
 ## Where things live
 

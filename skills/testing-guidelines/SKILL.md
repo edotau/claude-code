@@ -219,6 +219,7 @@ is the same kind of contract. Route detection, full matrices, patterns:
 
 ## References
 
+- [Test discipline](references/test-discipline.md) — live checks, test-agent ownership, fixtures, gates, and injection proofs.
 - `references/pytest-patterns.md` — fixtures, parametrize, mocking/patching, markers,
   exception/async tests, `tests/` layout.
 - `references/api-contract-testing.md` — route detection, auth/input matrices, DRF + httpx

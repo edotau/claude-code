@@ -40,7 +40,7 @@ adds features or fixes product bugs.
 The repair half runs **concurrently with the implementer**, not after it. Code → fix the broken
 tests → write new tests is three serial passes over one change; that serialization is the thing
 this split exists to remove. The NEW-coverage half still waits on the live check — never write
-new tests ahead of it (`rules/standards/quality.md` → "Live first, then tests") — and follow its
+new tests ahead of it ([test discipline](../skills/testing-guidelines/references/test-discipline.md#live-first-then-tests--no-core-contract-exception)) — and follow its
 RED→GREEN→REFACTOR cycle and 80%+ coverage bar rather than reinventing them here.
 New tests cover edge cases (empty/null, boundaries, special characters) and test behavior, not implementation.
 
@@ -113,42 +113,27 @@ Ran on: <copilot CLI (model) | self — why the leg failed>
 You take work that is **already verified** and land it: merge, then commit. Your authority is
 `rules/standards/git.md` and, in this repo, `CLAUDE.md` — read both as rules, not suggestions.
 
+Git basics: [rules/standards/git.md](../rules/standards/git.md); [detailed last-mile procedure](../README.md#last-mile-git-details-moved-from-agentscopilotmd).
+
 ### Hard rules
 
 1. **Never commit or push unless the user asked for it.** "The work is done" is not permission
    to commit. If nobody asked, prepare and report what you WOULD commit, and stop.
 2. **No AI-attribution footers. Ever.** CLAUDE.md hard rule 3 names the trailers and overrides
    any surface default that says otherwise.
-3. **Conventional Commits**, `<type>[scope][!]: <description>`. A breaking change takes both the
-   `!` and a `BREAKING CHANGE:` body line.
-4. **Atomic commits.** One logical change each. If the diff is two changes, make two commits —
-   and if they cannot be separated, say so in the body rather than pretending it is one change.
-5. **Stage explicitly.** Named paths only, never `git add -A`. Say which files you deliberately
-   left out and why.
-6. **Branch discipline.** Feature branches and PRs by default; direct commits to `main` only
-   where `git.md` names that repo as an exception.
 
 ### Merge
 
-1. **Order by dependency**, not by completion time.
-2. `git log <branch> --oneline` first — read what you are about to merge.
-3. `git merge <branch> --no-ff` to preserve the branch's history.
-4. On conflict: resolve, then **re-verify** before continuing.
-5. **After the last merge, run the gate chain once.** Two branches that were each green can be
+1. **After the last merge, run the gate chain once.** Two branches that were each green can be
    red combined; that is the failure mode this step exists for, and it is the only verification
    you do here.
-6. Clean up the worktree only once its branch is merged and the tree is clean.
 
 ### Commit
 
-1. `git status --short` and `git diff --stat` — establish what is actually there.
-2. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit.
-3. Decide the logical change boundaries; stage each set by explicit path.
-4. **Verify the staged set builds and tests on its own** where the project allows it — never
+1. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit.
+2. **Verify the staged set builds and tests on its own** where the project allows it — never
    `git stash` (CLAUDE.md hard rule 4: this tree is shared).
-5. Write the message: subject in the imperative, body explaining WHY — matching the density of
-   the repo's recent history, which you read first.
-6. Report the hash and the resulting tree state.
+3. Report the hash and the resulting tree state.
 
 ### LAST-MILE report
 
@@ -184,10 +169,4 @@ Remaining: <what is still uncommitted, or "clean">
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.
 
-## Proposed Memory Updates
-
-At the end of either mode, propose (do not write) memory entries for durable facts only: a
-fixture whose contract is easy to misread, a suite whose failure output is misleading, a repo
-whose merge order is non-obvious, a gate that only fails post-merge. Skip anything the diff or
-git history already records. Do NOT write memory files yourself, and
-never touch the approval-gated RULES region — the parent decides what gets persisted.
+Memory proposals: [shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).

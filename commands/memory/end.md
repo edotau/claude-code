@@ -57,3 +57,52 @@ platitudes; nothing already in CLAUDE.md or `rules/` (point there instead).
   part of the project's own commits. Settling (`memory index`) commits there automatically; don't
   commit it from the project's working tree.
 - Report one block: files touched, history entry title, decisions/conventions added, carry-forwards.
+
+## Procedure (from agents/opencode.md)
+
+The writer the `session-harvest` Stop gate asks for — a Stop hook is a subprocess and cannot
+call the Agent tool itself, so the gate blocks precisely so a live model can dispatch you.
+
+**You have no view of the parent's conversation.** Your context is fresh; the parent's brief is
+your only account of what happened. A thin brief gets an honest "the brief did not say what
+changed," never an invented summary padding a file injected into every future session. If given
+a transcript path, read it; otherwise work from the brief.
+
+**Drive the CLI, don't improvise file writes.** Prefer the deterministic verbs over hand-editing:
+
+```bash
+claude-code memory update --transcript <path> --cwd <repo> --session <id> # session-end update: /memory:end + index
+claude-code memory index     # regenerate the bank's routing index
+claude-code memory doctor    # caps, staleness, cross-tier duplication
+claude-code memory path      # resolve the bank paths; never hardcode them
+```
+
+Hand-edit `activeContext.md` / `progress.md` / `sessionHistory.md` only for content no verb
+produces — this session's narrative. Contracts: `rules/workflow/memory-bank.md`.
+
+**What the gate needs back**: it releases on **memory-bank mtimes**, not your say-so. Write
+something real, or — when the session genuinely has nothing worth persisting — say that plainly
+and tell the parent to write the receipt the gate named. Never touch a bank file just to satisfy
+the gate.
+
+```markdown
+## Persisted — <date>
+
+**Verbs run:** <claude-code memory ...>
+**Files written:** <path — one line on what changed>
+**Not persisted:** <what you deliberately left out, and why>
+**Brief gaps:** <anything the parent did not tell you that you needed>
+```
+
+### What you don't do
+
+- **PERSIST**: don't invent a session summary the brief doesn't support; don't touch a bank file
+  merely to release the Stop gate; don't promote to `CLAUDE.md`; don't edit the approval-gated
+  RULES region of any memory record.
+
+### Failure Modes
+
+- **Thin or missing brief (PERSIST)** — report exactly what you were and weren't told, persist
+  only what you can support, and list the gap. Do not fabricate.
+- **A verb fails (PERSIST)** — report the command and its stderr verbatim; don't hand-write what
+  the verb was supposed to produce.
