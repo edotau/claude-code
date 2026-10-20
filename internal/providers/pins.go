@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/keyring"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -154,8 +152,7 @@ func RenderPins() ([]byte, error) {
 // OAuthTokenEnv is the env var Claude Code reads a long-lived Max-plan token from (`claude setup-token` mints one).
 const OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 
-// HeadlessOAuthToken is the stored setup-token for unattended `claude -p` runs: the process env first, then
-// the OS keyring, then env.d/secrets.env. "" when none has one — the run then depends on the interactive /login session.
+// HeadlessOAuthToken reads the setup-token from the process env, then the vault.
 func HeadlessOAuthToken() string {
 	if tok := strings.TrimSpace(os.Getenv(OAuthTokenEnv)); tok != "" {
 		return tok
@@ -163,31 +160,44 @@ func HeadlessOAuthToken() string {
 	return StoredSecret(OAuthTokenEnv)
 }
 
-// keyringGet is the OS keyring lookup; a seam so tests never touch the real keychain.
-var keyringGet = keyring.Get
-
-// StoredSecret is name from the managed stores: the OS keyring first, then env.d/secrets.env; "" when neither.
+// StoredSecret reads a vault secret; a miss or read error yields an empty string.
 func StoredSecret(name string) string {
-	if v, ok := keyringGet(name); ok {
-		return v
+	v, _, err := vault.ReadSecret(name)
+	if err != nil {
+		return ""
 	}
-	return strings.TrimSpace(ReadEnvFile(paths.SecretsFile())[name])
+	return v
 }
 
-// EffectiveSecret is the order a launch actually uses: process env, then the OS keyring, then
-// env.d/secrets.env. source names which plane answered ("env"|"keyring"|"file"), "" when none do.
-// secrets.ladder labels the same order — keep them in step.
-func EffectiveSecret(name string) (value, source string) {
+// EffectiveSecret reads the process env, then the vault, preserving vault read errors.
+func EffectiveSecret(name string) (value, source string, err error) {
 	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		return v, "env"
+		return v, "env", nil
 	}
-	if v, ok := keyringGet(name); ok {
-		return v, "keyring"
+	v, found, err := vault.ReadSecret(name)
+	if err != nil {
+		return "", "", err
 	}
-	if v := strings.TrimSpace(ReadEnvFile(paths.SecretsFile())[name]); v != "" {
-		return v, "file"
+	if found {
+		return v, "vault", nil
 	}
-	return "", ""
+	return "", "", nil
+}
+
+// HasSecret reports env or vault presence without resolving a master key.
+func HasSecret(name string) string {
+	if strings.TrimSpace(os.Getenv(name)) != "" {
+		return "env"
+	}
+	found := false
+	err := vault.View(func(tx *vault.Tx) error {
+		_, found = tx.Get(vault.Secrets, name)
+		return nil
+	})
+	if err == nil && found {
+		return "vault"
+	}
+	return ""
 }
 
 // pinCaller names who wrote a pin — the verb and the parent process — so an unexpected switch can be traced.
