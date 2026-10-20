@@ -72,7 +72,7 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 
 	if check {
 		// Read-only: --check/--dry-run must not drop a lock file beside the user's settings.
-		return merge(dest, overlay, true)
+		return merge(dest, overlay, claudeBin+"/claude", true)
 	}
 	// Read -> backup -> write is ONE critical section, serialized against a sibling invocation. The lock
 	// lives in harness state, never beside VS Code's own file.
@@ -82,7 +82,7 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 		return Result{}, err
 	}
 	ran, err := paths.TryFileLock(lock, lockWait, func() error {
-		r, mergeErr := merge(dest, overlay, false)
+		r, mergeErr := merge(dest, overlay, claudeBin+"/claude", false)
 		result = r
 		return mergeErr
 	})
@@ -92,7 +92,7 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 	return result, err
 }
 
-func merge(dest string, overlay map[string]any, check bool) (Result, error) {
+func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (Result, error) {
 	base := map[string]any{}
 	rawBase, err := os.ReadFile(dest)
 	switch {
@@ -104,6 +104,9 @@ func merge(dest string, overlay map[string]any, check bool) (Result, error) {
 		return Result{}, err
 	}
 	merged := cloneMap(base)
+	if base["claudeCode.claudeProcessWrapper"] == claudeWrapper {
+		delete(merged, "claudeCode.claudeProcessWrapper")
+	}
 	mergeInto(merged, overlay)
 	if reflect.DeepEqual(base, merged) {
 		return Result{}, nil
