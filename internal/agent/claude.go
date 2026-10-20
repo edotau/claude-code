@@ -24,6 +24,10 @@ func (claudeRunner) Caps() Caps {
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
 
 func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+	prompt, err := attachInline(req.Prompt, req.Attach)
+	if err != nil {
+		return Result{}, err
+	}
 	args := []string{"--print", "--output-format", "stream-json", "--verbose"}
 	if req.Effort != "" {
 		args = append(args, "--effort", req.Effort)
@@ -42,7 +46,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err := plan.WriteOverlay(); err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, req.Prompt)
+	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt)
 	cmd.Env = plan.Env(os.Environ())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

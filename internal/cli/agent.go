@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -38,7 +39,11 @@ func cmdAsk(args []string) int {
 	workdir := fs.String("workdir", "", "working directory for the agent")
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
+	var attach attachFlag
+	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
+	autonomous := fs.Bool("autonomous", false, "drive the leg without stopping to ask, per runner")
+	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
+	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
@@ -61,6 +66,7 @@ func cmdAsk(args []string) int {
 		// The logged request wins; only flags typed on this command line override it.
 		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
+		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
 		_ = fs.Parse(args) // re-apply explicit flags over the record
 		prompt, *rubric = rec.Request.Prompt, ""
 		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
@@ -89,8 +95,15 @@ func cmdAsk(args []string) int {
 	if *format == "json" {
 		stream = io.Discard
 	}
+	if *tools && !timeoutExplicit(fs) {
+		*timeout = 45 * time.Minute
+	}
+	if *enableMemory && *name != "copilot" {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s runner (copilot only)\n", *name)
+	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
-		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
+		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
+		Attach: []string(attach), Autonomous: *autonomous, EnableMemory: *enableMemory}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	start := time.Now()
@@ -104,6 +117,40 @@ func cmdAsk(args []string) int {
 		return fail("ask: %v", err)
 	}
 	return 0
+}
+
+// attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
+// unless it names an existing regular file.
+type attachFlag []string
+
+func (a *attachFlag) String() string { return strings.Join(*a, ",") }
+
+func (a *attachFlag) Set(s string) error {
+	abs, err := filepath.Abs(s)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("--attach %q: not a regular file", s)
+	}
+	*a = append(*a, abs)
+	return nil
+}
+
+// timeoutExplicit is true when --timeout appeared on this command line, so it always beats the
+// tools-aware default.
+func timeoutExplicit(fs *flag.FlagSet) bool {
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "timeout" {
+			explicit = true
+		}
+	})
+	return explicit
 }
 
 func validateAskFlags(format, fallback string) error {

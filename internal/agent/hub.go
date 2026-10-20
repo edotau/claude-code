@@ -90,7 +90,7 @@ func (l hubLeg) Name() string { return l.agent }
 
 // Caps mirrors vendorRunner's: every Request field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true}
 }
 
 // Available requires the opencode binary and an opencode login for this leg's provider; a login-less
@@ -118,7 +118,8 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}
-	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools}
+	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+		Autonomous: req.Autonomous, Attach: req.Attach}
 	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "")
 	out, runErr := runEventStream(ctx, l.agent, cmd, tail, stream, parseOpenCodeStream)

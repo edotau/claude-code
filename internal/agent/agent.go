@@ -21,7 +21,8 @@ import (
 // Request is one task. Model may be a slot name, a model id, or provider:model.
 type Request struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
-	Tools                                               bool
+	Attach                                              []string // absolute file paths, task text precedes them
+	Tools, Autonomous, EnableMemory                     bool
 	Timeout                                             time.Duration
 }
 
@@ -47,8 +48,9 @@ type Result struct {
 	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original runner was unavailable
 }
 
-// Caps declares which Request fields a runner honors; Prompt and Timeout are always honored.
-type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools bool }
+// Caps declares which Request fields a runner honors; Prompt, Timeout and Attach are always honored
+// (every runner has at least an inline-block fallback for Attach).
+type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, Autonomous, Memory bool }
 
 // Runner is one agent backend.
 type Runner interface {
@@ -90,6 +92,8 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
 	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
 	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
+	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
+	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
 	return req, dropped
 }
 
@@ -193,6 +197,35 @@ func RubricPrompt(file, task string) (string, error) {
 		return "", fmt.Errorf("rubric: composed prompt is %d bytes, over the %d limit", len(prompt), MaxPromptBytes)
 	}
 	return prompt, nil
+}
+
+// attachSuffix appends each path as "@<path>" after prompt: copilot and agy resolve it live, at turn
+// time, from the real file — task text first, since agy truncates the tail.
+func attachSuffix(prompt string, paths []string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	for _, p := range paths {
+		fmt.Fprintf(&b, "\n@%s", p)
+	}
+	return b.String()
+}
+
+// attachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
+// fallback for a runner with no live-read channel (codex's prompt rides stdin blind).
+func attachInline(prompt string, paths []string) (string, error) {
+	if len(paths) == 0 {
+		return prompt, nil
+	}
+	var b strings.Builder
+	b.WriteString(prompt)
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", fmt.Errorf("attach %s: %w", p, err)
+		}
+		fmt.Fprintf(&b, "\n\n<file path=%q>\n%s\n</file>", p, data)
+	}
+	return b.String(), nil
 }
 
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree.

@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,32 @@ func TestParseAgyStreamResultApplication(t *testing.T) {
 			}
 			if res.Answer != tc.answer || out.String() != tc.output || res.SessionID != tc.session || res.Usage != tc.usage {
 				t.Fatalf("res = %+v, output = %q", res, out.String())
+			}
+		})
+	}
+}
+
+// agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
+// an autonomous-but-tool-less run must never carry it (agy must never auto-grant write access it wasn't
+// asked for).
+func TestAgyArgvAutonomous(t *testing.T) {
+	cases := []struct {
+		name               string
+		tools, autonomous  bool
+		wantMode, wantSkip bool
+	}{
+		{"neither", false, false, false, false},
+		{"tools only", true, false, false, true},
+		{"autonomous only", false, true, true, false},
+		{"both", true, true, true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			argv := agyArgv(AgyRequest{Model: "m", Tools: c.tools, Autonomous: c.autonomous})
+			hasMode := strings.Contains(strings.Join(argv, " "), "--mode auto")
+			hasSkip := slices.Contains(argv, "--dangerously-skip-permissions")
+			if hasMode != c.wantMode || hasSkip != c.wantSkip {
+				t.Errorf("argv = %q, mode=%v skip=%v, want mode=%v skip=%v", argv, hasMode, hasSkip, c.wantMode, c.wantSkip)
 			}
 		})
 	}
