@@ -143,7 +143,7 @@ func migrate(w io.Writer, dryRun bool) error {
 			continue
 		}
 		committed = append(committed, g)
-		fmt.Fprintf(w, "%-8s %d imported from %s\n", g.kind, len(g.names), legacyLabel(g.items[0].Source))
+		fmt.Fprintf(w, "%-9s %d imported from %s\n", g.kind, len(g.names), legacyLabel(g.items[0].Source))
 	}
 	count := 0
 	for _, g := range committed {
