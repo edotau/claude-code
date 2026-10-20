@@ -9,6 +9,7 @@ import (
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	var sb strings.Builder
 	if rc := BashGuard(strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
 		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, ExitProceed)
