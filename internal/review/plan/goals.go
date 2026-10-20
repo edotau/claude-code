@@ -75,15 +75,17 @@ var (
 	codeTaskRe    = regexp.MustCompile(`(?i)\brunner:|\.go\b`)
 )
 
-// countPackageMentions counts distinct packages a task line names: `internal/<pkg>`/`cmd/<pkg>` pairs, plus
-// any other top-level-dir-rooted path (`skills/...`, `agents/...`) by its leading directory.
+// runnerNames head runner alternatives like `(codex/copilot)`, which are not package paths.
+var runnerNames = map[string]bool{"copilot": true, "codex": true, "gemini": true, "opencode": true, "claude": true, "agy": true}
+
+// countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding runner names.
 func countPackageMentions(line string) int {
 	pkgs := map[string]bool{}
 	for _, m := range internalPkgRe.FindAllStringSubmatch(line, -1) {
 		pkgs[m[1]+"/"+m[2]] = true
 	}
 	for _, m := range topDirRe.FindAllStringSubmatch(line, -1) {
-		if m[1] == "internal" || m[1] == "cmd" {
+		if m[1] == "internal" || m[1] == "cmd" || runnerNames[m[1]] {
 			continue
 		}
 		pkgs[m[1]] = true
