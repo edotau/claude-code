@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// writeOpencodeCopilotLogin drops a github-copilot entry into opencode's own auth.json, under the
-// XDG_DATA_HOME scratch() already isolated to home/.local/share.
+// writeOpencodeCopilotLogin drops a github-copilot entry into opencode's 1.x auth.json, under the
+// XDG_DATA_HOME (and empty PATH, so no real opencode CLI) scratch() already isolated.
 func writeOpencodeCopilotLogin(t *testing.T, home string) {
 	t.Helper()
 	dir := filepath.Join(home, ".local", "share", "opencode")

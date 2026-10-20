@@ -15,9 +15,11 @@ const (
 	KeyDown
 	KeyLeft
 	KeyCtrlC
+	KeyBackspace // DEL (0x7f) or Ctrl-H (0x08)
+	KeyCtrl      // Ctrl+letter other than C/H/J/M; Rune is the lowercase letter ('d' for Ctrl-D)
 )
 
-// Key is one decoded keypress; Rune is set for KeyRune only.
+// Key is one decoded keypress; Rune is set for KeyRune and KeyCtrl only.
 type Key struct {
 	Kind KeyKind
 	Rune rune
@@ -39,9 +41,14 @@ func Decode(buf []byte) (Key, int) {
 		return Key{Kind: KeyEnter}, 1
 	case 0x1b:
 		return decodeEscape(buf)
+	case 0x7f, 0x08:
+		return Key{Kind: KeyBackspace}, 1
+	}
+	if buf[0] >= 0x01 && buf[0] <= 0x1a {
+		return Key{Kind: KeyCtrl, Rune: rune('a' + buf[0] - 1)}, 1
 	}
 	if buf[0] < 0x20 {
-		return dropped, 1 // unbound control byte (Tab, Backspace, ...): Pick has no use for it
+		return dropped, 1 // NUL and 0x1c-0x1f: no key binds them
 	}
 	r, n := utf8.DecodeRune(buf)
 	if r == utf8.RuneError && n == 1 && !utf8.FullRune(buf) {
@@ -70,7 +77,38 @@ func decodeEscape(buf []byte) (Key, int) {
 	case 'D':
 		return Key{Kind: KeyLeft}, 3
 	}
+	if buf[2] >= '0' && buf[2] <= '9' { // parameterized CSI (Delete is ESC [ 3 ~): drop through its final byte
+		for i := 3; i < len(buf); i++ {
+			if buf[i] >= 0x40 && buf[i] <= 0x7e {
+				return dropped, i + 1
+			}
+		}
+		return Key{}, 0
+	}
 	return dropped, 3
+}
+
+// Name is the key's footer spelling: "ctrl+d", "enter", "esc", or the rune itself.
+func (k Key) Name() string {
+	switch k.Kind {
+	case KeyEnter:
+		return "enter"
+	case KeyEsc:
+		return "esc"
+	case KeyUp:
+		return "up"
+	case KeyDown:
+		return "down"
+	case KeyLeft:
+		return "left"
+	case KeyCtrlC:
+		return "ctrl+c"
+	case KeyBackspace:
+		return "backspace"
+	case KeyCtrl:
+		return "ctrl+" + string(k.Rune)
+	}
+	return string(k.Rune)
 }
 
 // drain decodes every complete key in pending, returning them and the still-undecoded tail.

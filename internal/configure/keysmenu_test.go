@@ -24,6 +24,7 @@ func TestKeyRows(t *testing.T) {
 func TestKeysMenuBackChangesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no real vendor CLIs: building key rows must not exec opencode/codex/gh
 	orig := pickKey
 	t.Cleanup(func() { pickKey = orig })
 	calls := 0
