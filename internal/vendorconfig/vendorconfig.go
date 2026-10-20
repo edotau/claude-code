@@ -115,7 +115,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 			cfg.Vendors = map[string]Vendor{}
 		}
 		for name, raw := range o.Vendors {
-			if raw == nil { // "name": null removes a built-in vendor
+			if raw == nil || string(raw) == "null" { // "name": null removes a built-in vendor
 				delete(cfg.Vendors, name)
 				continue
 			}
