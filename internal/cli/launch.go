@@ -44,7 +44,8 @@ func tierVerb(tier string) func([]string) int {
 func cmdRun(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		helptext.Fprint(os.Stderr, "usage: claude-code run <codex|gemini|opencode|copilot> [--provider p]\n"+
-			"       claude-code run [--model [provider:]model] [--print-env] [args...]\n")
+			"       claude-code run [--model [provider:]model] [--print-env]\n"+
+			"                       [--keep-env NAME[,NAME]] [args...]\n")
 		return 2
 	}
 	return launchVendor(args[0], args[1:])

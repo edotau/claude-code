@@ -18,7 +18,7 @@ import (
 type AgyRequest struct {
 	Prompt, Model, Effort, Cwd string
 	Tools, Autonomous          bool
-	Env                        []string
+	Env, KeepEnv               []string
 }
 
 // agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
@@ -70,7 +70,7 @@ func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin)
+	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv)
 	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream)
 }
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/envscrub"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -91,7 +93,7 @@ func TestRubricPrompt(t *testing.T) {
 func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	cmd, tail := childCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "")
+	cmd, tail := childCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil)
 	start := time.Now()
 	err := childErr(ctx, "sh", cmd.Run(), tail)
 	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
@@ -103,15 +105,16 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 // empty dir (no --workdir) must leave PWD unset so the child inherits the caller's own cwd.
 func TestChildCmdSetsPWD(t *testing.T) {
 	dir := t.TempDir()
-	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "")
+	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil)
 	if !slices.Contains(cmd.Env, "PWD="+dir) {
 		t.Errorf("cmd.Env = %q, want PWD=%s", cmd.Env, dir)
 	}
 
-	// dir == "" (no --workdir): childCmd must append nothing past the inherited os.Environ() PWD.
-	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "")
-	if n, want := len(cmd.Env), len(os.Environ()); n != want {
-		t.Errorf("cmd.Env has %d entries, want %d (os.Environ(), no PWD appended)", n, want)
+	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
+	scrubbed, _ := envscrub.Scrub(os.Environ(), nil)
+	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil)
+	if n, want := len(cmd.Env), len(scrubbed); n != want {
+		t.Errorf("cmd.Env has %d entries, want %d (scrubbed os.Environ(), no PWD appended)", n, want)
 	}
 }
 

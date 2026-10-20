@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -22,6 +23,7 @@ import (
 type Request struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Attach                                              []string // absolute file paths, task text precedes them
+	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory                     bool
 	Timeout                                             time.Duration
 }
@@ -228,12 +230,14 @@ func attachInline(prompt string, paths []string) (string, error) {
 	return b.String(), nil
 }
 
-// childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree.
-func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string) (*exec.Cmd, *TailBuffer) {
+// childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
+// is scrubbed of inherited credentials before env (the launch's own additions) is layered on.
+func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	cmd.Env = append(os.Environ(), env...) // later duplicates win
+	base, _ := envscrub.Scrub(os.Environ(), envscrub.KeepSet(keepEnv))
+	cmd.Env = append(base, env...) // later duplicates win
 	cmd.Dir = dir
 	if dir != "" {
 		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir

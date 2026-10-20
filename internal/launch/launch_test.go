@@ -76,6 +76,17 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+// --keep-env takes a comma list, repeatable, and accepts both the "--name value" and "--name=value" shapes.
+func TestParseArgsKeepEnv(t *testing.T) {
+	o, _, err := ParseArgs([]string{"--keep-env", "DATABRICKS_HOST,DATABRICKS_TOKEN", "--keep-env=HOME"}, true)
+	if err != nil || !slices.Equal(o.KeepEnv, []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN", "HOME"}) {
+		t.Fatalf("KeepEnv = %q, err %v", o.KeepEnv, err)
+	}
+	if _, _, err := ParseArgs([]string{"--keep-env"}, true); err == nil {
+		t.Error("missing value accepted")
+	}
+}
+
 func TestClaudeDirect(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},

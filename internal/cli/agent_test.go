@@ -83,6 +83,20 @@ func TestAttachFlagSet(t *testing.T) {
 	}
 }
 
+// keepEnvFlag.Set comma-splits each occurrence and accumulates across repeats.
+func TestKeepEnvFlagSet(t *testing.T) {
+	var k keepEnvFlag
+	if err := k.Set("DATABRICKS_HOST,DATABRICKS_TOKEN"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := k.Set("HOME"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !slices.Equal([]string(k), []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN", "HOME"}) {
+		t.Errorf("k = %q, want accumulated comma-split names", k)
+	}
+}
+
 // timeoutExplicit distinguishes a --timeout the caller typed from the flag's own zero-cost default,
 // so the --tools-aware 45m default never clobbers an explicit value.
 func TestTimeoutExplicit(t *testing.T) {
@@ -118,6 +132,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 		attachments []string
 		wantTimeout time.Duration
 		wantAttach  []string
+		wantKeepEnv []string
 	}{
 		{name: "retry keeps recorded timeout and attachments", retry: true,
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}},
@@ -132,6 +147,8 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
 		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
+		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "DATABRICKS_HOST,HOME"},
+			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"DATABRICKS_HOST", "HOME"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -179,6 +196,9 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			}
 			if !slices.Equal(req.Attach, wantAttach) {
 				t.Errorf("attachments = %q, want %q", req.Attach, wantAttach)
+			}
+			if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
+				t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
 			}
 		})
 	}
