@@ -1,6 +1,7 @@
 # Data Extraction Recipes
 
-Practical patterns for extracting structured data from web pages using Playwright. Each recipe is a self-contained pattern you can adapt to your target site.
+Practical patterns for extracting structured data from web pages using Playwright. Each recipe is
+a self-contained pattern you can adapt to your target site.
 
 ## Example — single-page extraction (complete, runnable)
 

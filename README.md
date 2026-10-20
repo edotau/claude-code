@@ -6,8 +6,9 @@ Workflow scripts every session loads.
 
 What the binary adds to a stock install:
 
-- **Provider registry** — Anthropic, a Claude subscription, ChatGPT and GitHub Copilot subscriptions (via their own CLIs), OpenAI, Gemini, Nvidia, Ollama, or any
-  gateway, selected per launch or pinned; tier slots (opus/sonnet/haiku/fable) map to model ids per provider.
+- **Provider registry** — Anthropic, a Claude subscription, ChatGPT and GitHub Copilot subscriptions (via their own
+  CLIs), OpenAI, Gemini, Nvidia, Ollama, or any gateway, selected per launch or pinned; tier slots
+  (opus/sonnet/haiku/fable) map to model ids per provider.
 - **Loopback router** — lets Claude Code talk to OpenAI-dialect upstreams (translation), mix providers per
   tier (`haiku=openai:gpt-5-nano`), and fail over on 429/5xx.
 - **Agent runners** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`claude-code ask`), and
@@ -26,11 +27,11 @@ export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claud
 ```
 
 `make install` runs `claude-code install`: it copies the binary into `~/.claude/bin`, links each vendor CLI
-`bin/{claude,codex,gemini,opencode,copilot}` to its `PATH` copy (a direct install in `bin/` is kept; a missing
-CLI is reported, never downloaded — `install --tools=<name>` installs it), links `~/.local/bin/claude-code`, and merges the harness hooks/permissions/statusLine
-into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
-`claude-code install --dry-run`; print the render alone with `claude-code generate` (alias: `settings`).
-On WSL, plain install also sets up the `wl-paste` image-paste proxy; `claude-code clip` is the fallback.
+`bin/{claude,codex,gemini,opencode,copilot}` to its `PATH` copy (a direct install in `bin/` is kept; a missing CLI is
+reported, never downloaded — `install --tools=<name>` installs it), links `~/.local/bin/claude-code`, and merges the
+harness hooks/permissions/statusLine into `settings.json` after a timestamped backup (foreign hooks are preserved).
+Preview with `claude-code install --dry-run`; print the render alone with `claude-code generate` (alias: `settings`). On
+WSL, plain install also sets up the `wl-paste` image-paste proxy; `claude-code clip` is the fallback.
 
 `bin/<vendor>` is the real CLI (`bin/gemini` is agy), and the harness execs it by repo path, never by a `PATH`
 search. Routed launches go through `claude-code <vendor>` / `claude-code run <vendor>` (Claude Code itself:
@@ -83,21 +84,20 @@ injected only into `claude -p` launches, so an interactive session's Remote Cont
 
 The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
 `claude setup-token` mints a long-lived OAuth token for unattended runs. The claude submenu reports both states
-(`claude.ai login (max); headless token set`), offers to mint the token when it is missing, captures it from the
-CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in the vault; the launcher, `ask --agent claude`
-and the memory harvest inject it so they keep working after the /login session expires. It is a Claude Code
-credential only — it does not authenticate raw Anthropic API calls (that is `ANTHROPIC_API_KEY`). A vendor running on its own
-login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
-If token minting exits unsuccessfully, `configure` reports the error and does not store any token
-from that command's output.
-`configure` detects what is already there before asking: a key in the process env or the
-vault, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
-reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is
-offered and run attached, an API key is read with echo off into the vault; piped, every repair
-prints the exact command and the run continues. The vendor verbs do the same on demand: `claude-code codex`
-first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only then runs the plain
-`codex` CLI untouched (so `agy`'s own Google login always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
-error while someone is at the terminal.
+(`claude.ai login (max); headless token set`), offers to mint the token when it is missing, captures it from the CLI's
+output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in the vault; the launcher, `ask --agent claude` and the memory
+harvest inject it so they keep working after the /login session expires. It is a Claude Code credential only — it does
+not authenticate raw Anthropic API calls (that is `ANTHROPIC_API_KEY`). A vendor running on its own login or config
+(`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured. If token minting exits
+unsuccessfully, `configure` reports the error and does not store any token from that command's output. `configure`
+detects what is already there before asking: a key in the process env or the vault, or the vendor's own login (Claude
+subscription, `codex login`, `gh auth`, gemini's Google auth) is reported as present and reused. Only an absent
+credential prompts — on a terminal the vendor's own login is offered and run attached, an API key is read with echo off
+into the vault; piped, every repair prints the exact command and the run continues. The vendor verbs do the same on
+demand: `claude-code codex` first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only
+then runs the plain `codex` CLI untouched (so `agy`'s own Google login always works; opencode's own
+`opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare error while someone is at
+the terminal.
 
 `doctor`'s advisory `tool <name>` rows show the resolved executable and version, flag a real CLI
 behind each `bin/<vendor>` link (`<bin> → <target>`), flag a regular file or a broken link there, and list distinct
@@ -117,24 +117,21 @@ From a worktree, use `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/
 render only that checkout's settings. Merely changing cwd does not isolate writes (CLAUDE.md hard rule 4);
 add `--vendors` only when you intend to include live vendor homes.
 
-Vendor destinations include codex `~/.codex/config.toml`, opencode
-`~/.config/opencode/opencode.json` (with your Claude permissions and MCPs imported), and gemini
-`~/.gemini/antigravity-cli/settings.json` (never over a cached Google login).
-Foreign config keys are retained, with one `.backup` per changed existing file.
-Copilot routing is reported as launch-time env. The rendered codex and opencode
-blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only a routed
-launch exports: run `claude-code codex` / `claude-code opencode` (or `claude-code run <vendor>`); the bare
-`bin/codex` gets no harness key, so the block resolves to no key. Codex's `~/.codex/hooks.json` and Copilot's `~/.copilot/hooks/claude-code-harness.json`
-merge harness hooks while retaining foreign hooks (including Orca's); invalid existing hook JSON aborts
-rather than being overwritten. Copilot also merges `~/.copilot/settings.json`.
-`vscode` does the same for VS
-Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): terminal profiles launch
-`claude-code <vendor>` (`claude-code claude` for Claude Code itself) — the retired `claudeProcessWrapper`
-setting is dropped; the ChatGPT extension's `cliExecutable` still runs the real codex unrouted (D2);
-right-click = paste in the integrated terminal
-(the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
-box renders its own. Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences →
-Pointer → "Right button single click" → Paste from clipboard; Terminal.app has no right-click paste.
+Vendor destinations include codex `~/.codex/config.toml`, opencode `~/.config/opencode/opencode.json` (with your Claude
+permissions and MCPs imported), and gemini `~/.gemini/antigravity-cli/settings.json` (never over a cached Google login).
+Foreign config keys are retained, with one `.backup` per changed existing file. Copilot routing is reported as
+launch-time env. The rendered codex and opencode blocks reference the key by env var (`HARNESS_CODEX_API_KEY`,
+`HARNESS_OPENCODE_API_KEY`), which only a routed launch exports: run `claude-code codex` / `claude-code opencode` (or
+`claude-code run <vendor>`); the bare `bin/codex` gets no harness key, so the block resolves to no key. Codex's
+`~/.codex/hooks.json` and Copilot's `~/.copilot/hooks/claude-code-harness.json` merge harness hooks while retaining
+foreign hooks (including Orca's); invalid existing hook JSON aborts rather than being overwritten. Copilot also merges
+`~/.copilot/settings.json`. `vscode` does the same for VS Code's Machine settings
+(`~/.vscode-server/data/Machine/settings.json` on WSL): terminal profiles launch `claude-code <vendor>` (`claude-code
+claude` for Claude Code itself) — the retired `claudeProcessWrapper` setting is dropped; the ChatGPT extension's
+`cliExecutable` still runs the real codex unrouted (D2); right-click = paste in the integrated terminal (the Windows
+Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each box renders its own.
+Outside VS Code the same habit is the emulator's own setting: iTerm2 → Preferences → Pointer → "Right button single
+click" → Paste from clipboard; Terminal.app has no right-click paste.
 
 ### Setup modes: adopt, nuke, workspace
 
@@ -388,9 +385,10 @@ claude-code --router                       # force the router for a direct-capab
 ```
 
 The built-in default is `subscription` with no fallback ladder, so a plain `claude` runs direct. When a ladder or
-cross-provider slot puts a subscription session on the router, it sends the router secret in `X-Claude-Code-Router` (via `ANTHROPIC_CUSTOM_HEADERS`, no `apiKeyHelper`) and
-keeps its OAuth login in `Authorization`, which the router forwards to `passthrough` providers only. A
-`passthrough` slot under an API-key session provider is refused — that session carries no login to forward.
+cross-provider slot puts a subscription session on the router, it sends the router secret in `X-Claude-Code-Router` (via
+`ANTHROPIC_CUSTOM_HEADERS`, no `apiKeyHelper`) and keeps its OAuth login in `Authorization`, which the router forwards
+to `passthrough` providers only. A `passthrough` slot under an API-key session provider is refused — that session
+carries no login to forward.
 
 ## Tailscale
 
@@ -462,26 +460,24 @@ block) and MCP servers (`~/.claude.json`, plus project `.mcp.json` entries Claud
 directory — unapproved ones are named in `HARNESS_OPENCODE_MCP_SKIPPED`) and lists every tier model the provider
 serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
 
-`claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini` (drives the
-Antigravity CLI `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides the
-subscription via `agy` (default `gemini-3.8-flash-high`, `--model` to override; `--provider` sends it to an
-API-key provider instead) — the 1M-context sweep the
-`gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
-tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `state/`,
-`*.pem`/`*.key` are always skipped; the inlined path list is printed to stderr before the call. Anything else
-launches `agy` (same as `run gemini`).
-`agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
-`~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`, `~/.config/opencode/agents/<name>.md` — via a
-local rendering under `state/projections/<vendor>/agents/` (gitignored; the home copy is a byte-identical install
-of it; `clean --target projections` removes it), and links the
-hand-authored `skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a
-skill twice). Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are
-kept and reported; `--check` gates drift in both the projections and the homes; `--vendor <v>` narrows a run. `install` runs it
+`claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini` (drives the Antigravity CLI
+`agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides the subscription via `agy`
+(default `gemini-3.8-flash-high`, `--model` to override; `--provider` sends it to an API-key provider instead) — the
+1M-context sweep the `gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
+tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `state/`, `*.pem`/`*.key` are always
+skipped; the inlined path list is printed to stderr before the call. Anything else launches `agy` (same as
+`run gemini`). `agents sync` projects `agents/` into every vendor's native subagent format —
+`~/.codex/agents/<name>.toml`, `~/.copilot/agents/<name>.md`, `~/.gemini/agents/<name>.md`,
+`~/.config/opencode/agents/<name>.md` — via a local rendering under `state/projections/<vendor>/agents/` (gitignored;
+the home copy is a byte-identical install of it; `clean --target projections` removes it), and links the hand-authored
+`skills/` into `~/.agents/skills`, the one skills dir all four CLIs read natively (so no vendor sees a skill twice).
+Every generated file is banner-marked; hand-authored files, symlinks into other trees and real dirs are kept and
+reported; `--check` gates drift in both the projections and the homes; `--vendor <v>` narrows a run. `install` runs it
 after settings, and also renders CLAUDE.md + the roster into the vendors' global instruction files —
-`~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (also rendered to `state/projections/<vendor>/…`); nothing is rendered at the harness root,
-since Claude Code would load a root AGENTS.md as a second CLAUDE.md in every session (OpenCode reads CLAUDE.md
-itself; Copilot has no user-level instruction file). Inside a session, the subagents in `agents/` (`code-worker`,
-`copilot`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
+`~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md` (also rendered to `state/projections/<vendor>/…`); nothing is rendered at
+the harness root, since Claude Code would load a root AGENTS.md as a second CLAUDE.md in every session (OpenCode reads
+CLAUDE.md itself; Copilot has no user-level instruction file). Inside a session, the subagents in `agents/`
+(`code-worker`, `copilot`, `gemini`) and the Workflow scripts in `workflows/` handle in-process fan-out; see
 `rules/workflow/master-workflow.md`.
 
 ## Hooks
@@ -518,7 +514,8 @@ To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registr
 
 ## Memory bank
 
-`claude-code memory dream` runs promote + consolidation + settle once a day in the background (SessionStart, only when the bank changed), on the Copilot CLI with claude-opus-5.5 (Claude fallback). `--force` runs it now.
+`claude-code memory dream` runs promote + consolidation + settle once a day in the background (SessionStart, only when
+the bank changed), on the Copilot CLI with claude-opus-5.5 (Claude fallback). `--force` runs it now.
 
 ONE store: `~/.claude/memory/` — a local-only git repo (every settle commits; never pushed; supersede,
 never delete). `memory/index.md` is the generated catalog router (one row per repo store + newest global
@@ -571,28 +568,29 @@ brings it back. `access.log` beside each store records every recall.
 ## Housekeeping
 
 - `claude-code clean [--target <targets>] [--older-than 30d] [--list]` — sweeps accumulated state (caches,
-  run dirs, backups); applies by default, `--dry-run` previews. Credentials and settings are never a target.
-  Opt-in only: `--target projections` (vendor renders) and `--target sessions` (Claude Code transcripts under
+  run dirs, backups); applies by default, `--dry-run` previews. Credentials and settings are never a target. Opt-in
+  only: `--target projections` (vendor renders) and `--target sessions` (Claude Code transcripts under
   `projects/<slug>/` with their `<id>/` subagent dirs, aged by `--older-than`; `projects/<slug>/memory` stays).
-  `--target sessions` always asks before it deletes — a `[y/N]` prompt on a TTY, `--yes` without one.
-  Every run also checks for a nested `.claude/` inside the config dir (project scope layered over user
-  settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
+  `--target sessions` always asks before it deletes — a `[y/N]` prompt on a TTY, `--yes` without one. Every run also
+  checks for a nested `.claude/` inside the config dir (project scope layered over user settings): it goes once user
+  `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
   `state/harness/history`; the vault's pins and provider overlay are snapshotted, its secrets never.
 - `claude-code theme [--preview]` — pick the statusline color palette. A merge refuses to overwrite
-  a destination changed concurrently; re-run to merge its newer contents.
-- `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), `bash-guard` blocks (reason, never the command), router failovers.
+  a destination changed concurrently; re-run to merge its newer contents. -
+  `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret
+  sets (name only), `bash-guard` blocks (reason, never the command), router failovers.
 - `claude-code mcp doctor [--format json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
 
 ## Status line
 
-`claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]`: model, provider (and
-cross-provider slot), router state, context %, approximate session tokens, duration, git branch and diff. Persistent choice and
+`claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]`: model, provider (and cross-provider
+slot), router state, context %, approximate session tokens, duration, git branch and diff. Persistent choice and
 palettes: `~/.claude/statusline/config.json` (+ `palettes.json`).
 
 ## Layout
 
-```
+```text
 cmd/claude-code/     main
 internal/            cli (verb table) · providers · router · translate · launch · vendors · agent
                      hooks · hookspec · settings · statusline · models · paths

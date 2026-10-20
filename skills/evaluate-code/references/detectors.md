@@ -46,7 +46,7 @@ project's equivalent (`npm run lint`, `prettier --check`). Report formatting/lin
 Detects over-engineering. Python is analyzed via an indentation/keyword estimate (not an
 AST); TS/JS use the same heuristics as before. Go files are not analyzed.
 
-```
+```text
 claude-code review complexity <targets...> [--threshold strict|medium|relaxed]
                                             [--ext py,ts,tsx,js,jsx] [--json]
 ```
@@ -67,7 +67,7 @@ claude-code review complexity src/auth/ --threshold strict --json
 
 Flags changed lines that don't trace to the stated goal.
 
-```
+```text
 claude-code review diff [--diff <range>] [--file <saved.diff>] [--json]
 ```
 
@@ -109,7 +109,7 @@ catches — check them by hand on any diff:
 
 Reads a markdown plan (or stdin) and flags hidden assumptions.
 
-```
+```text
 claude-code review assumptions [plan.md|-] [--json]
 ```
 
@@ -133,7 +133,7 @@ never code files — don't point them at source files.
 
 Scores each plan step 0–3 on verification quality.
 
-```
+```text
 claude-code review goals [plan.md|-] [--json]
 ```
 
@@ -151,7 +151,7 @@ claude-code review goals implementation-plan.md --json
 
 Multi-language smells, SOLID violations, and a 0–100 quality score.
 
-```
+```text
 claude-code review quality <file|dir> [--recursive] [--language python|typescript|javascript|go|swift|kotlin]
                                        [--json] [--output FILE]
 ```
@@ -170,7 +170,7 @@ commented-out code. SOLID: OCP (type-checking), LSP/ISP (NotImplementedError), D
 Risk-categorizes a PR's changed files and lints commit messages. **Requires a git repo**
 (exit 1 if not).
 
-```
+```text
 claude-code review pr [repo_path] [--base main] [--head HEAD] [--json] [--output FILE]
 ```
 
@@ -185,7 +185,7 @@ score with a suggested review order.
 
 Combines `review pr` + `review quality` into one report.
 
-```
+```text
 claude-code review report [repo_path] [--format text|markdown|json]
                            [--pr-analysis pr.json] [--quality-analysis quality.json]
                            [--output FILE]

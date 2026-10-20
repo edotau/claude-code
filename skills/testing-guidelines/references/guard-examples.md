@@ -56,7 +56,7 @@ into an existing fallback handler turned a silent wrong result into a slower cor
 
 ## Pin the behavior before the assertion
 
-```
+```text
 Given an authenticated user with no widgets
 When they POST /api/widgets/ with {"name": "w"}
 Then the response is 201 and the body contains the new widget's id

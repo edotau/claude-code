@@ -4,6 +4,7 @@ Step-by-step workflows for the design tasks that come up most. Each ends in an *
 template at the bottom) when the decision is consequential.
 
 ## Index
+
 1. [New pipeline stage](#1-new-pipeline-stage)
 2. [New web feature (API + UI)](#2-new-web-feature)
 3. [Compute placement](#3-compute-placement)
@@ -46,7 +47,7 @@ template at the bottom) when the decision is consequential.
 
 Run the placement test from `tech-decision-guide.md` §6. Decision tree:
 
-```
+```text
 Heavy data / distributed / GPU / scheduled batch? ──► data platform job
 Model training or serving?                        ──► data/ML platform (job or endpoint)
 Long-lived web service / API / UI session?        ──► app platform (containers/PaaS)

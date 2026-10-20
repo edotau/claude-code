@@ -93,6 +93,23 @@ func TestWriteBankRegionInsertsReplacesAndRefuses(t *testing.T) {
 	}
 }
 
+// stripFrontmatter only treats a line-start "---" as the closing fence, so an indented "---" line inside
+// a YAML block scalar (e.g. a literal "|" value) is left alone and the real closing fence still wins.
+func TestStripFrontmatterBlockScalarDashes(t *testing.T) {
+	in := "---\ntitle: x\nbody: |\n  line1\n  ---\n  line3\n---\nrest\n"
+	if got := stripFrontmatter(in); got != "rest\n" {
+		t.Errorf("stripFrontmatter(block scalar with --- line) = %q, want %q", got, "rest\n")
+	}
+}
+
+// A body with no leading "---\n" fence passes through unchanged.
+func TestStripFrontmatterNoFrontmatter(t *testing.T) {
+	in := "# Just a heading\nbody\n"
+	if got := stripFrontmatter(in); got != in {
+		t.Errorf("stripFrontmatter(no frontmatter) = %q, want unchanged %q", got, in)
+	}
+}
+
 // TestBuildCatalogListsRepoRowsAndCapsGlobal: every repo store gets a row, and the global entry
 // section caps at catalogGlobalMax with an overflow marker.
 func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {

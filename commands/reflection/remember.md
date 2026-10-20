@@ -74,14 +74,14 @@ Match the existing index style exactly (the em-dash separator, lowercase `.md` l
 
 If the fact reads like an imperative rule (always/never, a convention), nudge:
 
-```
+```text
 This sounds like a rule. Consider /reflection:promote to graduate it to a rules/ file
 for durable enforcement.
 ```
 
 ## Step 6: Report
 
-```
+```text
 Saved to native project memory:
   <slug>.md      (type=<type>)
   MEMORY.md      +1 index line

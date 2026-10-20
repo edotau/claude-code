@@ -77,6 +77,7 @@ Rank by measured impact; a finding without a number is a hypothesis, label it as
 ## Memory-leak patterns (long-running jobs / services)
 
 When memory grows unbounded (an OOM after hours), look for:
+
 - Event listeners / signal handlers registered without cleanup
 - Timers / scheduled callbacks never cancelled
 - Closures holding large references alive past their use

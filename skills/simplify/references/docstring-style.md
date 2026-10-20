@@ -21,6 +21,7 @@ internal functions whose six-line docstring says less than their name already do
 ## Before / after
 
 **Bad — restates the signature, narrates the obvious:**
+
 ```python
 def calculate_discount(amount: float, percent: float) -> float:
     """
@@ -40,6 +41,7 @@ def calculate_discount(amount: float, percent: float) -> float:
 ```
 
 **Good — one line, says what the signature can't:**
+
 ```python
 def calculate_discount(amount: float, percent: float) -> float:
     """Return the discount value for `amount` at `percent` (0–100)."""
@@ -47,6 +49,7 @@ def calculate_discount(amount: float, percent: float) -> float:
 ```
 
 **Bad — ceremony around a private helper:**
+
 ```python
 def _slugify(name: str) -> str:
     """
@@ -59,6 +62,7 @@ def _slugify(name: str) -> str:
 ```
 
 **Good — drop it or make it one line:**
+
 ```python
 def _slugify(name: str) -> str:
     """Lowercase, hyphenate, strip non-alphanumerics for a URL-safe slug."""

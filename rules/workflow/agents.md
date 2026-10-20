@@ -54,7 +54,8 @@ No user prompt needed — trigger automatically:
 1. Non-trivial task received — run the **Codebase Intelligence Protocol** first
 2. Complex feature requests — use **claude** agent (architect/plan phase; feed it the context brief)
 3. Code just written/modified — use **claude** agent (review phase)
-4. Bug fix or new feature — new coverage is **copilot**'s job, dispatched with the implementer, written after the live check
+4. Bug fix or new feature — new coverage is **copilot**'s job, dispatched with the implementer, written after the live
+   check
 5. Architectural decision — use **claude** agent (architect phase)
 6. **Implementation starting** — dispatch the test-surface agent in the SAME message as the
    first implementation step, never after the code lands. It plans the additions AND finds
@@ -70,20 +71,21 @@ ALWAYS use parallel Agent calls for independent operations — launch in a **sin
 > **Hard minimum on any code dispatch: ≥1 test agent in the same message as the implementation
 > agent(s).** Not queued after them. Ownership split, sizing, and what does *not* satisfy it:
 > `../standards/quality.md` → "every code dispatch carries a test agent, concurrently".
-
+>
 > **Tier by context weight, not raw count.**
-> - **Deep-context agents** (large context / many files each — e.g. whole-module audits): keep
->   **≤8** concurrent.
-> - **Lean/fresh subagents** (small context — one-file reads, single-target fixes): up to
->   **~8–10** is fine; they start cheap.
-> - **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
->   An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
->   parent's tier — dispatch fan-out leaves as `code-worker` (frontmatter `model: sonnet`),
->   NOT as `inherit` managers. Reserve `model: 'opus'` for a single leaf that demonstrably
->   failed on Sonnet (capability escalation), counted against the ≤8 tier.
-> - A provider with its own rate limit may throttle a wide fan-out before either cap bites —
->   `claude-code doctor` reports provider/router health; drop to sequential if a shared
->   provider starts throwing sustained errors.
+
+- **Deep-context agents** (large context / many files each — e.g. whole-module audits): keep
+  **≤8** concurrent.
+- **Lean/fresh subagents** (small context — one-file reads, single-target fixes): up to
+  **~8–10** is fine; they start cheap.
+- **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
+  An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
+  parent's tier — dispatch fan-out leaves as `code-worker` (frontmatter `model: sonnet`),
+  NOT as `inherit` managers. Reserve `model: 'opus'` for a single leaf that demonstrably
+  failed on Sonnet (capability escalation), counted against the ≤8 tier.
+- A provider with its own rate limit may throttle a wide fan-out before either cap bites —
+  `claude-code doctor` reports provider/router health; drop to sequential if a shared
+  provider starts throwing sustained errors.
 
 ```markdown
 # GOOD: Single message, 3 parallel agents
@@ -132,6 +134,7 @@ codex / copilot / gemini as extra hands via `claude-code ask --agent <runner>`.
 ## Multi-Perspective Analysis
 
 For complex problems, use split-role sub-agents:
+
 - Factual reviewer
 - Senior engineer
 - Security expert

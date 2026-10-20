@@ -62,7 +62,7 @@ supersedes the note.) If the entry is now fully redundant with the skill, mentio
 
 ## Step 6: Report
 
-```
+```text
 Skill extracted: <name>
   skills/<name>/SKILL.md (N lines)
   [+ references/*.md if any]
@@ -89,7 +89,7 @@ skill — extract what is proven, never add hypothetical coverage.
 5. **Quality gates.** Frontmatter valid; description carries real trigger keywords;
    self-contained (no original-session context needed); no hardcoded secrets or machine-specific paths.
 
-```
+```markdown
 ## Skill Created: <name>
 Path: skills/<name>/SKILL.md
 Lines: N

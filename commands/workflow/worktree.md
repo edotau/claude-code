@@ -17,12 +17,14 @@ argument-hint: "<create|list|merge|clean|clean-all> [name] [--branch <b>] [--tar
 **Input**: $ARGUMENTS
 
 Current branch:
-```
+
+```bash
 !git branch --show-current
 ```
 
 Existing worktrees:
-```
+
+```bash
 !git worktree list 2>/dev/null
 ```
 
@@ -64,27 +66,32 @@ Create a new worktree for a parallel Claude Code session — delegates the git p
 2. Create (or resume) the worktree. No `--branch` reuses `worktree-$SLUG` — the hook's naming,
    now shared by every creation path — if it already exists; resuming an existing `$SLUG`
    worktree is safe (it prints the same path rather than recreating):
+
    ```bash
    WT=$(claude-code worktree create "$SLUG" ${BRANCH:+--branch "$BRANCH"})
    ```
+
    A refusal here (bad name, traversal, or a foreign directory already occupying `$SLUG` — a
    basename collision) prints the reason and stops; do not retry with `-f` or similar.
 
 3. Python repos only — symlink the shared `.venv` (avoids a 500MB+ copy):
+
    ```bash
    [ -d .venv ] && ln -sf "$(pwd)/.venv" "$WT/.venv"
    ```
 
 4. Copy environment files:
+
    ```bash
    cp .env "$WT/.env" 2>/dev/null || true
    cp .claude/settings.local.json "$WT/.claude/settings.local.json" 2>/dev/null || true
    ```
 
-5. Print: path, branch, base SHA, and the follow-ups — launch via `cd $WT && claude`, merge back via `/workflow:worktree merge $SLUG`, clean via
-   `/workflow:worktree clean $SLUG`. Inside the harness repo (`~/.claude`) itself, the banned git verbs
-   (hard rule 4) are allowed inside this worktree — it is a separate checkout — but `make install` and
-   `claude-code` verbs there still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it.
+5. Print: path, branch, base SHA, and the follow-ups — launch via `cd $WT && claude`, merge back via
+   `/workflow:worktree merge $SLUG`, clean via `/workflow:worktree clean $SLUG`. Inside the harness repo (`~/.claude`)
+   itself, the banned git verbs (hard rule 4) are allowed inside this worktree — it is a separate checkout — but
+   `make install` and `claude-code` verbs there still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at
+   it.
 
 ---
 
@@ -123,9 +130,11 @@ before anything is integrated, with `no verification gate found — pass --verif
 `--no-verify` is the only way to promote unverified.
 
 1. **Preview** — always run first, never skipped:
+
    ```bash
    claude-code worktree merge --dry-run "$SLUG"
    ```
+
    Prints the pinned target/source OIDs and every `issue:` found. A clean plan prints
    `clean — no predicted conflicts` and exits 0; any issue (dirty checkout, detached target, a
    `--target` mismatch, unrelated histories, a `merge-tree` capability failure, or a predicted
@@ -137,9 +146,11 @@ before anything is integrated, with `no verification gate found — pass --verif
 
 3. On confirmation, apply — pass `--verify "<cmd>"` only to override auto-detection, or `--no-verify`
    to skip it on purpose:
+
    ```bash
    claude-code worktree merge "$SLUG"
    ```
+
    This re-runs Preflight itself (never trusts the earlier preview), integrates the pinned target into
    the worktree, runs the verify gate there, and only on success fast-forwards the main checkout onto
    the result — a failing gate stops here: the worktree is preserved on disk, untouched by promotion,
@@ -150,12 +161,14 @@ before anything is integrated, with `no verification gate found — pass --verif
    before retrying.
 
 4. **Report** (success path):
-   ```
+
+   ```text
    Merge complete
    ==============
    Branch: worktree-$SLUG -> <target>
    Verify: <the --verify command and its pass/fail>
    ```
+
    On `--no-clean`, the command's own `worktree left on disk; clean up with: ...` line replaces any
    separate cleanup prompt — present it verbatim rather than re-deriving the command.
 
@@ -166,7 +179,7 @@ before anything is integrated, with `no verification gate found — pass --verif
 Print the exact `issue:` line(s) from the dry-run preview and stop — do NOT run Step 3. For a
 predicted `conflict`, its `Paths` names the conflicting files:
 
-```
+```text
 Merge blocked
 =============
 issue: conflict [<files>] — git merge-tree predicts a conflict; Phase 3 adds agent resolution for this
@@ -220,16 +233,20 @@ merged, unlocked and owned state live immediately before removing (never trusts 
 and never forces.
 
 1. Preview first:
+
    ```bash
    claude-code worktree clean --dry-run "$SLUG"
    ```
+
    A refusal (uncommitted changes, unmerged HEAD, locked, or inspection failure) prints the exact
    reason — surface it and stop; do not retry with `--force` or similar. There is no such flag.
 
 2. On a clean preview, ask for confirmation, then apply:
+
    ```bash
    claude-code worktree clean "$SLUG"
    ```
+
    This removes the worktree and, only if a plain `branch -d` succeeds (branch fully merged, no
    force), deletes the branch too — an unmerged branch is kept on purpose.
 
@@ -243,14 +260,17 @@ Remove every eligible worktree under `~/worktrees/<repo>/` — delegates to
 `internal/worktree.CleanAll`, which runs the same live recheck `clean` does, per worktree.
 
 1. Preview:
+
    ```bash
    claude-code worktree clean-all --dry-run
    ```
+
    Prints every worktree as `eligible:` or `refused: … (reason)`, plus a summary count.
 
 2. Present that summary to the user and ask: "Remove N worktrees? (Y/n)"
 
 3. On confirmation, apply:
+
    ```bash
    claude-code worktree clean-all --yes
    ```

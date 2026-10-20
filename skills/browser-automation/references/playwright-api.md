@@ -1,6 +1,7 @@
 # Playwright Browser API Reference (Automation Focus)
 
-This reference covers Playwright's Python async API for browser automation tasks — NOT testing. For test-specific work (assertions, fixtures, test runners), see the `testing-guidelines` skill.
+This reference covers Playwright's Python async API for browser automation tasks — NOT testing.
+For test-specific work (assertions, fixtures, test runners), see the `testing-guidelines` skill.
 
 ## Setup
 
@@ -56,7 +57,8 @@ async with async_playwright() as p:
 
 ### Browser Contexts (Session Isolation)
 
-Browser contexts are isolated environments within a single browser instance. Each context has its own cookies, localStorage, and cache. Use them instead of launching multiple browsers.
+Browser contexts are isolated environments within a single browser instance. Each context has its
+own cookies, localStorage, and cache. Use them instead of launching multiple browsers.
 
 ```python
 # Create isolated context
@@ -99,6 +101,7 @@ await page.goto("https://example.com", timeout=30000)                  # Custom 
 ```
 
 **`wait_until` options:**
+
 - `"load"` — wait for the `load` event (all resources loaded)
 - `"domcontentloaded"` — DOM is ready, images/styles may still load
 - `"networkidle"` — no network requests for 500ms (best for SPAs)
@@ -157,6 +160,7 @@ nth = locator.nth(2)
 ```
 
 **Locator vs query_selector:**
+
 - `query_selector` — returns an ElementHandle at a point in time. Can go stale if DOM changes.
 - `locator` — returns a Locator that re-queries each time you interact with it. Preferred for reliability.
 

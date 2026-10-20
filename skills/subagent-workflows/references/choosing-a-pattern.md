@@ -14,8 +14,9 @@ Match the dependency shape; do not add orchestration by default.
 | Discovery ends only when no new work appears | Bounded loop | Repeat with a limit and deduplicated `seen` set — saved: `gate-loop`, `audit-fix-verify` (`rounds`) |
 | Several approaches to one measurable task, best wins | Competition tournament | N leaves in worktrees, then rank and merge one — [competition-tournament.md](competition-tournament.md) |
 
-Reuse a saved workflow (`workflows/*.js`; `vendor-leg` for a non-Claude stage) before scaffolding a new one.
-Use ad hoc `Agent` calls when the manager should decide tasks during the session. Use `Workflow` when the structure must be repeatable. Generate a starting script with:
+Reuse a saved workflow (`workflows/*.js`; `vendor-leg` for a non-Claude stage) before scaffolding a
+new one. Use ad hoc `Agent` calls when the manager should decide tasks during the session. Use
+`Workflow` when the structure must be repeatable. Generate a starting script with:
 
 ```bash
 claude-code workflow skeleton pipeline|parallel|evaluator|orchestrator --name <name>
@@ -23,6 +24,7 @@ claude-code workflow skeleton pipeline|parallel|evaluator|orchestrator --name <n
 
 ## Barrier rule
 
-Prefer a pipeline. Add a barrier only when the next step needs the complete prior result set, such as deduplication, merging, or an empty-result exit.
+Prefer a pipeline. Add a barrier only when the next step needs the complete prior result set, such
+as deduplication, merging, or an empty-result exit.
 
 Apply the dispatch and safety rules from [SKILL.md](../SKILL.md). Bound concurrency and loops.

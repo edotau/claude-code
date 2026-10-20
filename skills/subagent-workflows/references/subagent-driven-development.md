@@ -1,8 +1,10 @@
 # Subagent-Driven Development
 
-Use this workflow for an ordered implementation plan that should stay in the current session. It is sequential: run one implementation task and its reviews before starting the next.
+Use this workflow for an ordered implementation plan that should stay in the current session. It
+is sequential: run one implementation task and its reviews before starting the next.
 
-Use [dispatching-parallel-agents.md](dispatching-parallel-agents.md) instead when tasks are genuinely independent and safe to run concurrently.
+Use [dispatching-parallel-agents.md](dispatching-parallel-agents.md) instead when tasks are
+genuinely independent and safe to run concurrently.
 
 ## Setup
 
@@ -17,8 +19,9 @@ Use [dispatching-parallel-agents.md](dispatching-parallel-agents.md) instead whe
 2. Inspect its status, changes, and test evidence.
 3. Dispatch an independent spec reviewer using [spec-reviewer-prompt.md](spec-reviewer-prompt.md).
 4. Send spec gaps back to the implementer; repeat until compliant.
-5. Simplify the task diff with the `simplify` skill: `Skill(simplify)` in place, or a leaf briefed with
-   [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md). Its behavior gate is the task's verification command.
+5. Simplify the task diff with the `simplify` skill: `Skill(simplify)` in place, or a leaf briefed
+   with [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md). Its behavior
+   gate is the task's verification command.
 6. Only then dispatch a quality reviewer using [code-quality-reviewer-prompt.md](code-quality-reviewer-prompt.md),
    passing the simplify report.
 7. Fix and re-review quality findings until approved.

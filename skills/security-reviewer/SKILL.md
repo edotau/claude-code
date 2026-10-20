@@ -75,6 +75,7 @@ upgrades as findings; the user or a write-capable agent applies them.
 ## Common False Positives
 
 Always verify context before flagging:
+
 - Environment variables in `.env.example` (not actual secrets)
 - Test credentials in test files (if clearly marked)
 - Public API keys (if actually meant to be public)

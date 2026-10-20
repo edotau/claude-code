@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
+	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // Surface caps: per-surface byte guards, then a character budget under hooks' 9,500-char additionalContext cap
@@ -162,29 +165,30 @@ func CapChars(s string, max int) string {
 
 // dropParked removes activeContext's "## Parked" section from the injected surface: parked items are not
 // this session's work, and memory-recall still finds each one by topic (it indexes the file per bullet).
+// AST headings so a "## Parked"-shaped line inside a fenced code block is never mistaken for the section.
 func dropParked(body string) string {
-	lines := strings.Split(body, "\n")
-	var out []string
-	parked, items := false, 0
-	for _, ln := range lines {
-		if strings.HasPrefix(ln, "## ") {
-			parked = strings.TrimSpace(ln) == "## Parked"
-			if parked {
-				continue
-			}
-		}
-		if parked {
-			if strings.HasPrefix(ln, "- ") {
-				items++
-			}
+	doc := markdown.Parse([]byte(body))
+	off := len(doc.FrontMatter)
+	heads := level2Headings(doc.Body)
+	for i, h := range heads {
+		if !strings.EqualFold(h.title, "Parked") {
 			continue
 		}
-		out = append(out, ln)
+		end := len(doc.Body)
+		if i+1 < len(heads) {
+			end = heads[i+1].lineStart
+		}
+		items := strings.Count(string(doc.Body[h.lineStart:end]), "\n- ")
+		if strings.HasPrefix(string(doc.Body[h.lineStart:end]), "- ") {
+			items++
+		}
+		out := body[:off+h.lineStart] + body[off+end:]
+		if items > 0 {
+			out += fmt.Sprintf("\n<!-- %d parked item(s) omitted; memory-recall surfaces them by topic -->", items)
+		}
+		return out
 	}
-	if items > 0 {
-		out = append(out, fmt.Sprintf("\n<!-- %d parked item(s) omitted; memory-recall surfaces them by topic -->", items))
-	}
-	return strings.Join(out, "\n")
+	return body
 }
 
 // Unified-store budgets (plan §3.4): the catalog and the focus slices are reserved so neither starves the other.
@@ -236,22 +240,58 @@ func nativeLinked(root, dir string) bool {
 }
 
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
+// AST headings so a "## heading"-shaped line inside a fenced code block never ends the section early.
 func sectionBody(text, heading string) string {
-	var out []string
-	in := false
-	for l := range strings.SplitSeq(text, "\n") {
-		if strings.HasPrefix(l, "## ") {
-			if in {
-				break
-			}
-			in = strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(l, "## ")), heading)
+	doc := markdown.Parse([]byte(text))
+	heads := level2Headings(doc.Body)
+	for i, h := range heads {
+		if !strings.EqualFold(h.title, heading) {
 			continue
 		}
-		if in {
-			out = append(out, l)
+		end := len(doc.Body)
+		if i+1 < len(heads) {
+			end = heads[i+1].lineStart
 		}
+		return strings.TrimSpace(string(doc.Body[h.lineEnd:end]))
 	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
+	return ""
+}
+
+// headingSpan is a level-2 ("## ") heading's title and the byte range of its own line, body-relative.
+type headingSpan struct {
+	title              string
+	lineStart, lineEnd int
+}
+
+// level2Headings returns every "## " heading's title and line span (lineEnd after the trailing "\n").
+// body is already front-matter-free (a Document.Body), so it parses directly with no re-stripping.
+func level2Headings(body []byte) []headingSpan {
+	var out []headingSpan
+	root := markdown.ParseContext(body, parser.NewContext())
+	mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
+		if !entering {
+			return mdast.WalkContinue, nil
+		}
+		hn, ok := n.(*mdast.Heading)
+		if !ok || hn.Level != 2 {
+			return mdast.WalkContinue, nil
+		}
+		seg := hn.Lines().At(0)
+		lineStart := seg.Start
+		for lineStart > 0 && body[lineStart-1] != '\n' {
+			lineStart--
+		}
+		lineEnd := seg.Stop
+		for lineEnd < len(body) && body[lineEnd] != '\n' {
+			lineEnd++
+		}
+		if lineEnd < len(body) {
+			lineEnd++
+		}
+		out = append(out, headingSpan{title: string(seg.Value(body)), lineStart: lineStart, lineEnd: lineEnd})
+		return mdast.WalkContinue, nil
+	})
+	return out
 }
 
 // capRows trims text to max chars at a whole-line boundary, pointing at the full file.

@@ -6,6 +6,7 @@ patterns (microservices mesh, event sourcing, CQRS with a broker) are listed at 
 can recognize and resist them when a design over-reaches.
 
 ## Index
+
 1. [Modular monolith](#1-modular-monolith) — the web app
 2. [Layered architecture](#2-layered-architecture) — inside each module
 3. [Pipeline / staged DAG](#3-pipeline--staged-dag) — data and ML work
@@ -38,7 +39,7 @@ violation → **should-fix**.
 
 **Within each module.** Presentation → business → data, one direction only.
 
-```
+```text
 app/
 ├── views / handlers      # presentation — HTTP in/out, no business logic
 ├── services              # business logic — orchestration, rules
@@ -81,7 +82,7 @@ interface (port); the vendor/HTTP/file specifics live in an adapter.
 **Use when:** business logic shouldn't know whether it's talking to a live service or a local
 fixture — which is exactly what makes it testable offline.
 
-```
+```text
 core/scoring.py              # pure, no SDK import
 ports/prediction_port.py     # interface the core depends on
 adapters/http_endpoint.py    # real adapter → remote service

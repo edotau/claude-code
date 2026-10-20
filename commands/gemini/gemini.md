@@ -60,6 +60,7 @@ claude-code gemini bridge [--model <MODEL>] [--dirs <DIRS>] [--files <FILES>] [-
 ```
 
 Guidance:
+
 - Routing rides the subscription via `agy` and its Google sign-in; `--provider` picks an API-key provider.
 - Use `--dirs` for broad package or module areas.
 - Use `--files` for precise globs or structured data slices.
@@ -108,6 +109,7 @@ Guidance:
 ## Best Use Cases
 
 Gemini fits:
+
 - whole-codebase architecture understanding
 - cross-file consistency audits
 - refactoring impact analysis
@@ -116,6 +118,7 @@ Gemini fits:
 - structured text data synthesis
 
 Gemini is not the right tool for:
+
 - quick single-file edits
 - tight interactive debugging loops
 - trivial tasks with no cross-file or data-shape component
@@ -142,9 +145,12 @@ them and potentially hanging.
 
 Keep the bridge context lean — reference files/lines, don't paste large snippets.
 
-- **Analysis / Plan** (no code changes): `Task: <what to analyze>` · `Repo pointers: <paths + line numbers>` · `Constraints: concise, actionable, reference files not snippets` · `Output: bullet findings + proposed plan`.
-- **Patch** (unified diff only): `Task: <what to change>` · `Repo pointers: <paths + lines>` · `Constraints: OUTPUT unified diff ONLY, no actual edits, minimal focused changes` · `Output: a single unified diff`.
-- **Review** (audit a diff): `Task: review the diff for correctness, edge cases, missing tests` · `Constraints: checklist of issues + fixes, no code unless asked` · then paste the diff.
+- **Analysis / Plan** (no code changes): `Task: <what to analyze>` · `Repo pointers: <paths + line numbers>` ·
+  `Constraints: concise, actionable, reference files not snippets` · `Output: bullet findings + proposed plan`.
+- **Patch** (unified diff only): `Task: <what to change>` · `Repo pointers: <paths + lines>` ·
+  `Constraints: OUTPUT unified diff ONLY, no actual edits, minimal focused changes` · `Output: a single unified diff`.
+- **Review** (audit a diff): `Task: review the diff for correctness, edge cases, missing tests` ·
+  `Constraints: checklist of issues + fixes, no code unless asked` · then paste the diff.
 
 ## Notes
 

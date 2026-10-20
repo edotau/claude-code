@@ -104,8 +104,8 @@ git diff "$BASE"...HEAD | grep -E "^\+.*os\.environ|^\+.*env\(|^\+.*getenv" # ne
 git diff "$BASE"...HEAD | grep -E "^-.*os\.environ|^-.*getenv"             # removed vars (may be set in prod)
 ```
 
-A new env var that isn't wired into the deployment config breaks the deploy, not the diff. A removed one may still be set on running
-instances. Flag both.
+A new env var that isn't wired into the deployment config breaks the deploy, not the diff. A
+removed one may still be set on running instances. Flag both.
 
 ### Data table schema
 
@@ -118,7 +118,7 @@ identify readers (Pass 1), require the additive-then-remove two-phase rollout.
 Fold findings into the SKILL's severity model — most-exposed surface sets the verdict.
 Lead with blast radius and breaking changes; let the linter own style.
 
-```
+```text
 Blast radius : HIGH — serializers/order.py renders 4 views, 1 React consumer
 Breaking     : 1 — `total_cents` renamed to `total` in OrderSerializer (clients break)
 Migrations   : 0006 adds NOT NULL `currency` with no default — fails on existing rows

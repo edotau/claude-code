@@ -9,17 +9,20 @@ Pipeline: `explore → plan → [refine] → implement → simplify → review �
 The `refine` stage is **opt-in** — it runs only when `--refine` is passed.
 
 Current branch:
-```
+
+```bash
 !git branch --show-current
 ```
 
 Existing worktrees:
-```
+
+```bash
 !git worktree list 2>/dev/null
 ```
 
 Stage handoff files:
-```
+
+```bash
 !ls ~/.claude/plans/stages/*.md 2>/dev/null || echo "No active stage files"
 ```
 
@@ -31,6 +34,7 @@ Instructions:
 
 2. Create the stage handoff document `~/.claude/plans/stages/YYYY-MM-DD-{task-id}.md` (include
    `## Refined Briefs` ONLY when `INCLUDE_REFINE=true`):
+
    ```markdown
    # Task: {task-id}
    > **Description**: {task description}

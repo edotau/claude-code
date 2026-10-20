@@ -32,7 +32,7 @@ claude-code gemini bridge --model opus \
 
 where `<TASK>` is:
 
-```
+```text
 Task: second-opinion architecture and consistency review of the packed modules.
 Priorities, in order:
 1. Cross-file inconsistencies: divergent naming, duplicated logic, contradictory conventions

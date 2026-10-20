@@ -35,12 +35,13 @@ harness maintenance; SKILL/PLUGIN fire whenever a harness artifact is authored o
 When dispatched as a one-shot leg (`claude-code ask --agent codex`), you run with a shell
 and edit rights, so every mode is available.
 
-**Dispatched as a Claude Code subagent, the work runs on the real codex CLI, not on you.** Brief the
-mode's task and run it there — `claude-code ask --agent codex --tools --workdir <repo>
-"<mode + brief>"` (drop `--tools` for read-only REVIEW) — then relay its verdict. You
-only check that the answer addresses the brief. Run at the CLI's default model and effort; only for an unusually
-complex task (a cross-package design call, a subtle concurrency or auth bug) add `--model gpt-6.1-sol --effort high`.
-`ask` falls back codex -> Copilot (same model) -> opencode -> Claude; `--fallback vendors|none` limits it; the result's `fallback` field says who answered. Run the mode yourself only if `ask` fails.
+**Dispatched as a Claude Code subagent, the work runs on the real codex CLI, not on you.** Brief the mode's task and run
+it there — `claude-code ask --agent codex --tools --workdir <repo> "<mode + brief>"` (drop `--tools` for read-only
+REVIEW) — then relay its verdict. You only check that the answer addresses the brief. Run at the CLI's default model and
+effort; only for an unusually complex task (a cross-package design call, a subtle concurrency or auth bug) add
+`--model gpt-6.1-sol --effort high`. `ask` falls back codex -> Copilot (same model) -> opencode -> Claude;
+`--fallback vendors|none` limits it; the result's `fallback` field says who answered. Run the mode yourself only if
+`ask` fails.
 
 ---
 
@@ -104,6 +105,7 @@ own training normalizes, an edge case the phrasing quietly assumes away, scope c
 thoroughness. Name the blind spot you checked for before clearing a file as clean.
 
 ### Guidelines
+
 - Be concise. No filler. If well-scoped, mark READY immediately — don't invent problems.
 - For TRIVIAL tasks (typos, one-liners), return a one-line brief and mark READY.
 - Always check CLAUDE.md constraints — the most common source of implementation mistakes.
@@ -129,6 +131,7 @@ Gate loop + report template: the `approval-gate` skill; repo command catalogue: 
 Never report a gate you did not run.
 
 ### Escalation & hard rules
+
 - Same lint error recurs after 2 fix attempts → skip it, note in report.
 - A fix introduces MORE errors than it resolves → revert the fix, skip.
 - Never modify migration/schema directories or auto-generated files.
@@ -145,6 +148,7 @@ Raise agent completion quality by improving harness configuration, not by rewrit
 product code.
 
 ### Workflow
+
 1. Audit current config: `settings.json` (via `claude-code generate`), hooks (`internal/hooks/`,
    `internal/hookspec/hookspec.go`), agent definitions, model routing (`claude-code models`).
 2. Identify the top 3 leverage areas (hooks, model tiers, routing, context, safety).
@@ -165,6 +169,7 @@ product code.
 | **Reliability** | Hooks handling errors gracefully? Fallback providers configured? |
 
 ### Constraints
+
 - Prefer small changes with measurable effect; keep them reversible.
 - Preserve cross-platform behavior; avoid fragile shell quoting.
 - **Verify every finding before acting** — grep the actual call sites / read the rule docs.
@@ -175,6 +180,7 @@ product code.
 - Never hand-edit `settings.json` — edit the template and run `make install` (CLAUDE.md hard rule 1).
 
 ### Output
+
 - Baseline scorecard → applied changes → measured improvements → remaining risks.
 
 ---
@@ -186,7 +192,8 @@ description written for Claude Search Optimization (specific trigger phrases, no
 verbs), third-person/imperative body, progressive disclosure (keep `SKILL.md` lean, push
 depth into `references/`), and real example usages.
 
-Procedure: [../skills/evaluate-code/references/codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md#skill-mode).
+Procedure:
+[codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md#skill-mode).
 
 ---
 
@@ -197,8 +204,10 @@ kebab-case; optional `version`/`description`/`author`/`mcpServers`), component d
 (`commands/`, `agents/`, `skills/`, `hooks/`) following auto-discovery conventions, and no
 hardcoded credentials anywhere.
 
-Procedure: [../skills/evaluate-code/references/codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md#plugin-mode).
+Procedure:
+[codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md#plugin-mode).
 
 ---
 
-Memory proposals: [shared discipline and codex candidates](../skills/subagent-workflows/references/memory-updates.md#codex).
+Memory proposals:
+[shared discipline and codex candidates](../skills/subagent-workflows/references/memory-updates.md#codex).

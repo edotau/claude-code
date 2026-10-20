@@ -114,3 +114,39 @@ func TestSectionBodyEdgeCases(t *testing.T) {
 		t.Errorf("the last section in the file must still be captured, got %q", got)
 	}
 }
+
+// Correctness fix (mdsmith AST headings, md-spec.md): a "## " line inside a fenced code block is no
+// longer mistaken for the next heading, so the fence's full contents stay inside the section.
+func TestSectionBodyRespectsFence(t *testing.T) {
+	text := "# Active\n\n## Current Focus\n\n```\n## not a heading\n```\n- a\n\n## Blockers\n\n- none\n"
+	want := "```\n## not a heading\n```\n- a"
+	if got := sectionBody(text, "Current Focus"); got != want {
+		t.Errorf("sectionBody = %q, want %q (fence-aware heading scan must keep the fenced \"## \" line in-section)", got, want)
+	}
+}
+
+// dropParked works line-by-line with TrimSpace, so CRLF endings still match "## Parked" and the bullet count.
+func TestDropParkedCRLF(t *testing.T) {
+	ac := "# Active\r\n\r\n## Current Focus\r\n\r\n- a\r\n\r\n## Parked\r\n\r\n- p1\r\n\r\n## Blockers\r\n\r\n- none\r\n"
+	got := dropParked(ac)
+	for _, want := range []string{"## Current Focus", "## Blockers", "1 parked item(s) omitted"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("dropParked(CRLF) missing %q:\n%q", want, got)
+		}
+	}
+	if strings.Contains(got, "p1") || strings.Contains(got, "## Parked") {
+		t.Errorf("dropParked(CRLF) leaked parked content:\n%q", got)
+	}
+}
+
+// Parked as the last section (no following heading) still drops cleanly and reports its item count.
+func TestDropParkedLastSection(t *testing.T) {
+	ac := "# Active\n\n## Current Focus\n\n- a\n\n## Parked\n\n- p1\n- p2\n"
+	got := dropParked(ac)
+	if strings.Contains(got, "## Parked") || strings.Contains(got, "p1") || strings.Contains(got, "p2") {
+		t.Errorf("dropParked(last section) leaked parked content:\n%q", got)
+	}
+	if !strings.Contains(got, "2 parked item(s) omitted") {
+		t.Errorf("dropParked(last section) missing the omitted-count marker:\n%q", got)
+	}
+}

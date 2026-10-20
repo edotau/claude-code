@@ -28,7 +28,8 @@ a cost someone must carry. If `references/local/` exists, its stack defaults win
 | Ephemeral cache / session | In-process, or Redis if already provisioned | see §2 before adding Redis |
 
 **Decision flow:**
-```
+
+```text
 App state (users/projects)?      ──► relational DB
 Pipeline/analytical data?        ──► analytical store
 Embeddings / similarity search?  ──► pgvector or platform vector index

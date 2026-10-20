@@ -21,4 +21,5 @@ argument-hint: "[fast | unit | all | path/to/test.py::test_name]"
    - Max 3 fix attempts per test — if stuck, report and move on
 7. After all tests pass, run `make fmt` to auto-format any changes
 
-Be methodical: fix one test at a time. In Python repos never use bare `python` or `pytest` — always the `.venv/bin/` prefix.
+Be methodical: fix one test at a time. In Python repos never use bare `python` or `pytest` — always the `.venv/bin/`
+prefix.

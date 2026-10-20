@@ -14,7 +14,9 @@ paths:
 
 ## Naming — No Leading Underscore
 
-Do **not** prefix functions, constants, module-level names, or variables with `_`. The underscore convention encodes an implementation-private hint the import system cannot enforce; this project prefers the Pythonic alternative of simply not exporting via `__all__`.
+Do **not** prefix functions, constants, module-level names, or variables with `_`. The underscore convention encodes an
+implementation-private hint the import system cannot enforce; this project prefers the Pythonic alternative of simply
+not exporting via `__all__`.
 
 ```python
 # WRONG
@@ -28,7 +30,9 @@ def mask_env_keys(keys): ...
 def build_strategies(self, ...): ...  # class method — no underscore either
 ```
 
-**If you believe there is a strong reason to use a leading underscore** (e.g., avoiding a real, concrete name collision with a public API that cannot be renamed), stop and **ask the user before writing the name**. Do not retroactively justify the underscore after typing it.
+**If you believe there is a strong reason to use a leading underscore** (e.g., avoiding a real, concrete name collision
+with a public API that cannot be renamed), stop and **ask the user before writing the name**. Do not retroactively
+justify the underscore after typing it.
 
 ## Immutability
 

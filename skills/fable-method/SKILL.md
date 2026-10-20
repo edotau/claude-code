@@ -30,7 +30,7 @@ anything the user reads.** The only method artifacts allowed in a report are `IN
 
 ## Usage
 
-```
+```text
 /fable-method <task>       full loop (default)
 /fable-method plan <task>  Steps 0–3, deliver the plan, stop
 /fable-method audit        grade this conversation's work against the loop

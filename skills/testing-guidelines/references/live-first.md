@@ -14,7 +14,7 @@ a vendor export's column names, which sign means destabilising, what an endpoint
 returns, whether a file's numbering matches the sequence you think it does. There the data
 is the specification, and you cannot write a meaningful assertion before reading it.
 
-### The tell
+## The tell
 
 Ask: *has this code ever consumed a real input?* If the answer is no and the test count is
 climbing, stop and go get an input. Two specific smells:

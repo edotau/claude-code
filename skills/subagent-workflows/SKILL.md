@@ -3,7 +3,6 @@ name: subagent-workflows
 description: Choose and run concise multi-agent workflows for independent parallel tasks, sequential plan execution with simplify and review gates, structured orchestration, competition tournaments, or cross-model teams via `claude-code ask`.
 ---
 
-
 # Subagent Workflows
 
 Use the smallest workflow that matches the task:

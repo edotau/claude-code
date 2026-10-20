@@ -33,8 +33,9 @@ The command handles everything with the harness conventions baked in:
 /workflow:worktree clean add-auth-endpoint     # safe single removal
 ```
 
-It creates worktrees under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude Code and Orca), branches `wt/<slug>`,
-**symlinks** the shared `.venv` (avoids a 500MB+ copy), and copies `.env` + `settings.local.json`.
+It creates worktrees under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude
+Code and Orca), branches `wt/<slug>`, **symlinks** the shared `.venv` (avoids a 500MB+ copy), and
+copies `.env` + `settings.local.json`.
 In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
 but `make install` and `claude-code` verbs run from it still target the live `~/.claude`.
 

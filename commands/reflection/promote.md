@@ -11,7 +11,7 @@ argument-hint: "<pattern description> [--target <path>]"
 
 ## The promotion gradient
 
-```
+```text
 memory entry ──promote──▶ rules/standards/<topic>.md
                                  rules/software/<lang>/<topic>.md   (writable)
                                                  │
@@ -63,8 +63,8 @@ frontmatter** unless the file is meant to be on-demand.
 
 After the target write lands:
 
-1. Archive the topic file (`claude-code memory archive <topic> --apply`; `--restore` undoes it; memory git keeps history) — or, if the fact
-   shared a file with still-relevant content, edit out only the promoted portion.
+1. Archive the topic file (`claude-code memory archive <topic> --apply`; `--restore` undoes it; memory git keeps
+   history) — or, if the fact shared a file with still-relevant content, edit out only the promoted portion.
 2. Remove its index line from that project's `MEMORY.md`.
 3. Confirm the index no longer references a deleted file (no dangling links).
 
@@ -72,7 +72,7 @@ This frees MEMORY.md space (cap: 200 lines auto-loaded) and prevents the same ru
 
 ## Step 5: Report
 
-```
+```text
 Promoted: "<distilled rule>"
   → <target file> §<section>
 Removed from native memory: <slug>.md  +  MEMORY.md index line

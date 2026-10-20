@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // isGeneratedFile reports whether path is a regular file (not a symlink) whose first body line is a sync banner.
@@ -36,8 +38,8 @@ func isGeneratedSkillDir(path string) bool {
 // delimiter (or the first line with no frontmatter) — the exact shape every renderer writes.
 func hasGeneratedBanner(text string) bool {
 	body := text
-	if m := fmRes().split.FindStringSubmatch(text); m != nil {
-		body = m[2]
+	if prefix, rest := markdown.StripFrontMatter([]byte(text)); prefix != nil {
+		body = string(rest)
 	}
 	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)

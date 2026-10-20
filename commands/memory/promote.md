@@ -4,7 +4,8 @@ description: "Graduate durable, cross-project lessons from a repo's local memory
 
 # /memory:promote — Graduate Local Bank Lessons to the Global Store
 
-> The daily background `claude-code memory dream` runs promote on the Copilot CLI (claude-opus-5.5); a manual run overrides it.
+> The daily background `claude-code memory dream` runs promote on the Copilot CLI (claude-opus-5.5); a manual run
+> overrides it.
 
 Two scopes in one store: this repo's dir (`~/.claude/memory/<repo>/`) and the **shared global**
 store (`~/.claude/memory/`, the tree TOP — used by any non-repo cwd and reachable from every
@@ -27,18 +28,23 @@ to belong in the global store (or, if near-rule and public-safe, in tracked `doc
    - **not already** present in the global bank (`grep` it there first).
    Drop anything project-specific, one-off, or already captured globally.
 4. **Run the promote verb**:
+
    ```bash
    claude-code memory promote
    ```
+
    For entries that qualify by judgment but haven't hit the cap yet, move them by hand: append
    to the global `conventions.md`/`decisionLog.md`, then strike the local entry (supersede, never
    silently delete — leave a one-line pointer if the local file still needs the context).
 5. **Regenerate the routing index**:
+
    ```bash
    claude-code memory index
    ```
+
 6. **Report**:
-   ```
+
+   ```text
    Promoted N entries from <repo-slug> → global bank:
      - <entry title/first 80 chars>
    Index regenerated: yes

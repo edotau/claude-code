@@ -1,6 +1,6 @@
 # Test Discipline
 
-### Live first, then tests — no core-contract exception
+## Live first, then tests — no core-contract exception
 
 **Exercise the change on the real surface before writing a single NEW test.** When the task has a
 runnable surface — a verb, a hook, an endpoint, a client that makes a request, a make target — run it on
@@ -15,7 +15,7 @@ same command, and the before/after output is the evidence. Repairing EXISTING te
 makes stale is not "writing tests" and proceeds concurrently as usual (fan out the `copilot` agent); only NEW
 tests wait for the live check.
 
-### Where nothing can be run live
+## Where nothing can be run live
 
 Pin the contract from the spec as Given/When/Then, write the test against the code under test (it must
 import it), then prove its teeth by revert-and-restore. Verify coverage (80%+). How-to: the
@@ -25,7 +25,7 @@ Reach for **copilot** once the live check has landed, or immediately where there
 run. On failures: check test isolation, verify mocks, fix the implementation (not the test, unless the
 test is wrong).
 
-### Test-agent concurrency
+## Test-agent concurrency
 
 Code → fix the broken tests → write new tests is **three serial passes over one change**: the
 biggest time sink in a coding task, and the reason collateral breakage always surfaces last.

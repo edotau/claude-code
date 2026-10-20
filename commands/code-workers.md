@@ -11,7 +11,7 @@ in-context and reports back). This is the ergonomic front door to the `subagent-
 strategies: `dispatching-parallel-agents` (concurrent) and `subagent-driven-development` (sequential
 with per-task spec → simplify → quality gates).
 
-## Mode (first arg, optional)
+# Mode (first arg, optional)
 
 | Arg | Shape | What runs |
 |-----|-------|-----------|
@@ -38,8 +38,8 @@ echo "mode=$MODE"
 echo "tasks (| -separated): $ARGS"
 ```
 
-If the task list is empty, read the approved plan — the most recent
-`$HOME/.claude/plans/*.md`, or `$HOME/.claude/plans/<repo>/*.md` for another repo — and extract its task breakdown as the task list.
+If the task list is empty, read the approved plan — the most recent `$HOME/.claude/plans/*.md`, or
+`$HOME/.claude/plans/<repo>/*.md` for another repo — and extract its task breakdown as the task list.
 
 ```bash
 REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
@@ -69,8 +69,8 @@ handoff (NOT this session's history). Every dispatch carries a `copilot` test ag
 (`rules/standards/quality.md`) — it owns the test files the leaves must not edit.
 
 - **parallel** — emit **all** `Agent` calls in a **single message** so they run concurrently. Concurrency:
-  lean leaves ~8–10 in flight, deep-context leaves ≤8 (input-tokens/min is the binding cap). Agents share the tree on disk — scope each
-  handoff to disjoint files so concurrent writers don't collide.
+  lean leaves ~8–10 in flight, deep-context leaves ≤8 (input-tokens/min is the binding cap). Agents share the tree on
+  disk — scope each handoff to disjoint files so concurrent writers don't collide.
 - **sequential** — dispatch **one** leaf, then run the review gate (step 4) before the next task.
   **Never** run two implementer leaves in parallel here — coupled tasks would edit shared code (the
   skill's red-flag).
@@ -80,11 +80,11 @@ re-dispatch — don't ask the leaf to delegate.
 
 ## 4. Gates — spec → simplify → quality
 
-Sequential: after each leaf, before the next task. Parallel: once, over the integrated diff. Spec-compliance
-pass, then `Skill(simplify)` over the diff (a leaf gets `simplify/references/leaf-brief.md`), then the code-quality pass —
-templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`,
-`code-quality-reviewer-prompt.md`), or `/code-review` over the simplified diff. Loop
-fixes until the gate passes, then move to the next task. Do not start the next task on a red gate.
+Sequential: after each leaf, before the next task. Parallel: once, over the integrated diff. Spec-compliance pass, then
+`Skill(simplify)` over the diff (a leaf gets `simplify/references/leaf-brief.md`), then the code-quality pass —
+templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`, `code-quality-reviewer-prompt.md`), or
+`/code-review` over the simplified diff. Loop fixes until the gate passes, then move to the next task. Do not start the
+next task on a red gate.
 
 ## 5. Synthesize
 
