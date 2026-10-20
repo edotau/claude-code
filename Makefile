@@ -77,21 +77,6 @@ vet:  # (dev recipe, hidden from help) go vet
 	$(GO) vet $(PKGS)
 
 ##@ Setup
-# Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
-# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
-.PHONY: audit
-audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
-	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
-	$(GO) vet $(PKGS)
-	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
-	$(GO) build $(PKGS)
-	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
-	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
-		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make dev-tools)"; fi
-	@$(MAKE) --no-print-directory lint-yaml
-	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
-	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke; vuln + yaml when installed)"
-
 .PHONY: help-svg
 help-svg: compile  ## Regenerate the README menu image (docs/images/cli-menu.svg)
 	$(BIN) help-svg --out docs/images/cli-menu.svg
@@ -142,6 +127,21 @@ setup-env:  ## Print the PATH line (APPLY=1 writes it to the shell rc)
 	fi
 
 ##@ Quality
+# Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
+# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
+.PHONY: audit
+audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
+	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
+	$(GO) vet $(PKGS)
+	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
+	$(GO) build $(PKGS)
+	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
+	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
+		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make dev-tools)"; fi
+	@$(MAKE) --no-print-directory lint-yaml
+	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
+	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke; vuln + yaml when installed)"
+
 .PHONY: fmt
 fmt:  ## gofmt -w every Go file
 	$(GO) fmt $(PKGS) >/dev/null
