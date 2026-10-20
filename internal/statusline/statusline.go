@@ -94,8 +94,11 @@ func Run(args []string, r io.Reader, w io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	raw, _ := io.ReadAll(r)
-	fmt.Fprintln(w, Render(raw, *style))
+	raw, err := io.ReadAll(r)
+	fmt.Fprintln(w, Render(raw, *style)) // best-effort: render whatever was read even on a short read
+	if err != nil {
+		return 1
+	}
 	return 0
 }
 
@@ -155,8 +158,12 @@ func collect(in Input, cfg Config) values {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	provider, routed := sessionProvider()
 	v := values{userHost: promptUser(), path: shortenDir(cwd)}
+	var provider string
+	var routed bool
+	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) {
+		provider, routed = sessionProvider()
+	}
 	if cfg.seg("provider", true) {
 		v.provider = provider
 	}
