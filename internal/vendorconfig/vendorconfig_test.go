@@ -71,6 +71,39 @@ func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	}
 }
 
+// TestOverlayEmptyGuardRulesClearDefaults: an overlay that PRESENTS guardRules with empty ask/deny
+// arrays clears the defaults (matches TestOverlayGuardRulesReplaceWholesale's non-empty case);
+// presence, not length, decides the replace.
+func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
+	writeOverlay(t, `{"guardRules":{"ask":[],"deny":[]}}`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Guard()
+	if len(g.Ask) != 0 || len(g.Deny) != 0 {
+		t.Errorf("Guard() = %+v, want empty (overlay explicitly presents empty guardRules)", g)
+	}
+}
+
+// TestOverlayOmittedGuardRulesKeepsDefaults: an overlay that never mentions guardRules at all keeps
+// the built-in defaults, distinguishing "omitted" from "presented empty".
+func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
+	writeOverlay(t, `{"vendors":{}}`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := Parse(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, want := cfg.Guard(), defaults.Guard()
+	if !reflect.DeepEqual(g, want) {
+		t.Errorf("Guard() with omitted guardRules = %+v, want defaults %+v", g, want)
+	}
+}
+
 // TestMalformedOverlayErrors: a broken overlay document surfaces an error naming the overlay file, not a silent default.
 func TestMalformedOverlayErrors(t *testing.T) {
 	_, err := Parse([]byte(`{}`), []byte(`{not json`))

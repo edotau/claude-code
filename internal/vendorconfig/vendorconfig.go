@@ -82,14 +82,14 @@ func Parse(base, overlay []byte) (*Config, error) {
 	if len(overlay) > 0 {
 		// Vendors as json.RawMessage so a "name": null entry survives decode to signal removal.
 		var o struct {
-			GuardRules GuardRules                 `json:"guardRules"`
+			GuardRules *GuardRules                `json:"guardRules"`
 			Vendors    map[string]json.RawMessage `json:"vendors"`
 		}
 		if err := json.Unmarshal(overlay, &o); err != nil {
 			return nil, fmt.Errorf("%s: %w", UserFile(), err)
 		}
-		if len(o.GuardRules.Ask) > 0 || len(o.GuardRules.Deny) > 0 {
-			cfg.GuardRules = o.GuardRules
+		if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
+			cfg.GuardRules = *o.GuardRules
 		}
 		if cfg.Vendors == nil {
 			cfg.Vendors = map[string]Vendor{}

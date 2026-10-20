@@ -36,6 +36,29 @@ func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {
 	}
 }
 
+// TestInsertTopLevelTOMLSkipsNestedArrays: a "["-led line inside an open multiline array (nested
+// array element, not a multiline string) must not be mistaken for the first top-level table header.
+func TestInsertTopLevelTOMLSkipsNestedArrays(t *testing.T) {
+	in := "matrix = [\n  [1, 2],\n  [3, 4],\n]\n\n[real]\nk = 1\n"
+	section := "[inserted]\nx = 1\n"
+	got := insertTopLevelTOML(in, section)
+
+	wantArray := "matrix = [\n  [1, 2],\n  [3, 4],\n]\n"
+	idxArray := indexOf(got, wantArray)
+	idxInserted := indexOf(got, "[inserted]")
+	idxReal := indexOf(got, "[real]")
+
+	if idxArray == -1 {
+		t.Fatalf("array bytes not byte-for-byte unchanged, got:\n%s", got)
+	}
+	if idxInserted == -1 || idxReal == -1 {
+		t.Fatalf("missing expected sections, got:\n%s", got)
+	}
+	if !(idxArray < idxInserted && idxInserted < idxReal) {
+		t.Errorf("want order: array, then [inserted], then [real]; got:\n%s", got)
+	}
+}
+
 func indexOf(s, sub string) int {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
