@@ -630,7 +630,7 @@ func toolPATHVersion(path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
-	cmd.WaitDelay = time.Millisecond
+	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
