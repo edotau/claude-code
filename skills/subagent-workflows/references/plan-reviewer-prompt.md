@@ -1,4 +1,4 @@
-# Plan Document Reviewer Prompt Template
+# Plan Reviewer Prompt
 
 Use this template when dispatching a plan document reviewer subagent.
 

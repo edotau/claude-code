@@ -163,7 +163,7 @@ For each completed worktree, in dependency order:
 3. **Conflict check**: resolve manually, then re-verify
 4. **Clean**: `git worktree remove ~/worktrees/<repo>/<name>`
 5. **Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
-   other's helpers and only the merged diff shows it. A leaf gets `skills/subagent-workflows/references/simplifier-prompt.md`.
+   other's helpers and only the merged diff shows it. A leaf gets `skills/simplify/references/leaf-brief.md`.
 
 ---
 
@@ -218,7 +218,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | Agent | Purpose | Phase |
 |-------|---------|-------|
 | `Explore` (built-in) | Codebase scanning | 2 |
-| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; holds the `planning` skill's Mode 1 | 1, 4 |
+| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; the single definition of plan writing | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-worker` | Parallel fan-out leaf — one scoped sub-task | 6 |
 | `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |

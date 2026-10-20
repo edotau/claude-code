@@ -48,7 +48,7 @@ A fresh agent must be able to act from the handoff alone.
 - Dispatch `copilot` in the SAME message as the implementers (`rules/standards/quality.md`).
 - **Simplify before review, every time code changed.** The `simplify` skill (`skills/simplify/SKILL.md`)
   is the only simplify procedure: the manager runs `Skill(simplify)` over the diff, or hands a leaf
-  [simplifier-prompt.md](references/simplifier-prompt.md) (leaves read the skill as a file). Never an
+  [simplify/references/leaf-brief.md](../simplify/references/leaf-brief.md) (leaves read the skill as a file). Never an
   ad hoc "clean this up" brief; reviewers then judge the simplified diff.
 - Use `claude-code workflow skeleton` only for repeatable `Workflow` structures.
 

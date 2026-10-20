@@ -81,8 +81,8 @@ re-dispatch — don't ask the leaf to delegate.
 ## 4. Gates — spec → simplify → quality
 
 Sequential: after each leaf, before the next task. Parallel: once, over the integrated diff. Spec-compliance
-pass, then `Skill(simplify)` over the diff (a leaf gets `simplifier-prompt.md`), then the code-quality pass —
-templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`, `simplifier-prompt.md`,
+pass, then `Skill(simplify)` over the diff (a leaf gets `simplify/references/leaf-brief.md`), then the code-quality pass —
+templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`,
 `code-quality-reviewer-prompt.md`), or `/code-review` over the simplified diff. Loop
 fixes until the gate passes, then move to the next task. Do not start the next task on a red gate.
 
