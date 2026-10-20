@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/launch"
 )
 
 // completionBin is the installed binary name the completion script registers against.
@@ -40,7 +39,7 @@ type compNode struct {
 // noComplete only gates flag lookups at depth 1 (see flagLookup/remainingFlags).
 var noComplete = map[string]bool{
 	"opus": true, "sonnet": true, "haiku": true, "fable": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,
-	"run": true, "science": true,
+	"run": true, "science": true, "claude": true,
 }
 
 // knownPath splits words into the known node path (canonical verb name, plus any resolved subwords)
@@ -265,10 +264,10 @@ func cmdCompletion(args []string) int {
 		}
 	}
 	if !install {
-		fmt.Print(completion.Script(completionBin, launch.ShimNames))
+		fmt.Print(completion.Script(completionBin))
 		return 0
 	}
-	path, err := completion.Install(completionBin, launch.ShimNames)
+	path, err := completion.Install(completionBin)
 	if err != nil {
 		return fail("completion: %v", err)
 	}

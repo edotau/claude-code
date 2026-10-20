@@ -9,10 +9,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestInstallMergesIntoConfigDir(t *testing.T) {
 	hermetic(t, "")
+	codex := vendorPATHFixture(t, "codex", "")
+	t.Setenv("PATH", filepath.Dir(codex))
 	self := filepath.Join(t.TempDir(), "claude-code")
 	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
@@ -31,7 +34,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 		t.Fatal("--dry-run wrote settings.json")
 	}
 	if _, err := os.Lstat(filepath.Join(filepath.Dir(file), "bin", "claude")); err == nil {
-		t.Fatal("--dry-run created shims")
+		t.Fatal("--dry-run created vendor links")
 	}
 	if err := Install(&out, false); err != nil {
 		t.Fatal(err)
@@ -42,8 +45,8 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 			t.Errorf("merged settings missing %s:\n%s", want, b)
 		}
 	}
-	if link, _ := os.Readlink(filepath.Join(filepath.Dir(file), "bin", "codex")); link != "claude-code" {
-		t.Errorf("codex shim -> %q", link)
+	if link, _ := os.Readlink(filepath.Join(filepath.Dir(file), "bin", "codex")); link != codex {
+		t.Errorf("codex link -> %q, want %q", link, codex)
 	}
 	onPath := filepath.Join(userBinDir(), "claude-code")
 	if link, _ := os.Readlink(onPath); link != filepath.Join(filepath.Dir(file), "bin", "claude-code") {
@@ -61,6 +64,86 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	}
 	if has, err := settingsHasHooks(file); !has || err != nil {
 		t.Errorf("doctor hook check: %v %v", has, err)
+	}
+}
+
+func TestInstallBinaryAndLinksReplacesRetiredShims(t *testing.T) {
+	hermetic(t, "")
+	t.Setenv("HOME", t.TempDir())
+	self := filepath.Join(t.TempDir(), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sources := make(map[string]string)
+	var dirs []string
+	for _, name := range []string{"claude", "codex", "copilot", "opencode", "gemini"} {
+		vendor := paths.Vendors[name]
+		source := vendorPATHFixture(t, vendor, "")
+		sources[name] = source
+		dirs = append(dirs, filepath.Dir(source))
+		if err := os.Symlink("claude-code", filepath.Join(paths.BinDir(), name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	var out bytes.Buffer
+	target, err := installBinaryAndLinks(&out, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != filepath.Join(paths.BinDir(), "claude-code") {
+		t.Fatalf("target = %q", target)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("dry-run binary: %v, want not exist", err)
+	}
+	for name := range sources {
+		link, err := os.Readlink(filepath.Join(paths.BinDir(), name))
+		if err != nil || link != "claude-code" {
+			t.Fatalf("dry-run changed %s: %q, %v", name, link, err)
+		}
+	}
+	out.Reset()
+	if _, err := installBinaryAndLinks(&out, false); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "binary" {
+		t.Fatalf("installed binary = %q, %v", data, err)
+	}
+	for name, source := range sources {
+		dst := filepath.Join(paths.BinDir(), name)
+		link, err := os.Readlink(dst)
+		if err != nil || link != source {
+			t.Errorf("%s -> %q, %v; want %q", name, link, err, source)
+		}
+		if _, err := paths.VendorBin(name); err != nil {
+			t.Errorf("installed vendor %s: %v", name, err)
+		}
+		want := "link     " + dst + " → " + source
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %q in output:\n%s", want, &out)
+		}
+	}
+	entries, err := os.ReadDir(paths.BinDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		dst := filepath.Join(paths.BinDir(), entry.Name())
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if real == target || filepath.Base(real) == "claude-code" {
+			t.Errorf("retired harness link remains: %s -> %s", dst, real)
+		}
 	}
 }
 
