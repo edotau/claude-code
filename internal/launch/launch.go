@@ -360,7 +360,7 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(base, customEnv())
 }
 
-// customEnv is env.d/custom.env resolved (keyring refs via secrets.Get); an unresolved ref is warned, not set.
+// customEnv is the vault env bucket resolved (keyring refs via secrets.Get); an unresolved ref is warned, not set.
 var customEnv = func() map[string]string {
 	vals, missing := providers.ResolveCustomEnv(func(k string) (string, bool) {
 		v, _, ok := secrets.Get(k)
@@ -435,7 +435,7 @@ func (p Plan) Print(w io.Writer) {
 		case harness || slices.Contains(p.Unset, k):
 			fmt.Fprintf(w, "custom   %s (overridden by the launch)\n", k)
 		default:
-			fmt.Fprintf(w, "custom   %s (env.d/custom.env)\n", k)
+			fmt.Fprintf(w, "custom   %s (vault env)\n", k)
 		}
 	}
 	if len(p.Overlay) > 0 {

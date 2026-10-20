@@ -242,8 +242,7 @@ func runWebSearch(d *dialog) {
 // envEdit is one staged change on the environment page: raw "" deletes; keyring holds the value bound for the keyring.
 type envEdit struct{ raw, keyring string }
 
-// runCustomEnv edits env.d/custom.env: + New adds NAME, picking a var replaces or deletes it. Nothing is written
-// until the page is left, which asks once whether to save every change made on it.
+// runCustomEnv edits the vault env bucket, staging changes until the page is left.
 func runCustomEnv(d *dialog) {
 	edits := map[string]envEdit{}
 	defer saveEnvEdits(d, edits)
@@ -300,7 +299,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		return name, envEdit{}, true
 	}
 	where, err := pickPlain(d, "store "+name+" as", [][2]string{
-		{"plain", "value in env.d/custom.env"}, {"keyring", "value in the OS keyring, name in custom.env"}})
+		{"plain", "value in the vault env"}, {"keyring", "value in the OS keyring, name in the vault env"}})
 	if err != nil || where < 0 {
 		return "", envEdit{}, false
 	}
@@ -310,7 +309,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	return name, envEdit{raw: val}, true
 }
 
-// sameAsSaved reports an edit that matches what custom.env (and the keyring, for a ref) already holds.
+// sameAsSaved reports an edit that matches what the vault env (and the keyring, for a ref) already holds.
 func sameAsSaved(name string, e envEdit) bool {
 	cur := providers.CustomEnv()[name]
 	if e.raw != cur {

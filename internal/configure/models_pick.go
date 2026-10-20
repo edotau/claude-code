@@ -102,7 +102,7 @@ func padTo(s string, n int) string {
 	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
-// saveModel writes the pick: a slot pin for claude, the account's models table in providers.json otherwise.
+// saveModel writes a claude slot pin or the account's models table in the vault overlay/providers.
 func saveModel(d *dialog, p *providers.Provider, claude bool, slot, id string) {
 	var err error
 	if claude {

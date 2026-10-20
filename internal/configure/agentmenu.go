@@ -323,7 +323,7 @@ func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
 	}
 }
 
-// pinGitHubUser writes (or clears, user "") COPILOT_GITHUB_USER in env.d/provider.env.
+// pinGitHubUser writes (or clears, user "") COPILOT_GITHUB_USER in the vault pins.
 func pinGitHubUser(d *dialog, user string) bool {
 	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: user}); err != nil {
 		d.printf("copilot: %v\n", err)

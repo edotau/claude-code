@@ -27,7 +27,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		name = reg.OpencodeLadder[0]
 	}
 	if name == "" {
-		return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder in providers.json)", agentName)
+		return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code config edit`)", agentName)
 	}
 	p, err := reg.Get(name)
 	if err != nil {
