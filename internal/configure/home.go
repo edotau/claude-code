@@ -175,7 +175,7 @@ func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	if err := ctxErr(ctx, "claude mcp"); err != nil {
 		return err
 	}
-	claude, err := paths.LookPathReal("claude")
+	claude, err := paths.VendorBin("claude")
 	if err != nil {
 		return err
 	}

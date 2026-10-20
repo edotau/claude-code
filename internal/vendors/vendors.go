@@ -395,10 +395,9 @@ func tomlString(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// codexChatGPTLogin fails fast unless codex reports a ChatGPT sign-in. `codex login status` is authoritative (it
-// also sees keyring-stored logins); $CODEX_HOME/auth.json is the fallback when the binary is not on PATH.
+// codexChatGPTLogin checks the installed CLI's login status, falling back to $CODEX_HOME/auth.json if unavailable.
 func codexChatGPTLogin() error {
-	if bin, err := paths.LookPathReal("codex"); err == nil {
+	if bin, err := paths.VendorBin("codex"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		out, err := exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()

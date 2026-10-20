@@ -9,22 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// fakeClaude drops an executable `claude` on a fresh PATH whose `auth status` subcommand prints script.
-func fakeClaude(t *testing.T, script string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
 func TestClaudeLoginStatusLoggedIn(t *testing.T) {
-	dir := fakeClaude(t, `echo '{"loggedIn":true,"subscriptionType":"max"}'`)
-	t.Setenv("PATH", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	pathstest.FakeVendor(t, "claude", `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
+echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 	loggedIn, plan := ClaudeLoginStatus()
 	if !loggedIn || plan != " (max)" {
 		t.Errorf("ClaudeLoginStatus() = %v, %q; want true, \" (max)\"", loggedIn, plan)
@@ -32,7 +25,8 @@ func TestClaudeLoginStatusLoggedIn(t *testing.T) {
 }
 
 func TestClaudeLoginStatusNoBinary(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // no claude on PATH
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
 	loggedIn, plan := ClaudeLoginStatus()
 	if loggedIn || plan != "" {
 		t.Errorf("ClaudeLoginStatus() with no claude binary = %v, %q; want false, \"\"", loggedIn, plan)

@@ -148,8 +148,9 @@ func githubMenu(d *dialog) bool {
 
 // runGithubLogin execs argv attached to the real terminal, same contract as runLogin elsewhere in configure.
 func runGithubLogin(d *dialog, argv []string, label string) {
-	if _, err := exec.LookPath(argv[0]); err != nil {
-		d.printf("%s: %s not found on PATH\n", label, argv[0])
+	argv, err := vendorArgv(argv)
+	if err != nil {
+		d.printf("%s: %v\n", label, err)
 		return
 	}
 	if err := runLogin(argv); err != nil {
@@ -163,7 +164,7 @@ func runGithubLogin(d *dialog, argv []string, label string) {
 // id per opus/sonnet/haiku slot, and — only if a slot resolved to "auto" — a concrete opencode_fallback
 // (opencode's own catalog has no "auto"), then writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
-	bin, err := paths.LookPathReal("copilot")
+	bin, err := paths.VendorBin("copilot")
 	if err != nil {
 		d.printf("copilot models: copilot CLI not found: %v\n", err)
 		return

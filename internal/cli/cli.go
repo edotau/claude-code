@@ -1,10 +1,9 @@
-// Package cli is the verb table, help, and argv[0] shim dispatch. Verb bodies live in per-area files.
+// Package cli is the verb table, help, and command dispatch. Verb bodies live in per-area files.
 package cli
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -80,6 +79,7 @@ func commands() []command {
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected provider", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
 		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
@@ -112,15 +112,6 @@ func vendorVerb(vendor string, args []string) int {
 	return launchVendor(vendor, args)
 }
 
-// shims maps a bare argv[0] to the verb it runs; `claude` is the launcher, vendors go through `run`.
-var shims = map[string]func([]string) int{
-	"claude":   cmdClaude,
-	"gemini":   cmdGemini,
-	"codex":    func(a []string) int { return launchVendor("codex", a) },
-	"opencode": func(a []string) int { return launchVendor("opencode", a) },
-	"copilot":  func(a []string) int { return launchVendor("copilot", a) },
-}
-
 // lookup finds a command by its name or one of its aliases.
 func lookup(name string) *command {
 	for _, c := range commands() {
@@ -136,9 +127,6 @@ func lookup(name string) *command {
 
 // Run dispatches argv and returns the exit code.
 func Run(argv []string) int {
-	if shim, ok := shims[strings.TrimSuffix(filepath.Base(argv[0]), ".exe")]; ok {
-		return shim(argv[1:])
-	}
 	if len(argv) < 2 {
 		usage(os.Stdout)
 		return 0

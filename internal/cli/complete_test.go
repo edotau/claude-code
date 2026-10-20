@@ -21,7 +21,7 @@ func TestCompletionTopLevel(t *testing.T) {
 		}
 	}
 	for _, hidden := range []string{"models", "router", "ask", "agents", "review", "workflow",
-		"completion", "__complete", "hook", "statusline", "version", "run", "switch", "resolve"} {
+		"completion", "__complete", "hook", "statusline", "version", "run", "switch", "resolve", "claude"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("top-level candidates must not offer hidden %q: %v", hidden, got)
 		}
@@ -172,7 +172,7 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // flags belong to a process this binary never inspects, so completing them must offer nothing — and,
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
-	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "run", "science"} {
+	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "run", "science", "claude"} {
 		if n := specTree()[name]; n != nil && len(n.flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
@@ -210,21 +210,25 @@ func TestCompleteDispatch(t *testing.T) {
 	}
 }
 
-// TestCompletionScript: the emitted script registers the binary and every bare vendor shim.
+// TestCompletionScript: the emitted script registers only the harness binary.
 func TestCompletionScript(t *testing.T) {
 	code, out, _ := captureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
 	if code != 0 {
 		t.Fatalf("completion bash exit %d", code)
 	}
-	for _, want := range []string{"complete -o default -F _claude_code claude-code", "__complete", "codex", "gemini", "opencode", "copilot"} {
+	for _, want := range []string{"complete -o default -F _claude_code claude-code", "__complete"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("completion script missing %q:\n%s", want, out)
 		}
 	}
+	for _, unwanted := range []string{"_claude_code_verb", "codex", "gemini", "opencode", "copilot"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("completion script retained %q:\n%s", unwanted, out)
+		}
+	}
 }
 
-// TestCompletionScriptBash: the emitted shim runs under real bash — syntax-checked, then driven with
-// fabricated COMP_WORDS against a stub claude-code that records the argv the shim built.
+// TestCompletionScriptBash checks syntax and drives completion against a stub recording its argv.
 func TestCompletionScriptBash(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -245,10 +249,10 @@ func TestCompletionScriptBash(t *testing.T) {
 	if err := writeFile(stubPath, stub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The bare-shim path: COMP_WORDS=(codex d) must reach the stub as `__complete codex d`.
+	// Only words through COMP_CWORD reach the harness, excluding words after the cursor.
 	drive := "source " + shQuote(script) + "\n" +
-		`COMP_WORDS=(codex d); COMP_CWORD=1` + "\n" +
-		`_claude_code_verb` + "\n" +
+		`COMP_WORDS=(claude-code codex d ignored); COMP_CWORD=2` + "\n" +
+		`_claude_code` + "\n" +
 		`printf '%s\n' "${COMPREPLY[@]}"`
 	cmd := exec.Command(bash, "-c", drive)
 	cmd.Env = append(cmd.Environ(), "PATH="+dir+":"+currentPath())
@@ -264,7 +268,7 @@ func TestCompletionScriptBash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := strings.Fields(argv); !slices.Equal(got, []string{"__complete", "codex", "d"}) {
-		t.Errorf("shim argv = %v, want [__complete codex d]", got)
+		t.Errorf("completion argv = %v, want [__complete codex d]", got)
 	}
 }
 

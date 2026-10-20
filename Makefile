@@ -34,8 +34,11 @@ GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Repo-owned shell scripts only (e.g. scripts/bootstrap.sh); lint-shell no-ops when the wildcard is empty.
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh)
-# Gate tool is PINNED: `@latest` could change under us between runs.
+# Gate tools are PINNED: `@latest` could change under us between runs. `make dev-tools` installs all three.
 GOVULN_VERSION  ?= v1.8.0
+GOLANGCI_VERSION ?= v2.15.0
+YAMLFMT_VERSION ?= v0.21.0
+YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
@@ -51,8 +54,9 @@ build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile  ## Binary, shims, settings.json, completion; router restart
+install: compile  ## Build + install the harness; DEV_TOOLS=1 also runs dev-tools
 	$(BIN) install
+	@if [ "$(DEV_TOOLS)" = 1 ]; then $(MAKE) --no-print-directory dev-tools; fi
 	@if $(BIN) router status 2>&1 | grep -qE '^router[[:space:]]+running'; then \
 		$(BIN) router stop >/dev/null && $(BIN) router start >/dev/null; \
 		echo -e "$(C_OK)router restarted (was serving the previous binary)"; \
@@ -73,20 +77,6 @@ vet:  # (dev recipe, hidden from help) go vet
 	$(GO) vet $(PKGS)
 
 ##@ Setup
-# Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
-# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
-.PHONY: audit
-audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
-	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
-	$(GO) vet $(PKGS)
-	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
-	$(GO) build $(PKGS)
-	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
-	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
-		else echo -e "$(C_NOTE)govulncheck not installed — skipped (go install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION))"; fi
-	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
-	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
-
 .PHONY: help-svg
 help-svg: compile  ## Regenerate the README menu image (docs/images/cli-menu.svg)
 	$(BIN) help-svg --out docs/images/cli-menu.svg
@@ -137,13 +127,28 @@ setup-env:  ## Print the PATH line (APPLY=1 writes it to the shell rc)
 	fi
 
 ##@ Quality
+# Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
+# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
+.PHONY: audit
+audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
+	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
+	$(GO) vet $(PKGS)
+	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
+	$(GO) build $(PKGS)
+	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
+	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
+		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make dev-tools)"; fi
+	@$(MAKE) --no-print-directory lint-yaml
+	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
+	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke; vuln + yaml when installed)"
+
 .PHONY: fmt
 fmt:  ## gofmt -w every Go file
 	$(GO) fmt $(PKGS) >/dev/null
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-settings  ## gofmt, vet, shellcheck, generate --check
+lint: lint-go lint-shell lint-yaml lint-help lint-settings  ## gofmt, vet, shellcheck, yamlfmt, help width, generate --check
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
@@ -155,6 +160,22 @@ lint-go:  # (folded into `lint`) gofmt -l + go vet
 .PHONY: lint-deep
 lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
 	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
+
+.PHONY: lint-help
+lint-help:  # (folded into `lint`) every `make help` row fits 80 columns, label included
+	@out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk 'length>80')"; \
+		if [ -n "$$out" ]; then echo "help rows over 80 columns:"; echo "$$out"; exit 1; fi
+
+.PHONY: lint-yaml
+lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
+	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make dev-tools)"; \
+		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
+
+.PHONY: dev-tools
+dev-tools:  ## Install pinned govulncheck, golangci-lint, yamlfmt
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION)
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist

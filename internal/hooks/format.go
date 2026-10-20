@@ -47,8 +47,10 @@ var (
 
 // makeProvisioning matches recipe commands that BUILD an environment rather than format a file: a
 // missing .venv must not turn one edit into a multi-GB install inside the Stop hook's budget.
-var makeProvisioning = regexp.MustCompile(
-	`(?i)(-m\s+venv|virtualenv|pip\s+install|uv\s+(venv|sync|pip)|npm\s+(ci|install)|poetry\s+install|conda\s+create)`)
+var makeProvisioning = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)(-m\s+venv|virtualenv|pip\s+install|uv\s+(venv|sync|pip)|npm\s+(ci|install)|poetry\s+install|conda\s+create)`)
+})
 
 // makeProbeTimeout bounds the dry run; the real run gets toolTimeout.
 const makeProbeTimeout = 2 * time.Second
@@ -134,7 +136,7 @@ func recipeReads(recipe, name string) bool {
 // reach it (or the target formats fixed paths) and a real run would touch the whole tree.
 func runMakeTarget(root, target, assignment, abs string) bool {
 	plan, ok := runMake(root, makeProbeTimeout, "-n", "-s", target, assignment)
-	if !ok || makeProvisioning.MatchString(plan) || !strings.Contains(plan, abs) {
+	if !ok || makeProvisioning().MatchString(plan) || !strings.Contains(plan, abs) {
 		return false
 	}
 	_, ok = runMake(root, toolTimeout, "-s", target, assignment)
@@ -157,7 +159,9 @@ func runMake(root string, timeout time.Duration, args ...string) (string, bool) 
 	return string(out), err == nil
 }
 
-var toolSection = regexp.MustCompile(`(?m)^\s*\[tool\.([A-Za-z0-9_-]+)[.\]]`)
+var toolSection = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^\s*\[tool\.([A-Za-z0-9_-]+)[.\]]`)
+})
 
 // formatPython formats one .py file: the project's declared classic chain when its pyproject declares
 // any of black/isort/autoflake, else (or when none of the declared tools is installed) the ruff chain.
@@ -203,7 +207,7 @@ func pythonProject(path string) (string, map[string]bool) {
 		return "", nil
 	}
 	tools := map[string]bool{}
-	for _, m := range toolSection.FindAllSubmatch(body, -1) {
+	for _, m := range toolSection().FindAllSubmatch(body, -1) {
 		tools[string(m[1])] = true
 	}
 	return root, tools

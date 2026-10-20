@@ -8,11 +8,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // agyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
-var agyCommand = func() *exec.Cmd { return exec.Command("agy") }
+var agyCommand = func() *exec.Cmd {
+	bin, err := paths.VendorBin("agy")
+	if err != nil {
+		return &exec.Cmd{Err: err}
+	}
+	return exec.Command(bin)
+}
 
 // agySignInPoll is how often runAgy checks for agy's own login marker once it's running.
 var agySignInPoll = 500 * time.Millisecond

@@ -98,7 +98,31 @@ func agentHarvestPrompt(transcript string) string {
 		"Resolve the bank directory with `claude-code memory path`. Follow this procedure, the COMPLETE pass:\n\n" +
 		strings.TrimSpace(stripFrontmatter(string(body))) + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
-		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else."
+		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
+		tagBlock(transcript)
+}
+
+// tagBlock extracts DECISION/BUG/NEXT/NOTE tags from the whole transcript and appends a filing
+// instruction when any exist. Extraction failure (missing file, bad JSON) degrades to no block;
+// the harvest itself must never fail because of tags.
+func tagBlock(transcript string) string {
+	f, err := os.Open(transcript)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	tags, err := ExtractTags(f)
+	if err != nil || len(tags) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nTagged this session — file every one: DECISION → decisionLog (dated entry), " +
+		"BUG → progress known issues, NEXT → activeContext next steps, NOTE → conventions or progress; " +
+		"skip any already filed.\n")
+	for _, t := range tags {
+		b.WriteString("- " + t.Kind + ": " + t.Text + "\n")
+	}
+	return b.String()
 }
 
 // UpdateOptions drive one background harvest.
@@ -142,7 +166,7 @@ func Update(o UpdateOptions) error {
 			fmt.Fprintln(o.Out, "memory update: ran on", who)
 			return nil
 		}
-		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript), "--max-turns", "40")
+		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript)+tagBlock(o.Transcript), "--max-turns", "40")
 		cmd.Dir = o.CWD
 		cmd.Env = append(os.Environ(), HarvestChildEnv+"=1")
 		// A stored setup-token keeps the unattended harvest working after the interactive /login session expires.

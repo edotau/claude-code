@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/helptext"
 )
@@ -122,7 +123,7 @@ var pinAllowed = map[string]map[string]bool{
 	"effort": {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
 }
 
-var quotedLit = regexp.MustCompile(`'([^']*)'|"([^"]*)"`)
+var quotedLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`'([^']*)'|"([^"]*)"`) })
 
 // badPinValues returns "name:line: ..." for each agent() pin literal that isn't in pinAllowed[key].
 // Identifier-only values (s.model, a.implModel) pass — they can't be checked statically.
@@ -158,7 +159,7 @@ func badPinValuesForKey(name string, line int, window, masked, key string) []str
 		if k := strings.IndexAny(masked[valStart:], ",}\n"); k >= 0 {
 			valEnd = valStart + k
 		}
-		for _, m := range quotedLit.FindAllStringSubmatch(window[valStart:valEnd], -1) {
+		for _, m := range quotedLit().FindAllStringSubmatch(window[valStart:valEnd], -1) {
 			v := m[1]
 			if v == "" {
 				v = m[2]

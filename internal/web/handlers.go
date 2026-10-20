@@ -27,7 +27,7 @@ type pageData struct {
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	data := pageData{CSRFToken: s.csrfToken, Hosts: s.resolveHosts(context.Background()), Agents: dispatch.Agents}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := indexTemplate.Execute(w, data); err != nil {
+	if err := indexTemplate().Execute(w, data); err != nil {
 		s.logger.Printf("render index: %v", err)
 	}
 }

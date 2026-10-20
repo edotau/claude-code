@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -704,10 +705,28 @@ func runLogin(argv []string) error {
 	return runLoginContext(ctx, argv)
 }
 
+func vendorArgv(argv []string) ([]string, error) {
+	name, ok := paths.VendorName(argv[0])
+	if !ok {
+		return argv, nil
+	}
+	bin, err := paths.VendorBin(name)
+	if err != nil {
+		return nil, err
+	}
+	resolved := slices.Clone(argv)
+	resolved[0] = bin
+	return resolved, nil
+}
+
 func runLoginContext(ctx context.Context, argv []string) error {
+	argv, err := vendorArgv(argv)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if cerr := ctxErr(ctx, "login"); cerr != nil {
 		return cerr
 	}

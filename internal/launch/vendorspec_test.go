@@ -1,11 +1,10 @@
 package launch
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -15,18 +14,7 @@ import (
 func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	fake := filepath.Join(t.TempDir(), "opencode")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	orig := lookPath
-	lookPath = func(name string) (string, error) {
-		if name == "opencode" {
-			return fake, nil
-		}
-		return "", os.ErrNotExist
-	}
-	t.Cleanup(func() { lookPath = orig })
+	fake := pathstest.FakeVendor(t, "opencode", "")
 
 	spec, ok := vendors.Lookup("opencode")
 	if !ok {
@@ -37,6 +25,9 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	plan, err := plainPlan(spec, []string{"user", "arg"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
 	}
 	if plan.Set["X_TEST"] != "1" {
 		t.Errorf("Set[X_TEST] = %q, want 1", plan.Set["X_TEST"])
@@ -51,6 +42,9 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	plan, err = plainPlan(spec, []string{"user"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
 	}
 	if plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"] != "1" {
 		t.Errorf("Set[OPENCODE_DISABLE_CLAUDE_CODE_SKILLS] = %q, want 1 (built-in default)", plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"])

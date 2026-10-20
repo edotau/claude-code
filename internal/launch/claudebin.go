@@ -22,15 +22,16 @@ func SelfBinary() (string, error) {
 	return filepath.Abs(exe)
 }
 
-// ClaudeBinary finds the real claude: PATH (skipping our shims), else the native installer's newest version.
+// ClaudeBinary finds the real claude: BinDir/claude, else the native installer's newest version.
 func ClaudeBinary() (string, error) {
-	if bin, err := paths.LookPathReal("claude"); err == nil {
+	if bin, err := paths.VendorBin("claude"); err == nil {
 		return bin, nil
 	}
 	if bin := newestInstalledClaude(); bin != "" {
 		return bin, nil
 	}
-	return "", errors.New("claude: not found on PATH or under ~/.local/share/claude/versions (install: curl -fsSL https://claude.ai/install.sh | bash)")
+	return "", errors.New("claude: not found in " + paths.BinDir() +
+		" or ~/.local/share/claude/versions (claude-code install --tools=claude)")
 }
 
 func newestInstalledClaude() string {

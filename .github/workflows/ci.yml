@@ -1,5 +1,6 @@
 # Go correctness gate = `make audit` (gofmt/vet/test/build + generated-projection smoke), shared with .githooks/pre-push.
-# Free tier: one job, module+build cache, cancel-in-progress, and it runs only on main + PRs.
+# Free tier (public repo): one job per OS, module+build cache, cancel-in-progress, main + PRs only.
+# macOS is first-class (the team runs it); fail-fast off so one OS's failure still reports the other.
 name: ci
 
 on:
@@ -16,7 +17,11 @@ permissions:
 
 jobs:
   go:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -25,5 +30,8 @@ jobs:
           cache: true
       # One gate, one definition: `make audit` is what the pre-push hook (.githooks/pre-push) runs locally,
       # so CI can only fail on something the push already saw. Steps live in the Makefile, not here.
+      # Pinned versions live in the Makefile; without this step audit silently skipped govulncheck.
+      - name: make dev-tools (govulncheck, golangci-lint, yamlfmt)
+        run: make dev-tools
       - name: make audit (gofmt, vet, test, build, generated-projection smoke)
         run: NO_COLOR=1 make audit

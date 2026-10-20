@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -29,38 +28,26 @@ func RoutedRepos(query string) []RepoEntry {
 	return out
 }
 
-// routedBlocks are the bank and topic blocks of every repo the query names, other than root's own store.
-func routedBlocks(root, query string) []SearchHit {
+// routedFiles are the bank and topic files of every named repo, other than root's own store.
+func routedFiles(root, query string) []corpusFile {
 	own := Dir(root)
-	var out []SearchHit
+	var out []corpusFile
 	for _, e := range RoutedRepos(query) {
 		if e.Dir != own {
-			out = append(out, storeBlocks(e)...)
+			out = append(out, storeFiles(e)...)
 		}
 	}
 	return out
 }
 
-// storeBlocks are one repo store's typed-file and native-topic blocks, labeled with the store key.
-func storeBlocks(e RepoEntry) []SearchHit {
-	var out []SearchHit
+// storeFiles labels a repo's typed bank files and native topics with its store key.
+func storeFiles(e RepoEntry) []corpusFile {
+	var out []corpusFile
 	for _, name := range bankFiles {
-		data, err := os.ReadFile(filepath.Join(e.Dir, name))
-		if err != nil {
-			continue
-		}
-		_, blocks := entryBlocks(name, string(data))
-		for _, b := range blocks {
-			out = append(out, SearchHit{Bank: e.Key, File: name, Block: b})
-		}
+		out = append(out, corpusFile{e.Key, filepath.Join(e.Dir, name), segEntries})
 	}
-	topics, contents := topicContents(e.Dir)
-	for _, path := range topics {
-		if data := contents[path]; data != nil {
-			if n, desc, body, ok := topicFrontmatter(string(data)); ok {
-				out = append(out, SearchHit{Bank: e.Key, File: filepath.Base(path), Block: n + " — " + desc + "\n" + body})
-			}
-		}
+	for _, path := range searchTopicFiles(e.Dir) {
+		out = append(out, corpusFile{e.Key, path, segNative})
 	}
 	return out
 }

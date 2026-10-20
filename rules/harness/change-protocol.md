@@ -55,6 +55,9 @@ made directly in `settings.json` that is silently erased on the next `make insta
 5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
    what was intentionally left for a later pass.
 
+6. **Writing or changing a component (agent/skill/hook/plugin)?** Run the manifest-before-write
+   step in `skills/claude-best-practices/SKILL.md` first — list exact files + action, get approval.
+
 ## Verification
 
 ```bash
@@ -66,6 +69,9 @@ claude-code doctor
 
 # Cross-tool renders are current
 claude-code agents sync --check
+
+# Files generated from a template/skeleton: no unfilled placeholder tokens leaked through
+grep -nE '<(runner|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <generated files>
 ```
 
 ## Related
