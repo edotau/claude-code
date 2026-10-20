@@ -115,7 +115,7 @@ func cmdModels(args []string) int {
 	provider := fs.String("provider", "", "provider to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the provider serves (GET /models)")
-	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the pin-file change, write nothing")
+	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the vault pins change, write nothing")
 	format := outfmt.Flag(fs)
 	var pins []string
 	fs.Func("pin", "slot=[provider:]model, or all=[provider:]model (repeatable)", func(v string) error {
@@ -398,12 +398,16 @@ func cmdToken(args []string) int {
 
 // printPinDiff is the shared --dry-run body for switch and models: the change, or that there is none.
 func printPinDiff(kv map[string]string) int {
-	diff := providers.PinDiff(kv)
+	diff, err := providers.PinDiff(kv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code:", err)
+		return 1
+	}
 	if len(diff) == 0 {
-		fmt.Println("no change to", paths.PinFile())
+		fmt.Println("no change to the vault pins")
 		return 0
 	}
-	fmt.Println("would write", paths.PinFile()+":")
+	fmt.Println("would write the vault pins:")
 	for _, l := range diff {
 		fmt.Println("  " + l)
 	}

@@ -37,7 +37,10 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 // Select resolves the session: provider = flag → HARNESS_PROVIDER pin → registry default; each slot =
 // HARNESS_<SLOT>_MODEL → HARNESS_MODEL → the provider's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
-	pin := pinLookup()
+	pin, err := pinLookup()
+	if err != nil {
+		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
+	}
 	name := providerFlag
 	if name == "" {
 		name = pin(PinProvider)
