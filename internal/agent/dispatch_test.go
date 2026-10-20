@@ -101,6 +101,36 @@ func TestDo(t *testing.T) {
 	}
 }
 
+// MaxAttempts: 0 must behave exactly like 1 — one call, no retry notice, no backoff sleep. BaseDelay
+// is a full second so a stray sleep would blow the 100ms deadline below.
+func TestDoMaxAttemptsZeroActsAsOne(t *testing.T) {
+	p := Policy{MaxAttempts: 0, BaseDelay: time.Second, MaxDelay: time.Second}
+	var notified []string
+	p.Notify = func(s string) { notified = append(notified, s) }
+	calls := 0
+	done := make(chan *Error, 1)
+	go func() {
+		done <- Do(context.Background(), p, func(_ context.Context, attempt int) *Error {
+			calls++
+			return &Error{Kind: KindTransient, Agent: "x"}
+		})
+	}()
+	select {
+	case e := <-done:
+		if calls != 1 {
+			t.Errorf("calls = %d, want 1 (MaxAttempts:0 means no retry)", calls)
+		}
+		if e == nil || e.Attempts != 1 {
+			t.Errorf("err = %v, want Attempts:1", e)
+		}
+		if len(notified) != 0 {
+			t.Errorf("Notify called %v, want none (nothing to notify about with no retry)", notified)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Do slept/retried with MaxAttempts:0 (should return after exactly one attempt)")
+	}
+}
+
 func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 	p := fastPolicy()
 	p.AttemptTimeout = 5 * time.Millisecond
