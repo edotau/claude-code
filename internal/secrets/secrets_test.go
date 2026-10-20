@@ -370,6 +370,8 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 		{"github account UUID", ".claude.json", []string{"githubWebConnectionStatusCache", "accountUuid"}, true},
 		{"github org UUID", ".claude.json", []string{"githubWebConnectionStatusCache", "orgUuid"}, true},
 		{"usage account UUID", ".claude.json", []string{"cachedUsageUtilization", "accountUuid"}, true},
+		{"chrome paired device ID", ".claude.json", []string{"chromeExtension", "pairedDeviceId"}, true},
+		{"chrome other field", ".claude.json", []string{"chromeExtension", "token"}, false},
 		{"usage extra depth", ".claude.json", []string{"cachedUsageUtilization", "wrapper", "accountUuid"}, false},
 		{"usage prefix", ".claude.json", []string{"notcachedUsageUtilization", "accountUuid"}, false},
 		{"usage other metadata", ".claude.json", []string{"cachedUsageUtilization", "sessionId"}, false},

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,6 +105,8 @@ func claudeMetadataPath(path []string) bool {
 		switch path[0] {
 		case "oauthAccount", "cachedArtifactRoster":
 			return path[1] == "accountUuid" || path[1] == "organizationUuid"
+		case "chromeExtension":
+			return path[1] == "pairedDeviceId"
 		case "promoStartupStatusCache", "cachedUsageUtilization":
 			return path[1] == "accountUuid"
 		case "githubWebConnectionStatusCache":
@@ -132,6 +135,16 @@ func claudeMetadataKey(key string) bool {
 		return true
 	}
 	return false
+}
+
+var envPairName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// envPairValue returns the value of a NAME=value launch-env entry, so the name alone never reads as a secret.
+func envPairValue(val string) string {
+	if loc := envPairName.FindStringIndex(val); loc != nil {
+		return val[loc[1]:]
+	}
+	return val
 }
 
 func marketplaceRepoPath(path []string) bool {
@@ -182,7 +195,7 @@ func (s *Scanner) ScanVault() {
 			var doc any
 			if json.Unmarshal([]byte(raw), &doc) == nil {
 				walkJSONStrings(nil, doc, func(p []string, val string) {
-					if looksLikeSecret(val, true) {
+					if looksLikeSecret(envPairValue(val), true) {
 						found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
 					}
 				})

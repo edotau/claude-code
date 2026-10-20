@@ -19,6 +19,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "PIN_TOKEN", value)
 	vaulttest.Put(t, vault.Env, "ENV_TOKEN", value)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"headers":[{"Authorization":"`+value+`"}]}}}`)
+	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"o":{"launch":{"env":["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1","O_KEY=`+value+`"]}}}}`)
 	vaulttest.Put(t, vault.Env, "STORED_REF", providers.SecretRef)
 	vaulttest.Put(t, vault.Pins, "ENV_REF", "${API_KEY}")
 	vaulttest.Secret(t, "SEALED", value)
@@ -28,6 +29,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	scanner.ScanVault()
 	want := []string{
 		"vault:overlay/providers → providers.x.headers.0.Authorization holds an inline secret",
+		"vault:overlay/vendors → vendors.o.launch.env.1 holds an inline secret",
 		"vault:pins → PIN_TOKEN holds an inline secret",
 		"vault:env → ENV_TOKEN holds an inline secret",
 	}
