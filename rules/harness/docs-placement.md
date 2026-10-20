@@ -11,11 +11,11 @@ paths:
 ## Rule
 
 **Harness-authored markdown has three homes; a repo root and a gitignored `docs/` are off-limits.**
-`internal/hooks/docsplacement.go` is the only place the subpaths are spelled.
+Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirroring/filing is in `internal/hooks/plan.go`.
 
 | Artifact | Path | Producer |
 | --- | --- | --- |
-| Approved plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo) — Claude Code's native `plansDirectory`, gitignored wholesale | `save-plan` hook (`ExitPlanMode`) |
+| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-template` gates the native undated draft's first Write; `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
 | Promoted, public-safe knowledge | `~/.claude/docs/knowledge/<topic>.md` · `docs/knowledge/<repo>/<topic>.md` (tracked) | `/memory:promote`, reviewed |
@@ -24,6 +24,12 @@ paths:
 `<store>` is the repo's memory store, `~/.claude/memory/<repo>/` (`claude-code memory path` prints it; the harness
 itself is `memory/.claude/`, the home dir is the global top). The store is a local-only git repo outside every
 project's tree, so handoffs and reports are never tracked by the repo they describe.
+
+The settings template leaves `plansDirectory` unset (Claude Code's native default).
+The undated native file is a scratch draft, not the file
+of record: `plan-mirror` maintains the dated copy from its first write, even before approval.
+`save-plan` reuses that destination/date on approval; a response-only plan without a mirror is
+filed with the approval date.
 
 ## What stays out of the three homes
 
@@ -55,8 +61,9 @@ ignored `docs/` passes), the harness's own `docs/knowledge/` and `docs/images/` 
 `docs/handoffs`/`docs/reports` — blocks), every other subdirectory,
 a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
 
+- The handler also checks `apply_patch` Add/Update/Move headers against the same placement rules.
 - Store writes (bank, handoffs, reports) land in `~/.claude/memory/`, outside any repo's `docs/` tree, so this gate
-  never sees them. Plans don't hit it either — `save-plan` writes directly to `~/.claude/plans/`.
+  never sees them. Plan mirrors and approval saves write directly to `~/.claude/plans/`.
 - Class: deny-one-call — not a Stop/SubagentStop gate, so it needs no fail-open counter. The model
   re-issues the write at the named path and moves on.
 - A genuine repo doc the user asked for: `git add -N <file>` first (tracked wins over ignored), or

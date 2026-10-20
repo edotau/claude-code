@@ -61,7 +61,7 @@ when none is on `PATH` (`make go-toolchain`; no sudo), runs `make install`, inst
 claude-code configure                 # on a terminal: the agents menu (one row per agent → its submenu → Submit); piped: every section in order
 claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|doctor); --agent codex narrows the menu to that row
 claude-code configure --check         # report only, exit 1 if anything is unset (CI / piped)
-claude-code generate                  # preview settings.json + every vendor config; --out writes, --check reports drift
+claude-code generate                  # preview settings + eligible vendor configs; --out writes, --check reports drift
 claude-code vscode [--check|--dry-run] # merge the first-party settings + keybindings templates into VS Code
 ```
 
@@ -86,6 +86,8 @@ CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in `env.d/secrets.env`; 
 and the memory harvest inject it so they keep working after the /login session expires. It is a Claude Code
 credential only — it does not authenticate raw Anthropic API calls (that is `ANTHROPIC_API_KEY`). A vendor running on its own
 login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
+If token minting exits unsuccessfully, `configure` reports the error and does not store any token
+from that command's output.
 `configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
 OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
 reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is
@@ -95,13 +97,33 @@ first falls back to codex's own ChatGPT login, then offers `configure` for codex
 `codex` CLI untouched (so `agy`'s own Google login always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
 error while someone is at the terminal.
 
-`generate` renders what `install` renders plus each vendor's config from the registry — codex
-`~/.codex/config.toml`, opencode `~/.config/opencode/opencode.json` (with your Claude permissions and MCPs
-imported), gemini `~/.gemini/antigravity-cli/settings.json` (never over a cached Google login), copilot reported as launch-time env —
-as banner-marked blocks with foreign keys untouched and one `.backup` per file. The rendered codex and opencode
+`doctor`'s advisory `tool <name>` rows show the resolved executable and version, flag a real CLI
+that **shadows the shim** (bypassing launch env), and list distinct extra executables as **also on PATH**.
+`claude-code install --tools` retires all npm-global Codex/OpenCode copies found on PATH after the
+new `~/.local/bin` copy answers `--version`, not just the first copy.
+Own-login route notes print only for an interactive terminal launch or `--print-env`, not version/help
+probes or `run` subcommands.
+
+`generate` previews settings and, with the default `CLAUDE_CONFIG_DIR` (`~/.claude`), each vendor's config
+from the registry. `--out <file>` writes settings and eligible vendor configs; `--dry-run` writes nothing;
+`--check` reports drift without writing (`--out` also checks that settings file). `--agents` selects a
+comma-separated vendor subset. With a **non-default config dir**, vendor rendering is skipped in all
+three modes unless `--vendors` is explicit: vendor destinations remain in your real home, not the worktree.
+From a worktree, use `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"` to
+render only that checkout's settings. Merely changing cwd does not isolate writes (CLAUDE.md hard rule 4);
+add `--vendors` only when you intend to include live vendor homes.
+
+Vendor destinations include codex `~/.codex/config.toml`, opencode
+`~/.config/opencode/opencode.json` (with your Claude permissions and MCPs imported), and gemini
+`~/.gemini/antigravity-cli/settings.json` (never over a cached Google login).
+Foreign config keys are retained, with one `.backup` per changed existing file.
+Copilot routing is reported as launch-time env. The rendered codex and opencode
 blocks reference the key by env var (`HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY`), which only the shims
 export: run `codex`/`opencode` through `~/.claude/bin` (or `claude-code run <vendor>`), not the bare binary, or
-the block resolves to no key. `vscode` does the same for VS
+the block resolves to no key. Codex's `~/.codex/hooks.json` and Copilot's `~/.copilot/hooks/claude-code-harness.json`
+merge harness hooks while retaining foreign hooks (including Orca's); invalid existing hook JSON aborts
+rather than being overwritten. Copilot also merges `~/.copilot/settings.json`.
+`vscode` does the same for VS
 Code's Machine settings (`~/.vscode-server/data/Machine/settings.json` on WSL): the Claude Code, Codex and
 Copilot extensions pointed at the shims, the terminal profile, right-click = paste in the integrated terminal
 (the Windows Terminal habit, on every OS), `--dest` to retarget; that scope is not Settings-Synced, so each
@@ -114,6 +136,9 @@ Pointer → "Right button single click" → Paste from clipboard; Terminal.app h
 other migrations — `adopt` backs up colliding tracked paths (never `secrets.env`) then restores the
 index; `nuke --apply` (typed-path confirm) archives untracked content by name, never value, before
 removing the dir; `workspace` scopes a project's own `.claude/`, global harness untouched.
+Nuke refuses to proceed if the user-content scan, a `--keep-memory` walk, or an archive read fails;
+it never treats an incomplete scan as an empty backup. Backup filenames are exclusive, so two runs
+in the same second cannot overwrite one another.
 
 ```bash
 scripts/bootstrap.sh                                           # fresh box: clone, build, adopt, install
@@ -168,6 +193,9 @@ claude-code models --unpin
 claude-code models --live --provider gateway      # what the upstream serves
 claude --provider gateway --model claude-sonnet-5                # this launch only
 ```
+
+`models` accepts flags only: stray positional arguments exit 2 with `models: unexpected argument`
+before any pin is changed.
 
 Selection order — provider: `--provider` → `HARNESS_PROVIDER` → registry `default`. Slot:
 `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` → the provider's `models` table. Process env beats
@@ -274,6 +302,8 @@ claude-code install --tools=browser                  # WSL: start the Windows de
 
 `worktree` is the deterministic engine behind the `worktree-create`/`worktree-remove` hooks and `/workflow:worktree`:
 inspection failures read as problems, never as "clean", and `clean` rechecks live state before each removal.
+`dispatch` recognizes localhost, loopback IPs, and this machine's hostname without a Tailscale lookup;
+failed tailnet self-lookups retry after a 30-second backoff rather than caching failure permanently.
 `agents tree`, `web view`, the `claude-code web` dashboard (`/api/tree`, `/api/view`, `/api/browsers`) and the VS Code
 "Agents" panel all consume one `agenttree.Build`; a relay agent's vendor run is matched from `ask --log`, so a silent
 `codex→claude` fallback is flagged where you look. `web browsers` reports which control path each browser offers —
@@ -338,13 +368,25 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | --- | --- | --- |
 | `bash-guard` | PreToolUse (Bash) | Blocks destructive shapes: `rm -rf /`, force-push to main, `curl \| sh`, `sudo`, `DROP TABLE`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, … Then routes a noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the [rtk](https://github.com/rtk-ai/rtk) output compressor when it is on PATH (Claude sessions only); machine-readable flags (`--porcelain`, `--json`, …) and value subcommands (`rev-parse`, …) bypass it. `HARNESS_RTK_BIN` overrides the binary |
 | `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home (`~/.claude/memory/<repo>/reports\|handoffs`, `~/.claude/plans/` for a plan); root anchors and tracked files pass. `HARNESS_DOCS_PLACEMENT=0` disables |
-| `agent-effort` | PreToolUse (Agent) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet); an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
+| `plan-template` | PreToolUse (Write) | Denies the first write to an undated native plan draft unless it contains `# Plan:`, `## Context`, `## Phases`, `## Tasks` from `agents/Plan.md` |
+| `agent-effort` | PreToolUse (Agent\|Task) | Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet); an explicit `model:` on the dispatch or in the agent's frontmatter always wins |
+| `workflow-lint` | PreToolUse (Workflow) | Pins unpinned inline agents to sonnet; gates invalid pins and unpinned script files |
+| `agent-inflight` / `agent-inflight-tag` / `agent-inflight-post` | PreToolUse / PostToolUse / PostToolUseFailure (Agent\|Task) | Caps machine-wide dispatches at 8, binds markers to agent ids, and retires failed spawns |
+| `subagent-stop` | SubagentStop | Sends source-editing agents back for one simplify pass and retires their inflight slot |
+| `plan-mirror` | PostToolUse (Write\|Edit) | Mirrors native undated drafts to dated, repo-tagged plans from the first write; subsequent edits reuse the destination |
+| `save-plan` | PostToolUse (ExitPlanMode) | Files the approved plan at the mirrored destination, adds a checklist if absent, verifies the saved content, then removes the undated draft |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off before compaction |
 | `stop-format` | Stop | Formats files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed |
 | `session-start` | SessionStart | Injects the local memory bank (char-capped); an indexed global bank is a one-line pointer |
+| `wsl-path-normalize` | UserPromptSubmit | Reports existing file paths; maps pasted Windows paths to `/mnt/…` equivalents on WSL |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 bank/native-memory blocks matching ≥2 prompt terms, skipping any already in this session's context (≥4 terms, ≤1,500 chars; else silent) |
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | After ≥3 edits, spawns a detached `claude-code memory update` that runs `/memory:end`; the first dispatch also claims one `memory watch` per session, which harvests the final state once the transcript has been quiet 10 min (a crash or kill fires no SessionEnd) |
 | `access-trace` | PostToolUse (Read) | Logs a model read of a bank file (or its index) to that bank's `access.log`, the signal behind `memory doctor`'s hot/cold nominations |
+| `pre-compact` | PreCompact | Harvests transcript edits not covered by an earlier dispatch before compaction |
+| `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create under `~/worktrees/<repo>/<name>`; removal refuses dirty trees |
+
+`bash-guard` checks safety before any rtk rewrite. Heredoc bodies are data, not commands to block;
+rtk's machine-readable bypass matches flag tokens rather than substrings in command text.
 
 To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registry`, `make install`.
 
@@ -373,15 +415,25 @@ keeps it small: `sessionHistory` rotates past 30 entries to `archive/` (in scope
 to global), the catalog and each touched repo's bank region are regenerated, and the store commits.
 
 ```bash
-claude-code memory init | path | index [--repo R]   # scaffold, locate, settle + regenerate region/catalog
+claude-code memory init [--repo R]                 # scaffold one repo's bank
+claude-code memory path [--repo R]                 # locate that bank
+claude-code memory index [--repo R]                # settle + regenerate region/catalog
 claude-code memory search [--repo R] <terms> [--k 8] [--format json]  # BM25 over the bank
-claude-code memory doctor [--stale-days 90] [--notice]  # cap offenders, staleness
-claude-code memory stats | timeline [--repo R] [-n 20] | promote [--repo R]  # stats is store-wide; promote = settle pass
-claude-code memory show <id> | digest [--repo R]          # one block by its [id]; haiku digest of the raw archive → archive/digest.md
+claude-code memory doctor [--repo R] [--stale-days 90] [--notice]  # cap offenders, staleness
+claude-code memory stats                          # store-wide; --repo is accepted but does not scope it
+claude-code memory timeline [--repo R] [-n 20]      # repo timeline
+claude-code memory promote [--repo R]              # settle pass
+claude-code memory show <id>                       # store-wide id lookup; --repo does not scope it
+claude-code memory digest [--repo R]               # haiku digest of raw archive → archive/digest.md
 claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...   # one-time cutover from legacy trees
 claude-code memory migrate --manifest MANIFEST                 # apply a reviewed --dry-run manifest (also moves legacy docs/{plans,reports,handoffs,memory/native})
 claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]  # fold a second checkout's store into its canonical one
 ```
+
+`--repo R` selects a project checkout for repo-scoped commands; `search` also accepts a catalog name.
+`update` and `dream` accept `--repo` but use `--cwd` to choose the project;
+`stats` and `show` remain store-wide. Put flags before positional arguments; `search` and `archive`
+also support interspersed flags.
 
 `claude-code memory archive [--repo R] [--dupes] [--apply] [--restore] [--split N] [<topic>...]` governs the
 native MEMORY.md's size within a repo's dir: `--split N --apply` keeps an N-line core in `MEMORY.md` and
@@ -401,8 +453,9 @@ brings it back. `access.log` beside each store records every recall.
   settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
   `state/harness/history`; `env.d/secrets.env` is never snapshotted.
-- `claude-code theme [--preview]` — pick the statusline color palette.
-- `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), safety-hook blocks (reason, never the command), router failovers.
+- `claude-code theme [--preview]` — pick the statusline color palette. A merge refuses to overwrite
+  a destination changed concurrently; re-run to merge its newer contents.
+- `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), `bash-guard` blocks (reason, never the command), router failovers.
 - `claude-code mcp doctor [--format json]` — MCP server connect health, cross-scope drift, inline plaintext secrets.
 
 ## Status line
@@ -451,12 +504,17 @@ Rows that `CLAUDE.md` points here for; "this file" in a row means `CLAUDE.md`.
 
 ```bash
 go test ./internal/<pkg>           # while developing — only what you touched
-make lint                          # gofmt check
+make lint                          # gofmt + vet, shellcheck when installed, generate --check
+make lint-deep                     # golangci-lint v2 + .golangci.yml; uncapped issue counts
 make test                          # go vet + full suite, once, before pushing (= make audit, the CI gate)
 ```
 
 `git push` runs `make audit` first: `install` sets `core.hooksPath` to `.githooks/`, whose `pre-push` hook is the
 same gate `ci.yml` runs, so a red push is caught locally. `git push --no-verify` bypasses it.
+The hook unsets Git's exported `GIT_DIR`, `GIT_WORK_TREE`, and `GIT_INDEX_FILE` before the gate,
+so tests running git in temporary directories cannot accidentally resolve the pushed repository.
+`lint-deep` runs `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...` separately
+from the normal gate; neither repeated findings nor a linter's total are truncated.
 
 `settings.json` is generated — edit `internal/settings/settings.tmpl.json` and re-run `make install`.
 The template is the default: keys it sets (model, effort, theme, tui, plugins, `permissions.defaultMode`, …)
