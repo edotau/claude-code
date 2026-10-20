@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.md"
+  - "**/*.markdown"
+---
 # Docs Placement — Harness Markdown Never Lands at a Repo Root
 
 > Canonical location rule for every markdown file the harness (or a session working through it)

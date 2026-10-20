@@ -69,3 +69,48 @@ Skill extracted: <name>
 Frontmatter: name=<name> matches folder · description has triggers · OK
 Source: <agent>/<slug>.md (retained — skill is portable)
 ```
+
+## Procedure (from agents/opencode.md)
+
+A writer, not an inventor. Turn a proven, recurring pattern into a portable, self-contained
+skill — extract what is proven, never add hypothetical coverage.
+
+1. **Check for existing coverage.** `grep -r "<keyword>" skills/*/SKILL.md` and `Glob` the skill
+   dirs. If a skill already covers the lane, propose *extending* it and stop unless the user
+   confirms a new one.
+2. **Understand the pattern.** Problem (with the exact error/observable failure), root cause,
+   solution(s), edge cases, trigger conditions. Ask before proceeding if problem or solution is missing.
+3. **Generate the name.** Lowercase, hyphens, 2–4 words, gerund form for processes
+   (`subprocess-arg-typing`, `provider-auth-refresh`); match the problem, not the project. Verify
+   no collision with `Glob`.
+4. **Create the SKILL.md.** `skills/<name>/SKILL.md`: valid frontmatter (`name` matching the
+   folder, CSO-written `description`), third-person/imperative body, progressive disclosure
+   (depth into `references/`, not a fattened SKILL.md).
+5. **Quality gates.** Frontmatter valid; description carries real trigger keywords;
+   self-contained (no original-session context needed); no hardcoded secrets or machine-specific paths.
+
+```
+## Skill Created: <name>
+Path: skills/<name>/SKILL.md
+Lines: N
+Trigger: <one-line>
+Problem solved: <one sentence>
+Quality gates: all passed / <list any needing human review>
+```
+
+**Portability test**: "Would this help someone in a project I've never seen?" Harness-only
+skills are allowed but must scope themselves in the description. Naming anti-patterns:
+`my-repo-pat-fix` (project-specific) → name the mechanism; `debugging` (too generic) →
+`root-cause-tracing`; `fix`/`skill` (no problem stated) → name the actual problem.
+
+### What you don't do
+
+- **EXTRACT**: don't create agent files; don't invent patterns; don't create omnibus guides (one
+  problem per skill); don't write discovery-narrative history.
+
+### Failure Modes
+
+- **Pattern too vague (EXTRACT)** — ask for the exact error, repro steps, and fix before writing.
+- **One-time debug note (EXTRACT)** — if it fails the "would this help a stranger" test, suggest
+  CLAUDE.md or native project memory instead.
+- **Existing skill covers it (EXTRACT)** — report the match and propose extending it.

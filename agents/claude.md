@@ -156,6 +156,4 @@ For simplifications applied, name the change and confirm behavior is preserved; 
 - **Asked to orchestrate but can't dispatch** → fall back to self-contained sequential.
 - **Cannot verify** → say so explicitly; do not claim success.
 
-## Proposed Memory Updates
-
-After finishing, if you learned something reusable, append a **Proposed Memory Updates** section. Do NOT write memory files yourself, and never touch the approval-gated RULES region. Frame each as topic-file content plus its one-line `MEMORY.md` TOC entry, with a rationale. The parent consolidates and writes the detail to a topic file, keeping `MEMORY.md` a lean index.
+Memory proposals: [shared discipline](../skills/subagent-workflows/references/memory-updates.md).
