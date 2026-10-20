@@ -270,3 +270,13 @@ func (t *Tx) PutRecord(name string, r Record) error {
 	}
 	return t.Put(Secrets, name, string(v))
 }
+
+// Retired returns the retired key IDs recorded by committed rotations.
+func Retired(t *Tx) []string {
+	raw, _ := t.Get(Meta, "retired")
+	var kids []string
+	if json.Unmarshal([]byte(raw), &kids) != nil {
+		return nil
+	}
+	return kids
+}
