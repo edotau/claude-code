@@ -181,7 +181,7 @@ func TestExtractStepsPhaseBoundaries(t *testing.T) {
 	if score, _ := scoreStep(steps[1]); score != 1 {
 		t.Errorf("vague phase score = %d, want 1", score)
 	}
-	if finalRe.MatchString(steps[1]) {
+	if finalRe().MatchString(steps[1]) {
 		t.Error("non-phase sections leaked into final step")
 	}
 }

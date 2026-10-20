@@ -5,6 +5,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // StepResult mirrors the Python step-result dict field order.
@@ -57,22 +58,36 @@ type OversizedTask struct {
 }
 
 var (
-	concreteRe   = regexp.MustCompile(`(?i)\b(?:assert\w*|expect\(|\.toBe|\.toEqual|pytest|jest|npm\s+test|go\s+test|exit\s*(?:code)?\s*[=:]?\s*0|status\s*[=:]?\s*200|curl\b|grep\b|diff\b|benchmark|latency\s*<|throughput\s*>)\b`)
-	reasonableRe = regexp.MustCompile(`(?i)\b(?:verify|check|confirm|inspect|review|compare|validate|run\s+and\s+see|manually|open\s+in\s+browser|screenshot)\b`)
-	vagueRe      = regexp.MustCompile(`(?i)\b(?:should\s+work|looks?\s+(?:good|right|fine|ok)|seems?\s+(?:correct|fine)|hopefully|probably\s+works?)\b`)
-	stepRe       = regexp.MustCompile(`^(?:\d+[.)]\s+|[-*]\s+\[.\]\s+|[-*]\s+Step\s+\d+)`)
-	phaseRe      = regexp.MustCompile(`(?m)^#{2,3} Phase\s+[^\n]+`)
-	headingRe    = regexp.MustCompile(`^(#{1,6})\s+`)
-	finalRe      = regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
+	concreteRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:assert\w*|expect\(|\.toBe|\.toEqual|pytest|jest|npm\s+test|go\s+test|exit\s*(?:code)?\s*[=:]?\s*0|status\s*[=:]?\s*200|curl\b|grep\b|diff\b|benchmark|latency\s*<|throughput\s*>)\b`)
+	})
+	reasonableRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:verify|check|confirm|inspect|review|compare|validate|run\s+and\s+see|manually|open\s+in\s+browser|screenshot)\b`)
+	})
+	vagueRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:should\s+work|looks?\s+(?:good|right|fine|ok)|seems?\s+(?:correct|fine)|hopefully|probably\s+works?)\b`)
+	})
+	stepRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:\d+[.)]\s+|[-*]\s+\[.\]\s+|[-*]\s+Step\s+\d+)`) })
+	phaseRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^#{2,3} Phase\s+[^\n]+`) })
+	headingRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(#{1,6})\s+`) })
+	finalRe   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
+	})
 
-	taskLineRe = regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s+(.+)$`)
-	fenceRe    = regexp.MustCompile("^\\s*(```|~~~)")
+	taskLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s+(.+)$`) })
+	fenceRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("^\\s*(```|~~~)") })
 	// A path's first segment starts at a token start (no lookbehind in RE2), so nested segments never count.
-	internalPkgRe = regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?(internal|cmd)/([A-Za-z0-9_]+)")
-	topDirRe      = regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\\-]+")
-	ownsRe        = regexp.MustCompile(`owns:\s*[^\s—]`)
-	findingsRe    = regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
-	codeTaskRe    = regexp.MustCompile(`(?i)\brunner:|\.go\b`)
+	internalPkgRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?(internal|cmd)/([A-Za-z0-9_]+)")
+	})
+	topDirRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\\-]+")
+	})
+	ownsRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`owns:\s*[^\s—]`) })
+	findingsRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
+	})
+	codeTaskRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\brunner:|\.go\b`) })
 )
 
 // runnerNames head runner alternatives like `(codex/copilot)`, which are not package paths.
@@ -81,10 +96,10 @@ var runnerNames = map[string]bool{"copilot": true, "codex": true, "gemini": true
 // countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding runner names.
 func countPackageMentions(line string) int {
 	pkgs := map[string]bool{}
-	for _, m := range internalPkgRe.FindAllStringSubmatch(line, -1) {
+	for _, m := range internalPkgRe().FindAllStringSubmatch(line, -1) {
 		pkgs[m[1]+"/"+m[2]] = true
 	}
-	for _, m := range topDirRe.FindAllStringSubmatch(line, -1) {
+	for _, m := range topDirRe().FindAllStringSubmatch(line, -1) {
 		if m[1] == "internal" || m[1] == "cmd" || runnerNames[m[1]] {
 			continue
 		}
@@ -96,7 +111,7 @@ func countPackageMentions(line string) int {
 // maxFindingsCount returns the largest "<N> findings/items/fixes/functions/files" count on the line, if any.
 func maxFindingsCount(line string) (int, bool) {
 	best, found := 0, false
-	for _, m := range findingsRe.FindAllStringSubmatch(line, -1) {
+	for _, m := range findingsRe().FindAllStringSubmatch(line, -1) {
 		n := 0
 		_, _ = fmt.Sscanf(m[1], "%d", &n) // m[1] is \d+: only an int overflow fails, and it leaves n = 0
 		if n > best {
@@ -113,7 +128,7 @@ func findOversizedTasks(text string) []OversizedTask {
 	var out []OversizedTask
 	fence := ""
 	for _, raw := range splitLines(text) {
-		if f := fenceRe.FindStringSubmatch(raw); f != nil {
+		if f := fenceRe().FindStringSubmatch(raw); f != nil {
 			switch fence {
 			case "":
 				fence = f[1]
@@ -122,7 +137,7 @@ func findOversizedTasks(text string) []OversizedTask {
 			}
 			continue
 		}
-		m := taskLineRe.FindStringSubmatch(raw)
+		m := taskLineRe().FindStringSubmatch(raw)
 		if fence != "" || m == nil {
 			continue
 		}
@@ -134,7 +149,7 @@ func findOversizedTasks(text string) []OversizedTask {
 		if n, ok := maxFindingsCount(line); ok && n >= 11 {
 			reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
 		}
-		if codeTaskRe.MatchString(line) && !ownsRe.MatchString(line) {
+		if codeTaskRe().MatchString(line) && !ownsRe().MatchString(line) {
 			reasons = append(reasons, "code task has no `owns:` segment")
 		}
 		if len(reasons) == 0 {
@@ -146,13 +161,13 @@ func findOversizedTasks(text string) []OversizedTask {
 }
 
 func extractSteps(text string) []string {
-	if phaseRe.MatchString(text) {
+	if phaseRe().MatchString(text) {
 		var steps []string
 		var current []string
 		level := 0
 		for _, line := range splitLines(text) {
-			heading := headingRe.FindStringSubmatch(line)
-			phase := phaseRe.MatchString(line)
+			heading := headingRe().FindStringSubmatch(line)
+			phase := phaseRe().MatchString(line)
 			if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
 				steps = append(steps, strings.Join(current, "\n"))
 				current = nil
@@ -177,7 +192,7 @@ func extractSteps(text string) []string {
 	building := false
 	for _, line := range splitLines(text) {
 		stripped := strings.TrimSpace(line)
-		if stepRe.MatchString(stripped) {
+		if stepRe().MatchString(stripped) {
 			if building {
 				steps = append(steps, strings.Join(current, "\n"))
 			}
@@ -194,13 +209,13 @@ func extractSteps(text string) []string {
 }
 
 func scoreStep(step string) (int, string) {
-	if concreteRe.MatchString(step) {
+	if concreteRe().MatchString(step) {
 		return 3, "concrete"
 	}
-	if reasonableRe.MatchString(step) {
+	if reasonableRe().MatchString(step) {
 		return 2, "reasonable"
 	}
-	if vagueRe.MatchString(step) {
+	if vagueRe().MatchString(step) {
 		return 1, "vague"
 	}
 	return 0, "none"
@@ -255,7 +270,7 @@ func analyze(text, source string) analysis {
 	if maxScore > 0 {
 		pct = pyRound1(float64(total) / float64(maxScore) * 100)
 	}
-	hasFinal := finalRe.MatchString(steps[len(steps)-1])
+	hasFinal := finalRe().MatchString(steps[len(steps)-1])
 	verdict := "MISSING"
 	if pct >= 70 {
 		verdict = "STRONG"

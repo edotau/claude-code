@@ -7,14 +7,15 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
-var gateFileRe = regexp.MustCompile(`\.(py|ts|tsx|js|jsx)$`)
-var gateVerdictLineRe = regexp.MustCompile(`^\s+\[WARN\]|^Verdict:`)
-var gateNoiseLineRe = regexp.MustCompile(`Noise ratio:|Verdict:`)
+var gateFileRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.(py|ts|tsx|js|jsx)$`) })
+var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s+\[WARN\]|^Verdict:`) })
+var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:`) })
 
 func gateStagedFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -42,7 +43,7 @@ func gateComplexityFiles(repo string) []string {
 	var files []string
 	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && gateFileRe.MatchString(line) {
+		if line != "" && gateFileRe().MatchString(line) {
 			files = append(files, line)
 		}
 	}
@@ -86,7 +87,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 		if rc != 0 {
 			fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc)
 			indentLines(stdout, buf.String())
-		} else if matched, ok := filterLines(buf.String(), gateVerdictLineRe); ok {
+		} else if matched, ok := filterLines(buf.String(), gateVerdictLineRe()); ok {
 			fmt.Fprintln(stdout, matched)
 		} else {
 			fmt.Fprintln(stdout, "  clean")
@@ -99,7 +100,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 	if rc2 != 0 {
 		fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc2)
 		indentLines(stdout, out2.String())
-	} else if matched, ok := filterLines(out2.String(), gateNoiseLineRe); ok {
+	} else if matched, ok := filterLines(out2.String(), gateNoiseLineRe()); ok {
 		fmt.Fprintln(stdout, matched)
 	} else {
 		fmt.Fprintln(stdout, "  clean")
