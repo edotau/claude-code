@@ -41,6 +41,34 @@ func TestBashGuardChecksExecutedHeredocBodies(t *testing.T) {
 	}
 }
 
+func TestBashGuardChecksPythonHeredocBodies(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cases := []struct {
+		name string
+		cmd  string
+		want int
+	}{
+		{"import then exec", "python3 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", ExitBlock},
+		{"exec then import", "python <<'PY'\nexec(__import__('base64').b64decode('cGFzcw=='))\nPY", ExitBlock},
+		{"decode then exec later", "python3 - <<'PY'\nimport base64\ncode = base64.b64decode('cGFzcw==')\nexec(code)\nPY", ExitBlock},
+		{"tab stripped eval", "python3 <<-'PY'\n\tfrom base64 import b64decode\n\teval(b64decode('MQ=='))\nPY", ExitBlock},
+		{"here string eval", "python3 <<<\"eval(__import__('base64').b64decode('MQ=='))\"", ExitBlock},
+		{"no space before heredoc", "python3<<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", ExitBlock},
+		{"versioned interpreter", "python3.12 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", ExitBlock},
+		{"decode name then exec", "python <<'PY'\ncode = b64decode('cGFzcw==')\nexec(code)\nPY", ExitBlock},
+		{"print only", "python3 <<'PY'\nprint('hello')\nPY", ExitProceed},
+		{"decode and print only", "python3 <<'PY'\nimport base64\nprint(base64.b64decode('aGVsbG8='))\nPY", ExitProceed},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var errb bytes.Buffer
+			if got := BashGuard(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
+			}
+		})
+	}
+}
+
 // Same bodies through the Copilot payload shape (toolArgs, no hook_event_name).
 func TestBashGuardChecksExecutedHeredocBodiesCopilot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
