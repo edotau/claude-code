@@ -64,7 +64,7 @@ func (p Provider) MarshalJSON() ([]byte, error) {
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).
 type Auth struct {
 	Type    string `json:"type"`              // x-api-key | bearer | none | passthrough
-	Env     string `json:"env,omitempty"`     // env var, also read from env.d/secrets.env
+	Env     string `json:"env,omitempty"`     // env var, also read from the vault
 	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300

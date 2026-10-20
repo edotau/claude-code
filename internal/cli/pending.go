@@ -15,7 +15,7 @@ func cmdConfigureOrStub(args []string) int {
 	if configureRun != nil {
 		return configureRun(args)
 	}
-	_, _ = os.Stderr.WriteString("configure: not built yet — until then: `claude-code switch <provider>`, a key in env.d/secrets.env, `claude-code doctor`.\n")
+	_, _ = os.Stderr.WriteString("configure: not built yet — until then: `claude-code switch <provider>`, `claude-code secrets set`, `claude-code doctor`.\n")
 	return 1
 }
 

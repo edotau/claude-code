@@ -22,12 +22,6 @@ func ConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// EnvDir is the legacy env.d migration source directory; config and secrets live in the vault.
-func EnvDir() string { return filepath.Join(ConfigDir(), "env.d") }
-
-// LegacyProvidersFile is the pre-env.d provider registry overlay.
-func LegacyProvidersFile() string { return filepath.Join(ConfigDir(), "providers.json") }
-
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 

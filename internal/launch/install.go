@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -50,6 +51,9 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
+	if err := config.Migrate(w, dryRun); err != nil {
+		return fmt.Errorf("install: migration incomplete; the old binary stays installed: %w", err)
+	}
 	snapshotPreInstall(w, dryRun)
 	target, err := installBinaryAndShims(w, dryRun)
 	if err != nil {
@@ -58,7 +62,6 @@ func Install(w io.Writer, dryRun bool) error {
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
 	seedTmuxConf(w, dryRun)
-	moveProvidersFile(w, dryRun)
 	if err := linkOnPath(w, target, dryRun); err != nil {
 		return err
 	}
@@ -172,27 +175,6 @@ func installSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
 	return err
-}
-
-// moveProvidersFile moves a pre-env.d providers.json into env.d, where the vault migration reads it; never both.
-func moveProvidersFile(w io.Writer, dryRun bool) {
-	old, dst := paths.LegacyProvidersFile(), filepath.Join(paths.EnvDir(), "providers.json")
-	if _, err := os.Stat(old); err != nil {
-		return
-	}
-	if _, err := os.Stat(dst); err == nil {
-		fmt.Fprintf(w, "providers %s and %s both exist; only the env.d one is read — merge and delete the old one\n", old, dst)
-		return
-	}
-	fmt.Fprintf(w, "move     %s → %s\n", old, dst)
-	if dryRun {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err == nil {
-		if err := os.Rename(old, dst); err != nil {
-			fmt.Fprintf(w, "providers move failed: %v\n", err)
-		}
-	}
 }
 
 // installGitHooks points core.hooksPath at the repo's .githooks (pre-push runs the CI gate); best-effort.
@@ -314,6 +296,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
+	checks = append(checks, vaultDoctorChecks()...)
 	return checks, ok
 }
 
