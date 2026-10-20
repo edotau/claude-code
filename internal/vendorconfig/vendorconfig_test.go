@@ -30,13 +30,14 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 	if len(oc.MCP.Allow) != 1 || oc.MCP.Allow[0] != "github" {
 		t.Errorf("opencode.MCP.Allow = %v, want [github]", oc.MCP.Allow)
 	}
-	if oc.Permission.Mode != "" || oc.Permission.ApprovalPolicy != "" || len(oc.Launch.Env) != 0 || len(oc.Launch.Args) != 0 {
+	if oc.Permission.ApprovalPolicy != "" || len(oc.Launch.Env) != 0 || len(oc.Launch.Args) != 0 {
 		t.Errorf("opencode fields not zeroed by whole-entry overlay replace: %+v", oc)
 	}
 	// other vendors keep their defaults untouched
 	gm := cfg.Vendor("gemini")
-	if gm.Permission.Mode != "flag-only" {
-		t.Errorf("gemini.Permission.Mode = %q, want flag-only (defaults preserved)", gm.Permission.Mode)
+	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
+	if !reflect.DeepEqual(gm.Launch.Args, wantGeminiArgs) {
+		t.Errorf("gemini.Launch.Args = %v, want %v (defaults preserved)", gm.Launch.Args, wantGeminiArgs)
 	}
 }
 
@@ -136,9 +137,6 @@ func TestDefaults(t *testing.T) {
 	}
 
 	gemini := cfg.Vendor("gemini")
-	if gemini.Permission.Mode != "flag-only" {
-		t.Errorf("gemini.Permission.Mode = %q, want flag-only", gemini.Permission.Mode)
-	}
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)

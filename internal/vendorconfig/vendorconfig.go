@@ -23,10 +23,8 @@ type GuardRules struct {
 	Deny []string `json:"deny"`
 }
 
-// Permission is one vendor's approval policy: Mode is the common allow-all/flag-only switch;
-// the rest are vendor-native knobs only that vendor's renderer consumes.
+// Permission is one vendor's approval policy: vendor-native knobs only that vendor's renderer consumes.
 type Permission struct {
-	Mode                  string `json:"mode"`
 	UseGuardRules         bool   `json:"useGuardRules,omitempty"`
 	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
 	SandboxMode           string `json:"sandboxMode,omitempty"`
@@ -82,7 +80,11 @@ func Parse(base, overlay []byte) (*Config, error) {
 		return nil, fmt.Errorf("vendorconfig defaults: %w", err)
 	}
 	if len(overlay) > 0 {
-		var o Config
+		// Vendors as json.RawMessage so a "name": null entry survives decode to signal removal.
+		var o struct {
+			GuardRules GuardRules                 `json:"guardRules"`
+			Vendors    map[string]json.RawMessage `json:"vendors"`
+		}
 		if err := json.Unmarshal(overlay, &o); err != nil {
 			return nil, fmt.Errorf("%s: %w", UserFile(), err)
 		}
@@ -92,7 +94,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 		if cfg.Vendors == nil {
 			cfg.Vendors = map[string]Vendor{}
 		}
-		for name, raw := range rawVendors(overlay) {
+		for name, raw := range o.Vendors {
 			if raw == nil { // "name": null removes a built-in vendor
 				delete(cfg.Vendors, name)
 				continue
@@ -105,18 +107,6 @@ func Parse(base, overlay []byte) (*Config, error) {
 		}
 	}
 	return &cfg, nil
-}
-
-// rawVendors re-decodes overlay's vendors map with json.RawMessage so a null entry survives
-// unmarshal instead of being dropped (Vendor has no pointer semantics to carry removal through).
-func rawVendors(overlay []byte) map[string]json.RawMessage {
-	var doc struct {
-		Vendors map[string]json.RawMessage `json:"vendors"`
-	}
-	if err := json.Unmarshal(overlay, &doc); err != nil {
-		return nil
-	}
-	return doc.Vendors
 }
 
 // Vendor returns name's spec, or the zero value when Config is nil or name is unknown.
