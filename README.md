@@ -29,6 +29,7 @@ export PATH="$HOME/.claude/bin:$PATH"   # optional, in your shell rc: bare claud
 the bare CLIs stay untouched unless you add `~/.claude/bin` to `PATH`), and merges the harness hooks/permissions/statusLine
 into `settings.json` after a timestamped backup (foreign hooks are preserved). Preview with
 `claude-code install --dry-run`; print the render alone with `claude-code generate` (alias: `settings`).
+On WSL, plain install also sets up the `wl-paste` image-paste proxy; `claude-code clip` is the fallback.
 
 With `~/.claude/bin` first on `PATH`, `claude` launches Claude Code on the selected provider and
 `codex`/`gemini`/`opencode`/`copilot` launch those CLIs through the registry. The real binaries are found

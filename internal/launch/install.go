@@ -56,6 +56,7 @@ func Install(w io.Writer, dryRun bool) error {
 		return err
 	}
 	installCompletion(w, dryRun)
+	installClipboardProxy(w, dryRun)
 	seedTmuxConf(w, dryRun)
 	moveProvidersFile(w, dryRun)
 	if err := linkOnPath(w, target, dryRun); err != nil {
@@ -127,6 +128,14 @@ func installCompletion(w io.Writer, dryRun bool) {
 		} else {
 			fmt.Fprintf(w, "completion %s\n", path)
 		}
+	}
+}
+
+// installClipboardProxy ensures the WSL wl-paste proxy; a no-op off WSL, and best-effort like
+// completion — a write failure must never fail the install that got the binary and shims in place.
+func installClipboardProxy(w io.Writer, dryRun bool) {
+	if err := clipboard.InstallProxy(w, dryRun); err != nil {
+		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
 	}
 }
 
