@@ -75,7 +75,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.URL.Path == "/healthz" {
-		io.WriteString(w, "ok\n")
+		_, _ = io.WriteString(w, "ok\n")
 		return
 	}
 	if !r.authorized(req) {
@@ -597,8 +597,8 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 }
 
 func drain(resp *http.Response) {
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
 }
 
 func flusher(w http.ResponseWriter) func() {
@@ -611,7 +611,7 @@ func flusher(w http.ResponseWriter) func() {
 func writeJSON(w http.ResponseWriter, status int, body []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -669,7 +669,7 @@ type idleBody struct {
 }
 
 func newIdleBody(rc io.ReadCloser, idle time.Duration) *idleBody {
-	return &idleBody{rc: rc, idle: idle, timer: time.AfterFunc(idle, func() { rc.Close() })}
+	return &idleBody{rc: rc, idle: idle, timer: time.AfterFunc(idle, func() { _ = rc.Close() })}
 }
 
 func (b *idleBody) Read(p []byte) (int, error) {
