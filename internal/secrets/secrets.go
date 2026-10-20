@@ -1,7 +1,7 @@
 // Package secrets manages the first-party credential surface for the standalone claude-code harness:
-// the env.d/secrets.env file plane, an optional OS keyring plane, and read-only audits (scan/git/doctor)
-// over the config surface. It never prints or logs a credential value except from `get`, whose entire
-// job is to hand one back to its caller.
+// secrets sealed in the vault (state/vault.db, AES-GCM under the master key) and read-only audits
+// (scan/git/doctor) over the config surface. It never prints or logs a credential value except from
+// `get`, whose entire job is to hand one back to its caller.
 package secrets
 
 import (

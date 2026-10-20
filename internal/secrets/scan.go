@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Scanner audits the config surface for inline, plaintext secrets. Findings accumulate across
@@ -168,17 +170,62 @@ func (s *Scanner) ScanFile(path string) {
 	}
 }
 
-// ScanConfigs audits targets (DefaultScanTargets when empty) and prints the summary line.
+// ScanVault inspects the vault's unencrypted buckets (provider overlay, pins, custom env) for inline secrets.
+func (s *Scanner) ScanVault() {
+	var found []string
+	err := vault.View(func(t *vault.Tx) error {
+		if raw, ok := t.Get(vault.Overlay, "providers"); ok {
+			var doc any
+			if json.Unmarshal([]byte(raw), &doc) == nil {
+				walkJSONStrings(nil, doc, func(p []string, val string) {
+					if looksLikeSecret(val, true) {
+						found = append(found, "vault:overlay/providers → "+strings.Join(p, ".")+" holds an inline secret")
+					}
+				})
+			}
+		}
+		for _, bucket := range []string{vault.Pins, vault.Env} {
+			kv := t.All(bucket)
+			keys := make([]string, 0, len(kv))
+			for k := range kv {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if v := kv[k]; v != providers.SecretRef && LooksLikeSecret(v) {
+					found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		s.flag(fmt.Sprintf("vault — could not read: %v", err))
+		return
+	}
+	for _, f := range found {
+		s.flag(f)
+	}
+	if len(found) == 0 {
+		s.ok("vault — clean")
+	}
+}
+
+// ScanConfigs audits targets (DefaultScanTargets plus the vault when empty) and prints the summary line.
 func (s *Scanner) ScanConfigs(targets []string) int {
-	if len(targets) == 0 {
+	defaults := len(targets) == 0
+	if defaults {
 		targets = DefaultScanTargets()
 	}
 	fmt.Fprintln(s.out(), "== config-surface credential scan ==")
 	for _, f := range targets {
 		s.ScanFile(f)
 	}
+	if defaults {
+		s.ScanVault()
+	}
 	if n := len(s.Findings); n > 0 {
-		fmt.Fprintf(s.out(), "secrets scan: %d finding(s) — move inline values to env.d/secrets.env or the keyring.\n", n)
+		fmt.Fprintf(s.out(), "secrets scan: %d finding(s) — move inline values into the vault with `claude-code secrets set`.\n", n)
 		return ExitFindings
 	}
 	fmt.Fprintln(s.out(), "secrets scan: clean.")

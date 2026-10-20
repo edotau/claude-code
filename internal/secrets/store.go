@@ -2,140 +2,52 @@ package secrets
 
 import (
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/keyring"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// EnvFile is the managed KEY=value store (env.d/secrets.env): 0600, gitignored.
-func EnvFile() string { return paths.SecretsFile() }
-
-// ReadAll returns every KEY=value pair currently in the file plane; a missing file is empty.
-func ReadAll() map[string]string { return providers.ReadEnvFile(EnvFile()) }
-
-// setFile writes (or replaces) name=value in the file plane only; the caller records metadata.
-func setFile(name, value string) error {
-	if strings.ContainsAny(value, "\r\n") { // a newline would split into extra NAME=value lines on read
-		return fmt.Errorf("%s: a value stored in %s must be one line", name, EnvFile())
+// Names returns sorted vault secret names without resolving a key; an unreadable vault yields nil.
+func Names() []string {
+	var names []string
+	if err := vault.View(func(tx *vault.Tx) error {
+		names = tx.Names(vault.Secrets)
+		return nil
+	}); err != nil {
+		return nil
 	}
-	if err := editStore(func(s *state) { s.file[name] = value }); err != nil {
+	return names
+}
+
+// Store seals a single-line value in the vault, replacing its metadata and clearing any cached probe.
+func Store(name, value string) error {
+	if strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("%s: a secret must be one line", name)
+	}
+	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		return tx.PutRecord(name, vault.Record{
+			Sealed: key.Seal(name, value),
+			Kid:    key.Kid,
+			Prefix: metaPrefix(value),
+			Len:    len(value),
+			SetAt:  time.Now(),
+		})
+	}); err != nil {
 		return err
 	}
-	audit.Log(audit.SecretSet, name, "file") // the name only, never the value
+	audit.Log(audit.SecretSet, name, "vault")
 	return nil
 }
 
-// removeFile drops name from the file plane; a name it does not hold is a no-op.
-func removeFile(name string) error {
-	return editStore(func(s *state) { delete(s.file, name) })
-}
-
-// state is both managed files as read under the store lock: the file plane's pairs and the meta rows.
-type state struct {
-	file map[string]string
-	meta map[string]Meta
-}
-
-// editStore is the one write path: load under the store lock, edit, write back (atomic, 0600) only what changed.
-func editStore(edit func(*state)) error {
-	return withStoreLock(func() error {
-		meta, _, metaErr := readMetaLocked()
-		if meta == nil {
-			meta = map[string]Meta{}
-		}
-		s := &state{file: ReadAll(), meta: meta}
-		file0, meta0 := maps.Clone(s.file), maps.Clone(s.meta)
-		edit(s)
-		fileChanged := !maps.Equal(file0, s.file)
-		// A bad meta file fails a meta-only edit even when it looks like a no-op against the empty
-		// stand-in (e.g. deleting/updating a row the real file holds but this read never saw) — a
-		// silent nil would report success while the corrupt row stays untouched.
-		if metaErr != nil && !fileChanged {
-			return metaErr
-		}
-		if fileChanged {
-			if err := writeFile(s.file); err != nil {
-				return err
-			}
-		}
-		if !maps.Equal(meta0, s.meta) {
-			return writeMeta(s.meta)
-		}
-		return nil
-	})
-}
-
-// withStoreLock takes both legacy locks in one fixed order, so it serializes with an older binary's per-file locks.
-func withStoreLock(fn func() error) error {
-	return paths.WithFileLock(EnvFile(), func() error { return paths.WithFileLock(MetaFile(), fn) })
-}
-
-// writeFile writes the file plane's pairs back sorted (the caller holds the store lock).
-func writeFile(pairs map[string]string) error {
-	var b strings.Builder
-	b.WriteString("# Managed by `claude-code secrets set`. KEY=value, one per line, 0600.\n")
-	for _, k := range slices.Sorted(maps.Keys(pairs)) {
-		b.WriteString(k + "=" + pairs[k] + "\n")
-	}
-	return paths.AtomicWrite(EnvFile(), []byte(b.String()), 0o600)
-}
-
-// Names is every known credential name, sorted; an unreadable meta file falls back to the file plane's names.
-func Names() []string {
-	m, err := LoadMeta()
-	if err != nil {
-		return slices.Sorted(maps.Keys(ReadAll()))
-	}
-	return slices.Sorted(maps.Keys(m))
-}
-
-// Store writes name to the OS keyring and drops any plaintext copy from the file plane; with no
-// usable keyring (or forceFile) it writes the file plane instead. plane names where it landed.
-// Metadata is recorded once, after whichever branch lands, never by the file/keyring write itself.
-func Store(name, value string, forceFile bool) (plane string, err error) {
-	if !forceFile && keyring.Available() {
-		if err := keyring.Set(name, value); err != nil {
-			return "", err
-		}
-		plane = "the OS keyring"
-		if err := upsertMeta(name, "keyring", value); err != nil { // recorded before cleanup, so a stale probe never survives
-			return plane, err
-		}
-		if err := removeFile(name); err != nil {
-			return plane, fmt.Errorf("%s stored in the keyring, but %s still holds a plaintext copy: %w", name, EnvFile(), err)
-		}
-		return plane, nil
-	}
-	plane = EnvFile()
-	if err := setFile(name, value); err != nil {
-		return "", err
-	}
-	if err := upsertMeta(name, "file", value); err != nil {
-		return plane, err
-	}
-	if forceFile && keyring.Available() { // Get prefers the keyring, so a stale copy there would win
-		if err := keyring.Delete(name); err != nil {
-			return plane, fmt.Errorf("%s written to %s, but the keyring still holds the old value: %w", name, plane, err)
-		}
-	}
-	return plane, nil
-}
-
-// Delete removes name from both managed stores; the plaintext line goes first so a refused keyring never keeps it.
+// Delete removes name's vault record without resolving a key; an absent name is a no-op.
 func Delete(name string) error {
-	if err := removeFile(name); err != nil {
-		return err
-	}
-	if err := keyring.Delete(name); err != nil {
-		return err
-	}
-	return removeMeta(name)
+	return vault.Update(func(tx *vault.Tx) error {
+		return tx.Put(vault.Secrets, name, "")
+	})
 }
 
 // Redact renders a stored value for display: a 5-char prefix (enough to recognise a paste) plus its length.
@@ -192,71 +104,56 @@ const (
 	redactShow = 5
 )
 
-// keyringLookup is keyring.Lookup as a package seam; tests never touch the real keychain.
-var keyringLookup = keyring.Lookup
-
-// keyringGet is the found?-only shape most callers want, derived from the keyringLookup seam.
-func keyringGet(name string) (string, bool) {
-	v, found, _ := keyringLookup(name)
-	return v, found
-}
-
-// Get resolves name through the managed ladder: OS keyring, then the file plane, then the process
-// env. source names which plane answered ("keyring"|"file"|"env"); ok is false when none hold it.
-// `secrets get`, custom.env's @keyring refs and rotate.planeOf want this order — leave it alone.
-func Get(name string) (value, source string, ok bool) {
-	if v, found := keyringGet(name); found {
-		return v, "keyring", true
+// Lookup reads the vault before the process env, preserving vault read errors.
+func Lookup(name string) (value, source string, err error) {
+	v, found, err := vault.ReadSecret(name)
+	if err != nil {
+		return "", "", err
 	}
-	if v, found := ReadAll()[name]; found && v != "" {
-		return v, "file", true
+	if found {
+		return v, "vault", nil
 	}
 	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		return v, "env", true
+		return v, "env", nil
 	}
-	return "", "", false
+	return "", "", nil
 }
 
-// ladder is the one source/shadowed ruling, env then keyring then file, shared by Effective (live
-// presence, keyring.Get on the critical path) and Locate (already-loaded meta/file maps, no lookup).
-func ladder(envSet, inKeyring, inFile bool) (source, shadowed string) {
-	if envSet {
-		switch {
-		case inKeyring:
-			return "env", "keyring"
-		case inFile:
-			return "env", "file"
-		}
-		return "env", ""
-	}
-	if inKeyring {
-		return "keyring", ""
-	}
-	if inFile {
-		return "file", ""
-	}
-	return "", ""
+// Get is Lookup's found-only form; a read error or empty value yields ok=false.
+func Get(name string) (value, source string, ok bool) {
+	value, source, err := Lookup(name)
+	return value, source, err == nil && value != ""
 }
 
-// Effective is the order a launch (providers.Credential) actually uses: process env, then keyring,
-// then the file plane. When an env var wins, shadowed names a managed plane that ALSO holds a
-// (possibly stale) value for the same name, so the caller can flag "env over keyring/file".
+// Effective reads env before vault; shadowed reports a vault record hidden by the env value, without a key.
 func Effective(name string) (value, source, shadowed string, ok bool) {
-	value, source = providers.EffectiveSecret(name)
-	if value == "" {
+	value, source, err := providers.EffectiveSecret(name)
+	if err != nil || value == "" {
 		return "", "", "", false
 	}
 	if source == "env" {
-		_, inKeyring := keyringGet(name)
-		v, inFile := ReadAll()[name]
-		_, shadowed = ladder(true, inKeyring, inFile && v != "")
+		var found bool
+		if err := vault.View(func(tx *vault.Tx) error {
+			_, found = tx.Get(vault.Secrets, name)
+			return nil
+		}); err == nil && found {
+			shadowed = "vault"
+		}
 	}
 	return value, source, shadowed, true
 }
 
-// Locate is Effective's source/shadowed computation against already-loaded metadata and file-plane
-// maps instead of spawning keyring.Get: a keyring row is taken on faith from meta, no live lookup.
-func Locate(name string, meta map[string]Meta, file map[string]string) (source, shadowed string) {
-	envSet := strings.TrimSpace(os.Getenv(name)) != ""
-	return ladder(envSet, meta[name].Plane == "keyring", file[name] != "")
+// Locate computes env and vault presence using already-loaded metadata, without resolving a key.
+func Locate(name string, meta map[string]Meta) (source, shadowed string) {
+	_, found := meta[name]
+	if strings.TrimSpace(os.Getenv(name)) != "" {
+		if found {
+			return "env", "vault"
+		}
+		return "env", ""
+	}
+	if found {
+		return "vault", ""
+	}
+	return "", ""
 }

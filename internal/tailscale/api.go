@@ -30,7 +30,7 @@ type Client struct {
 	token   func(ctx context.Context) (string, error)
 }
 
-// NewClient resolves credentials via the same ladder providers use (env -> keyring -> secrets.env):
+// NewClient resolves credentials via secrets.Get (the vault, then env):
 // TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
 func NewClient() (*Client, error) {
 	c := &Client{BaseURL: DefaultBaseURL, Tailnet: "-", HTTP: http.DefaultClient}

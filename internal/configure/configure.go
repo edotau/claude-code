@@ -453,7 +453,7 @@ func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
 	}
 	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
 		confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
-		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false)
+		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar})
 	}
 	return true, false
 }
@@ -524,11 +524,7 @@ func probeSource(env string) (meta map[string]secrets.Meta, src string) {
 		_, src, _, _ = secrets.Effective(env) // meta unreadable: fall back to the live-lookup ladder
 		return nil, src
 	}
-	file := secrets.ReadAll()
-	src, _ = secrets.Locate(env, meta, file)
-	if src == "file" && len(file[env]) != meta[env].Len {
-		return nil, src // hand-edited outside the harness: its cached probe no longer describes this value
-	}
+	src, _ = secrets.Locate(env, meta)
 	return meta, src
 }
 
@@ -589,11 +585,11 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 			return false
 		}
 	}
-	return runAuthOption(d, kt, opts[chosen], false)
+	return runAuthOption(d, kt, opts[chosen])
 }
 
 // runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + the store.
-func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
+func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 	if len(o.argv) > 0 {
 		if err := runLogin(o.argv); err != nil {
 			d.printf("%s: %v\n", kt.label, err)
@@ -609,7 +605,7 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 			return false
 		}
 		if tok != "" {
-			return storeValue(d, o.env, tok, forceFile)
+			return storeValue(d, o.env, tok)
 		}
 		d.printf("%s: no token found in the output; paste it instead\n", o.env)
 	}
@@ -622,7 +618,7 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 		return false
 	}
 	_, v := ParseAssignment(val)
-	return storeValue(d, o.env, v, forceFile)
+	return storeValue(d, o.env, v)
 }
 
 // runMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.

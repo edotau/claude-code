@@ -110,12 +110,12 @@ func probeStatus(p *providers.Provider) string {
 
 // stagedKey is one menu-entered key: the value Submit will store and the env it shadows until then.
 type stagedKey struct {
-	val, prev      string
-	forceFile, had bool
+	val, prev string
+	had       bool
 }
 
 // stage records name for Submit and exports it so status rows and probes in this run already see it.
-func (d *dialog) stage(name, val string, forceFile bool) bool {
+func (d *dialog) stage(name, val string) bool {
 	k, seen := d.pending[name]
 	if !seen {
 		k.prev, k.had = os.LookupEnv(name)
@@ -124,7 +124,7 @@ func (d *dialog) stage(name, val string, forceFile bool) bool {
 		d.printf("%s: not staged: %v\n", name, err)
 		return false
 	}
-	k.val, k.forceFile = val, forceFile
+	k.val = val
 	d.pending[name] = k
 	return true
 }
@@ -137,7 +137,7 @@ func saveKeys(d *dialog) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
 		k := d.pending[name]
-		plane, err := secrets.Store(name, k.val, k.forceFile)
+		plane, err := "the vault", secrets.Store(name, k.val)
 		if err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue

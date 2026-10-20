@@ -14,12 +14,11 @@ import (
 type ProviderStatus struct {
 	Name   string
 	Type   string
-	Source string // env | file | auth.file | command | keyring | passthrough | none
+	Source string // env | vault | auth.file | command | passthrough | none
 	Note   string
 }
 
-// Resolve reports p's credential source using the SAME order providers.Credential() uses
-// (env -> keyring -> env.d/secrets.env -> auth.file -> command), so the line matches what a launch does.
+// Resolve reports credential presence in env -> vault -> auth.file -> command order, without resolving a key.
 func Resolve(p *providers.Provider) ProviderStatus {
 	st := ProviderStatus{Name: p.Name, Type: p.Auth.Type}
 	switch p.Auth.Type {
@@ -35,9 +34,7 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		return st
 	}
 	if p.Auth.Env != "" {
-		if _, src := providers.EffectiveSecret(p.Auth.Env); src != "" {
-			st.Source = src
-		}
+		st.Source = providers.HasSecret(p.Auth.Env)
 	}
 	if st.Source == "" && p.Auth.File != "" {
 		if b, err := os.ReadFile(expandHome(p.Auth.File)); err == nil && strings.TrimSpace(string(b)) != "" {

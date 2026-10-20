@@ -38,7 +38,7 @@ const (
 	srcPinned  = "gh (pinned)"
 	srcActive  = "gh (active)"
 	srcCopilot = "copilot login"
-	// SrcStoredToken is a COPILOT_GITHUB_TOKEN pasted via configure (keyring or secrets.env).
+	// SrcStoredToken is a COPILOT_GITHUB_TOKEN pasted via configure (sealed in the vault).
 	SrcStoredToken = CopilotTokenEnv + " (stored)"
 )
 
