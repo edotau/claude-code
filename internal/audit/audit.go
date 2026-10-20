@@ -101,7 +101,7 @@ func Log(a Action, resource, detail string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = f.Write(append(line, '\n'))
 }
 
@@ -139,7 +139,7 @@ func Read(since time.Time) ([]Event, error) {
 				out = append(out, e)
 			}
 			if readErr != nil {
-				fh.Close()
+				_ = fh.Close()
 				if readErr != io.EOF {
 					return out, readErr
 				}

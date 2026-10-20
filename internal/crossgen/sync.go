@@ -113,26 +113,9 @@ func Sync(opts SyncOptions) int {
 	var res syncResult
 	pruned := 0
 	for _, vendor := range vendors {
-		fmt.Fprintf(out, "== %s ==\n", vendor)
-		r, p := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
+		r, p := syncVendorAssets(out, vendor, root, home, agents, skills, docs, hasDocs, dryRun, prune)
 		res.add(r)
 		pruned += p
-		if vendor == "gemini" {
-			// agy does not read ~/.agents/skills; link its own skills dir alongside the cross-vendor one.
-			geminiSkills := GeminiSkillsDir(home)
-			res.add(linkSkills(out, skills, skillsDir, geminiSkills, dryRun))
-			if prune {
-				pruned += pruneSkillLinks(out, geminiSkills, skillsDir, projectedSkillNames(skills), dryRun)
-			}
-		}
-		if rel, ok := instructionFiles[vendor]; ok && hasDocs {
-			if !dryRun {
-				_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)
-				_ = os.MkdirAll(ProjectionRoot(root, vendor), 0o755)
-			}
-			res.record(writeProjection(out, filepath.Join(ProjectionRoot(root, vendor), filepath.Base(rel)), docs, dryRun))
-			res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
-		}
 	}
 	fmt.Fprintln(out, "== skills ==")
 	agentsSkills := AgentsSkillsDir(home)
@@ -160,6 +143,28 @@ func Sync(opts SyncOptions) int {
 		return 1
 	}
 	return 0
+}
+
+func syncVendorAssets(out io.Writer, vendor, root, home string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
+	fmt.Fprintf(out, "== %s ==\n", vendor)
+	res, pruned := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
+	if vendor == "gemini" {
+		// agy reads its own skills dir rather than ~/.agents/skills.
+		skillsDir, geminiSkills := filepath.Join(root, "skills"), GeminiSkillsDir(home)
+		res.add(linkSkills(out, skills, skillsDir, geminiSkills, dryRun))
+		if prune {
+			pruned += pruneSkillLinks(out, geminiSkills, skillsDir, projectedSkillNames(skills), dryRun)
+		}
+	}
+	if rel, ok := instructionFiles[vendor]; ok && hasDocs {
+		if !dryRun {
+			_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)
+			_ = os.MkdirAll(ProjectionRoot(root, vendor), 0o755)
+		}
+		res.record(writeProjection(out, filepath.Join(ProjectionRoot(root, vendor), filepath.Base(rel)), docs, dryRun))
+		res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
+	}
+	return res, pruned
 }
 
 // syncVendor renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes

@@ -20,3 +20,12 @@ linters:
       - path: _test\.go
         linters:
           - gocognit
+      # Tests: fixture writes and exec/HTTP calls without ctx are bounded by the test itself.
+      - path: _test\.go
+        linters: [errcheck, noctx, bodyclose]
+      # Best-effort CLI/terminal output: a failed write to stdout/stderr has no recovery path.
+      - linters: [errcheck]
+        text: 'Error return value of .fmt\.Fprint'
+      # Deferred Close runs after the primary result is decided; its error cannot change it.
+      - linters: [errcheck]
+        source: '^\s*defer .*\.Close\(\)'

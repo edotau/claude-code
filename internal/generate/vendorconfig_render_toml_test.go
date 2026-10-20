@@ -2,6 +2,50 @@ package generate
 
 import "testing"
 
+func TestMergeCodexTrustPreservesUnownedText(t *testing.T) {
+	raw := `note = """
+[hooks.state."active"]
+trusted_hash = "inside string"
+"""
+[hooks.state.'active'] # keep table comment
+  'trusted_hash' = 'old' # keep hash comment
+other = 1
+[hooks.state."missing"]
+other = 2
+[foreign]
+trusted_hash = "unowned"`
+	want := `note = """
+[hooks.state."active"]
+trusted_hash = "inside string"
+"""
+[hooks.state.'active'] # keep table comment
+  'trusted_hash' = "new" # keep hash comment
+other = 1
+[hooks.state."missing"]
+other = 2
+trusted_hash = "added"
+[foreign]
+trusted_hash = "unowned"
+
+[hooks.state."a"]
+trusted_hash = "first"
+
+[hooks.state."z"]
+trusted_hash = "last"
+`
+	entries := map[string]string{"active": "new", "missing": "added", "z": "last", "a": "first"}
+	got := mergeCodexTrust(raw, entries)
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%s\nwant:\n%s", got, want)
+	}
+	if again := mergeCodexTrust(got, entries); again != got {
+		t.Fatalf("merge is not idempotent:\n%s", again)
+	}
+	if len(entries) != 4 {
+		t.Fatal("merge mutated input entries")
+	}
+}
+
 // TestInsertTopLevelTOMLSkipsMultilineStrings: a "["-led line inside a TOML multiline string
 // (triple-quoted) must not be mistaken for the first top-level table header.
 func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {

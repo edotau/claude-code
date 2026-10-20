@@ -154,7 +154,7 @@ lint-go:  # (folded into `lint`) gofmt -l + go vet
 
 .PHONY: lint-deep
 lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
-	golangci-lint run ./...
+	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist

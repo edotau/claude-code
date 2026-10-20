@@ -148,22 +148,11 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 		trimmed := strings.TrimSpace(line)
 		if multiline == "" && strings.HasPrefix(trimmed, "[") {
 			flush()
-			active = ""
-			if m := codexTrustTableRE.FindStringSubmatch(trimmed); m != nil {
-				if strings.HasPrefix(m[1], "'") {
-					active = strings.Trim(m[1], "'")
-				} else {
-					active, _ = strconv.Unquote(m[1])
-				}
-			}
+			active = codexTrustTableKey(trimmed)
 		}
 		if hash, ok := remaining[active]; ok && multiline == "" {
-			if m := codexTrustedHashRE.FindStringSubmatch(strings.TrimSuffix(line, "\n")); m != nil {
-				ending := ""
-				if strings.HasSuffix(line, "\n") {
-					ending = "\n"
-				}
-				line = m[1] + strconv.Quote(hash) + m[3] + ending
+			if replacement, replaced := replaceCodexTrustedHash(line, hash); replaced {
+				line = replacement
 				delete(remaining, active)
 			}
 		}
@@ -182,6 +171,30 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 		next = appendTOML(next, section)
 	}
 	return next
+}
+
+func codexTrustTableKey(line string) string {
+	m := codexTrustTableRE.FindStringSubmatch(line)
+	if m == nil {
+		return ""
+	}
+	if strings.HasPrefix(m[1], "'") {
+		return strings.Trim(m[1], "'")
+	}
+	key, _ := strconv.Unquote(m[1])
+	return key
+}
+
+func replaceCodexTrustedHash(line, hash string) (string, bool) {
+	m := codexTrustedHashRE.FindStringSubmatch(strings.TrimSuffix(line, "\n"))
+	if m == nil {
+		return line, false
+	}
+	ending := ""
+	if strings.HasSuffix(line, "\n") {
+		ending = "\n"
+	}
+	return m[1] + strconv.Quote(hash) + m[3] + ending, true
 }
 
 func appendTOML(raw, section string) string {

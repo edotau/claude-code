@@ -180,39 +180,9 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 	}
 	events := map[string][]json.RawMessage{}
 	for _, ev := range b.keys {
-		var groups []json.RawMessage
-		if err := json.Unmarshal(b.vals[ev], &groups); err != nil {
-			return nil, fmt.Errorf("hooks.%s: %w", ev, err)
-		}
-		for _, raw := range groups {
-			g, err := parseObject(raw)
-			if err != nil {
-				return nil, fmt.Errorf("hooks.%s: %w", ev, err)
-			}
-			var hooks, keep []json.RawMessage
-			if raw := g.vals["hooks"]; len(raw) > 0 {
-				if err := json.Unmarshal(raw, &hooks); err != nil {
-					return nil, fmt.Errorf("hooks.%s group: %w", ev, err)
-				}
-			}
-			for _, h := range hooks {
-				var cmd struct {
-					Command string `json:"command"`
-				}
-				_ = json.Unmarshal(h, &cmd)
-				if !hookspec.IsHarness(cmd.Command) {
-					keep = append(keep, h)
-				}
-			}
-			if len(keep) == 0 {
-				continue
-			}
-			sum.ForeignHooks += len(keep)
-			g.set("hooks", rawList(keep))
-			if raw, err = g.marshal(); err != nil {
-				return nil, err
-			}
-			events[ev] = append(events[ev], raw)
+		events[ev], err = foreignHookGroups(ev, b.vals[ev], sum)
+		if err != nil {
+			return nil, err
 		}
 	}
 	for _, ev := range o.keys {
@@ -241,6 +211,44 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 		}
 	}
 	return out.marshal()
+}
+
+func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.RawMessage, error) {
+	var groups, foreign []json.RawMessage
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return nil, fmt.Errorf("hooks.%s: %w", event, err)
+	}
+	for _, raw := range groups {
+		g, err := parseObject(raw)
+		if err != nil {
+			return nil, fmt.Errorf("hooks.%s: %w", event, err)
+		}
+		var hooks, keep []json.RawMessage
+		if raw := g.vals["hooks"]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &hooks); err != nil {
+				return nil, fmt.Errorf("hooks.%s group: %w", event, err)
+			}
+		}
+		for _, h := range hooks {
+			var cmd struct {
+				Command string `json:"command"`
+			}
+			_ = json.Unmarshal(h, &cmd)
+			if !hookspec.IsHarness(cmd.Command) {
+				keep = append(keep, h)
+			}
+		}
+		if len(keep) == 0 {
+			continue
+		}
+		sum.ForeignHooks += len(keep)
+		g.set("hooks", rawList(keep))
+		if raw, err = g.marshal(); err != nil {
+			return nil, err
+		}
+		foreign = append(foreign, raw)
+	}
+	return foreign, nil
 }
 
 func rawList(items []json.RawMessage) json.RawMessage {
