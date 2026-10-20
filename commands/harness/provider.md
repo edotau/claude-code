@@ -7,7 +7,7 @@ allowed-tools: "Bash(claude-code switch:*), Bash(claude-code profile:*), Bash(cl
 # /harness:provider — Switch LLM Provider
 
 Flip Claude Code between the registered providers (the vault's provider overlay, edited with
-`claude-code config edit`, overlaying `internal/providers/defaults.json` by name). The command pins
+`claude-code vault edit`, overlaying `internal/providers/defaults.json` by name). The command pins
 the session provider via `claude-code switch` (alias: `use`), which writes the vault pins.
 
 > **Relaunch to apply.** `claude-code switch <provider>` only rewrites the pin; the running

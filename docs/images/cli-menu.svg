@@ -41,51 +41,51 @@
 <text x="22.0" y="388" fill="#d7d4dc">  </text>
 <text x="38.8" y="388" fill="#8679cb" font-weight="bold">profile         </text>
 <text x="173.2" y="388" fill="#d7d4dc">providers + credential state; &lt;name&gt; shows its routes</text>
-<text x="22.0" y="426" fill="#8a7e90" font-weight="bold">SESSION</text>
-<text x="22.0" y="445" fill="#d7d4dc">  </text>
-<text x="38.8" y="445" fill="#8c78c4" font-weight="bold">clean           </text>
-<text x="173.2" y="445" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
+<text x="22.0" y="407" fill="#d7d4dc">  </text>
+<text x="38.8" y="407" fill="#8c78c4" font-weight="bold">vault           </text>
+<text x="173.2" y="407" fill="#d7d4dc">show|edit pins, env, overlays; migrate|finalize|rotate-key</text>
+<text x="22.0" y="445" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="464" fill="#d7d4dc">  </text>
-<text x="38.8" y="464" fill="#9475ba" font-weight="bold">history         </text>
-<text x="173.2" y="464" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
+<text x="38.8" y="464" fill="#9475ba" font-weight="bold">clean           </text>
+<text x="173.2" y="464" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
-<text x="38.8" y="483" fill="#9e72ad" font-weight="bold">dispatch        </text>
-<text x="173.2" y="483" fill="#d7d4dc">launch an agent on a tailnet host in tmux; --list|--attach</text>
+<text x="38.8" y="483" fill="#9e72ad" font-weight="bold">history         </text>
+<text x="173.2" y="483" fill="#d7d4dc">shadow git history of config + memory: snapshot|log|diff</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#a96fa0" font-weight="bold">worktree        </text>
-<text x="173.2" y="502" fill="#d7d4dc">~/worktrees/&lt;repo&gt;/&lt;name&gt;: list|clean|clean-all|create</text>
+<text x="38.8" y="502" fill="#a96fa0" font-weight="bold">dispatch        </text>
+<text x="173.2" y="502" fill="#d7d4dc">launch an agent on a tailnet host in tmux; --list|--attach</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
-<text x="38.8" y="521" fill="#b36c93" font-weight="bold">web             </text>
-<text x="173.2" y="521" fill="#d7d4dc">tailnet agent page and dashboard; web search = Tavily</text>
-<text x="22.0" y="559" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
-<text x="22.0" y="578" fill="#d7d4dc">  </text>
-<text x="38.8" y="578" fill="#bb6989" font-weight="bold">doctor          </text>
-<text x="173.2" y="578" fill="#d7d4dc">read-only harness health checks (--audit: typed action log)</text>
+<text x="38.8" y="521" fill="#b36c93" font-weight="bold">worktree        </text>
+<text x="173.2" y="521" fill="#d7d4dc">~/worktrees/&lt;repo&gt;/&lt;name&gt;: list|clean|clean-all|create</text>
+<text x="22.0" y="540" fill="#d7d4dc">  </text>
+<text x="38.8" y="540" fill="#bb6989" font-weight="bold">web             </text>
+<text x="173.2" y="540" fill="#d7d4dc">tailnet agent page and dashboard; web search = Tavily</text>
+<text x="22.0" y="578" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
 <text x="22.0" y="597" fill="#d7d4dc">  </text>
-<text x="38.8" y="597" fill="#c16882" font-weight="bold">generate        </text>
-<text x="173.2" y="597" fill="#d7d4dc">renders settings.json from the template (--out writes)</text>
+<text x="38.8" y="597" fill="#c16882" font-weight="bold">doctor          </text>
+<text x="173.2" y="597" fill="#d7d4dc">read-only harness health checks (--audit: typed action log)</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
-<text x="38.8" y="616" fill="#c3677f" font-weight="bold">usage           </text>
-<text x="173.2" y="616" fill="#d7d4dc">subagent token totals + peak input tokens/min (--days N)</text>
+<text x="38.8" y="616" fill="#c3677f" font-weight="bold">generate        </text>
+<text x="173.2" y="616" fill="#d7d4dc">renders settings.json from the template (--out writes)</text>
 <text x="22.0" y="635" fill="#d7d4dc">  </text>
-<text x="38.8" y="635" fill="#c56780" font-weight="bold">mcp             </text>
-<text x="173.2" y="635" fill="#d7d4dc">doctor: MCP server health, scope drift, inline secrets</text>
+<text x="38.8" y="635" fill="#c56780" font-weight="bold">usage           </text>
+<text x="173.2" y="635" fill="#d7d4dc">subagent token totals + peak input tokens/min (--days N)</text>
 <text x="22.0" y="654" fill="#d7d4dc">  </text>
-<text x="38.8" y="654" fill="#cb6883" font-weight="bold">describe        </text>
-<text x="173.2" y="654" fill="#d7d4dc">machine-readable map: verbs, providers, runners, hooks</text>
+<text x="38.8" y="654" fill="#cb6883" font-weight="bold">mcp             </text>
+<text x="173.2" y="654" fill="#d7d4dc">doctor: MCP server health, scope drift, inline secrets</text>
 <text x="22.0" y="673" fill="#d7d4dc">  </text>
-<text x="38.8" y="673" fill="#d36887" font-weight="bold">tailscale       </text>
-<text x="173.2" y="673" fill="#d7d4dc">tailnet: status | machines | connect | key | exit-node</text>
-<text x="22.0" y="711" fill="#8a7e90" font-weight="bold">SETTINGS</text>
-<text x="22.0" y="730" fill="#d7d4dc">  </text>
-<text x="38.8" y="730" fill="#dc698c" font-weight="bold">install         </text>
-<text x="173.2" y="730" fill="#d7d4dc">install Claude Code + write settings.json (onboarding)</text>
+<text x="38.8" y="673" fill="#d36887" font-weight="bold">describe        </text>
+<text x="173.2" y="673" fill="#d7d4dc">machine-readable map: verbs, providers, runners, hooks</text>
+<text x="22.0" y="692" fill="#d7d4dc">  </text>
+<text x="38.8" y="692" fill="#dc698c" font-weight="bold">tailscale       </text>
+<text x="173.2" y="692" fill="#d7d4dc">tailnet: status | machines | connect | key | exit-node</text>
+<text x="22.0" y="730" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="749" fill="#d7d4dc">  </text>
-<text x="38.8" y="749" fill="#e66990" font-weight="bold">configure       </text>
-<text x="173.2" y="749" fill="#d7d4dc">guided setup: provider, login or key, models, agents</text>
+<text x="38.8" y="749" fill="#e66990" font-weight="bold">install         </text>
+<text x="173.2" y="749" fill="#d7d4dc">install Claude Code + write settings.json (onboarding)</text>
 <text x="22.0" y="768" fill="#d7d4dc">  </text>
-<text x="38.8" y="768" fill="#ef6a95" font-weight="bold">config          </text>
-<text x="173.2" y="768" fill="#d7d4dc">show|edit the vault&#39;s pins, env, overlays; migrate</text>
+<text x="38.8" y="768" fill="#ef6a95" font-weight="bold">configure       </text>
+<text x="173.2" y="768" fill="#d7d4dc">guided setup: provider, login or key, models, agents</text>
 <text x="22.0" y="787" fill="#d7d4dc">  </text>
 <text x="38.8" y="787" fill="#f76a99" font-weight="bold">theme           </text>
 <text x="173.2" y="787" fill="#d7d4dc">pick the statusline color (--preview to list)</text>

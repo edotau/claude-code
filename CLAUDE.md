@@ -58,7 +58,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Render settings + vendor configs | `claude-code generate [--out f] [--check] [--dry-run] [--vendors]` | Non-default `CLAUDE_CONFIG_DIR`: vendors skipped unless `--vendors` (still targets live vendor homes); see hard rule 4 + `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code config show`) |
+| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault show`) |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
@@ -91,8 +91,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
-- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code config show|edit`) and
-  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `config migrate` (`README.md` → Credentials).
+- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault show|edit`) and
+  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `vault migrate` (`README.md` → Credentials).
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; a rule without `paths:`

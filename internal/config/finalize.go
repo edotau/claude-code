@@ -33,7 +33,7 @@ func Finalize(w io.Writer, discard []string) error {
 	}
 	for _, item := range m.Items {
 		if !item.Done {
-			return errors.New("migration incomplete; re-run config migrate")
+			return errors.New("migration incomplete; re-run vault migrate")
 		}
 	}
 	// Only secret checks decrypt; a pins/env/overlay-only migration never bootstrapped a key.

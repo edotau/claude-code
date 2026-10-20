@@ -270,7 +270,7 @@ func TestFinalizeLifecycleGuards(t *testing.T) {
 	if err := m.save(); err != nil {
 		t.Fatal(err)
 	}
-	requireMigrationError(t, Finalize(io.Discard, nil), "migration incomplete; re-run config migrate")
+	requireMigrationError(t, Finalize(io.Discard, nil), "migration incomplete; re-run vault migrate")
 	requireMigrationFile(t, m.Items[0].Backup, true)
 	m.Items[0].Done = true
 	if err := m.save(); err != nil {

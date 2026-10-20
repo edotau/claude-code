@@ -74,7 +74,7 @@ func checkSchema(t *Tx) error {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
 	}
 	if n < schemaVersion && len(t.Names(Secrets)) > 0 {
-		return fmt.Errorf("vault schema %d: re-run claude-code config migrate", n)
+		return fmt.Errorf("vault schema %d: re-run claude-code vault migrate", n)
 	}
 	return nil
 }

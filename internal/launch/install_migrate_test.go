@@ -91,7 +91,7 @@ func TestVaultDoctorChecks(t *testing.T) {
 		hermetic(t, "")
 		seedEnvD(t, "provider.env", "HARNESS_PROVIDER=openai\n")
 		c := findCheck(vaultDoctorChecks(), "legacy env.d")
-		if c == nil || c.OK || !strings.Contains(c.Detail, "1 file(s); run claude-code config migrate") {
+		if c == nil || c.OK || !strings.Contains(c.Detail, "1 file(s); run claude-code vault migrate") {
 			t.Errorf("legacy row = %+v", c)
 		}
 	})
@@ -105,7 +105,7 @@ func TestVaultDoctorChecks(t *testing.T) {
 			t.Fatal(err)
 		}
 		c := findCheck(vaultDoctorChecks(), "migration backups")
-		if c == nil || c.OK || !strings.Contains(c.Detail, "config finalize when verified") {
+		if c == nil || c.OK || !strings.Contains(c.Detail, "vault finalize when verified") {
 			t.Errorf("backups row = %+v", c)
 		}
 	})

@@ -202,7 +202,7 @@ func migrate(w io.Writer, dryRun bool) error {
 			return errors.Join(append(failures, err)...)
 		}
 	}
-	fmt.Fprintf(w, "renamed %d file(s) to .bak; run claude-code config finalize once verified\n", count)
+	fmt.Fprintf(w, "renamed %d file(s) to .bak; run claude-code vault finalize once verified\n", count)
 	return errors.Join(failures...)
 }
 
@@ -223,7 +223,7 @@ func parseMigration(sources []legacySource, m *Manifest) []*migrationGroup {
 			for _, old := range m.Items {
 				if old.Source == source.path {
 					g.err = errors.Join(g.err, fmt.Errorf(
-						"%s reappeared after migration; run config finalize or rollback first", source.path))
+						"%s reappeared after migration; run vault finalize or rollback first", source.path))
 				}
 			}
 			raw, err := os.ReadFile(source.path)
@@ -387,7 +387,7 @@ func migrateSecrets(g *migrationGroup, groups []*migrationGroup, m *Manifest, dr
 		value, found, err := legacyKeyringLookup(name)
 		if errors.Is(err, keyring.ErrNoAnswer) ||
 			(errors.Is(err, keyring.ErrUnavailable) && legacyKeyringAvailable()) {
-			return nil, errors.New("keyring did not answer; re-run claude-code config migrate")
+			return nil, errors.New("keyring did not answer; re-run claude-code vault migrate")
 		}
 		if err != nil && !errors.Is(err, keyring.ErrNoTool) &&
 			!(errors.Is(err, keyring.ErrUnavailable) && !legacyKeyringAvailable()) {
