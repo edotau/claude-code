@@ -294,28 +294,35 @@ func OpencodeLogins() []string {
 	return names
 }
 
-// OpencodeLogoutArgv is the non-interactive logout command: 2.x needs the credential, 1.x only the integration.
-func OpencodeLogoutArgv(id, credID string) []string {
-	if OpencodeMajor() >= 2 {
-		return []string{opencodeBin(), "auth", "logout", id, credID}
+// OpencodeLogoutArgv is the non-interactive logout command: 2.x needs the credential, 1.x only the
+// integration. An unresolved bin/opencode (missing or a broken link) is an error, never a bare "opencode"
+// PATH guess, so callers report the same "not installed / broken link" message as everywhere else.
+func OpencodeLogoutArgv(id, credID string) ([]string, error) {
+	bin, err := opencodeBin()
+	if err != nil {
+		return nil, err
 	}
-	return []string{opencodeBin(), "auth", "logout", id}
+	if OpencodeMajor() >= 2 {
+		return []string{bin, "auth", "logout", id, credID}, nil
+	}
+	return []string{bin, "auth", "logout", id}, nil
 }
 
-// OpencodeSwitchArgv makes credID the active account for id (2.x only); nil on 1.x.
-func OpencodeSwitchArgv(id, credID string) []string {
-	if OpencodeMajor() >= 2 {
-		return []string{opencodeBin(), "auth", "switch", id, credID}
+// OpencodeSwitchArgv makes credID the active account for id (2.x only); nil, nil on 1.x (no switch verb).
+func OpencodeSwitchArgv(id, credID string) ([]string, error) {
+	if OpencodeMajor() < 2 {
+		return nil, nil
 	}
-	return nil
+	bin, err := opencodeBin()
+	if err != nil {
+		return nil, err
+	}
+	return []string{bin, "auth", "switch", id, credID}, nil
 }
 
-// opencodeBin is the installed opencode path, else plain "opencode".
-func opencodeBin() string {
-	if p, err := paths.VendorBin("opencode"); err == nil {
-		return p
-	}
-	return "opencode"
+// opencodeBin is the installed opencode path; it never falls back to a bare PATH lookup.
+func opencodeBin() (string, error) {
+	return paths.VendorBin("opencode")
 }
 
 // opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), opencode 1.x's login store.

@@ -63,7 +63,10 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
 	if useAgy && !o.PrintCommand {
-		if _, lookErr := paths.VendorBin("agy"); lookErr != nil || !vendors.GeminiLoginPresent() {
+		if _, lookErr := paths.VendorBin("agy"); lookErr != nil {
+			return agent.Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
+		}
+		if !vendors.GeminiLoginPresent() {
 			return agent.Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
 		}
 	}

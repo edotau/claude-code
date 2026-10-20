@@ -191,18 +191,34 @@ func TestOpencodeLoginsSameOnBothVersions(t *testing.T) {
 
 func TestOpencodeArgvPerVersion(t *testing.T) {
 	fakeOpencode(t, "2.0.32", "[]", nil)
-	if got := OpencodeLogoutArgv("openai", "cred_2"); !reflect.DeepEqual(got, []string{"opencode", "auth", "logout", "openai", "cred_2"}) {
-		t.Errorf("2.x logout = %v", got)
+	bin := pathstest.FakeVendor(t, "opencode", "exit 0")
+	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "logout", "openai", "cred_2"}) {
+		t.Errorf("2.x logout = %v, err = %v", got, err)
 	}
-	if got := OpencodeSwitchArgv("openai", "cred_2"); !reflect.DeepEqual(got, []string{"opencode", "auth", "switch", "openai", "cred_2"}) {
-		t.Errorf("2.x switch = %v", got)
+	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "switch", "openai", "cred_2"}) {
+		t.Errorf("2.x switch = %v, err = %v", got, err)
 	}
-	fakeOpencode(t, "1.19.3", "", nil)
-	if got := OpencodeLogoutArgv("openai", "openai"); !reflect.DeepEqual(got, []string{"opencode", "auth", "logout", "openai"}) {
-		t.Errorf("1.x logout = %v", got)
+	fakeOpencode(t, "1.19.3", "", nil) // fakeOpencode resets CLAUDE_CONFIG_DIR, so bin/opencode must be re-registered
+	bin = pathstest.FakeVendor(t, "opencode", "exit 0")
+	if got, err := OpencodeLogoutArgv("openai", "openai"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "logout", "openai"}) {
+		t.Errorf("1.x logout = %v, err = %v", got, err)
 	}
-	if got := OpencodeSwitchArgv("openai", "openai"); got != nil {
-		t.Errorf("1.x switch = %v, want nil", got)
+	if got, err := OpencodeSwitchArgv("openai", "openai"); err != nil || got != nil {
+		t.Errorf("1.x switch = %v, err = %v, want nil, nil", got, err)
+	}
+}
+
+// TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup: a missing bin/opencode must surface
+// VendorBin's "not installed" error, never the bare "opencode" string this used to fall back to.
+func TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup(t *testing.T) {
+	fakeOpencode(t, "2.0.32", "[]", nil) // CLAUDE_CONFIG_DIR is fresh here: bin/opencode was never written
+	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err == nil || got != nil {
+		t.Errorf("logout = %v, err = %v, want (nil, VendorBin error)", got, err)
+	} else if strings.Contains(err.Error(), `"opencode"`) || err.Error() == "opencode" {
+		t.Errorf("err = %v, must not be the bare PATH fallback", err)
+	}
+	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err == nil || got != nil {
+		t.Errorf("switch = %v, err = %v, want (nil, VendorBin error)", got, err)
 	}
 }
 

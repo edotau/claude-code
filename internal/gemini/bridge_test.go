@@ -478,6 +478,26 @@ func TestBridgeRunNoLoginErrors(t *testing.T) {
 
 	dir := t.TempDir()
 	_, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "bin/gemini") || !strings.Contains(err.Error(), "claude-code install") {
+		t.Fatalf("err = %v, want the bin/gemini-missing error naming `claude-code install`", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %d, want 0 (no API fallback)", len(hits))
+	}
+}
+
+// TestBridgeRunNoCachedLoginErrors: bin/gemini is installed but agy has never signed in — the
+// preflight must still name that case, distinct from the missing-binary one above.
+func TestBridgeRunNoCachedLoginErrors(t *testing.T) {
+	t.Setenv("HOME", loginHome(t, false))
+	var hits []gotRequest
+	srv := newServer(&hits, 0)
+	defer srv.Close()
+	setupGeminiProviderOverride(t, srv) // sets CLAUDE_CONFIG_DIR; bin/gemini must land under that same dir
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "sentinel"))
+
+	dir := t.TempDir()
+	_, err := Run(context.Background(), Options{Cwd: dir, Task: "t"}, io.Discard, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "agy is not signed in") {
 		t.Fatalf("err = %v, want an agy-not-signed-in error", err)
 	}
