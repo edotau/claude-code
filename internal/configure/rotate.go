@@ -31,9 +31,9 @@ func probeValue(p *providers.Provider, envVar, candidate string) (status, detail
 	}
 	defer func() {
 		if had {
-			os.Setenv(envVar, prev)
+			_ = os.Setenv(envVar, prev)
 		} else {
-			os.Unsetenv(envVar)
+			_ = os.Unsetenv(envVar)
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)

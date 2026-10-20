@@ -310,14 +310,14 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 	if prev, ok := before[name]; ok {
 		d.pending[name] = prev
-		os.Setenv(name, prev.val)
+		_ = os.Setenv(name, prev.val)
 		return
 	}
 	k := d.pending[name]
 	if k.had {
-		os.Setenv(name, k.prev)
+		_ = os.Setenv(name, k.prev)
 	} else {
-		os.Unsetenv(name)
+		_ = os.Unsetenv(name)
 	}
 	delete(d.pending, name)
 }

@@ -511,7 +511,7 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	}
 	status, detail = probe(kt)
 	if status == "verified" || status == "rejected" || status == "unreachable" {
-		secrets.RecordProbe(env, status, time.Now())
+		_ = secrets.RecordProbe(env, status, time.Now()) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
