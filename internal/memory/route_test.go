@@ -47,9 +47,8 @@ func TestRoutedReposNoopBeforeCutover(t *testing.T) {
 	}
 }
 
-// TestRoutedBlocksExcludesOwnStore: a query naming both root's own repo and another returns only the
-// other's blocks.
-func TestRoutedBlocksExcludesOwnStore(t *testing.T) {
+// TestRoutedFilesExcludesOwnStore checks that naming both stores only loads the other's blocks.
+func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	migrateConfig1(t)
 	cutover(t)
 	a := gitRepo(t, t.TempDir(), "proja")
@@ -65,13 +64,23 @@ func TestRoutedBlocksExcludesOwnStore(t *testing.T) {
 	write(t, filepath.Join(da, "decisionLog.md"), "# D\n\n## 2026-01-01 — proja note\n\nbody\n")
 	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb note\n\nbody\n")
 
-	blocks := routedBlocks(a, "proja projb")
+	files := routedFiles(a, "proja projb")
+	var blocks []SearchHit
+	for i, seg := range loadSegments(files) {
+		if seg == nil {
+			continue
+		}
+		for j := 0; j < seg.docs(); j++ {
+			block, _ := seg.doc(j)
+			blocks = append(blocks, SearchHit{Bank: files[i].bank, File: filepath.Base(files[i].path), Block: block})
+		}
+	}
 	if len(blocks) == 0 {
-		t.Fatal("routedBlocks found nothing for projb")
+		t.Fatal("routedFiles loaded no blocks for projb")
 	}
 	for _, blk := range blocks {
 		if blk.Bank == "proja" {
-			t.Errorf("own store leaked into routedBlocks: %+v", blk)
+			t.Errorf("own store leaked into routedFiles: %+v", blk)
 		}
 	}
 }

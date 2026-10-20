@@ -1,13 +1,11 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/paths"
-	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textsim"
 )
 
@@ -72,161 +70,34 @@ func SearchBanks(root, query string, k int) []SearchHit {
 
 // SearchBanksTerms ranks banks using the caller's pretokenized content terms.
 func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
-	return rankTermBlocks(terms, k, append(corpusBlocks(root), routedBlocks(root, query)...))
+	files := append(corpusFiles(root), routedFiles(root, query)...)
+	return rankFiles(terms, k, files, loadSegments(files))
 }
 
 // SearchAll ranks the global tier plus every repo store as one corpus (`memory search --all`).
 func SearchAll(query string, k int) []SearchHit {
-	blocks := corpusBlocks(paths.ConfigDir())
+	files := corpusFiles(paths.ConfigDir())
 	if entries, err := RepoDirs(); err == nil {
 		for _, e := range entries {
 			if e.Key != HarnessKey {
-				blocks = append(blocks, storeBlocks(e)...)
+				files = append(files, storeFiles(e)...)
 			}
 		}
 	}
-	return rankBlocks(query, k, blocks)
-}
-
-// rankBlocks is BM25 over blocks (title line weighted); top k (0 = all).
-func rankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
-	return rankTermBlocks(contentTerms(query), k, blocks)
-}
-
-func rankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHit {
-	if len(qTerms) == 0 {
-		return nil
-	}
-	type doc struct {
-		hit SearchHit
-		tf  map[string]float64
-		len float64
-	}
-	var docs []doc
-	df := map[string]int{}
-	for _, hit := range blocks {
-		tf := map[string]float64{}
-		var dl float64
-		first, rest, _ := strings.Cut(hit.Block, "\n")
-		for _, t := range contentTerms(first) {
-			tf[t] += searchTitleWeight
-			dl += searchTitleWeight
-		}
-		for _, t := range contentTerms(rest) {
-			tf[t]++
-			dl++
-		}
-		if dl == 0 {
-			continue
-		}
-		docs = append(docs, doc{hit, tf, dl})
-		for t := range tf {
-			df[t]++
-		}
-	}
-	if len(docs) == 0 {
-		return nil
-	}
-	var avgdl float64
-	for _, d := range docs {
-		avgdl += d.len
-	}
-	n := float64(len(docs))
-	avgdl /= n
-	var hits []SearchHit
-	for _, d := range docs {
-		var score float64
-		matched := map[string]bool{}
-		for _, t := range qTerms {
-			tf := d.tf[t]
-			if tf == 0 {
-				continue
-			}
-			matched[t] = true
-			idf := math.Log((n-float64(df[t])+0.5)/(float64(df[t])+0.5) + 1)
-			score += idf * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*d.len/avgdl))
-		}
-		if score > 0 {
-			first, _, _ := strings.Cut(d.hit.Block, "\n")
-			d.hit.ID = BlockID(first)
-			d.hit.Score = score
-			d.hit.Matched = len(matched)
-			hits = append(hits, d.hit)
-		}
-	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
-	if k > 0 && len(hits) > k {
-		hits = hits[:k]
-	}
-	return hits
-}
-
-type searchSource struct {
-	bank      string
-	knowledge bool // whole-file blocks: a knowledge note is one topic, not a heading grammar
-	files     []string
-	data      map[string][]byte
-	native    bool // one-fact topic files with frontmatter, not entry-block bank files
+	return rankFiles(contentTerms(query), k, files, loadSegments(files))
 }
 
 // corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
 func corpusBlocks(root string) []SearchHit {
 	var out []SearchHit
-	for _, src := range searchSources(root) {
-		for _, path := range src.files {
-			data, loaded := src.data[path]
-			if !loaded {
-				var err error
-				data, err = os.ReadFile(path)
-				if err != nil {
-					continue
-				}
-			}
-			base := filepath.Base(path)
-			if src.knowledge {
-				out = append(out, SearchHit{Bank: src.bank, File: base, Block: strings.TrimSpace(stripFrontmatter(string(data)))})
-				continue
-			}
-			if src.native {
-				if name, desc, body, ok := topicFrontmatter(string(data)); ok {
-					out = append(out, SearchHit{Bank: src.bank, File: base, Block: name + " — " + desc + "\n" + body})
-				}
-				continue
-			}
-			_, blocks := entryBlocks(base, string(data))
-			for _, b := range blocks {
-				out = append(out, SearchHit{Bank: src.bank, File: base, Block: b})
-			}
+	for _, f := range corpusFiles(root) {
+		data, err := os.ReadFile(f.path)
+		if err != nil {
+			continue
 		}
-	}
-	return out
-}
-
-// searchSources: local (unless it IS global), global, local archive, native topics; index.md is derived, never a source.
-func searchSources(root string) []searchSource {
-	bankPaths := func(dir string) []string {
-		var fs []string
-		for _, name := range bankFiles {
-			fs = append(fs, filepath.Join(dir, name))
-		}
-		return fs
-	}
-	var out []searchSource
-	if !IsGlobal(root) {
-		out = append(out, searchSource{bank: "local", files: bankPaths(Dir(root))})
-	}
-	out = append(out, searchSource{bank: "global", files: bankPaths(GlobalDir())})
-	if archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md")); len(archived) > 0 {
-		out = append(out, searchSource{bank: "archive", files: archived})
-	}
-	for _, dir := range NativeDirs(root) {
-		if topics, data := topicContents(dir); len(topics) > 0 {
-			out = append(out, searchSource{bank: "native", files: topics, data: data, native: true})
-		}
-	}
-	if CutOver() { // tracked long-term knowledge: cross-repo top plus this repo's subdir
-		if files := knowledgeFiles(filepath.Base(Dir(root))); len(files) > 0 {
-			out = append(out, searchSource{bank: "knowledge", files: files, knowledge: true})
+		base := filepath.Base(f.path)
+		for _, block := range parseBlocks(f.mode, base, data) {
+			out = append(out, SearchHit{Bank: f.bank, File: base, Block: block})
 		}
 	}
 	return out
