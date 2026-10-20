@@ -80,16 +80,11 @@ same command, and the before/after output is the evidence. Repairing EXISTING te
 makes stale is not "writing tests" and proceeds concurrently as usual (fan out the `copilot` agent); only NEW
 tests wait for the live check.
 
-### TDD cycle — only where nothing can be run live
+### Where nothing can be run live
 
-```
-1. Write the test first        (RED)
-2. Run it — it must FAIL
-3. Write minimal implementation (GREEN)
-4. Run it — it must PASS
-5. Refactor                     (IMPROVE)
-6. Verify coverage (80%+)
-```
+Pin the contract from the spec as Given/When/Then, write the test against the code under test (it must
+import it), then prove its teeth by revert-and-restore. Verify coverage (80%+). How-to: the
+`testing-guidelines` skill.
 
 Reach for **copilot** once the live check has landed, or immediately where there is no surface to
 run. On failures: check test isolation, verify mocks, fix the implementation (not the test, unless the
@@ -113,7 +108,7 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 
 | Who | Owns |
 |-----|------|
-| Main thread | The **live check** on the real surface, before any new test — never delegated. Only where nothing can be run live does this become a RED-first test for the core contract. |
+| Main thread | The **live check** on the real surface, before any new test — never delegated. Only where nothing can be run live does this become a spec-pinned test for the core contract. |
 | Implementation agent(s) | The code change. |
 | Test agent(s) | Everything else about tests: new coverage (edge cases, table rows, regression guards) **and** the EXISTING tests the change breaks or makes stale. Sized to the change, written after the live check, run scoped to the touched packages. |
 
