@@ -13,8 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,25 +103,89 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// installOpencode runs upstream's installer (INSTALL_DIR is fixed at ~/.opencode/bin), then copies into dir.
+// opencodeMaxMajor is the highest opencode major version claude-code will link into bin/; upstream's
+// installer always fetches latest, and 2.x broke the harness opencode route (memory id:ocnodry,
+// 2026-10-20) — bump this once 2.x is verified compatible, don't just delete the check.
+const opencodeMaxMajor = 1
+
+// opencodeAllowMajorEnv, set non-empty, lifts the opencodeMaxMajor refusal for one install.
+const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
+
+var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+\.\d+`)
+
+// installOpencode runs upstream's installer (INSTALL_DIR is fixed at ~/.opencode/bin), refuses a
+// major version above opencodeMaxMajor, then copies into dir. The prior binary at src is moved
+// aside first so a refusal/failure can restore it instead of leaving the rejected 2.x in place.
 func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	if err := runInstallScript(ctx, w, dryRun, opencodeInstallScriptURL, []string{"--no-modify-path"}, nil); err != nil {
-		return err
-	}
-	if dryRun {
-		fmt.Fprintf(w, "  (dry-run: would copy ~/.opencode/bin/opencode into %s)\n", dir)
-		return nil
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	src := filepath.Join(home, ".opencode", "bin", "opencode")
+	aside := src + ".prev"
+
+	if !dryRun {
+		if _, statErr := os.Stat(src); statErr == nil {
+			if err := os.Rename(src, aside); err != nil {
+				return fmt.Errorf("opencode: aside existing binary: %w", err)
+			}
+		}
+	}
+
+	if err := runInstallScript(ctx, w, dryRun, opencodeInstallScriptURL, []string{"--no-modify-path"}, nil); err != nil {
+		return restoreOpencodeAside(src, aside, err)
+	}
+	if dryRun {
+		fmt.Fprintf(w, "  (dry-run: would copy ~/.opencode/bin/opencode into %s, refusing major > %d unless %s is set)\n",
+			dir, opencodeMaxMajor, opencodeAllowMajorEnv)
+		return nil
+	}
+	if err := refuseOpencodeMajor(ctx, w, src); err != nil {
+		return restoreOpencodeAside(src, aside, err)
+	}
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("opencode: installed but %s unreadable: %w", src, err)
+		return restoreOpencodeAside(src, aside, fmt.Errorf("opencode: installed but %s unreadable: %w", src, err))
 	}
+	defer os.Remove(aside) // src now holds an accepted version; the aside copy is no longer needed
 	return installBinary(w, dir, "opencode", data)
+}
+
+// restoreOpencodeAside undoes a refused/failed install (deletes the new binary, restores the aside one) and
+// returns cause, joined with any restore failure so a lost prior binary is never just a warning.
+func restoreOpencodeAside(src, aside string, cause error) error {
+	_ = os.Remove(src)
+	if _, err := os.Stat(aside); err != nil {
+		return cause
+	}
+	if err := os.Rename(aside, src); err != nil {
+		return errors.Join(cause, fmt.Errorf("opencode: restore previous binary %s: %w", aside, err))
+	}
+	return cause
+}
+
+// refuseOpencodeMajor blocks linking bin when its major version exceeds opencodeMaxMajor; a probe
+// failure (bin missing, --version errors) is left to the caller's own read/exec, not blocked here.
+func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
+	if os.Getenv(opencodeAllowMajorEnv) != "" {
+		return nil
+	}
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return nil
+	}
+	version := strings.TrimSpace(string(out))
+	m := opencodeVersionRe.FindStringSubmatch(version)
+	if m == nil {
+		return nil
+	}
+	major, err := strconv.Atoi(m[1])
+	if err != nil || major <= opencodeMaxMajor {
+		return nil
+	}
+	fmt.Fprintf(w, "  refuse   opencode %s (major %d > %d)\n", version, major, opencodeMaxMajor)
+	return fmt.Errorf("opencode installer fetched %s; harness supports <%d.0 (set %s=1 to accept)",
+		version, opencodeMaxMajor+1, opencodeAllowMajorEnv)
 }
 
 // ghRelease is the subset of a GitHub releases/latest response this package reads.

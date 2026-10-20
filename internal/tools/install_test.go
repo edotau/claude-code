@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -241,5 +244,178 @@ chmod 755 "$HOME/.opencode/bin/opencode"
 	}
 	if info.Mode().Perm() != 0o755 {
 		t.Errorf("copied mode = %o, want 755", info.Mode().Perm())
+	}
+}
+
+// opencodeInstallScript returns a fake install script whose installed binary reports version via --version.
+func opencodeInstallScript(version string) string {
+	return "#!/bin/sh\n" +
+		`mkdir -p "$HOME/.opencode/bin"` + "\n" +
+		`cat > "$HOME/.opencode/bin/opencode" <<'EOF'` + "\n" +
+		"#!/bin/sh\n" +
+		`if [ "$1" = "--version" ]; then printf '` + version + `\n'; else printf 'fake opencode\n'; fi` + "\n" +
+		"EOF\n" +
+		`chmod 755 "$HOME/.opencode/bin/opencode"` + "\n"
+}
+
+func installOpencodeFromFakeServer(t *testing.T, version, dir string) error {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(opencodeInstallScript(version)))
+	}))
+	defer srv.Close()
+	oldURL := opencodeInstallScriptURL
+	opencodeInstallScriptURL = srv.URL
+	defer func() { opencodeInstallScriptURL = oldURL }()
+	return installOpencode(context.Background(), &bytes.Buffer{}, dir, false)
+}
+
+// TestInstallOpencodeRefusesMajorV2 pins the guard against opencode 2.x: never a real network install.
+func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
+	setupToolsTestEnv(t)
+	dir := t.TempDir()
+	err := installOpencodeFromFakeServer(t, "2.0.0", dir)
+	if err == nil {
+		t.Fatal("installOpencode: want refusal for opencode 2.0.0, got nil error")
+	}
+	wantSubstr := fmt.Sprintf("harness supports <%d.0", opencodeMaxMajor+1)
+	if !strings.Contains(err.Error(), wantSubstr) {
+		t.Errorf("error = %q, want it to contain %q", err, wantSubstr)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "opencode")); !os.IsNotExist(statErr) {
+		t.Errorf("opencode 2.0.0 must not be linked into %s", dir)
+	}
+}
+
+// TestInstallOpencodeRefusalRestoresPriorBinary confirms a refusal restores the pre-existing
+// ~/.opencode/bin/opencode byte-for-byte, rather than leaving the rejected 2.x in place.
+func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
+	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
+	writeToolsFixture(t, priorPath, priorContent, 0o755)
+
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "2.0.0", dir); err == nil {
+		t.Fatal("installOpencode: want refusal for opencode 2.0.0, got nil error")
+	}
+	got, err := os.ReadFile(priorPath)
+	if err != nil {
+		t.Fatalf("prior opencode binary must be restored: %v", err)
+	}
+	if string(got) != priorContent {
+		t.Errorf("restored contents = %q, want byte-identical prior %q", got, priorContent)
+	}
+	if _, statErr := os.Stat(priorPath + ".prev"); !os.IsNotExist(statErr) {
+		t.Errorf("aside copy %s.prev must not remain after restore", priorPath)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "opencode")); !os.IsNotExist(statErr) {
+		t.Errorf("refused opencode 2.0.0 must not be linked into %s", dir)
+	}
+}
+
+// TestInstallOpencodeRefusalWithNoPriorLeavesNone confirms a refusal with no pre-existing binary
+// leaves none at ~/.opencode/bin/opencode (no stray 2.x, no stray aside copy).
+func TestInstallOpencodeRefusalWithNoPriorLeavesNone(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "2.0.0", dir); err == nil {
+		t.Fatal("installOpencode: want refusal for opencode 2.0.0, got nil error")
+	}
+	if _, statErr := os.Stat(priorPath); !os.IsNotExist(statErr) {
+		t.Errorf("refusal with no prior binary must leave none at %s", priorPath)
+	}
+	if _, statErr := os.Stat(priorPath + ".prev"); !os.IsNotExist(statErr) {
+		t.Errorf("aside copy %s.prev must not remain", priorPath)
+	}
+}
+
+// TestInstallOpencodeSuccessLeavesNoAsideCopy confirms a successful install cleans up the
+// aside copy it made of the prior binary, rather than leaving it behind.
+func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
+	writeToolsFixture(t, priorPath, "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n", 0o755)
+
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "1.9.0", dir); err != nil {
+		t.Fatalf("installOpencode: %v", err)
+	}
+	if _, statErr := os.Stat(priorPath + ".prev"); !os.IsNotExist(statErr) {
+		t.Errorf("successful install must not leave an aside copy at %s.prev", priorPath)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
+		t.Errorf("opencode 1.9.0 must be linked into %s: %v", dir, err)
+	}
+}
+
+// TestInstallOpencodeAllowsMajorV1 confirms the guard does not block versions at or below the pin.
+func TestInstallOpencodeAllowsMajorV1(t *testing.T) {
+	setupToolsTestEnv(t)
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "1.9.0", dir); err != nil {
+		t.Fatalf("installOpencode: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
+		t.Errorf("opencode 1.9.0 must be linked into %s: %v", dir, err)
+	}
+}
+
+// TestRestoreOpencodeAsideNoAsideReturnsCauseUnchanged confirms that with no aside copy to restore,
+// the cause error passes through unchanged (not wrapped or joined).
+func TestRestoreOpencodeAsideNoAsideReturnsCauseUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "opencode")
+	aside := src + ".prev" // never created
+	cause := errors.New("install refused")
+	got := restoreOpencodeAside(src, aside, cause)
+	if got != cause {
+		t.Errorf("restoreOpencodeAside with no aside = %v, want the cause error unchanged (%v)", got, cause)
+	}
+}
+
+// TestRestoreOpencodeAsideRenameFailureJoinsCause confirms a failed restore-rename is joined with
+// cause, not swallowed, so a lost prior binary is never just a dropped warning.
+func TestRestoreOpencodeAsideRenameFailureJoinsCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits don't block rename the same way on windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "opencode")
+	aside := src + ".prev"
+	if err := os.WriteFile(aside, []byte("prior"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // let t.TempDir() clean up afterward
+	cause := errors.New("install refused")
+	got := restoreOpencodeAside(src, aside, cause)
+	if got == nil {
+		t.Fatal("restoreOpencodeAside: want a joined error when the restore rename fails, got nil")
+	}
+	if !errors.Is(got, cause) {
+		t.Errorf("error = %v, want it to join (and preserve) the cause", got)
+	}
+	if !strings.Contains(got.Error(), "restore previous binary") {
+		t.Errorf("error = %q, want it to also name the restore-rename failure", got)
+	}
+}
+
+// TestInstallOpencodeAllowMajorEnvOverride confirms the escape hatch lifts the refusal for one install.
+func TestInstallOpencodeAllowMajorEnvOverride(t *testing.T) {
+	setupToolsTestEnv(t)
+	t.Setenv(opencodeAllowMajorEnv, "1")
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "2.0.0", dir); err != nil {
+		t.Fatalf("installOpencode with override: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
+		t.Errorf("override must still link opencode into %s: %v", dir, err)
 	}
 }
