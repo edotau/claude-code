@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestCodexAssetName(t *testing.T) {
@@ -152,6 +154,54 @@ func TestInstallClaudeScienceDryRunTouchesNoNetwork(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "dry-run") {
 		t.Errorf("output = %q, want a dry-run marker", buf.String())
+	}
+}
+
+func TestInstallCopilotFallsBackToBinDirForNonBinDir(t *testing.T) {
+	setupToolsTestEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/sh\nprintf 'PREFIX=%s\\n' \"$PREFIX\"\n"))
+	}))
+	defer srv.Close()
+	old := copilotInstallScriptURL
+	copilotInstallScriptURL = srv.URL
+	defer func() { copilotInstallScriptURL = old }()
+
+	notBin := filepath.Join(t.TempDir(), "somewhere-else")
+	var out bytes.Buffer
+	if err := installCopilot(context.Background(), &out, notBin, false); err != nil {
+		t.Fatalf("installCopilot: %v", err)
+	}
+	wantPrefix := filepath.Dir(paths.BinDir())
+	if !strings.Contains(out.String(), "PREFIX="+wantPrefix) {
+		t.Errorf("output = %q, want PREFIX=%s (BinDir fallback, not filepath.Dir(%q))", out.String(), wantPrefix, notBin)
+	}
+	if !strings.Contains(out.String(), "not a bin/ dir; installing into BinDir instead") {
+		t.Errorf("output = %q, want the fallback notice", out.String())
+	}
+}
+
+func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
+	setupToolsTestEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/sh\nprintf 'PREFIX=%s\\n' \"$PREFIX\"\n"))
+	}))
+	defer srv.Close()
+	old := copilotInstallScriptURL
+	copilotInstallScriptURL = srv.URL
+	defer func() { copilotInstallScriptURL = old }()
+
+	dir := filepath.Join(t.TempDir(), "bin")
+	var out bytes.Buffer
+	if err := installCopilot(context.Background(), &out, dir, false); err != nil {
+		t.Fatalf("installCopilot: %v", err)
+	}
+	wantPrefix := filepath.Dir(dir)
+	if !strings.Contains(out.String(), "PREFIX="+wantPrefix) {
+		t.Errorf("output = %q, want PREFIX=%s (dir's own parent)", out.String(), wantPrefix)
+	}
+	if strings.Contains(out.String(), "installing into BinDir instead") {
+		t.Errorf("output = %q, must not fall back when dir is already named bin/", out.String())
 	}
 }
 

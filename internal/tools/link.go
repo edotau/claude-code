@@ -48,15 +48,33 @@ func linkOne(w io.Writer, t Tool, bin string, dryRun bool) {
 		if npmPrefixFromBinary(c) != "" {
 			suffix = " (npm-global)"
 		}
-		fmt.Fprintf(w, "  %-8s %s → %s%s\n", "link", dst, c, suffix)
-		if !dryRun {
-			if err := replaceLink(dst, c); err != nil {
-				fmt.Fprintf(w, "  %-8s %v\n", "error", err)
-			}
+		if dryRun {
+			fmt.Fprintf(w, "  %-8s %s → %s%s\n", "link", dst, c, suffix)
+			return
+		}
+		switch kept, err := replaceLink(dst, c); {
+		case err != nil:
+			fmt.Fprintf(w, "  %-8s %v\n", "error", err)
+		case kept:
+			// dst became a regular file between the check above and the rename: keep it, not the link.
+			fmt.Fprintf(w, "  %-8s %s (installed here)\n", "keep", dst)
+		default:
+			fmt.Fprintf(w, "  %-8s %s → %s%s\n", "link", dst, c, suffix)
 		}
 	case isLink:
+		// no PATH/local-bin candidate: a symlink to a real, executable, non-shim target is the
+		// user's own working link — keep it; only a dangling or shim-pointing link is removed.
+		if _, err := paths.VendorBin(t.Name); err == nil {
+			fmt.Fprintf(w, "  %-8s %s → %s (existing link)\n", "keep", dst, readlink(dst))
+			return
+		}
 		fmt.Fprintf(w, "  %-8s %s; %s\n", "remove", dst, missing)
 		if !dryRun {
+			// re-check: dst may have become a regular file since the classification above.
+			if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
+				fmt.Fprintf(w, "  %-8s %s (installed here)\n", "keep", dst)
+				return
+			}
 			if err := os.Remove(dst); err != nil {
 				fmt.Fprintf(w, "  %-8s %v\n", "error", err)
 			}
@@ -84,19 +102,29 @@ func readlink(p string) string {
 }
 
 // replaceLink swaps dst for a symlink to target atomically via a temp link renamed over it.
-func replaceLink(dst, target string) error {
+// kept=true means dst turned into a regular file between the caller's check and this call (a
+// concurrent direct install winning the race): the temp link is discarded and dst is left alone.
+func replaceLink(dst, target string) (kept bool, err error) {
 	dir := filepath.Dir(dst)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return false, err
 	}
 	tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d.link", filepath.Base(dst), os.Getpid()))
 	_ = os.Remove(tmp)
 	if err := os.Symlink(target, tmp); err != nil {
-		return err
+		return false, err
+	}
+	switch fi, lerr := os.Lstat(dst); {
+	case lerr == nil && fi.Mode().IsRegular():
+		_ = os.Remove(tmp)
+		return true, nil
+	case lerr != nil && !os.IsNotExist(lerr):
+		_ = os.Remove(tmp)
+		return false, lerr
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		return err
+		return false, err
 	}
-	return nil
+	return false, nil
 }
