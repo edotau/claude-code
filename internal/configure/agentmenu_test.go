@@ -146,7 +146,7 @@ func TestSubmenuRowLabels(t *testing.T) {
 		"claude":   "Subscription,API key,Login,OAuth token",
 		"codex":    "Subscription,API key,Login",
 		"gemini":   "Subscription,Login",
-		"opencode": "Subscription,API key,Login",
+		"opencode": "", // state only; the page is runOpencodePage
 		"copilot":  "Subscription,API key,Login,GitHub user",
 	}
 	for name, want := range cases {

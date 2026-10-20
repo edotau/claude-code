@@ -316,19 +316,7 @@ func pinGitHubUser(d *dialog, user string) bool {
 	return true
 }
 
+// opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	loggedIn := vendors.OpencodeCopilotLoginPresent()
-	return agentMenu{loginOrKey(d, loggedIn, ""), []billingRow{
-		{"Subscription", "GitHub Copilot via opencode · plan limits " + bracket(loggedIn, "logged in", "not logged in"), modeSubscription, func() bool {
-			if loggedIn {
-				d.printf("%-10s on its GitHub Copilot login (kept)\n", "opencode")
-				return true
-			}
-			return signIn(d, "opencode", []string{"opencode", "auth", "login"})
-		}},
-		byokRow(d, "opencode"),
-		{"Login", "opencode auth login · browser sign-in, refreshes the session", "", func() bool {
-			return signIn(d, "opencode", []string{"opencode", "auth", "login"})
-		}},
-	}}
+	return agentMenu{state: loginOrKey(d, vendors.OpencodeCopilotLoginPresent(), "")}
 }

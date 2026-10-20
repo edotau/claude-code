@@ -84,10 +84,19 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 		st := build(d).state
 		n := name
 		names, cols = append(names, displayLabel(n)), append(cols, [2]string{modeLabel(d, n, st), st.check()})
-		actions = append(actions, func(d *dialog) { runAgentMenu(d, displayLabel(n), agentMenus[n](d)) })
+		actions = append(actions, func(d *dialog) {
+			if page, ok := agentPages[n]; ok {
+				page(d)
+				return
+			}
+			runAgentMenu(d, displayLabel(n), agentMenus[n](d))
+		})
 	}
 	return withChecks(names, cols), actions
 }
+
+// agentPages are the agents whose row opens a tui.List page instead of runAgentMenu (opencode first).
+var agentPages = map[string]func(*dialog){"opencode": runOpencodePage}
 
 // probeStatus live-checks p's credential (4 s cap) and returns "verified" / "rejected" / "unreachable" / "".
 func probeStatus(p *providers.Provider) string {

@@ -159,12 +159,13 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 	}
 }
 
-// A github-copilot entry in opencode's auth.json is its own leg, ahead of both the session provider
+// A github-copilot login stored by opencode is its own leg, ahead of both the session provider
 // and the generic own-login fallback above: it resolves to a real github-copilot target (no
 // ErrOwnLogin), since the harness, not opencode, now owns writing that route's config.
 func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "subscription")
@@ -296,6 +297,7 @@ func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
 func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "subscription")

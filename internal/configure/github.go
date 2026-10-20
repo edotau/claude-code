@@ -83,7 +83,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, opencodeOK bool) {
 	if opencodeOK {
 		d.printf("%-16s present (opencode auth login: github-copilot)\n", "opencode copilot")
 	} else {
-		d.printf("%-16s ABSENT: no github-copilot entry in opencode's auth.json\n", "opencode copilot")
+		d.printf("%-16s ABSENT: no github-copilot login stored by opencode\n", "opencode copilot")
 	}
 
 	printRoute(d, vendors.DescribeRoute(d.reg, "opencode"))

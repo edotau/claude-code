@@ -21,6 +21,7 @@ func scratch(t *testing.T) string {
 	// Isolated from the real machine's opencode auth.json/opencode.jsonc (ResolveTarget probes both unconditionally).
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("PATH", t.TempDir()) // no real opencode: a 2.x CLI would report its own logins instead of auth.json
 	t.Setenv("HARNESS_PROVIDER", "")
 	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
 	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")

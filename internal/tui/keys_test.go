@@ -45,7 +45,7 @@ func TestDecodeIncomplete(t *testing.T) {
 
 func TestDecodeDropsUnknown(t *testing.T) {
 	cases := [][]byte{
-		{0x01},           // unbound control byte
+		{0x1c},           // unbound control byte
 		[]byte("\x1b[Z"), // CSI final byte with no mapping
 	}
 	for _, buf := range cases {
@@ -71,7 +71,7 @@ func TestDrainMultipleKeysAndCarriesPartialTail(t *testing.T) {
 }
 
 func TestDrainDropsUnknownBytes(t *testing.T) {
-	keys, tail := drain([]byte{0x01, 0x01, 'k'})
+	keys, tail := drain([]byte{0x1c, 0x1c, 'k'})
 	if len(keys) != 1 || keys[0].Kind != KeyRune || keys[0].Rune != 'k' {
 		t.Errorf("drain = %+v, want only the trailing rune key", keys)
 	}

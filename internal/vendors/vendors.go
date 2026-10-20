@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -741,8 +740,8 @@ func agyLoginMarkers(home string) []string {
 	}
 }
 
-// opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> the "github-copilot"
-// key in its auth.json): opus slot, pin-aware. ok is false without that login or a matching registry provider.
+// opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> a "github-copilot"
+// connection in its stored logins): opus slot, pin-aware. ok is false without that login or a matching registry provider.
 func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, bool) {
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
@@ -754,8 +753,8 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "opencode's own GitHub Copilot login (opencode auth login)", true
 }
 
-// OpencodeCopilotLoginPresent reports whether opencode's own auth.json has a "github-copilot" entry,
-// the key `opencode auth login` writes for a GitHub Copilot sign-in.
+// OpencodeCopilotLoginPresent reports whether opencode's stored logins (OpencodeAuth: 1.x auth.json or the
+// 2.x CLI) include "github-copilot", the integration `opencode auth login` stores for a GitHub Copilot sign-in.
 func OpencodeCopilotLoginPresent() bool {
 	return slices.Contains(OpencodeLogins(), "github-copilot")
 }
@@ -763,7 +762,7 @@ func OpencodeCopilotLoginPresent() bool {
 // opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
 func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error) {
 	if !OpencodeCopilotLoginPresent() {
-		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's own auth.json; run `opencode auth login` and choose GitHub Copilot")
+		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's stored logins; run `opencode auth login` and choose GitHub Copilot")
 	}
 	if h == nil {
 		return nil, nil, ErrOwnLogin
@@ -817,32 +816,4 @@ func OpenCodePermissionMCP() (permission map[string]any, mcp map[string]any, mcp
 	cwd, _ := os.Getwd()
 	imp := readClaudeImport(cwd)
 	return permissionBlock(imp.allow, imp.deny, imp.ask), mcpBlock(imp.mcp), imp.skippedMCP
-}
-
-// OpencodeLogins lists the providers opencode's own `auth login` stored (auth.json under its data dir), sorted.
-func OpencodeLogins() []string {
-	data, err := os.ReadFile(opencodeAuthFile())
-	if err != nil {
-		return nil
-	}
-	var m map[string]json.RawMessage
-	if json.Unmarshal(data, &m) != nil {
-		return nil
-	}
-	names := make([]string, 0, len(m))
-	for k := range m {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), where `opencode auth login` writes.
-func opencodeAuthFile() string {
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "opencode", "auth.json")
 }
