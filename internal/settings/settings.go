@@ -6,6 +6,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -259,7 +260,7 @@ func rawList(items []json.RawMessage) json.RawMessage {
 	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
 }
 
-// WriteWithBackup copies an existing file to <path>.bak-<timestamp>, then writes data atomically.
+// WriteWithBackup copies to <path>.bak-<timestamp> (numbered on collision), then writes data atomically.
 func WriteWithBackup(path string, data []byte) (backup string, err error) {
 	mode := os.FileMode(0o644)
 	old, rerr := os.ReadFile(path)
@@ -268,14 +269,36 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
-		backup = path + ".bak-" + time.Now().Format("20060102-150405.000000000")
-		if err := os.WriteFile(backup, old, 0o600); err != nil {
-			return "", fmt.Errorf("backup %s: %w", backup, err)
+		base := path + ".bak-" + time.Now().Format("20060102-150405.000000000")
+		backup, err = writeBackup(base, old)
+		if err != nil {
+			return "", fmt.Errorf("backup %s: %w", base, err)
 		}
 	case !os.IsNotExist(rerr):
 		return "", fmt.Errorf("read %s: %w", path, rerr)
 	}
 	return backup, paths.AtomicWrite(path, data, mode)
+}
+
+func writeBackup(base string, data []byte) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Close()); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
 }
 
 func orEmpty(raw json.RawMessage) json.RawMessage {
