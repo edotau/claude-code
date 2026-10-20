@@ -42,7 +42,7 @@ var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
 
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = lazyCompile(
-	`(^|[\s;&|({/\x60])(env|printenv)\s*>\s*/tmp/`,
+	`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`,
 	`(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc).*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
 	`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`,
 	`(scp|rsync)\s+.*\.ssh/id_`,
