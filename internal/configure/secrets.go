@@ -23,9 +23,10 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // trackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
 type trackedSecret struct {
-	name   string
-	source string // keyring|file|env|"" (missing)
-	users  string // providers that read it, or a short role
+	name     string
+	source   string // keyring|file|env|"" (missing)
+	shadowed string // keyring|file|"" — a managed plane an env var is shadowing
+	users    string // providers that read it, or a short role
 }
 
 // trackedSecrets is what the harness reads (each enabled provider's auth.env, the setup-token) plus every secret
@@ -39,30 +40,51 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 			users[env] = append(users[env], n)
 		}
 	}
-	custom := secrets.Names()
-	for env := range secrets.ReadAll() {
-		custom = append(custom, env)
+	meta, metaErr := secrets.LoadMeta()
+	file := secrets.ReadAll()
+	if metaErr != nil {
+		// meta unreadable: Names() falls back to the retired index so custom names aren't dropped.
+		for _, env := range secrets.Names() {
+			if _, ok := users[env]; !ok {
+				users[env] = []string{"custom"}
+			}
+		}
+	} else {
+		for env := range meta {
+			if _, ok := users[env]; !ok {
+				users[env] = []string{"custom"}
+			}
+		}
 	}
-	for _, env := range custom {
+	for env := range file {
 		if _, ok := users[env]; !ok {
 			users[env] = []string{"custom"}
 		}
 	}
 	out := make([]trackedSecret, 0, len(users))
 	for name, u := range users {
-		_, src, _ := secrets.Get(name)
-		out = append(out, trackedSecret{name: name, source: src, users: strings.Join(u, ", ")})
+		var src, shadowed string
+		if metaErr == nil {
+			src, shadowed = secrets.Locate(name, meta, file)
+		} else {
+			_, src, shadowed, _ = secrets.Effective(name)
+		}
+		out = append(out, trackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
 }
 
-// sourceLabel is the status token a row shows; "file" is called out as plaintext since that is the point.
-func sourceLabel(src string) string {
-	switch src {
-	case "":
+// sourceLabel is the status token a row shows; "file" is called out as plaintext since that is the
+// point, and an env var shadowing a managed plane says so (the dialog would otherwise show
+// "keyring"/"file" while a launch actually reads the env var).
+func sourceLabel(src, shadowed string) string {
+	switch {
+	case src == "":
 		return "missing"
-	case "file":
+	case shadowed != "":
+		return "env over " + shadowed
+	case src == "file":
 		return "file:plaintext"
 	}
 	return src
@@ -97,7 +119,7 @@ func secretsLoop(d *dialog, forceFile bool) int {
 		list := trackedSecrets(reg)
 		rows := make([][2]string, 0, len(list)+2)
 		for _, s := range list {
-			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-15s %s", sourceLabel(s.source), s.users)})
+			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-16s %s", sourceLabel(s.source, s.shadowed), s.users)})
 		}
 		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
 		title := "secrets — pick one to set (stores in " + store + ")"
@@ -145,7 +167,7 @@ func editSecret(d *dialog, s trackedSecret, forceFile bool) {
 		run        func() bool
 	}
 	var acts []action
-	if s.source == "file" && !forceFile && keyring.Available() {
+	if (s.source == "file" || s.shadowed == "file") && !forceFile && keyring.Available() {
 		acts = append(acts, action{"Move to keyring", "drops the plaintext line", func() bool {
 			v, _, _ := secrets.Get(s.name)
 			return storeValue(d, s.name, v, false)
@@ -175,7 +197,7 @@ func editSecret(d *dialog, s trackedSecret, forceFile bool) {
 	for _, a := range acts {
 		rows = append(rows, [2]string{a.name, a.desc})
 	}
-	idx, err := pick(d, s.name+" ("+sourceLabel(s.source)+")", rows)
+	idx, err := pick(d, s.name+" ("+sourceLabel(s.source, s.shadowed)+")", rows)
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}

@@ -145,6 +145,22 @@ func StoredSecret(name string) string {
 	return strings.TrimSpace(ReadEnvFile(SecretsFile())[name])
 }
 
+// EffectiveSecret is the order a launch actually uses: process env, then the OS keyring, then
+// env.d/secrets.env. source names which plane answered ("env"|"keyring"|"file"), "" when none do.
+// secrets.ladder labels the same order — keep them in step.
+func EffectiveSecret(name string) (value, source string) {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v, "env"
+	}
+	if v, ok := keyringGet(name); ok {
+		return v, "keyring"
+	}
+	if v := strings.TrimSpace(ReadEnvFile(SecretsFile())[name]); v != "" {
+		return v, "file"
+	}
+	return "", ""
+}
+
 // pinCaller names who wrote a pin — the verb and the parent process — so an unexpected switch can be traced.
 func pinCaller() string {
 	verb := ""

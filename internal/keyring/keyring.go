@@ -27,6 +27,9 @@ var timeout = 3 * time.Second
 // names (`secrets status`) pays the timeout once, not once per name.
 var down bool
 
+// ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
+var ErrNoAnswer = errors.New("keyring: did not answer")
+
 // Tool returns the plane's binary name for this OS, or "" where none is wired up.
 func Tool() string {
 	switch runtime.GOOS {
@@ -49,11 +52,14 @@ func Available() bool {
 	return err == nil
 }
 
-// Get looks up name in the OS keyring. A miss, an absent/unreachable tool, or an
-// unsupported OS all read as (false), never an error — the caller's job is to fall through.
-func Get(name string) (string, bool) {
-	if name == "" || down || !Available() {
-		return "", false
+// Lookup looks up name in the OS keyring. err is ErrNoAnswer when the tool timed out or the
+// `down` latch is already set; a plain miss, unsupported OS, or no tool all read as ("", false, nil).
+func Lookup(name string) (value string, found bool, err error) {
+	if name == "" || !Available() {
+		return "", false, nil
+	}
+	if down {
+		return "", false, ErrNoAnswer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -65,16 +71,22 @@ func Get(name string) (string, bool) {
 		cmd = exec.CommandContext(ctx, "security", "find-generic-password", "-a", name, "-s", service, "-w")
 	}
 	cmd.WaitDelay = 250 * time.Millisecond
-	out, err := cmd.Output()
+	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
 		down = true
-		return "", false
+		return "", false, ErrNoAnswer
 	}
-	if err != nil {
-		return "", false // plain miss (account not stored)
+	if err2 != nil {
+		return "", false, nil // plain miss (account not stored)
 	}
 	v := strings.TrimSpace(string(out))
-	return v, v != ""
+	return v, v != "", nil
+}
+
+// Get is Lookup's "found?" shape, the API most callers want: ErrNoAnswer reads as a miss too.
+func Get(name string) (string, bool) {
+	v, found, _ := Lookup(name)
+	return v, found
 }
 
 // Set stores value under name, overwriting any existing entry. The value always goes on stdin, never
