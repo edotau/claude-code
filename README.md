@@ -384,9 +384,10 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`, r
 | `pre-compact` | PreCompact | Harvests transcript edits not covered by an earlier dispatch before compaction |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create under `~/worktrees/<repo>/<name>`; removal refuses dirty trees |
 
-`bash-guard` checks safety before any rtk rewrite. Heredoc bodies are checked like the rest of the command
-text, so a body that only mentions a destructive command blocks too. rtk's machine-readable bypass matches
-flag tokens rather than substrings in command text.
+`bash-guard` checks safety before any rtk rewrite; the rewrite is Claude Code-only (Codex and Copilot get the
+safety check alone). Heredoc bodies are checked like the rest of the command text, so a body that only mentions
+a destructive command blocks too. rtk's machine-readable bypass matches flag tokens rather than substrings in
+command text.
 
 To add one: implement it in `internal/hooks/`, add a `Spec` to `hookspec.Registry`, `make install`.
 
