@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -11,11 +10,8 @@ import (
 // KeyringRef marks a custom env value held in the OS keyring under the variable's own name.
 const KeyringRef = "@keyring"
 
-// CustomEnvFile holds user env vars injected into every launch: KEY=value, or KEY=@keyring for a keyring value.
-func CustomEnvFile() string { return filepath.Join(paths.EnvDir(), "custom.env") }
-
 // CustomEnv is the raw custom.env table (values unresolved).
-func CustomEnv() map[string]string { return ReadEnvFile(CustomEnvFile()) }
+func CustomEnv() map[string]string { return ReadEnvFile(paths.CustomEnvFile()) }
 
 // ResolveCustomEnv resolves @keyring refs through get; a ref get cannot resolve is listed in missing, not set.
 func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, missing []string) {
@@ -37,7 +33,7 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 
 // SetCustomEnv writes (raw != "") or deletes (raw == "") name in custom.env under its lock.
 func SetCustomEnv(name, raw string) error {
-	file := CustomEnvFile()
+	file := paths.CustomEnvFile()
 	return paths.WithFileLock(file, func() error {
 		cur := ReadEnvFile(file)
 		if raw == "" {

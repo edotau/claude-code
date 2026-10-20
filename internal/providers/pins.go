@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"github.com/edotau/claude-code/internal/proc"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -24,12 +23,6 @@ const (
 
 // SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.
 func SlotPin(slot string) string { return "HARNESS_" + strings.ToUpper(slot) + "_MODEL" }
-
-// PinFile is where `claude-code use` / `models --pin` persist choices.
-func PinFile() string { return filepath.Join(paths.EnvDir(), "provider.env") }
-
-// SecretsFile holds KEY=VALUE credentials (0600, gitignored) consulted after the process env.
-func SecretsFile() string { return filepath.Join(paths.EnvDir(), "secrets.env") }
 
 // ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty.
 func ReadEnvFile(path string) map[string]string {
@@ -72,7 +65,7 @@ func pinLookup() func(string) string {
 			return v
 		}
 		if pins == nil {
-			pins = ReadEnvFile(PinFile())
+			pins = ReadEnvFile(paths.PinFile())
 		}
 		return pins[key]
 	}
@@ -80,7 +73,7 @@ func pinLookup() func(string) string {
 
 // SetPins writes (value != "") or clears (value == "") keys in the pin file under its lock.
 func SetPins(kv map[string]string) error {
-	file := PinFile()
+	file := paths.PinFile()
 	return paths.WithFileLock(file, func() error {
 		cur := ReadEnvFile(file)
 		for k, v := range kv {
@@ -117,7 +110,7 @@ func SetPins(kv map[string]string) error {
 
 // PinDiff previews SetPins(kv): one "KEY: old → new" line per key whose value would change, sorted.
 func PinDiff(kv map[string]string) []string {
-	cur := ReadEnvFile(PinFile())
+	cur := ReadEnvFile(paths.PinFile())
 	keys := make([]string, 0, len(kv))
 	for k := range kv {
 		keys = append(keys, k)
@@ -153,7 +146,7 @@ func StoredSecret(name string) string {
 	if v, ok := keyringGet(name); ok {
 		return v
 	}
-	return strings.TrimSpace(ReadEnvFile(SecretsFile())[name])
+	return strings.TrimSpace(ReadEnvFile(paths.SecretsFile())[name])
 }
 
 // EffectiveSecret is the order a launch actually uses: process env, then the OS keyring, then
@@ -166,7 +159,7 @@ func EffectiveSecret(name string) (value, source string) {
 	if v, ok := keyringGet(name); ok {
 		return v, "keyring"
 	}
-	if v := strings.TrimSpace(ReadEnvFile(SecretsFile())[name]); v != "" {
+	if v := strings.TrimSpace(ReadEnvFile(paths.SecretsFile())[name]); v != "" {
 		return v, "file"
 	}
 	return "", ""

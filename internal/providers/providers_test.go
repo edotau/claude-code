@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 const overlay = `{
@@ -194,8 +196,8 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if CredentialPresent(gw) {
 		t.Fatal("no credential expected yet")
 	}
-	os.MkdirAll(filepath.Dir(SecretsFile()), 0o700)
-	os.WriteFile(SecretsFile(), []byte("export GW_KEY='from-file'\n"), 0o600)
+	os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700)
+	os.WriteFile(paths.SecretsFile(), []byte("export GW_KEY='from-file'\n"), 0o600)
 	h := http.Header{"Authorization": {"Bearer client"}}
 	if err := Authorize(context.Background(), gw, h); err != nil {
 		t.Fatal(err)
@@ -238,9 +240,9 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	if err := SetPins(map[string]string{PinProvider: "gemini"}); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(PinFile())
+	before, _ := os.ReadFile(paths.PinFile())
 	got := PinDiff(map[string]string{PinProvider: "gemini", SlotPin("opus"): "x"})
-	after, _ := os.ReadFile(PinFile())
+	after, _ := os.ReadFile(paths.PinFile())
 	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || string(before) != string(after) {
 		t.Fatalf("PinDiff = %q (file changed: %v)", got, string(before) != string(after))
 	}
@@ -250,8 +252,8 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 // keyring misses; Credential must prefer the process env over both.
 func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	os.MkdirAll(filepath.Dir(SecretsFile()), 0o700)
-	os.WriteFile(SecretsFile(), []byte("export K='from-file'\n"), 0o600)
+	os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700)
+	os.WriteFile(paths.SecretsFile(), []byte("export K='from-file'\n"), 0o600)
 
 	stubKeyring(t, nil) // keyring misses -> file plane wins
 	if got := StoredSecret("K"); got != "from-file" {

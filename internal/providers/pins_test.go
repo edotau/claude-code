@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func selectTestRegistry(t *testing.T) *Registry {
@@ -28,10 +29,10 @@ func slotPinKeys() []string {
 
 func writeProviderPins(t *testing.T, pins map[string]string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(PinFile()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(paths.PinFile()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.Create(PinFile())
+	file, err := os.Create(paths.PinFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,10 +50,10 @@ func writeProviderPins(t *testing.T, pins map[string]string) {
 // writeSecretsFile plants name=value in the file plane for EffectiveSecret's lowest rung.
 func writeSecretsFile(t *testing.T, name, value string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(SecretsFile()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(SecretsFile(), []byte(name+"="+value+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.SecretsFile(), []byte(name+"="+value+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

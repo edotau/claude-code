@@ -43,7 +43,7 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	meta, metaErr := secrets.LoadMeta()
 	file := secrets.ReadAll()
 	if metaErr != nil {
-		// meta unreadable: Names() falls back to the retired index so custom names aren't dropped.
+		// meta unreadable: Names() falls back to file-plane names so custom names aren't dropped.
 		for _, env := range secrets.Names() {
 			if _, ok := users[env]; !ok {
 				users[env] = []string{"custom"}

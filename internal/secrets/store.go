@@ -14,7 +14,7 @@ import (
 )
 
 // EnvFile is the managed KEY=value store (env.d/secrets.env): 0600, gitignored.
-func EnvFile() string { return providers.SecretsFile() }
+func EnvFile() string { return paths.SecretsFile() }
 
 // ReadAll returns every KEY=value pair currently in the file plane; a missing file is empty.
 func ReadAll() map[string]string { return providers.ReadEnvFile(EnvFile()) }
