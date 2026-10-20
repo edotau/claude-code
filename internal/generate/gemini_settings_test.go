@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func geminiSettingsPath(home string) string {
@@ -80,13 +83,8 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 // ask-rules never render for agy, only deny does.
 func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 	home := scratch(t)
-	// vendors.json overlay lives at CLAUDE_CONFIG_DIR/env.d/vendors.json; scratch() already set
-	// CLAUDE_CONFIG_DIR, so resolve the overlay path the same way vendorconfig does.
-	overlayDir := mkEnvD(t, os.Getenv("CLAUDE_CONFIG_DIR"))
 	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"],"ask":["Bash(git reset --hard:*)"]}}`
-	if err := os.WriteFile(filepath.Join(overlayDir, "vendors.json"), []byte(overlay), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "vendors", overlay)
 
 	var out bytes.Buffer
 	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {

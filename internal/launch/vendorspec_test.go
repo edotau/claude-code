@@ -6,22 +6,15 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
 )
-
-// writeVendorsOverlay drops body at env.d/vendors.json, the overlay the vendorconfig package reads.
-func writeVendorsOverlay(t *testing.T, envd, body string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(envd, "vendors.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 // plainPlan must apply the vendor spec (env + prepended args) on every own-login/passthrough launch.
 func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	envd := mkEnvD(t, cfg)
 	fake := filepath.Join(t.TempDir(), "opencode")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -40,7 +33,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 		t.Fatal("opencode vendor spec not found")
 	}
 
-	writeVendorsOverlay(t, envd, `{"vendors":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
+	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
 	plan, err := plainPlan(spec, []string{"user", "arg"})
 	if err != nil {
 		t.Fatal(err)
@@ -54,9 +47,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	}
 
 	// No overlay: the built-in default still applies.
-	if err := os.Remove(filepath.Join(envd, "vendors.json")); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "vendors", "")
 	plan, err = plainPlan(spec, []string{"user"})
 	if err != nil {
 		t.Fatal(err)

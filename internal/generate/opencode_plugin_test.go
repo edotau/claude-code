@@ -6,13 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// writeOpencodePluginsOverlay appends "opencodePlugins" to the scratch() providers.json overlay
-// (configDir is CLAUDE_CONFIG_DIR, already pointed there by scratch).
+// writeOpencodePluginsOverlay adds "opencodePlugins" to scratch's vault overlay/providers document.
 func writeOpencodePluginsOverlay(t *testing.T, plugins []string) {
 	t.Helper()
-	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	overlay := map[string]any{"default": "openai"}
 	if plugins != nil {
 		overlay["opencodePlugins"] = plugins
@@ -21,9 +22,7 @@ func writeOpencodePluginsOverlay(t *testing.T, plugins []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, configDir), "providers.json"), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", string(body))
 }
 
 // Non-empty reg.OpencodePlugins renders the "plugin" key and claims it in x-claude-code-managed.

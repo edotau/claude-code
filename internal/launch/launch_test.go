@@ -2,7 +2,6 @@ package launch
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // headless is the only launch that carries the setup-token: -p and --print, in any position.
@@ -30,7 +31,7 @@ func TestHeadless(t *testing.T) {
 	}
 }
 
-// hermetic isolates config, pins and seams; userProviders is an optional providers.json overlay.
+// hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,9 +41,7 @@ func hermetic(t *testing.T, userProviders string) {
 		t.Setenv(k, "")
 	}
 	if userProviders != "" {
-		if err := os.WriteFile(filepath.Join(mkEnvD(t, dir), "providers.json"), []byte(userProviders), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
 	}
 	userBin := filepath.Join(dir, "localbin")
 	oldUserBin := userBinDir

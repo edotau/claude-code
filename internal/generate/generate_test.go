@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestMoveBackupPreservesCollision(t *testing.T) {
@@ -62,9 +65,7 @@ func scratch(t *testing.T) string {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	overlay := `{"default": "openai"}`
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, configDir), "providers.json"), []byte(overlay), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -373,10 +374,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 
 func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	home := scratch(t)
-	overlay := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "env.d", "providers.json")
-	if err := os.WriteFile(overlay, []byte(`{"default": "chatgpt"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "chatgpt"}`)
 	codexHome := os.Getenv("CODEX_HOME")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
 		t.Fatal(err)
