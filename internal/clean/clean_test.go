@@ -10,6 +10,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // write creates path with contents, making parent dirs as needed.
@@ -27,9 +29,13 @@ func write(t *testing.T, path, contents string) {
 // and returns the isolated config dir.
 func seedDebris(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	dir := vaulttest.Use(t)
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
+	vaulttest.Secret(t, "API_KEY", "test-value")
 	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := os.Chtimes(vault.Path(), old, old); err != nil {
+		t.Fatal(err)
+	}
 	for _, rel := range []string{
 		"state/harness/memory/harvest-20260101-000000.log",
 		"state/harness/memory/stamp-sess-aaa",
@@ -75,7 +81,7 @@ func seedDebris(t *testing.T) string {
 		"docs/memory/bank/activeContext.md", "docs/memory/bank/decisionLog.md",
 		"docs/memory/bank/archive/sessionHistory-2025-01.md",
 		"docs/memory/bank/archive/native/some-project/topic.md",
-		"env.d/provider.env", "settings.json", "providers.json", ".credentials.json",
+		"state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
 		"state/harness/router.json", "state/harness/router.secret",
 	} {
 		p := filepath.Join(dir, rel)
@@ -134,7 +140,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		"docs/memory/bank/activeContext.md", "docs/memory/bank/decisionLog.md",
 		"docs/memory/bank/archive/sessionHistory-2025-01.md",
 		"docs/memory/bank/archive/native/some-project/topic.md",
-		"env.d/provider.env", "settings.json", "providers.json", ".credentials.json",
+		"state/vault.db", "state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
 		"state/harness/router.json", "state/harness/router.secret",
 	} {
 		if !exists(t, filepath.Join(dir, keep)) {
@@ -252,6 +258,17 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	envDir := filepath.Join(paths.ConfigDir(), "env.d")
 	store := memory.StoreDir()
 	for _, tg := range targets() {
+		for _, pattern := range tg.globs() {
+			for _, path := range []string{vault.Path(), vault.Path() + ".key"} {
+				matched, err := filepath.Match(pattern, path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if matched {
+					t.Errorf("target %q matches protected vault path %q", tg.name, path)
+				}
+			}
+		}
 		for _, root := range tg.roots() {
 			if strings.HasPrefix(root, bank) {
 				t.Errorf("target %q resolves under the memory bank %q", tg.name, root)
@@ -264,6 +281,56 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 				t.Errorf("target %q resolves under the memory store %q", tg.name, root)
 			}
 		}
+	}
+}
+
+func TestPruneAgedNeverSweepsVault(t *testing.T) {
+	for _, apply := range []bool{false, true} {
+		t.Run(map[bool]string{false: "preview", true: "apply"}[apply], func(t *testing.T) {
+			dir := vaulttest.Use(t)
+			vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
+			keep := []string{vault.Path(), vault.Path() + ".key", vault.Path() + ".backup"}
+			old := time.Now().Add(-400 * 24 * time.Hour)
+			for _, path := range keep {
+				if path != vault.Path() {
+					write(t, path, "keep")
+				}
+				if err := os.Chtimes(path, old, old); err != nil {
+					t.Fatal(err)
+				}
+				if !protected(path) {
+					t.Errorf("protected(%s) = false", path)
+				}
+			}
+			debris := filepath.Join(dir, "state", "vault.db-old")
+			write(t, debris, "debris")
+			if err := os.Chtimes(debris, old, old); err != nil {
+				t.Fatal(err)
+			}
+			if protected(debris) {
+				t.Fatal("prefix-sharing sibling must remain sweepable")
+			}
+			hits, size := pruneAged([]string{filepath.Join(dir, "state", "vault.db*")}, time.Now(), apply)
+			if len(hits) != 1 || hits[0] != debris || size != int64(len("debris")) {
+				t.Errorf("pruneAged = %v, %d bytes; want only debris", hits, size)
+			}
+			for _, path := range keep {
+				if !exists(t, path) {
+					t.Errorf("protected path was deleted: %s", path)
+				}
+			}
+			if exists(t, debris) == apply {
+				t.Errorf("debris existence does not match apply=%v", apply)
+			}
+			if err := vault.View(func(tx *vault.Tx) error {
+				if pin, _ := tx.Get(vault.Pins, "HARNESS_OPUS_MODEL"); pin != "a" {
+					t.Errorf("vault pin changed after prune: %q", pin)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

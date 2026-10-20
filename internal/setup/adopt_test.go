@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func fixtureRepo(t *testing.T) string {
@@ -22,11 +25,11 @@ func fixtureRepo(t *testing.T) string {
 
 func fixtureTarget(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := vaulttest.Use(t)
 	mustWrite(t, filepath.Join(dir, "CLAUDE.md"), "user claude\n")
 	mustWrite(t, filepath.Join(dir, "agents", "a.md"), "agent a\n")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
-	mustWrite(t, filepath.Join(dir, "env.d", "secrets.env"), "API_KEY=sk-super-secret\n")
+	vaulttest.Secret(t, "API_KEY", "test-value")
 	mustWrite(t, filepath.Join(dir, "projects", "p1", "transcript.jsonl"), "{}\n")
 	mustWrite(t, filepath.Join(dir, "sessions", "s1.json"), "{}\n")
 	return dir
@@ -106,6 +109,10 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 	repo := fixtureRepo(t)
 	dir := fixtureTarget(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	vaultBefore, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	if err := Adopt(AdoptOpts{From: repo, Into: dir, Label: "adopt", Out: &out}); err != nil {
@@ -139,6 +146,13 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "sessions", "s1.json")); err != nil {
 		t.Fatal("sessions/ runtime state should survive adopt")
 	}
+	vaultAfter, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(vaultBefore, vaultAfter) {
+		t.Fatal("adopt must leave the vault unchanged")
+	}
 
 	st, ok := Read()
 	if !ok {
@@ -158,8 +172,8 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 		}
 	}
 	for _, secretish := range entries {
-		if secretish == "env.d/secrets.env" {
-			t.Fatal("secrets.env must never be backed up")
+		if secretish == "state/vault.db" || secretish == "env.d/secrets.env" {
+			t.Fatal("vault and legacy secrets must never be backed up as clashes")
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -11,20 +12,24 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func fixtureNukeDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir, _ := vaulttest.UseKeyring(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", dir) // the keep-memory bank lock lives under ConfigDir: keep it off the real ~/.claude
 	gitInit(t, dir, map[string]string{
 		"CLAUDE.md":   "harness\n",
 		"agents/a.md": "agent\n",
 	})
 	mustWrite(t, filepath.Join(dir, "settings.local.json"), `{"local":true}`)
-	mustWrite(t, filepath.Join(dir, "env.d", "providers.json"), `{"providers":{}}`)
-	mustWrite(t, filepath.Join(dir, "env.d", "provider.env"), "HARNESS_PROVIDER=foo\n")
-	mustWrite(t, filepath.Join(dir, "env.d", "secrets.env"), "API_KEY=sk-super-secret\n")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{}}`)
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
+	vaulttest.Secret(t, "Z_API_KEY", "other-test-value")
+	vaulttest.Secret(t, "API_KEY", "sk-super-secret")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
 	mustWrite(t, filepath.Join(dir, "docs", "memory", "bank", "repo", "progress.md"), "bank\n")
 	return dir
@@ -61,14 +66,36 @@ func tarEntries(t *testing.T, path string) map[string][]byte {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, _ := io.ReadAll(tr)
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
 		out[hdr.Name] = data
 	}
 	return out
 }
 
+func nukeVaultMeta(t *testing.T, path string) (id, kid string) {
+	t.Helper()
+	if err := vault.ViewAt(path, func(tx *vault.Tx) error {
+		id, _ = tx.Get(vault.Meta, "vault_id")
+		kid, _ = tx.Get(vault.Meta, "kid")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if id == "" || kid == "" {
+		t.Fatal("seeded vault must have vault_id and kid")
+	}
+	return id, kid
+}
+
 func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	dir := fixtureNukeDir(t)
+	id, kid := nukeVaultMeta(t, vault.Path())
+	_, keyring := vaulttest.UseKeyring(t)
+	keyring.Down = true
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-test-key")
 	plan, err := Plan(dir, false)
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +103,14 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	if !plan.HasSecrets {
 		t.Fatal("expected secrets present")
 	}
-	if len(plan.SecretNames) != 1 || plan.SecretNames[0] != "API_KEY" {
+	if !slices.Equal(plan.SecretNames, []string{"API_KEY", "Z_API_KEY"}) {
 		t.Fatalf("secret names = %v", plan.SecretNames)
+	}
+	if plan.VaultID != id || plan.Kid != kid {
+		t.Fatalf("plan vault identity = %q/%q, want %q/%q", plan.VaultID, plan.Kid, id, kid)
+	}
+	if !slices.Contains(plan.UserContent, "state/vault.db") {
+		t.Fatalf("plan must archive the vault: %v", plan.UserContent)
 	}
 	byName := map[string]Entry{}
 	for _, e := range plan.Entries {
@@ -92,11 +125,41 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 
 	var out bytes.Buffer
 	printPlan(&out, plan)
-	if strings.Contains(out.String(), "sk-super-secret") {
+	if strings.Contains(out.String(), "sk-super-secret") || strings.Contains(out.String(), "other-test-value") {
 		t.Fatal("plan output must never contain the secret value")
 	}
-	if !strings.Contains(out.String(), "API_KEY") {
+	if !strings.Contains(out.String(), "API_KEY") || !strings.Contains(out.String(), "Z_API_KEY") {
 		t.Fatal("plan output should list the secret name")
+	}
+}
+
+func TestNukePlanWithoutSecrets(t *testing.T) {
+	for _, withVault := range []bool{false, true} {
+		t.Run(map[bool]string{false: "missing vault", true: "pins only"}[withVault], func(t *testing.T) {
+			dir := vaulttest.Use(t)
+			if withVault {
+				vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
+			}
+			plan, err := Plan(dir, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.HasSecrets || len(plan.SecretNames) != 0 {
+				t.Fatalf("plan reports unseeded secrets: %+v", plan)
+			}
+			if slices.Contains(plan.UserContent, "state/vault.db") != withVault {
+				t.Fatalf("vault archive presence does not match fixture: %v", plan.UserContent)
+			}
+		})
+	}
+}
+
+func TestNukePlanReturnsVaultError(t *testing.T) {
+	dir := vaulttest.Use(t)
+	vaulttest.Put(t, vault.Meta, "schema", "999")
+	_, err := Plan(dir, false)
+	if err == nil || !strings.Contains(err.Error(), "schema 999") {
+		t.Fatalf("Plan = %v, want vault schema error", err)
 	}
 }
 
@@ -111,8 +174,12 @@ func TestNukeApplyRefusedOnWrongConfirm(t *testing.T) {
 	}
 }
 
-func TestNukeApplyArchivesUserContentNeverSecrets(t *testing.T) {
+func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 	dir := fixtureNukeDir(t)
+	id, kid := nukeVaultMeta(t, vault.Path())
+	mustWrite(t, filepath.Join(dir, "env.d", "secrets.env"), "API_KEY=sk-super-secret\n")
+	vaulttest.Keyring(t).Down = true
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-test-key")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -124,22 +191,58 @@ func TestNukeApplyArchivesUserContentNeverSecrets(t *testing.T) {
 	}
 
 	entries := tarEntries(t, findTarball(t, home))
-	for _, want := range []string{"manifest.json", "settings.local.json", "env.d/providers.json", "env.d/provider.env"} {
+	for _, want := range []string{"manifest.json", "settings.local.json", "state/vault.db"} {
 		if _, ok := entries[want]; !ok {
 			t.Fatalf("tarball missing %q; has %v", want, tarNames(entries))
 		}
 	}
-	for name := range entries {
+	for name, data := range entries {
 		if strings.Contains(name, "secrets.env") {
 			t.Fatalf("tarball must never contain secrets.env, got %q", name)
 		}
+		if bytes.Contains(data, []byte("sk-super-secret")) || bytes.Contains(data, []byte("other-test-value")) {
+			t.Fatalf("tarball entry %q must not contain plaintext secret values", name)
+		}
 	}
 	manifest := string(entries["manifest.json"])
-	if strings.Contains(manifest, "sk-super-secret") {
+	if strings.Contains(manifest, "sk-super-secret") || strings.Contains(manifest, "other-test-value") {
 		t.Fatal("manifest must never contain the secret value")
 	}
 	if !strings.Contains(manifest, "API_KEY") {
 		t.Fatal("manifest should name the secret key")
+	}
+	var metadata struct {
+		SecretNames []string `json:"secretNames"`
+		VaultID     string   `json:"vaultId"`
+		Kid         string   `json:"kid"`
+	}
+	if err := json.Unmarshal(entries["manifest.json"], &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.VaultID != id || metadata.Kid != kid {
+		t.Fatalf("manifest vault identity = %q/%q, want %q/%q", metadata.VaultID, metadata.Kid, id, kid)
+	}
+	if !slices.Equal(metadata.SecretNames, []string{"API_KEY", "Z_API_KEY"}) {
+		t.Fatalf("manifest secret names = %v", metadata.SecretNames)
+	}
+	restored := filepath.Join(t.TempDir(), "state", "vault.db")
+	mustWrite(t, restored, string(entries["state/vault.db"]))
+	if err := vault.ViewAt(restored, func(tx *vault.Tx) error {
+		if names := tx.Names(vault.Secrets); !slices.Equal(names, metadata.SecretNames) {
+			t.Errorf("archived vault secret names = %v, want %v", names, metadata.SecretNames)
+		}
+		if pin, _ := tx.Get(vault.Pins, "HARNESS_PROVIDER"); pin != "foo" {
+			t.Errorf("archived provider pin = %q, want foo", pin)
+		}
+		if overlay, _ := tx.Get(vault.Overlay, "providers"); overlay != `{"providers":{}}` {
+			t.Errorf("archived provider overlay = %q", overlay)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if restoredID, restoredKid := nukeVaultMeta(t, restored); restoredID != id || restoredKid != kid {
+		t.Fatalf("archived vault identity = %q/%q, want %q/%q", restoredID, restoredKid, id, kid)
 	}
 }
 
