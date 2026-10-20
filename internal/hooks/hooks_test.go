@@ -97,38 +97,87 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 	cases := []struct {
 		cmd, cwd string
 		block    bool
+		skip     string // non-empty: a confirmed guard bypass, reported rather than silently asserted
 	}{
-		{"git stash", harness, true},
-		{"git checkout -- foo.go", filepath.Join(harness, "internal"), true},
-		{"git -C " + harness + " restore x", elsewhere, true},
-		{"git clean -fd", link, true},
-		{`git -C "$HOME/.claude" clean -fd`, elsewhere, true},
-		{"cd ~/.claude && git checkout .", elsewhere, true},
-		{"git --no-pager reset --hard", harness, true},
-		{"git -c core.pager=cat checkout .", harness, true},
-		{"git --git-dir=" + harness + "/.git --work-tree=" + harness + " checkout .", elsewhere, true},
-		{"git stash list && git stash pop", harness, true},
-		{"git stash list", harness, false},
-		{"git status --short", harness, false},
-		{"git checkout main", elsewhere, false},
-		{"git -C " + elsewhere + " clean -fd", harness, false},
-		{"cd " + elsewhere + " && git checkout .", harness, false},
-		{"git checkout .", worktree, false},
-		{"git -C " + worktree + " reset --hard", elsewhere, false},
-		{"cd " + worktree + " && git stash", elsewhere, false},
-		{"git stash", filepath.Join(harness, ".claude"), true},
-		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), true},
+		{"git stash", harness, true, ""},
+		{"git checkout -- foo.go", filepath.Join(harness, "internal"), true, ""},
+		{"git -C " + harness + " restore x", elsewhere, true, ""},
+		{"git clean -fd", link, true, ""},
+		{`git -C "$HOME/.claude" clean -fd`, elsewhere, true, ""},
+		{"cd ~/.claude && git checkout .", elsewhere, true, ""},
+		{"git --no-pager reset --hard", harness, true, ""},
+		{"git -c core.pager=cat checkout .", harness, true, ""},
+		{"git --git-dir=" + harness + "/.git --work-tree=" + harness + " checkout .", elsewhere, true, ""},
+		{"git stash list && git stash pop", harness, true, ""},
+		{"git stash list", harness, false, ""},
+		{"git status --short", harness, false, ""},
+		{"git checkout main", elsewhere, false, ""},
+		{"git -C " + elsewhere + " clean -fd", harness, false, ""},
+		{"cd " + elsewhere + " && git checkout .", harness, false, ""},
+		{"git checkout .", worktree, false, ""},
+		{"git -C " + worktree + " reset --hard", elsewhere, false, ""},
+		{"cd " + worktree + " && git stash", elsewhere, false, ""},
+		{"git stash", filepath.Join(harness, ".claude"), true, ""},
+		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), true, ""},
+		// A git verb hidden inside a shell -c / eval string argument is still a real invocation.
+		{`bash -c "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		{`sh -c "git -C ` + harness + ` reset --hard"`, elsewhere, true, ""},
+		{`eval "git -C ` + harness + ` stash"`, elsewhere, true, ""},
+		{`bash -c "cd ` + elsewhere + ` && git stash"`, harness, false, ""},
+		// Absolute wrapper path still resolves via filepath.Base.
+		{`/bin/bash -c "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		// Single-quoted -c argument.
+		{`bash -c 'cd ` + harness + ` && git stash'`, elsewhere, true, ""},
+		// eval with several unquoted argv words (not one quoted string).
+		{`eval git -C ` + harness + ` stash`, elsewhere, true, ""},
+		// Negative control: a non-banned verb inside bash -c must proceed.
+		{`bash -c "cd ` + harness + ` && git status"`, elsewhere, false, ""},
+		// Combined short flags: -lc and -xc must be recognized as -c.
+		{`bash -lc "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		{`bash -xc "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		// Escaped inner quotes inside the outer "…" must not close it early (doubly-nested bash -c).
+		{`bash -c "bash -c \"cd ` + harness + ` && git stash\""`, elsewhere, true, ""},
+		// An env-var prefix on the wrapper token must still be recognized as the wrapper.
+		{`BASH_ENV=x bash -c "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		// Quoted separator must not be mis-split: the `;` inside "a;b" is not a segment break.
+		{`echo "a;b" && git status`, harness, false, ""},
+		// A backslash is literal inside single quotes, so this is one segment ending in `git stash`.
+		{`bash -c 'echo \"x\"; git stash'`, harness, true, ""},
+		// Escaped quotes around an ordinary argument must not be mistaken for a nested wrapper.
+		{`git commit -m "say \"hi\""`, harness, false, ""},
+		{`bash -c "cd /tmp && git stash"`, harness, false, ""},
+		{`FOO=1 make test`, harness, false, ""},
+		// --login is a long flag distinct from -c; must not block -lc's -c recognition on this wrapper.
+		{`bash --login -c "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
 	}
-	for _, c := range cases {
-		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})
-		var errb bytes.Buffer
-		want := ExitProceed
-		if c.block {
-			want = ExitBlock
+	for i, c := range cases {
+		t.Run(fmt.Sprintf("%02d", i), func(t *testing.T) {
+			if c.skip != "" {
+				t.Skip(c.skip)
+			}
+			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})
+			var errb bytes.Buffer
+			want := ExitProceed
+			if c.block {
+				want = ExitBlock
+			}
+			if got := BashGuard(bytes.NewReader(payload), io.Discard, &errb); got != want {
+				t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, want, errb.String())
+			}
+		})
+	}
+}
+
+// sh -c with no -c argument must not panic (index-out-of-range on the wrapper-arg scan).
+func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("sh -c with no argument panicked: %v", r)
 		}
-		if got := BashGuard(bytes.NewReader(payload), io.Discard, &errb); got != want {
-			t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, want, errb.String())
-		}
+	}()
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": t.TempDir(), "tool_input": map[string]string{"command": "sh -c"}})
+	if got := BashGuard(bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+		t.Errorf("bare `sh -c` with no command string: got %d want %d", got, ExitProceed)
 	}
 }
 

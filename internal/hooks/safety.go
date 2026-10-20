@@ -143,6 +143,43 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
 	"--namespace": true, "--exec-path": true}
 
+// shellWrapperNames launch a nested command STRING (not further argv tokens) that needs its own check.
+var shellWrapperNames = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true}
+
+// envAssignRe matches a leading `NAME=value` token (e.g. `BASH_ENV=x`) prefixed to a command.
+var envAssignRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+})
+
+// skipEnvAssignments drops leading `NAME=value` tokens so the wrapper/eval check sees the real command.
+func skipEnvAssignments(toks []string) []string {
+	i := 0
+	for i < len(toks) && envAssignRe().MatchString(toks[i]) {
+		i++
+	}
+	return toks[i:]
+}
+
+// nestedShellCommand reports the command text a `bash -c "…"`/`eval "…"` token sequence would run.
+func nestedShellCommand(toks []string) (string, bool) {
+	toks = skipEnvAssignments(toks)
+	if len(toks) == 0 {
+		return "", false
+	}
+	if toks[0] == "eval" && len(toks) > 1 {
+		return strings.Join(toks[1:], " "), true
+	}
+	if shellWrapperNames[filepath.Base(toks[0])] {
+		for i := 1; i < len(toks)-1; i++ {
+			t := toks[i]
+			if len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c') {
+				return toks[i+1], true
+			}
+		}
+	}
+	return "", false
+}
+
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
@@ -155,6 +192,9 @@ func harnessGitBlocked(cmd, cwd string) bool {
 		if next, ok := cdTarget(toks, cwd); ok {
 			cwd = next
 			continue
+		}
+		if nested, ok := nestedShellCommand(toks); ok && harnessGitBlocked(nested, cwd) {
+			return true
 		}
 		for i, t := range toks {
 			if t != "git" { // any token: wrappers (env, command, timeout N) need no modelling
@@ -281,6 +321,11 @@ func canonPath(p string) string {
 	return p
 }
 
+// dqEscapable are the bytes a backslash escapes inside POSIX double quotes; elsewhere it is literal.
+func dqEscapable(c byte) bool {
+	return c == '"' || c == '\\' || c == '$' || c == '`'
+}
+
 // shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func shellSegments(cmd string) []string {
 	var out []string
@@ -289,6 +334,12 @@ func shellSegments(cmd string) []string {
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		if quote != 0 {
+			if quote == '"' && c == '\\' && i+1 < len(cmd) && dqEscapable(cmd[i+1]) {
+				b.WriteByte(c)
+				i++
+				b.WriteByte(cmd[i])
+				continue
+			}
 			if c == quote {
 				quote = 0
 			}
@@ -332,6 +383,11 @@ func shellTokens(seg string) []string {
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
 		if quote != 0 {
+			if quote == '"' && c == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
+				i++
+				b.WriteByte(seg[i])
+				continue
+			}
 			if c == quote {
 				quote = 0
 			} else {
