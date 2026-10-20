@@ -131,6 +131,17 @@ func TestResolveHarnessWorktreePointer(t *testing.T) {
 	}
 }
 
+// The inverse: the config dir is itself a linked worktree of another checkout.
+func TestResolveConfigDirWorktree(t *testing.T) {
+	main := t.TempDir()
+	cfg := tempConfig(t)
+	write(t, filepath.Join(cfg, ".git"), "gitdir: "+filepath.Join(main, ".git", "worktrees", "x")+"\n")
+
+	if got := Resolve(cfg); !got.Harness {
+		t.Errorf("Resolve(config worktree) = %+v, want harness identity", got)
+	}
+}
+
 func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	cfg := tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "My Repo.v2")
