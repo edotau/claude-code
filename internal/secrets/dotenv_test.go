@@ -25,6 +25,21 @@ func TestParseDotenvStrictFormat(t *testing.T) {
 	}
 }
 
+// R4: the legacy providers.ReadEnvFile trimmed whitespace before stripping quotes, so
+// `TOKEN= "abc"` resolved to `abc`; ParseDotenv must match or migration silently corrupts values
+// (and whitespace around `@keyring` must not block reference conversion either).
+func TestParseDotenvTrimsWhitespaceBeforeStrippingQuotes(t *testing.T) {
+	in := "TOKEN= \"abc\" \nREF= @keyring \n"
+	pairs, problems := ParseDotenv(strings.NewReader(in))
+	want := []Pair{{"TOKEN", "abc"}, {"REF", "@keyring"}}
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v, want none", problems)
+	}
+	if !slices.Equal(pairs, want) {
+		t.Errorf("pairs = %v, want %v", pairs, want)
+	}
+}
+
 func TestParseDotenvQuotesAndLongLines(t *testing.T) {
 	long := strings.Repeat("x", 100<<10)
 	in := "S='single'\nM=\"mismatch'\nE=\"\"\nL=" + long + "\nB=" + strings.Repeat("y", 5<<20) + "\nAFTER=lost\n"
