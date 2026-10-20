@@ -15,13 +15,26 @@ import (
 func TestParseDotenvStrictFormat(t *testing.T) {
 	in := "# comment\nENVIRONMENT=dev\n\nURL=https://x?a=b\nexport FOO=bar\nQUOTED=\"kept as is\"\nEMPTY=\n9BAD=x\nno equals\n"
 	pairs, problems := ParseDotenv(strings.NewReader(in))
-	want := []Pair{{"ENVIRONMENT", "dev"}, {"URL", "https://x?a=b"}, {"QUOTED", `"kept as is"`}}
+	want := []Pair{{"ENVIRONMENT", "dev"}, {"URL", "https://x?a=b"}, {"FOO", "bar"}, {"QUOTED", "kept as is"}}
 	if !slices.Equal(pairs, want) {
 		t.Errorf("pairs = %v, want %v", pairs, want)
 	}
-	wantProblems := []string{"line 5: want NAME=value", "line 7: EMPTY has no value", "line 8: want NAME=value", "line 9: want NAME=value"}
+	wantProblems := []string{"line 7: EMPTY has no value", "line 8: want NAME=value", "line 9: want NAME=value"}
 	if !slices.Equal(problems, wantProblems) {
 		t.Errorf("problems = %v, want %v", problems, wantProblems)
+	}
+}
+
+func TestParseDotenvQuotesAndLongLines(t *testing.T) {
+	long := strings.Repeat("x", 100<<10)
+	in := "S='single'\nM=\"mismatch'\nE=\"\"\nL=" + long + "\nB=" + strings.Repeat("y", 5<<20) + "\nAFTER=lost\n"
+	pairs, problems := ParseDotenv(strings.NewReader(in))
+	want := []Pair{{"S", "single"}, {"M", `"mismatch'`}, {"L", long}}
+	if !slices.Equal(pairs, want) {
+		t.Errorf("pairs = %d, want S, M verbatim, a 100 KiB L", len(pairs))
+	}
+	if len(problems) != 2 || problems[0] != "line 3: E has no value" || !strings.HasPrefix(problems[1], "read stopped early") {
+		t.Errorf("problems = %.200v, want E empty then read stopped early", problems)
 	}
 }
 
