@@ -128,11 +128,12 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		return ExitProceed // maintenance/migration: no spawn, no block, no stamp
 	}
 	stamp := stampPath(in.SessionID)
+	counted := countPath(in.SessionID)
 	now := time.Now()
 	st, ok := readStamp(stamp)
 	switch {
 	case !ok:
-		edits := transcript.CountEdits(in.TranscriptPath)
+		edits := countEdits(in.TranscriptPath, counted)
 		if edits < harvestMinEdits {
 			return ExitProceed
 		}
@@ -147,8 +148,8 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		if now.Sub(st.at) < reharvestCooldown {
 			return ExitProceed // cheap gate before the whole-transcript count
 		}
-		if edits := transcript.CountEdits(in.TranscriptPath); edits >= st.edits+harvestRearmEdits &&
-			spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+		edits := countEdits(in.TranscriptPath, counted)
+		if edits >= st.edits+harvestRearmEdits && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 			writeStamp(stamp, now, "bg", edits)
 			spawnIdleWatcher(in)
 		}
@@ -173,11 +174,11 @@ func SessionHarvestEnd(r io.Reader) int {
 		return ExitProceed
 	}
 	stamp := stampPath(in.SessionID)
-	edits := transcript.CountEdits(in.TranscriptPath)
 	covered := 0
 	if st, ok := readStamp(stamp); ok {
 		covered = st.edits
 	}
+	edits := countEdits(in.TranscriptPath, countPath(in.SessionID))
 	if edits >= harvestMinEdits && edits > covered && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 		writeStamp(stamp, time.Now(), "bg", edits)
 	}
@@ -192,8 +193,9 @@ func PreCompact(r io.Reader) int {
 		return ExitProceed
 	}
 	stamp := stampPath(in.SessionID)
-	edits := transcript.CountEdits(in.TranscriptPath)
-	if st, ok := readStamp(stamp); edits == 0 || (ok && edits <= st.edits) {
+	st, ok := readStamp(stamp)
+	edits := countEdits(in.TranscriptPath, countPath(in.SessionID))
+	if edits == 0 || (ok && edits <= st.edits) {
 		return ExitProceed
 	}
 	if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
@@ -290,4 +292,62 @@ func readStamp(path string) (harvestStamp, bool) {
 
 func writeStamp(path string, at time.Time, state string, edits int) {
 	_ = paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600)
+}
+
+// countState tracks complete transcript lines separately from edits already covered by a harvest.
+type countState struct {
+	edits  int
+	offset int64
+}
+
+func countPath(sessionID string) string {
+	return filepath.Join(memory.StateDir(), "count-"+filepath.Base(sessionID))
+}
+
+func readCountState(path string) (countState, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return countState{}, false
+	}
+	parts := strings.Split(strings.TrimSpace(string(b)), "|")
+	if len(parts) != 2 {
+		return countState{}, false
+	}
+	edits, err1 := strconv.Atoi(parts[0])
+	offset, err2 := strconv.ParseInt(parts[1], 10, 64)
+	if err1 != nil || err2 != nil || edits < 0 || offset < 0 {
+		return countState{}, false
+	}
+	return countState{edits: edits, offset: offset}, true
+}
+
+func writeCountState(path string, cs countState) {
+	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10)
+	_ = paths.AtomicWrite(path, []byte(line), 0o600)
+}
+
+// countEdits resumes after the last complete line, leaving partial appends for the next Stop.
+func countEdits(transcriptPath, countFile string) int {
+	fi, err := os.Stat(transcriptPath)
+	if err != nil || fi.IsDir() {
+		return 0
+	}
+	cs, _ := readCountState(countFile)
+	if fi.Size() < cs.offset {
+		_ = os.Remove(countFile)
+		cs = countState{}
+	}
+	if fi.Size() == cs.offset {
+		return cs.edits
+	}
+	delta, next := transcript.CountEditsFrom(transcriptPath, cs.offset)
+	if next < cs.offset {
+		_ = os.Remove(countFile)
+		cs = countState{}
+	}
+	edits := cs.edits + delta
+	if next != cs.offset {
+		writeCountState(countFile, countState{edits: edits, offset: next})
+	}
+	return edits
 }
