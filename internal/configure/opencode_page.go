@@ -174,7 +174,7 @@ func ocAccountActions(d *dialog, r ocRow) {
 		run   func()
 	}
 	var acts []act
-	if sw := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
+	if sw, _ := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
 		acts = append(acts, act{"Make active", func() { ocSwitch(d, r, sw) }})
 	}
 	acts = append(acts, act{"Log out", func() {
@@ -195,7 +195,12 @@ func ocAccountActions(d *dialog, r ocRow) {
 
 // ocLogout runs opencode's own non-interactive logout for one account (the double press or [y/N] already confirmed).
 func ocLogout(d *dialog, r ocRow) {
-	cancelled, err := runAttached(opencodeLogoutArgv(r.in.ID, r.conn.ID))
+	argv, err := opencodeLogoutArgv(r.in.ID, r.conn.ID)
+	if err != nil {
+		d.printf("%s: %v\n", r.row.Label, err)
+		return
+	}
+	cancelled, err := runAttached(argv)
 	invalidateOpencodeAuth()
 	switch {
 	case cancelled:
