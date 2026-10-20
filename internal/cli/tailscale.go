@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strconv"
@@ -113,13 +114,23 @@ func tailscaleConnect(ctx context.Context, args []string) int {
 		helptext.Fprint(fs.Output(), "Usage of tailscale connect:\n")
 		helptext.Defaults(fs)
 	}
-	authKey := fs.String("auth-key", "", "an auth key to connect with (tskey-auth-…)")
+	authKey := fs.String("auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
 	keyEnv := fs.String("key-env", "", "read the auth key from this env var instead")
 	exitNode := fs.Bool("exit-node", false, "also advertise this box as an exit node")
 	if fs.Parse(args) != nil {
 		return 2
 	}
 	key := *authKey
+	if key == "-" {
+		in, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fail("tailscale connect: reading --auth-key from stdin: %v", err)
+		}
+		key = strings.TrimSpace(string(in))
+	} else if key != "" {
+		fmt.Fprintln(os.Stderr, "tailscale connect: a literal --auth-key is visible in shell "+
+			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
+	}
 	if key == "" && *keyEnv != "" {
 		key = strings.TrimSpace(os.Getenv(*keyEnv))
 	}

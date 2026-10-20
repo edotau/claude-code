@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -119,11 +120,23 @@ func TestConnectNoOpWhenAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestConnectRunsUpWithAuthKeyAsArgv(t *testing.T) {
+// TestConnectRunsUpWithAuthKeyAsFileNeverArgv: the auth key must never appear as a `ps`-visible argv
+// element — Connect writes it to a temp file and passes --auth-key=file:<path>, removed once `up` exits.
+// The fake `tailscale up` records its own argv and separately captures what the file: path contained,
+// proving the key reached the CLI without ever riding on the command line.
+func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	dir := t.TempDir()
 	argvFile := filepath.Join(dir, "argv")
+	keyContentFile := filepath.Join(dir, "key-content")
 	script := catScript(t, "status_stopped.json") +
-		"\nif [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > " + shQuote(argvFile) + "; fi"
+		"\nif [ \"$1\" = up ]; then\n" +
+		"  printf '%s\\n' \"$@\" > " + shQuote(argvFile) + "\n" +
+		"  for a in \"$@\"; do\n" +
+		"    case \"$a\" in\n" +
+		"      --auth-key=file:*) cat \"${a#--auth-key=file:}\" > " + shQuote(keyContentFile) + " ;;\n" +
+		"    esac\n" +
+		"  done\n" +
+		"fi"
 	bin := fakeBin(t, dir, "tailscale", script)
 	prevLook, prevExec := lookPathReal, execCommandContext
 	lookPathReal = func(string) (string, error) { return bin, nil }
@@ -133,13 +146,27 @@ func TestConnectRunsUpWithAuthKeyAsArgv(t *testing.T) {
 	if err := Connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
-	b, err := os.ReadFile(argvFile)
+	argv, err := os.ReadFile(argvFile)
 	if err != nil {
 		t.Fatalf("`tailscale up` was not invoked: %v", err)
 	}
-	got := string(b)
-	if got != "up\n--auth-key=tskey-auth-secretvalue\n--advertise-exit-node\n" {
-		t.Errorf("up argv = %q, want auth-key + advertise-exit-node as separate argv elements", got)
+	if strings.Contains(string(argv), "tskey-") {
+		t.Fatalf("auth key must never appear in argv, got %q", string(argv))
+	}
+	fields := strings.Fields(string(argv))
+	if len(fields) != 3 || fields[0] != "up" || !strings.HasPrefix(fields[1], "--auth-key=file:") || fields[2] != "--advertise-exit-node" {
+		t.Fatalf("up argv = %q, want up + --auth-key=file:<path> + --advertise-exit-node", argv)
+	}
+	keyFile := strings.TrimPrefix(fields[1], "--auth-key=file:")
+	content, err := os.ReadFile(keyContentFile)
+	if err != nil {
+		t.Fatalf("tailscale up never read the --auth-key=file: path: %v", err)
+	}
+	if string(content) != "tskey-auth-secretvalue" {
+		t.Fatalf("key file content = %q, want the auth key", content)
+	}
+	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
+		t.Fatalf("key temp file %q should be removed once Connect returns, stat err = %v", keyFile, err)
 	}
 }
 

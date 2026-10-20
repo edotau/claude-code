@@ -495,8 +495,9 @@ func (r *Router) registry() (*providers.Registry, error) {
 		if r.reg == nil {
 			return nil, err
 		}
+		// regStamp stays behind so the next call retries providers.Load instead of caching the failure.
 		fmt.Fprintf(r.log, "router: keeping previous registry: %v\n", err)
-		reg = r.reg
+		return r.reg, nil
 	}
 	r.reg, r.regStamp = reg, stamp
 	return reg, nil

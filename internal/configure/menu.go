@@ -35,8 +35,11 @@ func runMenu(d *dialog) int {
 		idx, err := pickMenu("== agents ==", sections, submitRow, start)
 		if err != nil || idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
 			if confirmLeave(len(d.pending), "key(s) to the secrets manager") {
-				saveKeys(d)
+				ok := saveKeys(d)
 				d.changed = true
+				if !ok {
+					return 1
+				}
 			}
 			return 0
 		}
@@ -129,21 +132,36 @@ func (d *dialog) stage(name, val string) bool {
 	return true
 }
 
-// saveKeys stores every staged key in the vault and reports each redacted.
-func saveKeys(d *dialog) {
+// saveKeys stores every staged key in the vault and reports each redacted; a name that fails to
+// store stays in d.pending (and its shadowing env stays set) instead of being silently dropped.
+// Returns false if any key failed, so the caller can make the menu's exit status reflect it.
+func saveKeys(d *dialog) bool {
 	if len(d.pending) == 0 {
 		d.println("keys: nothing to save; no key was entered in this session")
-		return
+		return true
 	}
+	ok := true
+	stored := make([]string, 0, len(d.pending))
 	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
 		k := d.pending[name]
 		if err := secrets.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
+			ok = false
 			continue
 		}
 		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
+		stored = append(stored, name)
 	}
-	discardKeys(d)
+	for _, name := range stored {
+		k := d.pending[name]
+		if k.had {
+			_ = os.Setenv(name, k.prev)
+		} else {
+			_ = os.Unsetenv(name)
+		}
+		delete(d.pending, name)
+	}
+	return ok
 }
 
 // discardKeys drops staged keys and restores the env each one shadowed (n / Esc leave nothing behind).

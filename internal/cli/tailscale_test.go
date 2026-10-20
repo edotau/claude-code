@@ -37,6 +37,26 @@ func fakeTailscaleOnPATH(t *testing.T, backendState string) {
 	t.Setenv("PATH", dir)
 }
 
+// fakeTailscaleUpOnPATH puts a `tailscale` script on PATH that answers `status --json` as Stopped and
+// records the argv of any `up` invocation into argvFile — the seam item 7's tests drive to prove the
+// auth key never rides on argv.
+func fakeTailscaleUpOnPATH(t *testing.T, argvFile string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = status ]; then /bin/cat <<EOF\n" +
+		`{"BackendState":"Stopped","Self":{"DNSName":"test-mac.tailxxxxx.ts.net.","AllowedIPs":[]},"Peer":{}}` +
+		"\nEOF\nfi\n" +
+		"if [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > " + shQuote(argvFile) + "; fi\n"
+	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
 func hermeticTailscaleSecrets(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -106,6 +126,69 @@ func TestTailscaleConnectUsesVaultAuthKey(t *testing.T) {
 	_, out, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"connect"}) })
 	if strings.Contains(out+stderr, "no auth key given") {
 		t.Errorf("connect did not use the vault auth key: stdout=%q stderr=%q", out, stderr)
+	}
+}
+
+// TestTailscaleConnectAuthKeyDashReadsStdin: `connect --auth-key -` reads the key from stdin and the
+// underlying `tailscale up` never sees it on argv (it goes through tailscale.Connect's --auth-key=file:).
+func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	fakeTailscaleUpOnPATH(t, argvFile)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString("tskey-auth-fromstdin\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	code, out, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"connect", "--auth-key", "-"}) })
+	if code != 0 {
+		t.Fatalf("connect --auth-key - exit %d; out=%q stderr=%q", code, out, stderr)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("tailscale up was not invoked: %v", err)
+	}
+	if strings.Contains(string(argv), "tskey-") {
+		t.Fatalf("auth key leaked into up argv: %q", argv)
+	}
+	if !strings.Contains(string(argv), "--auth-key=file:") {
+		t.Fatalf("up argv = %q, want --auth-key=file:<path>", argv)
+	}
+}
+
+// TestTailscaleConnectLiteralAuthKeyWarns: a literal (non "-") --auth-key still connects, but warns
+// that it is visible in shell history and `ps`; the key still never reaches `tailscale up`'s argv —
+// Connect always routes it through --auth-key=file:.
+func TestTailscaleConnectLiteralAuthKeyWarns(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	fakeTailscaleUpOnPATH(t, argvFile)
+
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdTailscale([]string{"connect", "--auth-key", "tskey-auth-literal"})
+	})
+	if code != 0 {
+		t.Fatalf("connect exit %d; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "visible in shell") {
+		t.Errorf("stderr = %q, want a warning about a literal --auth-key", stderr)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("tailscale up was not invoked: %v", err)
+	}
+	if strings.Contains(string(argv), "tskey-") {
+		t.Fatalf("literal auth key still leaked into up argv: %q", argv)
 	}
 }
 

@@ -239,8 +239,12 @@ func runWebSearch(d *dialog) {
 	d.changed = true // opencode inherits Claude's MCP list on the re-render below
 }
 
-// envEdit stages a vault env change: raw "" deletes; secret holds the value to seal for an @secret ref.
-type envEdit struct{ raw, secret string }
+// envEdit stages a vault env change: raw "" deletes; secret holds the value to seal for an @secret ref;
+// deleteSecret asks saveEnvEdits to also delete the sealed secret this name used to point at.
+type envEdit struct {
+	raw, secret  string
+	deleteSecret bool
+}
 
 // runCustomEnv edits the vault env bucket, staging changes until the page is left.
 func runCustomEnv(d *dialog) {
@@ -283,20 +287,29 @@ func runCustomEnv(d *dialog) {
 	}
 }
 
-// editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then where it lives.
+// editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then
+// where it lives. Deleting or switching an @secret var away from secret offers to delete the sealed
+// secret it leaves behind, so it doesn't orphan in the vault.
 func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
-	if name == "" {
+	isNew := name == ""
+	if isNew {
 		name = strings.TrimSpace(textLine(d, "NAME: "))
 		if name == "" {
 			return "", envEdit{}, false
 		}
+		if !envName.MatchString(name) {
+			d.printf("environment: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
+			return "", envEdit{}, false
+		}
 	}
+	wasSecret := !isNew && providers.CustomEnv()[name] == providers.SecretRef
 	val, err := secretLine(d, "Value for "+name+" (input hidden; empty deletes it): ")
 	if err != nil {
 		return "", envEdit{}, false
 	}
 	if val = strings.TrimSpace(val); val == "" {
-		return name, envEdit{}, true
+		del := wasSecret && confirm(d, "also delete the sealed secret "+name+"?")
+		return name, envEdit{deleteSecret: del}, true
 	}
 	where, err := pickPlain(d, "store "+name+" as", [][2]string{
 		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})
@@ -306,7 +319,8 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	if where == 1 {
 		return name, envEdit{raw: providers.SecretRef, secret: val}, true
 	}
-	return name, envEdit{raw: val}, true
+	del := wasSecret && confirm(d, "switching "+name+" to plain; also delete the old sealed secret?")
+	return name, envEdit{raw: val, deleteSecret: del}, true
 }
 
 // sameAsSaved reports an edit matching the vault env and, for a ref, the stored secret.
@@ -344,6 +358,13 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 			continue
 		}
 		d.printf("environment: %s %s\n", name, map[bool]string{true: "removed", false: "saved"}[e.raw == ""])
+		if e.deleteSecret {
+			if err := secrets.Delete(name); err != nil {
+				d.printf("environment: %s: sealed secret not deleted: %v\n", name, err)
+				continue
+			}
+			d.printf("environment: %s: sealed secret deleted\n", name)
+		}
 	}
 	d.changed = true
 }

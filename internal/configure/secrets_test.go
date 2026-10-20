@@ -3,10 +3,12 @@ package configure
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
@@ -154,12 +156,79 @@ func TestEditSecretDeletesVaultValue(t *testing.T) {
 	}
 }
 
+// TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit: inside the menu (d.pending set),
+// deleting a tracked secret that already has a staged Store of the same name drops that staged
+// Store (restoring the env it shadowed) instead of deleting the vault immediately; the vault delete
+// — and its audit entry — only happens when the page's staged changes are later committed.
+func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	const name = "CONFIGURE_STAGED_DELETE"
+	t.Setenv(name, "")
+	vaulttest.Secret(t, name, "stored-value")
+	since := time.Now().Add(-time.Second)
+
+	d, out := newDialog("2\ny\n") // pick "Delete" (row 2: Paste API key, Delete), then confirm
+	d.pending = map[string]stagedKey{}
+	if !d.stage(name, "replacement-value") {
+		t.Fatal("stage failed")
+	}
+	editSecret(d, trackedSecret{name: name, source: "vault"})
+
+	if _, staged := d.pending[name]; staged {
+		t.Error("the staged Store must be dropped once Delete is picked")
+	}
+	if !d.pendingDeletes[name] {
+		t.Error("the delete must be staged in pendingDeletes")
+	}
+	if !strings.Contains(out.String(), "staged delete of "+name) {
+		t.Errorf("output = %q, want a staged-delete confirmation", out.String())
+	}
+	if got := os.Getenv(name); got != "" {
+		t.Errorf("env after dropping the staged Store = %q, want restored to empty", got)
+	}
+	if v, _, ok := secrets.Get(name); !ok || v != "stored-value" {
+		t.Fatalf("vault value changed before commit: (%q, %v), want still stored-value", v, ok)
+	}
+	events, err := audit.Read(since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Action == audit.SecretDelete {
+			t.Fatalf("secret_delete audited before the staged delete was committed: %+v", e)
+		}
+	}
+
+	// Commit the page's staged changes, as secretsLoop's defer would on leaving the page.
+	confirmPageKeys(d, map[string]stagedKey{})
+	if _, _, ok := secrets.Get(name); ok {
+		t.Error("the vault value should be deleted once the staged delete commits")
+	}
+	events, err = audit.Read(since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range events {
+		if e.Action == audit.SecretDelete && e.Resource == name {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("commit did not audit secret_delete for %s: %+v", name, events)
+	}
+}
+
 func TestProbeCachedVaultAndEnvOverride(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	const name = "CONFIGURE_CACHED_SECRET"
 	t.Setenv(name, "")
 	vaulttest.Secret(t, name, "stored-value")
-	if err := secrets.RecordProbe(name, "verified", time.Now().Add(-time.Minute)); err != nil {
+	meta, err := secrets.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.RecordProbe(name, "verified", time.Now().Add(-time.Minute), meta[name].SetAt); err != nil {
 		t.Fatal(err)
 	}
 	p := fakeKeyedProvider(t, name, "env-value")
@@ -208,6 +277,59 @@ func TestCustomEnvPlainAndSecret(t *testing.T) {
 			}
 			if !sameAsSaved(name, edit) || strings.Contains(out.String(), "custom-value") {
 				t.Errorf("saved edit differs or transcript leaks value: %s", out.String())
+			}
+		})
+	}
+}
+
+// TestEditCustomEnvRejectsInvalidName: a new custom-env NAME must pass the same identifier shape
+// every other secret name does; a bad name is refused before any value is read or stored.
+func TestEditCustomEnvRejectsInvalidName(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	d, out := newDialog("not a valid name!\n")
+	name, edit, ok := editCustomEnv(d, "")
+	if ok {
+		t.Fatalf("editCustomEnv accepted an invalid NAME: name=%q edit=%+v", name, edit)
+	}
+	if !strings.Contains(out.String(), "not a valid name") {
+		t.Errorf("output = %q, want a rejection message naming the shape rule", out.String())
+	}
+}
+
+// TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm: clearing an @secret custom-env
+// var offers to delete the sealed secret it pointed at; confirming (y) removes both the vault env
+// entry and the sealed secret, declining (n) leaves the sealed secret alone.
+func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer string
+		wantDeleted  bool
+	}{
+		{"CONFIGURE_ENV_SECRET_DEL_YES", "y\n", true},
+		{"CONFIGURE_ENV_SECRET_DEL_NO", "n\n", false},
+	} {
+		t.Run(tc.answer, func(t *testing.T) {
+			vaulttest.UseKeyring(t)
+			if err := providers.SetCustomEnv(tc.name, providers.SecretRef); err != nil {
+				t.Fatal(err)
+			}
+			if err := secrets.Store(tc.name, "sealed-value"); err != nil {
+				t.Fatal(err)
+			}
+			d, _ := newDialog("\n" + tc.answer) // empty value line (delete), then the confirm answer
+			gotName, edit, ok := editCustomEnv(d, tc.name)
+			if !ok || gotName != tc.name || edit.raw != "" || edit.deleteSecret != tc.wantDeleted {
+				t.Fatalf("edit = (%q, %+v, %v), want raw=\"\" deleteSecret=%v", gotName, edit, ok, tc.wantDeleted)
+			}
+			orig := saveConfirmed
+			t.Cleanup(func() { saveConfirmed = orig })
+			saveConfirmed = func(string) bool { return true }
+			saveEnvEdits(d, map[string]envEdit{tc.name: edit})
+			_, _, found := secrets.Get(tc.name)
+			if found == tc.wantDeleted {
+				t.Errorf("sealed secret found=%v, want found=%v", found, !tc.wantDeleted)
+			}
+			if _, ok := providers.CustomEnv()[tc.name]; ok {
+				t.Error("vault env entry should have been removed either way")
 			}
 		})
 	}
