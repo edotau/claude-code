@@ -79,8 +79,13 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 	}
 	audit.Log(audit.PlanSaved, "save-plan", dest)
 	if draftPath != "" && isUndatedDraft(draftPath) {
-		os.Remove(draftPath)
-		removeRecordedDest(filepath.Base(draftPath))
+		if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "save-plan: %v\n", err)
+			return ExitProceed
+		}
+		if err := removeRecordedDest(filepath.Base(draftPath)); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "save-plan: %v\n", err)
+		}
 	}
 	return ExitProceed
 }
@@ -180,7 +185,10 @@ var planTemplateHeadings = []string{"# Plan:", "## Context", "## Phases", "## Ta
 // PlanTemplate is a PreToolUse(Write) gate: the FIRST write to an undated draft under <config>/plans/ must
 // already carry the plan template's required headings, or it is denied (deny-one-call, like docs-placement).
 func PlanTemplate(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+	return checkPlanTemplate(ParseInput(r), stderr)
+}
+
+func checkPlanTemplate(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "create" {
 		return ExitProceed
@@ -234,7 +242,7 @@ func recordDest(draftBase, dest string) error {
 	return os.WriteFile(destRecordPath(draftBase), []byte(dest), 0o600)
 }
 
-func removeRecordedDest(draftBase string) { os.Remove(destRecordPath(draftBase)) }
+func removeRecordedDest(draftBase string) error { return os.Remove(destRecordPath(draftBase)) }
 
 // PlanMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
 // copied to its dated, repo-tagged file (SavePlan's own slug/title/dest logic), so the draft is never the

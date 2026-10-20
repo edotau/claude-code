@@ -371,12 +371,6 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 	return "block", "Significant issues prevent approval"
 }
 
-//go:fix inline
-func intPtr(i int) *int { return new(i) }
-
-//go:fix inline
-func strPtr(s string) *string { return new(s) }
-
 func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding {
 	findings := []Finding{}
 	if risks := mMap(prAnalysis, "risks"); risks != nil {

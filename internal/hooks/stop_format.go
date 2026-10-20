@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -38,8 +38,10 @@ func StopFormat(r io.Reader) int {
 	if cwd == "" {
 		return ExitProceed
 	}
+	ctx, cancel := hookContext("stop-format")
+	defer cancel()
 	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
-	changed := changedFiles(cwd)
+	changed := changedFiles(ctx, cwd)
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
 		return ExitProceed
@@ -138,14 +140,14 @@ func loadStamps(path string) map[string]string {
 }
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.
-func changedFiles(cwd string) []string {
-	data, err := exec.Command("git", "-C", cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all").Output()
+func changedFiles(ctx context.Context, cwd string) []string {
+	data, err := exec.CommandContext(ctx, "git", "-C", cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all").Output()
 	if err != nil || len(data) == 0 {
 		return nil
 	}
 	root := cwd
 	if _, err := os.Stat(filepath.Join(cwd, ".git")); err != nil {
-		root = memory.GitToplevel(cwd)
+		root = repoRootOf(ctx, cwd)
 		if root == "" {
 			return nil
 		}

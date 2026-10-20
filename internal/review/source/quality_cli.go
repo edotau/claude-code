@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,7 +30,7 @@ func parseQualityArgs(args []string) (qualityArgs, error) {
 		case tok == "--language" || tok == "-l":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --language/-l: expected one argument")
+				return a, errors.New("argument --language/-l: expected one argument")
 			}
 			a.language = args[i]
 		case strings.HasPrefix(tok, "--language="):
@@ -37,7 +38,7 @@ func parseQualityArgs(args []string) (qualityArgs, error) {
 		case tok == "--output" || tok == "-o":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --output/-o: expected one argument")
+				return a, errors.New("argument --output/-o: expected one argument")
 			}
 			a.output = args[i]
 		case strings.HasPrefix(tok, "--output="):
@@ -109,16 +110,19 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 
 func emitQualityJSON(report any, output string, stdout io.Writer) error {
 	var buf strings.Builder
-	writeJSON(&buf, report)
+	if err := writeJSON(&buf, report); err != nil {
+		return err
+	}
 	if output != "" {
 		if err := os.WriteFile(output, []byte(buf.String()), 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Results written to %s\n", output)
+		_, err := fmt.Fprintf(stdout, "Results written to %s\n", output)
+		return err
 	} else {
-		fmt.Fprintln(stdout, buf.String())
+		_, err := fmt.Fprintln(stdout, buf.String())
+		return err
 	}
-	return nil
 }
 
 func printQualityReport(report any, w io.Writer) {

@@ -204,7 +204,7 @@ func tagMarker(dir string, owner int, id, agentID string) {
 
 func writeMarker(dir string, owner int, id string) {
 	if f, err := os.OpenFile(filepath.Join(dir, markerName(owner, id)), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-		f.Close()
+		_ = f.Close()
 	}
 }
 

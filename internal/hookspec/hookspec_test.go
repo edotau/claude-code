@@ -22,16 +22,21 @@ func TestSettingsJSON(t *testing.T) {
 	}
 }
 
-// TestPlanHooksRegistered pins plan-template and plan-mirror's events/matchers/gate so a later edit to the
-// registry can't silently drop or misroute either hook.
 func TestPlanHooksRegistered(t *testing.T) {
 	byName := map[string]Spec{}
+	docsCount := 0
 	for _, s := range Registry {
 		byName[s.Name] = s
+		if s.Name == "docs-placement" {
+			docsCount++
+		}
 	}
-	tmpl, ok := byName["plan-template"]
-	if !ok || tmpl.Event != EventPreToolUse || tmpl.Matcher != "Write" || !tmpl.Gate {
-		t.Fatalf("plan-template = %+v, ok=%v", tmpl, ok)
+	if _, ok := byName["plan-template"]; ok {
+		t.Fatal("retired plan-template hook remains registered")
+	}
+	docs, ok := byName["docs-placement"]
+	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Gate {
+		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
 	}
 	mirror, ok := byName["plan-mirror"]
 	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Gate {
@@ -45,18 +50,24 @@ func TestPlanHooksRegistered(t *testing.T) {
 	if err := json.Unmarshal(b, &block); err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, g := range block[EventPreToolUse] {
-		if g.Matcher != "Write" {
-			continue
-		}
-		for _, h := range g.Hooks {
-			if h.Command == tmpl.Command() {
-				found = true
+	found := 0
+	retired := Spec{Name: "plan-template"}
+	for event, groups := range block {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				if h.Command == retired.Command() {
+					t.Fatalf("rendered settings contain retired plan-template: %s", b)
+				}
+				if h.Command == docs.Command() {
+					found++
+					if event != EventPreToolUse || g.Matcher != "Write|Edit" {
+						t.Errorf("docs-placement rendered under %s/%s", event, g.Matcher)
+					}
+				}
 			}
 		}
 	}
-	if !found {
-		t.Errorf("rendered settings missing plan-template under PreToolUse/Write: %s", b)
+	if found != 1 {
+		t.Errorf("rendered settings contain %d docs-placement hooks, want 1: %s", found, b)
 	}
 }

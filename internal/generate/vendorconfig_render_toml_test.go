@@ -73,7 +73,7 @@ func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {
 			if idxInserted == -1 || idxRealTable == -1 {
 				t.Fatalf("missing expected sections, got:\n%s", got)
 			}
-			if !(idxString < idxInserted && idxInserted < idxRealTable) {
+			if idxString >= idxInserted || idxInserted >= idxRealTable {
 				t.Errorf("want order: multiline string, then [inserted], then [real.table]; got:\n%s", got)
 			}
 		})
@@ -98,7 +98,7 @@ func TestInsertTopLevelTOMLSkipsNestedArrays(t *testing.T) {
 	if idxInserted == -1 || idxReal == -1 {
 		t.Fatalf("missing expected sections, got:\n%s", got)
 	}
-	if !(idxArray < idxInserted && idxInserted < idxReal) {
+	if idxArray >= idxInserted || idxInserted >= idxReal {
 		t.Errorf("want order: array, then [inserted], then [real]; got:\n%s", got)
 	}
 }

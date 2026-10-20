@@ -48,10 +48,8 @@ func IsHarness(command string) bool {
 // Registry is the whole chain in per-event execution order.
 var Registry = []Spec{
 	{Name: "bash-guard", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
-	// Markdown at a repo root or in a git-ignored docs dir is sent to its canonical docs/ home.
+	// Check markdown placement, then require template headings for a native plan draft's first write.
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
-	// A native plan-mode draft's first write must already carry agents/Plan.md's template headings.
-	{Name: "plan-template", Event: EventPreToolUse, Matcher: "Write", Timeout: 5, StatusMessage: "Checking plan template", Gate: true},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
 	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
