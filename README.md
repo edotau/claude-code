@@ -311,7 +311,7 @@ until you finalize:
   install and leaves the old binary in place. A keyring that does not answer skips the secrets and says to re-run.
 - `claude-code config finalize [--discard NAME]` checks every `.bak` against the vault and every imported keyring
   value against its vault copy, then deletes the backups, those keyring entries and an empty `env.d/`. A keyring
-  value changed since the migration is kept and reported; `--discard NAME` acknowledges it so finalize proceeds.
+  value changed since the migration is kept and reported; `--discard NAME` (repeatable) drops it so finalize proceeds.
 - `claude-code config rollback` (before finalize, with the new binary) restores every `.bak` and moves `vault.db`
   aside as `vault.db.rolledback-<ts>`; then reinstall the old binary.
 
