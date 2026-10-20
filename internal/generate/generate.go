@@ -27,11 +27,12 @@ var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
 
 // Options controls one generate pass.
 type Options struct {
-	Agents []string  // vendors to render; default DefaultAgents
-	DryRun bool      // print the rendered blocks; write nothing
-	Check  bool      // report drift; never writes
-	Home   string    // overrides os.UserHomeDir() for vendor config paths (tests)
-	Out    io.Writer // status lines; nil -> os.Stdout
+	Agents  []string  // vendors to render; default DefaultAgents
+	DryRun  bool      // print the rendered blocks; write nothing
+	Check   bool      // report drift; never writes
+	Home    string    // overrides os.UserHomeDir() for vendor config paths (tests)
+	Out     io.Writer // status lines; nil -> os.Stdout
+	Vendors bool      // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
 }
 
 // Run renders every selected vendor's config and reports whether anything
@@ -51,6 +52,10 @@ func Run(o Options) (drift bool, err error) {
 		if err != nil {
 			return false, fmt.Errorf("generate: %w", err)
 		}
+	}
+	if !o.Vendors && !configDirIsDefault() {
+		fmt.Fprintf(out, "generate: skipping vendor configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --vendors to include them\n", paths.ConfigDir())
+		return false, nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -95,6 +100,17 @@ func Run(o Options) (drift bool, err error) {
 		drift = drift || d
 	}
 	return drift, nil
+}
+
+// configDirIsDefault reports whether CLAUDE_CONFIG_DIR resolves to the default ~/.claude for the
+// process's real HOME: a worktree or test run that points CLAUDE_CONFIG_DIR elsewhere (while vendor
+// configs stay $HOME-rooted) must not write into the real vendor homes without --vendors.
+func configDirIsDefault() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return paths.ConfigDir() == filepath.Join(home, ".claude")
 }
 
 // backupAndWrite writes a single `.backup` of oldRaw (only when the file already existed) before
@@ -552,7 +568,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 		return false, err
 	}
 	path := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
-	drift, err := renderHooksFile(path, body, o, out, "copilot-hooks")
+	drift, err := renderHooksFile(path, body, mergeCopilotHooks, o, out, "copilot-hooks")
 	if err != nil {
 		return drift, err
 	}
