@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,69 +18,81 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func setConfigDir(t *testing.T) string {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	return dir
-}
-
-// noKeyring points PATH at an empty dir so keyring.Available() is false and Store/Delete never
-// touch the real OS keychain.
 func noKeyring(t *testing.T) {
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
 }
 
-// Store with forceFile must always write the file plane, even though no keyring is on PATH anyway.
-func TestStoreForceFileWritesFile(t *testing.T) {
-	setConfigDir(t)
-	plane, err := Store("A_KEY", "v", true)
-	if err != nil {
+func wrongVaultKey(t *testing.T) {
+	t.Helper()
+	vaulttest.Keyring(t)
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
+}
+
+func TestStoreUsesKeyringMasterKey(t *testing.T) {
+	dir, _ := vaulttest.UseKeyring(t)
+	if err := Store("A_KEY", "v"); err != nil {
 		t.Fatal(err)
 	}
-	if plane != EnvFile() {
-		t.Errorf("plane = %q, want %q", plane, EnvFile())
+	if value, source, err := Lookup("A_KEY"); err != nil || value != "v" || source != "vault" {
+		t.Fatalf("Lookup = (%q, %q, %v), want (v, vault, nil)", value, source, err)
 	}
-	if got := ReadAll()["A_KEY"]; got != "v" {
-		t.Errorf("A_KEY = %q, want v", got)
+	if _, source, err := vault.MasterKey(); err != nil || source != "keyring" {
+		t.Fatalf("MasterKey source = %q, %v, want keyring, nil", source, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "env.d")); !os.IsNotExist(err) {
+		t.Fatalf("Store must not create env.d: %v", err)
 	}
 }
 
-// Store with no keyring tool available must fall back to the file plane, not error.
-func TestStoreFallsBackToFileWithoutKeyring(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
-	plane, err := Store("B_KEY", "v", false)
-	if err != nil {
-		t.Fatal(err)
+func TestStoreWithoutMasterKeyFails(t *testing.T) {
+	_, kr := vaulttest.UseKeyring(t)
+	kr.Down = true
+	if err := Store("B_KEY", "v"); !errors.Is(err, vault.ErrLocked) {
+		t.Fatalf("Store = %v, want vault.ErrLocked", err)
 	}
-	if plane != EnvFile() {
-		t.Errorf("plane = %q, want %q", plane, EnvFile())
-	}
-	if got := ReadAll()["B_KEY"]; got != "v" {
-		t.Errorf("B_KEY = %q, want v", got)
+	if got := Names(); len(got) != 0 {
+		t.Fatalf("failed Store persisted names: %v", got)
 	}
 }
 
-// Delete must remove the name from the file plane (the keyring side is a no-op without a tool).
-func TestDeleteRemovesFileLine(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
-	if err := setFile("C_KEY", "v"); err != nil {
-		t.Fatal(err)
+func TestStoreRejectsMultiline(t *testing.T) {
+	for _, value := range []string{"a\nb", "a\rb", "a\r\nb", "\na", "a\n"} {
+		t.Run(strconv.Quote(value), func(t *testing.T) {
+			vaulttest.Use(t)
+			vaulttest.Secret(t, "ONE_LINE", "unchanged")
+			before := readRecord(t, "ONE_LINE")
+			if err := Store("ONE_LINE", value); err == nil || err.Error() != "ONE_LINE: a secret must be one line" {
+				t.Fatalf("Store multiline = %v", err)
+			}
+			after := readRecord(t, "ONE_LINE")
+			if !bytes.Equal(before.Sealed, after.Sealed) || before.Kid != after.Kid || !before.SetAt.Equal(after.SetAt) {
+				t.Fatal("rejected Store changed the existing record")
+			}
+		})
 	}
+}
+
+func TestDeleteRemovesVaultRecordWithoutKey(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "C_KEY", "v")
+	vaulttest.Secret(t, "KEPT", "untouched")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	t.Setenv("C_KEY", "env-value")
 	if err := Delete("C_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ReadAll()["C_KEY"]; ok {
-		t.Error("C_KEY still present after Delete")
+	if got := Names(); !slices.Equal(got, []string{"KEPT"}) {
+		t.Fatalf("Names after Delete = %v, want [KEPT]", got)
+	}
+	if value, source, err := Lookup("C_KEY"); err != nil || value != "env-value" || source != "env" {
+		t.Fatalf("Lookup after Delete = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
 	}
 }
 
 // Delete on a name stored nowhere must be a no-op, not an error.
 func TestDeleteMissingIsNoop(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
+	vaulttest.Use(t)
 	if err := Delete("NEVER_SET"); err != nil {
 		t.Fatalf("Delete on an unset name must not error: %v", err)
 	}
@@ -106,51 +120,48 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-// setFile/Get must round-trip through the file plane, and the written file must be 0600.
-func TestSetFileGetRoundTripAndPerms(t *testing.T) {
-	setConfigDir(t)
-	if err := setFile("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
-		t.Fatalf("setFile: %v", err)
+func TestStoreGetRoundTripAndPerms(t *testing.T) {
+	vaulttest.Use(t)
+	if err := Store("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
+		t.Fatalf("Store: %v", err)
 	}
-	fi, err := os.Stat(EnvFile())
+	fi, err := os.Stat(vault.Path())
 	if err != nil {
-		t.Fatalf("stat %s: %v", EnvFile(), err)
+		t.Fatalf("stat %s: %v", vault.Path(), err)
 	}
 	if perm := fi.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("perm = %04o, want 0600", perm)
 	}
 	val, source, ok := Get("GATEWAY_API_KEY")
-	if !ok || val != "sk-test-abc123" || source != "file" {
-		t.Fatalf("Get = (%q, %q, %v), want (sk-test-abc123, file, true)", val, source, ok)
+	if !ok || val != "sk-test-abc123" || source != "vault" {
+		t.Fatalf("Get = (%q, %q, %v), want (sk-test-abc123, vault, true)", val, source, ok)
 	}
 }
 
-// A later setFile must replace the value, not duplicate the key or disturb an unrelated one.
-func TestSetFileReplacesAndKeepsOthers(t *testing.T) {
-	setConfigDir(t)
-	if err := setFile("A_KEY", "first"); err != nil {
+func TestStoreReplacesAndKeepsOthers(t *testing.T) {
+	vaulttest.Use(t)
+	if err := Store("A_KEY", "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setFile("B_KEY", "untouched"); err != nil {
+	if err := Store("B_KEY", "untouched"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setFile("A_KEY", "second"); err != nil {
+	if err := Store("A_KEY", "second"); err != nil {
 		t.Fatal(err)
 	}
-	got := ReadAll()
-	if got["A_KEY"] != "second" {
-		t.Errorf("A_KEY = %q, want second", got["A_KEY"])
+	for name, want := range map[string]string{"A_KEY": "second", "B_KEY": "untouched"} {
+		if got, source, err := Lookup(name); err != nil || got != want || source != "vault" {
+			t.Errorf("Lookup(%s) = (%q, %q, %v), want (%q, vault, nil)", name, got, source, err, want)
+		}
 	}
-	if got["B_KEY"] != "untouched" {
-		t.Errorf("B_KEY = %q, want untouched", got["B_KEY"])
+	if got := Names(); !slices.Equal(got, []string{"A_KEY", "B_KEY"}) {
+		t.Fatalf("Names = %v, want [A_KEY B_KEY]", got)
 	}
 }
 
-// A process env export must win over the file plane per the keyring -> file -> env ladder reversed:
-// env is the last resort, consulted only when neither keyring nor file has the name.
-func TestGetFallsThroughToEnvOnlyWhenFileEmpty(t *testing.T) {
-	setConfigDir(t)
-	t.Setenv("ONLY_IN_ENV", "from-process-env")
+func TestGetFallsThroughToEnvOnlyWhenVaultEmpty(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("ONLY_IN_ENV", " from-process-env \n")
 	val, source, ok := Get("ONLY_IN_ENV")
 	if !ok || val != "from-process-env" || source != "env" {
 		t.Fatalf("Get = (%q, %q, %v), want (from-process-env, env, true)", val, source, ok)
@@ -159,9 +170,57 @@ func TestGetFallsThroughToEnvOnlyWhenFileEmpty(t *testing.T) {
 
 // Get on a name set nowhere must miss cleanly, never an error or a panic.
 func TestGetMiss(t *testing.T) {
-	setConfigDir(t)
-	if _, _, ok := Get("NEVER_SET"); ok {
+	vaulttest.Use(t)
+	t.Setenv("NEVER_SET", " \n")
+	if v, src, ok := Get("NEVER_SET"); ok || v != "" || src != "" {
 		t.Fatal("Get on an unset name must report ok=false")
+	}
+}
+
+func TestLookupVaultBeforeEnvAndPreservesError(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "LOOKUP", "vault-value")
+	t.Setenv("LOOKUP", "env-value")
+	if value, source, err := Lookup("LOOKUP"); err != nil || value != "vault-value" || source != "vault" {
+		t.Fatalf("Lookup = (%q, %q, %v), want (vault-value, vault, nil)", value, source, err)
+	}
+
+	wrongVaultKey(t)
+	if value, source, err := Lookup("LOOKUP"); !errors.Is(err, vault.ErrWrongKey) || value != "" || source != "" {
+		t.Fatalf("Lookup with wrong key = (%q, %q, %v), want empty, empty, ErrWrongKey", value, source, err)
+	}
+	if value, source, ok := Get("LOOKUP"); ok || value != "" || source != "" {
+		t.Fatalf("Get with wrong key = (%q, %q, %v), want empty, empty, false", value, source, ok)
+	}
+	t.Setenv("ENV_FALLBACK", " env-value ")
+	if value, source, err := Lookup("ENV_FALLBACK"); err != nil || value != "env-value" || source != "env" {
+		t.Fatalf("Lookup absent record = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
+	}
+}
+
+func TestLookupMissingAndEmptyValue(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("LOOKUP_EMPTY", "")
+	if value, source, err := Lookup("LOOKUP_EMPTY"); err != nil || value != "" || source != "" {
+		t.Fatalf("Lookup missing = (%q, %q, %v), want empty, empty, nil", value, source, err)
+	}
+	if err := Store("LOOKUP_EMPTY", ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOOKUP_EMPTY", "env-value")
+	if value, source, err := Lookup("LOOKUP_EMPTY"); err != nil || value != "" || source != "vault" {
+		t.Fatalf("Lookup empty record = (%q, %q, %v), want empty, vault, nil", value, source, err)
+	}
+	if value, source, ok := Get("LOOKUP_EMPTY"); ok || value != "" || source != "vault" {
+		t.Fatalf("Get empty record = (%q, %q, %v), want empty, vault, false", value, source, ok)
+	}
+}
+
+func TestNamesUnreadableVault(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Meta, "schema", "2")
+	if got := Names(); got != nil {
+		t.Fatalf("Names unreadable vault = %v, want nil", got)
 	}
 }
 
@@ -367,19 +426,22 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 
 // Status must never print a credential value, even when every registered provider resolves one.
 func TestStatusNeverPrintsAValue(t *testing.T) {
-	setConfigDir(t)
+	vaulttest.Use(t)
 	gw := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", gw)
 	secretValue := "sk-super-secret-value-0123456789"
 	t.Setenv("ANTHROPIC_API_KEY", secretValue)
-	if err := setFile("GATEWAY_API_KEY", secretValue); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Secret(t, "GATEWAY_API_KEY", secretValue)
+	t.Setenv("GATEWAY_API_KEY", "")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	t.Setenv("OPENAI_API_KEY", "") // keep deterministic: unset sources read as "none"
 
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatalf("providers.Load: %v", err)
+	}
+	if got := Resolve(reg.Providers["gateway"]); got.Source != "vault" {
+		t.Fatalf("Resolve(gateway) = %+v, want vault source without decryption", got)
 	}
 	var buf bytes.Buffer
 	Status(&buf, reg)
@@ -390,37 +452,46 @@ func TestStatusNeverPrintsAValue(t *testing.T) {
 	if !strings.Contains(out, "anthropic") || !strings.Contains(out, "env") {
 		t.Errorf("status did not report anthropic as env-sourced:\n%s", out)
 	}
-	if !strings.Contains(out, "gateway") || !strings.Contains(out, "file") {
-		t.Errorf("status did not report gateway as file-sourced:\n%s", out)
+	if !strings.Contains(out, "gateway") || !strings.Contains(out, "vault") {
+		t.Errorf("status did not report gateway as vault-sourced:\n%s", out)
 	}
 }
 
-// Doctor must flag secrets.env perms looser than 0600.
+// Doctor must flag vault.db perms looser than 0600.
 func TestDoctorFlagsLoosePerms(t *testing.T) {
-	setConfigDir(t)
-	if err := setFile("A_KEY", "v"); err != nil {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "A_KEY", "v")
+	if err := os.Chmod(vault.Path(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(EnvFile(), 0o644); err != nil {
+	reg, err := providers.Load()
+	if err != nil {
 		t.Fatal(err)
 	}
-	reg, _ := providers.Load()
 	var buf bytes.Buffer
 	if rc := Doctor(&buf, reg); rc != ExitFindings {
 		t.Fatalf("Doctor rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+	}
+	if !strings.Contains(buf.String(), vault.Path()+" is 0644, want 0600") || !strings.Contains(buf.String(), "chmod 600 "+vault.Path()) {
+		t.Fatalf("Doctor missing vault permission remediation: %s", buf.String())
 	}
 }
 
 // Doctor must flag an unknown key as a typo risk but still pass the gate (advisory only).
 func TestDoctorPassesOnCleanStore(t *testing.T) {
-	setConfigDir(t)
-	if err := setFile("ANTHROPIC_API_KEY", "v"); err != nil {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "UNKNOWN_KEY", "v")
+	reg, err := providers.Load()
+	if err != nil {
 		t.Fatal(err)
 	}
-	reg, _ := providers.Load()
 	var buf bytes.Buffer
 	if rc := Doctor(&buf, reg); rc != ExitClean {
 		t.Fatalf("Doctor rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
+	}
+	if !strings.Contains(buf.String(), "UNKNOWN_KEY matches no provider's auth.env") ||
+		!strings.Contains(buf.String(), "1 secret(s); master key from env") {
+		t.Fatalf("Doctor missing advisory or key source: %s", buf.String())
 	}
 }
 
@@ -495,20 +566,21 @@ func TestScanGitNotARepo(t *testing.T) {
 	}
 }
 
-// Store indexes the name (never the value) and Delete drops it, so a keyring-only custom secret stays listable.
+// Names remain listable without decryption, including custom secrets unknown to the provider registry.
 func TestStoreAndDeleteMaintainNamesIndex(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
+	vaulttest.Use(t)
 	for _, n := range []string{"Z_KEY", "A_KEY", "Z_KEY"} {
-		if _, err := Store(n, "secret-value", false); err != nil {
+		if err := Store(n, "secret-value"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := Names(); !slices.Equal(got, []string{"A_KEY", "Z_KEY"}) {
 		t.Fatalf("Names = %q, want [A_KEY Z_KEY]", got)
 	}
-	if b, _ := os.ReadFile(MetaFile()); strings.Contains(string(b), "secret-value") {
-		t.Fatal("meta file must hold names only, never the value")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	t.Setenv("ONLY_IN_ENV", "not-stored")
+	if got := Names(); !slices.Equal(got, []string{"A_KEY", "Z_KEY"}) {
+		t.Fatalf("Names without key = %q, want [A_KEY Z_KEY]", got)
 	}
 	if err := Delete("Z_KEY"); err != nil {
 		t.Fatal(err)
