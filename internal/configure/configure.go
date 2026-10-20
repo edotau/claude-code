@@ -431,43 +431,52 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	}
 	allOK = true
 	for _, kt := range targets {
+		var ok, targetChanged bool
 		if kt.present {
-			status, detail, age := probeCached(kt)
-			if status == "rejected" {
-				d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
-				if d.o.Interactive && !d.o.Check {
-					if runRotate(d, kt) || (kt.envVar != "" && resolveKey(d, kt)) {
-						changed = true
-						continue
-					}
-				}
-				allOK = false
-				continue
-			}
-			if status != "" && status != "login" {
-				d.printf("%-10s present (%s; %s%s)\n", kt.label, kt.source, status, ageSuffix(age))
-			} else {
-				d.printf("%-10s present (%s)\n", kt.label, kt.source)
-			}
-			if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
-				confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
-				if runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false) {
-					changed = true
-				}
-				continue
-			}
-			continue
+			ok, targetChanged = runPresentKey(d, kt)
+		} else {
+			ok, targetChanged = runAbsentKey(d, kt)
 		}
-		if d.o.Interactive && !d.o.Check {
-			if resolveKey(d, kt) {
-				changed = true
-				continue
-			}
-		}
-		allOK = false
-		d.printf("%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
+		allOK = allOK && ok
+		changed = changed || targetChanged
 	}
 	return allOK, changed
+}
+
+func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
+	status, detail, age := probeCached(kt)
+	if status == "rejected" {
+		return runRejectedKey(d, kt, detail)
+	}
+	if status != "" && status != "login" {
+		d.printf("%-10s present (%s; %s%s)\n", kt.label, kt.source, status, ageSuffix(age))
+	} else {
+		d.printf("%-10s present (%s)\n", kt.label, kt.source)
+	}
+	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
+		confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
+		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar}, false)
+	}
+	return true, false
+}
+
+func runRejectedKey(d *dialog, kt keyTarget, detail string) (ok, changed bool) {
+	d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
+	if !d.o.Interactive || d.o.Check {
+		return false, false
+	}
+	if runRotate(d, kt) || (kt.envVar != "" && resolveKey(d, kt)) {
+		return true, true
+	}
+	return false, false
+}
+
+func runAbsentKey(d *dialog, kt keyTarget) (ok, changed bool) {
+	if d.o.Interactive && !d.o.Check && resolveKey(d, kt) {
+		return true, true
+	}
+	d.printf("%-10s ABSENT: %s\n", kt.label, kt.fixCmd)
+	return false, false
 }
 
 // probe live-checks a present keyed credential (4s cap); "" when there is nothing to probe.
@@ -596,7 +605,12 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 		return true
 	}
 	if len(o.mint) > 0 {
-		if tok := runMint(o.mint); tok != "" {
+		tok, err := runMint(o.mint)
+		if err != nil {
+			d.printf("%s: %v\n", kt.label, err)
+			return false
+		}
+		if tok != "" {
 			return storeValue(d, o.env, tok, forceFile)
 		}
 		d.printf("%s: no token found in the output; paste it instead\n", o.env)
@@ -613,17 +627,19 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 	return storeValue(d, o.env, v, forceFile)
 }
 
-// runMint runs the token-minting CLI on the real terminal with stdout tee'd, and returns the token it printed.
-func runMint(argv []string) string {
+// runMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
+func runMint(argv []string) (string, error) {
 	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
-		return ""
+		return "", nil
 	}
 	var buf bytes.Buffer
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	_ = cmd.Run()
-	return setupTokenRE.FindString(buf.String())
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return setupTokenRE.FindString(buf.String()), nil
 }
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.

@@ -86,7 +86,11 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 		d.printf("%-10s logged in again\n", kt.label)
 		return true
 	}
-	tok := runMint(argv)
+	tok, err := runMint(argv)
+	if err != nil {
+		d.printf("%s: %v\n", kt.label, err)
+		return false
+	}
 	if tok == "" {
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
 		return false

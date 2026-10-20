@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -50,8 +51,8 @@ func copilotAuthSource() (CopilotAuth, bool) {
 	if tok, src, ok := secrets.Get(CopilotTokenEnv); ok && src != "env" {
 		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
-	if login := GHActiveAccount(); login != "" {
-		return CopilotAuth{Account: login, Source: srcActive}, true
+	if login, tok := ghActiveAccountToken(); login != "" {
+		return CopilotAuth{Account: login, Source: srcActive, token: tok}, true
 	}
 	for _, k := range copilotTokenEnvs {
 		if tok := strings.TrimSpace(os.Getenv(k)); tok != "" {
@@ -124,25 +125,68 @@ var ghUserRE = regexp.MustCompile(`(?m)^github\.com:\n(?:[ \t]+.*\n)*?[ \t]{1,4}
 
 // GHActiveAccount is gh's active github.com account from hosts.yml (no network), or "" when gh is not logged in.
 func GHActiveAccount() string {
+	account, _ := ghActiveAccountToken()
+	return account
+}
+
+type ghActiveTokenKey struct {
+	env     [5]string
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+var ghActiveTokenCache struct {
+	sync.Mutex
+	key            ghActiveTokenKey
+	account, token string
+}
+
+func ghActiveAccountToken() (account, token string) {
 	dir := os.Getenv("GH_CONFIG_DIR")
 	if dir == "" {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, ".config", "gh")
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "hosts.yml"))
+	path := filepath.Join(dir, "hosts.yml")
+	info, err := os.Stat(path)
 	if err != nil {
-		return ""
+		return "", ""
+	}
+	key := ghActiveTokenKey{
+		env: [5]string{os.Getenv("GH_CONFIG_DIR"), os.Getenv("GH_TOKEN"), os.Getenv("GITHUB_TOKEN"),
+			os.Getenv("GH_HOST"), os.Getenv("PATH")},
+		path: path, size: info.Size(), modTime: info.ModTime(),
+	}
+	ghActiveTokenCache.Lock()
+	defer ghActiveTokenCache.Unlock()
+	if ghActiveTokenCache.key == key && ghActiveTokenCache.account != "" {
+		return ghActiveTokenCache.account, ghActiveTokenCache.token
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
 	}
 	m := ghUserRE.FindSubmatch(raw)
 	if m == nil {
-		return ""
+		return "", ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if exec.CommandContext(ctx, "gh", "auth", "token").Run() != nil {
-		return "" // hosts.yml names a user but gh has no usable token for it
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return "", "" // hosts.yml names a user but gh has no usable token for it
 	}
-	return string(m[1])
+	// Overrides can make the default token differ from the named account's token; retain the original lookup.
+	if os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" ||
+		(os.Getenv("GH_HOST") != "" && os.Getenv("GH_HOST") != "github.com") {
+		account = string(m[1])
+	} else {
+		account, token = string(m[1]), strings.TrimSpace(string(out))
+	}
+	ghActiveTokenCache.key = key
+	ghActiveTokenCache.account, ghActiveTokenCache.token = account, token
+	return account, token
 }
 
 // GitHubLogin asks api.github.com/user who token belongs to; "" on any failure.
@@ -215,7 +259,10 @@ func copilotToken(a CopilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
 	if a.Source == srcPinned || a.Source == srcActive {
 		how = "gh auth token --user " + a.Account
-		if tok = GHToken(a.Account); tok == "" {
+		if a.Source != srcActive || tok == "" {
+			tok = GHToken(a.Account)
+		}
+		if tok == "" {
 			how = srcCopilot + " (" + how + " failed)"
 		}
 	}
