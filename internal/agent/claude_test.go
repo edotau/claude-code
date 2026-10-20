@@ -69,3 +69,39 @@ func TestParseClaudeStreamWriteError(t *testing.T) {
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
 }
+
+type newlineRejectWriter struct {
+	writes []string
+	err    error
+}
+
+func (w *newlineRejectWriter) Write(p []byte) (int, error) {
+	w.writes = append(w.writes, string(p))
+	if string(p) == "\n" {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+
+func TestParseClaudeStreamNewlineError(t *testing.T) {
+	for name, stream := range map[string]string{
+		"blocks": `{"type":"assistant","message":{"content":[{"type":"text","text":"one"},{"type":"text","text":"two"},{"type":"text","text":"three"}]}}
+{"type":"result","result":"one\ntwo\nthree"}`,
+		"events": `{"type":"assistant","message":{"content":[{"type":"text","text":"one"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"two"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"three"}]}}
+{"type":"result","result":"one\ntwo\nthree"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			injected := errors.New("newline rejected")
+			w := &newlineRejectWriter{err: injected}
+			_, err := parseClaudeStream(strings.NewReader(stream), w)
+			if !errors.Is(err, injected) {
+				t.Fatalf("err = %v, want injected newline error", err)
+			}
+			if len(w.writes) != 2 || w.writes[0] != "one" || w.writes[1] != "\n" {
+				t.Fatalf("writes = %q, want only first text and rejected newline", w.writes)
+			}
+		})
+	}
+}

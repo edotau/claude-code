@@ -137,7 +137,9 @@ func writeClaudeAssistant(w io.Writer, ev claudeEvent, wrote bool) (bool, error)
 			continue
 		}
 		if wrote {
-			io.WriteString(w, "\n")
+			if _, err := io.WriteString(w, "\n"); err != nil {
+				return wrote, err
+			}
 		}
 		if _, err := io.WriteString(w, b.Text); err != nil {
 			return wrote, err

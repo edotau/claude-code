@@ -209,6 +209,12 @@ func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	}
 }
 
+func TestCaptureCommandLineLimit(t *testing.T) {
+	if !strings.Contains(captureCommand, `tmux capture-pane -p -t "$pid" -S -50 2>/dev/null`) {
+		t.Fatalf("capture command lost its 50-line limit: %s", captureCommand)
+	}
+}
+
 func TestCapturePanes_PassesBatchAndHostThroughExecArgs(t *testing.T) {
 	var gotArgv []string
 	run := func(_ context.Context, argv []string) ([]byte, error) {

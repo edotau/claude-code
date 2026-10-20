@@ -3,6 +3,7 @@ package gemini
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/fs"
 	"os"
@@ -90,7 +91,10 @@ func isRegularFile(path string) bool {
 
 // CollectContext walks dirs and globs patterns, inlining up to maxFiles text files (0 = none, <0 = default),
 // each cut at maxFileBytes (<=0 = default); matches are deduped and sorted so output is deterministic.
-func CollectContext(cwd string, dirs, patterns []string, maxFiles, maxFileBytes int) (Context, error) {
+func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes int) (Context, error) {
+	if err := ctx.Err(); err != nil {
+		return Context{}, err
+	}
 	if maxFiles < 0 {
 		maxFiles = DefaultMaxFiles
 	}
@@ -101,7 +105,11 @@ func CollectContext(cwd string, dirs, patterns []string, maxFiles, maxFileBytes 
 	var tracked map[string]bool
 	var inRepo bool
 	if len(dirs) > 0 {
-		tracked, inRepo = gitTrackedFiles(cwd)
+		var err error
+		tracked, inRepo, err = gitTrackedFiles(ctx, cwd)
+		if err != nil {
+			return Context{}, err
+		}
 	}
 	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
 	skipped = append(skipped, globPatterns(cwd, patterns, matches)...)
@@ -112,30 +120,30 @@ func CollectContext(cwd string, dirs, patterns []string, maxFiles, maxFileBytes 
 	}
 	sort.Strings(sorted)
 
-	var ctx Context
-	ctx.Skipped = append(ctx.Skipped, skipped...)
+	var collected Context
+	collected.Skipped = append(collected.Skipped, skipped...)
 	for _, abs := range sorted {
 		rel := relSlash(cwd, abs)
 		switch {
 		case isIgnored(rel):
-			ctx.Skipped = append(ctx.Skipped, SkippedFile{rel, "ignored-path"})
+			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "ignored-path"})
 		case isSecretLike(rel):
-			ctx.Skipped = append(ctx.Skipped, SkippedFile{rel, "secret-like"})
-		case len(ctx.Included) >= maxFiles:
-			ctx.Skipped = append(ctx.Skipped, SkippedFile{rel, "max-files-exceeded"})
+			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "secret-like"})
+		case len(collected.Included) >= maxFiles:
+			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "max-files-exceeded"})
 		default:
 			inc, reason, err := readInclude(abs, rel, maxFileBytes)
 			if err != nil {
-				return ctx, err
+				return collected, err
 			}
 			if reason != "" {
-				ctx.Skipped = append(ctx.Skipped, SkippedFile{rel, reason})
+				collected.Skipped = append(collected.Skipped, SkippedFile{rel, reason})
 			} else {
-				ctx.Included = append(ctx.Included, inc)
+				collected.Included = append(collected.Included, inc)
 			}
 		}
 	}
-	return ctx, nil
+	return collected, nil
 }
 
 // walkDirs recursively collects files under dirs, pruning ignored directories and — inside a git work
@@ -201,13 +209,13 @@ func globPatterns(cwd string, patterns []string, matches map[string]bool) []Skip
 
 // gitTrackedFiles lists cwd's cached + untracked-not-ignored paths (relative, forward-slash) when cwd
 // is inside a git work tree; ok is false outside one, and the caller then walks everything.
-func gitTrackedFiles(cwd string) (tracked map[string]bool, ok bool) {
-	if exec.Command("git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() != nil {
-		return nil, false
+func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, ok bool, err error) {
+	if exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() != nil {
+		return nil, false, ctx.Err()
 	}
-	out, err := exec.Command("git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
-		return nil, false
+		return nil, false, ctx.Err()
 	}
 	tracked = map[string]bool{}
 	for _, p := range strings.Split(strings.Trim(string(out), "\x00"), "\x00") {
@@ -215,7 +223,7 @@ func gitTrackedFiles(cwd string) (tracked map[string]bool, ok bool) {
 			tracked[filepath.ToSlash(p)] = true
 		}
 	}
-	return tracked, true
+	return tracked, true, nil
 }
 
 // readInclude stats and bounded-reads abs (at most maxFileBytes+1 bytes), returning either the

@@ -231,7 +231,9 @@ func parseOpenCodeStream(r io.Reader, w io.Writer) (Result, error) {
 				continue
 			}
 			if len(texts) > 0 {
-				io.WriteString(w, "\n")
+				if _, err := io.WriteString(w, "\n"); err != nil {
+					return res, err
+				}
 			}
 			if _, err := io.WriteString(w, ev.Part.Text); err != nil {
 				return res, err
@@ -328,10 +330,12 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err != nil {
 		return res, err
 	}
-	io.WriteString(stream, out.Text)
 	if out.Model != "" {
 		res.Model = out.Model
 	}
 	res.SessionID, res.Answer = out.SessionID, out.Text
+	if _, err := io.WriteString(stream, out.Text); err != nil {
+		return res, err
+	}
 	return res, nil
 }

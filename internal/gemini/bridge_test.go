@@ -393,7 +393,7 @@ func TestChangedFilesVsHEADErrorsOutsideRepo(t *testing.T) {
 		t.Skip("git not on PATH")
 	}
 	dir := t.TempDir()
-	_, err := ChangedFilesVsHEAD(dir)
+	_, err := ChangedFilesVsHEAD(t.Context(), dir)
 	if err == nil {
 		t.Fatal("expected an error outside a git work tree")
 	}

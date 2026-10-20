@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -32,7 +33,7 @@ func BuildPrompt(task string, ctx Context) string {
 				blocks.WriteString("\n\n")
 			}
 			fmt.Fprintf(&blocks, "<file path=%q media_type=%q truncated=%q>%s</file>",
-				f.Path, f.MediaType, fmt.Sprintf("%t", f.Truncated), f.Content)
+				f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
 		}
 	}
 
