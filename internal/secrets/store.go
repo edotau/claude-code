@@ -32,7 +32,7 @@ func Store(name, value string) error {
 		return tx.PutRecord(name, vault.Record{
 			Sealed: key.Seal(name, value),
 			Kid:    key.Kid,
-			Prefix: metaPrefix(value),
+			Prefix: MetaPrefix(value),
 			Len:    len(value),
 			SetAt:  time.Now(),
 		})

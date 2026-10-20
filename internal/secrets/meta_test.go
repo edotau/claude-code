@@ -222,7 +222,7 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 			t.Fatalf("prefix %q persisted for %q: over a third of the value", p, v)
 		}
 	}
-	if p := metaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
-		t.Fatalf("metaPrefix dropped a genuine vendor prefix: %q", p)
+	if p := MetaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
+		t.Fatalf("MetaPrefix dropped a genuine vendor prefix: %q", p)
 	}
 }

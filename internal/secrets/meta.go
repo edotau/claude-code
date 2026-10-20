@@ -65,9 +65,8 @@ func CachedProbe(m Meta, ttl time.Duration, now time.Time) (status string, age t
 	return "", age, false
 }
 
-// metaPrefix is the vendor prefix safe to persist: dropped when it covers over a third of v, so a value made only
-// of short dash-separated segments never lands in the meta file whole.
-func metaPrefix(v string) string {
+// MetaPrefix retains a vendor prefix only when it covers at most a third of the secret.
+func MetaPrefix(v string) string {
 	if p := keyPrefix(v); len(p) <= len(v)/3 {
 		return p
 	}
