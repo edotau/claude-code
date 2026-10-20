@@ -36,16 +36,8 @@ suggest the slug.
 
 ## Harness guidelines every plan must respect
 
-- **Dispatch shape:** code steps on disjoint packages can run in parallel; every code step is paired with a
-  `copilot` test-repair agent in the same dispatch (repairs only); new tests come after the live check.
-- **Cost routing:** code steps are spread evenly across runners (claude, copilot, codex, opencode) per
-  `skills/subagent-workflows/references/cost-routing.md`; each step names its `runner:`. Claude keeps
-  judgement, integration and verification.
-- **Vendor CLIs first:** review → `claude-code ask --agent codex`; test edits → the `copilot` agent (Copilot
-  CLI); large sweeps → `gemini bridge`; doc drafting → `opencode`. Fallback ends on Claude; raise model and
-  effort only for unusually complex steps.
-- **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end;
-  commit by area with explicitly named files (the live `~/.claude` checkout is shared by sessions).
-- **Repo rules:** `settings.json` is generated (edit the template); secrets only in the keyring, `env.d/` or
-  `auth.command`; CLI/TUI text ≤80 columns; the repo is public, so nothing company-specific or
-  non-open-sourceable gets tracked; propose user-visible look/behavior changes before applying them.
+- **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in keyring/`env.d/`/`auth.command`, propose look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
+- **Dispatch shape:** `rules/workflow/agents.md` — disjoint-package code steps run in parallel; every code step pairs a `copilot` test-repair agent and names a `runner:`; new tests come after the live check.
+- **Cost routing:** spread steps across runners per `skills/subagent-workflows/references/cost-routing.md`; Claude keeps judgement, integration and verification.
+- **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area with explicitly named files.
+- **Docs:** where new documentation goes — `rules/harness/docs-placement.md`.

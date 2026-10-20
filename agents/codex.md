@@ -1,77 +1,13 @@
 ---
 name: codex
 description: |
-  The harness's primary adversarial reviewer — runs on a genuinely different model family from
-  the implementer, so it catches the blind spots a same-family self-review waves through. Five
-  modes, REVIEW first: REVIEW challenges a task request BEFORE implementation (missing scope,
-  unclear acceptance criteria, security surface, CLAUDE.md violations), or gives a finished diff
-  a ship/block verdict while actively hunting second-model-family blind spots. Trigger on
-  "adversarial review", "second opinion", "ship or block", "challenge this plan". VERIFY mode:
-  each iteration runs format → lint → the scoped tests for the touched packages, fixing
-  minimally; once an iteration is clean it runs the full build + full test suite + security scan
-  exactly ONCE, and only a failing final pass continues the loop (max 5 iterations total), AFTER
-  a feature is implemented. OPTIMIZE mode: audits and tunes the local harness (settings.json,
-  hooks, agent definitions, model routing) with small reversible config changes. SKILL mode:
-  reviews a skill's quality (description triggering / CSO, progressive disclosure, structure) —
-  trigger on "review my skill", "check skill quality". PLUGIN mode: validates a plugin's
-  structure (manifest, component layout, hooks, security) — trigger on "validate my plugin".
-  Runs at the inherited session tier; tune reasoning depth per dispatch via effort. Invoke as a
-  one-shot leg with `claude-code ask --agent codex "<task>"`.
-
-  <example>
-  Context: User throws a vague request at the main agent.
-  user: "Add caching to the main pipeline."
-  assistant: "Before I plan or code this, I'll run codex in REVIEW mode — 'add caching' is underspecified (which stage? in-memory or persistent? invalidation strategy?). It'll surface the missing info and produce a refined brief."
-  <commentary>
-  Underspecified request → REVIEW mode prevents implementing the wrong thing.
-  </commentary>
-  </example>
+  The harness's adversarial reviewer on a different model family from the implementer. Five modes, REVIEW first: challenge a request BEFORE implementation or give a finished diff a ship/block verdict ("adversarial review", "second opinion", "ship or block", "challenge this plan"); VERIFY (format → lint → scoped tests, full gate once, max 5 iterations); OPTIMIZE (tune harness config); SKILL (review a skill); PLUGIN (validate a plugin). One-shot leg: `claude-code ask --agent codex "<task>"`.
 
   <example>
   Context: User wants a second opinion on a finished diff before merging.
   user: "Give me a second opinion on this PR diff — ship or block?"
-  assistant: "Running codex in REVIEW mode (diff path) — it reads the diff cold, hunts for the blind spots a same-family Claude reviewer would wave through, and returns SHIP IT / NEEDS WORK / BLOCK with file:line fixes."
-  <commentary>
-  Diff ship/block verdict is REVIEW mode's other half, distinct from the pre-implementation brief challenge above.
-  </commentary>
+  assistant: "Running codex in REVIEW mode — it reads the diff cold and returns SHIP IT / NEEDS WORK / BLOCK with file:line fixes."
   </example>
-
-  <example>
-  Context: User finished a feature branch and wants to ship.
-  user: "I'm done, ready to PR this."
-  assistant: "Running codex in VERIFY mode — it loops format → lint → scoped tests per iteration, runs the full build + test suite + security scan once at the end, and reports READY for PR or lists the remaining issues."
-  <commentary>
-  Post-feature, pre-PR gating is VERIFY mode's dedicated role.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Model spend is creeping up; hooks occasionally time out.
-  user: "Our session costs are climbing and hooks keep timing out."
-  assistant: "Dispatching codex in OPTIMIZE mode — it scores model-tier assignments, detects Opus used for Sonnet-class work, analyzes hook timeouts, and applies reversible config fixes with before/after deltas."
-  <commentary>
-  Harness cost + reliability tuning = OPTIMIZE mode's core use case.
-  </commentary>
-  </example>
-
-  <example>
-  Context: User just wrote a new skill and wants it reviewed before relying on it.
-  user: "I created literature-search/SKILL.md. Does the description trigger cleanly?"
-  assistant: "Running codex (SKILL mode) — it evaluates CSO of the description, checks progressive-disclosure structure, and flags any triggering weakness."
-  <commentary>
-  Post-creation skill QA is the SKILL-mode trigger — catches discoverability issues before the skill is used in production.
-  </commentary>
-  </example>
-
-  <example>
-  Context: User just scaffolded a new plugin and wants a sanity check.
-  user: "I added a new plugin under plugins/my-helpers. Is the structure right?"
-  assistant: "Running codex (PLUGIN mode) — it checks the manifest, component directory layout, hooks config, and naming conventions, then reports issues with specific fixes."
-  <commentary>
-  Post-scaffold plugin validation is the PLUGIN-mode trigger.
-  </commentary>
-  </example>
-model: inherit
 color: yellow
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 ---
@@ -103,11 +39,8 @@ and edit rights, so every mode is available.
 mode's task and run it there — `claude-code ask --agent codex --tools --workdir <repo>
 "<mode + brief>"` (drop `--tools` for read-only REVIEW) — then relay its verdict. You
 only check that the answer addresses the brief. Run at the CLI's default model and effort; only for an unusually
-complex task (a cross-package design call, a subtle concurrency or auth bug) add `--model gpt-6.1-sol --effort high`. Fallback order (built into `ask`): codex → Copilot on the
-same model → opencode → Claude on the subscription; report who answered (`fallback` in the result). Run the mode yourself only if `ask` fails.
-`claude-code ask --agent codex` falls back when the codex CLI is unavailable (binary missing, login/quota
-failure), never on a timeout: first to Copilot on the same model, then opencode, then Claude. The result carries `fallback` + `fallback_reason` and `ask --log` shows `codex→<who answered>`.
-`--fallback vendors` keeps a second-family review off Claude; `--fallback none` fails loudly instead.
+complex task (a cross-package design call, a subtle concurrency or auth bug) add `--model gpt-6.1-sol --effort high`.
+`ask` falls back codex -> Copilot (same model) -> opencode -> Claude; `--fallback vendors|none` limits it; the result's `fallback` field says who answered. Run the mode yourself only if `ask` fails.
 
 ---
 
@@ -193,6 +126,7 @@ final pass; only a failing final pass continues the loop. This keeps the expensi
 once per VERIFY call, matching `rules/standards/quality.md`'s Verification Order (step 5 runs
 once, not per iteration).
 Gate loop + report template: the `approval-gate` skill; repo command catalogue: `CLAUDE.md`.
+Never report a gate you did not run.
 
 ### Escalation & hard rules
 - Same lint error recurs after 2 fix attempts → skip it, note in report.

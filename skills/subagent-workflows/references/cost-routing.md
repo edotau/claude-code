@@ -44,6 +44,8 @@ much it had to fix by hand. The manager tallies these per runner in its final re
 Treat the answer as a claim: inspect `git diff --stat` for the files it should have touched and run the
 step's verification command yourself.
 
+A leaf that was assigned a runner but did the work itself counts as a skipped leg, not a success - report why.
+
 ## Brief
 
 Same contract as any dispatch ([SKILL.md](../SKILL.md)): one objective, the files it may touch, the

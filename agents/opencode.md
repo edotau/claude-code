@@ -1,69 +1,16 @@
 ---
 name: opencode
 description: |
-  Docs + memory specialist, five modes over two substrates. DOC-UPDATE refreshes existing
-  READMEs/guides from the current codebase after a structural change. DOC-LOOKUP answers
-  library/framework/API questions from current official sources, not training data alone.
-  ANALYZE (dispatched by /reflection:review) is a read-only memory-health report over Claude
-  Code's native memory layer and the harness's session memory bank (`claude-code memory doctor`
-  + `memory archive` audit output). EXTRACT (dispatched by /reflection:extract) turns a proven
-  recurring pattern into a portable skill under skills/<name>/SKILL.md. PERSIST (dispatched by
-  the session-harvest Stop gate, or /memory:end) writes the session into the memory bank by
-  driving the deterministic `claude-code memory *` verbs. The dispatching command sets the mode;
-  if invoked directly, infer it from the ask. Runs as a Claude Code subagent (model: sonnet) —
-  ANALYZE/EXTRACT/PERSIST are judgement calls (promotion scoring, skill naming, spotting a thin
-  brief) that a cheaper tier serves less reliably, and the doc modes ride along at the same tier
-  since they're already the cheaper half of the work. DOC-UPDATE/DOC-LOOKUP drafting runs on the
-  real OpenCode CLI via `claude-code ask --agent opencode --tools`; it validates the result and
-  drafts itself only when that leg fails.
+  Docs + memory specialist, five modes. DOC-UPDATE refreshes READMEs/guides after a structural change. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via /reflection:review) is a read-only memory-health report. EXTRACT (via /reflection:extract) turns a proven pattern into a skill. PERSIST (via session-harvest or /memory:end) writes the session into the memory bank. The dispatcher sets the mode; infer it if invoked directly. Doc drafting runs on the OpenCode CLI via `claude-code ask --agent opencode --tools`.
 
   <example>
   Context: User added a new module and wants docs refreshed.
   user: "I added internal/widgets/sync.go — can you update the README?"
-  assistant: "Dispatching opencode (DOC-UPDATE) to refresh the README's module list and usage section from the new structure."
-  <commentary>
-  Doc refresh after a structural change is the DOC-UPDATE trigger.
-  </commentary>
-  </example>
-
-  <example>
-  Context: User asks about a third-party SDK API.
-  user: "How do I use the Go SDK's client.Jobs.ListRuns pagination?"
-  assistant: "Routing to opencode (DOC-LOOKUP) — it finds the current official SDK docs and returns a sourced answer."
-  <commentary>
-  Library API question = DOC-LOOKUP; current official documentation avoids stale training-data answers.
-  </commentary>
-  </example>
-
-  <example>
-  Context: User invokes /reflection:review to audit the memory layer before a consolidation pass.
-  user: "/reflection:review"
-  assistant: "Launching opencode (ANALYZE) — it runs `claude-code memory doctor` and `memory archive` (audit), cross-references every finding against rules/ and CLAUDE.md, scores each on Durability+Impact+Scope, and returns a ranked report of promotion candidates, stale entries, and conflicts. Read-only."
-  <commentary>
-  /reflection:review is the ANALYZE dispatch — observe and report, never promote or edit.
-  </commentary>
-  </example>
-
-  <example>
-  Context: /reflection:extract is invoked with a proven pattern about a provider auth quirk.
-  user: "/reflection:extract 'the OpenRouter bearer must be re-minted after a 401, caching it past the first refresh silently serves a stale key'"
-  assistant: "Launching opencode (EXTRACT) — it names the skill (e.g. provider-auth-refresh), writes trigger-oriented frontmatter and a problem/solution/edge-cases body with the exact error string for searchability, runs the quality gates, and reports the output path."
-  <commentary>
-  EXTRACT turns a concrete, proven pattern into a portable skill — never a hypothetical one.
-  </commentary>
-  </example>
-
-  <example>
-  Context: The session-harvest Stop gate blocked, asking for the session to be persisted.
-  user: "Session harvest (~12 file edits). Dispatch opencode in PERSIST mode."
-  assistant: "Dispatching opencode (PERSIST) with a brief of what changed this session — it runs `claude-code memory update` and updates activeContext/progress/sessionHistory, and reports what it wrote. The gate releases on the resulting bank mtimes."
-  <commentary>
-  PERSIST is the writer mode. The parent MUST brief it — a subagent has no view of the parent's conversation.
-  </commentary>
+  assistant: "Dispatching opencode (DOC-UPDATE) to refresh the README's module list and usage section."
   </example>
 tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch]
 model: sonnet
-effort: low
+effort: medium
 color: red
 ---
 

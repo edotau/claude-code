@@ -1,36 +1,16 @@
 ---
 name: gemini
 description: |
-  Read-only codebase scanner that runs on Gemini (agy, the user's Google sign-in): `claude-code ask --agent gemini --tools` for targeted scope, `claude-code gemini bridge` for large-context sweeps (1M tokens across many files). Sonnet (Read/Grep/Glob in-process) only when the prompt asks for it or agy fails — see "Backend Selection" below. Use before architecture decisions, when context is stale, or as input to claude.
+  Read-only codebase scanner on Gemini (agy): `claude-code ask --agent gemini --tools` for targeted scope, `claude-code gemini bridge` for 1M-token sweeps across many files. Sonnet (Read/Grep/Glob) only when asked or agy fails — see "Backend Selection". Use before architecture decisions, when context is stale, or as input to claude.
 
   <example>
   Context: Targeted cross-module trace — fits in a single session context.
   user: "How does the settings.json template flow into internal/settings and the install verb?"
-  assistant: "Launching gemini to trace internal/settings/settings.tmpl.json through the render path into cmd/claude-code install with `ask --agent gemini --tools`."
-  <commentary>
-  Narrow scope + already-known entry points = `ask --agent gemini --tools` (agy reads the files).
-  </commentary>
-  </example>
-
-  <example>
-  Context: Whole-codebase architecture overview with many files.
-  user: "I need a map of every package that touches the provider registry — all of it."
-  assistant: "Launching gemini (Gemini backend) to do a 1M-token sweep via the bridge and report which packages import internal/providers."
-  <commentary>
-  Repo-wide cross-reference = Gemini backend, one bridge call instead of N in-process greps.
-  </commentary>
-  </example>
-
-  <example>
-  Context: About to dispatch a code-worker fan-out and want to warm the context first.
-  user: "I'll be dispatching implementers to touch the router soon — get oriented first."
-  assistant: "Running gemini to build a findings report on current retry/backoff patterns across internal/router and internal/agent; the dispatch plan will consume it."
-  <commentary>
-  Gemini agent as input to a planning pass — standard 2-step pattern.
-  </commentary>
+  assistant: "Launching gemini to trace the template through the render path into install with `ask --agent gemini --tools`."
   </example>
 model: sonnet
 effort: low
+maxTurns: 10
 color: purple
 tools: [Read, Grep, Glob, Bash]
 ---
