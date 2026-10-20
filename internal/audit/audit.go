@@ -32,16 +32,17 @@ const (
 	SetupNuke         Action = "setup_nuke"
 	SetupWorkspace    Action = "setup_workspace"
 	CopilotAuth       Action = "copilot_auth"
+	PlanSaved         Action = "plan_saved"
 )
 
 // Actions lists every valid action in report order.
 var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth}
+	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, PlanSaved}
 
 func (a Action) Valid() bool {
 	switch a {
 	case ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth:
+		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth, PlanSaved:
 		return true
 	default:
 		return false

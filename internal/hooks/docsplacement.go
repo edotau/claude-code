@@ -38,7 +38,18 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 		return ExitProceed
 	}
 	if tool == "apply_patch" {
-		for _, line := range strings.Split(in.ToolCommand(), "\n") {
+		var patch string
+		for _, key := range []string{"patch", "input", "command"} {
+			text := in.nested("tool_input", key)
+			if key == "command" {
+				text = in.ToolCommand()
+			}
+			if strings.Contains(text, "*** Begin Patch") {
+				patch = text
+				break
+			}
+		}
+		for _, line := range strings.Split(patch, "\n") {
 			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
 				if path, ok := strings.CutPrefix(line, prefix); ok {
 					if code := docsPlacementPath(in, strings.TrimSpace(path), stderr); code != ExitProceed {

@@ -4,7 +4,6 @@
 package hooks
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -50,7 +49,10 @@ func inflightDir() string {
 // PostToolUseFailure (a spawn that never ran), else the SubagentStop's own tagged marker on
 // SubagentStop. Fail-open on any infra error.
 func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+	return agentInflight(mode, ParseInput(r), stderr)
+}
+
+func agentInflight(mode string, in *Input, stderr io.Writer) int {
 	dir := inflightDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ExitProceed
@@ -78,6 +80,10 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 		return ExitProceed // not a spawn: nothing to count
 	}
 	id := dispatchID(in)
+	if id == "" {
+		// Without a shared dispatch ID, later events cannot match this marker; only pruning can retire it.
+		id = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
 	transcriptDir := subagentDir(in.TranscriptPath)
 	code := ExitProceed
 	// TryFileLock, not WithFileLock: the latter is fail-open, and counting markers unlocked races a
@@ -95,9 +101,6 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 	})
 	if !ran {
 		// Contention IS the burst: write-then-count means every racer sees its peers, so over-cap ones back off.
-		if id == "" {
-			id = strconv.FormatInt(time.Now().UnixNano(), 36) // pin the name so the over-cap Remove hits this marker
-		}
 		writeMarker(dir, owner, id)
 		if n := pruneAndCountMarkers(dir, owner, transcriptDir, time.Now()); n > AgentMaxInflight {
 			_ = os.Remove(filepath.Join(dir, markerName(owner, id)))
@@ -114,9 +117,9 @@ func AgentInflight(mode string, r io.Reader, stderr io.Writer) int {
 // back: an agent that then ends through SubagentHandback never stops again, and a held slot would block
 // every new dispatch until the idle prune (live: 6 of 8 slots leaked that way on 2026-10-18).
 func SubagentStop(r io.Reader, stderr io.Writer) int {
-	raw, _ := io.ReadAll(r)
-	code := SimplifyAfterEdits(bytes.NewReader(raw), stderr)
-	_ = AgentInflight("post", bytes.NewReader(raw), stderr)
+	in := ParseInput(r)
+	code := simplifyAfterEdits(in, stderr)
+	_ = agentInflight("post", in, stderr)
 	return code
 }
 
@@ -186,7 +189,7 @@ func scanAgentID(text string) string {
 
 // tagMarker binds this dispatch's marker to the agent id its spawn reported, so the matching
 // SubagentStop retires that ONE marker. No id reported = a foreground Agent that already finished,
-// so the marker retires here; no tool_use_id leaves a timestamp-named marker only the TTL can clear.
+// so the marker retires here; no tool_use_id leaves an untagged marker for owner/TTL pruning only.
 func tagMarker(dir string, owner int, id, agentID string) {
 	if id == "" {
 		return
