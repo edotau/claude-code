@@ -220,6 +220,8 @@ var Registry = map[string]Handler{
 	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
 	"agent-inflight-post": func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
+	"plan-template":       func(in io.Reader, _, errw io.Writer) int { return PlanTemplate(in, errw) },
+	"plan-mirror":         func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
 	"save-plan":           func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
 	"access-trace":        func(in io.Reader, _, _ io.Writer) int { return AccessTrace(in) },
 	"subagent-stop":       func(in io.Reader, _, errw io.Writer) int { return SubagentStop(in, errw) },
