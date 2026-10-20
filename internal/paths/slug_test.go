@@ -52,3 +52,16 @@ func TestRepoSlugConfigWorktree(t *testing.T) {
 		t.Errorf("RepoSlug(config worktree) = %q, want empty", got)
 	}
 }
+
+// The inverse: the config dir is itself a linked worktree of another checkout.
+func TestRepoSlugConfigDirIsWorktree(t *testing.T) {
+	main := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, ".git"), []byte("gitdir: "+main+"/.git/worktrees/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := RepoSlug(cfg); got != "" {
+		t.Errorf("RepoSlug(config dir worktree) = %q, want empty", got)
+	}
+}

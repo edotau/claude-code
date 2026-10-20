@@ -36,7 +36,7 @@ func Slug(s, keep string, max int, fallback string) string {
 // branch directory ("main", "fix-x") minting its own and colliding across repos.
 func RepoSlug(root string) string {
 	main := MainCheckout(root)
-	if root == "" || SamePath(main, ConfigDir()) {
+	if root == "" || SamePath(root, ConfigDir()) || SamePath(main, ConfigDir()) {
 		return ""
 	}
 	return Slug(filepath.Base(filepath.Clean(main)), "._-", 0, "")

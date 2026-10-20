@@ -28,7 +28,7 @@ var identities sync.Map
 // Resolve maps root to its canonical identity; any git failure is the global tier, never an error.
 func Resolve(root string) Identity {
 	root = filepath.Clean(root)
-	if paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
+	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
 		return harnessIdentity()
 	}
 	if id, ok := storeIdentity(root); ok {

@@ -30,6 +30,26 @@ func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
 	}
 }
 
+// The inverse: CLAUDE_CONFIG_DIR is itself a linked worktree, so its main checkout is not the config dir.
+func TestMemoryRootHonorsConfigDirWorktree(t *testing.T) {
+	main := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	pointer := "gitdir: " + filepath.Join(main, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(cfg, ".git"), []byte(pointer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	t.Chdir(other)
+	t.Setenv("CLAUDE_PROJECT_DIR", cfg)
+	if got := memoryRoot(""); got != cfg {
+		t.Fatalf("memoryRoot(\"\") = %q, want config worktree %q (not cwd %q)", got, cfg, other)
+	}
+}
+
 // A CLAUDE_PROJECT_DIR that is not a repo (a launcher stamping $HOME) must not win over the cwd's toplevel.
 func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 	cfg := t.TempDir()
