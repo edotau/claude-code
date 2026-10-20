@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -165,7 +166,9 @@ func planDest(dir, base string, plan []byte) (string, bool) {
 }
 
 // taskHeading picks the plan headings that become checklist items: phases, steps, parts and tasks.
-var taskHeading = regexp.MustCompile(`(?m)^#{2,4}\s+(.*\b(?:Phase|Step|Part|Task|Stage|Milestone)\b.*?)\s*$`)
+var taskHeading = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^#{2,4}\s+(.*\b(?:Phase|Step|Part|Task|Stage|Milestone)\b.*?)\s*$`)
+})
 
 // planCloseout is the completion tail every plan's checklist ends with.
 var planCloseout = []string{
@@ -180,7 +183,7 @@ var planCloseout = []string{
 // withTasks appends a `## Tasks` checklist when the plan has none: the recovery point if a session, agent or
 // worktree is lost. A plan that already carries `- [ ]`/`- [x]` lines is returned unchanged.
 func withTasks(plan []byte) []byte {
-	if checkboxLine.Match(plan) {
+	if checkboxLine().Match(plan) {
 		return plan
 	}
 	var b bytes.Buffer
@@ -188,7 +191,7 @@ func withTasks(plan []byte) []byte {
 	b.WriteString("\n\n## Tasks\n\nTick `[x]` with the commit id as each item lands; this list is the recovery point if a " +
 		"session, agent or worktree is lost.\n\n")
 	items := 0
-	for _, m := range taskHeading.FindAllSubmatch(plan, -1) {
+	for _, m := range taskHeading().FindAllSubmatch(plan, -1) {
 		fmt.Fprintf(&b, "- [ ] %s\n", bytes.Trim(m[1], "*_ "))
 		items++
 	}
@@ -201,11 +204,15 @@ func withTasks(plan []byte) []byte {
 	return b.Bytes()
 }
 
-var checkboxLine = regexp.MustCompile(`(?m)^\s*[-*] \[[ xX]\] `)
+var checkboxLine = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^\s*[-*] \[[ xX]\] `)
+})
 
 // undatedNameRe matches a dated plan file's leading YYYY-MM-DD-; anything else directly under plans/ is a
 // native plan-mode draft (random words), not yet filed under its repo-tagged, dated name.
-var undatedNameRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
+var undatedNameRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
+})
 
 // isUndatedDraft reports whether abs is a markdown file sitting directly under <config>/plans/ (not a
 // repo-tagged subdirectory) whose name isn't already dated — the shape plan mode's native Write targets.
@@ -217,7 +224,7 @@ func isUndatedDraft(abs string) bool {
 	if filepath.Dir(abs) != filepath.Clean(plansDir) {
 		return false
 	}
-	return !undatedNameRe.MatchString(filepath.Base(abs))
+	return !undatedNameRe().MatchString(filepath.Base(abs))
 }
 
 // planTemplateHeadings are the sections agents/Plan.md's template requires before a draft is treated as a plan.

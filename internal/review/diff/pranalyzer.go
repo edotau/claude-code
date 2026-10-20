@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/helptext"
@@ -24,12 +25,14 @@ type fileCategory struct {
 // fileCategoryOrder preserves Python dict insertion order (critical, high, medium, low) for iteration.
 var fileCategoryOrder = []string{"critical", "high", "medium", "low"}
 
-var fileCategories = map[string]fileCategory{
-	"critical": {compileAll("auth", "security", "password", "token", "secret", "payment", "billing", "crypto", "encrypt"), 5},
-	"high":     {compileAll("api", "database", "migration", "schema", "model", "config", "env", "middleware"), 4},
-	"medium":   {compileAll("service", "controller", "handler", "util", "helper"), 3},
-	"low":      {compileAll("test", "spec", "mock", "fixture", "story", "readme", "docs", `\.md$`), 1},
-}
+var fileCategories = sync.OnceValue(func() map[string]fileCategory {
+	return map[string]fileCategory{
+		"critical": {compileAll("auth", "security", "password", "token", "secret", "payment", "billing", "crypto", "encrypt"), 5},
+		"high":     {compileAll("api", "database", "migration", "schema", "model", "config", "env", "middleware"), 4},
+		"medium":   {compileAll("service", "controller", "handler", "util", "helper"), 3},
+		"low":      {compileAll("test", "spec", "mock", "fixture", "story", "readme", "docs", `\.md$`), 1},
+	}
+})
 
 func compileAll(patterns ...string) []*regexp.Regexp {
 	out := make([]*regexp.Regexp, len(patterns))
@@ -46,17 +49,21 @@ type riskPattern struct {
 	message  string
 }
 
-var riskPatterns = []riskPattern{
-	{"hardcoded_secrets", regexp.MustCompile(`(?i)(password|secret|api_key|token)\s*[=:]\s*['"][^'"]+['"]`), "critical", "Potential hardcoded secret detected"},
-	{"todo_fixme", regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX):`), "low", "TODO/FIXME comment found"},
-	{"console_log", regexp.MustCompile(`(?i)console\.(log|debug|info|warn|error)\(`), "medium", "Console statement found (remove for production)"},
-	{"debugger", regexp.MustCompile(`(?i)\bdebugger\b`), "high", "Debugger statement found"},
-	{"disable_eslint", regexp.MustCompile(`(?i)eslint-disable`), "medium", "ESLint rule disabled"},
-	{"any_type", regexp.MustCompile(`(?i):\s*any\b`), "medium", "TypeScript 'any' type used"},
-	{"sql_concatenation", regexp.MustCompile(`(?i)(SELECT|INSERT|UPDATE|DELETE).*\+.*['"]`), "critical", "Potential SQL injection (string concatenation in query)"},
-}
+var riskPatterns = sync.OnceValue(func() []riskPattern {
+	return []riskPattern{
+		{"hardcoded_secrets", regexp.MustCompile(`(?i)(password|secret|api_key|token)\s*[=:]\s*['"][^'"]+['"]`), "critical", "Potential hardcoded secret detected"},
+		{"todo_fixme", regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX):`), "low", "TODO/FIXME comment found"},
+		{"console_log", regexp.MustCompile(`(?i)console\.(log|debug|info|warn|error)\(`), "medium", "Console statement found (remove for production)"},
+		{"debugger", regexp.MustCompile(`(?i)\bdebugger\b`), "high", "Debugger statement found"},
+		{"disable_eslint", regexp.MustCompile(`(?i)eslint-disable`), "medium", "ESLint rule disabled"},
+		{"any_type", regexp.MustCompile(`(?i):\s*any\b`), "medium", "TypeScript 'any' type used"},
+		{"sql_concatenation", regexp.MustCompile(`(?i)(SELECT|INSERT|UPDATE|DELETE).*\+.*['"]`), "critical", "Potential SQL injection (string concatenation in query)"},
+	}
+})
 
-var commitPrefixRe = regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:`)
+var commitPrefixRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:`)
+})
 
 // PRRisk is a single risky-pattern hit found in the diff for a file.
 type PRRisk struct {
@@ -168,7 +175,7 @@ func fileDiff(repo, filepath, base, head string) string {
 func categorizeFile(filepath string) (string, int) {
 	lower := strings.ToLower(filepath)
 	for _, cat := range fileCategoryOrder {
-		info := fileCategories[cat]
+		info := fileCategories()[cat]
 		for _, re := range info.patterns {
 			if re.MatchString(lower) {
 				return cat, info.weight
@@ -187,7 +194,7 @@ func analyzeDiffForRisks(diffContent, filepath string) []PRRisk {
 		}
 	}
 	content := strings.Join(added, "\n")
-	for _, rp := range riskPatterns {
+	for _, rp := range riskPatterns() {
 		matches := rp.pattern.FindAllString(content, -1)
 		if len(matches) > 0 {
 			risks = append(risks, PRRisk{Name: rp.name, Severity: rp.severity, Message: rp.message, File: filepath, Count: len(matches)})
@@ -262,7 +269,7 @@ func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
 		if !found || message == "" {
 			continue
 		}
-		if !commitPrefixRe.MatchString(message) {
+		if !commitPrefixRe().MatchString(message) {
 			issues = append(issues, CommitIssue{Commit: sha, Issue: "Does not follow conventional commit format"})
 		}
 		if len(message) > 72 {

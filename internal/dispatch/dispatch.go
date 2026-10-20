@@ -26,10 +26,10 @@ func ValidAgent(name string) bool {
 }
 
 // nameRe is the --name / session-name allowlist: tmux session names embed in shell text we build.
-var nameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+var nameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
 
 // ValidName reports whether name matches ^[A-Za-z0-9._-]{1,64}$.
-func ValidName(name string) bool { return nameRe.MatchString(name) }
+func ValidName(name string) bool { return nameRe().MatchString(name) }
 
 // QuoteSH single-quotes s for POSIX sh, closing/reopening the quote around each embedded quote.
 func QuoteSH(s string) string {
@@ -119,7 +119,7 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 		name = DefaultName(opts.Agent)
 	}
 	if !ValidName(name) {
-		return "", "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe.String())
+		return "", "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe().String())
 	}
 	agentCmd := agentCommand(opts.Agent, opts.Task) + `; exec "${SHELL:-/bin/sh}" -l`
 	var b strings.Builder

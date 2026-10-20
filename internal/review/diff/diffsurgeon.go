@@ -13,15 +13,16 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/helptext"
 )
 
 var (
-	whitespaceOnlyRe = regexp.MustCompile(`^[+-]\s*$`)
-	commentOnlyRe    = regexp.MustCompile(`^[+-]\s*(?:#|//|/\*|\*/|\*|<!--)`)
-	docstringAddRe   = regexp.MustCompile(`^[+](?:"""|''')`)
+	whitespaceOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*$`) })
+	commentOnlyRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*(?:#|//|/\*|\*/|\*|<!--)`) })
+	docstringAddRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+](?:"""|''')`) })
 )
 
 // diffFinding mirrors a single classified line in the Python dict shape.
@@ -119,13 +120,13 @@ func parseDiffFiles(diffText string) []*diffFileEntry {
 
 // classifyLine returns a noise category for a changed line, or "" if it looks intentional.
 func classifyLine(line string) string {
-	if whitespaceOnlyRe.MatchString(line) {
+	if whitespaceOnlyRe().MatchString(line) {
 		return "whitespace"
 	}
-	if commentOnlyRe.MatchString(line) {
+	if commentOnlyRe().MatchString(line) {
 		return "comment-only"
 	}
-	if docstringAddRe.MatchString(line) {
+	if docstringAddRe().MatchString(line) {
 		return "docstring-addition"
 	}
 	return ""
