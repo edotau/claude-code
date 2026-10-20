@@ -21,16 +21,20 @@ var dotenvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Pair is one NAME=value line.
 type Pair struct{ Name, Value string }
 
-// ParseDotenv reads strict NAME=value lines, skipping blanks and lines starting with #. The value is everything
-// after the first = verbatim (no quotes, no export). Every other line is a "line N: …" problem; nothing is guessed.
+// ParseDotenv reads strict NAME=value lines (optional `export `, one pair of matching quotes stripped), skipping
+// blanks and # lines; every other line is a "line N: …" problem, and a read error is one too — nothing is guessed.
 func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		name, value, ok := strings.Cut(line, "=")
+		name, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
 		switch {
 		case !ok || !dotenvName.MatchString(name):
 			problems = append(problems, fmt.Sprintf("line %d: want NAME=value", n))
@@ -40,7 +44,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 			pairs = append(pairs, Pair{name, value})
 		}
 	}
-	if err := sc.Err(); err != nil { // e.g. a line past the scanner's 64 KiB limit: nothing after it was read
+	if err := sc.Err(); err != nil { // e.g. a line past the 4 MiB limit: nothing after it was read
 		problems = append(problems, fmt.Sprintf("read stopped early: %v", err))
 	}
 	return pairs, problems
