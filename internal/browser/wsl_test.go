@@ -2,6 +2,8 @@ package browser
 
 import (
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +11,22 @@ import (
 	"testing"
 	"time"
 )
+
+type probeRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f probeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type probeBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *probeBody) Close() error {
+	b.closed = true
+	return nil
+}
 
 func newWSLTestEnv(t *testing.T, f *fakeRun) Env {
 	t.Helper()
@@ -23,6 +41,45 @@ func newWSLTestEnv(t *testing.T, f *fakeRun) Env {
 		Probe:      func() string { return "" },
 		Sleep:      func(time.Duration) {},
 		ClaudeBin:  "claude", HasNPX: true,
+	}
+}
+
+func TestProbeCDPUsesDeadlineAndClosesBody(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "success", body: `{"Browser":"Chrome/120"}`, want: "Chrome/120"},
+		{name: "decode error", body: `{`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			responseBody := &probeBody{Reader: strings.NewReader(tc.body)}
+			http.DefaultTransport = probeRoundTripper(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != "http://localhost:9222/json/version" {
+					t.Errorf("request URL = %q, want CDP version endpoint", req.URL)
+				}
+				if _, ok := req.Context().Deadline(); !ok {
+					t.Error("request context has no deadline")
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       responseBody,
+					Request:    req,
+				}, nil
+			})
+
+			if got := probeCDP(); got != tc.want {
+				t.Errorf("probeCDP() = %q, want %q", got, tc.want)
+			}
+			if !responseBody.closed {
+				t.Error("response body was not closed")
+			}
+		})
 	}
 }
 

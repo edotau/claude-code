@@ -232,9 +232,10 @@ func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
 	}
 	critical, high := 0, 0
 	for _, r := range allRisks {
-		if r.Severity == "critical" {
+		switch r.Severity {
+		case "critical":
 			critical++
-		} else if r.Severity == "high" {
+		case "high":
 			high++
 		}
 	}
