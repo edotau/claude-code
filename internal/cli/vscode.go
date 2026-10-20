@@ -134,37 +134,34 @@ func vscodeCheckReport(destPath string, result vscode.Result, kbDestPath string,
 		return 1
 	}
 	reportMerge("template", destPath, result)
-	if skip {
-		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
-	} else {
-		reportMerge("keybindings template", kbDestPath, kbResult)
-	}
+	reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
 	fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
 	return 0
 }
 
 func vscodeDryRunReport(destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) {
 	reportDryRun("template", destPath, result.Changed)
-	if skip {
-		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
-	} else {
-		reportDryRun("keybindings template", kbDestPath, kbResult.Changed)
-	}
+	reportKeybindings(skip, note, func() { reportDryRun("keybindings template", kbDestPath, kbResult.Changed) })
 	reportDryRun("extension", extResult.Target, extResult.Changed)
 }
 
 func vscodeApplyReport(destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) {
 	reportMerge("template", destPath, result)
-	if skip {
-		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
-	} else {
-		reportMerge("keybindings template", kbDestPath, kbResult)
-	}
+	reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
 	if extResult.Changed {
 		fmt.Printf("claude-code: vscode linked extension -> %s\n", extResult.Target)
 	} else {
 		fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
 	}
+}
+
+// reportKeybindings prints the skip note, or calls report, depending on whether SyncKeybindings ran.
+func reportKeybindings(skip bool, note string, report func()) {
+	if skip {
+		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
+		return
+	}
+	report()
 }
 
 func reportDryRun(label, dest string, changed bool) {

@@ -160,11 +160,8 @@ func currentWorktreeBranch(dest string) (string, error) {
 }
 
 func headOf(dest string) string {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", dest, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	head, _ := headOfContext(context.Background(), dest) // error -> "": same contract as the old standalone impl
+	return head
 }
 
 func headOfContext(ctx context.Context, dest string) (string, error) {
