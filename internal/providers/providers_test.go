@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const overlay = `{
@@ -156,9 +158,13 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	if tgt := ParseTarget(reg, "qwen3:30b[1m]", sel.Provider); tgt.Provider != sel.Provider || tgt.Model != "qwen3:30b" {
 		t.Errorf("unregistered prefix must stay a model: %+v", tgt)
 	}
-	b, _ := os.ReadFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "env.d", "provider.env"))
-	if len(b) == 0 {
-		t.Error("pin file not written")
+	if err := vault.View(func(tx *vault.Tx) error {
+		if got, ok := tx.Get(vault.Pins, PinModel); !ok || got != "claude-opus-4-8" {
+			t.Errorf("vault pin = %q, present %v; want claude-opus-4-8", got, ok)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -234,17 +240,26 @@ func TestProviderMarshalRedactsHeaders(t *testing.T) {
 	}
 }
 
-// PinDiff previews only real changes and never writes the pin file.
+// PinDiff previews only real changes and never writes the vault.
 func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := SetPins(map[string]string{PinProvider: "gemini"}); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(paths.PinFile())
-	got := PinDiff(map[string]string{PinProvider: "gemini", SlotPin("opus"): "x"})
-	after, _ := os.ReadFile(paths.PinFile())
-	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || string(before) != string(after) {
-		t.Fatalf("PinDiff = %q (file changed: %v)", got, string(before) != string(after))
+	before, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := PinDiff(map[string]string{PinProvider: "gemini", SlotPin("opus"): "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || !bytes.Equal(before, after) {
+		t.Fatalf("PinDiff = %q (vault changed: %v)", got, !bytes.Equal(before, after))
 	}
 }
 

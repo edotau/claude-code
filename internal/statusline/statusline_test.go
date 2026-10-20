@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -179,22 +181,17 @@ func TestContextPct(t *testing.T) {
 }
 
 func TestProviderAndModelSegments(t *testing.T) {
-	dir := hermetic(t)
+	hermetic(t)
 	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "env.d", "provider.env"), []byte("HARNESS_PROVIDER=ollama\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Pins, providers.PinProvider, "ollama")
 	if name, _ := sessionProvider(); name != "ollama" {
-		t.Errorf("pin file: %q", name)
+		t.Errorf("vault pins: %q", name)
 	}
 	t.Setenv("HARNESS_PROVIDER", "openai")
 	if name, _ := sessionProvider(); name != "openai" {
-		t.Errorf("env beats pin file: %q", name)
+		t.Errorf("env beats vault pins: %q", name)
 	}
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/openrouter")
 	if name, routed := sessionProvider(); name != "openrouter" || !routed {
