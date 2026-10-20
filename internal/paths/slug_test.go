@@ -40,3 +40,15 @@ func TestRepoSlugUsesMainCheckoutForLinkedWorktree(t *testing.T) {
 		t.Errorf("RepoSlug(relative gitdir) = %q, want repo-b", got)
 	}
 }
+
+func TestRepoSlugConfigWorktree(t *testing.T) {
+	main := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", main)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: "+main+"/.git/worktrees/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := RepoSlug(root); got != "" {
+		t.Errorf("RepoSlug(config worktree) = %q, want empty", got)
+	}
+}

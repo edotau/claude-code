@@ -35,10 +35,11 @@ func Slug(s, keep string, max int, fallback string) string {
 // A linked worktree is tagged by its main checkout, so every worktree of a repo shares one bank instead of each
 // branch directory ("main", "fix-x") minting its own and colliding across repos.
 func RepoSlug(root string) string {
-	if root == "" || SamePath(root, ConfigDir()) {
+	main := MainCheckout(root)
+	if root == "" || SamePath(main, ConfigDir()) {
 		return ""
 	}
-	return Slug(filepath.Base(filepath.Clean(MainCheckout(root))), "._-", 0, "")
+	return Slug(filepath.Base(filepath.Clean(main)), "._-", 0, "")
 }
 
 // MainCheckout resolves a linked worktree's `gitdir: <main>/.git/worktrees/<id>` pointer file to <main>; any

@@ -1,0 +1,9 @@
+Goal Verifier — plan-template.md
+Steps: 3   Score: 7/9 (77.8%)
+Verdict: STRONG
+
+  [+] ### Phase 1 — Parse input  (concrete, 3/3)
+  [?] ### Phase 2 — Improve output  (vague, 1/3)
+  [+] ### Phase 3 — Run final regression  (concrete, 3/3)
+
+  -> 1 step(s) have vague criteria. Replace 'should work' with a concrete check.
