@@ -103,7 +103,8 @@ error while someone is at the terminal.
 behind each `bin/<vendor>` link (`<bin> → <target>`), flag a regular file or a broken link there, and list distinct
 extra executables as **also on PATH**.
 `claude-code install --tools` retires all npm-global Codex/OpenCode copies found on PATH after the
-new copy answers `--version`, not just the first copy.
+new copy answers `--version`, not just the first copy. `--tools=opencode` refuses opencode ≥2.0 (the previous
+binary is restored) unless `HARNESS_ALLOW_OPENCODE_2X=1`.
 Own-login route notes print only for an interactive terminal launch or `--print-env`, not version/help
 probes or `run` subcommands.
 
@@ -277,6 +278,11 @@ without ever printing a value; `secrets scan` and `secrets git` audit the config
 leaked credential and exit 1 on a finding; `secrets doctor` checks the vault's perms, master key and key names,
 and lists retired keys; `secrets all` runs every audit. `/harness:secrets-scan` wraps the audits.
 
+`claude-code vault show --tailscale` reports each of `TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET`,
+`TAILSCALE_API_KEY` and `TAILSCALE_AUTHKEY` as set (with its source) or missing — never a value.
+`claude-code vault set --tailscale [--api-key] [--dry-run]` adds one: a terminal opens a guided
+prompt; piped, it reads an id line then a secret line, or with `--api-key` one API-key line.
+
 ```bash
 claude-code secrets set ANTHROPIC_API_KEY   # names match each provider's auth.env; a process env var wins
 claude-code secrets import keys.env         # NAME=value lines (# skipped); delete the plaintext file after
@@ -386,6 +392,9 @@ through the same env → vault ladder as providers:
 Either is only needed for `key` (mint an auth key) and `exit-node --approve`; `status`/`machines`/`connect` work
 off the installed CLI alone. `make tailscale-cli` installs the client; `claude-code configure` shows login + the
 admin credential as one row.
+
+`claude-code tailscale key --save` seals the minted key as `TAILSCALE_AUTHKEY` in the vault; `tailscale connect`
+with no `--auth-key` and not already connected falls back to that saved key.
 
 ## Worktrees and agent views
 
