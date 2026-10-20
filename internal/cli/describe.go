@@ -81,7 +81,11 @@ func cmdDescribe(args []string) int {
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	d, err := describe()
+	reg, err := providers.Load()
+	if err != nil {
+		return fail("describe: %v", err)
+	}
+	d, err := describe(reg)
 	if err != nil {
 		return fail("describe: %v", err)
 	}
@@ -99,17 +103,16 @@ func cmdDescribe(args []string) int {
 	return 0
 }
 
-func describe() (Describe, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return Describe{}, err
-	}
+// describe builds the describe view from an already-loaded registry, so a caller that loaded one
+// itself (e.g. profileJSON) never pays for a second load.
+func describe(reg *providers.Registry) (Describe, error) {
 	d := Describe{Version: buildVersion(), Slots: models.Slots}
+	tree := specTree()
 	for _, c := range commands() {
 		if strings.HasPrefix(c.name, "__") {
 			continue
 		}
-		node := specTree()[c.name]
+		node := tree[c.name]
 		d.Commands = append(d.Commands, DescribeCommand{
 			Name: c.name, Group: c.group, Summary: c.summary, Aliases: c.aliases, Hidden: c.hidden,
 			Subverbs: subwordNames(node), Flags: flagNames(node),
