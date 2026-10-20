@@ -166,7 +166,7 @@ func installSettings(w io.Writer, dryRun bool) error {
 
 // moveProvidersFile moves a pre-env.d ~/.claude/providers.json into env.d once; both present keeps both and warns.
 func moveProvidersFile(w io.Writer, dryRun bool) {
-	old, dst := filepath.Join(paths.ConfigDir(), "providers.json"), providers.UserFile()
+	old, dst := paths.LegacyProvidersFile(), paths.ProvidersOverlay()
 	if _, err := os.Stat(old); err != nil {
 		return
 	}
@@ -278,52 +278,12 @@ func DoctorChecks() (checks []Check, ok bool) {
 	bin, err := ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	reg, err := providers.Load()
-	check(err == nil, true, "provider registry", orErr(providers.UserFile(), err))
+	check(err == nil, true, "provider registry", orErr(paths.ProvidersOverlay(), err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, n := range reg.Names() {
-			p := reg.Providers[n]
-			session := serr == nil && sel.Provider == p
-			label := p.Auth.Type
-			if p.Auth.Env != "" {
-				label += " " + p.Auth.Env
-			}
-			if session {
-				label += " (session provider)"
-			}
-			present := providers.CredentialPresent(p)
-			if present {
-				pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-				status, detail := providers.ProbeCredential(pctx, p)
-				cancel()
-				switch status {
-				case "login":
-					if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
-						if providers.HeadlessOAuthToken() != "" {
-							label += " · headless token set"
-						} else {
-							label += " · no headless token (claude-code configure → claude mints one)"
-						}
-					}
-				case "verified":
-					label += " · verified"
-				case "rejected":
-					present = false                           // stored, but the provider refuses it: as unusable as a missing key
-					detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
-					label += " · REJECTED: " + detail
-				default:
-					label += " · " + status + ": " + detail
-				}
-			}
-			if !present {
-				if alt := altAuth(reg, n); alt != "" {
-					if !strings.Contains(label, "REJECTED") {
-						label += " · no key"
-					}
-					present, label = true, label+" · "+alt
-				}
-			}
-			check(present, session, "credential "+n, label)
+			c := providerCredentialCheck(reg, sel, serr, n)
+			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
@@ -345,6 +305,51 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
+}
+
+func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
+	p := reg.Providers[name]
+	session := selectErr == nil && sel.Provider == p
+	label := p.Auth.Type
+	if p.Auth.Env != "" {
+		label += " " + p.Auth.Env
+	}
+	if session {
+		label += " (session provider)"
+	}
+	present := providers.CredentialPresent(p)
+	if present {
+		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		status, detail := providers.ProbeCredential(pctx, p)
+		cancel()
+		switch status {
+		case "login":
+			if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
+				if providers.HeadlessOAuthToken() != "" {
+					label += " · headless token set"
+				} else {
+					label += " · no headless token (claude-code configure → claude mints one)"
+				}
+			}
+		case "verified":
+			label += " · verified"
+		case "rejected":
+			present = false                           // stored, but the provider refuses it: as unusable as a missing key
+			detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
+			label += " · REJECTED: " + detail
+		default:
+			label += " · " + status + ": " + detail
+		}
+	}
+	if !present {
+		if alt := altAuth(reg, name); alt != "" {
+			if !strings.Contains(label, "REJECTED") {
+				label += " · no key"
+			}
+			present, label = true, label+" · "+alt
+		}
+	}
+	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
 }
 
 // altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:

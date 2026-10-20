@@ -28,7 +28,7 @@ func SetProviderFields(name string, fields map[string]any) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	file := UserFile()
+	file := paths.ProvidersOverlay()
 	return paths.WithFileLock(file, func() error {
 		raw, err := os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
