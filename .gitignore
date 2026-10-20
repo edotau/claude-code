@@ -58,9 +58,7 @@ SEARCHABLE.md
 /settings.local.json
 /.credentials.json
 /.claude.json
-/env.d/*
-!/env.d/*.example
-!/env.d/*.example.json
+/env.d/
 .env
 .env.*
 *.env
