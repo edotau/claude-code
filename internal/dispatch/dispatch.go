@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/tailscale"
 )
@@ -212,9 +213,12 @@ func ExecArgs(ctx context.Context, host, remoteCmd string, batch bool) []string 
 }
 
 var (
-	selfMu    sync.Mutex
-	selfReady bool
-	selfNames []string
+	selfMu             sync.Mutex
+	selfReady          bool
+	selfNames          []string
+	selfRetryAt        time.Time
+	selfFailureBackoff = 30 * time.Second
+	now                = time.Now
 )
 
 // IsLocalHost reports whether host names this machine: localhost, its hostname, or its tailnet name/IPs.
@@ -223,14 +227,30 @@ func IsLocalHost(ctx context.Context, host string) bool {
 	if _, at, ok := strings.Cut(h, "@"); ok {
 		h = at
 	}
+	if h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	if n, err := os.Hostname(); err == nil {
+		n = strings.ToLower(strings.TrimSuffix(n, "."))
+		short, _, _ := strings.Cut(n, ".")
+		if h != "" && (h == n || h == short) {
+			return true
+		}
+	}
+	selfMu.Lock()
+	if selfReady || now().Before(selfRetryAt) {
+		local := slices.Contains(selfNames, h)
+		selfMu.Unlock()
+		return local
+	}
+	selfMu.Unlock()
+	st, err := tailscale.Status(ctx)
 	selfMu.Lock()
 	defer selfMu.Unlock()
 	if !selfReady {
-		selfNames = []string{"localhost", "127.0.0.1", "::1"}
-		if n, err := os.Hostname(); err == nil {
-			selfNames = append(selfNames, strings.ToLower(n))
-		}
-		if st, err := tailscale.Status(ctx); err == nil {
+		if err != nil {
+			selfRetryAt = now().Add(selfFailureBackoff)
+		} else {
 			selfReady = true
 			selfNames = append(selfNames, st.IPs...)
 			if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
