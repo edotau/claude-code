@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const overlay = `{
@@ -30,25 +29,13 @@ const overlay = `{
 
 func load(t *testing.T) *Registry {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.UseKeyring(t)   // scratch config dir + in-memory keyring: never the real OS keyring
 	t.Setenv(PinProvider, "") // a session launched with a provider pin must not leak into the registry tests
-	stubKeyring(t, nil)       // tests must never shell out to the real OS keyring
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return reg
-}
-
-// stubKeyring replaces the keyringGet seam for the test's duration; a nil table always misses.
-func stubKeyring(t *testing.T, table map[string]string) {
-	t.Helper()
-	prev := keyringGet
-	keyringGet = func(name string) (string, bool) {
-		v, ok := table[name]
-		return v, ok
-	}
-	t.Cleanup(func() { keyringGet = prev })
 }
 
 func TestEmbeddedDefaultsValid(t *testing.T) {
@@ -103,9 +90,8 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 
 // an overlay's opencodeLadder/opencodePlugins replace the defaults' whole, not merge into them.
 func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.UseKeyring(t)
 	t.Setenv(PinProvider, "")
-	stubKeyring(t, nil)
 	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
 		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
 		"opencodeLadder": ["a"], "opencodePlugins": ["old-plugin"]}`)
@@ -202,18 +188,21 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if CredentialPresent(gw) {
 		t.Fatal("no credential expected yet")
 	}
-	os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700)
-	os.WriteFile(paths.SecretsFile(), []byte("export GW_KEY='from-file'\n"), 0o600)
+	t.Setenv("GW_KEY", "")
+	vaulttest.Secret(t, "GW_KEY", "from-vault")
+	if !CredentialPresent(gw) {
+		t.Fatal("a vault record must count as a credential")
+	}
 	h := http.Header{"Authorization": {"Bearer client"}}
 	if err := Authorize(context.Background(), gw, h); err != nil {
 		t.Fatal(err)
 	}
-	if h.Get("Authorization") != "Bearer from-file" || h.Get("X-Team") != "a" {
+	if h.Get("Authorization") != "Bearer from-vault" || h.Get("X-Team") != "a" {
 		t.Errorf("headers %v", h)
 	}
 	t.Setenv("GW_KEY", "from-env")
 	if v, _ := Credential(context.Background(), gw); v != "from-env" {
-		t.Errorf("env must beat file, got %q", v)
+		t.Errorf("env must beat the vault, got %q", v)
 	}
 	gw.Auth = Auth{Type: AuthBearer, Command: "echo minted"}
 	if v, _ := Credential(context.Background(), gw); v != "minted" {
@@ -263,27 +252,29 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	}
 }
 
-// StoredSecret must prefer a keyring hit over the file plane, and fall back to the file when the
-// keyring misses; Credential must prefer the process env over both.
+// StoredSecret reads only the vault; Credential must prefer the process env over it.
 func TestStoredSecretAndCredentialOrder(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700)
-	os.WriteFile(paths.SecretsFile(), []byte("export K='from-file'\n"), 0o600)
-
-	stubKeyring(t, nil) // keyring misses -> file plane wins
-	if got := StoredSecret("K"); got != "from-file" {
-		t.Errorf("StoredSecret (keyring miss) = %q, want from-file", got)
+	vaulttest.UseKeyring(t)
+	t.Setenv("K", "")
+	if got := StoredSecret("K"); got != "" {
+		t.Errorf("StoredSecret (miss) = %q, want \"\"", got)
 	}
 
-	stubKeyring(t, map[string]string{"K": "from-keyring"}) // keyring hit beats the file
-	if got := StoredSecret("K"); got != "from-keyring" {
-		t.Errorf("StoredSecret (keyring hit) = %q, want from-keyring", got)
+	vaulttest.Secret(t, "K", "from-vault")
+	if got := StoredSecret("K"); got != "from-vault" {
+		t.Errorf("StoredSecret (vault hit) = %q, want from-vault", got)
 	}
 
 	p := &Provider{Auth: Auth{Type: AuthBearer, Env: "K"}}
+	if v, err := Credential(context.Background(), p); err != nil || v != "from-vault" {
+		t.Errorf("Credential (vault) = %q, %v; want from-vault", v, err)
+	}
 	t.Setenv("K", "from-env")
+	if got := StoredSecret("K"); got != "from-vault" {
+		t.Errorf("StoredSecret must ignore the process env, got %q", got)
+	}
 	if v, _ := Credential(context.Background(), p); v != "from-env" {
-		t.Errorf("Credential must prefer env over keyring/file, got %q", v)
+		t.Errorf("Credential must prefer env over the vault, got %q", v)
 	}
 }
 

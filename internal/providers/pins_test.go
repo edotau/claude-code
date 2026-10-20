@@ -1,13 +1,11 @@
 package providers
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func selectTestRegistry(t *testing.T) *Registry {
@@ -42,17 +40,6 @@ func writeProviderPins(t *testing.T, pins map[string]string) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// writeSecretsFile plants name=value in the file plane for EffectiveSecret's lowest rung.
-func writeSecretsFile(t *testing.T, name, value string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(paths.SecretsFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.SecretsFile(), []byte(name+"="+value+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -167,39 +154,81 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	}
 }
 
-// EffectiveSecret must try env, then keyring, then the file plane, in that order, and miss cleanly.
+// EffectiveSecret must try env, then the vault, in that order, and miss cleanly.
 func TestEffectiveSecretOrder(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	writeSecretsFile(t, "ORDER_NAME", "from-file")
-	stubKeyring(t, map[string]string{"ORDER_NAME": "from-keyring"})
+	vaulttest.UseKeyring(t)
+	t.Setenv("ORDER_NAME", "")
+	vaulttest.Secret(t, "ORDER_NAME", "from-vault")
 
-	if v, src := EffectiveSecret("ORDER_NAME"); v != "from-keyring" || src != "keyring" {
-		t.Errorf("EffectiveSecret (keyring beats file) = (%q, %q), want (from-keyring, keyring)", v, src)
+	if v, src, err := EffectiveSecret("ORDER_NAME"); err != nil || v != "from-vault" || src != "vault" {
+		t.Errorf("EffectiveSecret (vault) = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
 	}
 
-	t.Setenv("ORDER_NAME", "from-env")
-	if v, src := EffectiveSecret("ORDER_NAME"); v != "from-env" || src != "env" {
-		t.Errorf("EffectiveSecret (env beats keyring) = (%q, %q), want (from-env, env)", v, src)
+	t.Setenv("ORDER_NAME", "  from-env\n")
+	if v, src, err := EffectiveSecret("ORDER_NAME"); err != nil || v != "from-env" || src != "env" {
+		t.Errorf("EffectiveSecret (env beats vault) = (%q, %q, %v), want (from-env, env, nil)", v, src, err)
 	}
 }
 
 // A whitespace-only env var must be treated as unset, not as a winning value.
 func TestEffectiveSecretIgnoresWhitespaceOnlyEnv(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubKeyring(t, map[string]string{"WS_NAME": "from-keyring"})
+	vaulttest.UseKeyring(t)
+	vaulttest.Secret(t, "WS_NAME", "from-vault")
 	t.Setenv("WS_NAME", "   ")
 
-	if v, src := EffectiveSecret("WS_NAME"); v != "from-keyring" || src != "keyring" {
-		t.Errorf("EffectiveSecret with whitespace-only env = (%q, %q), want (from-keyring, keyring)", v, src)
+	if v, src, err := EffectiveSecret("WS_NAME"); err != nil || v != "from-vault" || src != "vault" {
+		t.Errorf("EffectiveSecret with whitespace-only env = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
+	}
+	if got := HasSecret("WS_NAME"); got != "vault" {
+		t.Errorf("HasSecret with whitespace-only env = %q, want vault", got)
 	}
 }
 
-// A name held nowhere must miss cleanly: ("", "").
+// A name held nowhere must miss cleanly: ("", "", nil), and HasSecret reports "".
 func TestEffectiveSecretMiss(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubKeyring(t, nil)
+	vaulttest.UseKeyring(t)
+	t.Setenv("NEVER_SET_ANYWHERE", "")
 
-	if v, src := EffectiveSecret("NEVER_SET_ANYWHERE"); v != "" || src != "" {
-		t.Errorf("EffectiveSecret(miss) = (%q, %q), want (\"\", \"\")", v, src)
+	if v, src, err := EffectiveSecret("NEVER_SET_ANYWHERE"); v != "" || src != "" || err != nil {
+		t.Errorf("EffectiveSecret(miss) = (%q, %q, %v), want (\"\", \"\", nil)", v, src, err)
+	}
+	if got := HasSecret("NEVER_SET_ANYWHERE"); got != "" {
+		t.Errorf("HasSecret(miss) = %q, want \"\"", got)
+	}
+}
+
+// A vault record that cannot be opened surfaces as EffectiveSecret's error; StoredSecret reads it as a miss.
+func TestEffectiveSecretLockedVaultErrors(t *testing.T) {
+	lockVault(t, "LOCKED_NAME", "sealed")
+	t.Setenv("LOCKED_NAME", "")
+	if v, src, err := EffectiveSecret("LOCKED_NAME"); err == nil || v != "" || src != "" {
+		t.Errorf("EffectiveSecret(locked) = (%q, %q, %v), want an error and no value", v, src, err)
+	}
+	if got := StoredSecret("LOCKED_NAME"); got != "" {
+		t.Errorf("StoredSecret(locked) = %q, want \"\"", got)
+	}
+}
+
+// HasSecret reports env|vault|"" from presence alone: it never resolves a key, so a wrong key, a
+// down keyring and no keyring at all change nothing.
+func TestHasSecretNeverResolvesAKey(t *testing.T) {
+	lockVault(t, "HAS_NAME", "sealed")
+	t.Setenv("HAS_NAME", "")
+	t.Setenv("HAS_NOT", "")
+	kr := vaulttest.Keyring(t)
+	kr.Down = true
+	if got := HasSecret("HAS_NAME"); got != "vault" {
+		t.Errorf("HasSecret(sealed, wrong key, keyring down) = %q, want vault", got)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	if got := HasSecret("HAS_NAME"); got != "vault" {
+		t.Errorf("HasSecret(sealed, no key) = %q, want vault", got)
+	}
+	if got := HasSecret("HAS_NOT"); got != "" {
+		t.Errorf("HasSecret(absent) = %q, want \"\"", got)
+	}
+	t.Setenv("HAS_NAME", "from-env")
+	if got := HasSecret("HAS_NAME"); got != "env" {
+		t.Errorf("HasSecret(env set) = %q, want env", got)
 	}
 }
