@@ -36,6 +36,12 @@ func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	// Install writes completion and the wl-paste proxy under HOME/XDG; keep them out of the real home.
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("BASH_COMPLETION_USER_DIR", "")
 	for _, k := range []string{providers.PinProvider, providers.PinModel, "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL",
 		"HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
 		t.Setenv(k, "")
