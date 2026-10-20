@@ -24,27 +24,36 @@ func (f pyFloat) MarshalJSON() ([]byte, error) {
 // noStepsResult / stepsResult are two distinct shapes because the Python script returns two different
 // dict literals (different key sets/order) depending on whether any steps were found.
 type noStepsResult struct {
-	Status          string       `json:"status"`
-	Source          string       `json:"source"`
-	StepsFound      int          `json:"steps_found"`
-	Verdict         string       `json:"verdict"`
-	Score           int          `json:"score"`
-	MaxScore        int          `json:"max_score"`
-	StepResults     []StepResult `json:"step_results"`
-	Recommendations []string     `json:"recommendations"`
+	Status          string          `json:"status"`
+	Source          string          `json:"source"`
+	StepsFound      int             `json:"steps_found"`
+	Verdict         string          `json:"verdict"`
+	Score           int             `json:"score"`
+	MaxScore        int             `json:"max_score"`
+	StepResults     []StepResult    `json:"step_results"`
+	Recommendations []string        `json:"recommendations"`
+	OversizedTasks  []OversizedTask `json:"oversized_tasks,omitempty"`
 }
 
 type stepsResult struct {
-	Status               string       `json:"status"`
-	Source               string       `json:"source"`
-	StepsFound           int          `json:"steps_found"`
-	Score                int          `json:"score"`
-	MaxScore             int          `json:"max_score"`
-	Percentage           pyFloat      `json:"percentage"`
-	HasFinalVerification bool         `json:"has_final_verification"`
-	Verdict              string       `json:"verdict"`
-	StepResults          []StepResult `json:"step_results"`
-	Recommendations      []string     `json:"recommendations"`
+	Status               string          `json:"status"`
+	Source               string          `json:"source"`
+	StepsFound           int             `json:"steps_found"`
+	Score                int             `json:"score"`
+	MaxScore             int             `json:"max_score"`
+	Percentage           pyFloat         `json:"percentage"`
+	HasFinalVerification bool            `json:"has_final_verification"`
+	Verdict              string          `json:"verdict"`
+	StepResults          []StepResult    `json:"step_results"`
+	Recommendations      []string        `json:"recommendations"`
+	OversizedTasks       []OversizedTask `json:"oversized_tasks,omitempty"`
+}
+
+// OversizedTask is a `## Tasks` (or phase task) line that isn't leaf-sized: too many packages, too many
+// findings/items, or a code task with no `owns:` segment (agents/Plan.md's leaf-sized task rule).
+type OversizedTask struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
 }
 
 var (
@@ -55,7 +64,67 @@ var (
 	phaseRe      = regexp.MustCompile(`(?m)^#{2,3} Phase\s+[^\n]+`)
 	headingRe    = regexp.MustCompile(`^(#{1,6})\s+`)
 	finalRe      = regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
+
+	taskLineRe    = regexp.MustCompile(`(?m)^\s*-\s*\[[ xX]\]\s+(.+)$`)
+	internalPkgRe = regexp.MustCompile(`\b(?:internal|cmd)/([A-Za-z0-9_]+)`)
+	topDirRe      = regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\-]+`)
+	findingsRe    = regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
+	codeTaskRe    = regexp.MustCompile(`(?i)\brunner:|\.go\b`)
 )
+
+// countPackageMentions counts distinct packages a task line names: `internal/<pkg>`/`cmd/<pkg>` pairs, plus
+// any other top-level-dir-rooted path (`skills/...`, `agents/...`) by its leading directory.
+func countPackageMentions(line string) int {
+	pkgs := map[string]bool{}
+	for _, m := range internalPkgRe.FindAllStringSubmatch(line, -1) {
+		pkgs["internal/"+m[1]] = true
+	}
+	for _, m := range topDirRe.FindAllStringSubmatch(line, -1) {
+		if m[1] == "internal" || m[1] == "cmd" {
+			continue
+		}
+		pkgs[m[1]] = true
+	}
+	return len(pkgs)
+}
+
+// maxFindingsCount returns the largest "<N> findings/items/fixes/functions/files" count on the line, if any.
+func maxFindingsCount(line string) (int, bool) {
+	best, found := 0, false
+	for _, m := range findingsRe.FindAllStringSubmatch(line, -1) {
+		n := 0
+		fmt.Sscanf(m[1], "%d", &n)
+		if n > best {
+			best = n
+			found = true
+		}
+	}
+	return best, found
+}
+
+// findOversizedTasks flags `## Tasks` (or phase task) checklist lines that aren't leaf-sized per
+// agents/Plan.md: >3 packages, >10 findings/items, or a code task with no `owns:` segment.
+func findOversizedTasks(text string) []OversizedTask {
+	var out []OversizedTask
+	for _, m := range taskLineRe.FindAllStringSubmatch(text, -1) {
+		line := m[1]
+		var reasons []string
+		if n := countPackageMentions(line); n > 3 {
+			reasons = append(reasons, fmt.Sprintf("names %d packages (limit 3)", n))
+		}
+		if n, ok := maxFindingsCount(line); ok && n >= 11 {
+			reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
+		}
+		if codeTaskRe.MatchString(line) && !strings.Contains(line, "owns:") {
+			reasons = append(reasons, "code task has no `owns:` segment")
+		}
+		if len(reasons) == 0 {
+			continue
+		}
+		out = append(out, OversizedTask{Title: truncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
+	}
+	return out
+}
 
 func extractSteps(text string) []string {
 	if phaseRe.MatchString(text) {
@@ -137,9 +206,11 @@ type analysis struct {
 	stepResults          []StepResult
 	recommendations      []string
 	noPlan               bool
+	oversizedTasks       []OversizedTask
 }
 
 func analyze(text, source string) analysis {
+	oversized := findOversizedTasks(text)
 	steps := extractSteps(text)
 	if len(steps) == 0 {
 		return analysis{
@@ -148,6 +219,7 @@ func analyze(text, source string) analysis {
 			verdict:         "NO_PLAN",
 			stepResults:     []StepResult{},
 			recommendations: []string{"No numbered/bulleted steps found. Is this a plan?"},
+			oversizedTasks:  oversized,
 		}
 	}
 
@@ -205,6 +277,7 @@ func analyze(text, source string) analysis {
 		verdict:              verdict,
 		stepResults:          results,
 		recommendations:      recs,
+		oversizedTasks:       oversized,
 	}
 }
 
@@ -227,12 +300,13 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			b, _ = marshalPyJSON(noStepsResult{
 				Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
 				Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
+				OversizedTasks: a.oversizedTasks,
 			})
 		} else {
 			b, _ = marshalPyJSON(stepsResult{
 				Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
 				Percentage: pyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
-				StepResults: a.stepResults, Recommendations: a.recommendations,
+				StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
 			})
 		}
 		fmt.Fprintln(stdout, string(b))
@@ -253,6 +327,13 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout)
 	for _, rec := range a.recommendations {
 		fmt.Fprintf(stdout, "  -> %s\n", rec)
+	}
+	if len(a.oversizedTasks) > 0 {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Oversized tasks:")
+		for _, t := range a.oversizedTasks {
+			fmt.Fprintf(stdout, "  ! %s  (%s)\n", truncateRunes(t.Title, 100), t.Reason)
+		}
 	}
 	return 0
 }
