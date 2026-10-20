@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/secrets"
@@ -15,7 +17,7 @@ import (
 func Doctor(ctx context.Context) (ok bool, detail string) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	note := credentialNote()
+	note, credOK := credentialNote(ctx)
 	st, err := Status(ctx)
 	switch {
 	case errors.Is(err, ErrNoCLI):
@@ -32,7 +34,7 @@ func Doctor(ctx context.Context) (ok bool, detail string) {
 	case st.ExitNodeOption:
 		exit = "exit-node advertised, not approved"
 	}
-	return true, fmt.Sprintf("%s, node %s, %s%s", st.BackendState, st.DNSName, exit, note)
+	return credOK, fmt.Sprintf("%s, node %s, %s%s", st.BackendState, st.DNSName, exit, note)
 }
 
 // CredState is one credential's presence, by name only — never its value.
@@ -43,9 +45,7 @@ type CredState struct {
 }
 
 // credentialNames is the fixed order Credentials and credentialNote report in.
-var credentialNames = []string{
-	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
-}
+var credentialNames = secrets.TailscaleNames
 
 // Credentials reports presence and source for every Tailscale credential name, never a value.
 func Credentials() []CredState {
@@ -57,18 +57,35 @@ func Credentials() []CredState {
 	return out
 }
 
-// credentialNote reports whether an admin API credential is configured, by name only.
-func credentialNote() string {
+// credentialNote reports whether an admin API credential is configured and, when well-formed,
+// mints a token to confirm it actually works — by name only, never a value.
+func credentialNote(ctx context.Context) (note string, ok bool) {
 	cs := Credentials()
 	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
 	switch {
 	case id && sec:
-		return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET"
+		idVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID")
+		secVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+		if err := ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
+			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
+		}
+		if err := ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
+			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
+		}
+		if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
+			reason := strings.TrimPrefix(err.Error(), "tailscale: oauth token mint: ")
+			return fmt.Sprintf("; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET rejected (%s)", reason), false
+		}
+		return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified", true
 	case id != sec && !api:
-		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET"
+		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET", false
 	}
 	if api {
-		return "; api credential TAILSCALE_API_KEY"
+		keyVal, _, _ := secrets.Get("TAILSCALE_API_KEY")
+		if err := ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
+			return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
+		}
+		return "; api credential TAILSCALE_API_KEY", true
 	}
-	return "; no admin credential"
+	return "; no admin credential", true
 }

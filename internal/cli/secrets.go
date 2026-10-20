@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -160,6 +161,9 @@ func cmdSecretsSet(args []string) int {
 	}
 	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(value) {
 		return fail("secrets set: %s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
+	}
+	if err := tailscale.ValidCredential(name, value); err != nil {
+		return fail("secrets set: %v", err)
 	}
 	if dryRun {
 		verb := "add"
@@ -316,6 +320,11 @@ func cmdSecretsImport(args []string) int {
 	}
 	if len(pairs) == 0 {
 		return fail("secrets import: %s has no NAME=value lines", name)
+	}
+	for _, p := range pairs {
+		if err := tailscale.ValidCredential(p.Name, p.Value); err != nil {
+			return fail("secrets import: %s: %v", name, err)
+		}
 	}
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secrets.Preview(p.Value))

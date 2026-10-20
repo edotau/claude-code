@@ -26,6 +26,24 @@ func TestSecretsSetCopilotTokenRefusesShortValue(t *testing.T) {
 	}
 }
 
+// `secrets set TAILSCALE_OAUTH_CLIENT_ID` refuses a value that doesn't have the documented client-ID
+// shape and stores nothing.
+func TestSecretsSetTailscaleCredentialRefusesMalformedShape(t *testing.T) {
+	vaulttest.Use(t)
+	withStdin(t, "not-a-client-id\n")
+
+	code, _, stderr := captureOutput(t, func() int { return cmdSecretsSet([]string{"TAILSCALE_OAUTH_CLIENT_ID"}) })
+	if code == 0 {
+		t.Fatalf("set TAILSCALE_OAUTH_CLIENT_ID=not-a-client-id exit = 0, want nonzero")
+	}
+	if !strings.Contains(stderr, "want a client ID") {
+		t.Fatalf("stderr = %q, want the client-ID shape refusal", stderr)
+	}
+	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+		t.Fatal("a refused value must not be stored")
+	}
+}
+
 // A valid-shaped GitHub token is accepted and sealed in the vault.
 func TestSecretsSetCopilotTokenAcceptsValidShape(t *testing.T) {
 	vaulttest.Use(t)

@@ -60,6 +60,24 @@ func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	}
 }
 
+// storeValue refuses a Tailscale credential that doesn't have the documented shape and leaves the
+// vault untouched.
+func TestStoreValueRefusesMalformedTailscaleCredential(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv("PATH", t.TempDir())
+	var out bytes.Buffer
+	d := &dialog{out: &out}
+	if storeValue(d, "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-auth-wrongkind") {
+		t.Fatalf("storeValue(...) = true for a secret shaped like an auth key, want refused:\n%s", out.String())
+	}
+	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
+		t.Fatal("a refused credential must not be stored")
+	}
+	if !strings.Contains(out.String(), "tskey-client-") {
+		t.Errorf("output = %q, want it to name the expected tskey-client- prefix", out.String())
+	}
+}
+
 func TestSourceLabel(t *testing.T) {
 	cases := map[string]string{"": "missing", "vault": "vault", "env": "env"}
 	for src, want := range cases {

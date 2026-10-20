@@ -88,10 +88,18 @@ func checkRetiredKeys(out io.Writer) {
 	}
 }
 
+// TailscaleNames are the Tailscale credentials the harness stores; not provider keys, so checkKeyNames knows them.
+var TailscaleNames = []string{
+	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
+}
+
 // checkKeyNames warns about a stored key that matches no provider's auth.env — likely a typo, but
 // not necessarily wrong (a provider not yet in the registry), so this never fails the gate.
 func checkKeyNames(out io.Writer, reg *providers.Registry) {
-	known := map[string]bool{}
+	known := map[string]bool{providers.OAuthTokenEnv: true}
+	for _, n := range TailscaleNames {
+		known[n] = true
+	}
 	for _, p := range reg.Providers {
 		if p.Auth.Env != "" {
 			known[p.Auth.Env] = true
