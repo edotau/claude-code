@@ -16,18 +16,13 @@
   "vendors": {
     "codex": {
       "permission": {
-        "mode": "allow-all",
         "approvalPolicy": "never",
         "sandboxMode": "danger-full-access"
-      },
-      "mcp": {
-        "allow": []
       },
       "launch": {}
     },
     "opencode": {
       "permission": {
-        "mode": "allow-all",
         "useGuardRules": true
       },
       "mcp": {
@@ -41,11 +36,7 @@
     },
     "copilot": {
       "permission": {
-        "mode": "allow-all",
         "defaultPermissionMode": "allow-all"
-      },
-      "mcp": {
-        "allow": []
       },
       "launch": {
         "args": [
@@ -54,12 +45,7 @@
       }
     },
     "gemini": {
-      "permission": {
-        "mode": "flag-only"
-      },
-      "mcp": {
-        "allow": []
-      },
+      "permission": {},
       "launch": {
         "args": [
           "--dangerously-skip-permissions"

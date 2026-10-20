@@ -582,12 +582,12 @@ func TestGuardPermissionAppliesGuardRulesOnlyWhenOptedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plain := vendorconfig.Vendor{Permission: vendorconfig.Permission{Mode: "allow-all"}}
+	plain := vendorconfig.Vendor{}
 	if got := guardPermission(vc, plain); got != "allow" {
 		t.Errorf("not opted in: guardPermission = %v, want \"allow\"", got)
 	}
 
-	guarded := vendorconfig.Vendor{Permission: vendorconfig.Permission{Mode: "allow-all", UseGuardRules: true}}
+	guarded := vendorconfig.Vendor{Permission: vendorconfig.Permission{UseGuardRules: true}}
 	got, ok := guardPermission(vc, guarded).(map[string]any)
 	if !ok {
 		t.Fatalf("opted in: guardPermission = %v (%T), want a map", got, got)

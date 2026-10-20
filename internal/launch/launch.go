@@ -268,13 +268,18 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Plan{Binary: bin, Set: map[string]string{}, Argv: append(prefix, args...)}
+	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
+}
+
+// envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
+func envMap(env []string) map[string]string {
+	out := map[string]string{}
 	for _, kv := range env {
 		if k, v, ok := strings.Cut(kv, "="); ok {
-			plan.Set[k] = v
+			out[k] = v
 		}
 	}
-	return plan, nil
+	return out
 }
 
 // Env applies the plan to base (KEY=VALUE list).
@@ -434,11 +439,5 @@ func plainPlan(spec vendors.Spec, args []string) (Plan, error) {
 		return Plan{}, err
 	}
 	env, prefix := vendors.LaunchSpec(spec.Name)
-	set := map[string]string{}
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			set[k] = v
-		}
-	}
-	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
+	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
 }

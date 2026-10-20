@@ -208,10 +208,8 @@ func guardPermission(vc *vendorconfig.Config, vendor vendorconfig.Vendor) any {
 		return "allow"
 	}
 	guard := vc.Guard()
-	if perm := permissionBlock([]string{"Bash(*)", "Edit", "WebFetch"}, guard.Deny, guard.Ask); perm != nil {
-		return perm
-	}
-	return "allow"
+	// Edit is always in allow, so permissionBlock never returns nil here.
+	return permissionBlock([]string{"Bash(*)", "Edit", "WebFetch"}, guard.Deny, guard.Ask)
 }
 
 // mcpBlock converts a stdio entry to {type:local,...} or a url entry to {type:remote,...}; opencode disallows extras.

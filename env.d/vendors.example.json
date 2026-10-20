@@ -3,7 +3,6 @@
   "vendors": {
     "opencode": {
       "permission": {
-        "mode": "allow-all",
         "useGuardRules": true
       },
       "mcp": {
