@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -24,7 +25,7 @@ type Terminal struct {
 func Open() (*Terminal, error) {
 	fd := int(os.Stdin.Fd())
 	if !isTerminal(fd) {
-		return nil, fmt.Errorf("stdin is not a terminal")
+		return nil, errors.New("stdin is not a terminal")
 	}
 	prev, err := makeRaw(fd)
 	if err != nil {

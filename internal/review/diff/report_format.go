@@ -88,9 +88,10 @@ func renderMarkdownActionItems(b *strings.Builder, items []ActionItem) {
 	fmt.Fprintln(b)
 	for i, item := range items {
 		e := "🟡"
-		if item.Priority == "P0" {
+		switch item.Priority {
+		case "P0":
 			e = "🔴"
-		} else if item.Priority == "P1" {
+		case "P1":
 			e = "🟠"
 		}
 		fmt.Fprintf(b, "%d. %s **[%s]** %s\n", i+1, e, item.Priority, item.Action)

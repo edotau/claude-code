@@ -91,6 +91,46 @@ func TestRunReportMissingRepo(t *testing.T) {
 	}
 }
 
+func TestRunReportRejectsInvalidPRSummary(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		file  string
+		field string
+	}{
+		{name: "string integer", file: "pr-summary-string.json", field: "files_changed"},
+		{name: "fractional integer", file: "pr-summary-fraction.json", field: "total_additions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := RunReport([]string{
+				filepath.Join("testdata", "report", "repo"),
+				"--pr-analysis", filepath.Join("testdata", "report", tc.file),
+				"--quality-analysis", filepath.Join("testdata", "report", "quality-fixture.json"),
+				"--json",
+			}, &stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty output on invalid PR summary", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "summary") || !strings.Contains(stderr.String(), tc.field) {
+				t.Errorf("stderr = %q, want useful context for summary.%s", stderr.String(), tc.field)
+			}
+		})
+	}
+}
+
+func TestGenerateReportReturnsPRSummaryMarshalError(t *testing.T) {
+	_, err := generateReport("", "", "", map[string]any{
+		"status":  "analyzed",
+		"summary": map[string]any{"unsupported": make(chan int)},
+	}, map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "summary") {
+		t.Fatalf("generateReport() error = %v, want a contextual summary marshal error", err)
+	}
+}
+
 func TestMarkdownReportSectionLimits(t *testing.T) {
 	var r Report
 	for i := range 12 {

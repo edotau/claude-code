@@ -15,6 +15,7 @@ package clean
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/ansi"
@@ -352,7 +353,7 @@ func selectTargets(all []target, want string) ([]target, error) {
 		out = append(out, t)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("--target named no targets")
+		return nil, errors.New("--target named no targets")
 	}
 	return out, nil
 }

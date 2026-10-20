@@ -168,7 +168,7 @@ func leadingComment(raw []byte) string {
 		return ""
 	}
 	head := strings.TrimSpace(string(raw[:idx]))
-	if head == "" || !(strings.HasPrefix(head, "//") || strings.HasPrefix(head, "/*")) {
+	if head == "" || (!strings.HasPrefix(head, "//") && !strings.HasPrefix(head, "/*")) {
 		return ""
 	}
 	return head
