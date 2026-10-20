@@ -37,7 +37,7 @@ native Go (`claude-code gemini bridge`), no node or python at runtime.
 | `--max-files <n>` | Cap the number of files inlined | `--max-files 200` |
 | `--max-file-bytes <n>` | Cap bytes inlined per file | `--max-file-bytes 65536` |
 | `--diff` | Scope context to files changed vs `HEAD` | `--diff` |
-| `--rubric <file>` | Prefix the task with a rubric file's contents | `--rubric skills/simplicity/SKILL.md` |
+| `--rubric <file>` | Prefix the task with a rubric file's contents | `--rubric skills/simplify/SKILL.md` |
 | `--effort <low\|medium\|high>` | Reasoning effort | `--effort high` |
 | `--format <type>` | Output format (`text`, `json`) | `--format json` |
 | `--timeout <dur>` | Per-attempt deadline (default `10m`) | `--timeout 5m` |
@@ -150,6 +150,6 @@ Keep the bridge context lean — reference files/lines, don't paste large snippe
   `sonnet` = `gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`.
 - Model resolution: `--model` → `CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet
   tier. `--model` accepts a tier name (`opus`/`sonnet`/`haiku`) or a bare model id.
-- `--rubric <file>` takes a file path (e.g. `skills/simplicity/SKILL.md`), not a skill name.
+- `--rubric <file>` takes a file path (e.g. `skills/simplify/SKILL.md`), not a skill name.
 - Related: the `gemini` agent's Gemini backend wraps this bridge in a structured-findings format;
   `claude-code gemini ask "<task>"` drives the Antigravity CLI `agy` directly instead of the bridge.

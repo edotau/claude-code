@@ -1,13 +1,13 @@
 ---
-name: simplicity
-description: 'Use after writing or modifying code, or when code feels too complex (harness variant of the built-in /simplify). Triggers "simplify this", "this is overcomplicated", "am I overcomplicating this", "reduce complexity", "reduce cognitive complexity", "too many abstractions", "clean this up", "this docstring is too long". For a full quality pass see the evaluate-code skill; for security see security-reviewer.'
+name: simplify
+description: 'Behavior-preserving cleanup of changed code — overrides the built-in /simplify. Four parallel angles (reuse, simplification, efficiency, altitude), then applies fixes behind a behavior gate. Triggers "simplify this", "/simplify", "clean this up", "am I overcomplicating this", "too many abstractions", "reduce complexity". Bugs → evaluate-code; security → security-reviewer.'
 ---
 
-# Simplicity
+# Simplify
 
 The **apply-the-fix** lens for two code-discipline principles — **Simplicity First (#2)** and
 **Surgical Changes (#3)** — and the skill behind the simplify stage of `/workflow:orchestrate`.
-Use it directly when simplifying in place, or hand it to a subagent over a diff.
+It overrides the built-in `/simplify`. Use it directly in place, or hand it to a subagent over a diff.
 
 **The lane:** behavior is preserved — you change *how* code is structured, never *what* it does.
 Bug-hunting is `evaluate-code`'s job; security is `security-reviewer`'s.
@@ -70,8 +70,7 @@ CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
 claude-code review diff --diff HEAD~1..HEAD
 ```
 
-`claude-code review complexity` estimates via indentation/keywords for Python and uses heuristics
-for TS/JS (Go is not analyzed). Checks per-function cyclomatic complexity, function length, nesting depth; per-file
+`claude-code review complexity` covers Python, TS/JS and Go. Checks per-function cyclomatic complexity, function length, nesting depth; per-file
 import count, class density, premature ABC/Protocol, file length. Thresholds `strict` (new
 code) · `medium` (default) · `relaxed` (legacy); verdict `PASS`/`WARN`/`FAIL`, 0–100 score
 per file. All detectors are advisory (exit 0) — use findings as leads, verify each by
@@ -79,22 +78,32 @@ reading the code; the detectors locate, you judge.
 
 ## Process
 
-1. Run the automated first pass to find the hot spots.
-2. Read each changed file (the detectors point; you decide).
-3. Identify and rank by impact:
-   - Single-use helpers/classes to inline (#2)
-   - Duplicated logic to consolidate (#2)
-   - Conditional chains and deep nesting to collapse with early returns (#2) — for
-     method-level extraction, see `references/extract-method.md`
-   - Speculative flexibility / impossible-state error handling to delete (#2)
-   - Over-long docstrings to tighten (≤120 / 2 lines)
-   - Diff noise that doesn't trace to the task (#3)
-4. Apply the simplest fixes first, highest impact first. Preserve behavior; respect existing
-   patterns. The success criterion is concrete, not "looks cleaner": **the same tests and
-   lint that passed before the simplification pass after it** (`make test && make lint`,
-   or the change's targeted tests). Run them — a green run is the proof behavior held, not a
-   visual read of the diff. If there's no test covering the code you're about to restructure,
-   that absence *is* the finding: say so before cutting, since you have no safety net.
+### Phase 1 — Review
+
+Launch 4 agents in ONE message (Agent tool, `subagent_type: code-worker`, run in background). Each gets
+the diff (`git diff @{upstream}...HEAD; git diff HEAD`, or the target argument) and one angle, and returns
+findings as file, line, one-line summary, concrete cost. If the Agent tool is unavailable, do all four
+angles yourself in one pass and say so in the summary.
+
+- **Reuse** — flag new code that re-implements something the codebase already has; Grep shared/utility
+  modules and files adjacent to the change, and name the existing helper to call instead.
+- **Simplification** — flag unnecessary complexity the diff adds: redundant or derivable state, copy-paste
+  with slight variation, deep nesting, dead code left behind, single-use abstractions, speculative
+  flexibility, impossible-state error handling, over-long docstrings; name the simpler form.
+- **Efficiency** — flag wasted work the diff introduces: redundant computation or repeated I/O, independent
+  operations run sequentially, blocking work on startup or hot paths, long-lived closures capturing large
+  scopes; name the cheaper form.
+- **Altitude** — check each change fixes the root cause at the right depth rather than patching a symptom;
+  special cases layered on shared infrastructure mean the fix isn't deep enough; name the more general change.
+
+### Phase 2 — Apply
+
+1. Run the automated first pass; dedup findings on the same line/mechanism.
+2. For each, name the assumption the cut rests on (section above) — can't finish the sentence → flag, don't cut.
+3. Skip fixes that change behavior or reach well outside the diff (note the skip). For method-level
+   extraction see `references/extract-method.md`.
+4. Run the same tests + lint before and after (`make test && make lint`, or the change's targeted tests).
+   Green is the proof behavior held; no covering test is itself a finding — say so before cutting.
 5. Report what changed in this format:
 
 ```
@@ -106,8 +115,8 @@ reading the code; the detectors locate, you judge.
 [Description] What changed and why it's simpler — behavior unchanged.
 ```
 
-If a fix would change behavior or its blast radius is unverifiable, **flag it, don't apply
-it** — leave that call to the human.
+End with a fixed/skipped summary. If a fix would change behavior or its blast radius is unverifiable,
+**flag it, don't apply it** — leave that call to the human.
 
 ## References
 

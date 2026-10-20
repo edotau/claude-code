@@ -3,7 +3,7 @@ Run claude in Review & Simplify mode over my current diff.
 Priorities in this exact order:
 
 1. Simplicity — this is the top priority.
-   - Apply the simplicity skill aggressively.
+   - Apply the simplify skill aggressively.
    - Collapse single-use abstractions.
    - Inline premature indirection.
    - Remove speculative flexibility and dead branches.

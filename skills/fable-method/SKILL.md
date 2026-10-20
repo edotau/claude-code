@@ -17,7 +17,7 @@ skills that already own it. Do not restate those here — load them.
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, `/review-funnel` |
 | Plan artifact, task breakdown | `planning` |
 | Scope tiering (TRIVIAL→EPIC) | `rules/harness/harness-workflow.md` |
-| Diff review, scope creep, over-engineering | `evaluate-code`, `simplicity` |
+| Diff review, scope creep, over-engineering | `evaluate-code`, `simplify` |
 | Pre-review / post-build gating agent | `codex` (REVIEW / VERIFY modes) |
 
 On-demand references: `references/artifacts.md` (the four forced lines — read before writing a

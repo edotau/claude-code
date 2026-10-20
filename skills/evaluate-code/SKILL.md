@@ -28,7 +28,7 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 | Principle | As a review finding | Severity |
 |---|---|---|
 | **1 Think Before Coding** | silently picked one reading of an ambiguous requirement — that's a **question**, not a decision | should-fix |
-| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; `simplicity` owns the fix | should-fix |
+| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; `simplify` owns the fix | should-fix |
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 

@@ -133,7 +133,7 @@ func TestSimplifyAfterEditsBlocksOnSourceEditThenProceedsOnce(t *testing.T) {
 		t.Fatalf("first stop after a source edit must block, got %d: %s", code, stderr.String())
 	}
 	out := stderr.String()
-	for _, want := range []string{"skills/simplicity/SKILL.md", "claude-code review quality", "/r/a.go"} {
+	for _, want := range []string{"skills/simplify/SKILL.md", "claude-code review quality", "/r/a.go"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("block message must name %q: %s", want, out)
 		}

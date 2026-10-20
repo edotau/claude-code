@@ -69,6 +69,8 @@ func detectComplexityLang(path string) string {
 		return "python"
 	case ".ts", ".tsx", ".js", ".jsx":
 		return "typescript"
+	case ".go":
+		return "go"
 	default:
 		return ""
 	}
@@ -148,9 +150,12 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) *FileResult {
 		findings = append(findings, Finding{Rule: "file-length", Severity: "warn",
 			Message: fmt.Sprintf("%d lines (max %d). Consider splitting.", lineCount, th.MaxFileLines)})
 	}
-	if lang == "python" {
+	switch lang {
+	case "python":
 		findings = append(findings, analyzePython(text, lineCount, th)...)
-	} else {
+	case "go":
+		findings = append(findings, analyzeGo(path, text, lineCount, th)...)
+	default:
 		findings = append(findings, analyzeTypescript(text, lineCount, th)...)
 	}
 
@@ -264,7 +269,7 @@ type complexityArgs struct {
 
 // parseComplexityArgs accepts argparse's interspersed positionals (nargs="+") and its long-only flags.
 func parseComplexityArgs(args []string) (complexityArgs, error) {
-	a := complexityArgs{threshold: "medium", ext: "py,ts,tsx,js,jsx"}
+	a := complexityArgs{threshold: "medium", ext: "py,ts,tsx,js,jsx,go"}
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
 		switch {
