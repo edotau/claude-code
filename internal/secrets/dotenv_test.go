@@ -36,9 +36,6 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 	if got := ExportPairs(nil, []string{"B_KEY"}); !slices.Equal(got, []Pair{{"B_KEY", "b"}}) {
 		t.Errorf("export restricted = %v", got)
 	}
-	if got := FormatDotenv([]Pair{{"A_KEY", "a"}}); !strings.HasSuffix(got, "\nA_KEY=a\n") || !strings.HasPrefix(got, "# ") {
-		t.Errorf("format = %q", got)
-	}
 }
 
 func TestAppendDotenvCreatesAppendsSkipsAndTightens(t *testing.T) {

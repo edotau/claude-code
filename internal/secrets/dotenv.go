@@ -135,13 +135,3 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 
 // dotenvHeader opens a .env that export creates.
 const dotenvHeader = "# claude-code secrets export — plaintext credentials; keep this file private and out of git.\n"
-
-// FormatDotenv renders pairs as NAME=value lines under a header comment.
-func FormatDotenv(pairs []Pair) string {
-	var b strings.Builder
-	b.WriteString(dotenvHeader)
-	for _, p := range pairs {
-		b.WriteString(p.Name + "=" + p.Value + "\n")
-	}
-	return b.String()
-}

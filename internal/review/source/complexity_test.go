@@ -13,15 +13,6 @@ import (
 // .py complexity findings are a Go ESTIMATE (not full AST parity) — only shape/structural
 // fields are asserted for python; .js/.ts findings are regex-based and must match byte-for-byte.
 
-func readComplexityGolden(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "complexity", name))
-	if err != nil {
-		t.Fatalf("read golden %s: %v", name, err)
-	}
-	return string(b)
-}
-
 func TestRunComplexityJSMatchesGoldenExactly(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "complexity"))
 	want := readComplexityGoldenAbs(t, "gate-loop.js.want")

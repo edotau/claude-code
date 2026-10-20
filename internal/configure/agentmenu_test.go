@@ -43,22 +43,6 @@ func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
 	}
 }
 
-func fakePickMenu(t *testing.T, answers ...int) (starts *[]int, titles *[]string) {
-	t.Helper()
-	orig := pickMenu
-	t.Cleanup(func() { pickMenu = orig })
-	var ss []int
-	var ts []string
-	i := 0
-	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
-		ss, ts = append(ss, start), append(ts, title)
-		a := answers[i]
-		i++
-		return a, nil
-	})
-	return &ss, &ts
-}
-
 func TestRunMenuAppendsExitRowAfterAgentRows(t *testing.T) {
 	reg := menuTestEnv(t)
 	d := &dialog{reg: reg, out: discardWriter{}}

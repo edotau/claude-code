@@ -95,35 +95,3 @@ func TestReport_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("edge Profiles = %+v, want omitted/nil (omitempty) round-tripping to nil", got.Browsers[1].Profiles)
 	}
 }
-
-func TestSelectPath_SignedInSessionPrefersExtension(t *testing.T) {
-	b := Browser{Family: familyChromium, Paths: Paths{Extension: stateReady}}
-	if got := SelectPath(b, NeedSignedInSession); got != pathExtension {
-		t.Fatalf("SelectPath = %q, want extension", got)
-	}
-}
-
-func TestSelectPath_SignedInSessionFallsBackToGUI(t *testing.T) {
-	b := Browser{Family: familyChromium, Paths: Paths{Extension: stateNoExtension}}
-	if got := SelectPath(b, NeedSignedInSession); got != pathGUI {
-		t.Fatalf("SelectPath = %q, want gui", got)
-	}
-}
-
-func TestSelectPath_AutomationPrefersCDPForChromium(t *testing.T) {
-	b := Browser{Family: familyChromium, Paths: Paths{CDP: stateAvailable}}
-	if got := SelectPath(b, NeedAutomation); got != pathCDP {
-		t.Fatalf("SelectPath = %q, want cdp", got)
-	}
-}
-
-func TestSelectPath_AutomationFallsBackToWebDriverThenGUI(t *testing.T) {
-	ff := Browser{Family: familyFirefox, Paths: Paths{WebDriver: stateAvailable}}
-	if got := SelectPath(ff, NeedAutomation); got != pathWebDriver {
-		t.Fatalf("SelectPath(firefox) = %q, want webdriver", got)
-	}
-	safari := Browser{Family: familySafari, Paths: Paths{WebDriver: stateDisabled}}
-	if got := SelectPath(safari, NeedAutomation); got != pathGUI {
-		t.Fatalf("SelectPath(safari, webdriver disabled) = %q, want gui", got)
-	}
-}

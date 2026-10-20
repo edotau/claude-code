@@ -5,32 +5,6 @@ import (
 	"io"
 )
 
-// Need is what the caller wants to do with a browser; SelectPath recommends a control path for it.
-// See the package doc comment for the one-line rule per Need.
-type Need int
-
-const (
-	NeedSignedInSession Need = iota // the user's real, signed-in profile: tabs, cookies, extensions
-	NeedAutomation                  // scripted control of the caller's own site, no signed-in session needed
-)
-
-// SelectPath recommends a control path for b given need, falling back to gui when nothing better applies.
-func SelectPath(b Browser, need Need) string {
-	if need == NeedAutomation {
-		if b.Family == familyChromium && b.Paths.CDP == stateAvailable {
-			return pathCDP
-		}
-		if b.Paths.WebDriver == stateAvailable {
-			return pathWebDriver
-		}
-		return pathGUI
-	}
-	if b.Paths.Extension == stateReady {
-		return pathExtension
-	}
-	return pathGUI
-}
-
 // RenderText prints one line per known browser plus the resolved system default, for `web browsers`.
 // JSON output needs no equivalent here: Report's json tags are the shape (internal/outfmt.Write(w, report)).
 func RenderText(w io.Writer, r Report) {

@@ -480,57 +480,11 @@ func writeExclusive(abs string, data []byte) error {
 	return nil
 }
 
-// moveExclusive moves src to dst without ever replacing dst: exclusive create (os.ErrExist when dst appears
-// first), bytes copied and verified, only then src removed. Cross-filesystem safe, unlike os.Rename.
-func moveExclusive(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err := writeExclusive(dst, data); err != nil {
-		return err
-	}
-	if same, err := sameBytes(src, dst); err != nil || !same {
-		return errors.Join(err, fmt.Errorf("%s: copied bytes do not match %s", dst, src), os.Remove(dst))
-	}
-	return os.Remove(src)
-}
-
-// moveVersioned moves src to the archiveLanding of dst: a dedupe drops src, other bytes land exclusively.
-// Returns the path the content now has.
-func moveVersioned(src, dst string) (string, error) {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return "", err
-	}
-	final, dedupe, err := archiveLanding(data, dst)
-	if err != nil {
-		return "", err
-	}
-	if dedupe {
-		return final, os.Remove(src)
-	}
-	return final, moveExclusive(src, final)
-}
-
 // retargetLine re-points a pointer line's `](<target>)` at to, the name its bytes landed under.
 func retargetLine(line, to string) string {
 	open := strings.Index(line, "](") + 2
 	closeIdx := open + strings.Index(line[open:], ")")
 	return line[:open] + to + line[closeIdx:]
-}
-
-// sameBytes reports whether two regular files hold identical content.
-func sameBytes(a, b string) (bool, error) {
-	x, err := os.ReadFile(a)
-	if err != nil {
-		return false, err
-	}
-	y, err := os.ReadFile(b)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(x, y), nil
 }
 
 // reconcileLines heals a crashed archive/restore in memory: one pointer per store topic both index files omit,

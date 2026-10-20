@@ -2,7 +2,7 @@
 // Chrome-extension native-messaging host, Chrome DevTools Protocol (CDP), WebDriver, or GUI
 // automation — and resolves the OS's default https handler to one of them.
 //
-// Selection rule (also surfaced by SelectPath and `web browsers`), one line each:
+// Control-path selection guidance:
 //   - need the user's real, signed-in session (tabs, cookies, extensions already installed) -> extension,
 //     else gui when no browser has the extension ready.
 //   - automation/testing of the caller's own site, no signed-in session needed, Chromium family -> cdp.
@@ -39,14 +39,6 @@ const (
 	familyChromium = "chromium"
 	familySafari   = "safari"
 	familyFirefox  = "firefox"
-)
-
-// Control-path names, returned by SelectPath and used as Report/Browser field values.
-const (
-	pathExtension = "extension"
-	pathCDP       = "cdp"
-	pathWebDriver = "webdriver"
-	pathGUI       = "gui"
 )
 
 // State values shared across Host and every Paths field.

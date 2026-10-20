@@ -164,8 +164,18 @@ func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	repo, _, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
-	if _, _, err := Merge(context.Background(), repo, "feature", ""); err != nil {
-		t.Fatalf("Merge: %v", err)
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Preflight: issues=%v err=%v", plan.Issues, err)
+	}
+	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("IntegrateTarget: %v", err)
+	}
+	if _, err := Promote(context.Background(), repo, plan); err != nil {
+		t.Fatalf("Promote: %v", err)
 	}
 
 	// Simulate tooling residue (e.g. a plugin hook cache) left behind after the merge already landed.

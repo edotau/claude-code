@@ -231,27 +231,6 @@ func splitTopLevelInline(s string) []string {
 	return append(parts, strings.TrimSpace(s[start:]))
 }
 
-// spliceBannerFile replaces the text between banner markers (appending them when absent), leaving
-// every other byte of path untouched.
-func spliceBannerFile(path, section string, bannerRE *regexp.Regexp, o Options, out io.Writer, label string) (bool, error) {
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	var next []byte
-	switch {
-	case existed && bannerRE.MatchString(string(raw)):
-		next = []byte(bannerRE.ReplaceAllString(string(raw), section))
-	case existed:
-		sep := "\n"
-		if len(raw) == 0 || raw[len(raw)-1] == '\n' {
-			sep = ""
-		}
-		next = append(append(append([]byte{}, raw...), []byte(sep+"\n")...), []byte(section)...)
-	default:
-		next = []byte(section)
-	}
-	return commitFile(path, raw, next, existed, o, out, label)
-}
-
 // commitFile is the shared dry-run/check/write decision once a renderer has the next byte slice.
 func commitFile(path string, raw, next []byte, existed bool, o Options, out io.Writer, label string) (bool, error) {
 	changed := !bytes.Equal(next, raw)
@@ -415,11 +394,7 @@ func renderOpenCodeCopilot(reg *providers.Registry, home string, o Options, out 
 		}
 	}
 	permission, mcp, _ := vendors.OpenCodePermissionMCP() // mcpSkipped has no env channel on this render path
-	if permission != nil {
-		next["permission"] = permission
-	} else {
-		delete(next, "permission")
-	}
+	next["permission"] = permission
 	if len(mcp) > 0 {
 		next["mcp"] = mcp
 	} else {

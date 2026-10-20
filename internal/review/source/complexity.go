@@ -29,11 +29,6 @@ var complexityThresholds = map[string]ComplexityThresholds{
 	"relaxed": {15, 5, 80, 30, 5.0, 1000},
 }
 
-var complexitySkipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "__pycache__": true, ".venv": true,
-	"venv": true, "dist": true, "build": true, ".mypy_cache": true,
-}
-
 // Finding is one complexity_checker finding; Line is 0 (omitted) for file-level findings.
 type Finding struct {
 	Rule     string `json:"rule"`

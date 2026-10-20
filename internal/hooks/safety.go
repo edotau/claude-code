@@ -65,11 +65,6 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 	})
 }
 
-// Safety is the PreToolUse(Bash) guard: block destructive and exfiltration commands.
-func Safety(r io.Reader, stderr io.Writer) int {
-	return safetyOutput(r, io.Discard, stderr)
-}
-
 func safetyOutput(r io.Reader, stdout, stderr io.Writer) (code int) {
 	in := ParseInput(r)
 	if in.Vendor() == VendorCopilot {

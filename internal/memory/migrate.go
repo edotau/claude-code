@@ -205,9 +205,6 @@ func hasTypedFile(dir string) bool {
 	return false
 }
 
-// isPristine: every typed file byte-equals its template and nothing but lock files sits beside them.
-func isPristine(dir string) bool { return pristineDir(dir, false) }
-
 // olderTemplates are exact earlier texts of a template; a legacy bank holding only these is still untouched.
 var olderTemplates = map[string][]string{
 	"conventions.md": {"# Conventions\n\n> Learned patterns/preferences. APPEND; `/reflection:consolidate` prunes. Promote durable,\n" +
@@ -383,18 +380,6 @@ func copyExclusive(src, dest, want string) (string, error) {
 		return "", err
 	}
 	return stepCopied, nil
-}
-
-// removeIfHash unlinks path only while it still hashes to want; a changed file is left for a human.
-func removeIfHash(path, want string) error {
-	h, _, err := sha256File(path)
-	if err != nil {
-		return err
-	}
-	if h != want {
-		return fmt.Errorf("%s: changed since manifest; left in place", path)
-	}
-	return os.Remove(path)
 }
 
 // mergeOriginAliases is AddOriginAlias without its bank lock (apply already holds it): same Key+Origin only.

@@ -17,9 +17,6 @@ const (
 	anthropicKeyEnv  = "ANTHROPIC_API_KEY"
 )
 
-// isAnthropicBilling reports a provider name that is one of the anthropic row's billing modes.
-func isAnthropicBilling(name string) bool { return name == anthropicRow || name == subscriptionName }
-
 // firstParty memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
 // CredentialPresent a keyring call — so the row detail and the billing picker pay for each at most once.
 type firstParty struct {

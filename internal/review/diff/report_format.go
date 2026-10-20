@@ -7,6 +7,18 @@ import (
 
 var verdictEmoji = map[string]string{"approve": "✅", "approve_with_suggestions": "✅", "request_changes": "⚠️", "block": "❌"}
 
+func titleWords(s string) string {
+	b := []byte(s)
+	start := true
+	for i, c := range b {
+		if start && c >= 'a' && c <= 'z' {
+			b[i] = c - ('a' - 'A')
+		}
+		start = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
+	}
+	return string(b)
+}
+
 func formatMarkdownReport(r Report) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Code Review Report")
@@ -29,7 +41,7 @@ func formatMarkdownReport(r Report) string {
 	fmt.Fprintln(&b, "| Severity | Count |")
 	fmt.Fprintln(&b, "|----------|-------|")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "| %s | %d |\n", strings.Title(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "| %s | %d |\n", titleWords(sev), severityCount(r.Summary.IssueCounts, sev))
 	}
 	fmt.Fprintln(&b)
 
@@ -154,7 +166,7 @@ func formatTextReport(r Report) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "--- ISSUE SUMMARY ---")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "  %s: %d\n", strings.Title(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "  %s: %d\n", titleWords(sev), severityCount(r.Summary.IssueCounts, sev))
 	}
 	fmt.Fprintln(&b)
 

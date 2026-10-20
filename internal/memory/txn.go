@@ -81,18 +81,7 @@ const (
 	outDiverge                // other bytes: leave untouched, report
 )
 
-// CommitChanges applies changes under the guarded bank lock; the writable check runs again once the lock is held.
-func CommitChanges(subject string, changes []Change) (Receipt, error) {
-	var rec Receipt
-	err := WithWritableBankLock(BankLockWait, func() error {
-		var err error
-		rec, err = commitChangesLocked(subject, changes)
-		return err
-	})
-	return rec, err
-}
-
-// commitChangesLocked is CommitChanges without the lock or writable check; callers (migration) already hold the bank lock.
+// commitChangesLocked applies changes while callers hold the writable bank lock.
 func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	if err := recoverJournals(); err != nil {
 		return Receipt{}, err
@@ -186,7 +175,7 @@ func (j *journal) save() error {
 // run drives one journal: check, native capture, apply, receipt, commit, complete; a failed commit stays "applied".
 func (j *journal) run(repo Repo) (Receipt, error) {
 	rec := Receipt{ID: j.ID, Subject: j.Subject, Time: time.Now().UTC()}
-	for _, c := range j.Changes { // a replayed journal never passed CommitChanges' check: nothing is read before this
+	for _, c := range j.Changes { // replayed journals need path validation before any read
 		if err := repo.validateRel(c.Rel); err != nil {
 			return rec, err
 		}
