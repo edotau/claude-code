@@ -55,8 +55,8 @@ Detector findings: <complexity / diff_surgeon highlights>
 - **simplify** → apply behavior-preserving cleanups (`--extended` follows duplication to its source past the diff); name each change and confirm behavior is preserved.
 - **architect** → emit the phased `## Plan` (Approach / Changes / Risks / Verification).
 
-For the **security** half of a review, run `/security` in parallel — it dispatches
-`security-reviewer` for the OWASP / secrets / injection pass. `/claude review` + `/security`
+For the **security** half of a review, run `/security` in parallel — it applies the
+`security-reviewer` skill for the OWASP / secrets / injection pass. `/claude review` + `/security`
 together are the full pre-merge gate.
 
 ## 4. Synthesize
