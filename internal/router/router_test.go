@@ -547,6 +547,22 @@ func TestQuotaDeadModelDemotesWithinProvider(t *testing.T) {
 	}
 }
 
+// An absent credential must never be cached: a fallback candidate's credential added mid-session must be
+// seen on the very next call, not hidden until credTTL (60s) expires.
+func TestCredentialPresentDoesNotCacheAbsence(t *testing.T) {
+	r := newRouter("s")
+	const envVar = "ROUTER_TEST_CRED_ABSENT_THEN_PRESENT"
+	os.Unsetenv(envVar)
+	p := &providers.Provider{Name: "envprov", Auth: providers.Auth{Type: providers.AuthAPIKey, Env: envVar}}
+	if r.credentialPresent(p) {
+		t.Fatal("credential reported present with no env var set")
+	}
+	t.Setenv(envVar, "v")
+	if !r.credentialPresent(p) {
+		t.Fatal("newly set credential must be seen on the next call, not cached as absent")
+	}
+}
+
 // A transient 429 (no quota marker) on a provider with lower slots must not demote: same model, provider cooled.
 func TestTransientRateLimitDoesNotDemote(t *testing.T) {
 	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {

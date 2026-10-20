@@ -237,9 +237,11 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 	return providers.Target{}, false
 }
 
-// credentialPresent caches providers.CredentialPresent per provider name for credTTL: an env-auth
-// provider with no process env var falls through to a keyring lookup (a secret-tool subprocess per
-// call), and every fallback candidate is probed on every routed request without this cache.
+// credentialPresent caches providers.CredentialPresent per provider name for credTTL, present results
+// only: an env-auth provider with no process env var falls through to a keyring lookup (a secret-tool
+// subprocess per call), and a present credential is probed once per TTL instead of every routed request.
+// An absent credential is re-checked every call, so a freshly added fallback credential is picked up
+// immediately rather than staying hidden for up to credTTL.
 func (r *Router) credentialPresent(p *providers.Provider) bool {
 	now := r.now()
 	r.mu.Lock()
@@ -248,11 +250,13 @@ func (r *Router) credentialPresent(p *providers.Provider) bool {
 		return c.present
 	}
 	r.mu.Unlock()
-	present := providers.CredentialPresent(p)
+	if !providers.CredentialPresent(p) {
+		return false
+	}
 	r.mu.Lock()
-	r.cred[p.Name] = credResult{present: present, until: now.Add(credTTL)}
+	r.cred[p.Name] = credResult{present: true, until: now.Add(credTTL)}
 	r.mu.Unlock()
-	return present
+	return true
 }
 
 // invalidateCredential drops a provider's cached presence so the next attempt re-probes it.
