@@ -70,7 +70,7 @@ Frontmatter: name=<name> matches folder · description has triggers · OK
 Source: <agent>/<slug>.md (retained — skill is portable)
 ```
 
-## Procedure (from agents/opencode.md)
+## Procedure
 
 A writer, not an inventor. Turn a proven, recurring pattern into a portable, self-contained
 skill — extract what is proven, never add hypothetical coverage.
