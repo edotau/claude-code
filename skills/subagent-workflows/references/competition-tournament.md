@@ -6,7 +6,7 @@ or the approaches genuinely diverge and the best is not predictable.
 
 Do not use it when one approach is obviously right, when the task has no comparable outcome, or when
 the win would be smaller than the N× cost. This pattern multiplies tokens and 429 weight by N — cap N
-by the concurrency tier (lean leaves ~8–10, deep-context ≤4).
+by the concurrency tier (lean leaves ~8–10, deep-context ≤8).
 
 ## Process
 

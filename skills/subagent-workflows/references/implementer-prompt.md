@@ -21,7 +21,9 @@ Verification:
 `<exact command>`
 
 Before editing, report `NEEDS_CONTEXT` if a requirement or dependency is unclear.
-Implement only this task, follow existing patterns, add or update tests, run verification, and inspect your diff. Do not make unrequested architectural changes.
+Implement only this task with the minimum code that meets it, following existing patterns; run verification and inspect your diff. Do not make unrequested architectural changes.
+Test files belong to the `copilot` agent running alongside you: do not edit them; list the behaviors that need coverage.
+Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`.
 
 Stop rather than guess if the task requires a new design decision, exceeds its scope, or conflicts with the plan.
 

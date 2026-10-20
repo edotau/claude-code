@@ -64,7 +64,7 @@ Agent(
   Objective: in-memory, provider-keyed credential cache with single-flight and a refresher.
   Constraints: keyed by provider name, never process-global; the command-credential TTL in
     providers/creds.go stays authoritative; never log a credential.
-  Test RED first: assert a cache HIT performs zero mints (count via an injected seam).
+  Test RED first (no live surface for an internal cache): assert a HIT performs zero mints via an injected seam.
   Verify: gofmt -l <files> && go build ./... && go test -race ./internal/router/ -count=1
   Shared tree: no stash/checkout/reset/restore; confirm each write with git diff --stat.
   Return: files, exact API surface to wire, verbatim RED output, gate results, risks.
@@ -80,6 +80,8 @@ Agent(
 - For a test guarding an invariant, confirm it can FAIL — disable the thing it protects and re-run.
   A test that has never failed is not yet a guard.
 - Inspect the integrated diff for changes outside every lane's assigned scope.
+- Simplify the integrated diff with `Skill(simplify)` before reviewing it — parallel lanes duplicate each
+  other's helpers, and only the integrated diff shows it. Delegated: [simplifier-prompt.md](simplifier-prompt.md).
 - Re-run scoped checks, then the full suite once (`make test`). Add `-race` for anything concurrent.
 - Rebuild before believing a binary's behavior — `go test` green says nothing about `bin/`.
 - Synthesize only verified results.

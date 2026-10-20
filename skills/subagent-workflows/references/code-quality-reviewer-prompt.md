@@ -1,6 +1,7 @@
 # Code Quality Reviewer Prompt
 
-Use only after the spec reviewer returns `SPEC_COMPLIANT`.
+Use only after the spec reviewer returns `SPEC_COMPLIANT` and the simplify pass
+([simplifier-prompt.md](simplifier-prompt.md)) has run.
 
 ```markdown
 Review the implementation for correctness, maintainability, tests, security, and repository conventions.
@@ -13,7 +14,10 @@ Base: <base revision>
 Head: <head revision>
 Files: <changed files>
 
-Inspect the diff and relevant surrounding code. Check behavior, edge cases, error handling, test quality, unnecessary complexity, interface clarity, and regressions. Focus on issues introduced by this change.
+Simplify report (already applied; flagged items were left on purpose):
+<simplify report>
+
+Inspect the diff and relevant surrounding code. Check behavior, edge cases, error handling, test quality, interface clarity, and regressions. Complexity is the simplify pass's lane: raise it only where a flagged item hides a bug. Focus on issues introduced by this change.
 
 Return:
 - Strengths

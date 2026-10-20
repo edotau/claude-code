@@ -9,7 +9,7 @@ agent, this fans out **many** `code-worker` leaves to finish a series of jobs. E
 leaf is the **code-worker** agent (Sonnet-pinned, cannot fan out further — it does its one task
 in-context and reports back). This is the ergonomic front door to the `subagent-workflows` skill's two
 strategies: `dispatching-parallel-agents` (concurrent) and `subagent-driven-development` (sequential
-with per-task review).
+with per-task spec → simplify → quality gates).
 
 ## Mode (first arg, optional)
 
@@ -39,7 +39,7 @@ echo "tasks (| -separated): $ARGS"
 ```
 
 If the task list is empty, read the approved plan — the most recent
-`$HOME/.claude/plans/*.md`, or this repo's `plans/<repo>/*.md` — and extract its task breakdown as the task list.
+`$HOME/.claude/plans/*.md`, or `$HOME/.claude/plans/<repo>/*.md` for another repo — and extract its task breakdown as the task list.
 
 ```bash
 REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
@@ -52,7 +52,7 @@ coupled/ordered/plan-derived → sequential) and say why in one line.
 ## 2. Build a self-contained handoff per task
 
 You start each leaf cold — it inherits none of this session. For every task, construct the handoff
-contract from `subagent-workflows/references/choosing-a-pattern.md`:
+contract from `subagent-workflows/SKILL.md` → Dispatch contract (implementers: `references/implementer-prompt.md`):
 
 - **Objective** — what to build / review / investigate.
 - **Scope boundary** — the exact files this leaf may touch (so parallel leaves don't collide).
@@ -65,10 +65,11 @@ contract from `subagent-workflows/references/choosing-a-pattern.md`:
 ## 3. Dispatch
 
 Dispatch each task via the **Agent** tool with `subagent_type: "code-worker"`, passing only the
-handoff (NOT this session's history).
+handoff (NOT this session's history). Every dispatch carries a `copilot` test agent in the SAME message
+(`rules/standards/quality.md`) — it owns the test files the leaves must not edit.
 
 - **parallel** — emit **all** `Agent` calls in a **single message** so they run concurrently. Concurrency:
-  lean leaves ~8–10 in flight, deep-context leaves ≤4 (input-tokens/min is the binding cap). Agents share the tree on disk — scope each
+  lean leaves ~8–10 in flight, deep-context leaves ≤8 (input-tokens/min is the binding cap). Agents share the tree on disk — scope each
   handoff to disjoint files so concurrent writers don't collide.
 - **sequential** — dispatch **one** leaf, then run the review gate (step 4) before the next task.
   **Never** run two implementer leaves in parallel here — coupled tasks would edit shared code (the
@@ -77,11 +78,12 @@ handoff (NOT this session's history).
 If a leaf reports the task is too big to do in-context (it cannot fan out further), split the task and
 re-dispatch — don't ask the leaf to delegate.
 
-## 4. Review gate (sequential mode)
+## 4. Gates — spec → simplify → quality
 
-After each sequential leaf, verify before proceeding — a spec-compliance pass then a code-quality
-pass, reusing the templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`,
-`code-quality-reviewer-prompt.md`), or `/code-review` over the leaf's diff. Loop
+Sequential: after each leaf, before the next task. Parallel: once, over the integrated diff. Spec-compliance
+pass, then `Skill(simplify)` over the diff (a leaf gets `simplifier-prompt.md`), then the code-quality pass —
+templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`, `simplifier-prompt.md`,
+`code-quality-reviewer-prompt.md`), or `/code-review` over the simplified diff. Loop
 fixes until the gate passes, then move to the next task. Do not start the next task on a red gate.
 
 ## 5. Synthesize

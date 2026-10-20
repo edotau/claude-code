@@ -1,6 +1,6 @@
 ---
 name: subagent-workflows
-description: Choose and run concise multi-agent workflows for independent parallel tasks, sequential plan execution with review gates, structured orchestration, competition tournaments, or cross-model teams via `claude-code ask`.
+description: Choose and run concise multi-agent workflows for independent parallel tasks, sequential plan execution with simplify and review gates, structured orchestration, competition tournaments, or cross-model teams via `claude-code ask`.
 ---
 
 
@@ -12,7 +12,7 @@ Use the smallest workflow that matches the task:
 |---|---|
 | One small task | Work inline |
 | Independent tasks | Read [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md) |
-| Ordered plan with review gates | Read [subagent-driven-development.md](references/subagent-driven-development.md) |
+| Ordered plan with simplify + review gates | Read [subagent-driven-development.md](references/subagent-driven-development.md) |
 | Pipeline, router, evaluator, or dynamic orchestration | Read [choosing-a-pattern.md](references/choosing-a-pattern.md) |
 | Spend less Anthropic usage: send a step to Copilot/Codex/Gemini/OpenCode via `claude-code ask` | Read [cost-routing.md](references/cost-routing.md) |
 | A second model family adds useful coverage | Read [cross-model-agent-teams.md](references/cross-model-agent-teams.md) |
@@ -20,7 +20,7 @@ Use the smallest workflow that matches the task:
 | One objective spans several phases with different owners and skills | Run `/workflow:orchestrate` |
 
 Model tiers: `claude-code models` shows what each slot (opus/sonnet/haiku) resolves to. Lean leaves
-(Sonnet) ~8–10 in flight; deep-context (Opus) agents ≤4.
+(Sonnet) ~8–10 in flight; deep-context agents ≤8 (`rules/workflow/agents.md`).
 
 ## Dispatch contract
 
@@ -45,6 +45,10 @@ A fresh agent must be able to act from the handoff alone.
 - Treat agent reports as claims: inspect outputs and run the integrated checks yourself. A test that
   has never been watched to fail is not yet a guard.
 - Dispatch `copilot` in the SAME message as the implementers (`rules/standards/quality.md`).
+- **Simplify before review, every time code changed.** The `simplify` skill (`skills/simplify/SKILL.md`)
+  is the only simplify procedure: the manager runs `Skill(simplify)` over the diff, or hands a leaf
+  [simplifier-prompt.md](references/simplifier-prompt.md) (leaves read the skill as a file). Never an
+  ad hoc "clean this up" brief; reviewers then judge the simplified diff.
 - Use `claude-code workflow skeleton` only for repeatable `Workflow` structures.
 
 ## In this repo
