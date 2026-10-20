@@ -10,6 +10,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestParseAssignment(t *testing.T) {
@@ -101,9 +103,7 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("PATH", t.TempDir())
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(`{"providers": {"openai": null}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers": {"openai": null}}`)
 	if _, err := secrets.Store("MY_CUSTOM", "v", false); err != nil {
 		t.Fatal(err)
 	}

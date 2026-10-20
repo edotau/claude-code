@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // isolateOpencodeRouteEnv clears every credential/login surface DescribeRoute's opencode/copilot chain
@@ -222,12 +223,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 		`"auth":{"type":"passthrough","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
 		`"opencode_fallback":"mai-code-1.1-flash"}}}`
-	if err := os.MkdirAll(filepath.Dir(paths.ProvidersOverlay()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.ProvidersOverlay(), []byte(overlay), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

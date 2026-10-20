@@ -3,17 +3,20 @@ package configure
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // githubScratch isolates CLAUDE_CONFIG_DIR, HOME, XDG, PATH and every credential env var github.go
-// reads, so a test never touches a real gh/copilot login or a real providers.json overlay.
-func githubScratch(t *testing.T) (cfg string) {
+// reads, so a test never touches a real gh/copilot login or a real vault overlay.
+func githubScratch(t *testing.T) {
 	t.Helper()
 	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -24,12 +27,11 @@ func githubScratch(t *testing.T) (cfg string) {
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}
-	return cfg
 }
 
-func readOverlay(t *testing.T, cfg string) map[string]json.RawMessage {
+func readOverlay(t *testing.T) map[string]json.RawMessage {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(cfg, "env.d", "providers.json"))
+	raw, err := providers.OverlayDoc()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,16 +45,14 @@ func readOverlay(t *testing.T, cfg string) map[string]json.RawMessage {
 // WriteGithubCopilotModels merges opus/sonnet/haiku into providers.github-copilot.models in the user's
 // overlay, preserving every other provider entry and root key byte-for-byte.
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
-	cfg := githubScratch(t)
-	existing := `{"default":"gw","providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example.com"},"github-copilot":{"auth":{"type":"passthrough","login":"copilot"}}}}`
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(existing), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	githubScratch(t)
+	existing := `{"default":"gw","providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}},"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", existing)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	doc := readOverlay(t, cfg)
+	doc := readOverlay(t)
 	if string(doc["default"]) != `"gw"` {
 		t.Errorf("default = %s, want it preserved", doc["default"])
 	}
@@ -78,43 +78,33 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	}
 }
 
-// A timestamped backup of the overlay's prior bytes is written before the new overlay replaces it.
-func TestWriteGithubCopilotModelsWritesBackup(t *testing.T) {
-	cfg := githubScratch(t)
-	original := `{"providers":{"github-copilot":{"models":{"opus":"old-opus"}}}}`
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
+// The overlay's prior bytes are retained in the vault when the new overlay replaces it.
+func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
+	githubScratch(t)
+	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"},"models":{"opus":"old-opus"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "new-opus", models.Sonnet: "new-sonnet", models.Haiku: "new-haiku"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	ents, err := os.ReadDir(filepath.Join(cfg, "env.d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var backup string
-	for _, e := range ents {
-		if strings.HasPrefix(e.Name(), "providers.json.bak-") {
-			backup = e.Name()
+	if err := vault.View(func(tx *vault.Tx) error {
+		got, ok := tx.Get(vault.Overlay, "providers.prev")
+		if !ok {
+			t.Error("no previous overlay retained in vault overlay/providers.prev")
 		}
-	}
-	if backup == "" {
-		t.Fatalf("no providers.json.bak-* backup written; dir has %v", ents)
-	}
-	got, err := os.ReadFile(filepath.Join(cfg, "env.d", backup))
-	if err != nil {
+		if got != original {
+			t.Errorf("previous overlay = %q, want the original overlay %q", got, original)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
-	}
-	if string(got) != original {
-		t.Errorf("backup contents = %q, want the original overlay %q", got, original)
 	}
 }
 
 // fallback="auto" is rejected outright: opencode's own catalog has no "auto" alias, so substituting
 // it right back in would defeat the whole point of opencode_fallback. The overlay must stay untouched.
 func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
-	cfg := githubScratch(t)
+	githubScratch(t)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "auto"}
 	err := WriteGithubCopilotModels(picks, "auto")
 	if err == nil {
@@ -123,23 +113,21 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 	if !strings.Contains(err.Error(), "auto") {
 		t.Errorf("error = %v, want it to name \"auto\"", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "env.d", "providers.json")); err == nil {
-		t.Error("a rejected fallback must not write the overlay at all")
+	if _, err := providers.OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a rejected fallback must not write the overlay at all: got %v, want fs.ErrNotExist", err)
 	}
 }
 
 // fallback="" (no slot resolved to "auto") leaves any opencode_fallback the overlay already set alone.
 func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing.T) {
-	cfg := githubScratch(t)
-	original := `{"providers":{"github-copilot":{"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}`
-	if err := os.WriteFile(filepath.Join(mkEnvD(t, cfg), "providers.json"), []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	githubScratch(t)
+	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"},"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "claude-opus-5.5", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	doc := readOverlay(t, cfg)
+	doc := readOverlay(t)
 	var provs map[string]json.RawMessage
 	if err := json.Unmarshal(doc["providers"], &provs); err != nil {
 		t.Fatal(err)
@@ -157,13 +145,13 @@ func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing
 
 // Every opus/sonnet/haiku slot must be a non-empty id; a missing one is rejected before anything is written.
 func TestWriteGithubCopilotModelsRejectsEmptySlot(t *testing.T) {
-	cfg := githubScratch(t)
+	githubScratch(t)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err == nil {
 		t.Fatal("WriteGithubCopilotModels: want an error for an empty sonnet slot")
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "env.d", "providers.json")); err == nil {
-		t.Error("a rejected pick set must not write the overlay at all")
+	if _, err := providers.OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a rejected pick set must not write the overlay at all: got %v, want fs.ErrNotExist", err)
 	}
 }
 
