@@ -25,7 +25,7 @@ brief and the check.
 4. Size the model to the step: Copilot's `claude-haiku-5.5` for mechanical edits, `claude-sonnet-5.5`
    by default, `claude-opus-5.5` only for an unusually complex step (premium multipliers scale with the
    model). `claude-code models --live --provider github-copilot` lists what the seat serves.
-5. Stay on Claude when the step is tiny (the brief costs more than the work), tightly coupled to
+5. The manager (not the leaf) assigns `runner: claude` when the step is tiny (the brief costs more than the work), tightly coupled to
    context only this session holds, or the runner failed its smoke test (`ask --agent <r> "Reply READY only."`).
 
 ## Verify the leg actually ran

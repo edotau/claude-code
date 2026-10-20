@@ -35,7 +35,8 @@ that is a CLI call, not a subagent, and it is how you keep the heavy work off An
 
 The handoff names a `runner:` (`claude`, `copilot`, `codex` or `opencode`); the manager spreads leaves
 evenly across them per `skills/subagent-workflows/references/cost-routing.md`. `claude` or no runner:
-do the task in-context. Otherwise delegate the work through `claude-code ask`, e.g.:
+do the task in-context. Any other runner is binding: always attempt the `claude-code ask` leg first — size and
+"mechanical" are the manager's call, never yours — e.g.:
 
 ```bash
 claude-code ask --agent copilot --tools --workdir <repo> --model claude-sonnet-5.5 \
