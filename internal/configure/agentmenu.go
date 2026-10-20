@@ -224,7 +224,7 @@ var codexKeyLogin = func(key string) error {
 func codexUseKey(d *dialog) bool {
 	key, _, ok := secrets.Get("OPENAI_API_KEY")
 	if !ok || key == "" {
-		d.printf("codex: OPENAI_API_KEY not found in a stored plane\n")
+		d.printf("codex: OPENAI_API_KEY not found in the vault\n")
 		return false
 	}
 	if err := codexKeyLogin(key); err != nil {

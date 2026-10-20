@@ -255,7 +255,7 @@ func applyProvider(d *dialog, name string) bool {
 type keyTarget struct {
 	label     string
 	present   bool
-	source    string              // present: which plane/login answered
+	source    string              // present: which source/login answered
 	loginArgv []string            // absent + a login CLI exists: offer/run this
 	envVar    string              // absent + API-key based: prompt writes this var
 	fixCmd    string              // piped: the exact command to run instead
@@ -300,7 +300,7 @@ type authOption struct {
 	desc   string   // one short line, the second column
 	argv   []string // login CLI to run attached to the terminal
 	mint   []string // CLI that prints a long-lived token; captured and stored under env
-	env    string   // name a pasted (or minted) key is stored under (OS keyring, else env.d/secrets.env)
+	env    string   // name a pasted (or minted) key is stored under in the vault
 }
 
 // label is the piped one-line form of the option.
@@ -491,10 +491,7 @@ func probe(kt keyTarget) (status, detail string) {
 // is never cached — a transient network blip shouldn't stick for 6 hours.
 const probeTTL = 6 * time.Hour
 
-// probeCached is probe with a TTL cache keyed off the credential's own metadata: a stored value
-// (keyring or file) with a fresh verified/rejected result skips the live probe entirely, returning
-// its age for display. An env-sourced value, or one with no cached row, always probes live (age 0);
-// a fresh probe result is recorded back to metadata so the next render can serve it from cache.
+// probeCached reuses fresh vault probe results; env overrides and uncached values always probe live.
 func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	if kt.provider == nil || kt.provider.Auth.Env == "" {
 		status, detail = probe(kt)
@@ -502,7 +499,7 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	}
 	env := kt.provider.Auth.Env
 	meta, src := probeSource(env)
-	if src != "keyring" && src != "file" {
+	if src != "vault" {
 		status, detail = probe(kt)
 		return status, detail, 0
 	}
@@ -516,8 +513,7 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	return status, detail, 0
 }
 
-// probeSource resolves env's current plane the same way a launch would. meta is nil when the meta
-// file is unreadable (a zero Meta then reads back from it, same as "no cached row").
+// probeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
 func probeSource(env string) (meta map[string]secrets.Meta, src string) {
 	meta, err := secrets.LoadMeta()
 	if err != nil {

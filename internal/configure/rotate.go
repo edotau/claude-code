@@ -1,6 +1,6 @@
 // rotate.go — rotate or replace a credential that is already present: generate a fresh one via the
 // vendor's own CLI where one exists (`runLogin`/`runMint`), otherwise paste, always probing a keyed
-// replacement live before it overwrites the stored value, and writing back to the same plane it came from.
+// replacement live before it overwrites the stored value in the vault.
 package configure
 
 import (
@@ -16,7 +16,7 @@ import (
 )
 
 // probeValue live-checks a candidate value for p without storing it first, via the env-var seam
-// providers.Credential already checks ahead of any stored plane; the previous env is restored after.
+// providers.Credential already checks ahead of the vault; the previous env is restored after.
 func probeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
 	prev, had := os.LookupEnv(envVar)
 	if err := os.Setenv(envVar, candidate); err != nil {
@@ -41,8 +41,8 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 	if kt.envVar == "" {
 		return false
 	}
-	if _, plane, _ := secrets.Get(kt.envVar); plane == "env" {
-		d.printf("%s: set via the process environment, not a stored plane — edit it where it is exported\n", kt.envVar)
+	if _, src, _ := secrets.Get(kt.envVar); src == "env" {
+		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.envVar)
 		return false
 	}
 	if !actionConfirmed("Paste a new " + kt.envVar + " to rotate it") {
@@ -70,8 +70,8 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 }
 
 // regenerate re-runs a vendor's own login or mint CLI to rotate a credential that is already present.
-// A login just reports the outcome (the session lives in the vendor's own file, not a plane we store);
-// a mint writes the printed token back to the plane the old one came from.
+// A login reports the outcome (the session lives in the vendor's own file, not the vault).
+// A mint writes the printed token back to the vault.
 func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 	if !mint {
 		if err := runLogin(argv); err != nil {
@@ -90,8 +90,8 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
 		return false
 	}
-	if _, plane, _ := secrets.Get(kt.envVar); plane == "env" {
-		d.printf("%s: minted a new token, but %s is set via the process environment — update it there\n", kt.label, kt.envVar)
+	if _, src, _ := secrets.Get(kt.envVar); src == "env" {
+		d.printf("%s: minted a new token\n%s: env-only; update where exported\n", kt.label, kt.envVar)
 		return false
 	}
 	return storeValue(d, kt.envVar, tok)

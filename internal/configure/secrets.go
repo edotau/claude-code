@@ -23,13 +23,12 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // trackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
 type trackedSecret struct {
 	name     string
-	source   string // keyring|file|env|"" (missing)
-	shadowed string // keyring|file|"" — a managed plane an env var is shadowing
+	source   string // vault|env|"" (missing)
+	shadowed string // vault|"" — a stored value an env var is shadowing
 	users    string // providers that read it, or a short role
 }
 
-// trackedSecrets is what the harness reads (each enabled provider's auth.env, the setup-token) plus every secret
-// added through the dialog or `secrets set` (the names index) and anything still in env.d/secrets.env.
+// trackedSecrets combines provider auth.env names, the setup-token, and every secret stored in the vault.
 func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	users := map[string][]string{
 		providers.OAuthTokenEnv: {"claude -p (setup-token)"},
@@ -41,7 +40,7 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	}
 	meta, metaErr := secrets.LoadMeta()
 	if metaErr != nil {
-		// meta unreadable: Names() falls back to file-plane names so custom names aren't dropped.
+		// Names reads vault names without decoding records, which may still work when metadata is unreadable.
 		for _, env := range secrets.Names() {
 			if _, ok := users[env]; !ok {
 				users[env] = []string{"custom"}
@@ -68,17 +67,13 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	return out
 }
 
-// sourceLabel is the status token a row shows; "file" is called out as plaintext since that is the
-// point, and an env var shadowing a managed plane says so (the dialog would otherwise show
-// "keyring"/"file" while a launch actually reads the env var).
+// sourceLabel names the effective source and flags an env override of a vault value.
 func sourceLabel(src, shadowed string) string {
 	switch {
 	case src == "":
 		return "missing"
-	case shadowed != "":
-		return "env over " + shadowed
-	case src == "file":
-		return "file:plaintext"
+	case src == "env" && shadowed == "vault":
+		return "env over vault"
 	}
 	return src
 }
@@ -97,7 +92,7 @@ func Secrets(o Options) int {
 }
 
 // secretsLoop is the secrets page on d: standalone it stores at once; inside configure (d.pending set) every
-// value is staged and configure's Submit saves it to the keyring.
+// value is staged and configure's Submit saves it to the vault.
 func secretsLoop(d *dialog) int {
 	if d.pending != nil {
 		before := maps.Clone(d.pending)
@@ -149,8 +144,7 @@ func pick(d *dialog, title string, rows [][2]string) (int, error) {
 	return n - 1, nil
 }
 
-// editSecret offers every action for one tracked secret: move a plaintext copy into the keyring, mint, log in
-// via the browser/console page and paste, or delete.
+// editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s trackedSecret) {
 	type action struct {
 		name, desc string
@@ -164,8 +158,8 @@ func editSecret(d *dialog, s trackedSecret) {
 	for _, o := range authOptions(kt) {
 		acts = append(acts, action{o.action, o.desc, func() bool { return runAuthOption(d, kt, o) }})
 	}
-	if s.source == "keyring" || s.source == "file" {
-		acts = append(acts, action{"Delete", "keyring + secrets.env", func() bool {
+	if s.source == "vault" {
+		acts = append(acts, action{"Delete", "remove from the vault", func() bool {
 			if !confirm(d, "Delete "+s.name+"?") {
 				return false
 			}
@@ -225,7 +219,7 @@ func ParseAssignment(raw string) (name, value string) {
 	return name, s
 }
 
-// storeValue writes one secret via secrets.Store and reports where it landed, redacted; inside the menu it stages.
+// storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
 	if d.pending != nil {
 		if !d.stage(name, val) {
@@ -234,12 +228,11 @@ func storeValue(d *dialog, name, val string) bool {
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
 		return true
 	}
-	plane, err := "the vault", secrets.Store(name, val)
-	if err != nil {
+	if err := secrets.Store(name, val); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	d.printf("wrote %s to %s (%s)\n", name, plane, secrets.Redact(val))
+	d.printf("wrote %s to the vault (%s)\n", name, secrets.Redact(val))
 	return true
 }
 
@@ -279,12 +272,11 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	for _, name := range page {
 		k := d.pending[name]
-		plane, err := "the vault", secrets.Store(name, k.val)
-		if err != nil {
+		if err := secrets.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
 		}
-		d.printf("saved %s to %s (%s)\n", name, plane, secrets.Redact(k.val))
+		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
 	d.changed = true
