@@ -38,7 +38,7 @@ func TestPlanTemplateTeeth(t *testing.T) {
 	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
 
 	var stderr bytes.Buffer
-	code := PlanTemplate(strings.NewReader(writePayload(t, "Write", cfg, draft, "just some free-form draft text\n")), &stderr)
+	code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "just some free-form draft text\n"))), &stderr)
 	if code != ExitBlock {
 		t.Fatalf("free-form first write: PlanTemplate = %d, want ExitBlock", code)
 	}
@@ -57,7 +57,7 @@ func TestPlanTemplateAllowsTemplatedFirstWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
-	code := PlanTemplate(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)), &bytes.Buffer{})
+	code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate))), &bytes.Buffer{})
 	if code != ExitProceed {
 		t.Fatalf("templated first write: PlanTemplate = %d, want ExitProceed", code)
 	}
@@ -75,7 +75,7 @@ func TestPlanTemplateOnlyGatesTheFirstWrite(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code := PlanTemplate(strings.NewReader(writePayload(t, "Write", cfg, draft, "no headings now\n")), &bytes.Buffer{})
+	code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "no headings now\n"))), &bytes.Buffer{})
 	if code != ExitProceed {
 		t.Fatalf("second write to an existing draft: PlanTemplate = %d, want ExitProceed", code)
 	}
@@ -89,7 +89,7 @@ func TestPlanTemplateIgnoresDatedAndOutsidePlans(t *testing.T) {
 		filepath.Join(cfg, "plans", "sub", "funny-random-words.md"),
 		filepath.Join(t.TempDir(), "elsewhere.md"),
 	} {
-		code := PlanTemplate(strings.NewReader(writePayload(t, "Write", cfg, path, "no headings\n")), &bytes.Buffer{})
+		code := checkPlanTemplate(ParseInput(strings.NewReader(writePayload(t, "Write", cfg, path, "no headings\n"))), &bytes.Buffer{})
 		if code != ExitProceed {
 			t.Errorf("PlanTemplate(%s) = %d, want ExitProceed (not an undated top-level draft)", path, code)
 		}
@@ -234,6 +234,56 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	}
 }
 
+// TestPlanMirrorNeverAdoptsAnIdenticalDatedFile: two drafts share the same H1 and the same first-mirrored
+// content on the same day. The second draft must never adopt the first's dated file as its own dest — even
+// though the bytes are identical — or a later edit to draft B would silently overwrite draft A's file.
+func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	plansDir := filepath.Join(cfg, "plans")
+	if err := os.MkdirAll(plansDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	draftA := filepath.Join(plansDir, "aaa-words.md")
+	draftB := filepath.Join(plansDir, "bbb-words.md")
+	for _, d := range []string{draftA, draftB} {
+		if err := os.WriteFile(d, []byte(planTemplate), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draftA)), &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("mirror A = %d", code)
+	}
+	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draftB)), &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("mirror B = %d", code)
+	}
+	destA := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+	destB := filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md")
+	if destA == destB {
+		t.Fatalf("drafts A and B must not share a dest")
+	}
+	if got, err := os.ReadFile(destA); err != nil || string(got) != planTemplate {
+		t.Fatalf("destA %s: err=%v content=%q", destA, err, got)
+	}
+	if got, err := os.ReadFile(destB); err != nil || string(got) != planTemplate {
+		t.Fatalf("destB %s: err=%v content=%q", destB, err, got)
+	}
+
+	edited := strings.Replace(planTemplate, "why\n", "draft B's own edit\n", 1)
+	if err := os.WriteFile(draftB, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Edit", cfg, draftB)), &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("edit mirror B = %d", code)
+	}
+	if got, err := os.ReadFile(destA); err != nil || string(got) != planTemplate {
+		t.Fatalf("editing draft B must never change destA %s: err=%v content=%q", destA, err, got)
+	}
+	if got, err := os.ReadFile(destB); err != nil || string(got) != edited {
+		t.Fatalf("destB should hold draft B's edit %s: err=%v content=%q", destB, err, got)
+	}
+}
+
 // TestSavePlanReusesMirroredDestAndCleansUpDraft: approval with EMPTY tool_input and tool_response{plan,
 // filePath} reuses the dest plan-mirror already recorded, verifies the dated file, then removes the draft
 // and its .dest record.
@@ -274,6 +324,42 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "state", "plans-scratch", "other-words.md.dest")); !os.IsNotExist(err) {
 		t.Fatalf("the .dest record must be removed, stat err = %v", err)
+	}
+}
+
+// TestSavePlanKeepsDraftEditedAfterApproval: the draft on disk no longer matches the approved plan text
+// (e.g. a concurrent agent kept editing it) — SavePlan must file the approved plan but leave the draft alone.
+func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
+	if err := os.MkdirAll(filepath.Dir(draft), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(planTemplate, "why\n", "why, edited after approval\n", 1)
+	if err := os.WriteFile(draft, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode", "cwd": cfg,
+		"tool_input": map[string]any{}, "tool_response": map[string]any{"plan": planTemplate, "filePath": draft},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := SavePlan(bytes.NewReader(raw), &stderr); code != ExitProceed {
+		t.Fatalf("SavePlan = %d", code)
+	}
+	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
+	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
+		t.Fatalf("approved plan not saved at %s: err=%v content=%q", dest, err, got)
+	}
+	if got, err := os.ReadFile(draft); err != nil || string(got) != edited {
+		t.Fatalf("draft edited after approval must be kept untouched: err=%v content=%q", err, got)
+	}
+	if !strings.Contains(stderr.String(), "save-plan: ") || !strings.Contains(stderr.String(), draft) {
+		t.Errorf("missing kept-draft diagnostic: %s", &stderr)
 	}
 }
 
