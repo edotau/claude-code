@@ -1,0 +1,22 @@
+# Deep lint for `make lint-deep` (golangci-lint v2).
+version: "2"
+linters:
+  default: none
+  enable:
+    - staticcheck
+    - unused
+    - errcheck
+    - ineffassign
+    - bodyclose
+    - noctx
+    - gocognit
+    - perfsprint
+    - modernize
+  settings:
+    gocognit:
+      min-complexity: 30
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocognit
