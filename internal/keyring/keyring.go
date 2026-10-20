@@ -94,7 +94,7 @@ func Get(name string) (string, bool) {
 // argv: an argv secret is visible to every same-uid process (`ps`) for the life of the call.
 func Set(name, value string) error {
 	if name == "" {
-		return fmt.Errorf("keyring: empty name")
+		return errors.New("keyring: empty name")
 	}
 	if value == "" {
 		return fmt.Errorf("keyring: refusing to store an empty value for %s", name)
@@ -107,7 +107,7 @@ func Set(name, value string) error {
 		return fmt.Errorf("keyring: no keyring tool on PATH for %s — use the file plane instead", runtime.GOOS)
 	}
 	if down.Load() {
-		return fmt.Errorf("keyring: the keyring did not answer earlier this run — use the file plane instead")
+		return errors.New("keyring: the keyring did not answer earlier this run — use the file plane instead")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
 	defer cancel()
@@ -147,7 +147,7 @@ func Delete(name string) error {
 		return nil
 	}
 	if down.Load() {
-		return fmt.Errorf("keyring: the keyring did not answer earlier this run")
+		return errors.New("keyring: the keyring did not answer earlier this run")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

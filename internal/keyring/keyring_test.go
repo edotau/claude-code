@@ -144,11 +144,39 @@ func TestSetRejectsEmptyAndMultiline(t *testing.T) {
 	if err := Set("NAME", ""); err == nil {
 		t.Fatal("Set must reject an empty value")
 	}
-	if err := Set("", "v"); err == nil {
-		t.Fatal("Set must reject an empty name")
+	if err := Set("", "v"); err == nil || err.Error() != "keyring: empty name" {
+		t.Fatalf("Set with an empty name = %v, want keyring: empty name", err)
 	}
 	if err := Set("NAME", "line1\nline2"); err == nil {
 		t.Fatal("Set must reject a value spanning more than one line")
+	}
+}
+
+func TestSetDeleteLatchedDownErrors(t *testing.T) {
+	hermetic(t)
+	if Tool() == "" {
+		t.Skip("no keyring tool is implemented for this OS")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, Tool()), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	down.Store(true)
+
+	for _, tt := range []struct {
+		name string
+		run  func() error
+		want string
+	}{
+		{"Set", func() error { return Set("NAME", "value") }, "keyring: the keyring did not answer earlier this run — use the file plane instead"},
+		{"Delete", func() error { return Delete("NAME") }, "keyring: the keyring did not answer earlier this run"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.run(); err == nil || err.Error() != tt.want {
+				t.Fatalf("%s with a latched-down keyring = %v, want %q", tt.name, err, tt.want)
+			}
+		})
 	}
 }
 

@@ -191,9 +191,13 @@ func Serve(ctx context.Context, port int) error {
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if errors.Is(err, syscall.EADDRINUSE) && port == DefaultPort {
-		ln, err = net.Listen("tcp", "127.0.0.1:0") // router.json carries the real port
+		ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0") // router.json carries the real port
 	}
 	if err != nil {
 		return err
@@ -227,7 +231,9 @@ func Serve(ctx context.Context, port int) error {
 	} else if err != nil {
 		return err
 	}
-	<-errc
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
 	return nil
 }
 

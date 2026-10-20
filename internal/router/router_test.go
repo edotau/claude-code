@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -406,6 +407,19 @@ func TestIdleBodyCutsWedgedStream(t *testing.T) {
 	b := newIdleBody(pr, 20*time.Millisecond)
 	if _, err := b.Read(make([]byte, 1)); err == nil {
 		t.Fatal("read on a silent body should fail after the idle cutoff")
+	}
+}
+
+func TestServeCanceledContextDoesNotPublishState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := Serve(ctx, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve with a canceled context = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(stateFile()); !os.IsNotExist(err) {
+		t.Fatalf("router.json must not be published for a canceled context: %v", err)
 	}
 }
 
