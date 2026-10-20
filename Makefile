@@ -172,7 +172,7 @@ lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
 
 .PHONY: dev-tools
-dev-tools:  ## Install pinned govulncheck, golangci-lint, yamlfmt
+dev-tools:  # (hidden from help; CI + `make install DEV_TOOLS=1`) pinned govulncheck, golangci-lint, yamlfmt
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION)
