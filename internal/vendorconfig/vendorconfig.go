@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 //go:embed defaults.json
@@ -79,6 +80,12 @@ func Parse(base, overlay []byte) (*Config, error) {
 	if err := json.Unmarshal(base, &cfg); err != nil {
 		return nil, fmt.Errorf("vendorconfig defaults: %w", err)
 	}
+	// Built-in guard rules come from the settings template, not a hand-copied subset here.
+	guard, err := templateGuardRules()
+	if err != nil {
+		return nil, err
+	}
+	cfg.GuardRules = guard
 	if len(overlay) > 0 {
 		// Vendors as json.RawMessage so a "name": null entry survives decode to signal removal.
 		var o struct {
@@ -107,6 +114,24 @@ func Parse(base, overlay []byte) (*Config, error) {
 		}
 	}
 	return &cfg, nil
+}
+
+// templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
+func templateGuardRules() (GuardRules, error) {
+	rendered, err := settings.Render()
+	if err != nil {
+		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
+	}
+	var tpl struct {
+		Permissions struct {
+			Ask  []string `json:"ask"`
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(rendered, &tpl); err != nil {
+		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
+	}
+	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
 }
 
 // Vendor returns name's spec, or the zero value when Config is nil or name is unknown.

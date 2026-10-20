@@ -1,10 +1,13 @@
 package vendorconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // writeOverlay isolates CLAUDE_CONFIG_DIR to a temp dir and drops body at UserFile().
@@ -101,6 +104,35 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	g, want := cfg.Guard(), defaults.Guard()
 	if !reflect.DeepEqual(g, want) {
 		t.Errorf("Guard() with omitted guardRules = %+v, want defaults %+v", g, want)
+	}
+}
+
+// TestDefaultGuardsMirrorSettingsTemplate: the built-in guard rules are exactly settings.Render()'s
+// permissions.ask/deny, order included — not a hand-copied subset in defaults.json.
+func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
+	rendered, err := settings.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Permissions struct {
+			Ask  []string `json:"ask"`
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(rendered, &doc); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Guard()
+	if !reflect.DeepEqual(g.Ask, doc.Permissions.Ask) {
+		t.Errorf("Guard().Ask = %v, want (from settings template) %v", g.Ask, doc.Permissions.Ask)
+	}
+	if !reflect.DeepEqual(g.Deny, doc.Permissions.Deny) {
+		t.Errorf("Guard().Deny = %v, want (from settings template) %v", g.Deny, doc.Permissions.Deny)
 	}
 }
 
