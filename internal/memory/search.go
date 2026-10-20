@@ -71,7 +71,7 @@ func SearchBanks(root, query string, k int) []SearchHit {
 // SearchBanksTerms ranks banks using the caller's pretokenized content terms.
 func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
 	files := append(corpusFiles(root), routedFiles(root, query)...)
-	return rankFiles(terms, k, files, loadSegments(files))
+	return rankFiles(terms, k, files, loadSegments(files, true))
 }
 
 // SearchAll ranks the global tier plus every repo store as one corpus (`memory search --all`).
@@ -84,7 +84,7 @@ func SearchAll(query string, k int) []SearchHit {
 			}
 		}
 	}
-	return rankFiles(contentTerms(query), k, files, loadSegments(files))
+	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
 }
 
 // corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.

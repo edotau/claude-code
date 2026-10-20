@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"os"
@@ -187,17 +188,21 @@ func (s segView) lookup(term string) (posts []byte, n int) {
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
-	termAt := func(i int) string {
+	i := sort.Search(nterms, func(i int) bool {
 		off := termStart + 4 + i*16
 		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
 		end := start + int(binary.LittleEndian.Uint32(s[off+4:]))
-		return string(s[start:end])
-	}
-	i := sort.Search(nterms, func(i int) bool { return termAt(i) >= term })
-	if i == nterms || termAt(i) != term {
+		return string(s[start:end]) >= term
+	})
+	if i == nterms {
 		return nil, 0
 	}
 	off := termStart + 4 + i*16
+	termOff := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
+	termEnd := termOff + int(binary.LittleEndian.Uint32(s[off+4:]))
+	if string(s[termOff:termEnd]) != term {
+		return nil, 0
+	}
 	start := postStart + 4 + int(binary.LittleEndian.Uint32(s[off+8:]))
 	n = int(binary.LittleEndian.Uint32(s[off+12:]))
 	return s[start : start+n*8], n
@@ -237,7 +242,7 @@ func (s segView) valid() bool {
 	if sumdl != s.sumDL() {
 		return false
 	}
-	var previous string
+	var previous []byte
 	for i := uint64(0); i < nterms; i++ {
 		off := termStart + 4 + i*16
 		start, length := u32(off), u32(off+4)
@@ -245,8 +250,8 @@ func (s segView) valid() bool {
 		if start+length > blobLen || postOff%8 != 0 || postOff+count*8 > nposts*8 {
 			return false
 		}
-		term := string(s[blobStart+start : blobStart+start+length])
-		if i > 0 && term <= previous {
+		term := s[blobStart+start : blobStart+start+length]
+		if i > 0 && bytes.Compare(term, previous) <= 0 {
 			return false
 		}
 		previous = term
@@ -258,18 +263,6 @@ func (s segView) valid() bool {
 		}
 	}
 	return true
-}
-
-func loadSegments(files []corpusFile) []segView {
-	segs := make([]segView, len(files))
-	for i, f := range files {
-		data, err := os.ReadFile(f.path)
-		if err != nil {
-			continue
-		}
-		segs[i] = encodeSegment(parseBlocks(f.mode, filepath.Base(f.path), data))
-	}
-	return segs
 }
 
 func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
@@ -287,7 +280,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	var sumdl uint64
 	var usable []int
 	for i, seg := range segs {
-		if seg == nil || !seg.valid() {
+		if seg == nil {
 			continue
 		}
 		usable = append(usable, i)

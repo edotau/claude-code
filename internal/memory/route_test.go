@@ -66,7 +66,7 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 
 	files := routedFiles(a, "proja projb")
 	var blocks []SearchHit
-	for i, seg := range loadSegments(files) {
+	for i, seg := range loadSegments(files, false) {
 		if seg == nil {
 			continue
 		}
