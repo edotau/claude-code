@@ -30,5 +30,8 @@ jobs:
           cache: true
       # One gate, one definition: `make audit` is what the pre-push hook (.githooks/pre-push) runs locally,
       # so CI can only fail on something the push already saw. Steps live in the Makefile, not here.
+      # Pinned versions live in the Makefile; without this step audit silently skipped govulncheck.
+      - name: make dev-tools (govulncheck, golangci-lint, yamlfmt)
+        run: make dev-tools
       - name: make audit (gofmt, vet, test, build, generated-projection smoke)
         run: NO_COLOR=1 make audit

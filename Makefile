@@ -34,8 +34,11 @@ GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Repo-owned shell scripts only (e.g. scripts/bootstrap.sh); lint-shell no-ops when the wildcard is empty.
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh)
-# Gate tool is PINNED: `@latest` could change under us between runs.
+# Gate tools are PINNED: `@latest` could change under us between runs. `make dev-tools` installs all three.
 GOVULN_VERSION  ?= v1.8.0
+GOLANGCI_VERSION ?= v2.15.0
+YAMLFMT_VERSION ?= v0.21.0
+YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
@@ -83,9 +86,10 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
-		else echo -e "$(C_NOTE)govulncheck not installed — skipped (go install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION))"; fi
+		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make dev-tools)"; fi
+	@$(MAKE) --no-print-directory lint-yaml
 	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
-	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + vuln + sync smoke)"
+	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke; vuln + yaml when installed)"
 
 .PHONY: help-svg
 help-svg: compile  ## Regenerate the README menu image (docs/images/cli-menu.svg)
@@ -143,7 +147,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-settings  ## gofmt, vet, shellcheck, generate --check
+lint: lint-go lint-shell lint-yaml lint-settings  ## gofmt, vet, shellcheck, yamlfmt, generate --check
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
@@ -155,6 +159,17 @@ lint-go:  # (folded into `lint`) gofmt -l + go vet
 .PHONY: lint-deep
 lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
 	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
+
+.PHONY: lint-yaml
+lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
+	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make dev-tools)"; \
+		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
+
+.PHONY: dev-tools
+dev-tools:  ## Install pinned govulncheck, golangci-lint, yamlfmt into GOPATH/bin
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION)
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist
