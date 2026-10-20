@@ -500,14 +500,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if len(headers) > 0 {
 		options["headers"] = headers
 	}
-	menu := map[string]any{model: map[string]any{"name": model}}
-	if h == nil {
-		for _, slot := range models.Slots {
-			if id := models.Strip1M(p.Models[slot]); id != "" {
-				menu[id] = map[string]any{"name": id}
-			}
-		}
-	}
+	menu := opencodeModels(p, model, h)
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   id + "/" + model,
@@ -562,6 +555,19 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		return env, append(append(argv, "--"), h.Prompt), nil
 	}
 	return env, append(argv, positional(h.Prompt)...), nil
+}
+
+// opencodeModels is the model menu: the requested model, plus every tier slot for an interactive launch.
+func opencodeModels(p *providers.Provider, model string, h *Headless) map[string]any {
+	menu := map[string]any{model: map[string]any{"name": model}}
+	if h == nil {
+		for _, slot := range models.Slots {
+			if id := models.Strip1M(p.Models[slot]); id != "" {
+				menu[id] = map[string]any{"name": id}
+			}
+		}
+	}
+	return menu
 }
 
 // OwnLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
