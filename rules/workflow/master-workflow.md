@@ -16,7 +16,7 @@ paths:
 
 ```
 PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
-  --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (shared tree) --> MERGE --> VERIFY --> COMMIT
+  --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (shared tree) --> MERGE --> SIMPLIFY --> VERIFY --> COMMIT
 ```
 
 | Phase | Command / Agent | Output | Gate |
@@ -28,7 +28,7 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on `/workflow:orchestrate`** |
 | 6. Dispatch | `/workflow:orchestrate`, `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
-| 7. Merge | `/workflow:worktree merge` | Changes on working branch | No merge conflicts |
+| 7. Merge + simplify | `/workflow:worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
 | 8. Verify | `/testing:test-and-fix` + the `approval-gate` skill | All gates green | format + lint + test + security pass |
 | 9. Commit | `/github commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
 
@@ -105,7 +105,7 @@ Launch **3 parallel `Explore` subagents** in a single message:
 **Trigger**: MEDIUM+ scope.
 
 Feed the Context Brief + Refined Task Brief into plan mode or a `Plan` subagent (write the plan, don't
-implement). The `planning` skill holds the task-breakdown rules.
+implement). `agents/Plan.md` holds the plan template and phase rules.
 
 1. Generate implementation plan with task breakdown
 2. Identify dependencies between tasks (which can run in parallel)
@@ -147,8 +147,8 @@ Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytes
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `/workflow:worktree create|list|merge|clean`.
 
-Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context agents ≤4 — the
-input-tokens/min limit is the binding cap.
+Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context agents ≤8 (`agents.md`; the
+`inflight` hook enforces it) — the input-tokens/min limit is the binding cap.
 
 **Gate**: Each sub-task passes its own verification command before merge.
 
@@ -162,6 +162,8 @@ For each completed worktree, in dependency order:
 2. **Merge**: `git merge wt/<name> --no-ff`
 3. **Conflict check**: resolve manually, then re-verify
 4. **Clean**: `git worktree remove ~/worktrees/<repo>/<name>`
+5. **Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
+   other's helpers and only the merged diff shows it. A leaf gets `skills/subagent-workflows/references/simplifier-prompt.md`.
 
 ---
 
@@ -204,8 +206,8 @@ test fixing, `/harness:techdebt scan` for debt.
 | Scenario | Commands |
 |----------|----------|
 | Simple bug fix (LOW) | fix code -> `/testing:test-and-fix` -> `/github commit` |
-| Feature in one module (MEDIUM) | review -> plan mode -> implement -> verify -> `/github commit` |
-| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` -> verify -> `/github commit` |
+| Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/github commit` |
+| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` (simplify stage included) -> verify -> `/github commit` |
 | Fix failing tests | `/testing:test-and-fix` |
 | Clean up tech debt | `/harness:techdebt scan` -> `/harness:techdebt fix` |
 | Review current changes | `/code-review` (quality) ‖ `/security` |
@@ -216,7 +218,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | Agent | Purpose | Phase |
 |-------|---------|-------|
 | `Explore` (built-in) | Codebase scanning | 2 |
-| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; preloads the `planning` skill | 1, 4 |
+| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; holds the `planning` skill's Mode 1 | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
 | `code-worker` | Parallel fan-out leaf — one scoped sub-task | 6 |
 | `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |

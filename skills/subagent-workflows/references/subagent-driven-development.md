@@ -12,15 +12,20 @@ Use [dispatching-parallel-agents.md](dispatching-parallel-agents.md) instead whe
 
 ## Per-task loop
 
-1. Dispatch one implementer using [implementer-prompt.md](implementer-prompt.md).
+1. Dispatch one implementer using [implementer-prompt.md](implementer-prompt.md) and a `copilot` test agent
+   in the SAME message (`rules/standards/quality.md`).
 2. Inspect its status, changes, and test evidence.
 3. Dispatch an independent spec reviewer using [spec-reviewer-prompt.md](spec-reviewer-prompt.md).
 4. Send spec gaps back to the implementer; repeat until compliant.
-5. Only then dispatch a quality reviewer using [code-quality-reviewer-prompt.md](code-quality-reviewer-prompt.md).
-6. Fix and re-review quality findings until approved.
-7. Run the task verification and mark the task complete.
+5. Simplify the task diff with the `simplify` skill: `Skill(simplify)` in place, or a leaf briefed with
+   [simplifier-prompt.md](simplifier-prompt.md). Its behavior gate is the task's verification command.
+6. Only then dispatch a quality reviewer using [code-quality-reviewer-prompt.md](code-quality-reviewer-prompt.md),
+   passing the simplify report.
+7. Fix and re-review quality findings until approved.
+8. Run the task verification and mark the task complete.
 
-Never overlap implementers in this workflow. Review order is always spec, then quality.
+Never overlap implementers in this workflow. Gate order is always spec → simplify → quality: simplifying
+non-compliant code polishes the wrong thing, and reviewing before simplifying reviews code about to change.
 
 ## Status handling
 
@@ -37,7 +42,8 @@ Do not retry an unchanged prompt after a blocker.
 
 After all tasks:
 
-1. Review the integrated diff against the full plan.
+1. Run `Skill(simplify)` over the integrated diff — cross-task duplication only shows here — then review it
+   against the full plan.
 2. Run repository-level format, lint, test, and security checks that apply.
 3. Resolve every blocking finding and re-run failed checks.
 4. Hand off only with fresh verification evidence.

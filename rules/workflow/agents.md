@@ -15,7 +15,7 @@ memory in their reports. The main session writes it to Claude Code's native proj
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
 | Explore (built-in) | Fast codebase scanning | **First step** — before planning or coding |
-| Plan | Read-only planner; overrides the built-in, preloads the `planning` skill, ends every plan with `## Tasks` | Plan mode, plan-only work, MEDIUM+ before code |
+| Plan | Read-only planner; overrides the built-in, holds the `planning` skill's Mode 1, ends every plan with `## Tasks` | Plan mode, plan-only work, MEDIUM+ before code |
 | claude | Full-lifecycle coding: architect → plan → implement → simplify → review (incl. plan-only path) | Architectural decisions, MEDIUM+ changes, plan writing, post-write review |
 | code-worker | Sonnet-tier fan-out leaf: one well-scoped task in-context, effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
 | copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
