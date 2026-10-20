@@ -208,7 +208,7 @@ func TestMigrateKeyringFailurePartialAndRetry(t *testing.T) {
 			source := seedLegacyFile(t, "secrets.env", "FILE_TOKEN=file-credential\n")
 			meta := seedLegacyFile(t, "secrets.meta.json", `{"credentials":{}}`)
 			requireMigrationError(t, Migrate(io.Discard, false),
-				"keyring did not answer; re-run claude-code config migrate")
+				"keyring did not answer; re-run claude-code vault migrate")
 			m := readMigrationManifest(t, 4)
 			requireMigrationDone(t, m)
 			requireMigrationFile(t, source, true)

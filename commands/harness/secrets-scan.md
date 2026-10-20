@@ -13,7 +13,7 @@ of application code. Pass the mode through as `$ARGUMENTS` (default `scan`).
 
 | Mode | Checks |
 |------|--------|
-| `scan` | Every leaf string in `~/.claude.json`, `settings.json`, `settings.local.json`, the vault's provider overlay (`claude-code config show`), and `.mcp.json` (user + project + cwd) for credential-shaped values that are NOT `${ENV}` refs, file paths, or placeholders |
+| `scan` | Every leaf string in `~/.claude.json`, `settings.json`, `settings.local.json`, the vault's provider overlay (`claude-code vault show`), and `.mcp.json` (user + project + cwd) for credential-shaped values that are NOT `${ENV}` refs, file paths, or placeholders |
 | `git` | `git grep` the current repo's **tracked** files for secret-shaped strings (API keys, tokens, bearer secrets). Reports `path:line`, never the value |
 | `all` | both |
 

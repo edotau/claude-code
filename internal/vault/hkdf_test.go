@@ -199,7 +199,7 @@ func TestSchemaWithSecretsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("an older-schema vault holding secrets was accepted")
 	}
-	if !strings.Contains(err.Error(), "vault schema 1") || !strings.Contains(err.Error(), "config migrate") {
+	if !strings.Contains(err.Error(), "vault schema 1") || !strings.Contains(err.Error(), "vault migrate") {
 		t.Fatalf("error = %q, want it to name the schema and the migrate verb", err.Error())
 	}
 }

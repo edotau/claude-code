@@ -38,10 +38,10 @@ func vaultDoctorChecks() []Check {
 	pending, backups, err := config.MigrationStatus()
 	if len(pending) > 0 {
 		checks = append(checks, Check{Name: "legacy env.d", Detail: fmt.Sprintf(
-			"%d file(s); run claude-code config migrate", len(pending))})
+			"%d file(s); run claude-code vault migrate", len(pending))})
 	}
 	if backups || err != nil {
-		detail := "run claude-code config finalize when verified"
+		detail := "run claude-code vault finalize when verified"
 		if err != nil {
 			detail = err.Error()
 		}

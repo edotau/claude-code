@@ -156,7 +156,7 @@ claude-code install --setup workspace init|link|status
 ## Providers
 
 Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay — the `providers` key of
-`claude-code config edit` — overlays them **by name** (a provider entry replaces the built-in; `"name": null`
+`claude-code vault edit` — overlays them **by name** (a provider entry replaces the built-in; `"name": null`
 removes one; `default`/`fallback` override when set). Each save keeps the previous overlay in the vault.
 
 ```jsonc
@@ -210,10 +210,10 @@ Selection order — provider: `--provider` → `HARNESS_PROVIDER` → registry `
 `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` → the provider's `models` table. Process env beats
 the vault pins. A pin of the form `provider:model` crosses providers for that slot.
 
-### Config: `claude-code config show|edit`
+### Vault: `claude-code vault show|edit`
 
 Pins, custom launch env, the provider and vendor overlays and `key_command` live in the vault as one JSON
-document. `config show` prints it; `config edit` opens it in `$VISUAL`/`$EDITOR` (no shell) and saves the
+document. `vault show` prints it; `vault edit` opens it in `$VISUAL`/`$EDITOR` (no shell) and saves the
 changed sections in one transaction — refused, with nothing written, if the vault changed meanwhile or a section
 fails validation. Secrets never appear in it (`claude-code secrets`). The comments below are illustration; the
 document itself is plain JSON:
@@ -284,7 +284,7 @@ claude-code secrets export --out - | ssh box claude-code secrets import - --yes 
 ```
 
 Secrets are sealed under an HKDF-SHA256 subkey of the master key (salt = the vault id), not the key itself. A
-vault from an older schema that holds secrets is refused with `re-run claude-code config migrate`.
+vault from an older schema that holds secrets is refused with `re-run claude-code vault migrate`.
 
 ### The vault key
 
@@ -294,7 +294,7 @@ The master key is 32 random bytes, base64-encoded, resolved in this order:
    keyring.
 2. **The OS keyring** (macOS Keychain / libsecret), service `claude-code`, account `vault-key/<id>` — `<id>` is
    the vault's random id. The first `secrets set` creates it there.
-3. **`key_command`** — the `vault.key_command` of `config edit`, a JSON argv array as a string, run without a
+3. **`key_command`** — the `vault.key_command` of `vault edit`, a JSON argv array as a string, run without a
    shell (10 s), printing the key: `"key_command": "[\"pass\", \"show\", \"claude-vault\"]"`. Tried when the
    keyring holds no key or cannot answer. A pipe needs a wrapper script.
 
@@ -302,7 +302,7 @@ No key file is written. A box without a keyring tool (Windows, headless, CI) set
 `key_command` before `secrets set` or `make install` imports secrets; a key file is your explicit choice, as a
 `key_command` of `["cat", "/home/me/.config/claude-vault.key"]` (absolute path, no `~`).
 
-`claude-code config rotate-key` generates a new key, re-seals every secret and keeps the old key as
+`claude-code vault rotate-key` generates a new key, re-seals every secret and keeps the old key as
 `vault-key/<id>.<oldkid>`; it needs a keyring-held key. Retired keys are never deleted, so a nuke archive or a
 copied `vault.db` stays decryptable: a copy shares its id and key, and after either side rotates the other still
 opens under the retained key. Moving secrets to a box with a different keyring is `secrets export` → `secrets
@@ -313,7 +313,7 @@ import`.
 Before the vault, config and plaintext secrets lived in `~/.claude/env.d/`. The import is one-shot and reversible
 until you finalize:
 
-- `claude-code config migrate [--dry-run]` imports `env.d/{provider.env,custom.env,providers.json,vendors.json}`,
+- `claude-code vault migrate [--dry-run]` imports `env.d/{provider.env,custom.env,providers.json,vendors.json}`,
   `secrets.env`, keyring-held credentials and a pre-env.d `~/.claude/providers.json` into the vault (absent keys
   only; `@keyring` becomes `@secret`), renames each source to `<name>.bak` and records it in
   `state/vault-migration.json`. `make install` runs it before swapping the binary; a migration error aborts the
@@ -321,12 +321,12 @@ until you finalize:
   fails or does not answer, or a `providers.json` in both locations fails only that group (exit 1, re-run after
   fixing); the other groups import and are renamed. Legacy files parse strictly: a line without `=`, an empty
   value or a line over 4 MiB is an error.
-- `claude-code config finalize [--discard NAME]...` checks every `.bak` against the vault and every imported
+- `claude-code vault finalize [--discard NAME]...` checks every `.bak` against the vault and every imported
   keyring value against its vault copy, then deletes the backups, those keyring entries and an empty `env.d/`.
   Any keyring or `secrets.env.bak` value that differs from the vault refuses finalize entirely (exit 1, nothing
   deleted); `--discard NAME` (repeatable, either kind) drops that value. Other files left in `env.d/` (e.g. old
   `.bak-*` copies) are kept and listed as `env.d kept: …`.
-- `claude-code config rollback` (before finalize, with the new binary) refuses unless every source path is free.
+- `claude-code vault rollback` (before finalize, with the new binary) refuses unless every source path is free.
   It writes `state/vault-rollback-<ts>.json` (the non-secret config plus the names of secrets missing from the
   backups, never values), restores every `.bak`, moves `vault.db` aside as `vault.db.rolledback-<ts>` and the
   manifest to `vault-migration.rolledback-<ts>.json`; the keyring is untouched. Then reinstall the old binary.
@@ -589,8 +589,8 @@ Rows that `CLAUDE.md` points here for; "this file" in a row means `CLAUDE.md`.
 | Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | [Setup modes](#setup-modes-adopt-nuke-workspace) |
 | Sync VS Code's Machine settings + per-agent terminal keybindings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f] [--keybindings-dest f]` | [Setup](#setup) |
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | [Install](#install) |
-| Add a gateway provider (corporate or self-hosted) | `claude-code config edit` → add it under `providers.providers` with `routes` per dialect | [Providers](#providers) |
-| Edit pins, custom env, overlays; import a legacy `env.d/` | `claude-code config show\|edit` · `config migrate\|finalize\|rollback\|rotate-key` | [Config](#config-claude-code-config-showedit) · [The vault key](#the-vault-key) |
+| Add a gateway provider (corporate or self-hosted) | `claude-code vault edit` → add it under `providers.providers` with `routes` per dialect | [Providers](#providers) |
+| Edit pins, custom env, overlays; import a legacy `env.d/` | `claude-code vault show\|edit` · `vault migrate\|finalize\|rollback\|rotate-key` | [Vault](#vault-claude-code-vault-showedit) · [The vault key](#the-vault-key) |
 | Set OpenCode reasoning effort | TUI: `ctrl+t` cycles variants, `<leader>v` (ctrl+x v) lists them · `opencode run --variant high` · `claude-code ask --effort high` · default: `provider.<p>.models.<id>.options` in `~/.config/opencode/opencode.json` (not a generate-managed key, survives `generate`) | `opencode models <p> --verbose` shows each model's variants |
 | Project agents + this file into every vendor (codex, copilot, gemini, opencode; local render in `state/projections/`), link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | `commands/harness/sync-agents.md`; `state/projections/` is generated + gitignored — edit `agents/`, `skills/`, this file; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | Start an agent TUI on another tailnet box, detached | `claude-code dispatch --host <name> --agent claude\|codex\|opencode\|gemini\|copilot "<task>"` (tmux session, prints the attach command); `--list --host <h>` · `--attach --host <h> <session>` | `--dry-run` prints the ssh argv |

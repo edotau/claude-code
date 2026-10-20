@@ -57,6 +57,7 @@ func commands() []command {
 		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers + credential state; <name> shows its routes", run: cmdProviders},
+		{name: "vault", group: groupAuth, summary: "show|edit pins, env, overlays; migrate|finalize|rotate-key", run: cmdVault},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (vault pins)", run: cmdUse},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
@@ -74,7 +75,6 @@ func commands() []command {
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
-		{name: "config", group: groupSettings, summary: "show|edit the vault's pins, env, overlays; migrate", run: cmdConfig},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
