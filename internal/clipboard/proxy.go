@@ -60,10 +60,10 @@ func proxyState(path string) ProxyState {
 	}
 }
 
-// InstallProxy writes the wl-paste proxy to ProxyPath on WSL only; off WSL, or over a foreign file, it reports and skips.
+// InstallProxy writes the wl-paste proxy to ProxyPath on WSL only; off WSL it is a silent no-op, and
+// a foreign file at the path is reported and left alone.
 func InstallProxy(w io.Writer, dryRun bool) error {
 	if !OnWSLKernel() {
-		fmt.Fprintf(w, "  %-17s %s\n", "skip", "not WSL: no wl-paste proxy needed")
 		return nil
 	}
 	return installProxyAt(w, ProxyPath(), dryRun)
@@ -119,13 +119,13 @@ func DoctorDetail() (ok bool, detail string) {
 	var base string
 	switch proxyState(dest) {
 	case ProxyAbsent:
-		return false, "absent: " + dest + " (claude-code install --tools=clipboard)"
+		return false, "absent: " + dest + " (run claude-code install)"
 	case ProxyForeign:
 		return false, dest + " is not the proxy"
 	case ProxyStale:
-		base = "stale proxy at " + dest + " (reinstall to refresh)"
+		return false, "stale proxy at " + dest + " (run claude-code install)"
 	default:
-		base = "proxy at " + dest
+		base = "proxy at " + dest + "; if paste fails, try claude-code clip"
 	}
 	if got, err := exec.LookPath("wl-paste"); err == nil && got != dest {
 		return false, base + "; PATH resolves wl-paste to " + got + " first"
