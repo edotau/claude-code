@@ -52,6 +52,7 @@ type Router struct {
 	cool     map[string]time.Time  // provider → cooling-down until (after a 429)
 	dead     map[string]time.Time  // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
+	credGen  map[string]int        // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 }
 
 // credResult is one provider's cached CredentialPresent outcome.
@@ -65,7 +66,7 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}}
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{}}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -249,20 +250,33 @@ func (r *Router) credentialPresent(p *providers.Provider) bool {
 		r.mu.Unlock()
 		return c.present
 	}
+	startGen := r.credGen[p.Name]
 	r.mu.Unlock()
 	if !providers.CredentialPresent(p) {
 		return false
 	}
-	r.mu.Lock()
-	r.cred[p.Name] = credResult{present: true, until: now.Add(credTTL)}
-	r.mu.Unlock()
+	r.storeCredentialPresent(p.Name, startGen, now.Add(credTTL))
 	return true
 }
 
-// invalidateCredential drops a provider's cached presence so the next attempt re-probes it.
+// storeCredentialPresent records a probe's "present" outcome only if name's generation has not advanced
+// since the probe started (startGen): an invalidation racing with an in-flight probe must win, so a probe
+// that started before it must never resurrect the cache afterward.
+func (r *Router) storeCredentialPresent(name string, startGen int, until time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.credGen[name] != startGen {
+		return
+	}
+	r.cred[name] = credResult{present: true, until: until}
+}
+
+// invalidateCredential drops a provider's cached presence so the next attempt re-probes it, and bumps its
+// generation so any probe already in flight cannot store a stale "present" after this call returns.
 func (r *Router) invalidateCredential(name string) {
 	r.mu.Lock()
 	delete(r.cred, name)
+	r.credGen[name]++
 	r.mu.Unlock()
 }
 
@@ -411,11 +425,11 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) &&
 		(p.Auth.Type == providers.AuthAPIKey || p.Auth.Type == providers.AuthBearer) {
 		drain(resp)
+		r.invalidateCredential(p.Name) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
 		credential, err := providers.Refresh(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		r.invalidateCredential(p.Name) // the cached presence check predates this refresh; re-probe next time
 		if resp, err = do(credential); err != nil {
 			return nil, err
 		}

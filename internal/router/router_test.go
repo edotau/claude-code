@@ -357,6 +357,55 @@ func TestAuthRefreshReplay(t *testing.T) {
 	}
 }
 
+// A Refresh failure (e.g. a revoked env-var credential with no auth.command to re-run) must still drop the
+// cached presence: the router must re-probe the provider on the very next call, not keep believing for up
+// to credTTL that a now-broken credential is present.
+func TestAuthRefreshFailureInvalidatesCachedCredential(t *testing.T) {
+	const envVar = "ROUTER_TEST_REFRESH_FAILURE_CRED"
+	t.Setenv(envVar, "v1")
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		os.Unsetenv(envVar) // simulate the credential being revoked between the first 401 and the Refresh replay
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	p := &providers.Provider{Name: "refreshfail", BaseURL: up.URL,
+		Auth: providers.Auth{Type: providers.AuthAPIKey, Env: envVar}}
+
+	r := newRouter("s")
+	r.log = io.Discard
+	if !r.credentialPresent(p) {
+		t.Fatal("credential must be reported present with the env var set")
+	}
+
+	req := testRequest(t, http.MethodPost, up.URL, strings.NewReader("{}"))
+	if _, err := r.send(req, p, up.URL, []byte("{}"), func(http.Header) {}); err == nil {
+		t.Fatal("expected send to surface the Refresh failure")
+	}
+
+	if r.credentialPresent(p) {
+		t.Fatal("a failed Refresh must invalidate the cached presence, not leave a stale \"present\" cached")
+	}
+}
+
+// storeCredentialPresent must drop a probe's result once its generation is stale: an invalidation that
+// landed after the probe started (and before it stores) must win, so the cache stays empty.
+func TestStoreCredentialPresentDropsStaleGeneration(t *testing.T) {
+	r := newRouter("s")
+	const name = "genprov"
+	startGen := r.credGen[name]
+	r.invalidateCredential(name) // races ahead of the in-flight probe below, bumping the generation
+	r.storeCredentialPresent(name, startGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; cached {
+		t.Fatal("a probe that started before an invalidation must not resurrect the cache after it")
+	}
+
+	// A probe that starts (captures its generation) after the invalidation must still store normally.
+	freshGen := r.credGen[name]
+	r.storeCredentialPresent(name, freshGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; !cached {
+		t.Fatal("a probe matching the current generation must still populate the cache")
+	}
+}
+
 func TestOpenAITranslation(t *testing.T) {
 	if _, _, err := translate.ToChatRequest([]byte(`{"model":"x","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`), "x"); err != nil && strings.Contains(err.Error(), "not implemented") {
 		t.Skip("translate still stubbed")

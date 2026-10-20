@@ -199,10 +199,11 @@ func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 	}
 }
 
-// TestMergeCodexHooksRoundTripsForeignGroupByteIdentical proves a foreign group's matcher and hook survive
-// the merge value-for-value (canonicalized key order), not just that some marker string is present.
+// TestMergeCodexHooksRoundTripsForeignGroupByteIdentical proves a foreign group (one the filter never
+// touches, because none of its hooks are harness-owned) survives the merge as the exact same bytes it
+// started as, including its key order and an unknown "extra" group-level key - not just an equivalent value.
 func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
-	original := json.RawMessage(`{"matcher":"Bash","hooks":[{"type":"command","command":"orca-stop","async":true,"nested":{"b":2,"a":1}}]}`)
+	original := json.RawMessage(`{"matcher":"Bash","extra":{"b":2,"a":1},"hooks":[{"type":"command","command":"orca-stop","async":true,"nested":{"b":2,"a":1}}]}`)
 	existing := []byte(`{"hooks":{"PreToolUse":[` + string(original) + `]}}`)
 	body, err := hookspec.CodexJSON()
 	if err != nil {
@@ -220,12 +221,120 @@ func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
 	}
 	var found json.RawMessage
 	for _, g := range doc.Hooks["PreToolUse"] {
-		if canonicalJSON(t, g) == canonicalJSON(t, original) {
+		if compactJSON(t, g) == compactJSON(t, original) {
 			found = g
 		}
 	}
 	if found == nil {
-		t.Fatalf("foreign group did not round-trip value-for-value; want:\n%s\ngot:\n%s", canonicalJSON(t, original), merged)
+		t.Fatalf("foreign group did not round-trip byte-identical; want:\n%s\ngot:\n%s", original, merged)
+	}
+}
+
+// compactJSON strips whitespace only (json.Compact), unlike canonicalJSON it does NOT reorder keys through
+// a map round-trip, so it is the right comparison for "preserved byte-for-byte modulo the document-wide
+// pretty-printing pass", including key order.
+func compactJSON(t *testing.T, raw []byte) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		t.Fatalf("compactJSON: %v\n%s", err, raw)
+	}
+	return buf.String()
+}
+
+// TestMergeCodexHooksPreservesUnknownTopLevelKey is the RED fixture for the top-level decode: an existing
+// hooks.json key outside "hooks" (e.g. a future Codex field) must survive the merge untouched.
+func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
+	existing := []byte(`{"hooks":{},"futureField":{"nested":true,"n":1}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if string(doc["futureField"]) == "" || canonicalJSON(t, doc["futureField"]) != canonicalJSON(t, json.RawMessage(`{"nested":true,"n":1}`)) {
+		t.Fatalf("unknown top-level key dropped or altered:\n%s", merged)
+	}
+}
+
+// TestMergeCopilotHooksPreservesUnknownTopLevelKey mirrors the Codex case for Copilot's top-level shape.
+func TestMergeCopilotHooksPreservesUnknownTopLevelKey(t *testing.T) {
+	existing := []byte(`{"version":1,"hooks":{},"vendorExtra":"keep-me"}`)
+	body, err := hookspec.CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCopilotHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCopilotHooks: %v", err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if string(doc["vendorExtra"]) != `"keep-me"` {
+		t.Fatalf("unknown top-level key dropped or altered: %s\n%s", doc["vendorExtra"], merged)
+	}
+}
+
+// TestMergeCodexHooksPreservesLessThanUnescaped is the RED fixture for HTML-escaping: a foreign hook
+// command containing a literal less-than sign must survive as-is, not become the six-byte escape
+// json.MarshalIndent emits by default.
+func TestMergeCodexHooksPreservesLessThanUnescaped(t *testing.T) {
+	lt := string(rune(0x3c))
+	escaped := string([]byte{0x5c, 'u', '0', '0', '3', 'c'}) // the escape sequence, spelled out so the source never contains a literal backslash-u003c
+	cmd := "test $a " + lt + " $b && echo orca-stop"
+	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + cmd + `"}]}]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	if !strings.Contains(string(merged), cmd) {
+		t.Fatalf("literal less-than was HTML-escaped:\n%s", merged)
+	}
+	if strings.Contains(string(merged), escaped) {
+		t.Fatalf("output contains an HTML-escaped less-than:\n%s", merged)
+	}
+}
+
+// TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched is the RED fixture for partial-apply: a
+// malformed existing ~/.codex/hooks.json must fail the whole render before config.toml (new trust hashes)
+// is ever written, not after.
+func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
+	home := scratch(t)
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const originalToml = "# pre-existing config, untouched\n"
+	tomlPath := filepath.Join(codexDir, "config.toml")
+	if err := os.WriteFile(tomlPath, []byte(originalToml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
+	if err == nil {
+		t.Fatalf("expected Run to fail on a malformed hooks.json, got no error:\n%s", out.String())
+	}
+	got, readErr := os.ReadFile(tomlPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != originalToml {
+		t.Fatalf("config.toml was written despite the hooks merge failing:\nwant:\n%s\ngot:\n%s", originalToml, got)
 	}
 }
 
