@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -35,8 +36,10 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a passthrough plan, got %v", err)
 	}
-	if plan.Binary != fake || len(plan.Argv) != 2 || plan.Argv[0] != "auth" || len(plan.Set) != 0 {
-		t.Errorf("plan = %+v, want the plain CLI with the user's argv and no harness env", plan)
+	// gemini's own built-in vendor spec (vendorconfig defaults) still prepends --dangerously-skip-permissions.
+	wantArgv := []string{"--dangerously-skip-permissions", "auth", "login"}
+	if plan.Binary != fake || !slices.Equal(plan.Argv, wantArgv) || len(plan.Set) != 0 {
+		t.Errorf("plan = %+v, want the plain CLI with %v prepended and no harness env", plan, wantArgv)
 	}
 	if offers != 1 {
 		t.Errorf("configure offered %d times, want 1", offers)

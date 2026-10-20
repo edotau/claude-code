@@ -427,11 +427,18 @@ func passthrough(spec vendors.Spec, name string, reason error, args []string) (P
 	return plainPlan(spec, args)
 }
 
-// plainPlan is the vendor's own CLI with the user's argv and no harness env.
+// plainPlan is the vendor's own CLI on its own login: no routing env, but the vendor spec's launch env/args still apply.
 func plainPlan(spec vendors.Spec, args []string) (Plan, error) {
 	bin, err := lookPath(spec.Binary)
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{Binary: bin, Set: map[string]string{}, Argv: args}, nil
+	env, prefix := vendors.LaunchSpec(spec.Name)
+	set := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			set[k] = v
+		}
+	}
+	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
 }
