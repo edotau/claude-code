@@ -290,8 +290,8 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 					t.Fatal("exported heuristic must still flag the value")
 				}
 				var doc any = value.value
-				for i := len(tc.keys) - 1; i >= 0; i-- {
-					doc = map[string]any{tc.keys[i]: doc}
+				for _, k := range slices.Backward(tc.keys) {
+					doc = map[string]any{k: doc}
 				}
 				raw, err := json.Marshal(doc)
 				if err != nil {
