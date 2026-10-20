@@ -174,9 +174,9 @@ func installSettings(w io.Writer, dryRun bool) error {
 	return err
 }
 
-// moveProvidersFile moves a pre-env.d ~/.claude/providers.json into env.d once; both present keeps both and warns.
+// moveProvidersFile moves a pre-env.d providers.json into env.d, where the vault migration reads it; never both.
 func moveProvidersFile(w io.Writer, dryRun bool) {
-	old, dst := paths.LegacyProvidersFile(), paths.ProvidersOverlay()
+	old, dst := paths.LegacyProvidersFile(), filepath.Join(paths.EnvDir(), "providers.json")
 	if _, err := os.Stat(old); err != nil {
 		return
 	}
@@ -288,7 +288,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	bin, err := ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	reg, err := providers.Load()
-	check(err == nil, true, "provider registry", orErr(paths.ProvidersOverlay(), err))
+	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, n := range reg.Names() {

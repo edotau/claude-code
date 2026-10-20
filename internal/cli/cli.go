@@ -59,7 +59,7 @@ func commands() []command {
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers + credential state; <name> shows its routes", run: cmdProviders},
 		// SESSION
-		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (env.d/provider.env)", run: cmdUse},
+		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (vault pins)", run: cmdUse},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory: snapshot|log|diff", run: cmdHistory},
 		{name: "dispatch", group: groupSession, summary: "launch an agent on a tailnet host in tmux; --list|--attach", run: cmdDispatch},

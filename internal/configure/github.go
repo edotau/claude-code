@@ -227,14 +227,11 @@ func pickCopilotModels(d *dialog) {
 	if fallback != "" {
 		suffix = " opencode_fallback=" + fallback
 	}
-	d.printf("copilot models: wrote %s (opus=%s sonnet=%s haiku=%s%s)\n",
-		paths.ProvidersOverlay(), picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
+	d.printf("copilot models: wrote vault overlay/providers (opus=%s sonnet=%s haiku=%s%s)\n",
+		picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
 }
 
-// WriteGithubCopilotModels validates picks (must name exactly opus/sonnet/haiku, each a non-empty id) and
-// fallback (never the literal "auto" — opencode's own catalog does not serve that alias), then merges them
-// into the user's providers.json overlay under providers.github-copilot.models / .opencode_fallback. Every
-// other key — in that entry, in any other provider, at the document root — is preserved byte-for-byte.
+// WriteGithubCopilotModels validates and merges picks and fallback into vault overlay/providers.
 func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
 		if strings.TrimSpace(picks[slot]) == "" {

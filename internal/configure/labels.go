@@ -1,4 +1,4 @@
-// labels.go — an agent's mode column from agentPlans + agentPlanFormat (env.d/providers.json), else today's text.
+// labels.go — an agent's mode column from agentPlans + agentPlanFormat (vault overlay/providers), else today's text.
 package configure
 
 import (
