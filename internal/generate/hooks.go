@@ -43,11 +43,8 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	existed := err == nil
 	next := string(raw)
 	if section != "" {
-		if codexBannerRE.Match(raw) {
-			next = codexBannerRE.ReplaceAllStringFunc(next, func(string) string { return section })
-		} else {
-			next = appendTOML(next, section)
-		}
+		next = codexBannerRE.ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
+		next = insertTopLevelTOML(next, section)
 	}
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
 	entries, err := codexTrustEntries(hooksPath, body)
@@ -195,6 +192,29 @@ func appendTOML(raw, section string) string {
 		raw += "\n"
 	}
 	return raw + "\n" + section
+}
+
+// insertTopLevelTOML puts section before the first line whose trimmed text starts with "[", so its
+// keys parse as top-level instead of being absorbed into whatever table TOML would otherwise see first;
+// with no table in raw, it falls back to appendTOML.
+func insertTopLevelTOML(raw, section string) string {
+	lines := strings.SplitAfter(raw, "\n")
+	idx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return appendTOML(raw, section)
+	}
+	before := strings.TrimRight(strings.Join(lines[:idx], ""), "\n")
+	after := strings.Join(lines[idx:], "")
+	if before != "" {
+		before += "\n\n"
+	}
+	return before + section + "\n" + after
 }
 
 // Ignore table-shaped text inside TOML multiline strings while editing the trust ledger.
