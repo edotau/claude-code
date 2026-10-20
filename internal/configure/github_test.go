@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // githubScratch isolates CLAUDE_CONFIG_DIR, HOME, XDG, PATH and every credential env var github.go
@@ -25,6 +26,19 @@ func githubScratch(t *testing.T) (cfg string) {
 		t.Setenv(k, "")
 	}
 	return cfg
+}
+
+func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
+	githubScratch(t)
+	_, err := paths.VendorBin("copilot")
+	if err == nil {
+		t.Fatal("expected missing vendor")
+	}
+	var out bytes.Buffer
+	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot")
+	if want := "copilot: " + err.Error() + "\n"; out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
 }
 
 func readOverlay(t *testing.T, cfg string) map[string]json.RawMessage {

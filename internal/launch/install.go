@@ -36,9 +36,6 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// ShimNames are the bare names install links to the harness binary.
-var ShimNames = []string{"claude", "codex", "gemini", "opencode", "copilot"}
-
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
 var userBinDir = func() string {
 	home, _ := os.UserHomeDir()
@@ -48,10 +45,10 @@ var userBinDir = func() string {
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
 
-// Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
+// Install copies the binary into BinDir, links the vendor CLIs, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
 	snapshotPreInstall(w, dryRun)
-	target, err := installBinaryAndShims(w, dryRun)
+	target, err := installBinaryAndLinks(w, dryRun)
 	if err != nil {
 		return err
 	}
@@ -83,8 +80,8 @@ func snapshotPreInstall(w io.Writer, dryRun bool) {
 	}
 }
 
-// installBinaryAndShims copies claude-code into BinDir and links the bare-name shims, returning the target path.
-func installBinaryAndShims(w io.Writer, dryRun bool) (string, error) {
+// installBinaryAndLinks copies claude-code into BinDir and links each vendor CLI there, returning the target path.
+func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
 		return "", err
@@ -99,31 +96,18 @@ func installBinaryAndShims(w io.Writer, dryRun bool) (string, error) {
 			}
 		}
 	}
-	for _, name := range ShimNames {
-		link := filepath.Join(bin, name)
-		if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
-			fmt.Fprintf(w, "skip     %s (a real file is there)\n", link)
-			continue
-		}
-		fmt.Fprintf(w, "link     %s → claude-code\n", link)
-		if !dryRun {
-			_ = os.Remove(link)
-			if err := os.Symlink("claude-code", link); err != nil {
-				return "", err
-			}
-		}
-	}
+	tools.LinkVendors(w, nil, dryRun)
 	return target, nil
 }
 
 // installCompletion is best-effort — an unwritable completions dir (no bash-completion package,
-// read-only $HOME) must never fail the install that got the binary and shims in place.
+// read-only $HOME) must never fail the install that got the binary in place.
 func installCompletion(w io.Writer, dryRun bool) {
 	switch {
 	case dryRun:
 		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
 	default:
-		if path, err := completion.Install("claude-code", ShimNames); err != nil {
+		if path, err := completion.Install("claude-code"); err != nil {
 			fmt.Fprintf(w, "completion skip  %v\n", err)
 		} else {
 			fmt.Fprintf(w, "completion %s\n", path)
@@ -132,7 +116,7 @@ func installCompletion(w io.Writer, dryRun bool) {
 }
 
 // installClipboardProxy ensures the WSL wl-paste proxy; a no-op off WSL, and best-effort like
-// completion — a write failure must never fail the install that got the binary and shims in place.
+// completion — a write failure must never fail the install that got the binary in place.
 func installClipboardProxy(w io.Writer, dryRun bool) {
 	if err := clipboard.InstallProxy(w, dryRun); err != nil {
 		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
@@ -223,8 +207,7 @@ func syncVendors(w io.Writer, dryRun bool) {
 	}
 }
 
-// linkOnPath points userBinDir/claude-code at the installed binary; only claude-code, so the bare
-// claude/codex/... shims never shadow the real CLIs. A real file there is left alone.
+// linkOnPath points userBinDir/claude-code at the installed binary; a real file there is left alone.
 func linkOnPath(w io.Writer, target string, dryRun bool) error {
 	dir := userBinDir()
 	link := filepath.Join(dir, "claude-code")
@@ -299,7 +282,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
 	}
 	for _, s := range tools.StatusAll() {
-		check(true, false, "tool "+s.Name, toolDoctorDetail(s))
+		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
@@ -538,8 +521,24 @@ func settingsHasHooks(file string) (bool, error) {
 	return false, nil
 }
 
-// toolDoctorDetail renders one tool's doctor line: path + version, npm-global/~/.local/bin flag, then any shim shadowing or extra PATH copies.
+// toolDoctorOK is false only for a bin/<vendor> entry that exists but cannot run (broken link, retired shim).
+func toolDoctorOK(s tools.Status) bool {
+	bin, ok := paths.VendorName(s.Name)
+	if !ok {
+		return true
+	}
+	if _, err := os.Lstat(filepath.Join(paths.BinDir(), bin)); err != nil {
+		return true
+	}
+	_, err := paths.VendorBin(bin)
+	return err == nil
+}
+
+// toolDoctorDetail renders one tool's doctor line: a vendor's bin/ entry, else path + version, then extra PATH copies.
 func toolDoctorDetail(s tools.Status) string {
+	if bin, ok := paths.VendorName(s.Name); ok {
+		return vendorDoctorDetail(s, bin)
+	}
 	if s.Path == "" {
 		if s.Hint != "" {
 			return "not found (" + s.Hint + ")"
@@ -557,13 +556,47 @@ func toolDoctorDetail(s tools.Status) string {
 	case s.LocalBin:
 		detail.WriteString(" (~/.local/bin)")
 	}
-	copies, shadows := toolPATHCopies(s.Name)
-	if shadows {
-		detail.WriteString(" · shadows the shim " + paths.BinDir() + " (launch env bypassed)")
+	detail.WriteString(extraPATHCopies(s.Name, s.Path))
+	return detail.String()
+}
+
+// vendorDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
+func vendorDoctorDetail(s tools.Status, bin string) string {
+	dst := filepath.Join(paths.BinDir(), bin)
+	if _, err := paths.VendorBin(bin); err != nil {
+		if s.Path != "" {
+			return err.Error() + " · on PATH: " + s.Path
+		}
+		return err.Error()
 	}
-	first, _ := filepath.EvalSymlinks(s.Path)
+	var detail strings.Builder
+	detail.WriteString(dst)
+	if s.Target != "" {
+		detail.WriteString(" → " + s.Target)
+	}
+	version := s.Version
+	if s.Target == "" || s.Target != s.Path {
+		version = toolPATHVersion(dst)
+	}
+	if version != "" {
+		detail.WriteString(" " + version)
+	}
+	if s.Target == "" {
+		detail.WriteString(" (direct install in bin/)")
+	}
+	if s.NPMGlobal && s.Target == s.Path {
+		detail.WriteString(" (npm-global)")
+	}
+	detail.WriteString(extraPATHCopies(s.Name, dst))
+	return detail.String()
+}
+
+// extraPATHCopies lists PATH copies of name that resolve somewhere other than primary, as " · also on PATH: …".
+func extraPATHCopies(name, primary string) string {
+	first, _ := filepath.EvalSymlinks(primary)
 	first, _ = filepath.Abs(first)
-	for _, path := range copies {
+	var out strings.Builder
+	for _, path := range toolPATHCopies(name) {
 		real, _ := filepath.EvalSymlinks(path)
 		real, _ = filepath.Abs(real)
 		if real == first {
@@ -573,24 +606,22 @@ func toolDoctorDetail(s tools.Status) string {
 		if version := toolPATHVersion(path); version != "" {
 			extra += " " + version
 		}
-		detail.WriteString(" · also on PATH: " + extra)
+		out.WriteString(" · also on PATH: " + extra)
 	}
-	return detail.String()
+	return out.String()
 }
 
-func toolPATHCopies(name string) ([]string, bool) {
-	shimDir, _ := filepath.Abs(paths.BinDir())
+// toolPATHCopies lists distinct executables named name on PATH, skipping BinDir and the harness binary.
+func toolPATHCopies(name string) []string {
+	binDir, _ := filepath.Abs(paths.BinDir())
 	self, _ := SelfBinary()
-	shimBinary, _ := filepath.EvalSymlinks(filepath.Join(shimDir, "claude-code"))
 	seen := map[string]bool{}
 	var copies []string
-	shimSeen, firstBeforeShim := false, false
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" {
 			continue
 		}
-		if abs, _ := filepath.Abs(dir); abs == shimDir {
-			shimSeen = true
+		if abs, _ := filepath.Abs(dir); abs == binDir {
 			continue
 		}
 		candidate := filepath.Join(dir, name)
@@ -603,16 +634,13 @@ func toolPATHCopies(name string) ([]string, bool) {
 			continue
 		}
 		real, err = filepath.Abs(real)
-		if err != nil || real == self || real == shimBinary || seen[real] {
+		if err != nil || real == self || filepath.Base(real) == "claude-code" || seen[real] {
 			continue
 		}
 		seen[real] = true
-		if len(copies) == 0 {
-			firstBeforeShim = !shimSeen
-		}
 		copies = append(copies, candidate)
 	}
-	return copies, shimSeen && firstBeforeShim && slices.Contains(ShimNames, name)
+	return copies
 }
 
 func toolPATHVersion(path string) string {

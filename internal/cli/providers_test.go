@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -42,7 +43,7 @@ func fakeProvider(baseURL string) *providers.Provider {
 func cliScratch(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no copilot CLI on PATH: exercises the "not found"/"unreachable" legs
+	t.Setenv("PATH", t.TempDir()) // no external credential helpers or other CLIs
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL"} {
 		t.Setenv(k, "")
 	}
@@ -114,7 +115,7 @@ func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 }
 
 // listLive's copilot leg (dispatched via the provider name, listLiveCopilot no longer exists standalone)
-// reports the copilot CLI as not found (never a panic) when it is absent from PATH.
+// reports the copilot CLI as not found (never a panic) when it is absent from bin/.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
 	reg := &providers.Registry{}
@@ -125,6 +126,23 @@ func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "copilot CLI not found") {
 		t.Errorf("stderr = %q, want it to name the missing CLI", stderr)
+	}
+}
+
+func TestCopilotModelIDsReportsMissingVendorBin(t *testing.T) {
+	cliScratch(t)
+	bin := pathstest.FakeVendor(t, "copilot", "exit 99")
+	t.Setenv("PATH", filepath.Dir(bin))
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ids, err := copilotModelIDs()
+	if ids != nil {
+		t.Errorf("ids = %v, want nil when bin/copilot is missing", ids)
+	}
+	want := "copilot CLI not found: copilot: not installed at " +
+		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "bin", "copilot") +
+		" (claude-code install --tools=copilot)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
 	}
 }
 

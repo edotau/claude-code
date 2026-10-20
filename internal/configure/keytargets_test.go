@@ -29,6 +29,7 @@ func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
 func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 	codexHome := t.TempDir()
 	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no codex binary: forces the auth.json file check
 	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)

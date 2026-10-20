@@ -44,7 +44,7 @@ func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, e
 const githubCopilotProviderName = "github-copilot"
 
 func liveCopilotModelInfos(ctx context.Context) ([]ModelInfo, error) {
-	bin, err := paths.LookPathReal("copilot")
+	bin, err := paths.VendorBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}

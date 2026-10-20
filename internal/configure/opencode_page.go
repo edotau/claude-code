@@ -22,7 +22,7 @@ var (
 	opencodeList           = tui.List
 	runAttached            = tui.RunAttached
 	confirmKey             = tui.ConfirmKey
-	lookOpencode           = paths.LookPathReal
+	lookOpencode           = paths.VendorBin
 )
 
 // opencodeNames maps well-known opencode integration IDs to display names; others use the integration's Name.
@@ -174,7 +174,7 @@ func ocAccountActions(d *dialog, r ocRow) {
 		run   func()
 	}
 	var acts []act
-	if sw := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
+	if sw, _ := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
 		acts = append(acts, act{"Make active", func() { ocSwitch(d, r, sw) }})
 	}
 	acts = append(acts, act{"Log out", func() {
@@ -195,7 +195,12 @@ func ocAccountActions(d *dialog, r ocRow) {
 
 // ocLogout runs opencode's own non-interactive logout for one account (the double press or [y/N] already confirmed).
 func ocLogout(d *dialog, r ocRow) {
-	cancelled, err := runAttached(opencodeLogoutArgv(r.in.ID, r.conn.ID))
+	argv, err := opencodeLogoutArgv(r.in.ID, r.conn.ID)
+	if err != nil {
+		d.printf("%s: %v\n", r.row.Label, err)
+		return
+	}
+	cancelled, err := runAttached(argv)
 	invalidateOpencodeAuth()
 	switch {
 	case cancelled:
@@ -223,10 +228,10 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 	}
 }
 
-// ocAddAccount delegates sign-in to the real opencode (never the harness shim) and reports the new account count.
+// ocAddAccount delegates sign-in to bin/opencode and reports the new account count.
 func ocAddAccount(d *dialog) {
 	bin, err := lookOpencode("opencode")
-	if err != nil { // a bare "opencode" could only resolve to the shim, which would loop back into claude-code
+	if err != nil {
 		d.printf("opencode: %v\n", err)
 		return
 	}
