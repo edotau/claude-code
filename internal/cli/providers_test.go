@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // fakeModelsServer serves the OpenAI-shaped {"data":[{"id":...}]} catalog listLive's non-copilot leg GETs.
@@ -70,9 +69,13 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 			if want := "claude-code: models: unexpected argument \"" + tc.arg + "\"\n"; stderr != want {
 				t.Errorf("stderr = %q, want %q", stderr, want)
 			}
-			pinFile := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "env.d", "provider.env")
-			if _, err := os.Stat(pinFile); !os.IsNotExist(err) {
-				t.Errorf("pin file stat err = %v, want no pin-file mutation", err)
+			if err := vault.View(func(tx *vault.Tx) error {
+				if pins := tx.All(vault.Pins); len(pins) != 0 {
+					t.Errorf("vault pins = %v, want no pin mutation", pins)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

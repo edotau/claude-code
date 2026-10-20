@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func setConfigDir(t *testing.T) string {
@@ -365,14 +367,9 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 
 // Status must never print a credential value, even when every registered provider resolves one.
 func TestStatusNeverPrintsAValue(t *testing.T) {
-	dir := setConfigDir(t)
-	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	setConfigDir(t)
 	gw := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
-	if err := os.WriteFile(filepath.Join(dir, "env.d", "providers.json"), []byte(gw), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", gw)
 	secretValue := "sk-super-secret-value-0123456789"
 	t.Setenv("ANTHROPIC_API_KEY", secretValue)
 	if err := setFile("GATEWAY_API_KEY", secretValue); err != nil {

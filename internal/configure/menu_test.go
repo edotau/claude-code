@@ -125,13 +125,13 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "") // Pin() checks the env var before the file; it must stay unset here
+	t.Setenv("HARNESS_PROVIDER", "") // Pin() checks the env var before the vault; it must stay unset here
 	d := &dialog{out: discardWriter{}}
 	if !keepOrPin(d, "subscription", "subscription") {
 		t.Fatal("keepOrPin(same) = false")
 	}
 	if got := providers.Pin(providers.PinProvider); got != "" {
-		t.Errorf("pin file written on a same-as-current pick: %q", got)
+		t.Errorf("vault pin written on a same-as-current pick: %q", got)
 	}
 	if !keepOrPin(d, "subscription", "anthropic") {
 		t.Fatal("keepOrPin(different) = false")

@@ -13,6 +13,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendorconfig"
 	"strconv"
 )
@@ -24,7 +26,7 @@ func target(t *testing.T, provider, model string) providers.Target {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", t.TempDir()) // isolates GeminiLoginPresent's AgyLoginMarker lookup from the real machine
-	writeGatewayOverlay(t, dir)
+	writeGatewayOverlay(t)
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
 		t.Setenv(k, secret)
 	}
@@ -675,17 +677,10 @@ func TestJSONField(t *testing.T) {
 	}
 }
 
-// writeOverlayFile drops body at vendorconfig's UserFile() (env.d/vendors.json), honoring whatever
-// CLAUDE_CONFIG_DIR the calling test already set via target().
-func writeOverlayFile(t *testing.T, body string) {
+// writeVendorOverlay uses the CLAUDE_CONFIG_DIR the calling test already set via target().
+func writeVendorOverlay(t *testing.T, body string) {
 	t.Helper()
-	p := vendorconfig.UserFile()
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "vendors", body)
 }
 
 func writeJSON(t *testing.T, path string, v any) {
@@ -752,7 +747,7 @@ func TestOpenCodeInteractiveImports(t *testing.T) {
 		return cfg.Permission, cfg.MCP, envMap(env)["HARNESS_OPENCODE_MCP_SKIPPED"]
 	}
 
-	// No env.d/vendors.json overlay: opencode's default MCP.Allow is empty, so Claude's approved
+	// No vault overlay/vendors: opencode's default MCP.Allow is empty, so Claude's approved
 	// servers ("shared", "g") are read but every one of them is wired in nowhere, not even partially.
 	// guardPermission, not the Claude-settings import, owns the permission block on this same (no
 	// overlay, built-in defaults) call: the default vendor spec opts into UseGuardRules, so the
@@ -788,7 +783,7 @@ func TestOpenCodeInteractiveImports(t *testing.T) {
 
 	// An overlay allowing only "shared" wires in just that one server (project wins over global), and
 	// still drops "g" and the project-unapproved "unapproved" onto the skipped channel.
-	writeOverlayFile(t, `{"vendors":{"opencode":{"mcp":{"allow":["shared"]}}}}`)
+	writeVendorOverlay(t, `{"vendors":{"opencode":{"mcp":{"allow":["shared"]}}}}`)
 	_, mcp, skipped = cfgOf(t)
 	if len(mcp) != 1 {
 		t.Fatalf("overlay allows [shared]: mcp = %v, want exactly {shared: ...}", mcp)
@@ -1234,13 +1229,8 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 }
 
 // writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
-func writeGatewayOverlay(t *testing.T, dir string) {
+func writeGatewayOverlay(t *testing.T) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(dir, "env.d"), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	body := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
-	if err := os.WriteFile(filepath.Join(dir, "env.d", "providers.json"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
