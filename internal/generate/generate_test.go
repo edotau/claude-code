@@ -258,7 +258,15 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	if !strings.Contains(out.String(), "codex: skipped") {
 		t.Fatalf("want a codex skip line, got:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
-		t.Fatalf("own-login codex must not get a config.toml block, stat err = %v", err)
+	// Hook trust entries land regardless of login type; only the model_providers block is skipped.
+	raw, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if strings.Contains(string(raw), "model_providers.claude-code") {
+		t.Fatalf("own-login codex must not get a model_providers block:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "[hooks.state.") {
+		t.Fatalf("own-login codex should still get hook trust entries:\n%s", raw)
 	}
 }

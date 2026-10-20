@@ -28,8 +28,22 @@ type Input struct {
 	AgentID             string `json:"agent_id"`
 	AgentTranscriptPath string `json:"agent_transcript_path"`
 
-	Raw []byte
-	doc map[string]any
+	Raw    []byte `json:"-"`
+	doc    map[string]any
+	vendor string
+}
+
+const (
+	VendorClaude  = "claude"
+	VendorCopilot = "copilot"
+)
+
+// Vendor distinguishes Copilot's payload; Claude and Codex share the snake_case contract.
+func (in *Input) Vendor() string {
+	if in == nil || in.vendor == "" {
+		return VendorClaude
+	}
+	return in.vendor
 }
 
 // ParseInput never errors: malformed stdin yields a zero Input (fail-open).
@@ -37,7 +51,58 @@ func ParseInput(r io.Reader) *Input {
 	raw, _ := io.ReadAll(r)
 	in := &Input{Raw: raw}
 	_ = json.Unmarshal(raw, in)
+	var alias struct {
+		SessionID      *string `json:"sessionId"`
+		ToolName       string  `json:"toolName"`
+		WorkingDir     string  `json:"workingDirectory"`
+		TranscriptPath string  `json:"transcriptPath"`
+	}
+	_ = json.Unmarshal(raw, &alias)
+	if alias.SessionID != nil && in.HookEventName == "" {
+		in.vendor = VendorCopilot
+	}
+	if in.SessionID == "" && alias.SessionID != nil {
+		in.SessionID = *alias.SessionID
+	}
+	if in.ToolName == "" {
+		in.ToolName = alias.ToolName
+	}
+	if in.CWD == "" {
+		in.CWD = alias.WorkingDir
+	}
+	if in.TranscriptPath == "" {
+		in.TranscriptPath = alias.TranscriptPath
+	}
+	if in.Vendor() == VendorCopilot {
+		in.normalizeToolArgs()
+	}
 	return in
+}
+
+// normalizeToolArgs lets every existing tool_input consumer read Copilot's string or object arguments.
+func (in *Input) normalizeToolArgs() {
+	_ = in.nested("toolArgs")
+	args, _ := in.doc["toolArgs"].(map[string]any)
+	if text, ok := in.doc["toolArgs"].(string); ok {
+		_ = json.Unmarshal([]byte(text), &args)
+	}
+	input, _ := in.doc["tool_input"].(map[string]any)
+	if input == nil {
+		input = args
+	}
+	if input == nil {
+		return
+	}
+	for _, key := range []string{"file_path", "filePath", "path"} {
+		if path, _ := input[key].(string); path != "" {
+			if !filepath.IsAbs(path) && in.CWD != "" {
+				path = filepath.Join(in.CWD, path)
+			}
+			input["file_path"] = path
+			break
+		}
+	}
+	in.doc["tool_input"] = input
 }
 
 func (in *Input) nested(path ...string) string {
@@ -96,7 +161,7 @@ func (in *Input) ToolResponseText() string {
 const contextCapChars = 9500
 
 // MergeContext joins context blocks into ONE additionalContext envelope; the protocol accepts a single object.
-func MergeContext(event string, blocks []string) string {
+func MergeContext(event string, blocks []string, vendor ...string) string {
 	kept := blocks[:0:0]
 	for _, b := range blocks {
 		if b != "" {
@@ -110,7 +175,11 @@ func MergeContext(event string, blocks []string) string {
 	if r := []rune(text); len(r) > contextCapChars {
 		text = string(r[:contextCapChars]) + "…"
 	}
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": text}})
+	payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": text}}
+	if len(vendor) > 0 && vendor[0] == VendorCopilot {
+		payload = map[string]any{"additionalContext": text}
+	}
+	out, _ := json.Marshal(payload)
 	return string(out)
 }
 
@@ -119,7 +188,7 @@ type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
 
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"safety":              func(in io.Reader, _, errw io.Writer) int { return Safety(in, errw) },
+	"safety":              safetyOutput,
 	"rtk-wrap":            func(in io.Reader, out, _ io.Writer) int { return RTKWrap(in, out) },
 	"docs-placement":      func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"stop-format":         func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
