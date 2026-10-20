@@ -99,7 +99,11 @@ func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
 	}
 }
 
-func TestMasterKeyRotationResumeFromNext(t *testing.T) {
+// TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch covers R1/R2's replacement for the
+// retired ".next" pending-key scheme: when the convenience current-key pointer disagrees with the
+// db's recorded kid (a crashed or cross-root rotation), MasterKey must still resolve the exact key
+// via its own immutable per-kid account — durable storage, not a disposable pending slot.
+func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	oldBytes := bytes.Repeat([]byte{0x31}, 32)
 	newBytes := bytes.Repeat([]byte{0x72}, 32)
@@ -120,7 +124,7 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 		t.Fatalf("fixture key: source=%q kid=%q, want env and %q", source, nextKey.Kid, newKid)
 	}
 	record := Record{Sealed: nextKey.Seal("ROTATED_TOKEN", "rotation-resume-value"), Kid: newKid}
-	// Crash after the re-seal transaction commits, before vault-key is promoted.
+	// Crash after the re-seal transaction commits, before the convenience pointer is advanced.
 	if err := Update(func(tx *Tx) error {
 		if err := tx.Put(Meta, "kid", newKid); err != nil {
 			return err
@@ -140,13 +144,13 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 		t.Fatal("new vault has no vault_id")
 	}
 	acct := "vault-key/" + id
-	ring.values[acct] = base64.StdEncoding.EncodeToString(oldBytes)
-	ring.values[acct+".next"] = base64.StdEncoding.EncodeToString(newBytes)
+	ring.values[acct] = base64.StdEncoding.EncodeToString(oldBytes)            // stale pointer
+	ring.values[acct+"."+newKid] = base64.StdEncoding.EncodeToString(newBytes) // durable, per-kid
 	t.Setenv("HARNESS_VAULT_KEY", "")
 
 	key, source, err := MasterKey()
 	if err != nil {
-		t.Fatalf("MasterKey did not resume from vault-key.next: %v", err)
+		t.Fatalf("MasterKey did not resolve the new kid via its immutable account: %v", err)
 	}
 	if key == nil {
 		t.Fatal("MasterKey returned nil without an error")
@@ -160,12 +164,12 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 	}
 	ring.mu.Lock()
 	defer ring.mu.Unlock()
-	seenCurrent, seenNext := false, false
+	seenCurrent, seenPerKid := false, false
 	for _, name := range ring.lookups {
 		seenCurrent = seenCurrent || name == acct
-		seenNext = seenNext || name == acct+".next"
+		seenPerKid = seenPerKid || name == acct+"."+newKid
 	}
-	if !seenCurrent || !seenNext {
-		t.Errorf("MasterKey must try current key then next on kid mismatch; lookups=%v", ring.lookups)
+	if !seenCurrent || !seenPerKid {
+		t.Errorf("MasterKey must try the pointer then the per-kid account on kid mismatch; lookups=%v", ring.lookups)
 	}
 }

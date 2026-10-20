@@ -31,9 +31,15 @@ var down atomic.Bool
 // ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrNoAnswer = errors.New("keyring: did not answer")
 
-// ErrUnavailable means no tool was on PATH, or the tool ran and failed for a reason other than
-// "not stored" (a genuine keyring failure, not a positively established absence).
+// ErrUnavailable means the tool ran and failed for a reason other than "not stored" (a genuine
+// keyring failure, not a positively established absence).
 var ErrUnavailable = errors.New("keyring: unavailable")
+
+// ErrNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
+// ErrUnavailable so existing errors.Is(err, ErrUnavailable) callers still match; callers that must
+// treat "no tool ever existed" differently from "an installed tool just failed" (R4) check this
+// more specific sentinel first.
+var ErrNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrUnavailable)
 
 // Tool returns the plane's binary name for this OS, or "" where none is wired up.
 func Tool() string {
@@ -64,7 +70,7 @@ func Lookup(name string) (value string, found bool, err error) {
 		return "", false, nil
 	}
 	if !Available() {
-		return "", false, ErrUnavailable
+		return "", false, ErrNoTool
 	}
 	if down.Load() {
 		return "", false, ErrNoAnswer

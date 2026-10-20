@@ -1,7 +1,6 @@
 package vault
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -9,10 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -30,46 +27,21 @@ const (
 var (
 	ErrLocked   = errors.New("vault: no master key (keyring, HARNESS_VAULT_KEY or key_command)")
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
-	// errNested means a second ViewAt/Update/MasterKey call was made while this process already
-	// held one open; opening bbolt twice from one process would otherwise deadlock until its timeout.
-	errNested = errors.New("vault: nested open inside a transaction")
 )
 
-// inTx tracks, per goroutine, whether it already holds a ViewAt/Update/MasterKey open — a second
-// open from the SAME goroutine (genuine recursion) would otherwise deadlock on bbolt's own file
-// lock until its timeout; a different goroutine opening concurrently is ordinary contention and
-// must still block and succeed, so this is keyed by goroutine, not a process-wide flag.
-var inTx sync.Map // goroutine id (int64) -> struct{}
-
-// goroutineID extracts the calling goroutine's id from its own stack trace header
-// ("goroutine 123 [running]:"); used only for the nested-open guard above.
-func goroutineID() string {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	b := bytes.TrimPrefix(buf[:n], []byte("goroutine "))
-	if i := bytes.IndexByte(b, ' '); i >= 0 {
-		b = b[:i]
-	}
-	return string(b)
-}
-
-func enterTx() error {
-	if _, loaded := inTx.LoadOrStore(goroutineID(), struct{}{}); loaded {
-		return errNested
-	}
-	return nil
-}
-
-func exitTx() { inTx.Delete(goroutineID()) }
-
+// View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
+// (it opens its own View) from inside another's callback. bbolt is not reentrant across process
+// file locks, so a same-goroutine nested open blocks on the outer transaction's own flock until
+// ITS Timeout elapses and then fails with bbolt.ErrTimeout — it does not hang forever, but it is
+// never correct. Package helpers that must run inside an already-open transaction (e.g. a future
+// tx-scoped key/record read reused by UpdateSealed's callback) take the open *Tx as a parameter
+// instead of reopening the database; this is an architectural contract Go cannot enforce at
+// compile time, not a runtime-detected guarantee (no process-wide or goroutine-keyed guard is
+// maintained here — see the retired runtime.Stack-based one in git history).
 func Path() string                  { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {
-	if err := enterTx(); err != nil {
-		return err
-	}
-	defer exitTx()
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
 	if errors.Is(err, os.ErrNotExist) {
 		return fn(&Tx{})
@@ -147,10 +119,6 @@ func create(path string) error {
 }
 
 func Update(fn func(*Tx) error) error {
-	if err := enterTx(); err != nil {
-		return err
-	}
-	defer exitTx()
 	path := Path()
 	if err := create(path); err != nil {
 		return err
@@ -261,23 +229,35 @@ type Record struct {
 	VerifyStatus string    `json:"verify_status,omitempty"`
 }
 
-func (t *Tx) Record(name string) (Record, bool) {
+// Record decodes name's stored record. found is false only for a genuinely absent key; a stored
+// value that fails to decode is reported as an error, never silently collapsed to not-found (R5
+// — Phase 3's credential fallback and export must see corruption, not a false miss).
+func (t *Tx) Record(name string) (Record, bool, error) {
 	v, ok := t.Get(Secrets, name)
-	var r Record
-	if !ok || json.Unmarshal([]byte(v), &r) != nil {
-		return Record{}, false
+	if !ok {
+		return Record{}, false, nil
 	}
-	return r, true
+	var r Record
+	if err := json.Unmarshal([]byte(v), &r); err != nil {
+		return Record{}, false, fmt.Errorf("vault: record %q is corrupt: %w", name, err)
+	}
+	return r, true, nil
 }
 
-func (t *Tx) Records() map[string]Record {
+// Records decodes every stored record; it stops and reports the first decode error rather than
+// silently omitting a corrupt entry from the map (R5).
+func (t *Tx) Records() (map[string]Record, error) {
 	m := map[string]Record{}
 	for _, n := range t.Names(Secrets) {
-		if r, ok := t.Record(n); ok {
+		r, ok, err := t.Record(n)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			m[n] = r
 		}
 	}
-	return m
+	return m, nil
 }
 
 func (t *Tx) PutRecord(name string, r Record) error {
