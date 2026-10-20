@@ -84,6 +84,33 @@ func topicPaths(dir string) []string {
 	return out
 }
 
+// topicContents reads each searchable topic once, retaining the bytes for ranking.
+func topicContents(dir string) ([]string, map[string][]byte) {
+	ents, _ := os.ReadDir(dir)
+	var files []string
+	data := map[string][]byte{}
+	for _, e := range ents {
+		name := e.Name()
+		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		if _, ok := reservedNames[name]; ok {
+			continue
+		}
+		if _, ok := reservedKindFold(name); ok && !hasExactEntry(dir, name) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		raw, err := os.ReadFile(path)
+		if err != nil || frontmatterValue(string(raw), "harness_kind") == "bank" {
+			continue
+		}
+		files = append(files, path)
+		data[path] = raw
+	}
+	return files, data
+}
+
 // topicName normalizes a user-supplied name to "<slug>.md" and classifies it against dir: a reserved name
 // is refused outright, an absent file passes (callers skip it as not there), and anything present that is
 // not an archivable topic is refused, since callers pass the result straight to a move.

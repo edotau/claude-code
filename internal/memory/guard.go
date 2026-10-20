@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,52 @@ var ErrMemoryPaused = errors.New("memory writes paused")
 
 // journalComplete is the phase a migration journal reaches only when its apply finished.
 const journalComplete = "complete"
+
+type guardJournal struct {
+	Phase    string `json:"phase"`
+	Manifest string `json:"manifest"`
+}
+
+type guardJournalEntry struct {
+	info    os.FileInfo
+	journal guardJournal
+}
+
+// Cache decoded fields, not directory membership or readiness; migration writes must be visible immediately.
+var guardJournalCache = struct {
+	sync.Mutex
+	entries map[string]guardJournalEntry
+}{entries: make(map[string]guardJournalEntry)}
+
+func readGuardJournal(path string) (guardJournal, error) {
+	guardJournalCache.Lock()
+	defer guardJournalCache.Unlock()
+
+	key, keyErr := filepath.Abs(path)
+	info, statErr := os.Stat(path)
+	if keyErr == nil && statErr == nil {
+		if cached, ok := guardJournalCache.entries[key]; ok &&
+			os.SameFile(info, cached.info) &&
+			info.Size() == cached.info.Size() &&
+			info.ModTime().Equal(cached.info.ModTime()) &&
+			info.Mode() == cached.info.Mode() {
+			return cached.journal, nil
+		}
+	}
+	delete(guardJournalCache.entries, key)
+	var journal guardJournal
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return journal, err
+	}
+	if err := json.Unmarshal(data, &journal); err != nil {
+		return journal, err
+	}
+	if keyErr == nil && statErr == nil {
+		guardJournalCache.entries[key] = guardJournalEntry{info: info, journal: journal}
+	}
+	return journal, nil
+}
 
 // StartupGuard pauses writes during maintenance, an unfinished migration or a missing migrated store; a pure read.
 func StartupGuard() Guard {
@@ -71,11 +118,8 @@ func scanJournals() (path, manifest string, incomplete, migrated bool) {
 	matches, _ := filepath.Glob(filepath.Join(MigrateStateDir(), "*.journal.json"))
 	sort.Strings(matches)
 	for _, p := range matches {
-		var j struct {
-			Phase    string `json:"phase"`
-			Manifest string `json:"manifest"`
-		}
-		if data, err := os.ReadFile(p); err == nil && json.Unmarshal(data, &j) == nil && j.Phase == journalComplete {
+		j, err := readGuardJournal(p)
+		if err == nil && j.Phase == journalComplete {
 			path, migrated = p, true
 			continue
 		}
