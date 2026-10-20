@@ -2,10 +2,9 @@ package secrets
 
 import (
 	"fmt"
+	"maps"
 	"os"
-	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -20,13 +19,12 @@ func EnvFile() string { return providers.SecretsFile() }
 // ReadAll returns every KEY=value pair currently in the file plane; a missing file is empty.
 func ReadAll() map[string]string { return providers.ReadEnvFile(EnvFile()) }
 
-// setFile writes (or replaces) name=value in the file plane only, chmod 600, atomic, under a file
-// lock shared with any concurrent `secrets set`; the caller records metadata.
+// setFile writes (or replaces) name=value in the file plane only; the caller records metadata.
 func setFile(name, value string) error {
 	if strings.ContainsAny(value, "\r\n") { // a newline would split into extra NAME=value lines on read
 		return fmt.Errorf("%s: a value stored in %s must be one line", name, EnvFile())
 	}
-	if err := rewriteFile(func(cur map[string]string) { cur[name] = value }); err != nil {
+	if err := editStore(func(s *state) { s.file[name] = value }); err != nil {
 		return err
 	}
 	audit.Log(audit.SecretSet, name, "file") // the name only, never the value
@@ -35,65 +33,63 @@ func setFile(name, value string) error {
 
 // removeFile drops name from the file plane; a name it does not hold is a no-op.
 func removeFile(name string) error {
-	if _, ok := ReadAll()[name]; !ok {
-		return nil
-	}
-	return rewriteFile(func(cur map[string]string) { delete(cur, name) })
+	return editStore(func(s *state) { delete(s.file, name) })
 }
 
-// rewriteFile applies edit to the file plane's pairs and writes them back sorted, under the shared lock.
-func rewriteFile(edit func(map[string]string)) error {
-	file := EnvFile()
-	return paths.WithFileLock(file, func() error {
-		cur := providers.ReadEnvFile(file)
-		edit(cur)
-		keys := make([]string, 0, len(cur))
-		for k := range cur {
-			keys = append(keys, k)
+// state is both managed files as read under the store lock: the file plane's pairs and the meta rows.
+type state struct {
+	file map[string]string
+	meta map[string]Meta
+}
+
+// editStore is the one write path: load under the store lock, edit, write back (atomic, 0600) only what changed.
+func editStore(edit func(*state)) error {
+	return withStoreLock(func() error {
+		meta, _, metaErr := readMetaLocked()
+		if meta == nil {
+			meta = map[string]Meta{}
 		}
-		sort.Strings(keys)
-		var b strings.Builder
-		b.WriteString("# Managed by `claude-code secrets set`. KEY=value, one per line, 0600.\n")
-		for _, k := range keys {
-			b.WriteString(k + "=" + cur[k] + "\n")
+		s := &state{file: ReadAll(), meta: meta}
+		file0, meta0 := maps.Clone(s.file), maps.Clone(s.meta)
+		edit(s)
+		metaChanged := !maps.Equal(meta0, s.meta)
+		if metaChanged && metaErr != nil { // a bad meta file fails only meta edits; file-plane writes still land
+			return metaErr
 		}
-		return paths.AtomicWrite(file, []byte(b.String()), 0o600)
+		if !maps.Equal(file0, s.file) {
+			if err := writeFile(s.file); err != nil {
+				return err
+			}
+		}
+		if metaChanged {
+			return writeMeta(s.meta)
+		}
+		return nil
 	})
 }
 
-// indexFile is the retired names index (superseded by MetaFile); kept only as an import source for
-// a name whose plane has since lost it (e.g. a keyring entry removed outside the harness).
-func indexFile() string { return filepath.Join(paths.EnvDir(), "secrets.index") }
-
-// readIndex is indexFile's lines, deduped; a missing index is empty.
-func readIndex() []string {
-	b, err := os.ReadFile(indexFile())
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, l := range strings.Fields(string(b)) {
-		if !slices.Contains(out, l) {
-			out = append(out, l)
-		}
-	}
-	sort.Strings(out)
-	return out
+// withStoreLock takes both legacy locks in one fixed order, so it serializes with an older binary's per-file locks.
+func withStoreLock(fn func() error) error {
+	return paths.WithFileLock(EnvFile(), func() error { return paths.WithFileLock(MetaFile(), fn) })
 }
 
-// Names is every known credential name, sorted; LoadMeta failing falls back to the retired index
-// so the dialog never goes blank.
+// writeFile writes the file plane's pairs back sorted (the caller holds the store lock).
+func writeFile(pairs map[string]string) error {
+	var b strings.Builder
+	b.WriteString("# Managed by `claude-code secrets set`. KEY=value, one per line, 0600.\n")
+	for _, k := range slices.Sorted(maps.Keys(pairs)) {
+		b.WriteString(k + "=" + pairs[k] + "\n")
+	}
+	return paths.AtomicWrite(EnvFile(), []byte(b.String()), 0o600)
+}
+
+// Names is every known credential name, sorted; an unreadable meta file falls back to the file plane's names.
 func Names() []string {
 	m, err := LoadMeta()
 	if err != nil {
-		return readIndex()
+		return slices.Sorted(maps.Keys(ReadAll()))
 	}
-	out := make([]string, 0, len(m))
-	for n := range m {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(m))
 }
 
 // Store writes name to the OS keyring and drops any plaintext copy from the file plane; with no

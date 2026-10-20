@@ -59,7 +59,7 @@ func ExportPairs(reg *providers.Registry, only []string) []Pair {
 	return out
 }
 
-// ListStored is every secret the keyring or the file plane holds (indexed names, file keys, provider auth.env
+// ListStored is every secret the keyring or the file plane holds (meta names, file keys, provider auth.env
 // names), restricted to only when given; the process env is not ours to list or export.
 func ListStored(reg *providers.Registry, only []string) []Stored {
 	names := slices.Clone(Names())

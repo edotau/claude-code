@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,59 +33,49 @@ type metaDoc struct {
 	Credentials map[string]Meta `json:"credentials"`
 }
 
-// MetaFile replaces indexFile: names-only credential metadata, never a secret value.
+// MetaFile is names-only credential metadata, never a secret value.
 func MetaFile() string { return filepath.Join(paths.EnvDir(), "secrets.meta.json") }
 
-// LoadMeta returns every credential's metadata, keyed by name. A missing file triggers a one-time
-// import from secrets.index, secrets.env, the provider registry's auth.env, and custom.env's
-// @keyring refs; the import is written once and never overwrites a file that already exists.
-// An existing file is read without the lock: writes go through AtomicWrite's rename, so a reader
-// sees the old or the new content, never a partial one.
+// errImportIncomplete marks an import taken while the keyring did not answer; it is never persisted.
+var errImportIncomplete = errors.New("keyring did not answer; metadata not written")
+
+// LoadMeta returns every row keyed by name; a missing file runs the import, persisted only when complete.
 func LoadMeta() (map[string]Meta, error) {
-	if b, err := os.ReadFile(MetaFile()); err == nil {
+	if b, err := os.ReadFile(MetaFile()); err == nil { // lock-free: AtomicWrite's rename never exposes a partial file
 		return parseMetaDoc(b)
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
 	var out map[string]Meta
-	err := paths.WithFileLock(MetaFile(), func() error {
-		// re-check inside the lock: another process may have written the file since the read above.
-		b, err := os.ReadFile(MetaFile())
-		if err == nil {
-			out, err = parseMetaDoc(b)
-			return err
-		}
-		if !os.IsNotExist(err) {
-			return err
-		}
-		creds, complete := importCredentials()
-		// An import taken while the keyring was down is missing its keyring-only names; don't
-		// persist it, so the next run (keyring hopefully up) retries the import from scratch.
-		if complete {
-			if err := writeMetaLocked(creds); err != nil {
-				return err
-			}
-		}
+	err := withStoreLock(func() error {
+		creds, imported, err := readMetaLocked() // re-read: another process may have written it since
 		out = creds
-		return nil
+		switch {
+		case errors.Is(err, errImportIncomplete):
+			return nil // next run (keyring hopefully up) retries the import
+		case err != nil || !imported:
+			return err
+		}
+		return writeMeta(creds)
 	})
 	return out, err
 }
 
-// readMetaLocked reads the meta file (the caller already holds its lock); a missing file runs the
-// import. complete is false only when the import ran and the keyring did not answer.
-func readMetaLocked() (creds map[string]Meta, imported, complete bool, err error) {
+// readMetaLocked reads the meta file under the store lock; a missing one is imported, partial = errImportIncomplete.
+func readMetaLocked() (creds map[string]Meta, imported bool, err error) {
 	b, err := os.ReadFile(MetaFile())
 	if os.IsNotExist(err) {
-		var done bool
-		creds, done = importCredentials()
-		return creds, true, done, nil
+		creds, complete := importCredentials()
+		if !complete {
+			return creds, true, errImportIncomplete
+		}
+		return creds, true, nil
 	}
 	if err != nil {
-		return nil, false, true, err
+		return nil, false, err
 	}
 	creds, err = parseMetaDoc(b)
-	return creds, false, true, err
+	return creds, false, err
 }
 
 // parseMetaDoc unmarshals the meta file's bytes, rejecting a schema version newer than this binary writes.
@@ -102,8 +93,8 @@ func parseMetaDoc(b []byte) (map[string]Meta, error) {
 	return doc.Credentials, nil
 }
 
-// writeMetaLocked persists creds (the caller already holds the lock).
-func writeMetaLocked(creds map[string]Meta) error {
+// writeMeta persists creds (the caller holds the store lock).
+func writeMeta(creds map[string]Meta) error {
 	b, err := json.MarshalIndent(metaDoc{Version: metaVersion, Credentials: creds}, "", "  ")
 	if err != nil {
 		return err
@@ -111,32 +102,9 @@ func writeMetaLocked(creds map[string]Meta) error {
 	return paths.AtomicWrite(MetaFile(), b, 0o600)
 }
 
-// editMeta loads the meta file under its lock, lets mutate change creds in place, and writes back
-// only when mutate reports a change. An import taken while the keyring was down is rejected outright,
-// so the next call (keyring hopefully up) retries the import instead of persisting a partial one.
-func editMeta(mutate func(creds map[string]Meta) bool) error {
-	return paths.WithFileLock(MetaFile(), func() error {
-		creds, imported, complete, err := readMetaLocked()
-		if err != nil {
-			return err
-		}
-		if imported && !complete {
-			return fmt.Errorf("keyring did not answer; metadata not written")
-		}
-		if !mutate(creds) {
-			return nil
-		}
-		return writeMetaLocked(creds)
-	})
-}
-
-// candidateNames is every name worth checking during import: the retired index, the file plane
-// (reusing an already-loaded read), every provider's auth.env, and custom.env's @keyring refs.
+// candidateNames is every name worth checking during import: file plane, providers' auth.env, custom.env @keyring refs.
 func candidateNames(file map[string]string) map[string]bool {
 	names := map[string]bool{}
-	for _, n := range readIndex() {
-		names[n] = true
-	}
 	for n := range file {
 		names[n] = true
 	}
@@ -181,33 +149,23 @@ func importCredentials() (creds map[string]Meta, complete bool) {
 // upsertMeta records name landing on plane ("keyring"|"file") with value's prefix/length, now; a
 // fresh value is unverified, so any prior VerifyStatus/VerifiedAt is dropped.
 func upsertMeta(name, plane, value string) error {
-	return editMeta(func(creds map[string]Meta) bool {
-		creds[name] = Meta{Plane: plane, Prefix: metaPrefix(value), Len: len(value), SetAt: time.Now()}
-		return true
+	return editStore(func(s *state) {
+		s.meta[name] = Meta{Plane: plane, Prefix: metaPrefix(value), Len: len(value), SetAt: time.Now()}
 	})
 }
 
 // removeMeta drops name's row; a name with no row is a no-op.
 func removeMeta(name string) error {
-	return editMeta(func(creds map[string]Meta) bool {
-		if _, ok := creds[name]; !ok {
-			return false
-		}
-		delete(creds, name)
-		return true
-	})
+	return editStore(func(s *state) { delete(s.meta, name) })
 }
 
 // RecordProbe sets VerifyStatus/VerifiedAt on name's existing row; a name with no row is a no-op.
 func RecordProbe(name, status string, at time.Time) error {
-	return editMeta(func(creds map[string]Meta) bool {
-		m, ok := creds[name]
-		if !ok {
-			return false
+	return editStore(func(s *state) {
+		if m, ok := s.meta[name]; ok {
+			m.VerifyStatus, m.VerifiedAt = status, at
+			s.meta[name] = m
 		}
-		m.VerifyStatus, m.VerifiedAt = status, at
-		creds[name] = m
-		return true
 	})
 }
 

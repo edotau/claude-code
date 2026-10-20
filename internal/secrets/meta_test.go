@@ -71,8 +71,11 @@ func TestLoadMetaNotPersistedWhenKeyringDown(t *testing.T) {
 		t.Fatalf("meta file must not exist after an incomplete import, stat err = %v", err)
 	}
 
-	if err := editMeta(func(creds map[string]Meta) bool { return false }); err == nil {
-		t.Fatal("editMeta must error while the prior import is incomplete")
+	if err := upsertMeta("DOWN_CASE", "file", "v"); err == nil {
+		t.Fatal("a meta edit must error while the prior import is incomplete")
+	}
+	if _, err := os.Stat(MetaFile()); !os.IsNotExist(err) {
+		t.Fatalf("a refused meta edit must not write the meta file, stat err = %v", err)
 	}
 
 	// Now the seam answers; LoadMeta must retry the import and persist it.
@@ -206,5 +209,68 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 	}
 	if p := metaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
 		t.Fatalf("metaPrefix dropped a genuine vendor prefix: %q", p)
+	}
+}
+
+// writeFutureMeta plants a meta file this binary refuses to read (schema version 2).
+func writeFutureMeta(t *testing.T) string {
+	t.Helper()
+	future := `{"version":2,"credentials":{"X":{"plane":"file"}}}`
+	if err := os.MkdirAll(filepath.Dir(MetaFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(MetaFile(), []byte(future), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return future
+}
+
+// An unreadable meta file must not block a file-plane write, must fail a meta edit, and must stay untouched.
+func TestEditStoreBadMetaFailsOnlyMetaEdits(t *testing.T) {
+	setConfigDir(t)
+	future := writeFutureMeta(t)
+	if err := setFile("STILL_LANDS", "v"); err != nil {
+		t.Fatalf("file-plane write must land despite a bad meta file: %v", err)
+	}
+	if ReadAll()["STILL_LANDS"] != "v" {
+		t.Fatal("STILL_LANDS missing from the file plane")
+	}
+	if err := upsertMeta("STILL_LANDS", "file", "v"); err == nil {
+		t.Fatal("a meta edit must surface the meta file's error")
+	}
+	if b, _ := os.ReadFile(MetaFile()); string(b) != future {
+		t.Fatalf("meta file rewritten: %q", b)
+	}
+}
+
+// Names must fall back to the file plane's names when the meta file is unreadable, never go blank.
+func TestNamesFallsBackToFilePlane(t *testing.T) {
+	setConfigDir(t)
+	writeFutureMeta(t)
+	for _, n := range []string{"Z_FILE", "A_FILE"} {
+		if err := setFile(n, "v"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := Names(); strings.Join(got, ",") != "A_FILE,Z_FILE" {
+		t.Fatalf("Names = %q, want [A_FILE Z_FILE]", got)
+	}
+}
+
+// A meta-only edit must not create secrets.env; editStore writes back only the file that changed.
+func TestEditStoreWritesOnlyChangedFile(t *testing.T) {
+	setConfigDir(t)
+	withKeyringLookup(t, func(string) (string, bool, error) { return "", false, nil })
+	if err := upsertMeta("KR_ONLY", "keyring", "kr-value-0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(EnvFile()); !os.IsNotExist(err) {
+		t.Fatalf("secrets.env must not exist after a meta-only edit, stat err = %v", err)
+	}
+	if err := removeFile("KR_ONLY"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(EnvFile()); !os.IsNotExist(err) {
+		t.Fatalf("removing an absent name must not create secrets.env, stat err = %v", err)
 	}
 }
