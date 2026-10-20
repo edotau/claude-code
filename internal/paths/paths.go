@@ -22,20 +22,11 @@ func ConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// EnvDir holds env.d/*.env files: pins (provider.env) and secrets (secrets.env), all gitignored.
+// EnvDir is the legacy env.d dir: secrets.env and migration sources; config lives in the vault.
 func EnvDir() string { return filepath.Join(ConfigDir(), "env.d") }
 
 // SecretsFile is the managed secrets file in env.d.
 func SecretsFile() string { return filepath.Join(EnvDir(), "secrets.env") }
-
-// ProvidersOverlay is the per-user provider registry overlay in env.d.
-func ProvidersOverlay() string { return filepath.Join(EnvDir(), "providers.json") }
-
-// PinFile is the provider and model pin file in env.d.
-func PinFile() string { return filepath.Join(EnvDir(), "provider.env") }
-
-// CustomEnvFile is the custom launch environment file in env.d.
-func CustomEnvFile() string { return filepath.Join(EnvDir(), "custom.env") }
 
 // LegacyProvidersFile is the pre-env.d provider registry overlay.
 func LegacyProvidersFile() string { return filepath.Join(ConfigDir(), "providers.json") }
