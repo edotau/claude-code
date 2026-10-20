@@ -3,6 +3,19 @@
 **Load this reference when:** writing or reviewing pytest fixtures, parametrized tests,
 mocks/patches, markers, exception/async tests, or organizing a `tests/` tree.
 
+## Quick reference
+
+| Need | Use |
+|------|-----|
+| Setup/teardown, shared data | `@pytest.fixture` (scopes: function/class/module/package/session), `conftest.py` |
+| Input matrix | `@pytest.mark.parametrize("a,b", [...])` |
+| Isolate external calls | `@patch("consumer.module.func")`, `autospec=True` for signature safety |
+| Expect an exception | `with pytest.raises(ValueError, match="...")` |
+| Slow/optional tests | `@pytest.mark.slow`, `@pytest.mark.skipif(...)` |
+| Async code | `@pytest.mark.asyncio` |
+
+Examples and `tests/` layout: `references/pytest-patterns.md`.
+
 ## Assertions
 
 ```python

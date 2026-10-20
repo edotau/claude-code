@@ -8,6 +8,14 @@ Tests must verify real behavior, not mock behavior. Mocks are a means to isolate
 
 **Core principle:** Test what the code does, not what the mocks do.
 
+## Mock at boundaries, not everywhere
+
+Mock external IO at the consumer's import
+site, mirror the real object completely, and treat more than two mocks in one test as a design
+smell (the code is too coupled — add a seam). Never add test-only methods to production
+classes. Asserting on a mock's own behavior fails the import rule in disguise: the code under
+test never ran. Full pitfalls and gate checks: `references/testing-anti-patterns.md`.
+
 **Running the code on real input first, then proving each test's teeth, prevents these anti-patterns** (see `../SKILL.md`).
 
 ## The Iron Laws
