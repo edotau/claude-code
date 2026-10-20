@@ -5,9 +5,63 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name   string
+		script string
+	}{
+		{name: "missing executable"},
+		{name: "timeout", script: "#!/bin/sh\nexec \"" + sleep + "\" 2\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bin := t.TempDir()
+			if tt.script != "" {
+				if err := os.WriteFile(filepath.Join(bin, "git"), []byte(tt.script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", bin)
+			oldTimeout := gitLogTimeout
+			gitLogTimeout = 50 * time.Millisecond
+			t.Cleanup(func() { gitLogTimeout = oldTimeout })
+
+			var out bytes.Buffer
+			started := time.Now()
+			if code := ScanGit(&out, t.TempDir(), 0); code != ExitFindings {
+				t.Errorf("ScanGit failed probe exit = %d, want %d; output = %q", code, ExitFindings, out.String())
+			}
+			if elapsed := time.Since(started); elapsed >= time.Second {
+				t.Errorf("repo probe took %v with timeout %v", elapsed, gitLogTimeout)
+			}
+			if strings.Contains(out.String(), "skipped") || strings.Contains(out.String(), "clean.") {
+				t.Errorf("failed probe reported clean/skip: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestScanGitNonRepoStillSkipped(t *testing.T) {
+	var out bytes.Buffer
+	if code := ScanGit(&out, t.TempDir(), 0); code != ExitClean {
+		t.Fatalf("non-repo exit = %d, want %d: %s", code, ExitClean, out.String())
+	}
+	if !strings.Contains(out.String(), "not inside a git repo") || !strings.Contains(out.String(), "skipped") {
+		t.Errorf("non-repo output = %q, want skip notice", out.String())
+	}
+}
 
 func TestIsTestFixture(t *testing.T) {
 	cases := []struct {

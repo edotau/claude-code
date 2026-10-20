@@ -120,12 +120,10 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 		return 0, nil, err
 	}
 	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
-		f.Close()
-		return 0, nil, err
+		return 0, nil, errors.Join(err, f.Close())
 	}
 	if _, err := f.WriteString(b.String()); err != nil {
-		f.Close()
-		return 0, nil, err
+		return 0, nil, errors.Join(err, f.Close())
 	}
 	if err := f.Close(); err != nil {
 		return 0, nil, err

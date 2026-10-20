@@ -356,7 +356,7 @@ func memoryRoot(repo string) string {
 		abs, _ := filepath.Abs(repo)
 		return abs
 	}
-	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(d, paths.ConfigDir()) || paths.SamePath(memory.GitToplevel(d), d)) {
+	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(paths.MainCheckout(d), paths.ConfigDir()) || paths.SamePath(memory.GitToplevel(d), d)) {
 		return d
 	}
 	cwd, _ := os.Getwd()

@@ -56,7 +56,7 @@ func NativeDir(root string) string {
 func projectSlug(root string) string {
 	b := []byte(filepath.Clean(root))
 	for i, c := range b {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
 			b[i] = '-'
 		}
 	}

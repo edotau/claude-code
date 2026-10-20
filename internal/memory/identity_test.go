@@ -117,6 +117,20 @@ func TestResolveHarness(t *testing.T) {
 	}
 }
 
+func TestResolveHarnessWorktreePointer(t *testing.T) {
+	cfg := tempConfig(t)
+	worktree := t.TempDir()
+	write(t, filepath.Join(worktree, ".git"), "gitdir: "+filepath.Join(cfg, ".git", "worktrees", "x")+"\n")
+
+	want := Resolve(cfg)
+	if got := Resolve(worktree); got != want {
+		t.Errorf("Resolve(worktree) = %+v, want main checkout identity %+v", got, want)
+	}
+	if got, err := RepoDir(worktree); err != nil || got != HarnessStoreDir() {
+		t.Errorf("RepoDir(worktree) = %q, %v, want %q", got, err, HarnessStoreDir())
+	}
+}
+
 func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	cfg := tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "My Repo.v2")

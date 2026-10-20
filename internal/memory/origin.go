@@ -53,7 +53,7 @@ func ReadOrigin(dir string) (Origin, error) {
 	}
 	if cached, ok := originCache.Load(path); ok {
 		c := cached.(originCacheEntry)
-		if os.SameFile(info, c.info) && info.Size() == c.info.Size() && info.ModTime() == c.info.ModTime() {
+		if os.SameFile(info, c.info) && info.Size() == c.info.Size() && info.ModTime().Equal(c.info.ModTime()) {
 			o := c.origin
 			o.Aliases = slices.Clone(o.Aliases)
 			o.Display = slices.Clone(o.Display)

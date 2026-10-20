@@ -86,10 +86,14 @@ func appendBlocks(path string, blocks []string) error {
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	for _, b := range blocks {
-		body += "\n" + b + "\n"
+	var b strings.Builder
+	b.WriteString(body)
+	for _, block := range blocks {
+		b.WriteByte('\n')
+		b.WriteString(block)
+		b.WriteByte('\n')
 	}
-	return paths.AtomicWrite(path, []byte(body), 0o600)
+	return paths.AtomicWrite(path, []byte(b.String()), 0o600)
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.

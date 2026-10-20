@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +43,7 @@ func TestCmdSetupNukeApplyWithoutConfirmRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer devnull.Close()
 	oldStdin := os.Stdin
 	os.Stdin = devnull
@@ -52,5 +54,47 @@ func TestCmdSetupNukeApplyWithoutConfirmRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal("dir must survive a refused nuke")
+	}
+}
+
+func TestCmdSetupNukeRejectsPartialConfirmation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "config")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(home, "confirmation")
+	if err := os.WriteFile(input, []byte(dir+" extra-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	old := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = old })
+
+	code, out, _ := captureOutput(t, func() int {
+		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
+	})
+	if code == 0 {
+		t.Error("partially scanned confirmation exit = 0, want refusal")
+	}
+	if strings.Contains(out, "nuke plan for") {
+		t.Errorf("invalid confirmation reached Nuke: %q", out)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("target must survive invalid confirmation: %v", err)
+	}
+	archives, err := filepath.Glob(filepath.Join(home, "claude-nuke-*.tgz"))
+	if err != nil || len(archives) != 0 {
+		t.Errorf("invalid confirmation created archives: %v, %v", archives, err)
 	}
 }

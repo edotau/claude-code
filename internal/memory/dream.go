@@ -79,7 +79,7 @@ func Dream(o DreamOptions) error {
 		if o.Run != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 			defer cancel()
-			os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks
+			_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
 			who, err := o.Run(ctx, agentDreamPrompt(), o.CWD)
 			runErr = err
 			fmt.Fprintln(o.Out, "memory dream: ran on", who)
