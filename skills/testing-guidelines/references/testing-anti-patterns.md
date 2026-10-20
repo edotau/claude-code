@@ -8,7 +8,7 @@ Tests must verify real behavior, not mock behavior. Mocks are a means to isolate
 
 **Core principle:** Test what the code does, not what the mocks do.
 
-**Following strict TDD prevents these anti-patterns.**
+**Running the code on real input first, then proving each test's teeth, prevents these anti-patterns** (see `../SKILL.md`).
 
 ## The Iron Laws
 
@@ -236,15 +236,14 @@ BEFORE creating mock responses:
 
 **Why this is wrong:**
 - Testing is part of implementation, not optional follow-up
-- TDD would have caught this
+- A live run plus a test that imports the code would have caught this
 - Can't claim complete without tests
 
 **The fix:**
 ```
-TDD cycle:
-1. Write failing test
-2. Implement to pass
-3. Refactor
+1. Run the change on real input; read the output
+2. Pin the observed behavior in a test that imports the code
+3. Prove it bites (revert-and-restore)
 4. THEN claim complete
 ```
 
@@ -260,15 +259,14 @@ TDD cycle:
 
 **Consider:** Integration tests with real components often simpler than complex mocks
 
-## TDD Prevents These Anti-Patterns
+## The Discipline Prevents These Anti-Patterns
 
-**Why TDD helps:**
-1. **Write test first** → Forces you to think about what you're actually testing
-2. **Watch it fail** → Confirms test tests real behavior, not mocks
-3. **Minimal implementation** → No test-only methods creep in
-4. **Real dependencies** → You see what the test actually needs before mocking
+1. **Run it live first** → You see what the real dependencies return before mocking them
+2. **Import rule** → A test that never calls the code can't pass on mock behavior alone
+3. **Revert-and-restore** → Confirms the test fails against broken real code, not just a mock
+4. **Mock at boundaries** → No test-only methods creep in
 
-**If you're testing mock behavior, you violated TDD** - you added mocks without watching test fail against real code first.
+**If you're testing mock behavior, the teeth proof will show it** - revert the fix and the test still passes.
 
 ## Quick Reference
 
@@ -278,7 +276,7 @@ TDD cycle:
 | Test-only methods in production | Move to test utilities |
 | Mock without understanding | Understand dependencies first, mock minimally |
 | Incomplete mocks | Mirror real API completely |
-| Tests as afterthought | TDD - tests first |
+| Tests as afterthought | Live run, then guard tests, before claiming complete |
 | Over-complex mocks | Consider integration tests |
 
 ## Red Flags
@@ -294,6 +292,6 @@ TDD cycle:
 
 **Mocks are tools to isolate, not things to test.**
 
-If TDD reveals you're testing mock behavior, you've gone wrong.
+If the teeth proof shows you're testing mock behavior, you've gone wrong.
 
 Fix: Test real behavior or question why you're mocking at all.

@@ -1,16 +1,19 @@
 ---
-name: test-guard-discipline
+name: testing-guidelines
 description: >-
-  Whether a test actually guards a fix or merely documents it — the import rule, proving teeth by
-  revert-and-restore, the anti-vacuity check for equivalence tests, reproducing the whole fault,
-  deriving assertions from the fixture, and demonstrating on real data before building a suite.
-  Trigger on "does this test have teeth", "would this catch a revert", "is this test actually
-  testing anything", "unguarded fix", test-first, or reviewing a test that accompanies a bug fix.
+  The harness's testing skill: run it on real data first, then write tests that actually guard —
+  the import rule, proving teeth by revert-and-restore, anti-vacuity for equivalence tests,
+  reproducing the whole fault, assertions derived from the fixture; plus Given/When/Then
+  criteria, root-cause-first bug fixes, mocking at boundaries, pytest fixtures/parametrize/
+  mocking, and API/contract tests. Trigger on "write tests", "pytest", "mock", "API tests",
+  "contract test", "test this endpoint", "integration test", "does this test have teeth",
+  "would this catch a revert", "unguarded fix", or reviewing a test that accompanies a bug fix.
 ---
-# Test-guard discipline
+# Testing guidelines
 
 Rules earned by shipping three tests around a real defect and then discovering none of them
-would have caught it coming back.
+would have caught it coming back. The order is always: **run it live → pin what you observed
+→ prove the test bites.** Tooling (pytest, mocks, API matrices) is at the end.
 
 ## Run it on data before you build the suite
 
@@ -148,3 +151,77 @@ When the fix itself is being designed: given a choice between continuing with in
 data and raising, raise. The defect above existed because a missing prediction was logged at
 DEBUG and execution carried on, producing a plausible-looking "no impact" answer. Raising
 into an existing fallback handler turned a silent wrong result into a slower correct one.
+
+## Pin the behavior before the assertion
+
+You can't assert behavior you haven't pinned down. Once the live run has shown what the code
+does — or the spec states it — write the expected behavior as **Given / When / Then**:
+
+```
+Given an authenticated user with no widgets
+When they POST /api/widgets/ with {"name": "w"}
+Then the response is 201 and the body contains the new widget's id
+```
+
+Each criterion maps 1:1 to a test. Vague asks get caught here ("should work well" is not a
+criterion), and anything not traceable to one is scope creep you can drop.
+
+**Stop and ask** instead of guessing when the behavior for a case isn't determinable from the
+request or the data, the change alters an existing API/DB contract, or it touches
+auth/permissions/PII. Don't encode a silent guess into a test that then "passes."
+
+## Root cause before the regression test
+
+For a reported bug the live reproduction is the RED: reproduce on the real surface, fix, re-run
+the same command. Before fixing anything past a trivial bug, state the root cause explicitly
+("X because Y"), trace data/control flow *backward* from the symptom, and when the failure spans
+components, log at each boundary to find the layer that actually breaks. A regression test
+built on the wrong root cause turns green while the real bug survives — then prove its teeth
+(above).
+
+## Mock at boundaries, not everywhere
+
+Mocks isolate; they are never the thing under test. Mock external IO at the consumer's import
+site, mirror the real object completely, and treat more than two mocks in one test as a design
+smell (the code is too coupled — add a seam). Never add test-only methods to production
+classes. Asserting on a mock's own behavior fails the import rule in disguise: the code under
+test never ran. Full pitfalls and gate checks: `references/testing-anti-patterns.md`.
+
+## pytest quick reference
+
+| Need | Use |
+|------|-----|
+| Setup/teardown, shared data | `@pytest.fixture` (scopes: function/class/module/package/session), `conftest.py` |
+| Input matrix | `@pytest.mark.parametrize("a,b", [...])` |
+| Isolate external calls | `@patch("consumer.module.func")`, `autospec=True` for signature safety |
+| Expect an exception | `with pytest.raises(ValueError, match="...")` |
+| Slow/optional tests | `@pytest.mark.slow`, `@pytest.mark.skipif(...)` |
+| Async code | `@pytest.mark.asyncio` |
+
+Examples and `tests/` layout: `references/pytest-patterns.md`.
+
+## API & contract testing
+
+Unit tests prove a function behaves; **contract tests prove a boundary behaves** — accepted
+request shapes, status codes, response shape, enforced auth. Drive endpoint coverage from two
+matrices, not the happy path:
+
+- **Auth/permission** — missing header (401), invalid token (401), expired (401), wrong role
+  (403), not-owner (403), valid (2xx). Missing header and invalid token route differently; test both.
+- **Input validation** — empty body, each required field missing, wrong type, boundaries
+  (min−1/min/max/max+1), null. Bad input is 400, never 500.
+
+Run in-process (DRF `APIClient` + `force_authenticate`, transactional rollback); reserve `httpx`
+for cross-service or deployed checks. Assert the response *shape* and that sensitive fields
+never leak — a 200 with the wrong body is still a bug. A data job's input/output table schema
+is the same kind of contract. Route detection, full matrices, patterns:
+`references/api-contract-testing.md`.
+
+## References
+
+- `references/pytest-patterns.md` — fixtures, parametrize, mocking/patching, markers,
+  exception/async tests, `tests/` layout.
+- `references/api-contract-testing.md` — route detection, auth/input matrices, DRF + httpx
+  patterns, data-job boundary contracts.
+- `references/testing-anti-patterns.md` — testing mock behavior, test-only production methods,
+  mocking without understanding, incomplete mocks.
