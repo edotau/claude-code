@@ -98,7 +98,7 @@ func maxFindingsCount(line string) (int, bool) {
 	best, found := 0, false
 	for _, m := range findingsRe.FindAllStringSubmatch(line, -1) {
 		n := 0
-		fmt.Sscanf(m[1], "%d", &n)
+		_, _ = fmt.Sscanf(m[1], "%d", &n) // m[1] is \d+: only an int overflow fails, and it leaves n = 0
 		if n > best {
 			best = n
 			found = true
@@ -114,9 +114,10 @@ func findOversizedTasks(text string) []OversizedTask {
 	fence := ""
 	for _, raw := range splitLines(text) {
 		if f := fenceRe.FindStringSubmatch(raw); f != nil {
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = f[1]
-			} else if fence == f[1] {
+			case f[1]:
 				fence = ""
 			}
 			continue
