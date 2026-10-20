@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor
@@ -39,6 +40,83 @@ func scratch(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return home
+}
+
+func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
+	home := scratch(t)
+	hooksPath := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	for path, body := range map[string]string{hooksPath: "{not valid json", jsoncPath: "{}\n"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	_, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	if err == nil || !strings.Contains(err.Error(), "copilot-hooks: existing file:") {
+		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
+	}
+	for _, rel := range []string{
+		".codex/config.toml", ".codex/hooks.json", ".config/opencode/opencode.json",
+		".config/opencode/tui.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
+	} {
+		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be written after a render error: %v", rel, err)
+		}
+	}
+	if raw, err := os.ReadFile(jsoncPath); err != nil || string(raw) != "{}\n" {
+		t.Errorf("JSONC must not be retired after a render error: %q, %v", raw, err)
+	}
+	if strings.Contains(out.String(), ": wrote ") || strings.Contains(out.String(), ": moved ") {
+		t.Errorf("reported unapplied writes:\n%s", out.String())
+	}
+}
+
+func TestPrepareDefersWritesAndJSONCRetirement(t *testing.T) {
+	home := scratch(t)
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	if err := os.MkdirAll(filepath.Dir(jsoncPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsoncPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	p, drift, err := Prepare(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}})
+	if err != nil || !drift || p == nil {
+		t.Fatalf("Prepare = %v, %v, %v", p, drift, err)
+	}
+	if _, err := os.Stat(opencodeJSONPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("Prepare wrote opencode.json: %v", err)
+	}
+	if _, err := os.Stat(jsoncPath); err != nil {
+		t.Fatalf("Prepare retired opencode.jsonc: %v", err)
+	}
+	if err := p.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(opencodeJSONPath(home)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(jsoncPath); !os.IsNotExist(err) {
+		t.Fatalf("Apply did not retire opencode.jsonc: %v", err)
+	}
+	backups, err := filepath.Glob(jsoncPath + ".bak-*")
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("JSONC backups = %v, %v", backups, err)
+	}
+	stamp := strings.TrimPrefix(backups[0], jsoncPath+".bak-")
+	if _, err := time.Parse("20060102T150405.000000000Z", stamp); err != nil {
+		t.Fatalf("backup timestamp lacks nanosecond precision: %q: %v", stamp, err)
+	}
+	moved := strings.Index(out.String(), "opencode: moved ")
+	wrote := strings.Index(out.String(), "opencode: wrote ")
+	if moved < 0 || wrote < moved {
+		t.Fatalf("JSONC must be retired before writing opencode.json:\n%s", out.String())
+	}
 }
 
 func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
