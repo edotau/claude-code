@@ -73,12 +73,17 @@ the manager.
    (`go build ./... && go vet <pkgs> && go test <pkgs>`). Commit only on exit 0; gate on the exit code itself,
    never on a piped `| tail`.
 3. The leaf's live check: the verb or flow it changed, on real input.
-4. Read the diff: no weakened or deleted assertions, no edits outside `owns:`, no leftover references to removed
+4. Changed a seam (a function signature, argv/env builder, flag, file format, API another package
+   uses)? Read producer and every consumer together and exercise each consumer path, not just the
+   leaf's own package — on 2026-10-20 `--attach`/`--workdir` worked on the vendor runner but not the
+   opencode hub path, and a provider-only commit broke a secrets package it didn't own. `go build ./...`
+   (whole repo, already step 2) is the floor; a seam change still needs the consumer's own test run.
+5. Read the diff: no weakened or deleted assertions, no edits outside `owns:`, no leftover references to removed
    names (`grep -rn <old name>`).
-5. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
+6. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
    A pathspec commit is `--only`, so other lanes' staged files never ride along; 1–2 line conventional message,
    no AI footer.
-6. Tick the box with the short commit id; remove the copy (`scripts/isolate.sh --remove <copy>`) and the leaf
+7. Tick the box with the short commit id; remove the copy (`scripts/isolate.sh --remove <copy>`) and the leaf
    scratch (`chmod -R u+w <d> && find <d> -delete`).
 
 Red at any step: re-dispatch the leaf once with the failure output, or fix a small gap in-lane; still red, report
