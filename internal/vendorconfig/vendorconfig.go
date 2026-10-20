@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 //go:embed defaults.json
@@ -51,18 +49,33 @@ type Vendor struct {
 	Launch     Launch     `json:"launch"`
 }
 
-// Config is the merged spec: built-in defaults plus the user's env.d/vendors.json overlay.
+// Config is the merged spec: built-in defaults plus the user's vault overlay/vendors.
 type Config struct {
 	GuardRules GuardRules        `json:"guardRules"`
 	Vendors    map[string]Vendor `json:"vendors"`
 }
 
-// UserFile is the per-user overlay: a vendor entry replaces the built-in whole.
-func UserFile() string { return filepath.Join(paths.EnvDir(), "vendors.json") }
+// OverlayDoc is the user overlay (vault overlay/vendors; an entry replaces the built-in whole); fs.ErrNotExist when absent.
+func OverlayDoc() ([]byte, error) {
+	var doc []byte
+	found := false
+	err := vault.View(func(t *vault.Tx) error {
+		v, ok := t.Get(vault.Overlay, "vendors")
+		doc, found = []byte(v), ok
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("vault overlay/vendors: %w", fs.ErrNotExist)
+	}
+	return doc, nil
+}
 
-// Load merges the embedded defaults with UserFile and returns defaults alone when it's absent.
+// Load merges the embedded defaults with OverlayDoc and returns defaults alone when it's absent.
 func Load() (*Config, error) {
-	user, err := os.ReadFile(UserFile())
+	user, err := OverlayDoc()
 	if errors.Is(err, fs.ErrNotExist) {
 		user = nil
 	} else if err != nil {
@@ -93,7 +106,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 			Vendors    map[string]json.RawMessage `json:"vendors"`
 		}
 		if err := json.Unmarshal(overlay, &o); err != nil {
-			return nil, fmt.Errorf("%s: %w", UserFile(), err)
+			return nil, fmt.Errorf("vault overlay/vendors: %w", err)
 		}
 		if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
 			cfg.GuardRules = *o.GuardRules
@@ -108,7 +121,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 			}
 			var v Vendor
 			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("%s: vendors.%s: %w", UserFile(), name, err)
+				return nil, fmt.Errorf("vault overlay/vendors: vendors.%s: %w", name, err)
 			}
 			cfg.Vendors[name] = v
 		}
