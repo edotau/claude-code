@@ -139,3 +139,135 @@ func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
 		t.Errorf("merged output lost the current harness bash-guard hook:\n%s", got)
 	}
 }
+
+// canonicalJSON sorts map keys (Go's own json.Marshal order for map[string]any) so two JSON values with
+// different field order and whitespace can be compared for value-for-value equality.
+func canonicalJSON(t *testing.T, raw []byte) string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("canonicalJSON: %v\n%s", err, raw)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// findCodexHook walks every PreToolUse group's hooks for the one whose "command" matches want.
+func findCodexHook(t *testing.T, merged []byte, want string) map[string]any {
+	t.Helper()
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatalf("findCodexHook: %v\n%s", err, merged)
+	}
+	for _, group := range doc.Hooks["PreToolUse"] {
+		for _, h := range group.Hooks {
+			if h["command"] == want {
+				return h
+			}
+		}
+	}
+	t.Fatalf("hook %q not found in merged output:\n%s", want, merged)
+	return nil
+}
+
+// TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout is the RED fixture for the typed-struct-decode
+// bug: a foreign Codex hook with an unknown key and no timeout must keep both, byte-for-value, not gain
+// an injected "timeout": 0 nor lose "customKey".
+func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"orca-stop","customKey":1}]}]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	hook := findCodexHook(t, merged, "orca-stop")
+	if hook["customKey"] != float64(1) {
+		t.Errorf("customKey dropped or altered: %#v\n%s", hook, merged)
+	}
+	if _, hasTimeout := hook["timeout"]; hasTimeout {
+		t.Errorf("foreign hook with no timeout gained one: %#v\n%s", hook, merged)
+	}
+}
+
+// TestMergeCodexHooksRoundTripsForeignGroupByteIdentical proves a foreign group's matcher and hook survive
+// the merge value-for-value (canonicalized key order), not just that some marker string is present.
+func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
+	original := json.RawMessage(`{"matcher":"Bash","hooks":[{"type":"command","command":"orca-stop","async":true,"nested":{"b":2,"a":1}}]}`)
+	existing := []byte(`{"hooks":{"PreToolUse":[` + string(original) + `]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var found json.RawMessage
+	for _, g := range doc.Hooks["PreToolUse"] {
+		if canonicalJSON(t, g) == canonicalJSON(t, original) {
+			found = g
+		}
+	}
+	if found == nil {
+		t.Fatalf("foreign group did not round-trip value-for-value; want:\n%s\ngot:\n%s", canonicalJSON(t, original), merged)
+	}
+}
+
+// TestMergeCopilotHooksPreservesPowershellCwdEnv is the Copilot-side RED fixture: a foreign entry's
+// powershell/cwd/env fields must survive, not be dropped by a decode into the narrower rendered shape.
+func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
+	existing := []byte(`{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {"type": "command", "matcher": "", "bash": "orca-cmd", "powershell": "orca.ps1", "cwd": "/tmp/orca", "env": {"FOO": "bar"}, "timeoutSec": 10}
+    ]
+  }
+}`)
+	body, err := hookspec.CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCopilotHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCopilotHooks: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]map[string]any `json:"hooks"`
+	}
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var found map[string]any
+	for _, e := range doc.Hooks["preToolUse"] {
+		if e["bash"] == "orca-cmd" {
+			found = e
+		}
+	}
+	if found == nil {
+		t.Fatalf("foreign entry missing from merged output:\n%s", merged)
+	}
+	if found["powershell"] != "orca.ps1" || found["cwd"] != "/tmp/orca" {
+		t.Errorf("powershell/cwd dropped: %#v\n%s", found, merged)
+	}
+	env, _ := found["env"].(map[string]any)
+	if env["FOO"] != "bar" {
+		t.Errorf("env dropped: %#v\n%s", found, merged)
+	}
+}

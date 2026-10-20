@@ -36,12 +36,20 @@ func renderHooksFile(path string, body []byte, merge func(existing, body []byte)
 	return commitFile(path, raw, append(next, '\n'), existed, o, out, label)
 }
 
+// codexGroupRaw mirrors hookspec.Group's shape but keeps matcher/each hook as json.RawMessage, so a
+// foreign group (and every foreign hook inside it) round-trips byte-identical: unknown keys, absent
+// fields (no injected zero value) and field order all survive, instead of being lost through a typed decode.
+type codexGroupRaw struct {
+	Matcher json.RawMessage   `json:"matcher,omitempty"`
+	Hooks   []json.RawMessage `json:"hooks"`
+}
+
 // mergeCodexHooks keeps every foreign hook already in a Codex hooks.json, replacing only the harness's
 // own groups (by command prefix, hookspec.IsHarness) with the freshly rendered ones; mirrors
 // internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 	var existing, rendered struct {
-		Hooks map[string][]hookspec.Group `json:"hooks"`
+		Hooks map[string][]codexGroupRaw `json:"hooks"`
 	}
 	if len(bytes.TrimSpace(existingRaw)) > 0 {
 		if err := json.Unmarshal(existingRaw, &existing); err != nil {
@@ -73,41 +81,36 @@ func mergeHookEvents[T any](existing, rendered map[string][]T, foreign func([]T)
 	return merged
 }
 
-// foreignCodexGroups drops harness-owned hooks from each group (by command prefix), keeping a group
-// only while it still has at least one foreign hook left.
-func foreignCodexGroups(groups []hookspec.Group) []hookspec.Group {
-	var kept []hookspec.Group
+// foreignCodexGroups drops harness-owned hooks from each group (by "command" prefix, hookspec.IsHarness),
+// keeping a group only while it still has at least one foreign hook left; every kept hook (and the
+// group's own matcher) is carried as raw bytes, so unknown fields and a missing timeout survive untouched.
+func foreignCodexGroups(groups []codexGroupRaw) []codexGroupRaw {
+	var kept []codexGroupRaw
 	for _, g := range groups {
-		var hooks []hookspec.Hook
+		var hooks []json.RawMessage
 		for _, h := range g.Hooks {
-			if !hookspec.IsHarness(h.Command) {
-				hooks = append(hooks, h)
+			var id struct {
+				Command string `json:"command"`
 			}
+			if err := json.Unmarshal(h, &id); err == nil && hookspec.IsHarness(id.Command) {
+				continue
+			}
+			hooks = append(hooks, h)
 		}
 		if len(hooks) == 0 {
 			continue
 		}
-		g.Hooks = hooks
-		kept = append(kept, g)
+		kept = append(kept, codexGroupRaw{Matcher: g.Matcher, Hooks: hooks})
 	}
 	return kept
 }
 
-// copilotHookEntry is the flat per-hook shape CopilotJSON renders (hookspec.vendors.go's own unexported
-// entry type, duplicated here so a merge can decode and re-encode it byte-identically).
-type copilotHookEntry struct {
-	Type       string `json:"type"`
-	Matcher    string `json:"matcher"`
-	Bash       string `json:"bash"`
-	TimeoutSec int    `json:"timeoutSec"`
-}
-
 // mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries: each entry is
-// either kept whole (foreign) or dropped whole (harness-owned, by its "bash" command prefix).
+// either kept whole, byte-identical (foreign) or dropped whole (harness-owned, by its "bash" command prefix).
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	var existing, rendered struct {
-		Version int                           `json:"version"`
-		Hooks   map[string][]copilotHookEntry `json:"hooks"`
+		Version int                          `json:"version"`
+		Hooks   map[string][]json.RawMessage `json:"hooks"`
 	}
 	if len(bytes.TrimSpace(existingRaw)) > 0 {
 		if err := json.Unmarshal(existingRaw, &existing); err != nil {
@@ -125,13 +128,18 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	return json.MarshalIndent(map[string]any{"version": version, "hooks": merged}, "", "  ")
 }
 
-// foreignCopilotEntries drops harness-owned entries (by their "bash" command prefix).
-func foreignCopilotEntries(entries []copilotHookEntry) []copilotHookEntry {
-	var kept []copilotHookEntry
+// foreignCopilotEntries drops harness-owned entries (by their "bash" command prefix), keeping every
+// other entry as raw bytes so powershell/cwd/env and any other field survive untouched.
+func foreignCopilotEntries(entries []json.RawMessage) []json.RawMessage {
+	var kept []json.RawMessage
 	for _, e := range entries {
-		if !hookspec.IsHarness(e.Bash) {
-			kept = append(kept, e)
+		var id struct {
+			Bash string `json:"bash"`
 		}
+		if err := json.Unmarshal(e, &id); err == nil && hookspec.IsHarness(id.Bash) {
+			continue
+		}
+		kept = append(kept, e)
 	}
 	return kept
 }
