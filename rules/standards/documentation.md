@@ -21,8 +21,9 @@ paths:
   into CLAUDE.md — point to them.
 - `AGENTS.md` is the cross-agent equivalent (other agent CLIs read it from the project root).
   If a repo generates it from `CLAUDE.md`, edit the source, not the generated file. This repo does:
-  `claude-code agents docs` renders `AGENTS.md` and `GEMINI.md` (byte-identical) from `CLAUDE.md` + `agents/`;
-  `--check` fails on drift.
+  `claude-code agents sync` renders `CLAUDE.md` + `agents/` into each vendor's own file
+  (`~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`); local renders live under `state/projections/`.
+  This repo keeps no `AGENTS.md` or `GEMINI.md` at its root.
 
 ## Markdown Formatting
 
