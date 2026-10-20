@@ -72,12 +72,12 @@ func TestScanVaultClean(t *testing.T) {
 
 func TestScanVaultReadErrorIsFinding(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", "2")
+	vaulttest.Put(t, vault.Meta, "schema", "3")
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
 	scanner.ScanVault()
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], "vault — could not read:") ||
-		!strings.Contains(scanner.Findings[0], "schema 2") || strings.Contains(out.String(), "vault — clean") {
+		!strings.Contains(scanner.Findings[0], "schema 3") || strings.Contains(out.String(), "vault — clean") {
 		t.Fatalf("ScanVault must report unreadable vault: %v, %s", scanner.Findings, out.String())
 	}
 }

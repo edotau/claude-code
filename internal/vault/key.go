@@ -88,7 +88,7 @@ func MasterKey() (*Key, string, error) {
 // recovery instructions, never the raw keyring error.
 func resolveKey(id, kid, command string) (*Key, string, error) {
 	if v := os.Getenv("HARNESS_VAULT_KEY"); v != "" {
-		k, err := parseKey(v)
+		k, err := parseKey(v, id)
 		if err != nil {
 			return nil, "env", err
 		}
@@ -110,14 +110,14 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 	source := "keyring"
 	switch {
 	case found:
-		if k, err = parseKey(v); err != nil && kid != "" {
+		if k, err = parseKey(v, id); err != nil && kid != "" {
 			// Malformed pointer with a kid recorded: the pointer is only a convenience cache
 			// of the immutable per-kid account, so fall to matchKey's lookup below instead.
 			k, err = nil, nil
 		}
 	case command != "":
 		source = "command"
-		k, err = runKeyCommand(command)
+		k, err = runKeyCommand(command, id)
 	case recoverable:
 		return nil, "", wrapKeyringUnavailable(lookupErr)
 	case kid == "":
@@ -152,8 +152,9 @@ func parseKeyCommandArgv(raw string) ([]string, error) {
 	return argv, nil
 }
 
-// runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key.
-func runKeyCommand(raw string) (*Key, error) {
+// runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key
+// scoped to vaultID.
+func runKeyCommand(raw, vaultID string) (*Key, error) {
 	argv, err := parseKeyCommandArgv(raw)
 	if err != nil {
 		return nil, err
@@ -169,7 +170,7 @@ func runKeyCommand(raw string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseKey(string(out))
+	return parseKey(string(out), vaultID)
 }
 
 // matchKey resolves k against the vault's recorded kid: a direct hit returns k unchanged; a
@@ -187,7 +188,7 @@ func matchKey(id string, k *Key, source, kid string) (*Key, string, error) {
 		return nil, source, err
 	}
 	if found {
-		if rk, perr := parseKey(v); perr == nil && rk.Kid == kid {
+		if rk, perr := parseKey(v, id); perr == nil && rk.Kid == kid {
 			return rk, "keyring", nil
 		}
 	}
@@ -207,6 +208,12 @@ func wrapKeyringUnavailable(err error) error {
 }
 
 func EnsureKey() (*Key, error) {
+	// Materialize the vault file (and its real vault_id) before any key resolution: the HKDF
+	// subkey is salted by vault_id, so deriving one against a not-yet-created vault's empty id
+	// would mismatch the id the first write actually persists.
+	if _, err := ensureVaultID(); err != nil {
+		return nil, err
+	}
 	k, _, err := MasterKey()
 	if err == nil {
 		return k, nil
@@ -245,7 +252,7 @@ func EnsureKey() (*Key, error) {
 			// state, not an invitation to generate a second one.
 			return ErrLocked
 		}
-		newK, value, err := randomKey()
+		newK, value, err := randomKey(id)
 		if err != nil {
 			return err
 		}
@@ -290,13 +297,13 @@ func storeKeyID(k *Key) error {
 	})
 }
 
-func randomKey() (*Key, string, error) {
+func randomKey(vaultID string) (*Key, string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, "", err
 	}
 	value := base64.StdEncoding.EncodeToString(raw)
-	k, err := parseKey(value)
+	k, err := parseKey(value, vaultID)
 	return k, value, err
 }
 
@@ -339,7 +346,7 @@ func RotateKey() (oldKid, newKid string, err error) {
 			return e
 		}
 
-		next, value, e := randomKey()
+		next, value, e := randomKey(id)
 		if e != nil {
 			return e
 		}

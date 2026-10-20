@@ -29,6 +29,11 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
+// schemaVersion is the current on-disk layout; bumped for the HKDF subkey change (Phase 4b). A
+// vault at an older schema with secret records is refused (no auto re-seal path before Phase 8);
+// one with zero secrets is upgraded in place by the next Update.
+const schemaVersion = 2
+
 // View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
 // (it opens its own View) from inside another's callback. bbolt is not reentrant across process
 // file locks, so a same-goroutine nested open blocks on the outer transaction's own flock until
@@ -65,8 +70,11 @@ func checkSchema(t *Tx) error {
 	if s != "" && err != nil {
 		return fmt.Errorf("vault: invalid schema %q", s)
 	}
-	if n > 1 {
+	if n > schemaVersion {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
+	}
+	if n < schemaVersion && len(t.Names(Secrets)) > 0 {
+		return fmt.Errorf("vault schema %d: re-run claude-code config migrate", n)
 	}
 	return nil
 }
@@ -100,7 +108,7 @@ func create(path string) error {
 			}
 		}
 		mb := tx.Bucket([]byte(Meta))
-		if err := mb.Put([]byte("schema"), []byte("1")); err != nil {
+		if err := mb.Put([]byte("schema"), []byte(strconv.Itoa(schemaVersion))); err != nil {
 			return err
 		}
 		return mb.Put([]byte("vault_id"), []byte(newVaultID()))
@@ -136,6 +144,13 @@ func Update(fn func(*Tx) error) error {
 		// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
 		if _, ok := t.Get(Meta, "vault_id"); !ok {
 			if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
+				return err
+			}
+		}
+		// checkSchema already refused an older schema with secrets; a secret-free older schema
+		// upgrades in place here, with nothing to re-seal (Phase 4b).
+		if s, _ := t.Get(Meta, "schema"); s != strconv.Itoa(schemaVersion) {
+			if err := t.Put(Meta, "schema", strconv.Itoa(schemaVersion)); err != nil {
 				return err
 			}
 		}

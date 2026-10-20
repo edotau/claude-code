@@ -3,6 +3,8 @@ package vault_test
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -19,6 +21,12 @@ import (
 
 func specMasterKey(t *testing.T) *vault.Key {
 	t.Helper()
+	// Materialize the vault (and its real vault_id) before resolving a key to seal/open with:
+	// the HKDF subkey is salted by vault_id, so a key derived against a not-yet-created vault's
+	// empty id would mismatch the id the first write actually persists.
+	if err := vault.Update(func(tx *vault.Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	key, source, err := vault.MasterKey()
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +85,18 @@ func TestSealOpenRejectsAADSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block, err := aes.NewCipher(rawKey)
+	var vaultID string
+	if err := vault.View(func(tx *vault.Tx) error {
+		vaultID, _ = tx.Get(vault.Meta, "vault_id")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := hkdf.Key(sha256.New, rawKey, []byte(vaultID), "claude-code/vault/v1/secrets", 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(sub)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,9 +252,9 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 
 func TestViewRejectsNewerSchema(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", "2")
+	vaulttest.Put(t, vault.Meta, "schema", "3")
 	err := vault.View(func(tx *vault.Tx) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "newer claude-code") {
-		t.Fatalf("View schema 2 = %v, want error containing newer claude-code", err)
+		t.Fatalf("View schema 3 = %v, want error containing newer claude-code", err)
 	}
 }

@@ -218,7 +218,7 @@ func TestLookupMissingAndEmptyValue(t *testing.T) {
 
 func TestNamesUnreadableVault(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", "2")
+	vaulttest.Put(t, vault.Meta, "schema", "3")
 	if got := Names(); got != nil {
 		t.Fatalf("Names unreadable vault = %v, want nil", got)
 	}

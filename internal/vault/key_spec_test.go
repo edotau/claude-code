@@ -112,6 +112,11 @@ func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
 	ring := &specKeyring{values: make(map[string]string)}
 	useSpecKeyring(t, ring)
 
+	// Materialize the vault (and its real vault_id) before deriving the fixture key: the HKDF
+	// subkey is salted by vault_id, so deriving one against a not-yet-created vault would mismatch.
+	if err := Update(func(tx *Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(newBytes))
 	nextKey, source, err := MasterKey()
 	if err != nil {
