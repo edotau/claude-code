@@ -52,7 +52,7 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 // Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
 	if err := config.Migrate(w, dryRun); err != nil {
-		return fmt.Errorf("install: migration incomplete; the old binary stays installed: %w", err)
+		return fmt.Errorf("migration incomplete; the old binary stays installed: %w", err)
 	}
 	snapshotPreInstall(w, dryRun)
 	target, err := installBinaryAndShims(w, dryRun)
