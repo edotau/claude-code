@@ -275,35 +275,9 @@ func (r *Router) markDead(t providers.Target) {
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
-	p := t.Provider
-	if route, ok := p.Route(providers.DialectAnthropic); ok {
-		url := route + "/v1/messages"
-		if count {
-			url += "/count_tokens"
-		}
-		if in.URL.RawQuery != "" {
-			url += "?" + in.URL.RawQuery
-		}
-		out, err := withModel(body, t.Model)
-		if err != nil {
-			return false, err
-		}
-		resp, err := r.send(in, p, url, out, func(h http.Header) {
-			copyRequestHeaders(h, in.Header)
-			if p.Auth.Type == providers.AuthPassthrough {
-				h.Set("Authorization", in.Header.Get("Authorization"))
-			}
-		})
-		if err != nil {
-			return false, err
-		}
-		if moveOn, hard := r.failover(resp, t, last); moveOn {
-			return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
-		}
-		relay(w, resp)
-		return true, nil
+	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok {
+		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
-	route, _ := p.Route(providers.DialectOpenAI)
 	if count {
 		out, err := translate.CountTokens(body)
 		if err != nil {
@@ -312,6 +286,41 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 		writeJSON(w, http.StatusOK, out)
 		return true, nil
 	}
+	return r.tryOpenAI(w, in, body, t, clientModel, last)
+}
+
+func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, route string, count, last bool) (bool, error) {
+	p := t.Provider
+	url := route + "/v1/messages"
+	if count {
+		url += "/count_tokens"
+	}
+	if in.URL.RawQuery != "" {
+		url += "?" + in.URL.RawQuery
+	}
+	out, err := withModel(body, t.Model)
+	if err != nil {
+		return false, err
+	}
+	resp, err := r.send(in, p, url, out, func(h http.Header) {
+		copyRequestHeaders(h, in.Header)
+		if p.Auth.Type == providers.AuthPassthrough {
+			h.Set("Authorization", in.Header.Get("Authorization"))
+		}
+	})
+	if err != nil {
+		return false, err
+	}
+	if moveOn, hard := r.failover(resp, t, last); moveOn {
+		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
+	}
+	relay(w, resp)
+	return true, nil
+}
+
+func (r *Router) tryOpenAI(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
+	p := t.Provider
+	route, _ := p.Route(providers.DialectOpenAI)
 	out, stream, err := translate.ToChatRequest(body, t.Model)
 	if err != nil {
 		return false, err

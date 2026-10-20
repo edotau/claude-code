@@ -43,31 +43,13 @@ func gitBranchFast(cwd string) (string, bool) {
 		if fi, err := os.Stat(gitPath); err == nil {
 			gitDir := gitPath
 			if !fi.IsDir() {
-				raw, err := os.ReadFile(gitPath)
-				if err != nil {
+				var ok bool
+				gitDir, ok = gitfileTarget(gitPath)
+				if !ok {
 					return "", false
 				}
-				target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(raw)), "gitdir:"))
-				if target == "" {
-					return "", false
-				}
-				if !filepath.IsAbs(target) {
-					target = filepath.Join(dir, target)
-				}
-				gitDir = target
 			}
-			head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
-			if err != nil {
-				return "", false
-			}
-			ref := strings.TrimSpace(string(head))
-			if rest, isRef := strings.CutPrefix(ref, "ref: "); isRef {
-				if branch, isHead := strings.CutPrefix(rest, "refs/heads/"); isHead {
-					return branch, true
-				}
-				return "", false
-			}
-			return "HEAD", true
+			return gitHeadBranch(gitDir)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -75,6 +57,37 @@ func gitBranchFast(cwd string) (string, bool) {
 		}
 		dir = parent
 	}
+}
+
+func gitfileTarget(path string) (string, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(raw)), "gitdir:"))
+	if target == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	return target, true
+}
+
+func gitHeadBranch(gitDir string) (string, bool) {
+	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", false
+	}
+	ref := strings.TrimSpace(string(head))
+	if rest, isRef := strings.CutPrefix(ref, "ref: "); isRef {
+		branch, isHead := strings.CutPrefix(rest, "refs/heads/")
+		if !isHead {
+			return "", false
+		}
+		return branch, true
+	}
+	return "HEAD", true
 }
 
 // A slow git (network FS, huge index) must degrade to no velocity, not stall the bar.

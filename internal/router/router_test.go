@@ -35,7 +35,10 @@ func newUpstream(t *testing.T, handle func(w http.ResponseWriter, r *http.Reques
 	u.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := int(u.hits.Add(1))
 		var m map[string]any
-		json.NewDecoder(r.Body).Decode(&m)
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			http.Error(w, "decode upstream request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		u.last.Store(r)
 		u.body.Store(&m)
 		u.handle(w, r, n)
@@ -64,9 +67,20 @@ func setup(t *testing.T, overlay string) *httptest.Server {
 	return srv
 }
 
+func testRequest(t *testing.T, method, url string, body io.Reader) *http.Request {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
 func post(t *testing.T, url, body string, hdr map[string]string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req := testRequest(t, http.MethodPost, url, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Api-Key", secret)
 	for k, v := range hdr {
@@ -76,12 +90,33 @@ func post(t *testing.T, url, body string, hdr map[string]string) *http.Response 
 			req.Header.Set(k, v)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+func TestUpstreamRejectsMalformedJSON(t *testing.T) {
+	var handled atomic.Bool
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		handled.Store(true)
+		ok(w, r, n)
+	})
+	resp := post(t, up.URL, `{"model":`, nil)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest || handled.Load() || up.body.Load() != nil {
+		t.Fatalf("malformed JSON: status=%d handled=%v body=%v", resp.StatusCode, handled.Load(), up.body.Load())
+	}
+}
+
+func TestTestRequestHasDeadline(t *testing.T) {
+	req := testRequest(t, http.MethodGet, "http://127.0.0.1/healthz", nil)
+	deadline, ok := req.Context().Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Second {
+		t.Fatalf("request deadline = %v, present=%v", deadline, ok)
+	}
 }
 
 func anthropicProvider(url, env string, models string) string {
@@ -103,7 +138,7 @@ func TestAuthAndHostRejection(t *testing.T) {
 	if resp := post(t, url, `{"model":"m1"}`, map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + secret}); resp.StatusCode != 200 {
 		t.Fatalf("bearer secret: got %d", resp.StatusCode)
 	}
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"model":"m1"}`))
+	req := testRequest(t, http.MethodPost, url, strings.NewReader(`{"model":"m1"}`))
 	req.Host = "evil.example:80"
 	req.Header.Set("X-Api-Key", secret)
 	resp, err := http.DefaultClient.Do(req)
@@ -117,8 +152,11 @@ func TestAuthAndHostRejection(t *testing.T) {
 	if up.hits.Load() != 1 {
 		t.Fatalf("upstream hits = %d, want 1", up.hits.Load())
 	}
-	h, _ := http.Get(srv.URL + "/healthz")
-	h.Body.Close()
+	h, err := http.DefaultClient.Do(testRequest(t, http.MethodGet, srv.URL+"/healthz", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = h.Body.Close()
 	if h.StatusCode != 200 {
 		t.Fatalf("healthz: %d", h.StatusCode)
 	}
@@ -429,6 +467,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, 0) }()
 	var st State
@@ -437,7 +476,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	s, _ := ClientSecret()
-	req, _ := http.NewRequest(http.MethodPost, Base(st.Port)+"/p/up1/v1/messages", strings.NewReader(`{"model":"m","stream":true}`))
+	req := testRequest(t, http.MethodPost, Base(st.Port)+"/p/up1/v1/messages", strings.NewReader(`{"model":"m","stream":true}`))
 	req.Header.Set("x-api-key", s)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
