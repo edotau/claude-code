@@ -105,10 +105,7 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 	newBytes := bytes.Repeat([]byte{0x72}, 32)
 	newHash := sha256.Sum256(newBytes)
 	newKid := hex.EncodeToString(newHash[:])[:16]
-	ring := &specKeyring{values: map[string]string{
-		"vault-key":      base64.StdEncoding.EncodeToString(oldBytes),
-		"vault-key.next": base64.StdEncoding.EncodeToString(newBytes),
-	}}
+	ring := &specKeyring{values: make(map[string]string)}
 	useSpecKeyring(t, ring)
 
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(newBytes))
@@ -132,6 +129,19 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	var id string
+	if err := View(func(tx *Tx) error {
+		id, _ = tx.Get(Meta, "vault_id")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if id == "" {
+		t.Fatal("new vault has no vault_id")
+	}
+	acct := "vault-key/" + id
+	ring.values[acct] = base64.StdEncoding.EncodeToString(oldBytes)
+	ring.values[acct+".next"] = base64.StdEncoding.EncodeToString(newBytes)
 	t.Setenv("HARNESS_VAULT_KEY", "")
 
 	key, source, err := MasterKey()
@@ -152,8 +162,8 @@ func TestMasterKeyRotationResumeFromNext(t *testing.T) {
 	defer ring.mu.Unlock()
 	seenCurrent, seenNext := false, false
 	for _, name := range ring.lookups {
-		seenCurrent = seenCurrent || name == "vault-key"
-		seenNext = seenNext || name == "vault-key.next"
+		seenCurrent = seenCurrent || name == acct
+		seenNext = seenNext || name == acct+".next"
 	}
 	if !seenCurrent || !seenNext {
 		t.Errorf("MasterKey must try current key then next on kid mismatch; lookups=%v", ring.lookups)

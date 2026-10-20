@@ -1,13 +1,18 @@
 package vault
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -25,12 +30,46 @@ const (
 var (
 	ErrLocked   = errors.New("vault: no master key (keyring, HARNESS_VAULT_KEY or key_command)")
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
+	// errNested means a second ViewAt/Update/MasterKey call was made while this process already
+	// held one open; opening bbolt twice from one process would otherwise deadlock until its timeout.
+	errNested = errors.New("vault: nested open inside a transaction")
 )
+
+// inTx tracks, per goroutine, whether it already holds a ViewAt/Update/MasterKey open — a second
+// open from the SAME goroutine (genuine recursion) would otherwise deadlock on bbolt's own file
+// lock until its timeout; a different goroutine opening concurrently is ordinary contention and
+// must still block and succeed, so this is keyed by goroutine, not a process-wide flag.
+var inTx sync.Map // goroutine id (int64) -> struct{}
+
+// goroutineID extracts the calling goroutine's id from its own stack trace header
+// ("goroutine 123 [running]:"); used only for the nested-open guard above.
+func goroutineID() string {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	b := bytes.TrimPrefix(buf[:n], []byte("goroutine "))
+	if i := bytes.IndexByte(b, ' '); i >= 0 {
+		b = b[:i]
+	}
+	return string(b)
+}
+
+func enterTx() error {
+	if _, loaded := inTx.LoadOrStore(goroutineID(), struct{}{}); loaded {
+		return errNested
+	}
+	return nil
+}
+
+func exitTx() { inTx.Delete(goroutineID()) }
 
 func Path() string                  { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {
+	if err := enterTx(); err != nil {
+		return err
+	}
+	defer exitTx()
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
 	if errors.Is(err, os.ErrNotExist) {
 		return fn(&Tx{})
@@ -88,7 +127,11 @@ func create(path string) error {
 				return err
 			}
 		}
-		return tx.Bucket([]byte(Meta)).Put([]byte("schema"), []byte("1"))
+		mb := tx.Bucket([]byte(Meta))
+		if err := mb.Put([]byte("schema"), []byte("1")); err != nil {
+			return err
+		}
+		return mb.Put([]byte("vault_id"), []byte(newVaultID()))
 	})
 	closeErr := db.Close()
 	if err != nil {
@@ -104,6 +147,10 @@ func create(path string) error {
 }
 
 func Update(fn func(*Tx) error) error {
+	if err := enterTx(); err != nil {
+		return err
+	}
+	defer exitTx()
 	path := Path()
 	if err := create(path); err != nil {
 		return err
@@ -118,8 +165,31 @@ func Update(fn func(*Tx) error) error {
 		if err := checkSchema(t); err != nil {
 			return err
 		}
+		// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
+		if _, ok := t.Get(Meta, "vault_id"); !ok {
+			if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
+				return err
+			}
+		}
 		return fn(t)
 	})
+}
+
+// newVaultID is 16 random bytes hex-encoded, the per-vault identity under which its master key
+// is stored in the keyring (vault-key/<id>); it lets a second config root bootstrap its own key.
+func newVaultID() string {
+	id := make([]byte, 16)
+	if _, err := rand.Read(id); err != nil {
+		panic(err) // crypto/rand failing is unrecoverable
+	}
+	return hex.EncodeToString(id)
+}
+
+// vaultID reads the current tx's identity; callers only reach it after Update's backfill or
+// create()'s write, so it is never empty on a writable Tx.
+func vaultID(t *Tx) string {
+	id, _ := t.Get(Meta, "vault_id")
+	return id
 }
 
 type Tx struct{ tx *bbolt.Tx }

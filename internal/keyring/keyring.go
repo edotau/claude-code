@@ -31,6 +31,10 @@ var down atomic.Bool
 // ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrNoAnswer = errors.New("keyring: did not answer")
 
+// ErrUnavailable means no tool was on PATH, or the tool ran and failed for a reason other than
+// "not stored" (a genuine keyring failure, not a positively established absence).
+var ErrUnavailable = errors.New("keyring: unavailable")
+
 // Tool returns the plane's binary name for this OS, or "" where none is wired up.
 func Tool() string {
 	switch runtime.GOOS {
@@ -56,8 +60,11 @@ func Available() bool {
 // Lookup looks up name in the OS keyring. err is ErrNoAnswer when the tool timed out or the
 // `down` latch is already set; a plain miss, unsupported OS, or no tool all read as ("", false, nil).
 func Lookup(name string) (value string, found bool, err error) {
-	if name == "" || !Available() {
+	if name == "" {
 		return "", false, nil
+	}
+	if !Available() {
+		return "", false, ErrUnavailable
 	}
 	if down.Load() {
 		return "", false, ErrNoAnswer
@@ -78,7 +85,25 @@ func Lookup(name string) (value string, found bool, err error) {
 		return "", false, ErrNoAnswer
 	}
 	if err2 != nil {
-		return "", false, nil // plain miss (account not stored)
+		var exit *exec.ExitError
+		stderr := ""
+		if errors.As(err2, &exit) {
+			stderr = strings.TrimSpace(string(exit.Stderr))
+		}
+		switch runtime.GOOS {
+		case "linux":
+			if errors.As(err2, &exit) && exit.ExitCode() == 1 && stderr == "" {
+				return "", false, nil // only a positively established absence
+			}
+		case "darwin":
+			if errors.As(err2, &exit) && exit.ExitCode() == 44 {
+				return "", false, nil // only a positively established absence
+			}
+		}
+		if stderr != "" {
+			return "", false, fmt.Errorf("%w: %s", ErrUnavailable, stderr)
+		}
+		return "", false, ErrUnavailable
 	}
 	v := strings.TrimSpace(string(out))
 	return v, v != "", nil

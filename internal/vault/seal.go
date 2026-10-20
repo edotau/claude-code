@@ -13,10 +13,12 @@ import (
 type Key struct {
 	Kid  string
 	aead cipher.AEAD
+	raw  string // the base64 value this key was parsed from; rotation retains it as-is (R4)
 }
 
 func parseKey(value string) (*Key, error) {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	trimmed := strings.TrimSpace(value)
+	raw, err := base64.StdEncoding.DecodeString(trimmed)
 	if err != nil || len(raw) != 32 {
 		return nil, fmt.Errorf("vault: master key must be base64-encoded 32 bytes")
 	}
@@ -29,7 +31,7 @@ func parseKey(value string) (*Key, error) {
 		return nil, err
 	}
 	sum := sha256.Sum256(raw)
-	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead}, nil
+	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, raw: trimmed}, nil
 }
 
 func (k *Key) Seal(name, value string) []byte {
