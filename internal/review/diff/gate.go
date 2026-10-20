@@ -24,7 +24,7 @@ func gateStagedFiles(repo string) []string {
 		return nil
 	}
 	var files []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.TrimSpace(line) != "" {
 			files = append(files, line)
 		}
@@ -40,7 +40,7 @@ func gateComplexityFiles(repo string) []string {
 		return nil
 	}
 	var files []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && gateFileRe.MatchString(line) {
 			files = append(files, line)
@@ -51,7 +51,7 @@ func gateComplexityFiles(repo string) []string {
 
 func filterLines(text string, re *regexp.Regexp) (string, bool) {
 	var matched []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if re.MatchString(line) {
 			matched = append(matched, line)
 		}
@@ -110,7 +110,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 }
 
 func indentLines(w io.Writer, text string) {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		fmt.Fprintf(w, "    %s\n", line)
 	}
 }

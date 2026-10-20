@@ -125,7 +125,7 @@ func TestAgentInflightBlocksPastCapAndRetires(t *testing.T) {
 	if AgentMaxInflight != 8 {
 		t.Fatalf("AgentMaxInflight = %d, want the ≤8 first-party tier", AgentMaxInflight)
 	}
-	for i := 0; i < AgentMaxInflight; i++ {
+	for i := range AgentMaxInflight {
 		id := strconv.Itoa(i)
 		if code := AgentInflight("pre", strings.NewReader(agentPayload(id)), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("dispatch %d under cap must proceed", i)
@@ -340,7 +340,7 @@ func TestMarkerNameSanitizesPathEscape(t *testing.T) {
 func TestAgentInflightCountsTaskSpawns(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	payload := `{"tool_name":"Task","tool_input":{"prompt":"x"}}`
-	for i := 0; i < AgentMaxInflight; i++ {
+	for i := range AgentMaxInflight {
 		if code := AgentInflight("pre", strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("Task spawn %d under cap must proceed", i)
 		}
@@ -353,7 +353,7 @@ func TestAgentInflightCountsTaskSpawns(t *testing.T) {
 func TestAgentInflightIgnoresOtherTools(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	payload := `{"tool_name":"Bash","tool_input":{"command":"ls"}}`
-	for i := 0; i < AgentMaxInflight+1; i++ {
+	for range AgentMaxInflight + 1 {
 		if code := AgentInflight("pre", strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatal("non-Agent tools must pass through")
 		}
@@ -366,7 +366,7 @@ func TestAgentInflightIgnoresOtherTools(t *testing.T) {
 // A blocked dispatch writes no marker, so retiring its tool_use_id is a no-op: nobody else's marker moves.
 func TestAgentInflightPostOnBlockedIDIsNoop(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for i := 0; i < AgentMaxInflight; i++ {
+	for i := range AgentMaxInflight {
 		id := fmt.Sprintf("under-%d", i)
 		if code := AgentInflight("pre", strings.NewReader(agentPayload(id)), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("dispatch %s under cap must proceed", id)
@@ -432,7 +432,7 @@ func TestAgentInflightPrunesDeadOwnerIgnoresStray(t *testing.T) {
 	} else {
 		f.Close()
 	}
-	for i := 0; i < AgentMaxInflight; i++ {
+	for i := range AgentMaxInflight {
 		if code := AgentInflight("pre", strings.NewReader(inflightPayload), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("dispatch %d must proceed: the dead marker must not count against the cap", i)
 		}
@@ -573,7 +573,7 @@ func TestAgentInflightEnforcesCapUnderLockContention(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < AgentMaxInflight; i++ {
+	for i := range AgentMaxInflight {
 		if code := AgentInflight("pre", strings.NewReader(agentPayload(strconv.Itoa(i))), &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("dispatch %d under cap must proceed", i)
 		}

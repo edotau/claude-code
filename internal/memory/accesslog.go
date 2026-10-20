@@ -113,7 +113,7 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 	stats := map[string]AccessStat{}
 	days := map[string]map[string]bool{} // entry → set of in-window UTC days
 	oldest := time.Time{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		parts := strings.SplitN(line, " -- ", 3)
 		if len(parts) < 2 {
 			continue

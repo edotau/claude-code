@@ -480,7 +480,7 @@ func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 
 // findLineContaining returns the first line of s containing substr, or "".
 func findLineContaining(s, substr string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.Contains(line, substr) {
 			return line
 		}

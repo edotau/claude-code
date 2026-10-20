@@ -87,7 +87,7 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 	if strings.Contains(s, "- repo-199") {
 		t.Error("catalog truncation did not actually cut the tail")
 	}
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if strings.HasPrefix(l, "- repo-") && !strings.Contains(l, "/MEMORY.md") {
 			t.Errorf("a catalog row was cut mid-line: %q", l)
 		}

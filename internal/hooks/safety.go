@@ -195,8 +195,8 @@ func gitInvocation(toks []string, cwd string) (target, verb string, args []strin
 				val = toks[i]
 				i++
 			}
-		} else if strings.HasPrefix(t, "-C") {
-			name, val = "-C", strings.TrimPrefix(t, "-C")
+		} else if after, ok0 := strings.CutPrefix(t, "-C"); ok0 {
+			name, val = "-C", after
 		} else {
 			continue // valueless global option: --no-pager, --bare…
 		}

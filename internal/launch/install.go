@@ -536,19 +536,20 @@ func toolDoctorDetail(s tools.Status) string {
 		}
 		return "not found (claude-code install --tools=" + s.Name + ")"
 	}
-	detail := s.Path
+	var detail strings.Builder
+	detail.WriteString(s.Path)
 	if s.Version != "" {
-		detail += " " + s.Version
+		detail.WriteString(" " + s.Version)
 	}
 	switch {
 	case s.NPMGlobal:
-		detail += " (npm-global; claude-code install --tools retires this)"
+		detail.WriteString(" (npm-global; claude-code install --tools retires this)")
 	case s.LocalBin:
-		detail += " (~/.local/bin)"
+		detail.WriteString(" (~/.local/bin)")
 	}
 	copies, shadows := toolPATHCopies(s.Name)
 	if shadows {
-		detail += " · shadows the shim " + paths.BinDir() + " (launch env bypassed)"
+		detail.WriteString(" · shadows the shim " + paths.BinDir() + " (launch env bypassed)")
 	}
 	first, _ := filepath.EvalSymlinks(s.Path)
 	first, _ = filepath.Abs(first)
@@ -562,9 +563,9 @@ func toolDoctorDetail(s tools.Status) string {
 		if version := toolPATHVersion(path); version != "" {
 			extra += " " + version
 		}
-		detail += " · also on PATH: " + extra
+		detail.WriteString(" · also on PATH: " + extra)
 	}
-	return detail
+	return detail.String()
 }
 
 func toolPATHCopies(name string) ([]string, bool) {

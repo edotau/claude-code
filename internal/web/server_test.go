@@ -460,7 +460,7 @@ func TestHandleDispatchesServesWithinTTLFromCacheWithoutResampling(t *testing.T)
 	fakeNow := time.Now()
 	s := newStatusTestServer(t, Options{}, run, func() time.Time { return fakeNow })
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
 		if w.Code != http.StatusOK {
 			t.Fatalf("request %d: status = %d, want 200", i, w.Code)

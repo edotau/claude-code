@@ -230,7 +230,7 @@ func (r Repo) stageable(rels []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, tracked := range strings.Split(out, "\x00") {
+	for tracked := range strings.SplitSeq(out, "\x00") {
 		if tracked != "" {
 			present = append(present, tracked)
 		}
@@ -248,7 +248,7 @@ func (r Repo) checkStaged(rels []string) error {
 	for _, rel := range rels {
 		want[filepath.ToSlash(rel)] = true
 	}
-	for _, p := range strings.Split(out, "\x00") {
+	for p := range strings.SplitSeq(out, "\x00") {
 		if p != "" && !want[p] {
 			return fmt.Errorf("memory repo: unexpected staged change: %s", p)
 		}
@@ -331,8 +331,7 @@ func gitEnv() []string {
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.
 func exitCode(err error) int {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		return ee.ExitCode()
 	}
 	return -1
@@ -341,7 +340,7 @@ func exitCode(err error) int {
 // splitLines splits trimmed output into non-empty lines.
 func splitLines(out string) []string {
 	var lines []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			lines = append(lines, l)
 		}

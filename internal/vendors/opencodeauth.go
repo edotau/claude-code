@@ -202,8 +202,7 @@ func opencodeAuthV2() ([]OpencodeIntegration, error) {
 
 // execErrDetail is err plus the first stderr line, when the command reported one.
 func execErrDetail(err error) string {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		if line, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n"); line != "" {
 			if len(line) > 200 {
 				line = line[:200]

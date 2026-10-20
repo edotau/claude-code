@@ -218,7 +218,7 @@ func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, 
 		return nil, false, ctx.Err()
 	}
 	tracked = map[string]bool{}
-	for _, p := range strings.Split(strings.Trim(string(out), "\x00"), "\x00") {
+	for p := range strings.SplitSeq(strings.Trim(string(out), "\x00"), "\x00") {
 		if p != "" {
 			tracked[filepath.ToSlash(p)] = true
 		}
@@ -270,7 +270,7 @@ func relSlash(cwd, target string) string {
 
 // isIgnored reports whether any path segment is in ignoredSegments.
 func isIgnored(rel string) bool {
-	for _, seg := range strings.Split(rel, "/") {
+	for seg := range strings.SplitSeq(rel, "/") {
 		if ignoredSegments[seg] {
 			return true
 		}

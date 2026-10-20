@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -139,9 +140,7 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 // deepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.
 func deepMerge(base, overlay map[string]any) map[string]any {
 	out := make(map[string]any, len(base)+len(overlay))
-	for k, v := range base {
-		out[k] = v
-	}
+	maps.Copy(out, base)
 	for k, v := range overlay {
 		if ov, ok := v.(map[string]any); ok {
 			if bv, ok := out[k].(map[string]any); ok {

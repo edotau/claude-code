@@ -20,7 +20,7 @@ var scienceTOML []byte
 
 // scienceConfigPort reads the top-level `port = N` (a `port` inside a [table] is not the app port); 3000 if unset.
 func scienceConfigPort(raw []byte) int {
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
 			break

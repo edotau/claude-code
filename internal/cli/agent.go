@@ -246,7 +246,7 @@ func printDispatchLog(format string) int {
 	}
 	for _, r := range recs {
 		preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
-		for _, w := range strings.Fields(preview) {
+		for w := range strings.FieldsSeq(preview) {
 			if shapes.Looks(w) {
 				preview = strings.ReplaceAll(preview, w, "REDACTED")
 			}

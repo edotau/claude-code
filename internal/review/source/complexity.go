@@ -105,7 +105,7 @@ func analyzeTypescript(text string, lineCount int, th ComplexityThresholds) []Fi
 // deepestIndentUnits ports `(len(m)-len(m.lstrip()))//2` over non-blank lines (2-space indent unit, TS norm).
 func deepestIndentUnits(text string) int {
 	deepest := 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -310,7 +310,7 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	}
 	th := complexityThresholds[parsed.threshold]
 	var extensions []string
-	for _, e := range strings.Split(parsed.ext, ",") {
+	for e := range strings.SplitSeq(parsed.ext, ",") {
 		e = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e), "."))
 		if e != "" {
 			extensions = append(extensions, e)

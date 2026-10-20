@@ -103,7 +103,7 @@ func TestGradAtSpanMatchesTheLegacyScan(t *testing.T) {
 			check(f)
 		}
 		const steps = 20001
-		for i := 0; i < steps; i++ {
+		for i := range steps {
 			check(float64(i) / float64(steps-1))
 		}
 	}

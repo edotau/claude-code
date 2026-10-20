@@ -172,11 +172,11 @@ func agentIDFromResponse(in *Input) string {
 // trailing quote, comma or newline never rides along.
 func scanAgentID(text string) string {
 	for _, m := range agentIDMarkers {
-		i := strings.Index(text, m)
-		if i < 0 {
+		_, after, ok := strings.Cut(text, m)
+		if !ok {
 			continue
 		}
-		rest := strings.TrimLeft(text[i+len(m):], " \t\"'")
+		rest := strings.TrimLeft(after, " \t\"'")
 		if end := strings.IndexFunc(rest, func(r rune) bool { return !idRune(r) }); end >= 0 {
 			rest = rest[:end]
 		}

@@ -221,11 +221,11 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 		src = src[:s] + src[e:]
 	}
 	seen := map[string]bool{}
-	for _, l := range strings.Split(tgt, "\n") {
+	for l := range strings.SplitSeq(tgt, "\n") {
 		seen[strings.TrimSpace(l)] = true
 	}
 	var add []string
-	for _, l := range strings.Split(src, "\n") {
+	for l := range strings.SplitSeq(src, "\n") {
 		if t := strings.TrimSpace(l); t != "" && !seen[t] {
 			seen[t] = true
 			add = append(add, l)
@@ -354,8 +354,8 @@ func removeEmptyTree(dir string) error {
 	if err != nil {
 		return err
 	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		if err := os.Remove(dirs[i]); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	for _, dir := range slices.Backward(dirs) {
+		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}

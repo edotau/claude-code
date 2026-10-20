@@ -271,7 +271,7 @@ func (h *headBuffer) String() string { return string(h.buf) }
 
 // sessionFromBanner reads codex exec's `session id: <id>` line, so a new run's envelope can be resumed.
 func sessionFromBanner(banner string) string {
-	for _, line := range strings.Split(banner, "\n") {
+	for line := range strings.SplitSeq(banner, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "session id:"); ok {
 			return strings.TrimSpace(v)
 		}

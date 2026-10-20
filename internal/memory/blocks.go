@@ -42,7 +42,7 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 			cur = nil
 		}
 	}
-	for _, ln := range strings.Split(body, "\n") {
+	for ln := range strings.SplitSeq(body, "\n") {
 		if !inFence && isMarker(ln) {
 			flush()
 			inBlock = true
@@ -99,7 +99,7 @@ func entriesWithPrefix(path, prefix string) []string {
 		return nil
 	}
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
 			e := truncateLine(stripID(rest))
 			if id := BlockID(rest); id != "" {

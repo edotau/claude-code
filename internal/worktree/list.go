@@ -86,7 +86,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 // an empty field (two consecutive NULs) marks the end of one record.
 func splitRecords(out string) []string {
 	var recs []string
-	for _, rec := range strings.Split(out, "\x00\x00") {
+	for rec := range strings.SplitSeq(out, "\x00\x00") {
 		if rec = strings.Trim(rec, "\x00"); rec != "" {
 			recs = append(recs, rec)
 		}
@@ -97,7 +97,7 @@ func splitRecords(out string) []string {
 // parseRecord reads one porcelain record's NUL-separated "key value" lines.
 func parseRecord(rec string) Entry {
 	var e Entry
-	for _, line := range strings.Split(rec, "\x00") {
+	for line := range strings.SplitSeq(rec, "\x00") {
 		key, val, _ := strings.Cut(line, " ")
 		switch key {
 		case "worktree":

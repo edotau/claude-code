@@ -152,7 +152,7 @@ func startCDPAction(env Env, b Browser) Action {
 		a.Error = strings.TrimSpace(out + " " + err.Error())
 		return a
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if strings.Contains(env.cdpOwner(), cdpBrowserTag[b.Name]) {
 			a.Executed = true
 			return a

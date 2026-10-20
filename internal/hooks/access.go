@@ -6,6 +6,7 @@ package hooks
 import (
 	"io"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -46,10 +47,5 @@ func isBankFile(base string) bool {
 	if base == memory.BankIndexFile {
 		return true
 	}
-	for _, n := range memory.BankFiles() {
-		if base == n {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(memory.BankFiles(), base)
 }

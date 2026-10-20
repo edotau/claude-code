@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -119,12 +120,7 @@ func checkHost(supportDir string) bool {
 		return false
 	}
 	want := "chrome-extension://" + extensionID + "/"
-	for _, origin := range m.AllowedOrigins {
-		if origin == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(m.AllowedOrigins, want)
 }
 
 // detectProfiles lists supportDir/Default and supportDir/Profile * and the extension state in each.

@@ -18,7 +18,7 @@ func manifestPathFromDryRun(t *testing.T) string {
 	if code != 0 {
 		t.Fatalf("dry run exit = %d, out=%q", code, out)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if p, ok := strings.CutPrefix(line, "manifest: "); ok {
 			return p
 		}

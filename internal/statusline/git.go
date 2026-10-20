@@ -111,7 +111,7 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	if err != nil {
 		return 0, 0, false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.SplitN(line, "\t", 3)
 		if len(f) < 3 {
 			continue
@@ -133,7 +133,7 @@ func untrackedLines(ctx context.Context, cwd string) int {
 		return 0
 	}
 	total, seen := 0, 0
-	for _, rel := range strings.Split(string(out), "\x00") {
+	for rel := range strings.SplitSeq(string(out), "\x00") {
 		if rel == "" {
 			continue
 		}

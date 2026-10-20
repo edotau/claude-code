@@ -39,10 +39,7 @@ func GradAt(stops []RGB, frac float64) RGB {
 	// Uniform stop grid: arithmetic span index, no per-rune allocation.
 	t := math.Max(0, math.Min(100, frac*100))
 	step := 100 / float64(n-1)
-	k := int(t / step)
-	if k > n-2 {
-		k = n - 2
-	}
+	k := min(int(t/step), n-2)
 	lt := smooth((t - float64(k)*step) / step)
 	return Mix(stops[k], stops[k+1], lt)
 }

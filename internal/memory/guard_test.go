@@ -40,7 +40,7 @@ func TestGuardJournalCacheInvalidation(t *testing.T) {
 				}
 			}
 			writeJournal(path, complete, stamp)
-			for i := 0; i < 2; i++ {
+			for i := range 2 {
 				if !CutOver() {
 					t.Fatalf("CutOver() on complete journal, read %d = false, want true", i+1)
 				}
