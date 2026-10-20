@@ -127,8 +127,9 @@ func Status(ctx context.Context) (Local, error) {
 }
 
 // Connect brings this box onto the tailnet: a no-op when already Running and, if exitNode is
-// requested, its routes are already approved; otherwise `tailscale up --auth-key=… [--advertise-exit-node]`
-// with the key passed as an argv element, never through a shell.
+// requested, its routes are already approved; otherwise `tailscale up --auth-key=file:<path>
+// [--advertise-exit-node]`, the key written to a 0600 temp file (never an argv element, which
+// `ps` would expose) and removed once the command exits.
 func Connect(ctx context.Context, authKey string, exitNode bool) error {
 	bin, err := tailscaleBin()
 	if err != nil {
@@ -137,7 +138,12 @@ func Connect(ctx context.Context, authKey string, exitNode bool) error {
 	if st, err := Status(ctx); err == nil && st.BackendState == "Running" && (!exitNode || st.ExitNodeApproved) {
 		return nil
 	}
-	args := []string{"up", "--auth-key=" + authKey}
+	keyFile, err := writeAuthKeyFile(authKey)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(keyFile)
+	args := []string{"up", "--auth-key=file:" + keyFile}
 	if exitNode {
 		args = append(args, "--advertise-exit-node")
 	}
@@ -146,6 +152,28 @@ func Connect(ctx context.Context, authKey string, exitNode bool) error {
 	cmd := execCommandContext(ctx, bin, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+// writeAuthKeyFile seals authKey into a 0600 temp file under the harness state dir for `--auth-key=file:`.
+func writeAuthKeyFile(authKey string) (string, error) {
+	dir := paths.StateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, "tailscale-authkey-*")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	if _, err := f.WriteString(authKey); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // AdvertiseExitNode toggles exit-node advertisement via `tailscale set --advertise-exit-node[=false]`.

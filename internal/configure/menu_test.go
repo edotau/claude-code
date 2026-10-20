@@ -3,10 +3,15 @@ package configure
 import (
 	"bytes"
 	"github.com/edotau/claude-code/internal/tui"
+	"maps"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -139,5 +144,119 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 	}
 	if got := providers.Pin(providers.PinProvider); got != "anthropic" {
 		t.Errorf("pin(%s) = %q, want %q after an explicit different pick", providers.PinProvider, got, "anthropic")
+	}
+}
+
+// TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded: a Store failure (here, a multi-line
+// value secrets.Store genuinely refuses — no mock) must leave only the failed name staged, with its
+// shadowing env still set, while every name that did save is dropped from pending and its env restored.
+// Teeth: fixing the bad value and rerunning saveKeys flips it to true with pending left empty.
+func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
+	vaulttest.Use(t)
+	const bad, good = "CONFIGURE_SAVEKEYS_BAD", "CONFIGURE_SAVEKEYS_GOOD"
+	badVal := "line one\nline two" // secrets.Store rejects a multi-line value: a real failure, not a mock
+	t.Setenv(bad, "prior-bad")
+	t.Setenv(good, "prior-good")
+	d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{
+		bad:  {val: badVal, prev: "prior-bad", had: true},
+		good: {val: "good-value", prev: "prior-good", had: true},
+	}}
+	_ = os.Setenv(bad, badVal)
+	_ = os.Setenv(good, "good-value")
+
+	if ok := saveKeys(d); ok {
+		t.Fatal("saveKeys = true, want false on a genuine Store failure")
+	}
+	if _, staged := d.pending[bad]; !staged {
+		t.Error("the failed key must remain staged")
+	}
+	if _, staged := d.pending[good]; staged {
+		t.Error("the succeeded key must be dropped from pending")
+	}
+	if v, _, ok := secrets.Get(good); !ok || v != "good-value" {
+		t.Errorf("good key not stored: %q, ok=%v", v, ok)
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		if _, found := tx.Get(vault.Secrets, bad); found {
+			t.Error("the failed key must not end up in the vault")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(good); got != "prior-good" {
+		t.Errorf("succeeded key env restored = %q, want prior-good", got)
+	}
+	if got := os.Getenv(bad); got != badVal {
+		t.Errorf("failed key env should still be shadowed by the staged value, got %q", got)
+	}
+
+	// Teeth: fix the bad value and rerun — now both succeed and pending empties out.
+	d.pending[bad] = stagedKey{val: "fixed-value", prev: "prior-bad", had: true}
+	if ok := saveKeys(d); !ok {
+		t.Fatal("saveKeys = false after fixing the bad value, want true")
+	}
+	if len(d.pending) != 0 {
+		t.Errorf("pending = %v, want empty after an all-success save", d.pending)
+	}
+}
+
+// preFixSaveKeys replicates saveKeys as it stood before this change (unconditional discardKeys, no
+// return value) — a direct edit of menu.go to prove teeth was blocked by the sandbox's destructive-edit
+// guard on this shared live tree, so the pre-fix logic is reproduced here instead.
+func preFixSaveKeys(d *dialog) {
+	if len(d.pending) == 0 {
+		return
+	}
+	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
+		k := d.pending[name]
+		_ = secrets.Store(name, k.val) // error ignored, exactly like the pre-fix body
+	}
+	discardKeys(d) // unconditional: wipes a failed key's staging too
+}
+
+// TestSaveKeysPreFixLogicDroppedTheFailedKey is the teeth proof for the test above: run the exact
+// pre-fix body against the same bad/good setup and show it violates "the failed key must remain
+// staged" — i.e. TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded would have failed on it.
+func TestSaveKeysPreFixLogicDroppedTheFailedKey(t *testing.T) {
+	vaulttest.Use(t)
+	const bad = "CONFIGURE_SAVEKEYS_TEETH_BAD"
+	badVal := "line one\nline two"
+	t.Setenv(bad, "prior-bad")
+	_ = os.Setenv(bad, badVal)
+	d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{
+		bad: {val: badVal, prev: "prior-bad", had: true},
+	}}
+	preFixSaveKeys(d)
+	if _, staged := d.pending[bad]; staged {
+		t.Fatal("pre-fix saveKeys kept the failed key staged — the replica no longer reproduces the bug")
+	}
+	if got := os.Getenv(bad); got != "prior-bad" {
+		t.Fatalf("pre-fix saveKeys env = %q, want it wiped back to prior-bad (losing the unsaved value)", got)
+	}
+}
+
+// TestRunMenuExitCodeReflectsSaveKeysFailure: runMenu's exit code must surface a Submit-time Store
+// failure (1), not silently report success (0), so a scripted `configure` invocation can detect it.
+func TestRunMenuExitCodeReflectsSaveKeysFailure(t *testing.T) {
+	reg := menuTestEnv(t)
+	origMenu := pickMenu
+	t.Cleanup(func() { pickMenu = origMenu })
+	var d *dialog
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
+		d.stage("CONFIGURE_RUNMENU_BAD", "two\nlines") // a real Store failure, staged via the real seam
+		return -1, nil                                 // Esc: leave through Submit's confirm
+	})
+	d = &dialog{reg: reg, out: discardWriter{}}
+	if rc := runMenu(d); rc != 1 {
+		t.Fatalf("runMenu rc = %d, want 1 when a staged key fails to save", rc)
+	}
+
+	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
+		return -1, nil // nothing staged this time
+	})
+	d2 := &dialog{reg: reg, out: discardWriter{}}
+	if rc := runMenu(d2); rc != 0 {
+		t.Fatalf("runMenu rc = %d, want 0 with nothing staged", rc)
 	}
 }

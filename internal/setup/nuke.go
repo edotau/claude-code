@@ -26,6 +26,11 @@ var ErrConfirmMismatch = errors.New("confirmation did not match the target direc
 // ErrNotConfigDir refuses a nuke of the filesystem root or the home directory: only a config dir goes.
 var ErrNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root or home)")
 
+// ErrEnvDSecrets refuses Apply while env.d/secrets.env* still holds plaintext secrets: run
+// `claude-code vault migrate` then `vault finalize` first so they move into the sealed vault.
+var ErrEnvDSecrets = errors.New("refusing: env.d/secrets.env* holds plaintext secrets; " +
+	"run `claude-code vault migrate` and `vault finalize` first")
+
 // nukeFloor rejects dir when it is "/" or the user's home, whatever the caller typed.
 func nukeFloor(dir string) error {
 	abs, err := filepath.Abs(dir)
@@ -48,13 +53,15 @@ type Entry struct {
 
 // Plan is what Nuke would do to dir, without doing it.
 type NukePlan struct {
-	Dir         string
-	Entries     []Entry
-	HasSecrets  bool
-	SecretNames []string
-	VaultID     string
-	Kid         string
-	UserContent []string // untracked-user-content paths Nuke archives before removing dir (+ the keep-memory set when kept)
+	Dir            string
+	Entries        []Entry
+	HasSecrets     bool
+	SecretNames    []string
+	VaultID        string
+	Kid            string
+	VaultWarning   string   // set when the vault couldn't be read; it is still archived opaquely, never named
+	EnvDHasSecrets bool     // env.d/secrets.env* present: Nuke's Apply refuses until vault migrate/finalize runs
+	UserContent    []string // untracked-user-content paths Nuke archives before removing dir (+ the keep-memory set when kept)
 }
 
 // Plan inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
@@ -75,6 +82,8 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		}
 		plan.Entries = append(plan.Entries, Entry{Name: e.Name(), Size: dirSize(filepath.Join(dir, e.Name())), Class: class})
 	}
+	// An unreadable/corrupt vault must not block the nuke: it is still archived whole, as an opaque
+	// file, by userContentPaths below — just without naming the secrets it may hold.
 	if err := vault.ViewAt(filepath.Join(dir, "state", "vault.db"), func(tx *vault.Tx) error {
 		plan.SecretNames = tx.Names(vault.Secrets)
 		plan.HasSecrets = len(plan.SecretNames) > 0
@@ -82,13 +91,16 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		plan.Kid, _ = tx.Get(vault.Meta, "kid")
 		return nil
 	}); err != nil {
-		return plan, err
+		plan.VaultWarning = err.Error()
 	}
 	userContent, err := userContentPaths(dir, hasGit)
 	if err != nil {
 		return plan, fmt.Errorf("scan user content: %w", err)
 	}
 	plan.UserContent = userContent
+	if plan.EnvDHasSecrets, err = envDSecretsPresent(dir); err != nil {
+		return plan, fmt.Errorf("scan env.d: %w", err)
+	}
 	if keepMemory {
 		kept, err := keepMemoryPaths(dir)
 		if err != nil {
@@ -127,6 +139,9 @@ func Nuke(opts NukeOpts) error {
 	if opts.Confirm != opts.Dir {
 		return ErrConfirmMismatch
 	}
+	if plan.EnvDHasSecrets {
+		return ErrEnvDSecrets
+	}
 	tarPath, err := archiveUserContent(plan, opts.KeepMemory)
 	if err != nil {
 		return err
@@ -146,7 +161,7 @@ func createBackupFile(home string) (string, *os.File, error) {
 		if i > 0 {
 			dest = fmt.Sprintf("%s-%d.tgz", base, i)
 		}
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
 			return dest, f, nil
 		}
@@ -160,6 +175,13 @@ func printPlan(w io.Writer, plan NukePlan) {
 	fmt.Fprintf(w, "nuke plan for %s\n", plan.Dir)
 	for _, e := range plan.Entries {
 		fmt.Fprintf(w, "  %-30s %12d bytes  %s\n", e.Name, e.Size, e.Class)
+	}
+	if plan.VaultWarning != "" {
+		fmt.Fprintf(w, "vault.db unreadable (%s); archiving it opaquely, secret names unknown\n", plan.VaultWarning)
+	}
+	if plan.EnvDHasSecrets {
+		fmt.Fprintf(w, "env.d/secrets.env* holds plaintext secrets: apply will refuse "+
+			"until `vault migrate`/`vault finalize` runs\n")
 	}
 	if plan.HasSecrets {
 		fmt.Fprintf(w, "secrets present (names only, never values): %s\n", strings.Join(plan.SecretNames, ", "))
@@ -203,13 +225,40 @@ func dirSize(path string) int64 {
 	return total
 }
 
-// userContentPaths lists the vault, local settings, and untracked files under selected authored-content trees.
+// envDSecretGlob matches the pre-vault plaintext secrets files (and their migration backups) that
+// userContentPaths refuses to archive — they hold secret values directly, unlike the rest of env.d.
+const envDSecretGlob = "secrets.env*"
+
+// envDSecretsPresent reports whether dir/env.d still holds a plaintext secrets file.
+func envDSecretsPresent(dir string) (bool, error) {
+	matches, err := filepath.Glob(filepath.Join(dir, "env.d", envDSecretGlob))
+	if err != nil {
+		return false, err
+	}
+	return len(matches) > 0, nil
+}
+
+// userContentPaths lists the vault, local settings, untracked repo files, and env.d's non-secret
+// files (providers.json, provider.env, custom.env, vendors.json, *.bak) that Nuke archives.
 func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
 	for _, rel := range []string{"state/vault.db", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
 		}
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "env.d"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if ok, _ := filepath.Match(envDSecretGlob, e.Name()); ok {
+			continue // never archived: refused separately by envDSecretsPresent
+		}
+		out = append(out, filepath.Join("env.d", e.Name()))
 	}
 	if !hasGit {
 		return out, nil
@@ -310,8 +359,13 @@ func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 		for _, rel := range plan.UserContent {
 			if rel == "state/vault.db" {
 				var buf bytes.Buffer
+				// A corrupt vault.db fails the consistent bbolt snapshot: archive it as a raw byte
+				// copy instead (not point-in-time-safe, but still backed up rather than lost).
 				if err := vault.SnapshotTo(filepath.Join(plan.Dir, rel), &buf); err != nil {
-					return err
+					if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
+						return err
+					}
+					continue
 				}
 				if err := tarWriteBytes(tw, rel, buf.Bytes()); err != nil {
 					return err

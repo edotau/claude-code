@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
@@ -165,10 +166,22 @@ func editSecret(d *dialog, s trackedSecret) {
 			if !confirm(d, "Delete "+s.name+"?") {
 				return false
 			}
+			if d.pending != nil {
+				if _, staged := d.pending[s.name]; staged {
+					restoreStaged(d, s.name, map[string]stagedKey{}) // drop any staged Store of the same name
+				}
+				if d.pendingDeletes == nil {
+					d.pendingDeletes = map[string]bool{}
+				}
+				d.pendingDeletes[s.name] = true
+				d.printf("staged delete of %s · Submit removes it from the vault\n", s.name)
+				return true
+			}
 			if err := secrets.Delete(s.name); err != nil {
 				d.printf("%s: %v\n", s.name, err)
 				return false
 			}
+			audit.Log(audit.SecretDelete, s.name, "")
 			d.printf("deleted %s\n", s.name)
 			return true
 		}})
@@ -257,7 +270,8 @@ func textLine(d *dialog, prompt string) string {
 }
 
 // confirmPageKeys asks, on leaving the secrets page inside configure, whether to save what the page staged
-// now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit.
+// now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit. Staged
+// deletes (editSecret's Delete, in staged mode) are decided in the same prompt.
 func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	var page []string
 	for name, k := range d.pending {
@@ -269,15 +283,17 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		}
 		page = append(page, name)
 	}
-	if len(page) == 0 {
+	slices.Sort(page)
+	deletes := slices.Sorted(maps.Keys(d.pendingDeletes))
+	if len(page) == 0 && len(deletes) == 0 {
 		return
 	}
-	slices.Sort(page)
-	if !confirmLeave(len(page), "key(s) to the secrets manager") {
+	if !confirmLeave(len(page)+len(deletes), "change(s) to the secrets manager") {
 		for _, name := range page {
 			restoreStaged(d, name, before)
 		}
-		d.printf("secrets: %d change(s) discarded\n", len(page))
+		d.pendingDeletes = nil
+		d.printf("secrets: %d change(s) discarded\n", len(page)+len(deletes))
 		return
 	}
 	for _, name := range page {
@@ -289,6 +305,15 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
+	for _, name := range deletes {
+		if err := secrets.Delete(name); err != nil {
+			d.printf("%s: not deleted: %v\n", name, err)
+			continue
+		}
+		audit.Log(audit.SecretDelete, name, "")
+		d.printf("deleted %s\n", name)
+	}
+	d.pendingDeletes = nil
 	d.changed = true
 }
 

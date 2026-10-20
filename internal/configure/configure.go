@@ -72,6 +72,9 @@ type dialog struct {
 	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
 	// pending holds keys entered in the menu until Submit; nil outside the menu (writes go straight through).
 	pending map[string]stagedKey
+	// pendingDeletes holds secret names staged for vault deletion; executed alongside pending on leaving
+	// the secrets page (nil outside a staged session, same lifecycle as pending).
+	pendingDeletes map[string]bool
 	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
 	changed bool
 }
@@ -507,9 +510,10 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	if cached, cachedAge, ok := secrets.CachedProbe(meta[env], probeTTL, time.Now()); ok {
 		return cached, "", cachedAge
 	}
+	setAt := meta[env].SetAt
 	status, detail = probe(kt)
 	if status == "verified" || status == "rejected" || status == "unreachable" {
-		_ = secrets.RecordProbe(env, status, time.Now()) // a failed cache write leaves the live result intact
+		_ = secrets.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
