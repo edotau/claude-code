@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,13 +31,22 @@ func Rollback(w io.Writer) error {
 	var problems []error
 	for _, item := range m.Items {
 		if item.Done {
-			if _, err := os.Lstat(item.Backup); err != nil {
-				problems = append(problems, err)
+			_, backupErr := os.Lstat(item.Backup)
+			_, sourceErr := os.Lstat(item.Source)
+			// A crash between the restore rename and saving Done=false leaves exactly this state.
+			if errors.Is(backupErr, fs.ErrNotExist) && sourceErr == nil {
+				if err := verifyResumedRestore(item); err != nil {
+					problems = append(problems, err)
+				}
+				continue
 			}
-			if _, err := os.Lstat(item.Source); err == nil {
+			if backupErr != nil {
+				problems = append(problems, backupErr)
+			}
+			if sourceErr == nil {
 				problems = append(problems, fmt.Errorf("%s: source already exists", item.Source))
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				problems = append(problems, err)
+			} else if !errors.Is(sourceErr, fs.ErrNotExist) {
+				problems = append(problems, sourceErr)
 			}
 		} else if _, err := os.Lstat(item.Source); err != nil {
 			problems = append(problems, err)
@@ -88,6 +99,16 @@ func Rollback(w io.Writer) error {
 		if !item.Done {
 			continue
 		}
+		// Already restored by a prior crashed attempt (preflight already verified its content).
+		if _, err := os.Lstat(item.Backup); errors.Is(err, fs.ErrNotExist) {
+			item.Done = false
+			if err := m.save(); err != nil {
+				return err
+			}
+			continue
+		} else if err != nil {
+			return err
+		}
 		if err := os.Rename(item.Backup, item.Source); err != nil {
 			return err
 		}
@@ -106,6 +127,23 @@ func Rollback(w io.Writer) error {
 	}
 	_, err = fmt.Fprintln(w, "rolled back migration")
 	return err
+}
+
+// verifyResumedRestore checks a file already restored by a crashed rollback against the manifest's
+// recorded digest; secrets items carry no digest and are trusted (the vault copy is unaffected).
+func verifyResumedRestore(item Item) error {
+	if item.SHA256 == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(item.Source)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != item.SHA256 {
+		return fmt.Errorf("%s: restored content does not match the manifest", item.Source)
+	}
+	return nil
 }
 
 func rollbackSnapshot(m *Manifest) ([]byte, error) {

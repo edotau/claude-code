@@ -142,6 +142,29 @@ func TestMigrateAbsentOnly(t *testing.T) {
 	}
 }
 
+// R2: an `@keyring` reference with no secrets.env or secrets.meta.json file present must still be
+// sealed into the vault, or migration must fail outright — a ref is never rewritten to `@secret`
+// without a vault value backing it, which would strand the credential with no reader able to find it.
+func TestMigrateKeyringOnlyReferenceSealsOrFails(t *testing.T) {
+	kr := useMigrationKeyring(t)
+	kr.values["TOKEN"] = "keyring-credential"
+	source := seedLegacyFile(t, "custom.env", "TOKEN=@keyring\n")
+	err := Migrate(io.Discard, false)
+	if err != nil {
+		requireMigrationFile(t, source, true)
+		return
+	}
+	doc := decodeMigrationDoc(t)
+	switch doc.Env["TOKEN"] {
+	case "@secret":
+		requireVaultSecret(t, "TOKEN", "keyring-credential", true)
+	case "@keyring":
+		// left untouched is also acceptable, as long as nothing was silently stranded
+	default:
+		t.Fatalf("unexpected TOKEN ref: %q", doc.Env["TOKEN"])
+	}
+}
+
 func TestMigrateInvalidEnvDoesNotImportPartialFile(t *testing.T) {
 	for _, tt := range []struct {
 		name, content, errText string
@@ -317,6 +340,38 @@ func TestMigrateResumesPendingRename(t *testing.T) {
 				t.Fatal("rename recovery reimported vault values")
 			}
 		})
+	}
+}
+
+// R5: a crash after the manifest is saved but before finishRename's os.Rename, followed by the
+// still-installed old binary updating that source, must not let resume silently rename the
+// updated file and mark it done — its new content was never imported into the vault.
+func TestMigrateResumeRefusesRenameOfChangedSource(t *testing.T) {
+	useMigrationKeyring(t)
+	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 1)
+	// Undo the rename to put the source back, as if the crash happened before finishRename ran,
+	// then let an old binary update the source after the manifest already recorded its old hash.
+	if err := os.Rename(m.Items[0].Backup, m.Items[0].Source); err != nil {
+		t.Fatal(err)
+	}
+	m.Items[0].Done = false
+	if err := m.save(); err != nil {
+		t.Fatal(err)
+	}
+	writeMigrationFile(t, m.Items[0].Source, "HARNESS_PROVIDER=openai\nHARNESS_OPUS_MODEL=updated-by-old-binary\n")
+	err := Migrate(io.Discard, false)
+	if err == nil {
+		t.Fatal("expected resume to refuse renaming a source changed since migration")
+	}
+	requireMigrationFile(t, m.Items[0].Source, true)
+	requireMigrationFile(t, m.Items[0].Backup, false)
+	if string(readMigrationFile(t, m.Items[0].Source)) !=
+		"HARNESS_PROVIDER=openai\nHARNESS_OPUS_MODEL=updated-by-old-binary\n" {
+		t.Fatal("refused resume must not touch the changed source")
 	}
 }
 

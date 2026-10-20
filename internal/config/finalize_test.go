@@ -89,6 +89,69 @@ func TestFinalizeVerifiesAllNonSecretBackupsBeforeDeleting(t *testing.T) {
 	requireMigrationFile(t, manifestPath(), false)
 }
 
+// R1: a legacy providers.json overlay a prior vault.Overlay entry caused migrate to skip
+// importing is still backed up and hash-verified unchanged, but its content was never put into
+// the vault; finalize must notice the content is absent from the vault and refuse unless the
+// caller explicitly --discard's it, instead of silently deleting the only copy of that overlay.
+func TestFinalizeRefusesSkippedOverlayWithoutDiscard(t *testing.T) {
+	useMigrationKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"anthropic"}`)
+	source := seedLegacyFile(t, "providers.json", `{"default":"openai","legacy-only":{"env":"X"}}`)
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 1)
+	if len(m.Items[0].Names) != 0 {
+		t.Fatal("setup: the overlay should have been skipped as already present in the vault")
+	}
+	manifest := readMigrationFile(t, manifestPath())
+	err := Finalize(io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "providers") {
+		t.Fatalf("Finalize(nil) = %v, want a refusal naming the skipped providers overlay", err)
+	}
+	requireMigrationUnchanged(t, manifest, m)
+	if err := Finalize(io.Discard, []string{"providers"}); err != nil {
+		t.Fatalf("Finalize with providers discarded = %v, want success", err)
+	}
+	requireMigrationFile(t, manifestPath(), false)
+	requireMigrationFile(t, source, false)
+}
+
+// R3: finalize reads and verifies a keyring value, then deletes it later by name; an old binary's
+// `secrets set` can replace the keyring value in between. Finalize must re-read right before the
+// delete and keep the entry (not delete it) if the value changed since verification.
+func TestFinalizeKeepsKeyringEntryChangedBetweenVerifyAndDelete(t *testing.T) {
+	kr := useMigrationKeyring(t)
+	kr.values["META_TOKEN"] = "original-credential"
+	seedLegacyFile(t, "secrets.meta.json", `{"credentials":{"META_TOKEN":{"plane":"keyring"}}}`)
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	readMigrationManifest(t, 1)
+	calls := 0
+	lookup := legacyKeyringLookup
+	t.Cleanup(func() { legacyKeyringLookup = lookup })
+	legacyKeyringLookup = func(name string) (string, bool, error) {
+		if name != "META_TOKEN" {
+			return lookup(name)
+		}
+		calls++
+		if calls == 1 {
+			return kr.values[name], true, nil // the verify-phase read: still matches the vault
+		}
+		// An old binary's `secrets set` replaced the value right before the delete would run.
+		return "replaced-after-verify", true, nil
+	}
+	if err := Finalize(io.Discard, nil); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(kr.deletes, "META_TOKEN") {
+		t.Fatal("finalize deleted a keyring entry whose value changed after verification")
+	}
+	requireVaultSecret(t, "META_TOKEN", "original-credential", true)
+	requireMigrationFile(t, manifestPath(), false)
+}
+
 func TestFinalizeKeyringValueCheckAndDiscard(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		name := "newer keyring value"

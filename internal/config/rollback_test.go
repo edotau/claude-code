@@ -224,6 +224,34 @@ func TestRollbackResumesRestoredItems(t *testing.T) {
 	}
 }
 
+// R6: a crash right after Rollback's os.Rename succeeds but before m.save() persists Done=false
+// leaves the on-disk manifest saying Done=true while the filesystem already shows the restore
+// complete (source present, backup absent). The next rollback must treat that item as already
+// restored instead of rejecting both filesystem conditions and getting permanently stuck.
+func TestRollbackResumesCrashBetweenRenameAndSave(t *testing.T) {
+	useMigrationKeyring(t)
+	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
+	seedLegacyFile(t, "custom.env", "PLAIN=value\n")
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 2)
+	// Manually perform the rename Rollback would do for item 0, but leave Done=true on disk,
+	// simulating a crash between the os.Rename and the manifest save that follows it.
+	if err := os.Rename(m.Items[0].Backup, m.Items[0].Source); err != nil {
+		t.Fatal(err)
+	}
+	if err := Rollback(io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range m.Items {
+		requireMigrationFile(t, item.Source, true)
+		requireMigrationFile(t, item.Backup, false)
+	}
+	requireMigrationFile(t, vault.Path(), false)
+	requireMigrationFile(t, manifestPath(), false)
+}
+
 func TestRollbackLifecycleGuards(t *testing.T) {
 	useMigrationKeyring(t)
 	requireMigrationError(t, Rollback(io.Discard), "no migration to roll back")

@@ -3,16 +3,20 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -86,6 +90,26 @@ func Finalize(w io.Writer, discard []string) error {
 		if strings.HasPrefix(name, "vault-key/") {
 			continue
 		}
+		// An old binary's `secrets set` can replace the keyring value between the verify loop
+		// above and this delete; re-read and re-compare right before deleting to catch that
+		// window (a race still remains between this read and the delete call itself).
+		if !drop[name] {
+			current, found, err := legacyKeyringLookup(name)
+			if err != nil {
+				return fmt.Errorf("kept %s: keyring lookup failed: %w", name, err)
+			}
+			if !found {
+				continue
+			}
+			stored, present, err := vault.ReadSecret(name)
+			if err != nil {
+				return err
+			}
+			if !present || current != stored {
+				fmt.Fprintf(w, "kept %s: keyring value changed since verification\n", name)
+				continue
+			}
+		}
 		if err := legacyKeyringDelete(name); err != nil {
 			return fmt.Errorf("kept %s: keyring delete failed: %w", name, err)
 		}
@@ -131,7 +155,17 @@ func verifyBackup(item Item, discard map[string]bool) error {
 		if hex.EncodeToString(sum[:]) != item.SHA256 {
 			return fmt.Errorf("refused: %s changed since migration", item.Backup)
 		}
-		return nil
+		if discard[item.Kind] {
+			return nil
+		}
+		switch item.Kind {
+		case "pins", "env":
+			return verifyEnvImported(item)
+		case "providers", "vendors":
+			return verifyOverlayImported(item, raw)
+		default:
+			return nil // secrets-meta: metadata only, nothing stored under its own name to check
+		}
 	}
 	values, err := parseEnvFile(item.Backup)
 	if err != nil {
@@ -152,6 +186,90 @@ func verifyBackup(item Item, discard map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+// verifyEnvImported confirms a migrate skip (the vault already held a pin/env name) did not leave
+// that name's value only in the backup; the @keyring -> @secret rewrite is accounted for.
+func verifyEnvImported(item Item) error {
+	values, err := parseEnvFile(item.Backup)
+	if err != nil {
+		return err
+	}
+	bucket := vault.Pins
+	if item.Kind == "env" {
+		bucket = vault.Env
+	}
+	var missing []string
+	if err := vault.View(func(t *vault.Tx) error {
+		for _, name := range mapNames(values) {
+			want := values[name]
+			if item.Kind == "env" && want == "@keyring" {
+				want = providers.SecretRef
+			}
+			got, ok := t.Get(bucket, name)
+			if !ok || got != want {
+				missing = append(missing, name)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if len(missing) != 0 {
+		return fmt.Errorf("refused: %s: %s not present in the vault (--discard %s to drop it)",
+			item.Backup, strings.Join(missing, ", "), item.Kind)
+	}
+	return nil
+}
+
+// verifyOverlayImported confirms a migrate skip (the vault already held this overlay) did not
+// strand legacy-only provider/vendor entries that were never merged into the stored document.
+func verifyOverlayImported(item Item, raw []byte) error {
+	var stored string
+	found := false
+	if err := vault.View(func(t *vault.Tx) error {
+		stored, found = t.Get(vault.Overlay, item.Kind)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if found && stored == string(raw) {
+		return nil
+	}
+	var legacyTop map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &legacyTop); err != nil {
+		return err
+	}
+	var storedTop map[string]json.RawMessage
+	if found {
+		if err := json.Unmarshal([]byte(stored), &storedTop); err != nil {
+			return err
+		}
+	}
+	var missing []string
+	for key, val := range legacyTop {
+		if strings.TrimSpace(string(val)) == "null" {
+			continue // a tombstone in the legacy doc deletes; nothing to preserve
+		}
+		sv, ok := storedTop[key]
+		if !ok || !jsonRawEqual(val, sv) {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) != 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("refused: %s: %s %s not present in the vault (--discard %s to drop it)",
+			item.Backup, item.Kind, strings.Join(missing, ", "), item.Kind)
+	}
+	return nil
+}
+
+func jsonRawEqual(a, b json.RawMessage) bool {
+	var va, vb any
+	if json.Unmarshal(a, &va) != nil || json.Unmarshal(b, &vb) != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 func cleanLegacyDir(w io.Writer) error {
