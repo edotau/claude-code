@@ -689,6 +689,8 @@ func TestSnapshotToConsistent(t *testing.T) {
 			if n == base {
 				close(started)
 			}
+			// bbolt polls a blocked flock every 50ms; a gapless writer starves the snapshot's shared lock.
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 	<-started
