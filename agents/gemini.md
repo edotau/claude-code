@@ -1,7 +1,7 @@
 ---
 name: gemini
 description: |
-  Read-only codebase scanner on Gemini (agy): `claude-code ask --agent gemini --tools` for targeted scope, `claude-code gemini bridge` for 1M-token sweeps across many files. Sonnet (Read/Grep/Glob) only when asked or agy fails — see "Backend Selection". Use before architecture decisions, when context is stale, or as input to claude.
+  Read-only codebase scanner and web-search leg on Gemini (agy): `claude-code ask --agent gemini --tools` for targeted scope and web lookups, `claude-code gemini bridge` for 1M-token sweeps across many files. Sonnet (Read/Grep/Glob) only when asked or agy fails — see "Backend Selection". Use before architecture decisions, when context is stale, or as input to claude.
 
   <example>
   Context: Targeted cross-module trace — fits in a single session context.
@@ -25,7 +25,11 @@ You have **two engines** for scanning:
 |---------|-------------|----------|
 | **gemini** (default) | `claude-code ask --agent gemini --tools --workdir <repo>` (agy reads files itself) | Targeted scope, 1–20 files, known entry points, traces across a package |
 | **gemini sweep** | `claude-code gemini bridge` via Bash | Whole-repo sweeps, cross-cutting surveys, 1M-token context needs, structured-data analysis across many files |
+| **gemini web** | `claude-code ask --agent gemini --tools --format json "<question; cite URLs>"` (without `--tools` agy cannot search) | Web search, current versions/releases/docs; agy searches Google itself |
 | **sonnet** | Read / Grep / Glob in-process | Only when the prompt says `backend: sonnet`, or agy fails |
+
+**Always run a backend.** Never answer from model knowledge: a web question goes to `gemini web`, and if every
+`ask` leg fails, report the failure instead of guessing.
 
 **Selection rules (check in order):**
 
