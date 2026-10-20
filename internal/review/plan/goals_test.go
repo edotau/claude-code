@@ -134,6 +134,40 @@ func TestRunGoalsLeafSizedTasksClean(t *testing.T) {
 	}
 }
 
+func TestFindOversizedTasksBoundaries(t *testing.T) {
+	got := map[string]string{}
+	for _, ot := range findOversizedTasks(readGoalsGolden(t, "oversized-boundaries.md")) {
+		got[strings.Fields(ot.Title)[0]] = ot.Reason
+	}
+	cases := []struct {
+		id, want string // want "" = not flagged
+	}{
+		{"A1", ""},                   // nested segments (sub/, deep/, x/) are not packages
+		{"A2", "names 4 packages"},   // backtick, `(`, whitespace and `,` all start a path token
+		{"A3", "names 4 packages"},   // ./internal/<x> in a verify command still counts
+		{"B1", "names 4 packages"},   // cmd/cli and internal/cli are distinct
+		{"C1", "no `owns:` segment"}, // owns: at end of line is empty
+		{"C2", "no `owns:` segment"}, // owns: followed by an em dash is empty
+		{"C3", ""},                   // a filled owns: is clean
+		{"D1", ""},                   // inside a ``` fence
+		{"D2", ""},                   // inside a ~~~ fence
+		{"D3", ""},                   // ``` inside ~~~ does not close it
+		{"D4", "no `owns:` segment"}, // fences closed, checklist lines count again
+	}
+	for _, tc := range cases {
+		reason, flagged := got[tc.id]
+		switch {
+		case tc.want == "" && flagged:
+			t.Errorf("%s flagged (%q), want clean", tc.id, reason)
+		case tc.want != "" && !strings.Contains(reason, tc.want):
+			t.Errorf("%s reason = %q, want it to contain %q", tc.id, reason, tc.want)
+		}
+	}
+	if len(got) != 6 {
+		t.Errorf("flagged %d tasks, want 6: %v", len(got), got)
+	}
+}
+
 func TestExtractStepsPhaseBoundaries(t *testing.T) {
 	text := "## Phase 1 — Parse\n**Verify:** go test ./internal/paths\n### Details\n1. Read input\n### Phase 2 — Render\n**Verify:** should work\n## Tasks\n- [ ] go test ./...\n## Risks\ngrep final\n## Context\ndiff final\n"
 	steps := extractSteps(text)
