@@ -1,0 +1,70 @@
+{
+  "guardRules": {
+    "ask": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(security add-generic-password:*)",
+      "Bash(security delete-generic-password:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)"
+    ]
+  },
+  "vendors": {
+    "codex": {
+      "permission": {
+        "mode": "allow-all",
+        "approvalPolicy": "never",
+        "sandboxMode": "danger-full-access"
+      },
+      "mcp": {
+        "allow": []
+      },
+      "launch": {}
+    },
+    "opencode": {
+      "permission": {
+        "mode": "allow-all",
+        "useGuardRules": true
+      },
+      "mcp": {
+        "allow": []
+      },
+      "launch": {
+        "env": [
+          "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"
+        ]
+      }
+    },
+    "copilot": {
+      "permission": {
+        "mode": "allow-all",
+        "defaultPermissionMode": "allow-all"
+      },
+      "mcp": {
+        "allow": []
+      },
+      "launch": {
+        "args": [
+          "--allow-all"
+        ]
+      }
+    },
+    "gemini": {
+      "permission": {
+        "mode": "flag-only"
+      },
+      "mcp": {
+        "allow": []
+      },
+      "launch": {
+        "args": [
+          "--dangerously-skip-permissions"
+        ]
+      }
+    }
+  }
+}
