@@ -36,6 +36,18 @@ paths:
   they resolve. No 404s, no broken references.
 - **Tables** — use for comparisons and reference matrices; keep cells terse.
 
+## Document Types
+
+| Type | Must cover |
+|---|---|
+| README | What it is and why; quick start (<5 min to first success); configuration and usage; contributing |
+| API | Endpoint reference with request/response examples; auth and error codes; rate limits, pagination |
+| Runbook | When to use it; prerequisites and access; step-by-step procedure; rollback; escalation path |
+| Architecture | Context and goals; high-level design with a diagram; key decisions and trade-offs; data flow |
+| Onboarding | Environment setup; key systems and how they connect; common tasks walked through; who to ask |
+
+Adapted from anthropics/knowledge-work-plugins (engineering), Apache-2.0.
+
 ## File Naming
 
 - Markdown docs: lowercase-with-hyphens (`git-workflow.md`), except the conventional
