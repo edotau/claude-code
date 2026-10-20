@@ -335,7 +335,11 @@ func TestNoFailoverAfterStreamStarted(t *testing.T) {
 	}
 }
 
+var authRefreshReplayRun atomic.Uint64
+
 func TestAuthRefreshReplay(t *testing.T) {
+	// Isolate each run from the process-wide command credential cache.
+	name := fmt.Sprintf("%s-%d", t.Name(), authRefreshReplayRun.Add(1))
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "n")
 	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
@@ -346,12 +350,12 @@ func TestAuthRefreshReplay(t *testing.T) {
 		ok(w, r, 0)
 	})
 	cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
-	overlay, _ := json.Marshal(map[string]any{"default": "cmdauth", "providers": map[string]any{"cmdauth": map[string]any{
+	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{name: map[string]any{
 		"kind": "anthropic", "base_url": up.URL, "auth": map[string]any{"type": "bearer", "command": cmd, "ttl": 3600},
 		"models": map[string]string{"opus": "m"}}}})
 	srv := setup(t, string(overlay))
 
-	resp := post(t, srv.URL+"/p/cmdauth/v1/messages", `{"model":"m"}`, nil)
+	resp := post(t, srv.URL+"/p/"+name+"/v1/messages", `{"model":"m"}`, nil)
 	if resp.StatusCode != 200 || up.hits.Load() != 2 {
 		t.Fatalf("status %d hits %d, want 200 after one replay", resp.StatusCode, up.hits.Load())
 	}
