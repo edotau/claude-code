@@ -82,6 +82,7 @@ coverage.*
 # Skills: only the harness's own are tracked; every other dir is the user's (symlinks into ~/.agents or local copies).
 /skills/*
 !/skills/approval-gate
+!/skills/browser-automation
 !/skills/computer-use
 !/skills/evaluate-code
 !/skills/fable-method
