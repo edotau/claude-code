@@ -159,7 +159,11 @@ func workspaceFileAction(path, body string) workspaceAction {
 // workspaceIgnoreAction appends the settings.local.json line to root/.gitignore once.
 func workspaceIgnoreAction(root string) workspaceAction {
 	path := filepath.Join(root, ".gitignore")
-	if workspaceHasIgnore(path) {
+	has, err := workspaceHasIgnore(path)
+	if err != nil {
+		return workspaceAction{verb: "error", path: path, apply: func() error { return err }}
+	}
+	if has {
 		return workspaceAction{verb: "keep", path: path}
 	}
 	verb := "append"
@@ -167,7 +171,10 @@ func workspaceIgnoreAction(root string) workspaceAction {
 		verb = "create"
 	}
 	return workspaceAction{verb: verb, path: path, apply: func() error {
-		cur, _ := os.ReadFile(path)
+		cur, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
 		if len(cur) > 0 && !strings.HasSuffix(string(cur), "\n") {
 			cur = append(cur, '\n')
 		}
@@ -175,13 +182,17 @@ func workspaceIgnoreAction(root string) workspaceAction {
 	}}
 }
 
-// workspaceHasIgnore reports whether .gitignore already lists the settings.local.json line.
-func workspaceHasIgnore(path string) bool {
+// workspaceHasIgnore reports whether path already lists the settings.local.json line; a missing file
+// counts as absence, but any other read error propagates instead of being mistaken for it.
+func workspaceHasIgnore(path string) (bool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return slices.Contains(strings.Split(string(b), "\n"), workspaceIgnoreLine)
+	return slices.Contains(strings.Split(string(b), "\n"), workspaceIgnoreLine), nil
 }
 
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
@@ -262,8 +273,12 @@ func WorkspaceStatus(root string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "settings  %s\n", workspacePresent(filepath.Join(dot, "settings.json")))
 	fmt.Fprintf(out, "memory    %s  %s\n", workspacePresent(filepath.Join(memory.Dir(root), memory.BankFiles()[0])), memory.Dir(root))
+	has, err := workspaceHasIgnore(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return err
+	}
 	ignore := "missing"
-	if workspaceHasIgnore(filepath.Join(root, ".gitignore")) {
+	if has {
 		ignore = "present"
 	}
 	fmt.Fprintf(out, "gitignore %s  %s\n", ignore, workspaceIgnoreLine)

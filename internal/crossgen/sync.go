@@ -86,7 +86,11 @@ func Sync(opts SyncOptions) int {
 		fmt.Fprintln(os.Stderr, "sync:", err)
 		return 1
 	}
-	skills := DiscoverSkills(skillsDir)
+	skills, err := DiscoverSkills(skillsDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sync:", err)
+		return 1
+	}
 	for _, v := range []struct {
 		kind string
 		srcs []Source
@@ -101,7 +105,7 @@ func Sync(opts SyncOptions) int {
 		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
 	}
 
-	docs, hasDocs, err := renderDocs(root)
+	docs, hasDocs, err := renderDocs(root, agents)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "sync:", err)
 		return 1

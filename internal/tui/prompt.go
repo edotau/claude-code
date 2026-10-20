@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// stdinReader is the one bufio.Reader over os.Stdin for every line-based read in this package, matching
+// configure's shared-reader pattern: a fresh bufio.Reader per call buffers ahead of the line it returns,
+// then discards that look-ahead on the next call, losing bytes the user already typed.
+var stdinReader = bufio.NewReader(os.Stdin)
+
 // Confirm prints "question [Y/n] " (or "[y/N]" when def is false) and reads one line from stdin;
 // blank keeps def, a leading y/Y is true, a leading n/N is false, anything else keeps def. Reads
 // directly from the controlling terminal — call only once the caller has confirmed stdin is a real
@@ -17,7 +22,7 @@ func Confirm(question string, def bool) bool {
 		hint = "[y/N]"
 	}
 	fmt.Fprintf(os.Stdout, "%s %s ", question, hint)
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := stdinReader.ReadString('\n')
 	line = strings.ToLower(strings.TrimSpace(line))
 	switch {
 	case line == "":
@@ -38,7 +43,7 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !isTerminal(fd) {
 		fmt.Fprint(os.Stdout, prompt)
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		line, err := stdinReader.ReadString('\n')
 		return strings.TrimRight(line, "\r\n"), err
 	}
 	var onChange func([]byte)

@@ -19,19 +19,16 @@ var instructionFiles = map[string]string{
 	"gemini": filepath.Join(".gemini", "GEMINI.md"),
 }
 
-// renderDocs renders banner + CLAUDE.md verbatim + a sorted `## Agents` index for the harness at root; ok is
-// false when root has no CLAUDE.md (a bare box renders no roster docs).
-func renderDocs(root string) (content string, ok bool, err error) {
+// renderDocs renders banner + CLAUDE.md verbatim + a sorted `## Agents` index for the harness at root, from
+// agents (the caller's single DiscoverAgents pass); ok is false when root has no CLAUDE.md (a bare box
+// renders no roster docs).
+func renderDocs(root string, agents []Source) (content string, ok bool, err error) {
 	conventions, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
 	if os.IsNotExist(err) {
 		return "", false, nil
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("read CLAUDE.md: %w", err)
-	}
-	agents, err := DiscoverAgents(filepath.Join(root, "agents"))
-	if err != nil {
-		return "", false, err
 	}
 	var b strings.Builder
 	b.WriteString(DocsBanner + "\n\n")

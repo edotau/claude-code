@@ -153,7 +153,14 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 	var dirs []string
 	for _, dir := range candidates {
 		info, statErr := os.Stat(dir)
-		if statErr != nil || !info.IsDir() || newestModTime(dir).Before(cutoff) {
+		if statErr != nil || !info.IsDir() {
+			continue
+		}
+		mtime, mErr := newestModTime(dir)
+		if mErr != nil {
+			return nil, fmt.Errorf("usage: %w", mErr)
+		}
+		if mtime.Before(cutoff) {
 			continue
 		}
 		dirs = append(dirs, dir)
@@ -185,17 +192,22 @@ func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount in
 }
 
 // newestModTime is the latest mtime of dir or anything under it: appending to a transcript in subagents/ leaves
-// the session dir's own mtime untouched, so a resumed session would otherwise fall outside --days.
-func newestModTime(dir string) time.Time {
+// the session dir's own mtime untouched, so a resumed session would otherwise fall outside --days. A walk
+// error (e.g. an unreadable subdir) propagates instead of returning a partial, too-old timestamp that would
+// silently drop the session from --days.
+func newestModTime(dir string) (time.Time, error) {
 	var newest time.Time
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if info, err := d.Info(); err == nil && info.ModTime().After(newest) {
 			newest = info.ModTime()
 		}
 		return nil
 	})
-	return newest
+	if err != nil {
+		return time.Time{}, fmt.Errorf("walk %s: %w", dir, err)
+	}
+	return newest, nil
 }
