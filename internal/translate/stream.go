@@ -2,6 +2,7 @@ package translate
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,85 @@ type streamer struct {
 	usedTools bool
 	finish    string
 	usage     *chatUsage
+	buf       bytes.Buffer // reused by event() to avoid a per-event json.Marshal allocation
+}
+
+// Typed event payloads replace map[string]any: struct marshaling skips the reflect-based key
+// sort and per-value interface boxing a map incurs, the dominant cost on the per-chunk hot path.
+
+type textBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type toolBlock struct {
+	Type  string          `json:"type"`
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+}
+
+type blockStartEvent struct {
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
+	ContentBlock any    `json:"content_block"`
+}
+
+type textDelta struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type inputJSONDelta struct {
+	Type        string `json:"type"`
+	PartialJSON string `json:"partial_json"`
+}
+
+type blockDeltaEvent struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+	Delta any    `json:"delta"`
+}
+
+type blockStopEvent struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+}
+
+type startUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+type messageStartMsg struct {
+	ID           string     `json:"id"`
+	Type         string     `json:"type"`
+	Role         string     `json:"role"`
+	Model        string     `json:"model"`
+	Content      []any      `json:"content"`
+	StopReason   any        `json:"stop_reason"`
+	StopSequence any        `json:"stop_sequence"`
+	Usage        startUsage `json:"usage"`
+}
+
+type messageStartEvent struct {
+	Type    string          `json:"type"`
+	Message messageStartMsg `json:"message"`
+}
+
+type messageDeltaInner struct {
+	StopReason   string `json:"stop_reason"`
+	StopSequence any    `json:"stop_sequence"`
+}
+
+type messageDeltaEvent struct {
+	Type  string            `json:"type"`
+	Delta messageDeltaInner `json:"delta"`
+	Usage any               `json:"usage"`
+}
+
+type messageStopEvent struct {
+	Type string `json:"type"`
 }
 
 // StreamChat converts a chat-completions SSE stream into Anthropic Messages SSE events, calling flush per event.
@@ -49,25 +129,25 @@ type streamer struct {
 func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) error {
 	s := &streamer{w: w, flush: flush, model: clientModel, open: -1, tools: map[int]*toolState{}}
 	br := bufio.NewReader(r)
-	var data []string
+	var data [][]byte // SSE "data:" lines for the frame in progress; each a fresh slice from ReadBytes
 	dispatch := func() (bool, error) {
 		if len(data) == 0 {
 			return false, nil
 		}
-		payload := strings.Join(data, "\n")
+		payload := bytes.Join(data, []byte("\n"))
 		data = data[:0]
 		return s.handle(payload)
 	}
 	for {
-		line, readErr := br.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
+		line, readErr := br.ReadBytes('\n')
+		line = bytes.TrimRight(line, "\r\n")
 		switch {
-		case line == "":
+		case len(line) == 0:
 			if done, err := dispatch(); err != nil || done {
 				return s.end(err)
 			}
-		case strings.HasPrefix(line, "data:"):
-			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		case bytes.HasPrefix(line, []byte("data:")):
+			data = append(data, bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" ")))
 		}
 		if readErr == io.EOF {
 			_, err := dispatch()
@@ -85,16 +165,16 @@ func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) erro
 var errUpstream = errors.New("translate: upstream stream error")
 
 // handle processes one SSE payload and reports whether the stream is done.
-func (s *streamer) handle(payload string) (bool, error) {
-	if strings.TrimSpace(payload) == "[DONE]" {
+func (s *streamer) handle(payload []byte) (bool, error) {
+	if string(bytes.TrimSpace(payload)) == "[DONE]" {
 		return true, nil
 	}
 	var c streamChunk
-	if err := json.Unmarshal([]byte(payload), &c); err != nil {
+	if err := json.Unmarshal(payload, &c); err != nil {
 		return false, s.fail(500, "malformed upstream stream chunk", err)
 	}
 	if len(c.Error) > 0 && string(c.Error) != "null" {
-		body := FromChatError(streamErrorStatus(c.Error), []byte(payload))
+		body := FromChatError(streamErrorStatus(c.Error), payload)
 		if err := s.event("error", json.RawMessage(body)); err != nil {
 			return false, err
 		}
@@ -129,14 +209,14 @@ func (s *streamer) text(t string) error {
 		if err := s.closeBlock(); err != nil {
 			return err
 		}
-		if err := s.event("content_block_start", map[string]any{"type": "content_block_start", "index": s.next,
-			"content_block": map[string]any{"type": "text", "text": ""}}); err != nil {
+		if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
+			ContentBlock: textBlock{Type: "text", Text: ""}}); err != nil {
 			return err
 		}
 		s.open, s.openText = s.next, true
 		s.next++
 	}
-	return s.delta(map[string]any{"type": "text_delta", "text": t})
+	return s.delta(textDelta{Type: "text_delta", Text: t})
 }
 
 func (s *streamer) tool(tc inToolCall) error {
@@ -171,8 +251,8 @@ func (s *streamer) tool(tc inToolCall) error {
 		if t.id == "" {
 			t.id = newID("toolu_")
 		}
-		if err := s.event("content_block_start", map[string]any{"type": "content_block_start", "index": s.next,
-			"content_block": map[string]any{"type": "tool_use", "id": t.id, "name": t.name, "input": map[string]any{}}}); err != nil {
+		if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
+			ContentBlock: toolBlock{Type: "tool_use", ID: t.id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
 			return err
 		}
 		t.block, s.open, s.openTool, s.usedTools = s.next, s.next, t, true
@@ -185,18 +265,18 @@ func (s *streamer) tool(tc inToolCall) error {
 	if args == "" {
 		return nil
 	}
-	return s.delta(map[string]any{"type": "input_json_delta", "partial_json": args})
+	return s.delta(inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
 }
 
-func (s *streamer) delta(d map[string]any) error {
-	return s.event("content_block_delta", map[string]any{"type": "content_block_delta", "index": s.open, "delta": d})
+func (s *streamer) delta(d any) error {
+	return s.event("content_block_delta", blockDeltaEvent{Type: "content_block_delta", Index: s.open, Delta: d})
 }
 
 func (s *streamer) closeBlock() error {
 	if s.open < 0 {
 		return nil
 	}
-	err := s.event("content_block_stop", map[string]any{"type": "content_block_stop", "index": s.open})
+	err := s.event("content_block_stop", blockStopEvent{Type: "content_block_stop", Index: s.open})
 	s.open, s.openText, s.openTool = -1, false, nil
 	return err
 }
@@ -206,9 +286,9 @@ func (s *streamer) start() error {
 		return nil
 	}
 	s.started = true
-	return s.event("message_start", map[string]any{"type": "message_start", "message": map[string]any{
-		"id": newID("msg_"), "type": "message", "role": "assistant", "model": s.model, "content": []any{},
-		"stop_reason": nil, "stop_sequence": nil, "usage": map[string]int{"input_tokens": 0, "output_tokens": 0},
+	return s.event("message_start", messageStartEvent{Type: "message_start", Message: messageStartMsg{
+		ID: newID("msg_"), Type: "message", Role: "assistant", Model: s.model, Content: []any{},
+		StopReason: nil, StopSequence: nil, Usage: startUsage{InputTokens: 0, OutputTokens: 0},
 	}})
 }
 
@@ -223,15 +303,15 @@ func (s *streamer) end(err error) error {
 	if err := s.closeBlock(); err != nil {
 		return err
 	}
-	usage := map[string]any{"output_tokens": 0}
+	var usage any = map[string]any{"output_tokens": 0}
 	if s.usage != nil {
 		usage = anthropicUsage(s.usage)
 	}
-	if err := s.event("message_delta", map[string]any{"type": "message_delta",
-		"delta": map[string]any{"stop_reason": stopReason(s.finish, s.usedTools), "stop_sequence": nil}, "usage": usage}); err != nil {
+	if err := s.event("message_delta", messageDeltaEvent{Type: "message_delta",
+		Delta: messageDeltaInner{StopReason: stopReason(s.finish, s.usedTools), StopSequence: nil}, Usage: usage}); err != nil {
 		return err
 	}
-	return s.event("message_stop", map[string]any{"type": "message_stop"})
+	return s.event("message_stop", messageStopEvent{Type: "message_stop"})
 }
 
 // fail writes an Anthropic error event and returns cause wrapped.
@@ -243,11 +323,14 @@ func (s *streamer) fail(status int, msg string, cause error) error {
 	return fmt.Errorf("translate: %s: %w", msg, cause)
 }
 
+// event marshals payload into s.buf (reused across calls, unlike json.Marshal's fresh allocation
+// each time) and writes one SSE frame.
 func (s *streamer) event(typ string, payload any) error {
-	b, err := json.Marshal(payload)
-	if err != nil {
+	s.buf.Reset()
+	if err := json.NewEncoder(&s.buf).Encode(payload); err != nil {
 		return err
 	}
+	b := bytes.TrimRight(s.buf.Bytes(), "\n")
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", typ, b); err != nil {
 		return err
 	}

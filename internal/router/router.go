@@ -29,6 +29,7 @@ const (
 	maxBody         = 64 << 20
 	defaultCooldown = 30 * time.Second
 	maxCooldown     = 5 * time.Minute
+	credTTL         = 60 * time.Second // providers.CredentialPresent cache: one keyring probe per provider per TTL
 )
 
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.
@@ -47,8 +48,15 @@ type Router struct {
 	mu       sync.Mutex
 	reg      *providers.Registry
 	regStamp time.Time
-	cool     map[string]time.Time // provider → cooling-down until (after a 429)
-	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
+	cool     map[string]time.Time  // provider → cooling-down until (after a 429)
+	dead     map[string]time.Time  // provider:model → quota-dead until (a hard 429: the key cannot use that model)
+	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
+}
+
+// credResult is one provider's cached CredentialPresent outcome.
+type credResult struct {
+	present bool
+	until   time.Time
 }
 
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
@@ -56,7 +64,7 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}}
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -84,7 +92,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	start := r.now()
-	sw := &statusWriter{ResponseWriter: w}
+	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
 	provider, model, attempts := r.route(sw, req, session, count)
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts, time.Since(start).Round(time.Millisecond))
 }
@@ -194,7 +202,7 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 	seen := map[*providers.Provider]bool{target.Provider: true}
 	for _, name := range reg.Fallback {
 		p := reg.Providers[name]
-		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !providers.CredentialPresent(p) {
+		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !r.credentialPresent(p) {
 			continue
 		}
 		if ft, ok := providers.FailoverTarget(target.Provider, target.Model, p); ok {
@@ -226,6 +234,31 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 		}
 	}
 	return providers.Target{}, false
+}
+
+// credentialPresent caches providers.CredentialPresent per provider name for credTTL: an env-auth
+// provider with no process env var falls through to a keyring lookup (a secret-tool subprocess per
+// call), and every fallback candidate is probed on every routed request without this cache.
+func (r *Router) credentialPresent(p *providers.Provider) bool {
+	now := r.now()
+	r.mu.Lock()
+	if c, ok := r.cred[p.Name]; ok && now.Before(c.until) {
+		r.mu.Unlock()
+		return c.present
+	}
+	r.mu.Unlock()
+	present := providers.CredentialPresent(p)
+	r.mu.Lock()
+	r.cred[p.Name] = credResult{present: present, until: now.Add(credTTL)}
+	r.mu.Unlock()
+	return present
+}
+
+// invalidateCredential drops a provider's cached presence so the next attempt re-probes it.
+func (r *Router) invalidateCredential(name string) {
+	r.mu.Lock()
+	delete(r.cred, name)
+	r.mu.Unlock()
 }
 
 func (r *Router) isDead(t providers.Target) bool {
@@ -368,6 +401,7 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 		if err != nil {
 			return nil, err
 		}
+		r.invalidateCredential(p.Name) // the cached presence check predates this refresh; re-probe next time
 		if resp, err = do(credential); err != nil {
 			return nil, err
 		}
@@ -580,6 +614,7 @@ func errorBody(status int, msg string) []byte {
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	rc     *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
 }
 
 func (s *statusWriter) WriteHeader(code int) {
@@ -596,7 +631,7 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
-func (s *statusWriter) Flush() { flusher(s.ResponseWriter)() }
+func (s *statusWriter) Flush() { _ = s.rc.Flush() }
 
 // idleBody closes the upstream body when no Read completes within idle, unblocking a wedged stream.
 type idleBody struct {

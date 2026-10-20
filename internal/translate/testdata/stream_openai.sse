@@ -1,0 +1,52 @@
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"The"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" user wants me"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" to write"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" a haiku about autumn and"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" then get the weather in Paris. Let"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" me write"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" the"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" haiku first, then call the weather"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"reasoning_content":" tool."},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"A haiku for"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" autumn:\n\n*"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"Golden leaves fallin"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"g*\n*Wh"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"ispers"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" of wind through"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" branches"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"*\n*C"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"risp"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" air,"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" amber"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" light*\n\n"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"Now,"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" let me check"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":" the weather in Paris:"},"finish_reason":null,"logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: {"id":"chatcmpl-d499520b-71c0-4f19-ba36-a70adced8e02","choices":[{"index":0,"delta":{"content":"","tool_calls":[{"index":0,"id":"fc535c9b-53b5-4ae6-8566-285edfe00b27","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls","logprobs":null}],"created":1792482428,"model":"z-ai/glm-5.3","object":"chat.completion.chunk"}
+
+data: [DONE]
+
