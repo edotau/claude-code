@@ -166,7 +166,7 @@ func (r *Registry) Validate() error {
 			errs = append(errs, fmt.Sprintf("%s: kind %q is not a dialect", n, p.Kind))
 		}
 		if p.BaseURL == "" && len(p.Routes) == 0 {
-			errs = append(errs, fmt.Sprintf("%s: needs base_url or routes", n))
+			errs = append(errs, n+": needs base_url or routes")
 		}
 		for d := range p.Routes {
 			if !valid[d] {
@@ -179,10 +179,10 @@ func (r *Registry) Validate() error {
 			errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
 		}
 		if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
-			errs = append(errs, fmt.Sprintf("%s: auth.login needs auth.type passthrough", n))
+			errs = append(errs, n+": auth.login needs auth.type passthrough")
 		}
 		if p.OpencodeFallback == "auto" {
-			errs = append(errs, fmt.Sprintf("%s: opencode_fallback cannot itself be \"auto\"", n))
+			errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
 		}
 	}
 	for _, n := range append([]string{r.Default}, r.Fallback...) {

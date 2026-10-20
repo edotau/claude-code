@@ -12,11 +12,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/ansi"
@@ -625,14 +627,27 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption, forceFile bool) bool {
 
 // runMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
 func runMint(argv []string) (string, error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runMintContext(ctx, argv)
+}
+
+func runMintContext(ctx context.Context, argv []string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("mint token: %w", err)
+	}
 	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
 		return "", nil
 	}
 	var buf bytes.Buffer
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("mint token: %w", ctx.Err())
+	}
+	if err != nil {
 		return "", err
 	}
 	return setupTokenRE.FindString(buf.String()), nil
@@ -644,7 +659,13 @@ func openBrowser(url string) {
 	if runtime.GOOS == "darwin" {
 		bin = "open"
 	}
-	_ = exec.Command(bin, url).Start()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := exec.CommandContext(ctx, bin, url).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "configure: warning: browser opener failed: %v\n", err)
+		}
+	}()
 }
 
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
@@ -677,24 +698,19 @@ func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
 // runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func runLogin(argv []string) error {
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runLoginContext(ctx, argv)
 }
 
-// readSecret reads one line, toggling local echo off only when br wraps the real controlling terminal
-// (a test's fake reader is never os.Stdin, so it is read back plainly).
-func readSecret(br *bufio.Reader) (string, error) {
-	if isStdinTTY() {
-		echo := exec.Command("stty", "echo")
-		echo.Stdin = os.Stdin
-		off := exec.Command("stty", "-echo")
-		off.Stdin = os.Stdin
-		_ = off.Run()
-		defer echo.Run()
+func runLoginContext(ctx context.Context, argv []string) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Errorf("login: %w", ctx.Err())
 	}
-	line := readLine(br)
-	return line, nil
+	return err
 }
 
 func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
@@ -818,12 +834,12 @@ func secretLine(d *dialog, prompt string) (string, error) {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)
-	val, err := readSecret(d.br)
+	val := readLine(d.br)
 	fmt.Fprintln(d.out)
-	if _, v := ParseAssignment(val); err == nil && v != "" {
+	if _, v := ParseAssignment(val); v != "" {
 		d.printf("  pasted  %s\n", pastePreview(val))
 	}
-	return val, err
+	return val, nil
 }
 
 // pastePreview masks a value for display; a NAME=value paste previews only its value.

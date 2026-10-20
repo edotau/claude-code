@@ -1,8 +1,6 @@
 package vendors
 
 import (
-	"fmt"
-
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -54,7 +52,7 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 		return RouteInfo{Vendor: "opencode", Leg: LegAnthropicKey, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "ANTHROPIC_API_KEY resolves", OK: true}
 	}
-	return RouteInfo{Vendor: "opencode", Leg: LegNone, Reason: fmt.Sprintf("no route for opencode: %s", ConfigureHint("opencode"))}
+	return RouteInfo{Vendor: "opencode", Leg: LegNone, Reason: "no route for opencode: " + ConfigureHint("opencode")}
 }
 
 // describeCopilotRoute: 1) copilot's own GitHub login; 2) BYOK with the registry anthropic provider's
@@ -70,7 +68,7 @@ func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 		return RouteInfo{Vendor: "copilot", Leg: LegByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
 	}
-	return RouteInfo{Vendor: "copilot", Leg: LegNone, Reason: fmt.Sprintf("no route for copilot: %s", ConfigureHint("copilot"))}
+	return RouteInfo{Vendor: "copilot", Leg: LegNone, Reason: "no route for copilot: " + ConfigureHint("copilot")}
 }
 
 // routeTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;

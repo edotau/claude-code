@@ -2,6 +2,7 @@ package websearch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,7 @@ func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 		case <-release:
 			return "answer to " + q, nil
 		case <-time.After(5 * time.Second):
-			return "", fmt.Errorf("no overlap: the second call never started")
+			return "", errors.New("no overlap: the second call never started")
 		}
 	}}
 	resps := drive(t, srv,
