@@ -319,13 +319,14 @@ func (p *aliasPlan) apply(now time.Time) error {
 	}
 	for _, l := range p.links {
 		tmp := l + ".alias-tmp"
-		os.Remove(tmp)
+		if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 		if err := os.Symlink(p.target, tmp); err != nil {
 			return err
 		}
 		if err := os.Rename(tmp, l); err != nil {
-			os.Remove(tmp)
-			return err
+			return errors.Join(err, os.Remove(tmp))
 		}
 	}
 	var s BankSettlement

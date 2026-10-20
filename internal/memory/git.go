@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -164,7 +165,7 @@ func (r Repo) Log(n int) ([]string, error) {
 	if head, err := r.Head(); err != nil || head == "" {
 		return nil, err
 	}
-	out, err := r.run("log", "-n", fmt.Sprint(n), "--format=%h %ad %s", "--date=short")
+	out, err := r.run("log", "-n", strconv.Itoa(n), "--format=%h %ad %s", "--date=short")
 	if err != nil {
 		return nil, err
 	}

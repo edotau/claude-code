@@ -101,8 +101,7 @@ func WriteManifest(m Manifest) (string, error) {
 		return "", err
 	}
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		f.Close()
-		return "", err
+		return "", errors.Join(err, f.Close())
 	}
 	return path, f.Close()
 }
@@ -225,7 +224,7 @@ func pristineDir(dir string, legacy bool) bool {
 			return false
 		}
 		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil || (string(data) != body && !(legacy && slices.Contains(olderTemplates[name], string(data)))) {
+		if err != nil || (string(data) != body && (!legacy || !slices.Contains(olderTemplates[name], string(data)))) {
 			return false
 		}
 		typed++
@@ -359,9 +358,7 @@ func copyExclusive(src, dest, want string) (string, error) {
 	}
 	in, err := os.Open(src)
 	if err != nil {
-		f.Close()
-		os.Remove(dest)
-		return "", err
+		return "", errors.Join(err, f.Close(), os.Remove(dest))
 	}
 	defer in.Close()
 	if _, err = io.Copy(f, in); err == nil {
@@ -376,8 +373,7 @@ func copyExclusive(src, dest, want string) (string, error) {
 		}
 	}
 	if err != nil {
-		os.Remove(dest)
-		return "", err
+		return "", errors.Join(err, os.Remove(dest))
 	}
 	return stepCopied, nil
 }

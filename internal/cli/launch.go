@@ -149,7 +149,8 @@ func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, err
 		return false, nil
 	case out == "" || dryRun: // a preview: --out names where it WOULD go, never a write
 		if !check {
-			os.Stdout.Write(data)
+			_, err := os.Stdout.Write(data)
+			return false, err
 		}
 		return false, nil
 	default:
@@ -250,7 +251,7 @@ func cmdDoctor(args []string) int {
 	if *auditMode {
 		return printAudit(*days, *format)
 	}
-	ok := true
+	var ok bool
 	if *format == outfmt.JSON {
 		var checks []launch.Check
 		checks, ok = launch.DoctorChecks()

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -301,7 +302,7 @@ func chooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source 
 	}
 	gate, source = detectVerifyGate(worktreePath)
 	if gate == "" {
-		return "", "", fmt.Errorf(`no verification gate found — pass --verify "<cmd>" or --no-verify`)
+		return "", "", errors.New(`no verification gate found — pass --verify "<cmd>" or --no-verify`)
 	}
 	return gate, source, nil
 }

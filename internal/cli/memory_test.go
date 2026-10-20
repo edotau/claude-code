@@ -11,6 +11,25 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 )
 
+func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	worktree := t.TempDir()
+	pointer := "gitdir: " + filepath.Join(cfg, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte(pointer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	t.Chdir(other)
+	t.Setenv("CLAUDE_PROJECT_DIR", worktree)
+	if got := memoryRoot(""); got != worktree {
+		t.Fatalf("memoryRoot(\"\") = %q, want harness worktree %q (not cwd %q)", got, worktree, other)
+	}
+}
+
 // A CLAUDE_PROJECT_DIR that is not a repo (a launcher stamping $HOME) must not win over the cwd's toplevel.
 func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 	cfg := t.TempDir()
