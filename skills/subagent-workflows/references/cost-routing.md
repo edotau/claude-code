@@ -12,14 +12,14 @@ brief and the check.
 
 | Step kind | Runners (bills to) | Call |
 |---|---|---|
-| Scoped implementation, mechanical edits, test repair | rotate: `claude` (in-context) · `copilot` (premium requests) · `codex` (ChatGPT plan) — not opencode: it rides the same Copilot/ChatGPT accounts | `claude-code ask --agent <runner> --tools --workdir <repo> --fallback none --format json "<brief>"` (copilot: `--model claude-sonnet-5.5`) |
+| Scoped implementation, mechanical edits, test repair | rotate: `claude` (in-context) · `copilot` (premium requests) · `codex` (ChatGPT plan) · `opencode` (Copilot `claude-opus-5.5`, medium, via its ladder) | `claude-code ask --agent <runner> --tools --workdir <repo> --fallback none --format json "<brief>"` (copilot: `--model claude-sonnet-5.5`) |
 | Adversarial diff review | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"` |
-| Read-only sweep, cross-file map | `gemini` (Google sign-in via agy) | `claude-code ask --agent gemini --tools "<brief>"` · 1M context: `claude-code gemini bridge` |
+| Read-only sweep, cross-file map, local lookup, web search | `gemini` (Google sign-in via agy) | `claude-code ask --agent gemini --tools "<brief>"` (web too: keep `--tools`, ask for URLs) · 1M context: `claude-code gemini bridge` |
 | Doc drafting | `opencode` | `claude-code ask --agent opencode --tools "<brief>"` |
 | Architecture, judgement, integration, final verification | Claude (this session) | stays here — never delegated |
 
 3. **Distribute evenly.** The manager assigns runners round-robin across the suitable, available ones
-   for implementation steps (e.g. 3 leaves → claude, copilot, codex), names it in each handoff as
+   for implementation steps (e.g. 4 leaves → claude, copilot, codex, opencode), names it in each handoff as
    `runner: <name>`, and keeps the split even across a session rather than per batch. Judgement and
    integration stay with Claude regardless.
 4. Size the model to the step: Copilot's `claude-haiku-5.5` for mechanical edits, `claude-sonnet-5.5`
