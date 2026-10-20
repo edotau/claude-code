@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,9 @@ func assignIDs(dir string, now time.Time) (int, error) {
 			if !strings.HasPrefix(l, prefix) || BlockID(l) != "" || strings.TrimSpace(strings.TrimPrefix(l, prefix)) == "" {
 				continue
 			}
-			sum := sha256.Sum256([]byte(dir + "\x00" + name + "\x00" + l + "\x00" + now.Format(time.RFC3339Nano)))
+			// i is in the hash so two identical lines in one settle pass never collide on the same ID.
+			key := dir + "\x00" + name + "\x00" + strconv.Itoa(i) + "\x00" + l + "\x00" + now.Format(time.RFC3339Nano)
+			sum := sha256.Sum256([]byte(key))
 			lines[i] = l + " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"
 			changed, n = true, n+1
 		}
