@@ -109,13 +109,17 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 	source := "keyring"
 	switch {
 	case found:
-		k, err = parseKey(v)
+		if k, err = parseKey(v); err != nil && kid != "" {
+			// Malformed pointer with a kid recorded: the pointer is only a convenience cache
+			// of the immutable per-kid account, so fall to matchKey's lookup below instead.
+			k, err = nil, nil
+		}
 	case command != "":
 		source = "command"
 		k, err = runKeyCommand(command)
 	case recoverable:
 		return nil, "", wrapKeyringUnavailable(lookupErr)
-	default:
+	case kid == "":
 		return nil, "", ErrLocked
 	}
 	if err != nil {
@@ -141,10 +145,8 @@ func parseKeyCommandArgv(raw string) ([]string, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("vault: key_command must not be an empty argv array")
 	}
-	for i, a := range argv {
-		if a == "" {
-			return nil, fmt.Errorf("vault: key_command argv[%d] must not be empty", i)
-		}
+	if argv[0] == "" {
+		return nil, fmt.Errorf("vault: key_command argv[0] (the executable) must not be empty")
 	}
 	return argv, nil
 }

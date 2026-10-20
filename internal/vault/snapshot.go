@@ -11,8 +11,8 @@ import (
 
 // SnapshotTo writes a consistent, point-in-time copy of the vault at path to w via one read
 // transaction, so an archiver (nuke) never captures bytes straddling an in-flight write (R8).
-// It bypasses the package's inTx guard deliberately: it is read-only and must run alongside an
-// unrelated writer without tripping the nested-open check meant for this process's own callbacks.
+// It opens its own bbolt.DB directly rather than going through View, so it runs alongside an
+// unrelated writer without the architectural contract that View/Update callbacks must not nest.
 func SnapshotTo(path string, w io.Writer) error {
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
 	if errors.Is(err, fs.ErrNotExist) {

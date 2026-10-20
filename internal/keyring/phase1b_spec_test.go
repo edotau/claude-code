@@ -36,7 +36,11 @@ func TestLookupToolFailureIsUnavailable(t *testing.T) {
 			}
 			t.Setenv("PATH", dir)
 			saved := timeout
-			timeout = 50 * time.Millisecond
+			// 1s, not 50ms: under load, forking /bin/sh for the fixture script itself can take
+			// tens to hundreds of ms, and a too-tight timeout flakes the fast-path subtests
+			// ("found"/"absent"/etc.) with a false ErrNoAnswer; "hanging" (sleep 2) still times
+			// out well inside that budget, so what this asserts is unchanged.
+			timeout = time.Second
 			t.Cleanup(func() { timeout = saved })
 
 			value, found, err := Lookup("PHASE1B")
