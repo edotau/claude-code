@@ -75,6 +75,7 @@ func commands() []command {
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
+		{name: "config", group: groupSettings, summary: "show|edit the vault's pins, env, overlays; migrate", run: cmdConfig},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
