@@ -21,9 +21,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const (
@@ -479,10 +479,10 @@ func retryAfter(v string, now time.Time) time.Duration {
 	return min(d, maxCooldown)
 }
 
-// registry reloads providers.json when its mtime changes, keeping the last good table on a bad edit.
+// registry reloads on vault mtime changes, keeping the last good table on a bad overlay or a busy vault.
 func (r *Router) registry() (*providers.Registry, error) {
 	var stamp time.Time
-	if fi, err := os.Stat(paths.ProvidersOverlay()); err == nil {
+	if fi, err := os.Stat(vault.Path()); err == nil {
 		stamp = fi.ModTime()
 	}
 	r.mu.Lock()

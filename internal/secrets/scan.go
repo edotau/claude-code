@@ -35,18 +35,14 @@ func (s *Scanner) flag(detail string) {
 
 func (s *Scanner) ok(msg string) { fmt.Fprintf(s.out(), "  ✓ %s\n", msg) }
 
-// DefaultScanTargets is the config surface scanned when `secrets scan` is given no paths: the
-// JSON configs Claude Code and this harness read, plus the KEY=value pin file (never secrets.env
-// itself — that file is the designated secret store, not a finding).
+// DefaultScanTargets lists settings.json, settings.local.json, ~/.claude.json and .mcp.json for a scan with no paths.
 func DefaultScanTargets() []string {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	out := []string{
 		filepath.Join(paths.ConfigDir(), "settings.json"),
 		filepath.Join(paths.ConfigDir(), "settings.local.json"),
-		paths.ProvidersOverlay(), // providers.json
-		paths.ClaudeJSON(),       // ~/.claude.json
-		paths.PinFile(),
+		paths.ClaudeJSON(), // ~/.claude.json
 	}
 	if home != "" {
 		out = append(out, filepath.Join(home, ".mcp.json"))
@@ -140,8 +136,7 @@ func marketplaceRepoPath(path []string) bool {
 	return len(path) == 4 && path[0] == "extraKnownMarketplaces" && path[2] == "source" && path[3] == "repo"
 }
 
-// ScanFile inspects one config file: JSON leaves when it parses as JSON, else KEY=value lines (so
-// the one scanner also covers env.d/provider.env). A missing file is silently fine.
+// ScanFile inspects JSON leaves or KEY=value lines in an explicitly supplied file; missing files are silently fine.
 func (s *Scanner) ScanFile(path string) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
