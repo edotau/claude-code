@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
 	"strconv"
 )
 
@@ -162,6 +163,17 @@ func TestCopilotLogin(t *testing.T) {
 	}
 	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "copilot sign-in") {
 		t.Errorf("codex must refuse the copilot login: %v", err)
+	}
+}
+
+// The registry's "auto" slot must not override copilot's own default model: COPILOT_MODEL goes out blank.
+func TestCopilotLoginAutoDefersToCopilotDefault(t *testing.T) {
+	env, _, err := Configure(context.Background(), "copilot", target(t, "github-copilot", "auto"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, ok := envMap(env)["COPILOT_MODEL"]; !ok || w != "" {
+		t.Errorf("COPILOT_MODEL = %q (set %v), want blank", w, ok)
 	}
 }
 
@@ -850,6 +862,85 @@ func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 	}
 	if v, ok := got["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"]; ok && v == strconv.Itoa(models.ContextWindow("gpt-5")) {
 		t.Errorf("prompt budget must leave room for %d output tokens, got %s", copilotMaxOutputTokens, v)
+	}
+}
+
+// copilotAuthEnv isolates config/home/gh/keyring so copilotAuthSource reads nothing real; the fake `gh` on
+// PATH reports an active account for hosts.yml but is never `security`/`secret-tool`, so Store/Get use the
+// file plane only.
+func copilotAuthEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	ghDir := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", ghDir)
+	hosts := "github.com:\n    user: alice\n    users:\n        alice:\n            oauth_token: tok\n"
+	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	gh := "#!/bin/sh\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin) // gh present, but no `security`/`secret-tool`: keyring.Available() is false
+}
+
+// A stored COPILOT_GITHUB_TOKEN (file plane) outranks gh's active account.
+func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
+	copilotAuthEnv(t)
+	if _, _, ok := secrets.Get(CopilotTokenEnv); ok {
+		t.Fatal("precondition: no stored token yet")
+	}
+	a, ok := copilotAuthSource()
+	if !ok || a.Source != srcActive || a.Account != "alice" {
+		t.Fatalf("with no stored token: got %+v, want gh's active account alice", a)
+	}
+	if _, err := secrets.Store(CopilotTokenEnv, "stored-tok", false); err != nil {
+		t.Fatal(err)
+	}
+	if v, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "file" || v != "stored-tok" {
+		t.Fatalf("secrets.Get(%s) = (%q, %q, %v), want (stored-tok, file, true)", CopilotTokenEnv, v, src, ok)
+	}
+	a, ok = copilotAuthSource()
+	if !ok || a.Source != SrcStoredToken || a.token != "stored-tok" {
+		t.Fatalf("with a stored token: got %+v, want Source=%s token=stored-tok", a, SrcStoredToken)
+	}
+}
+
+// A pinned gh user (COPILOT_GITHUB_USER) still outranks a stored token.
+func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
+	copilotAuthEnv(t)
+	if _, err := secrets.Store(CopilotTokenEnv, "stored-tok", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := copilotAuthSource()
+	if !ok || a.Source != srcPinned || a.Account != "alice" {
+		t.Fatalf("a pin must outrank a stored token: got %+v", a)
+	}
+}
+
+// The same token present only as a process env var (never stored) must not take the stored-token path:
+// it falls through to copilot's own env-precedence order instead.
+func TestCopilotAuthSourceEnvOnlyTokenIsNotStored(t *testing.T) {
+	copilotAuthEnv(t)
+	t.Setenv(CopilotTokenEnv, "env-tok")
+	if _, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "env" {
+		t.Fatalf("secrets.Get(%s) = (_, %q, %v), want source env", CopilotTokenEnv, src, ok)
+	}
+	a, ok := copilotAuthSource()
+	if !ok || a.Source == SrcStoredToken {
+		t.Fatalf("an env-only token must not resolve as %s: got %+v", SrcStoredToken, a)
+	}
+	// gh's active account still outranks copilot's own env-var order (srcActive beats CopilotTokenEnv here).
+	if a.Source != srcActive {
+		t.Fatalf("got %+v, want gh's active account to win over an env-only token", a)
 	}
 }
 

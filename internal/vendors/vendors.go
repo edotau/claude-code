@@ -557,6 +557,9 @@ const copilotMaxOutputTokens = 32_000
 // copilot BYOK: COPILOT_PROVIDER_* in the env; COPILOT_OFFLINE keeps it off GitHub's own model path.
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
 func copilotLogin(model string, h *Headless) ([]string, []string, error) {
+	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
+		model = ""
+	}
 	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
 	if tok := CopilotLaunchToken(); tok != "" { // the harness's chosen account beats any inherited token
 		env = append(env, CopilotTokenEnv+"="+tok)

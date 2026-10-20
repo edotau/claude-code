@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
 )
 
 // CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from `gh auth token`.
@@ -36,13 +37,18 @@ const (
 	srcPinned  = "gh (pinned)"
 	srcActive  = "gh (active)"
 	srcCopilot = "copilot login"
+	// SrcStoredToken is a COPILOT_GITHUB_TOKEN pasted via configure (keyring or secrets.env).
+	SrcStoredToken = CopilotTokenEnv + " (stored)"
 )
 
-// copilotAuthSource (no network): the pinned gh user (COPILOT_GITHUB_USER), then gh's active account, then
+// copilotAuthSource (no network): the pinned gh user (COPILOT_GITHUB_USER), a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
 	if pin := providers.Pin(providers.PinGitHubUser); pin != "" && slices.Contains(GHAccounts(), pin) {
 		return CopilotAuth{Account: pin, Source: srcPinned}, true
+	}
+	if tok, src, ok := secrets.Get(CopilotTokenEnv); ok && src != "env" {
+		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
 	if login := GHActiveAccount(); login != "" {
 		return CopilotAuth{Account: login, Source: srcActive}, true
