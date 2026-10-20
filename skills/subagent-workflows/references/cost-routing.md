@@ -28,6 +28,13 @@ brief and the check.
 5. The manager (not the leaf) assigns `runner: claude` when the step is tiny (the brief costs more than the work), tightly coupled to
    context only this session holds, or the runner failed its smoke test (`ask --agent <r> "Reply READY only."`).
 
+## Alternative when a runner is unavailable
+
+`internal/agent.FallbackChain` already orders this (codex/gemini → copilot → opencode → claude;
+copilot/opencode → the other vendors → claude last). In a lane, re-dispatch on the alternative
+explicitly instead of relying on it (`--fallback none`, per above): codex quota → `copilot --model
+gpt-6-astra`; copilot down → opencode; gemini (agy) down → copilot; Claude only when nothing else answers.
+
 ## Verify the leg actually ran
 
 `--format json` returns the envelope: `agent`, `provider`, `model`, `usage`, and `fallback` /
