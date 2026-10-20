@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,10 +41,11 @@ type Input struct {
 
 const (
 	VendorClaude  = "claude"
+	VendorCodex   = "codex"
 	VendorCopilot = "copilot"
 )
 
-// Vendor distinguishes Copilot's payload; Claude and Codex share the snake_case contract.
+// Vendor uses the explicit hook vendor or Copilot's payload shape, defaulting to Claude.
 func (in *Input) Vendor() string {
 	if in == nil || in.vendor == "" {
 		return VendorClaude
@@ -57,6 +59,10 @@ func ParseInput(r io.Reader) *Input {
 	in := &Input{Raw: raw}
 	if json.Unmarshal(raw, &in.doc) != nil {
 		return &Input{Raw: raw}
+	}
+	switch vendor := os.Getenv(hookspec.VendorEnv); vendor {
+	case VendorClaude, VendorCodex, VendorCopilot:
+		in.vendor = vendor
 	}
 	in.SessionID = in.nested("session_id")
 	in.CWD = in.nested("cwd")

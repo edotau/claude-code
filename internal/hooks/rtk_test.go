@@ -45,6 +45,58 @@ func TestRTKWrapsEligibleCommand(t *testing.T) {
 	}
 }
 
+func TestRTKSkipsCodex(t *testing.T) {
+	t.Setenv(rtkBinaryEnv, "echo")
+	payload := rtkBashIn("git log --oneline -20")
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCodex {
+		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCodex)
+	}
+	if got, ok := rtkOut(t, payload); ok {
+		t.Fatalf("Codex command rewritten to %q", got)
+	}
+	t.Setenv("HARNESS_HOOK_VENDOR", "")
+	if got, ok := rtkOut(t, payload); !ok || got != "echo git log --oneline -20" {
+		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
+	}
+}
+
+func TestCodexBashGuardStillBlocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	t.Setenv(rtkBinaryEnv, "echo")
+	var stdout, stderr strings.Builder
+	rc := BashGuard(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
+	if rc != ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "BLOCKED") {
+		t.Fatalf("want stderr denial without Copilot JSON: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
+	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCopilot {
+		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCopilot)
+	}
+	var stdout strings.Builder
+	if rc := BashGuard(strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	}
+	var out struct {
+		PermissionDecision string `json:"permissionDecision"`
+	}
+	if err := json.Unmarshal([]byte(stdout.String()), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.PermissionDecision != "deny" {
+		t.Fatalf("Copilot permission decision = %q, want deny", out.PermissionDecision)
+	}
+}
+
 func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
 	for _, cmd := range []string{
