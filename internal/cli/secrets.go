@@ -23,8 +23,10 @@ const secretsUsage = `usage: claude-code secrets <op> [flags]
                           NAME: prompts for the value; no NAME: guided dialog
   get <NAME> [--export]   print a secret (vault -> env)
   delete <NAME>           remove a secret from the vault
-  import <file>           store each NAME=value line of a .env (# lines skipped)
+  import <file>|-         store each NAME=value line of a .env (# lines skipped)
+                          -: read stdin (needs --yes; refused on a terminal)
   export [NAME...]        append stored secrets to ./.env, or --out f (0600)
+                          --out -: stream NAME=value lines to stdout instead
   list [NAME...]          stored secrets: name, vault, masked value
   status                  credential source per provider (never the value)
   scan [paths...]         find plaintext secrets in config files and the vault
@@ -278,22 +280,38 @@ func cmdSecretsAll(args []string) int {
 }
 
 // cmdSecretsImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
+// "-" reads stdin instead of a file: the usual TTY confirm can't read from the data stream, so "-" requires
+// --yes and is refused outright when stdin is itself a terminal (nothing piped in).
 func cmdSecretsImport(args []string) int {
-	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env>  (NAME=value lines)")
+	yes, rest := extractBool(args, "yes")
+	if len(rest) != 1 || rest[0] == "-h" || rest[0] == "--help" {
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env>|- [--yes]  (NAME=value lines)")
 		return 2
 	}
-	f, err := os.Open(args[0])
-	if err != nil {
-		return fail("secrets import: %v", err)
+	name := rest[0]
+	var r io.Reader
+	if name == "-" {
+		if tui.StdinIsTerminal() {
+			return fail("secrets import -: refusing, stdin is a terminal (pipe data in)")
+		}
+		if !yes {
+			return fail("secrets import -: needs --yes (no confirm prompt possible on piped stdin)")
+		}
+		r = os.Stdin
+	} else {
+		f, err := os.Open(name)
+		if err != nil {
+			return fail("secrets import: %v", err)
+		}
+		defer f.Close()
+		r = f
 	}
-	defer f.Close()
-	pairs, problems := secrets.ParseDotenv(f)
+	pairs, problems := secrets.ParseDotenv(r)
 	if len(problems) > 0 {
-		return fail("secrets import: %s: nothing written\n  %s", args[0], strings.Join(problems, "\n  "))
+		return fail("secrets import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
 	}
 	if len(pairs) == 0 {
-		return fail("secrets import: %s has no NAME=value lines", args[0])
+		return fail("secrets import: %s has no NAME=value lines", name)
 	}
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secrets.Preview(p.Value))
@@ -312,11 +330,13 @@ func cmdSecretsImport(args []string) int {
 }
 
 // cmdSecretsExport appends stored secrets (all, or the NAMEs given) to --out (default ./.env): keys the file
-// already defines are skipped, and the file is left 0600 whether it was created or appended to.
+// already defines are skipped, and the file is left 0600 whether it was created or appended to. --out - writes
+// the NAME=value lines to stdout instead, with no file and no plaintext ever touching disk.
 func cmdSecretsExport(args []string) int {
 	out, rest, err := extractValue(args, "out")
 	if err != nil || slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file]  (appends, 0600)")
+		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file|-]")
+		fmt.Fprintln(os.Stderr, "  file: appends, 0600 (default ./.env)   -: stream to stdout")
 		return 2
 	}
 	if out == "" {
@@ -328,6 +348,17 @@ func cmdSecretsExport(args []string) int {
 	}
 	if len(pairs) == 0 {
 		return fail("secrets export: no stored secrets to export")
+	}
+	if out == "-" {
+		var b strings.Builder
+		for _, p := range pairs {
+			b.WriteString(p.Name + "=" + p.Value + "\n")
+		}
+		if _, err := io.WriteString(os.Stdout, b.String()); err != nil {
+			return fail("secrets export: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "wrote %d secret(s) to stdout\n", len(pairs))
+		return 0
 	}
 	added, skipped, err := secrets.AppendDotenv(out, pairs)
 	if err != nil {
