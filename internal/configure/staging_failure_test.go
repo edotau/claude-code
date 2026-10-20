@@ -20,12 +20,12 @@ func TestStageRejectsInvalidValueWithoutMutation(t *testing.T) {
 			t.Setenv(name, "original")
 			d, _ := newDialog("")
 			d.pending = map[string]stagedKey{}
-			if staged && !d.stage(name, "already-staged", true) {
+			if staged && !d.stage(name, "already-staged") {
 				t.Fatal("valid stage failed")
 			}
 			before, seen := d.pending[name]
 			env := os.Getenv(name)
-			if d.stage(name, "invalid\x00candidate", false) {
+			if d.stage(name, "invalid\x00candidate") {
 				t.Fatal("stage accepted a NUL value")
 			}
 			if got, ok := d.pending[name]; ok != seen || got != before {
@@ -49,7 +49,7 @@ func TestStoreValueRejectsInvalidStagingWithoutSuccess(t *testing.T) {
 	t.Setenv(name, "original")
 	d, out := newDialog("")
 	d.pending = map[string]stagedKey{}
-	if storeValue(d, name, "invalid\x00candidate", false) {
+	if storeValue(d, name, "invalid\x00candidate") {
 		t.Fatal("storeValue reported success for a NUL value")
 	}
 	if len(d.pending) != 0 || os.Getenv(name) != "original" {

@@ -16,7 +16,7 @@ func TestCopilotKeyRowLabelShowsTokenState(t *testing.T) {
 	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[no token]") {
 		t.Errorf("absent: desc = %q, want [no token]", got)
 	}
-	if _, err := secrets.Store("COPILOT_GITHUB_TOKEN", "tok", false); err != nil {
+	if err := secrets.Store("COPILOT_GITHUB_TOKEN", "tok"); err != nil {
 		t.Fatal(err)
 	}
 	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[token set]") {
@@ -59,13 +59,13 @@ func TestRunMenuAppendsExitRowAfterAgentRows(t *testing.T) {
 
 func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 	for _, yes := range []bool{false, true} {
-		reg := menuTestEnv(t) // PATH has no `security`, so Store lands in the temp file plane
+		reg := menuTestEnv(t)
 		var out strings.Builder
 		d := &dialog{reg: reg, out: &out}
 		_, actions := menuRows(d)
 		origPick := pickMenu
 		pickMenu = flatPick(func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
-			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789", false)
+			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789")
 			return len(actions), nil
 		})
 		orig := saveConfirmed
@@ -80,7 +80,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 			t.Errorf("yes=%v: asked = %v", yes, asked)
 		}
 		v, src, _ := secrets.Get("GEMINI_API_KEY")
-		if yes && (src != "file" || v != "AIzaTestKey-0123456789") {
+		if yes && (src != "vault" || v != "AIzaTestKey-0123456789") {
 			t.Errorf("Submit y: GEMINI_API_KEY = %q from %q, want the staged value stored\n%s", v, src, out.String())
 		}
 		if !yes && src != "" {

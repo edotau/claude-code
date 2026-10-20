@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // menuTestEnv isolates config/home/PATH so keyTargets' vendor probes never touch a real login CLI or
@@ -16,7 +17,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	origExtra := extraSections
 	t.Cleanup(func() { extraSections = origExtra })
 	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { return nil, nil }
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())

@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // runKeysCheck drives runKeysChanged directly the way Run's Sections walk used to before `keys` was
@@ -53,8 +56,8 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	if ents, _ := os.ReadDir(home); len(ents) != 0 {
 		t.Errorf("--check wrote into HOME: %v", ents)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "env.d", "secrets.env")); err == nil {
-		t.Error("--check wrote secrets.env")
+	if _, err := os.Stat(filepath.Join(cfg, "state", "vault.db")); err == nil {
+		t.Error("--check wrote vault.db")
 	}
 }
 
@@ -111,11 +114,11 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 }
 
 // An absent credential offers BOTH the browser login and a pasted key; piped, each is one [Y/n], so declining
-// the login and accepting the key writes it to env.d/secrets.env without ever opening a browser.
+// the login and accepting the key seals it in the vault without opening a browser.
 func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("PATH", t.TempDir()) // no `security`/`secret-tool` on PATH: Store must fall back to the file plane
+	vaulttest.UseKeyring(t)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("PATH", t.TempDir())
 	kt := keyTarget{label: "openai", envVar: "OPENAI_API_KEY", loginArgv: []string{"openai", "login"}, fixCmd: "x"}
 	opts := authOptions(kt)
 	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "OPENAI_API_KEY" || !strings.Contains(opts[1].desc, "platform.openai.com") {
@@ -127,9 +130,17 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if !resolveKey(d, kt) {
 		t.Fatalf("resolveKey = false\n%s", out.String())
 	}
-	got, err := os.ReadFile(filepath.Join(cfg, "env.d", "secrets.env"))
-	if err != nil || !strings.Contains(string(got), "OPENAI_API_KEY=sk-test-value") {
-		t.Errorf("secrets.env = %q (%v)", got, err)
+	got, src, ok := secrets.Get("OPENAI_API_KEY")
+	if !ok || src != "vault" || got != "sk-test-value" {
+		t.Errorf("stored key = (%q, %q, %v)", got, src, ok)
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		if raw, _ := tx.Get(vault.Secrets, "OPENAI_API_KEY"); strings.Contains(raw, "sk-test-value") {
+			t.Error("vault record contains the plaintext secret")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "logged in") {
 		t.Error("login must not have run after being declined")
@@ -163,8 +174,8 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	if ents, _ := os.ReadDir(home); len(ents) != 0 {
 		t.Errorf("--check wrote into HOME: %v", ents)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "env.d", "secrets.env")); err == nil {
-		t.Error("--check wrote secrets.env")
+	if _, err := os.Stat(filepath.Join(cfg, "state", "vault.db")); err == nil {
+		t.Error("--check wrote vault.db")
 	}
 }
 
