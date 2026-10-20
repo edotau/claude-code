@@ -26,6 +26,23 @@ const CopilotTokenEnv = "COPILOT_GITHUB_TOKEN"
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
 var copilotTokenEnvs = []string{CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
 
+// copilotTokenPrefixes are GitHub's own token prefixes (gho_/ghp_/ghu_) plus the newer fine-grained github_pat_.
+var copilotTokenPrefixes = []string{"gho_", "ghp_", "ghu_", "github_pat_"}
+
+// ValidCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
+// typo or truncated paste before it is sealed under CopilotTokenEnv.
+func ValidCopilotToken(tok string) bool {
+	if len(tok) < 20 {
+		return false
+	}
+	for _, p := range copilotTokenPrefixes {
+		if strings.HasPrefix(tok, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // CopilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
 type CopilotAuth struct {
 	Account string // GitHub login; "" when it needs a network lookup the caller skipped, or that failed

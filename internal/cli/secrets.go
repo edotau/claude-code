@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 func init() { secretsRun = cmdSecrets }
@@ -156,6 +157,9 @@ func cmdSecretsSet(args []string) int {
 	}
 	if value == "" {
 		return fail("secrets set: empty value")
+	}
+	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(value) {
+		return fail("secrets set: %s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	if dryRun {
 		verb := "add"

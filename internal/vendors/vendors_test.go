@@ -1111,6 +1111,34 @@ func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 	}
 }
 
+// ValidCopilotToken: every documented GitHub token prefix passes at length, a short or wrongly-prefixed
+// or whitespace-mangled value does not.
+func TestValidCopilotToken(t *testing.T) {
+	cases := []struct {
+		name string
+		tok  string
+		want bool
+	}{
+		{"gho_ prefix", "gh" + "o_abcdefghijklmnopqrstuvwxyz", true},
+		{"ghp_ prefix", "gh" + "p_abcdefghijklmnopqrstuvwxyz", true},
+		{"ghu_ prefix", "gh" + "u_abcdefghijklmnopqrstuvwxyz", true},
+		{"github_pat_ prefix", "github_" + "pat_abcdefghijklmnop", true},
+		{"too short with valid prefix", "ghp_short", false},
+		{"wrong prefix", "sk-abcdefghijklmnopqrstuvwxyz", false},
+		{"no prefix at all", "abcdefghijklmnopqrstuvwxyz1234", false},
+		{"empty", "", false},
+		{"leading whitespace defeats the prefix check", " ghp_abcdefghijklmnopqrstuvwxyz", false},
+		{"trailing whitespace still counts toward length but prefix matches", "gh" + "p_abcdefghijklmnopqrstuvwxyz ", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ValidCopilotToken(c.tok); got != c.want {
+				t.Errorf("ValidCopilotToken(%q) = %v, want %v", c.tok, got, c.want)
+			}
+		})
+	}
+}
+
 // copilotAuthEnv isolates config/home/gh/keyring so copilotAuthSource reads nothing real; the fake `gh` on
 // PATH reports an active account for hosts.yml but is never `security`/`secret-tool`, and the vault key comes
 // from HARNESS_VAULT_KEY with an in-memory keyring behind it.
