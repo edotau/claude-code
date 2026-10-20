@@ -51,6 +51,12 @@ by measured impact (a finding without a number is a hypothesis). The most common
 is the **N+1 query**. Detector tables (symptom→fix,
 algorithmic complexity, report format) + common mistakes: `references/performance.md`.
 
+## Cross-boundary lens
+
+When a change touches a seam (a function signature, argv/env builder, flag, file format, or an
+API another package calls) — read the producer and every consumer together and exercise each
+consumer path, not just the changed package; a seam is only verified on every caller.
+
 ## Dispatch a review
 
 Determine scope, then fan out **both** reviewers in parallel.
