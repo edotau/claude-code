@@ -10,7 +10,9 @@ package history
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,11 +20,15 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // HistoryFile is one watched file: Label names it inside the store (flat namespace — a label must be
 // unique across BOTH planes), Path is where it lives on disk.
-type HistoryFile struct{ Label, Path string }
+type HistoryFile struct {
+	Label, Path string
+	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
+}
 
 // Store is the shadow history repo. Dir is created and `git init`-ed on first use.
 type Store struct{ Dir string }
@@ -44,16 +50,15 @@ type Result struct {
 func Dir() string { return filepath.Join(paths.StateDir(), "history") }
 
 // ConfigFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
-// wrote one of these can rewrite it. env.d/secrets.env is deliberately absent BY NAME — secretRE below
-// is the backstop for a credential that leaked into one of these, never the policy for secrets.env
-// itself, which must never be read into this process at all.
+// wrote one of these can rewrite it. The provider overlay and pins are read from the vault; its secrets
+// bucket is never read here — secretRE below is only the backstop for a credential leaked into one of these.
 func ConfigFiles() []HistoryFile {
 	cfg := paths.ConfigDir()
 	files := []HistoryFile{
 		{Label: "settings.json", Path: filepath.Join(cfg, "settings.json")},
 		{Label: "settings.local.json", Path: filepath.Join(cfg, "settings.local.json")},
-		{Label: "providers.json", Path: filepath.Join(paths.EnvDir(), "providers.json")},
-		{Label: "provider.env", Path: filepath.Join(paths.EnvDir(), "provider.env")},
+		{Label: "providers.json", Read: providers.OverlayDoc},
+		{Label: "provider.env", Read: providers.RenderPins},
 		{Label: "claude.json", Path: paths.ClaudeJSON()},
 	}
 	return append(files, vendorConfigs()...)
@@ -110,10 +115,10 @@ func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error
 		return res, err
 	}
 	for _, f := range files {
-		data, err := os.ReadFile(f.Path)
+		data, err := readFile(f)
 		dest := filepath.Join(s.Dir, plane, f.Label)
 		switch {
-		case err != nil && os.IsNotExist(err):
+		case err != nil && errors.Is(err, fs.ErrNotExist):
 			res.Absent = append(res.Absent, f.Label)
 			// A file that vanished must LEAVE the store, or the log shows it as still present.
 			if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
@@ -151,6 +156,14 @@ func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error
 	}
 	res.Commit = commit
 	return res, nil
+}
+
+// readFile reads f through its Read func when set, else from its Path.
+func readFile(f HistoryFile) ([]byte, error) {
+	if f.Read != nil {
+		return f.Read()
+	}
+	return os.ReadFile(f.Path)
 }
 
 // subject names what moved, so `git log --oneline` alone answers "when did the opus pin change?".
