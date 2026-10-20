@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
@@ -125,10 +126,8 @@ func lookup(name string) *command {
 		if c.name == name {
 			return &c
 		}
-		for _, a := range c.aliases {
-			if a == name {
-				return &c
-			}
+		if slices.Contains(c.aliases, name) {
+			return &c
 		}
 	}
 	return nil

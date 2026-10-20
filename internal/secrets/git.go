@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,13 +24,18 @@ var gitLogTimeout = 60 * time.Second
 // to the last N commits (0 = full history). Read-only: runs `git log -p`, nothing else.
 func ScanGit(out io.Writer, dir string, since int) int {
 	fmt.Fprintln(out, "== git history credential scan ==")
-	if exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree").Run() != nil {
+	inRepo, err := probeGitRepo(dir)
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ could not probe git repo: %v\n", err)
+		return ExitFindings
+	}
+	if !inRepo {
 		fmt.Fprintln(out, "  ✓ not inside a git repo — skipped")
 		return ExitClean
 	}
 	args := []string{"-C", dir, "log", "-p", "--no-color", "--"}
 	if since > 0 {
-		args = append(args[:len(args)-1], "-n", fmt.Sprintf("%d", since), "--")
+		args = append(args[:len(args)-1], "-n", strconv.Itoa(since), "--")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
 	defer cancel()
@@ -91,12 +99,26 @@ func ScanGit(out io.Writer, dir string, since int) int {
 	return ExitFindings
 }
 
+func probeGitRepo(dir string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--is-inside-work-tree")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	_, err := cmd.Output()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && strings.Contains(string(exitErr.Stderr), "not a git repository") {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // isTestFixture reports test/testdata paths, whose synthetic keys are noise (GitHub push protection skips them too).
 func isTestFixture(p string) bool {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "testdata" {
-			return true
-		}
+	if slices.Contains(strings.Split(p, "/"), "testdata") {
+		return true
 	}
 	base := path.Base(p)
 	for _, suf := range []string{"_test.go", "_test.py", ".test.ts", ".test.js", ".spec.ts", ".spec.js"} {

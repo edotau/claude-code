@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,9 +14,7 @@ import (
 func wfLintPayload(t *testing.T, extra map[string]any) string {
 	t.Helper()
 	toolInput := map[string]any{}
-	for k, v := range extra {
-		toolInput[k] = v
-	}
+	maps.Copy(toolInput, extra)
 	b, err := json.Marshal(map[string]any{"tool_name": "Workflow", "tool_input": toolInput})
 	if err != nil {
 		t.Fatal(err)

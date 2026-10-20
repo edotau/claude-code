@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,7 +36,10 @@ func newUpstream(t *testing.T, handle func(w http.ResponseWriter, r *http.Reques
 	u.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := int(u.hits.Add(1))
 		var m map[string]any
-		json.NewDecoder(r.Body).Decode(&m)
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			http.Error(w, "decode upstream request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		u.last.Store(r)
 		u.body.Store(&m)
 		u.handle(w, r, n)
@@ -64,9 +68,20 @@ func setup(t *testing.T, overlay string) *httptest.Server {
 	return srv
 }
 
+func testRequest(t *testing.T, method, url string, body io.Reader) *http.Request {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
 func post(t *testing.T, url, body string, hdr map[string]string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req := testRequest(t, http.MethodPost, url, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Api-Key", secret)
 	for k, v := range hdr {
@@ -76,12 +91,33 @@ func post(t *testing.T, url, body string, hdr map[string]string) *http.Response 
 			req.Header.Set(k, v)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+func TestUpstreamRejectsMalformedJSON(t *testing.T) {
+	var handled atomic.Bool
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		handled.Store(true)
+		ok(w, r, n)
+	})
+	resp := post(t, up.URL, `{"model":`, nil)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest || handled.Load() || up.body.Load() != nil {
+		t.Fatalf("malformed JSON: status=%d handled=%v body=%v", resp.StatusCode, handled.Load(), up.body.Load())
+	}
+}
+
+func TestTestRequestHasDeadline(t *testing.T) {
+	req := testRequest(t, http.MethodGet, "http://127.0.0.1/healthz", nil)
+	deadline, ok := req.Context().Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Second {
+		t.Fatalf("request deadline = %v, present=%v", deadline, ok)
+	}
 }
 
 func anthropicProvider(url, env string, models string) string {
@@ -103,7 +139,7 @@ func TestAuthAndHostRejection(t *testing.T) {
 	if resp := post(t, url, `{"model":"m1"}`, map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + secret}); resp.StatusCode != 200 {
 		t.Fatalf("bearer secret: got %d", resp.StatusCode)
 	}
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"model":"m1"}`))
+	req := testRequest(t, http.MethodPost, url, strings.NewReader(`{"model":"m1"}`))
 	req.Host = "evil.example:80"
 	req.Header.Set("X-Api-Key", secret)
 	resp, err := http.DefaultClient.Do(req)
@@ -117,8 +153,11 @@ func TestAuthAndHostRejection(t *testing.T) {
 	if up.hits.Load() != 1 {
 		t.Fatalf("upstream hits = %d, want 1", up.hits.Load())
 	}
-	h, _ := http.Get(srv.URL + "/healthz")
-	h.Body.Close()
+	h, err := http.DefaultClient.Do(testRequest(t, http.MethodGet, srv.URL+"/healthz", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = h.Body.Close()
 	if h.StatusCode != 200 {
 		t.Fatalf("healthz: %d", h.StatusCode)
 	}
@@ -296,7 +335,11 @@ func TestNoFailoverAfterStreamStarted(t *testing.T) {
 	}
 }
 
+var authRefreshReplayRun atomic.Uint64
+
 func TestAuthRefreshReplay(t *testing.T) {
+	// Isolate each run from the process-wide command credential cache.
+	name := fmt.Sprintf("%s-%d", t.Name(), authRefreshReplayRun.Add(1))
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "n")
 	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
@@ -307,14 +350,63 @@ func TestAuthRefreshReplay(t *testing.T) {
 		ok(w, r, 0)
 	})
 	cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
-	overlay, _ := json.Marshal(map[string]any{"default": "cmdauth", "providers": map[string]any{"cmdauth": map[string]any{
+	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{name: map[string]any{
 		"kind": "anthropic", "base_url": up.URL, "auth": map[string]any{"type": "bearer", "command": cmd, "ttl": 3600},
 		"models": map[string]string{"opus": "m"}}}})
 	srv := setup(t, string(overlay))
 
-	resp := post(t, srv.URL+"/p/cmdauth/v1/messages", `{"model":"m"}`, nil)
+	resp := post(t, srv.URL+"/p/"+name+"/v1/messages", `{"model":"m"}`, nil)
 	if resp.StatusCode != 200 || up.hits.Load() != 2 {
 		t.Fatalf("status %d hits %d, want 200 after one replay", resp.StatusCode, up.hits.Load())
+	}
+}
+
+// A Refresh failure (e.g. a revoked env-var credential with no auth.command to re-run) must still drop the
+// cached presence: the router must re-probe the provider on the very next call, not keep believing for up
+// to credTTL that a now-broken credential is present.
+func TestAuthRefreshFailureInvalidatesCachedCredential(t *testing.T) {
+	const envVar = "ROUTER_TEST_REFRESH_FAILURE_CRED"
+	t.Setenv(envVar, "v1")
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		os.Unsetenv(envVar) // simulate the credential being revoked between the first 401 and the Refresh replay
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	p := &providers.Provider{Name: "refreshfail", BaseURL: up.URL,
+		Auth: providers.Auth{Type: providers.AuthAPIKey, Env: envVar}}
+
+	r := newRouter("s")
+	r.log = io.Discard
+	if !r.credentialPresent(p) {
+		t.Fatal("credential must be reported present with the env var set")
+	}
+
+	req := testRequest(t, http.MethodPost, up.URL, strings.NewReader("{}"))
+	if _, err := r.send(req, p, up.URL, []byte("{}"), func(http.Header) {}); err == nil {
+		t.Fatal("expected send to surface the Refresh failure")
+	}
+
+	if r.credentialPresent(p) {
+		t.Fatal("a failed Refresh must invalidate the cached presence, not leave a stale \"present\" cached")
+	}
+}
+
+// storeCredentialPresent must drop a probe's result once its generation is stale: an invalidation that
+// landed after the probe started (and before it stores) must win, so the cache stays empty.
+func TestStoreCredentialPresentDropsStaleGeneration(t *testing.T) {
+	r := newRouter("s")
+	const name = "genprov"
+	startGen := r.credGen[name]
+	r.invalidateCredential(name) // races ahead of the in-flight probe below, bumping the generation
+	r.storeCredentialPresent(name, startGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; cached {
+		t.Fatal("a probe that started before an invalidation must not resurrect the cache after it")
+	}
+
+	// A probe that starts (captures its generation) after the invalidation must still store normally.
+	freshGen := r.credGen[name]
+	r.storeCredentialPresent(name, freshGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; !cached {
+		t.Fatal("a probe matching the current generation must still populate the cache")
 	}
 }
 
@@ -371,13 +463,26 @@ func TestIdleBodyCutsWedgedStream(t *testing.T) {
 	}
 }
 
+func TestServeCanceledContextDoesNotPublishState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := Serve(ctx, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve with a canceled context = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(stateFile()); !os.IsNotExist(err) {
+		t.Fatalf("router.json must not be published for a canceled context: %v", err)
+	}
+}
+
 func TestServeStateAndEnsure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, 0) }()
 	var st State
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if s, ok := Running(context.Background()); ok {
 			st = s
 			break
@@ -429,6 +534,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, 0) }()
 	var st State
@@ -437,7 +543,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	s, _ := ClientSecret()
-	req, _ := http.NewRequest(http.MethodPost, Base(st.Port)+"/p/up1/v1/messages", strings.NewReader(`{"model":"m","stream":true}`))
+	req := testRequest(t, http.MethodPost, Base(st.Port)+"/p/up1/v1/messages", strings.NewReader(`{"model":"m","stream":true}`))
 	req.Header.Set("x-api-key", s)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -491,6 +597,22 @@ func TestQuotaDeadModelDemotesWithinProvider(t *testing.T) {
 	}
 	if m := (*up.body.Load())["model"]; m != "m1-sonnet" || up.hits.Load() != 3 {
 		t.Fatalf("second request model = %v after %d hits, want m1-sonnet after 3 (no retry of the dead model)", m, up.hits.Load())
+	}
+}
+
+// An absent credential must never be cached: a fallback candidate's credential added mid-session must be
+// seen on the very next call, not hidden until credTTL (60s) expires.
+func TestCredentialPresentDoesNotCacheAbsence(t *testing.T) {
+	r := newRouter("s")
+	const envVar = "ROUTER_TEST_CRED_ABSENT_THEN_PRESENT"
+	os.Unsetenv(envVar)
+	p := &providers.Provider{Name: "envprov", Auth: providers.Auth{Type: providers.AuthAPIKey, Env: envVar}}
+	if r.credentialPresent(p) {
+		t.Fatal("credential reported present with no env var set")
+	}
+	t.Setenv(envVar, "v")
+	if !r.credentialPresent(p) {
+		t.Fatal("newly set credential must be seen on the next call, not cached as absent")
 	}
 }
 

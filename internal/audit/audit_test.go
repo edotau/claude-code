@@ -47,9 +47,14 @@ func TestRotationAndMalformedLines(t *testing.T) {
 	if _, err := os.Stat(File() + ".1"); err != nil {
 		t.Fatalf("no rotation: %v", err)
 	}
-	f, _ := os.OpenFile(File(), os.O_APPEND|os.O_WRONLY, 0o600)
-	f.WriteString("not json\n")
-	f.Close()
+	f, err := os.OpenFile(File(), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString("not json\n"); err != nil {
+		t.Fatal(err)
+	}
 	ev, _ := Read(time.Time{})
 	if len(ev) < 2 {
 		t.Errorf("Read across rotation = %d events", len(ev))

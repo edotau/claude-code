@@ -91,7 +91,8 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", s.boundAddr)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.boundAddr)
 	if err != nil {
 		return fmt.Errorf("web: listen %s: %w", s.boundAddr, err)
 	}
@@ -115,7 +116,9 @@ func Run(ctx context.Context, opts Options) error {
 	if err := srv.Shutdown(dctx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	<-errc
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
 	return nil
 }
 

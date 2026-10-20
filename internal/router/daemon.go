@@ -84,7 +84,7 @@ func Health(ctx context.Context, port int) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthz: %s", resp.Status)
 	}
@@ -175,7 +175,7 @@ func spawn() error {
 		return err
 	}
 	defer lf.Close()
-	cmd := exec.Command(exe, "router", "serve")
+	cmd := exec.Command(exe, "router", "serve") //nolint:noctx // The detached daemon must outlive its caller.
 	cmd.Dir = paths.StateDir()
 	cmd.Stdout, cmd.Stderr = lf, lf
 	proc.Detach(cmd)
@@ -191,9 +191,13 @@ func Serve(ctx context.Context, port int) error {
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if errors.Is(err, syscall.EADDRINUSE) && port == DefaultPort {
-		ln, err = net.Listen("tcp", "127.0.0.1:0") // router.json carries the real port
+		ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0") // router.json carries the real port
 	}
 	if err != nil {
 		return err
@@ -201,12 +205,12 @@ func Serve(ctx context.Context, port int) error {
 	st := State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
 	data, _ := json.Marshal(st)
 	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return err
 	}
 	defer func() {
 		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
-			os.Remove(stateFile())
+			_ = os.Remove(stateFile())
 		}
 	}()
 	srv := &http.Server{Handler: newRouter(secret), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
@@ -227,7 +231,9 @@ func Serve(ctx context.Context, port int) error {
 	} else if err != nil {
 		return err
 	}
-	<-errc
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
 	return nil
 }
 
@@ -236,7 +242,7 @@ func Stop(ctx context.Context) (State, error) {
 	st, ok := Running(ctx)
 	if !ok {
 		if st.PID != 0 && !alive(st.PID) {
-			os.Remove(stateFile())
+			_ = os.Remove(stateFile())
 		}
 		return st, ErrNotRunning
 	}

@@ -43,7 +43,7 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	meta, metaErr := secrets.LoadMeta()
 	file := secrets.ReadAll()
 	if metaErr != nil {
-		// meta unreadable: Names() falls back to the retired index so custom names aren't dropped.
+		// meta unreadable: Names() falls back to file-plane names so custom names aren't dropped.
 		for _, env := range secrets.Names() {
 			if _, ok := users[env]; !ok {
 				users[env] = []string{"custom"}
@@ -244,7 +244,9 @@ func ParseAssignment(raw string) (name, value string) {
 // storeValue writes one secret via secrets.Store and reports where it landed, redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string, forceFile bool) bool {
 	if d.pending != nil {
-		d.stage(name, val, forceFile)
+		if !d.stage(name, val, forceFile) {
+			return false
+		}
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
 		return true
 	}
@@ -308,14 +310,14 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 	if prev, ok := before[name]; ok {
 		d.pending[name] = prev
-		os.Setenv(name, prev.val)
+		_ = os.Setenv(name, prev.val)
 		return
 	}
 	k := d.pending[name]
 	if k.had {
-		os.Setenv(name, k.prev)
+		_ = os.Setenv(name, k.prev)
 	} else {
-		os.Unsetenv(name)
+		_ = os.Unsetenv(name)
 	}
 	delete(d.pending, name)
 }

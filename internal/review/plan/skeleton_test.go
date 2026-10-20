@@ -2,11 +2,27 @@ package plan
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type failAtWriter struct {
+	calls  int
+	failAt int
+	err    error
+	output bytes.Buffer
+}
+
+func (w *failAtWriter) Write(p []byte) (int, error) {
+	w.calls++
+	if w.calls == w.failAt {
+		return 0, w.err
+	}
+	return w.output.Write(p)
+}
 
 // golden commands (captured with python3 on PATH):
 //   python3 workflow_skeleton.py <pattern> [--name NAME]
@@ -42,6 +58,27 @@ func TestRunSkeletonMatchesGolden(t *testing.T) {
 			want := readSkeletonGolden(t, tc.want)
 			if stdout.String() != want {
 				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), want)
+			}
+		})
+	}
+}
+
+func TestRunSkeletonWriteErrors(t *testing.T) {
+	for _, failAt := range []int{1, 2} {
+		t.Run(map[int]string{1: "pattern", 2: "note"}[failAt], func(t *testing.T) {
+			sentinel := errors.New("writer exploded")
+			stdout := &failAtWriter{failAt: failAt, err: sentinel}
+			var stderr bytes.Buffer
+
+			code := RunSkeleton([]string{"pipeline"}, stdout, &stderr)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1; stderr=%q", code, stderr.String())
+			}
+			if stdout.calls != failAt {
+				t.Errorf("stdout writes = %d, want %d (no writes after first failure)", stdout.calls, failAt)
+			}
+			if !strings.Contains(stderr.String(), sentinel.Error()) {
+				t.Errorf("stderr = %q, want writer error %q", stderr.String(), sentinel)
 			}
 		})
 	}

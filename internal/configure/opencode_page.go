@@ -99,7 +99,7 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "opencode auth login · browser sign-in",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
-		for _, r := range []*billingRow{ptr(byokRow(d, "opencode")), modelRow(d, "opencode")} {
+		for _, r := range []*billingRow{new(byokRow(d, "opencode")), modelRow(d, "opencode")} {
 			if r == nil {
 				continue
 			}
@@ -117,8 +117,6 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	}
 	return p
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func plural(n int, one, many string) string {
 	if n == 1 {

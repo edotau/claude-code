@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -95,8 +96,8 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()
-	os.Stdout.Write(out)
-	if err != nil {
+	_, writeErr := os.Stdout.Write(out)
+	if err := errors.Join(err, writeErr); err != nil {
 		return fail("dispatch: %v", err)
 	}
 	fmt.Printf("dispatch: started %s on %s\n", session, host)

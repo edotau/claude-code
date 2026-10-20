@@ -1,7 +1,9 @@
 package launch
 
 import (
+	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -20,7 +22,7 @@ var scienceTOML []byte
 
 // scienceConfigPort reads the top-level `port = N` (a `port` inside a [table] is not the app port); 3000 if unset.
 func scienceConfigPort(raw []byte) int {
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
 			break
@@ -65,7 +67,7 @@ func scienceArgs(args []string, defPort int) (port int, rest []string, err error
 		}
 		if !inline {
 			if len(args) < 2 {
-				return 0, nil, fmt.Errorf("--port requires a value")
+				return 0, nil, errors.New("--port requires a value")
 			}
 			value, args = args[1], args[1:]
 		}
@@ -105,7 +107,8 @@ func fileExists(p string) bool { st, err := os.Stat(p); return err == nil && !st
 
 // portBusy reports whether a loopback TCP port is taken; a failed bind is the only honest probe.
 func portBusy(port int) bool {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return true
 	}

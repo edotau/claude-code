@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/audit"
 )
 
 // planPayload is the real PostToolUse shape: ExitPlanMode's tool_input carries plan + planFilePath.
@@ -35,6 +37,111 @@ func savedPlans(t *testing.T, cfg string) []string {
 		return nil
 	})
 	return names
+}
+
+func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		inputPlan    string
+		responsePlan string
+		responseFile bool
+		missingFile  bool
+		inputFile    bool
+		want         string
+	}{
+		{"input wins", "# Input\n", "# Response\n", true, false, true, "# Input\n"},
+		{"response-only empty input", "", "# Response\n", false, false, false, "# Response\n"},
+		{"response plan", "", "# Response\n", true, false, true, "# Response\n"},
+		{"response file", "", "", true, false, true, "# Response file\n"},
+		{"input file", "", "", false, false, true, "# Input file\n"},
+		{"missing response file", "", "", true, true, true, "# Input file\n"},
+		{"empty", "", "", false, false, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+			input := map[string]any{}
+			if tc.inputPlan != "" {
+				input["plan"] = tc.inputPlan
+			}
+			response := map[string]any{"plan": tc.responsePlan}
+			for _, f := range []struct {
+				enabled bool
+				missing bool
+				fields  map[string]any
+				key     string
+				text    string
+			}{
+				{tc.responseFile, tc.missingFile, response, "filePath", "# Response file\n"},
+				{tc.inputFile, false, input, "planFilePath", "# Input file\n"},
+			} {
+				if !f.enabled {
+					continue
+				}
+				path := filepath.Join(t.TempDir(), "scratch.md")
+				if !f.missing {
+					if err := os.WriteFile(path, []byte(f.text), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				f.fields[f.key] = path
+			}
+			raw, err := json.Marshal(map[string]any{
+				"hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode", "cwd": cfg,
+				"tool_input": input, "tool_response": response,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if code := SavePlan(bytes.NewReader(raw), &bytes.Buffer{}); code != ExitProceed {
+					t.Fatalf("SavePlan = %d", code)
+				}
+			}
+			names := savedPlans(t, cfg)
+			events, err := audit.Read(time.Time{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				if len(names) != 0 || len(events) != 0 {
+					t.Fatalf("empty input saved plans %v or audit events %v", names, events)
+				}
+				return
+			}
+			if len(names) != 1 {
+				t.Fatalf("saved plans = %v, want one", names)
+			}
+			dest := filepath.Join(cfg, "plans", filepath.FromSlash(names[0]))
+			got, err := os.ReadFile(dest)
+			if err != nil || !bytes.Equal(got, withTasks([]byte(tc.want))) {
+				t.Fatalf("saved plan = %q, err = %v, want %q", got, err, tc.want)
+			}
+			if len(events) != 1 || string(events[0].Action) != "plan_saved" ||
+				events[0].Resource != "save-plan" || events[0].Detail != dest {
+				t.Fatalf("audit events = %+v, want one plan_saved with destination only", events)
+			}
+		})
+	}
+}
+
+func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "plans"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := SavePlan(strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), &stderr); code != ExitProceed {
+		t.Fatalf("write failure must fail open, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "save-plan:") {
+		t.Fatalf("write failure was not reported: %s", &stderr)
+	}
+	events, err := audit.Read(time.Time{})
+	if err != nil || len(events) != 0 {
+		t.Fatalf("failed save audit events = %v, err = %v", events, err)
+	}
 }
 
 func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {

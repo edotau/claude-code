@@ -60,10 +60,13 @@ func Lookup(name string) (Spec, bool) {
 
 // Headless is the non-interactive form of a run; zero Tools means tools are disabled where the CLI allows it.
 type Headless struct {
-	Prompt    string
-	Effort    string
-	SessionID string // resume this session
-	Tools     bool
+	Prompt     string
+	Effort     string
+	SessionID  string // resume this session
+	Tools      bool
+	Autonomous bool     // opencode: --auto
+	Attach     []string // opencode: one -f per path
+	WorkDir    string   // opencode: --dir; cmd.Dir alone doesn't move opencode's own cwd resolution
 }
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -367,7 +370,7 @@ func codexOwnModel() string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
 			return "" // top-level keys end at the first table header
@@ -497,14 +500,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 	if len(headers) > 0 {
 		options["headers"] = headers
 	}
-	menu := map[string]any{model: map[string]any{"name": model}}
-	if h == nil {
-		for _, slot := range models.Slots {
-			if id := models.Strip1M(p.Models[slot]); id != "" {
-				menu[id] = map[string]any{"name": id}
-			}
-		}
-	}
+	menu := opencodeModels(p, model, h)
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   id + "/" + model,
@@ -539,13 +535,39 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		return env, nil, nil
 	}
 	argv := []string{"run", "--format", "json", "-m", id + "/" + model}
+	if h.WorkDir != "" {
+		argv = append(argv, "--dir", h.WorkDir)
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
 	}
+	if h.Autonomous {
+		argv = append(argv, "--auto")
+	}
+	for _, p := range h.Attach {
+		argv = append(argv, "-f", p)
+	}
+	if len(h.Attach) > 0 {
+		// -f is variadic: without "--", opencode reads the prompt as another file path.
+		return env, append(append(argv, "--"), h.Prompt), nil
+	}
 	return env, append(argv, positional(h.Prompt)...), nil
+}
+
+// opencodeModels is the model menu: the requested model, plus every tier slot for an interactive launch.
+func opencodeModels(p *providers.Provider, model string, h *Headless) map[string]any {
+	menu := map[string]any{model: map[string]any{"name": model}}
+	if h == nil {
+		for _, slot := range models.Slots {
+			if id := models.Strip1M(p.Models[slot]); id != "" {
+				menu[id] = map[string]any{"name": id}
+			}
+		}
+	}
+	return menu
 }
 
 // OwnLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
@@ -578,11 +600,24 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 	if model != "" {
 		argv = append(argv, "-m", model)
 	}
+	if h.WorkDir != "" {
+		argv = append(argv, "--dir", h.WorkDir)
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
+	}
+	if h.Autonomous {
+		argv = append(argv, "--auto")
+	}
+	for _, p := range h.Attach {
+		argv = append(argv, "-f", p)
+	}
+	if len(h.Attach) > 0 {
+		// -f is variadic: without "--", opencode reads the prompt as another file path.
+		return env, append(append(argv, "--"), h.Prompt)
 	}
 	return env, append(argv, positional(h.Prompt)...)
 }

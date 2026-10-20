@@ -30,6 +30,7 @@ need, make the change, run the verification, report back. Never plan to "delegat
 is no one to delegate to. If the task is too big to do in-context, say so in your report rather than
 attempting a dispatch you can't make. The one exception is a vendor leg through `claude-code ask` (below):
 that is a CLI call, not a subagent, and it is how you keep the heavy work off Anthropic usage.
+Handed a whole lane (a lane plan, not one task): follow `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 ## Runner: cost routing
 

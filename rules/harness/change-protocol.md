@@ -31,6 +31,12 @@ made directly in `settings.json` that is silently erased on the next `make insta
    - This is the **most important** box — a template miss means the change does not survive
      the next regenerate.
 
+   In a linked worktree, follow CLAUDE.md hard rule 4: cwd does not isolate writes.
+   `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"` renders that
+   checkout's settings only. With a non-default config dir, `generate` skips vendor configs
+   (including `--check`/`--dry-run`) unless `--vendors` is explicit; that flag still targets
+   live vendor homes. Do not add it to a worktree-only verification.
+
 2. **Agent or command renamed/moved?** Agents are flat at `agents/<name>.md` with `name:`
    equal to the file stem — a mismatch silently breaks memory resolution. Commands keep their
    `namespace/command.md` path; a rename breaks every `/namespace:command` reference to it in

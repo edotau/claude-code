@@ -55,7 +55,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		resp, err = c.send(ctx, method, path, body, true)
 		if err != nil {
 			return err

@@ -130,7 +130,13 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	fmt.Fprintln(stdout, fn(name))
-	io.WriteString(stdout, noteText+"\n") // matches Python's print(NOTE), which adds its own trailing "\n"
+	if _, err := fmt.Fprintln(stdout, fn(name)); err != nil {
+		fmt.Fprintf(stderr, "workflow_skeleton.py: error: writing skeleton: %v\n", err)
+		return 1
+	}
+	if _, err := io.WriteString(stdout, noteText+"\n"); err != nil {
+		fmt.Fprintf(stderr, "workflow_skeleton.py: error: writing note: %v\n", err)
+		return 1
+	}
 	return 0
 }

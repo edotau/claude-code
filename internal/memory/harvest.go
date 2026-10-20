@@ -69,7 +69,7 @@ func ReadHarvestResult(sessionID string) (HarvestResult, bool) {
 		return HarvestResult{}, false
 	}
 	m := map[string]string{}
-	for _, ln := range strings.Split(string(data), "\n") {
+	for ln := range strings.SplitSeq(string(data), "\n") {
 		if k, v, ok := strings.Cut(ln, "="); ok {
 			m[k] = v
 		}
@@ -136,7 +136,7 @@ func Update(o UpdateOptions) error {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
-			os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks
+			_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
 			who, err := o.Run(ctx, agentHarvestPrompt(o.Transcript), o.CWD)
 			runErr = err
 			fmt.Fprintln(o.Out, "memory update: ran on", who)

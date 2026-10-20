@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -15,7 +16,7 @@ type object struct {
 func parseObject(b []byte) (*object, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil, fmt.Errorf("not a JSON object")
+		return nil, errors.New("not a JSON object")
 	}
 	o := &object{vals: map[string]json.RawMessage{}}
 	for dec.More() {

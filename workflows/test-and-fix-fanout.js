@@ -1,7 +1,7 @@
 export const meta = {
   name: 'test-and-fix-fanout',
   description: 'Dynamically discover Python test targets across workspaces, then fan out one test->fix->verify agent per target concurrently; report a consolidated pass/fail matrix',
-  whenToUse: 'Run the /test-and-fix loop across many repos at once. Pass args to scope which repos; omit to auto-discover all repos with a .venv + test target.',
+  whenToUse: 'Run the /test-and-fix loop across many repos at once. args (required): an array of repo dirs or {name, dir}; no args returns {error}, nothing is auto-discovered.',
   phases: [
     { title: 'Discover', detail: 'scan candidate repos for .venv + pytest/make test target; emit work-list' },
     { title: 'TestFix', detail: 'per target: run tests, fix failures one at a time (max 3/test), re-verify' },
@@ -11,15 +11,10 @@ export const meta = {
 
 // ── Candidate workspaces ────────────────────────────────────────────────────
 // args carries the real list: an array of {name, dir} or dir strings (Workflow scripts can't read files).
-// The fallback is a placeholder.
-const DEFAULT_CANDIDATES = [
-  { name: 'example-repo', dir: '~/my-workspace' },
-]
 
-// Normalize args -> candidate list. Accepts: undefined | [dir,...] | [{name,dir},...]
+// Normalize args -> candidate list. Accepts: [dir,...] | [{name,dir},...]; anything else yields [].
 function resolveCandidates(a) {
-  if (!a) return DEFAULT_CANDIDATES
-  if (!Array.isArray(a)) return DEFAULT_CANDIDATES
+  if (!Array.isArray(a)) return []
   return a.map((x, i) =>
     typeof x === 'string'
       ? { name: x.split('/').filter(Boolean).pop() || `target-${i}`, dir: x }
@@ -56,12 +51,23 @@ const FIX_SCHEMA = {
 }
 
 const candidates = resolveCandidates(args)
+// The registry imports the script to read its meta, so bad args return {error}, never throw.
+if (!candidates.length) return { error: "test-and-fix-fanout needs explicit candidates: args = [dir, ...] or [{name, dir}, ...]" }
+
+// Pool of 4: bounds discovery and repair fan-out.
+const MAX_CONC = 4
+let running = 0
+const waiters = []
+const acquire = () => running < MAX_CONC ? (running++, Promise.resolve()) : new Promise(r => waiters.push(r))
+const release = () => { const w = waiters.shift(); if (w) w(); else running-- }
+const pooled = async (fn) => { await acquire(); try { return await fn() } finally { release() } }
+
 log(`Discovering test targets across ${candidates.length} candidate workspace(s)`)
 
 // ── Phase 1: Discover (parallel, read-only) ─────────────────────────────────
 phase('Discover')
 const discovered = await parallel(candidates.map(c => () =>
-  agent(
+  pooled(() => agent(
     `You are scoping a Python repo for its unit-test command. DO NOT run tests or edit anything — read-only.\n` +
     `Repo: ${c.dir} (name: ${c.name})\n\n` +
     `Steps:\n` +
@@ -71,7 +77,7 @@ const discovered = await parallel(candidates.map(c => () =>
     `4. Decide runnable = (.venv exists) AND (a test target or pytest+tests/ exists).\n` +
     `Return the structured verdict. testCommand must be the exact shell command to run from the repo root.`,
     { label: `discover:${c.name}`, phase: 'Discover', schema: DISCOVERY_SCHEMA, model: 'sonnet', effort: 'low' }
-  ).then(v => v ? { ...v, dir: c.dir, name: c.name } : null)
+  )).then(v => v ? { ...v, dir: c.dir, name: c.name } : null)
 ))
 
 const runnable = discovered.filter(Boolean).filter(d => d.runnable)
@@ -86,7 +92,7 @@ if (!runnable.length) {
 // ── Phase 2: Test -> Fix -> Verify (one agent per target, concurrent) ────────
 phase('TestFix')
 const results = await parallel(runnable.map(t => () =>
-  agent(
+  pooled(() => agent(
     `Run the /test-and-fix loop for ONE repo and report the outcome. Work ONLY inside ${t.dir}.\n\n` +
     `Repo: ${t.name}  (${t.dir})\n` +
     `Test command: ${t.testCommand}\n\n` +
@@ -99,7 +105,7 @@ const results = await parallel(runnable.map(t => () =>
     `6. If the repo has a "make fix" or "make format" target, run it to format your changes.\n\n` +
     `Set status: "pass" (green first try), "fixed" (all green after fixes), "partial" (some fixed, some remain), "fail" (none fixed), "error" (couldn't run). List every file you changed.`,
     { label: `testfix:${t.name}`, phase: 'TestFix', schema: FIX_SCHEMA, isolation: 'worktree', model: 'sonnet', effort: 'medium' }
-  ).then(v => v || { name: t.name, status: 'error', testsRun: 0, failuresBefore: 0, failuresAfter: 0, filesChanged: [], summary: 'agent returned no result' })
+  )).then(v => v || { name: t.name, status: 'error', testsRun: 0, failuresBefore: 0, failuresAfter: 0, filesChanged: [], summary: 'agent returned no result' })
 ))
 
 // ── Phase 3: Report ─────────────────────────────────────────────────────────

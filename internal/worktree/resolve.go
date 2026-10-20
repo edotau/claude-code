@@ -199,10 +199,17 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 	} else if issue != nil {
 		return nil, fmt.Errorf("resolve: %s: %v", issue.Code, issue.Detail)
 	}
-	before := headOf(plan.WorktreePath)
+	before, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
 	out, mergeErr := runGit(ctx, plan.WorktreePath, nil, "merge", "--no-edit", plan.TargetOID)
 	if mergeErr == nil {
-		return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: headOf(plan.WorktreePath)}, nil
+		after, err := headOfContext(ctx, plan.WorktreePath)
+		if err != nil {
+			return nil, err
+		}
+		return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 	}
 	mergeHead, err := hasMergeHead(ctx, plan.WorktreePath)
 	if err != nil {
@@ -238,7 +245,7 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 		if readErr != nil {
 			continue // tracked as resolved but no longer on disk (e.g. deleted) — nothing to scan
 		}
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			for _, prefix := range conflictMarkerPrefixes {
 				if strings.HasPrefix(line, prefix) {
 					return false, p, nil
@@ -259,7 +266,7 @@ func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
 		return nil, fmt.Errorf("git status in %s: %w", worktreePath, err)
 	}
 	var result []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if len(line) < 4 {
 			continue
 		}
@@ -320,9 +327,13 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	if state != resolutionResolved {
 		return failOperation(op, fmt.Errorf("resolve: %s", firstNonEmpty(reason, "commit did not produce a resolved state")))
 	}
+	head, err := headOfContext(ctx, worktreePath)
+	if err != nil {
+		return failOperation(op, err)
+	}
 	op.Phase = "resolved"
 	_ = SaveOperation(op)
-	return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: headOf(worktreePath)}, nil
+	return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
 }
 
 // pollUntilResolved is the fallback path for --resume: nothing re-invokes the agent, so this only
@@ -342,9 +353,13 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 		}
 		switch state {
 		case resolutionResolved:
+			head, err := headOfContext(ctx, worktreePath)
+			if err != nil {
+				return failOperation(op, err)
+			}
 			op.Phase = "resolved"
 			_ = SaveOperation(op)
-			return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: headOf(worktreePath)}, nil
+			return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
 		case resolutionInvalid:
 			return failOperation(op, fmt.Errorf("resolve: %s", reason))
 		}
@@ -385,7 +400,10 @@ func CheckResolution(ctx context.Context, op *Operation, worktreePath string) (r
 		return resolutionInvalid, "worktree has uncommitted changes outside a merge, not a committed resolution", nil
 	}
 
-	head := headOf(worktreePath)
+	head, err := headOfContext(ctx, worktreePath)
+	if err != nil {
+		return resolutionPending, "", err
+	}
 	if head == "" {
 		return resolutionPending, "", fmt.Errorf("resolve: could not resolve HEAD in %s", worktreePath)
 	}
@@ -414,7 +432,7 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 		return nil, fmt.Errorf("git diff --diff-filter=U in %s: %w", path, err)
 	}
 	var paths []string
-	for _, f := range strings.Split(string(out), "\x00") {
+	for f := range strings.SplitSeq(string(out), "\x00") {
 		if f != "" {
 			paths = append(paths, f)
 		}

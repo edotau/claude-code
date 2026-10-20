@@ -41,15 +41,7 @@ detector: `references/anti-patterns.md`.
 hard gate). **Run the mechanical gate first** (`make fmt && make lint`) — that one *can* fail, and a
 non-zero result is a must-fix before review proceeds. Full CLI reference: `references/detectors.md`.
 
-| Verb (`claude-code review …`) | Principle / role | Flags |
-|---|---|---|
-| `complexity` | #2 Simplicity | complexity/length/nesting, class density, premature ABC/Protocol |
-| `diff` | #3 Surgical | whitespace/comment churn, docstring adds, quote-style swaps |
-| `assumptions` | #1 Think | minimizing language, hopeful phrasing, absolute scope, missing verification |
-| `goals` | #4 Goal | plan steps scored 0–3 on verification quality; missing final check |
-| `quality` | quality | smells, SOLID violations, 0–100 score (6 languages) |
-| `pr` | triage | file-risk categorization, commit-message lint, complexity score |
-| `report` | orchestration | combines pr + quality into one report (text/md/json) |
+Verb selection: [Detector index](references/detectors.md#detector-index).
 
 ## Performance lens
 
@@ -63,11 +55,7 @@ algorithmic complexity, report format) + common mistakes: `references/performanc
 
 Determine scope, then fan out **both** reviewers in parallel.
 
-```bash
-BASE_SHA=$(git merge-base HEAD main)   # or: git diff --cached for staged only
-git diff ${BASE_SHA}...HEAD --stat
-make fmt && make lint                  # mechanical gate FIRST — can fail (must-fix)
-```
+Scope and mechanical-gate commands: [Dispatch setup](references/tasks.md#dispatch-setup).
 
 1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
 2. In a **single message**, launch two subagents concurrently:
@@ -113,12 +101,7 @@ Iron rules:
 
 ### Replying
 
-No performative agreement — `rules/standards/communication.md` is canonical: state the fix, not
-thanks ("Fixed. Extracted PROGRESS_INTERVAL constant."). Wrong after pushing back: `"You were
-right — I checked X and it does Y. Fixing now."` — factual, no apology.
-
-Reply in the GitHub comment **thread**
-(`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
+Reply wording and GitHub thread endpoint: [Replying](references/feedback.md#replying).
 
 ## Enforcement
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,7 +42,7 @@ var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fiel
 	` | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'` +
 	` | while IFS='` + fieldSep + `' read -r sess pid agent cmd; do` +
 	` printf '` + paneRecordStart + `%s` + fieldSep + `%s` + fieldSep + `%s` + fieldSep + `%s\n' "$sess" "$pid" "$agent" "$cmd";` +
-	` if ! tmux capture-pane -p -t "$pid" -S -` + fmt.Sprint(paneCaptureLines) + ` 2>/dev/null; then exit 1; fi;` +
+	` if ! tmux capture-pane -p -t "$pid" -S -` + strconv.Itoa(paneCaptureLines) + ` 2>/dev/null; then exit 1; fi;` +
 	` printf '` + paneRecordEnd + `\n'; done`
 
 // PaneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.

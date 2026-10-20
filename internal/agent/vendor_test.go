@@ -1,9 +1,63 @@
 package agent
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// attachPrompt per runner: codex folds the file inline (stdin has no live-read channel), gemini (agy)
+// appends a live @path reference, and every other vendor (opencode included) leaves the prompt untouched
+// since it carries the attachment in its own argv instead (vendors.opencodeRun's -f).
+func TestVendorRunnerAttachPrompt(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		vendor string
+		want   string
+	}{
+		{"codex", "task\n\n<file path=" + `"` + f + `"` + ">\nfile-content\n</file>"},
+		{"gemini", "task\n@" + f},
+		{"opencode", "task"},
+	}
+	for _, c := range cases {
+		t.Run(c.vendor, func(t *testing.T) {
+			got, err := vendorRunner{name: c.vendor}.attachPrompt("task", []string{f})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Errorf("attachPrompt(%s) = %q, want %q", c.vendor, got, c.want)
+			}
+		})
+	}
+}
+
+// A missing attachment is a fatal error for the inline path, not a silently dropped reference.
+func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
+	_, err := vendorRunner{name: "codex"}.attachPrompt("task", []string{"/does/not/exist"})
+	if err == nil {
+		t.Fatal("want an error for a missing attachment, got nil")
+	}
+}
+
+// vendorRunner.Caps advertises Autonomous for all three hub-backed CLIs (opencode, gemini, codex); copilot's
+// own Caps additionally carries SessionID and Memory, which only its own runner needs.
+func TestVendorCapsAutonomous(t *testing.T) {
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		if c := (vendorRunner{name: name}).Caps(); !c.Autonomous {
+			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
+		}
+	}
+	c := copilotRunner{}.Caps()
+	if !c.SessionID || !c.Autonomous || !c.Memory {
+		t.Errorf("copilotRunner.Caps() = %+v, want SessionID, Autonomous and Memory all true", c)
+	}
+}
 
 // Sampled from `opencode run --format json` 1.18.31 (ids shortened).
 const openCodeOK = `{"type":"step_start","timestamp":1,"sessionID":"ses_A","part":{"id":"p1","sessionID":"ses_A","type":"step-start"}}
@@ -31,6 +85,31 @@ func TestParseOpenCodeStreamError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "models/x is not found") || res.SessionID != "ses_B" {
 		t.Fatalf("err = %v, res = %+v", err, res)
 	}
+}
+
+func TestParseOpenCodeStreamMultipleTexts(t *testing.T) {
+	stream := `{"type":"text","sessionID":"ses_A","part":{"text":"one"}}
+	{"type":"text","sessionID":"ses_A","part":{"text":""}}
+	{"type":"text","sessionID":"ses_A","part":{"text":"two"}}
+	{"type":"text","sessionID":"ses_A","part":{"text":"three"}}`
+	t.Run("success", func(t *testing.T) {
+		var out strings.Builder
+		res, err := parseOpenCodeStream(strings.NewReader(stream), &out)
+		if err != nil || res.Answer != "one\ntwo\nthree" || out.String() != res.Answer {
+			t.Fatalf("res = %+v, output = %q, err = %v", res, out.String(), err)
+		}
+	})
+	t.Run("newline error", func(t *testing.T) {
+		injected := errors.New("newline rejected")
+		w := &newlineRejectWriter{err: injected}
+		_, err := parseOpenCodeStream(strings.NewReader(stream), w)
+		if !errors.Is(err, injected) {
+			t.Fatalf("err = %v, want injected newline error", err)
+		}
+		if len(w.writes) != 2 || w.writes[0] != "one" || w.writes[1] != "\n" {
+			t.Fatalf("writes = %q, want only first text and rejected newline", w.writes)
+		}
+	})
 }
 
 // Captured live from `agy --output-format stream-json` 1.4.2 on this box.

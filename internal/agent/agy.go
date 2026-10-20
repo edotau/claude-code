@@ -17,8 +17,8 @@ import (
 // Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
 type AgyRequest struct {
 	Prompt, Model, Effort, Cwd string
-	Tools                      bool
-	Env                        []string
+	Tools, Autonomous          bool
+	Env, KeepEnv               []string
 }
 
 // agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
@@ -39,6 +39,9 @@ func agyArgv(r AgyRequest) []string {
 	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json")
 	if r.Tools {
 		argv = append(argv, "--dangerously-skip-permissions")
+	}
+	if r.Autonomous {
+		argv = append(argv, "--mode", "auto")
 	}
 	return append(argv, "-p=")
 }
@@ -67,7 +70,7 @@ func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin)
+	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv)
 	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream)
 }
 
@@ -124,26 +127,10 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 			answer.WriteString(ev.StepUpdate.TextDelta)
 		case "result":
 			sawResult = true
-			out := ev.Result
-			response = out.Response
-			if out.ConversationID != "" {
-				res.SessionID = out.ConversationID
-			}
-			res.Usage = Usage{
-				InputTokens:     out.Usage.InputTokens,
-				OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
-				CacheReadTokens: out.Usage.CacheReadTokens,
-			}
-			if len(out.DeniedActions) > 0 {
-				names := make([]string, len(out.DeniedActions))
-				for i, d := range out.DeniedActions {
-					names[i] = cmp.Or(d.DisplayName, d.Action)
-				}
-				fmt.Fprintf(os.Stderr, "agy: denied %s\n", strings.Join(names, ", "))
-			}
-			if out.Status != "SUCCESS" {
+			response = ev.Result.Response
+			if err := applyAgyResult(&res, ev); err != nil {
 				res.Answer = strings.TrimSpace(answer.String())
-				return res, errors.New(cmp.Or(out.Error, "agy run "+cmp.Or(out.Status, "failed")))
+				return res, err
 			}
 		}
 	}
@@ -159,4 +146,27 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 		return res, errors.New("agy: stream ended without a result event")
 	}
 	return res, nil
+}
+
+func applyAgyResult(res *Result, ev agyEvent) error {
+	out := ev.Result
+	if out.ConversationID != "" {
+		res.SessionID = out.ConversationID
+	}
+	res.Usage = Usage{
+		InputTokens:     out.Usage.InputTokens,
+		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
+		CacheReadTokens: out.Usage.CacheReadTokens,
+	}
+	if len(out.DeniedActions) > 0 {
+		names := make([]string, len(out.DeniedActions))
+		for i, d := range out.DeniedActions {
+			names[i] = cmp.Or(d.DisplayName, d.Action)
+		}
+		fmt.Fprintf(os.Stderr, "agy: denied %s\n", strings.Join(names, ", "))
+	}
+	if out.Status != "SUCCESS" {
+		return errors.New(cmp.Or(out.Error, "agy run "+cmp.Or(out.Status, "failed")))
+	}
+	return nil
 }

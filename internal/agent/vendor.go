@@ -74,9 +74,11 @@ type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
 
-// Caps follow each CLI's verified headless flags.
+// Caps follow each CLI's verified headless flags. Autonomous is true for all three: opencode (--auto) and
+// gemini (--mode auto) map natively, and codex is already autonomous by construction with --tools on, so
+// neither is a generic drop — Run prints codex's own one-line note instead.
 func (v vendorRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true}
 }
 
 func (v vendorRunner) Available() error {
@@ -94,10 +96,21 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if !own {
 		res.Provider = t.Provider.Name
 	}
-	if len(req.Prompt) > MaxPromptBytes {
-		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(req.Prompt))}
+	prompt, err := v.attachPrompt(req.Prompt, req.Attach)
+	if err != nil {
+		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
-	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools}
+	if req.Autonomous && v.name == "codex" {
+		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
+	}
+	if len(prompt) > MaxPromptBytes {
+		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(prompt))}
+	}
+	h := vendors.Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+		Autonomous: req.Autonomous, Attach: req.Attach}
+	if v.name == "opencode" {
+		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
+	}
 	var env, argv []string
 	if own {
 		env, argv, err = vendors.OwnLoginHeadless(v.name, h)
@@ -115,7 +128,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		}
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
-			Prompt: req.Prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Env: env,
+			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+			Env: env, KeepEnv: req.KeepEnv,
 		}, stream)
 		res.Answer, res.Usage = out.Answer, out.Usage
 		if out.SessionID != "" {
@@ -132,9 +146,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	var banner headBuffer
 	stdin := ""
 	if v.name == "codex" {
-		stdin = req.Prompt // codex exec reads the prompt from stdin behind its `-` operand
+		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin)
+	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv)
 	cmd.Stderr = io.MultiWriter(tail, &banner)
 	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
@@ -149,6 +163,20 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		return res, emptyAnswer(v.name)
 	}
 	return res, childErr(ctx, v.name, err, tail)
+}
+
+// attachPrompt folds --attach into the prompt for a vendor with no file-list argv: codex (prompt rides
+// stdin, so the content must ride along inline) and gemini (agy has no -f flag, but resolves @path live).
+// opencode gets its own -f argv instead (vendors.opencodeRun), so its prompt is untouched here.
+func (v vendorRunner) attachPrompt(prompt string, paths []string) (string, error) {
+	switch v.name {
+	case "codex":
+		return attachInline(prompt, paths)
+	case "gemini":
+		return attachSuffix(prompt, paths), nil
+	default:
+		return prompt, nil
+	}
 }
 
 // emptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
@@ -231,7 +259,9 @@ func parseOpenCodeStream(r io.Reader, w io.Writer) (Result, error) {
 				continue
 			}
 			if len(texts) > 0 {
-				io.WriteString(w, "\n")
+				if _, err := io.WriteString(w, "\n"); err != nil {
+					return res, err
+				}
 			}
 			if _, err := io.WriteString(w, ev.Part.Text); err != nil {
 				return res, err
@@ -269,7 +299,7 @@ func (h *headBuffer) String() string { return string(h.buf) }
 
 // sessionFromBanner reads codex exec's `session id: <id>` line, so a new run's envelope can be resumed.
 func sessionFromBanner(banner string) string {
-	for _, line := range strings.Split(banner, "\n") {
+	for line := range strings.SplitSeq(banner, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "session id:"); ok {
 			return strings.TrimSpace(v)
 		}
@@ -282,7 +312,8 @@ type copilotRunner struct{}
 
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true, SessionID: true,
+		Autonomous: true, Memory: true}
 }
 func (copilotRunner) Available() error { _, err := paths.LookPathReal("copilot"); return err }
 
@@ -311,8 +342,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	opts := copilotsdk.Options{
-		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
-		AllowAllTools: req.Tools, UseLoggedInUser: true,
+		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
+		AllowAllTools: req.Tools, UseLoggedInUser: true, Autonomous: req.Autonomous, EnableMemory: req.EnableMemory,
+		SessionID: req.SessionID,
 	}
 	if own {
 		if tok := vendors.CopilotLaunchToken(); tok != "" {
@@ -324,14 +356,22 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
-	out, err := copilotsdk.Ask(ctx, opts, req.Prompt)
+	// @<path> works for the copilot CLI directly, but not through the SDK's own prompt parsing (live-confirmed:
+	// the SDK never resolved the reference, unlike the CLI's `-p` form) — fall back to the inline block.
+	copilotPrompt, err := attachInline(req.Prompt, req.Attach)
+	if err != nil {
+		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+	}
+	out, err := copilotsdk.Ask(ctx, opts, copilotPrompt)
 	if err != nil {
 		return res, err
 	}
-	io.WriteString(stream, out.Text)
 	if out.Model != "" {
 		res.Model = out.Model
 	}
 	res.SessionID, res.Answer = out.SessionID, out.Text
+	if _, err := io.WriteString(stream, out.Text); err != nil {
+		return res, err
+	}
 	return res, nil
 }

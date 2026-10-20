@@ -82,6 +82,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook plan-mirror",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {
@@ -132,14 +142,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook safety",
+            "command": "$HOME/.claude/bin/claude-code hook bash-guard",
             "timeout": 5,
             "statusMessage": "Checking command safety"
-          },
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook rtk-wrap",
-            "timeout": 5
           }
         ]
       },

@@ -4,7 +4,6 @@ package memory
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -85,8 +84,8 @@ func inWorkTree(root string) bool {
 	if v, ok := worktrees.Load(root); ok {
 		return v.(bool)
 	}
-	out, err := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree").Output()
-	in := err == nil && strings.TrimSpace(string(out)) == "true"
+	out, err := gitOut(root, "rev-parse", "--is-inside-work-tree")
+	in := err == nil && strings.TrimSpace(out) == "true"
 	worktrees.Store(root, in)
 	return in
 }
@@ -134,11 +133,11 @@ func Init(root string) (string, error) {
 
 // GitToplevel is dir's git work-tree root, "" outside a repo.
 func GitToplevel(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := gitOut(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 // templates seed a fresh bank's six files; /memory:end fills them from real session work.

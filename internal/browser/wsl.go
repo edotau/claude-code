@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -82,12 +83,18 @@ func (e Env) cdpOwner() string {
 
 // probeCDP is the real Env.Probe: one GET with a short timeout.
 func probeCDP() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	c := http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get("http://localhost:" + strconv.Itoa(CDPPort) + "/json/version")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:"+strconv.Itoa(CDPPort)+"/json/version", nil)
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	resp, err := c.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
 	var v struct {
 		Browser string `json:"Browser"`
 	}
@@ -145,7 +152,7 @@ func startCDPAction(env Env, b Browser) Action {
 		a.Error = strings.TrimSpace(out + " " + err.Error())
 		return a
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if strings.Contains(env.cdpOwner(), cdpBrowserTag[b.Name]) {
 			a.Executed = true
 			return a

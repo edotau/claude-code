@@ -4,12 +4,18 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // describe must cover every listed verb, name the registered hooks, and marshal without a credential.
 func TestDescribeCoversVerbsAndHooks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	d, err := describe()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := describe(reg)
 	if err != nil {
 		t.Fatal(err)
 	}

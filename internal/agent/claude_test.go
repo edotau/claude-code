@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -40,5 +42,66 @@ func TestParseClaudeStreamErrors(t *testing.T) {
 	}
 	if _, err := parseClaudeStream(strings.NewReader(`{"type":`), &strings.Builder{}); err == nil {
 		t.Error("truncated JSON must fail")
+	}
+}
+
+func TestParseClaudeStreamResultApplication(t *testing.T) {
+	stream := `{"type":"system","session_id":"init-id","model":"init-model"}
+	{"type":"assistant","message":{"model":"answer-model","content":[{"type":"text","text":""},{"type":"thinking","text":"hidden"},{"type":"text","text":"one"},{"type":"text","text":"two"}]}}
+	{"type":"assistant","parent_tool_use_id":"tool-1","message":{"model":"subagent-model","content":[{"type":"text","text":"hidden"}]}}
+	{"type":"result","session_id":"result-id","is_error":true,"subtype":"error_during_execution","result":"partial result","usage":{"input_tokens":7,"output_tokens":3,"cache_creation_input_tokens":2,"cache_read_input_tokens":4}}`
+	var out strings.Builder
+	res, err := parseClaudeStream(strings.NewReader(stream), &out)
+	if err == nil || err.Error() != "claude error_during_execution: partial result" {
+		t.Fatalf("err = %v", err)
+	}
+	if out.String() != "one\ntwo" || res.Answer != "partial result" || res.SessionID != "result-id" || res.Model != "answer-model" {
+		t.Fatalf("res = %+v, output = %q", res, out.String())
+	}
+	if res.Usage != (Usage{InputTokens: 7, OutputTokens: 3, CacheCreationTokens: 2, CacheReadTokens: 4}) {
+		t.Fatalf("usage = %+v", res.Usage)
+	}
+}
+
+func TestParseClaudeStreamWriteError(t *testing.T) {
+	res, err := parseClaudeStream(strings.NewReader(claudeFixture), failingStreamWriter{})
+	if !errors.Is(err, io.ErrClosedPipe) || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Answer != "" {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+}
+
+type newlineRejectWriter struct {
+	writes []string
+	err    error
+}
+
+func (w *newlineRejectWriter) Write(p []byte) (int, error) {
+	w.writes = append(w.writes, string(p))
+	if string(p) == "\n" {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+
+func TestParseClaudeStreamNewlineError(t *testing.T) {
+	for name, stream := range map[string]string{
+		"blocks": `{"type":"assistant","message":{"content":[{"type":"text","text":"one"},{"type":"text","text":"two"},{"type":"text","text":"three"}]}}
+{"type":"result","result":"one\ntwo\nthree"}`,
+		"events": `{"type":"assistant","message":{"content":[{"type":"text","text":"one"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"two"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"three"}]}}
+{"type":"result","result":"one\ntwo\nthree"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			injected := errors.New("newline rejected")
+			w := &newlineRejectWriter{err: injected}
+			_, err := parseClaudeStream(strings.NewReader(stream), w)
+			if !errors.Is(err, injected) {
+				t.Fatalf("err = %v, want injected newline error", err)
+			}
+			if len(w.writes) != 2 || w.writes[0] != "one" || w.writes[1] != "\n" {
+				t.Fatalf("writes = %q, want only first text and rejected newline", w.writes)
+			}
+		})
 	}
 }

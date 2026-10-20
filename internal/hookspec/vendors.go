@@ -19,7 +19,7 @@ func CodexJSON() ([]byte, error) {
 		if !slices.Contains(s.Vendors, "codex") || vendorEvents[s.Event] == "" {
 			continue
 		}
-		h := Hook{Type: "command", Command: s.Command(), Timeout: s.Timeout, Async: s.Async, StatusMessage: s.StatusMessage}
+		h := Hook{Type: "command", Command: VendorEnv + "=codex " + s.Command(), Timeout: s.Timeout, Async: s.Async, StatusMessage: s.StatusMessage}
 		groups := events[s.Event]
 		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)
@@ -64,7 +64,7 @@ func CopilotJSON() ([]byte, error) {
 func copilotMatcher(m string) string {
 	var out []string
 	seen := map[string]bool{}
-	for _, n := range strings.Split(m, "|") {
+	for n := range strings.SplitSeq(m, "|") {
 		for _, v := range []string{n, strings.ToLower(n)} {
 			if !seen[v] {
 				seen[v] = true

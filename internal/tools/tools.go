@@ -80,7 +80,7 @@ func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bo
 			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
 			continue
 		}
-		npmCleanupFor(ctx, w, t.Name, old, dryRun)
+		npmCleanupFor(ctx, w, t.Name, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
 	return errors.Join(errs...)
@@ -137,22 +137,46 @@ func installBinary(w io.Writer, name string, data []byte) error {
 // npmPackages maps a Tool name to the npm package that also ships it, for post-install cleanup.
 var npmPackages = map[string]string{"codex": "@openai/codex", "opencode": "opencode-ai"}
 
-// npmCleanupFor retires the npm-global copy oldPath once name has a working ~/.local/bin install.
-func npmCleanupFor(ctx context.Context, w io.Writer, name, oldPath string, dryRun bool) {
+// npmCleanupFor retires npm-global copies on PATH once name has a working ~/.local/bin install.
+func npmCleanupFor(ctx context.Context, w io.Writer, name string, dryRun bool) {
 	pkg, ok := npmPackages[name]
-	if !ok || oldPath == "" {
+	if !ok {
 		return
 	}
-	if oldPath == filepath.Join(localBinDir(), name) {
-		return // the resolved binary already was our own ~/.local/bin copy
-	}
-	if !dryRun && firstVersionLine(filepath.Join(localBinDir(), name)) == "" {
-		fmt.Fprintf(w, "  keep     %s (the ~/.local/bin copy did not answer --version)\n", oldPath)
+	localPath := filepath.Join(localBinDir(), name)
+	if !dryRun && firstVersionLine(localPath) == "" {
+		fmt.Fprintf(w, "  keep     npm-global %s (the ~/.local/bin copy did not answer --version)\n", name)
 		return
 	}
-	if prefix := npmPrefixFromBinary(oldPath); prefix != "" {
+	seen := make(map[string]bool)
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		bin := filepath.Join(dir, name)
+		info, err := os.Stat(bin)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		if sameExecutablePath(bin, localPath) {
+			continue
+		}
+		prefix := npmPrefixFromBinary(bin)
+		if prefix == "" || seen[prefix] {
+			continue
+		}
+		seen[prefix] = true
 		runNpmUninstall(ctx, w, dryRun, prefix, pkg)
 	}
+}
+
+func sameExecutablePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	realA, errA := filepath.EvalSymlinks(a)
+	realB, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && realA == realB
 }
 
 // cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli whenever InstallSelected runs, independent

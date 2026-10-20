@@ -23,6 +23,10 @@ var base64ish = regexp.MustCompile(`^[A-Za-z0-9_+/=-]{32,}$`)
 // or a KEY=value RHS): known token prefixes, a JWT shape, or base64-ish noise; ${ENV} refs, file paths,
 // and obvious placeholders are never flagged.
 func LooksLikeSecret(val string) bool {
+	return looksLikeSecret(val, true)
+}
+
+func looksLikeSecret(val string, generic bool) bool {
 	switch {
 	case val == "":
 		return false
@@ -44,7 +48,7 @@ func LooksLikeSecret(val string) bool {
 	case strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2: // JWT
 		return true
 	default:
-		return base64ish.MatchString(val)
+		return generic && base64ish.MatchString(val)
 	}
 }
 

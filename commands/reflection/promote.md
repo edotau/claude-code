@@ -39,17 +39,8 @@ the entry to promote. (Run `/reflection:review` first if you need candidates.)
 
 ## Step 2: Route to a target (reuse the `/harness:adapt` routing table)
 
-Pick the writable target by signal type — identical routing to `/harness:adapt`:
-
-| Signal | Target file | Section |
-|--------|-------------|---------|
-| Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | language patterns / quality |
-| Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | conventions / quality |
-| Security pattern | `rules/software/<lang>/security.md` or `rules/standards/security.md` | mandatory checks |
-| Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | test conventions |
-| Git/commit pattern | `rules/standards/git.md` | commits / branch / PR |
-| Docs/communication | `rules/standards/documentation.md` or `communication.md` | docs / response style |
-| Performance insight | `rules/standards/performance.md` | relevant subsection |
+Pick the writable target by signal type with the routing table in `/harness:adapt`
+(`commands/harness/adapt.md`, "classify it") — the same signals go to the same files.
 
 Replace `<lang>` with the project's primary language dir (`python`, `go`, …). Honor an
 explicit `--target <path>` only if it points at a writable tier (never `CLAUDE.md`,

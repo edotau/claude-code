@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -38,7 +39,13 @@ func cmdAsk(args []string) int {
 	workdir := fs.String("workdir", "", "working directory for the agent")
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
+	var attach attachFlag
+	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
+	var keepEnv keepEnvFlag
+	fs.Var(&keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
+	autonomous := fs.Bool("autonomous", false, "drive the leg without stopping to ask, per runner")
+	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
+	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
@@ -46,11 +53,8 @@ func cmdAsk(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *format != "text" && *format != "json" {
-		return fail("ask: --format %q unknown (text|json)", *format)
-	}
-	if !slices.Contains(agent.FallbackModes, *fallback) {
-		return fail("ask: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
+	if err := validateAskFlags(*format, *fallback); err != nil {
+		return fail("ask: %v", err)
 	}
 	if *showLog {
 		return printDispatchLog(*format)
@@ -64,38 +68,34 @@ func cmdAsk(args []string) int {
 		// The logged request wins; only flags typed on this command line override it.
 		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
-		_ = fs.Parse(args) // re-apply explicit flags over the record
+		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
+		keepEnv = keepEnvFlag(rec.Request.KeepEnv)
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "attach" {
+				attach = nil
+			}
+			if f.Name == "keep-env" {
+				keepEnv = nil
+			}
+		})
+		if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+			return 2
+		}
 		prompt, *rubric = rec.Request.Prompt, ""
 		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	}
-	if prompt == "" || prompt == "-" {
-		raw, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fail("ask: read stdin: %v", err)
-		}
-		prompt = string(raw)
+	prompt, err := resolveAskPrompt(prompt)
+	if err != nil {
+		return fail("ask: %v", err)
 	}
 	if strings.TrimSpace(prompt) == "" {
 		helptext.Fprint(os.Stderr, "usage: claude-code ask [flags] <prompt | ->\n")
 		helptext.Defaults(fs)
 		return 2
 	}
-	r, err := agent.Lookup(*name)
+	r, chain, err := resolveAskAgent(*name, *provider, *fallback, *native)
 	if err != nil {
 		return fail("ask: %v", err)
-	}
-	chain := agent.FallbackChain(r, *fallback)
-	if !*native && agent.IsHubAgent(*name) {
-		reg, err := providers.Load()
-		if err != nil {
-			return fail("ask: %v", err)
-		}
-		start, err := agent.HubStart(reg, *name, *provider)
-		if err != nil {
-			return fail("ask: %v", err)
-		}
-		r = agent.NewHubLeg(*name, start, reg)
-		chain = agent.HubChain(reg, *name, start, *fallback)
 	}
 	if *rubric != "" {
 		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {
@@ -108,8 +108,15 @@ func cmdAsk(args []string) int {
 	if *format == "json" {
 		stream = io.Discard
 	}
+	if *retry == "" && *tools && !timeoutExplicit(fs) {
+		*timeout = 45 * time.Minute
+	}
+	if *enableMemory && *name != "copilot" {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s runner (copilot only)\n", *name)
+	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
-		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout}
+		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
+		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	start := time.Now()
@@ -117,10 +124,106 @@ func cmdAsk(args []string) int {
 	res, err := agent.RunWithFallback(ctx, r, chain, req, stream, notify)
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
+	reportAskResult(*format, res, err)
+	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
+	if err != nil {
+		return fail("ask: %v", err)
+	}
+	return 0
+}
+
+// attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
+// unless it names an existing regular file.
+type attachFlag []string
+
+func (a *attachFlag) String() string { return strings.Join(*a, ",") }
+
+func (a *attachFlag) Set(s string) error {
+	abs, err := filepath.Abs(s)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("--attach %q: not a regular file", s)
+	}
+	*a = append(*a, abs)
+	return nil
+}
+
+// keepEnvFlag collects repeatable --keep-env NAME[,NAME] values, comma-split per occurrence.
+type keepEnvFlag []string
+
+func (k *keepEnvFlag) String() string { return strings.Join(*k, ",") }
+
+func (k *keepEnvFlag) Set(s string) error {
+	*k = append(*k, strings.Split(s, ",")...)
+	return nil
+}
+
+// timeoutExplicit is true when --timeout appeared on this command line, so it always beats the
+// tools-aware default.
+func timeoutExplicit(fs *flag.FlagSet) bool {
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "timeout" {
+			explicit = true
+		}
+	})
+	return explicit
+}
+
+func validateAskFlags(format, fallback string) error {
+	if format != "text" && format != "json" {
+		return fmt.Errorf("--format %q unknown (text|json)", format)
+	}
+	if !slices.Contains(agent.FallbackModes, fallback) {
+		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(agent.FallbackModes, "|"))
+	}
+	return nil
+}
+
+// resolveAskPrompt reads stdin when the prompt is empty or the literal "-".
+func resolveAskPrompt(prompt string) (string, error) {
+	if prompt != "" && prompt != "-" {
+		return prompt, nil
+	}
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin: %w", err)
+	}
+	return string(raw), nil
+}
+
+// resolveAskAgent looks up the named runner and, for a hub agent, swaps in the hub leg + chain.
+func resolveAskAgent(name, provider, fallback string, native bool) (agent.Runner, []agent.Runner, error) {
+	r, err := agent.Lookup(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	chain := agent.FallbackChain(r, fallback)
+	if native || !agent.IsHubAgent(name) {
+		return r, chain, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	start, err := agent.HubStart(reg, name, provider)
+	if err != nil {
+		return nil, nil, err
+	}
+	return agent.NewHubLeg(name, start, reg), agent.HubChain(reg, name, start, fallback), nil
+}
+
+func reportAskResult(format string, res agent.Result, err error) {
 	for _, d := range res.Dropped {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
-	if *format == "json" {
+	if format == "json" {
 		env := struct {
 			agent.Result
 			Error string `json:"error,omitempty"`
@@ -130,14 +233,11 @@ func cmdAsk(args []string) int {
 		}
 		body, _ := json.Marshal(env)
 		fmt.Println(string(body))
-	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
+		return
+	}
+	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
-	if err != nil {
-		return fail("ask: %v", err)
-	}
-	return 0
 }
 
 const agentsUsage = `usage: claude-code agents
@@ -216,7 +316,7 @@ func printDispatchLog(format string) int {
 	}
 	for _, r := range recs {
 		preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
-		for _, w := range strings.Fields(preview) {
+		for w := range strings.FieldsSeq(preview) {
 			if shapes.Looks(w) {
 				preview = strings.ReplaceAll(preview, w, "REDACTED")
 			}

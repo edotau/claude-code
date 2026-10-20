@@ -105,7 +105,9 @@ func cmdMenuSVG(args []string) int {
 			return fail("help-svg: %v", err)
 		}
 	default:
-		os.Stdout.Write(svg)
+		if _, err := os.Stdout.Write(svg); err != nil {
+			return fail("help-svg: %v", err)
+		}
 	}
 	return 0
 }

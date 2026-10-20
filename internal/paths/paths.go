@@ -3,6 +3,7 @@ package paths
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,21 @@ func ConfigDir() string {
 
 // EnvDir holds env.d/*.env files: pins (provider.env) and secrets (secrets.env), all gitignored.
 func EnvDir() string { return filepath.Join(ConfigDir(), "env.d") }
+
+// SecretsFile is the managed secrets file in env.d.
+func SecretsFile() string { return filepath.Join(EnvDir(), "secrets.env") }
+
+// ProvidersOverlay is the per-user provider registry overlay in env.d.
+func ProvidersOverlay() string { return filepath.Join(EnvDir(), "providers.json") }
+
+// PinFile is the provider and model pin file in env.d.
+func PinFile() string { return filepath.Join(EnvDir(), "provider.env") }
+
+// CustomEnvFile is the custom launch environment file in env.d.
+func CustomEnvFile() string { return filepath.Join(EnvDir(), "custom.env") }
+
+// LegacyProvidersFile is the pre-env.d provider registry overlay.
+func LegacyProvidersFile() string { return filepath.Join(ConfigDir(), "providers.json") }
 
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
@@ -60,7 +76,7 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	tmp := f.Name()
-	fail := func(err error) error { f.Close(); os.Remove(tmp); return err }
+	fail := func(err error) error { return errors.Join(err, f.Close(), os.Remove(tmp)) }
 	if err := f.Chmod(mode); err != nil {
 		return fail(err)
 	}
@@ -68,18 +84,16 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 		return fail(err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, os.Remove(tmp))
 	}
 	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, os.Remove(tmp))
 	}
 	return nil
 }
 
 // WithFileLock runs fn holding an exclusive advisory lock on path+".lock".
-func WithFileLock(path string, fn func() error) error {
+func WithFileLock(path string, fn func() error) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -91,7 +105,11 @@ func WithFileLock(path string, fn func() error) error {
 	if err := lock(f); err != nil {
 		return err
 	}
-	defer unlock(f)
+	defer func() {
+		if uerr := unlock(f); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
+	}()
 	return fn()
 }
 
@@ -108,6 +126,10 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 			return false, nil
 		}
 	}
-	defer unlock(f)
+	defer func() {
+		if uerr := unlock(f); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
+	}()
 	return true, fn()
 }

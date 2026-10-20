@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -60,36 +61,46 @@ func makeFormat(path string) bool {
 	if root == "" {
 		return false
 	}
-	body, err := os.ReadFile(filepath.Join(root, "Makefile"))
-	if err != nil {
-		return false
+	makeFormatMu.Lock()
+	candidates, cached := makeFormatCache[root]
+	if !cached {
+		body, _ := os.ReadFile(filepath.Join(root, "Makefile"))
+		for _, target := range makeFormatTargets {
+			recipe := makeRecipe(string(body), target)
+			for _, name := range makeFormatVars {
+				if recipeReads(recipe, name) {
+					candidates = append(candidates, makeFormatCandidate{target, name})
+				}
+			}
+		}
+		makeFormatCache[root] = candidates
 	}
+	makeFormatMu.Unlock()
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return false
 	}
-	for _, target := range makeFormatTargets {
-		recipe := makeRecipe(string(body), target)
-		if recipe == "" {
-			continue
-		}
-		for _, name := range makeFormatVars {
-			if recipeReads(recipe, name) && runMakeTarget(root, target, name+"="+abs, abs) {
-				return true
-			}
+	for _, candidate := range candidates {
+		if runMakeTarget(root, candidate.target, candidate.variable+"="+abs, abs) {
+			return true
 		}
 	}
 	return false
 }
 
+type makeFormatCandidate struct{ target, variable string }
+
+var makeFormatMu sync.Mutex
+var makeFormatCache = map[string][]makeFormatCandidate{}
+
 // makeRecipe returns the tab-indented recipe lines for target, or "" when the target is absent.
 func makeRecipe(body, target string) string {
 	var recipe []string
 	collecting := false
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "\t") {
+	for line := range strings.SplitSeq(body, "\n") {
+		if after, ok := strings.CutPrefix(line, "\t"); ok {
 			if collecting {
-				recipe = append(recipe, strings.TrimPrefix(line, "\t"))
+				recipe = append(recipe, after)
 			}
 			continue
 		}

@@ -441,37 +441,45 @@ func scanWorkflowNamesFromTranscript(path string) map[string]string {
 		}
 		switch rec.Type {
 		case "assistant":
-			var blocks []toolUseBlock
-			if json.Unmarshal(rec.Message.Content, &blocks) != nil {
-				continue
-			}
-			for _, b := range blocks {
-				if b.Type == "tool_use" && b.ID != "" {
-					toolUses[b.ID] = b
-				}
-			}
+			indexWorkflowToolUses(rec.Message.Content, toolUses)
 		case "user":
-			var blocks []toolResultBlock
-			if json.Unmarshal(rec.Message.Content, &blocks) != nil {
-				continue
-			}
-			for _, b := range blocks {
-				if b.Type != "tool_result" {
-					continue
-				}
-				runID := runIDFromToolResult(b.Content)
-				if runID == "" || names[runID] != "" {
-					continue
-				}
-				if use, ok := toolUses[b.ToolUseID]; ok {
-					if name := workflowNameFromToolUse(use); name != "" {
-						names[runID] = name
-					}
-				}
-			}
+			matchWorkflowToolResults(rec.Message.Content, toolUses, names)
 		}
 	}
 	return names
+}
+
+func indexWorkflowToolUses(content json.RawMessage, toolUses map[string]toolUseBlock) {
+	var blocks []toolUseBlock
+	if json.Unmarshal(content, &blocks) != nil {
+		return
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_use" && b.ID != "" {
+			toolUses[b.ID] = b
+		}
+	}
+}
+
+func matchWorkflowToolResults(content json.RawMessage, toolUses map[string]toolUseBlock, names map[string]string) {
+	var blocks []toolResultBlock
+	if json.Unmarshal(content, &blocks) != nil {
+		return
+	}
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		runID := runIDFromToolResult(b.Content)
+		if runID == "" || names[runID] != "" {
+			continue
+		}
+		if use, ok := toolUses[b.ToolUseID]; ok {
+			if name := workflowNameFromToolUse(use); name != "" {
+				names[runID] = name
+			}
+		}
+	}
 }
 
 // runIDFromToolResult extracts the wf_<id> run id a tool_result's text names, or "" when none does.

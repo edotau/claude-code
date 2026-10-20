@@ -17,7 +17,7 @@ func drive(t *testing.T, srv *Server, lines ...string) []map[string]any {
 		t.Fatalf("Serve: %v", err)
 	}
 	var resps []map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if l == "" {
 			continue
 		}

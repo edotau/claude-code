@@ -4,11 +4,15 @@ package hookspec
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
-// HookBin is the literal binary reference every harness command starts with; $HOME expands under `sh -c`.
+// HookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
 const HookBin = "$HOME/.claude/bin/claude-code"
+
+// VendorEnv identifies the vendor invoking a hook with a shared payload contract.
+const VendorEnv = "HARNESS_HOOK_VENDOR"
 
 // Claude Code lifecycle event names.
 const (
@@ -40,17 +44,17 @@ type Spec struct {
 // Command is the shell command settings.json carries.
 func (s Spec) Command() string { return HookBin + " hook " + s.Name }
 
-// IsHarness reports whether a settings.json hook command belongs to this harness.
+var harnessCommand = regexp.MustCompile(`^(?:` + VendorEnv + `=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
+
+// IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands.
 func IsHarness(command string) bool {
-	return strings.HasPrefix(strings.TrimSpace(command), HookBin+" ")
+	return harnessCommand.MatchString(strings.TrimSpace(command))
 }
 
 // Registry is the whole chain in per-event execution order.
 var Registry = []Spec{
-	{Name: "safety", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
-	// Noisy Bash output is routed through rtk when it is on PATH; a no-op otherwise.
-	{Name: "rtk-wrap", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5},
-	// Markdown at a repo root or in a git-ignored docs dir is sent to its canonical docs/ home.
+	{Name: "bash-guard", Event: EventPreToolUse, Matcher: "Bash", Timeout: 5, StatusMessage: "Checking command safety", Gate: true, Vendors: []string{"codex", "copilot"}},
+	// Check markdown placement, then require template headings for a native plan draft's first write.
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
@@ -63,6 +67,8 @@ var Registry = []Spec{
 	// One SubagentStop hook, run in order: an editing subagent's first stop is sent back for one simplify
 	// pass, and its inflight slot retires only on the stop that actually ends it.
 	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
+	// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
+	{Name: "plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Timeout: 10},
 	// An approved plan is filed under plans/, tagged with its repo.
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
 	// A model read of a bank file is traced to that bank's access log (memory doctor's hot/cold signal).

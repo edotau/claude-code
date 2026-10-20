@@ -132,6 +132,11 @@ backend) via the `Agent` tool instead of chaining `/gemini` calls.
 | HTTP 400 input token limit | Narrow the inlined scope with `--dirs`/`--files`, lower `--max-files`, or add `--index` instead of full file bodies |
 | HTTP 429 | The runner retries honouring `Retry-After` — no action needed unless it persists |
 | Timeout | Reduce the context set and tighten the task, or raise `--timeout` (default `10m`) |
+| Canceled context | Cancellation propagates through git/context collection and the provider call; retry the request when ready |
+| `agy: stream ended without a result event` | The stream was truncated, not successful; retry or inspect the agy failure |
+
+Context collection skips FIFOs and other non-regular files (`non-regular-file`) instead of opening
+them and potentially hanging.
 
 ## Prompt scaffolds (token-efficient `<TASK>` shapes)
 

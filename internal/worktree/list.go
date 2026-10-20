@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +40,10 @@ func List(repo *Repo) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries := unionFilesystem(repo, registered)
+	entries, err := unionFilesystem(repo, registered)
+	if err != nil {
+		return nil, err
+	}
 	target, targetErr := currentBranch(repo.Main)
 	now := time.Now()
 	for i := range entries {
@@ -54,7 +58,7 @@ func List(repo *Repo) ([]Entry, error) {
 // listPorcelain parses `git worktree list --porcelain -z`, scoped to records under repo.Root; the
 // main checkout's own record and any worktree registered outside repo.Root are not this lifecycle's.
 func listPorcelain(repo *Repo) ([]Entry, error) {
-	out, err := exec.Command("git", "-C", repo.Main, "worktree", "list", "--porcelain", "-z").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", repo.Main, "worktree", "list", "--porcelain", "-z").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +87,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 // an empty field (two consecutive NULs) marks the end of one record.
 func splitRecords(out string) []string {
 	var recs []string
-	for _, rec := range strings.Split(out, "\x00\x00") {
+	for rec := range strings.SplitSeq(out, "\x00\x00") {
 		if rec = strings.Trim(rec, "\x00"); rec != "" {
 			recs = append(recs, rec)
 		}
@@ -94,7 +98,7 @@ func splitRecords(out string) []string {
 // parseRecord reads one porcelain record's NUL-separated "key value" lines.
 func parseRecord(rec string) Entry {
 	var e Entry
-	for _, line := range strings.Split(rec, "\x00") {
+	for line := range strings.SplitSeq(rec, "\x00") {
 		key, val, _ := strings.Cut(line, " ")
 		switch key {
 		case "worktree":
@@ -114,7 +118,7 @@ func parseRecord(rec string) Entry {
 
 // unionFilesystem adds an Exists=true, Registered=false entry for every immediate directory under
 // repo.Root that listPorcelain didn't already find, and marks every registered entry's Exists by stat.
-func unionFilesystem(repo *Repo, registered []Entry) []Entry {
+func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	byPath := map[string]int{}
 	for i, e := range registered {
 		byPath[e.Path] = i
@@ -122,7 +126,10 @@ func unionFilesystem(repo *Repo, registered []Entry) []Entry {
 			registered[i].Exists = true
 		}
 	}
-	dirs, _ := os.ReadDir(repo.Root)
+	dirs, err := os.ReadDir(repo.Root)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	for _, d := range dirs {
 		if !d.IsDir() {
 			continue
@@ -136,7 +143,7 @@ func unionFilesystem(repo *Repo, registered []Entry) []Entry {
 		}
 		registered = append(registered, Entry{Path: path, Exists: true})
 	}
-	return registered
+	return registered, nil
 }
 
 // Classify derives Orphaned from a registration/filesystem mismatch; Prunable/Locked already come
@@ -150,7 +157,7 @@ func Classify(e *Entry) {
 // Dirty=true (never silently "clean"), Merged=false (never silently eligible for removal).
 func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
 	e.Dirty = true
-	out, err := exec.Command("git", "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
 	switch {
 	case err != nil:
 		e.Problems = append(e.Problems, "dirty check failed: "+err.Error())
@@ -164,7 +171,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	case e.Head == "":
 		e.Problems = append(e.Problems, "worktree HEAD unknown")
 	default:
-		cmd := exec.Command("git", "-C", repo.Main, "merge-base", "--is-ancestor", e.Head, target)
+		cmd := exec.CommandContext(context.Background(), "git", "-C", repo.Main, "merge-base", "--is-ancestor", e.Head, target)
 		if runErr := cmd.Run(); runErr == nil {
 			e.Merged = true
 		} else if exitErr, ok := asExitErr(runErr); !ok || exitErr != 1 {
@@ -172,7 +179,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		} // exit status 1 from --is-ancestor is a clean "no", not a failure
 	}
 
-	gitDir, gdErr := exec.Command("git", "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	gitDir, gdErr := exec.CommandContext(context.Background(), "git", "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
 	if gdErr != nil {
 		e.Problems = append(e.Problems, "git-dir lookup failed: "+gdErr.Error())
 	} else {
@@ -198,10 +205,10 @@ func activity(gitDir, worktreePath string) (time.Time, string) {
 
 // currentBranch is main's checked-out branch (the Phase 1 merge target); detached HEAD uses the OID.
 func currentBranch(main string) (string, error) {
-	if out, err := exec.Command("git", "-C", main, "symbolic-ref", "--short", "-q", "HEAD").Output(); err == nil {
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", main, "symbolic-ref", "--short", "-q", "HEAD").Output(); err == nil {
 		return strings.TrimSpace(string(out)), nil
 	}
-	out, err := exec.Command("git", "-C", main, "rev-parse", "HEAD").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", main, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return "", err
 	}

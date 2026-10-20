@@ -56,7 +56,7 @@ func NativeDir(root string) string {
 func projectSlug(root string) string {
 	b := []byte(filepath.Clean(root))
 	for i, c := range b {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
 			b[i] = '-'
 		}
 	}
@@ -82,6 +82,33 @@ func topicPaths(dir string) []string {
 		}
 	}
 	return out
+}
+
+// topicContents reads each searchable topic once, retaining the bytes for ranking.
+func topicContents(dir string) ([]string, map[string][]byte) {
+	ents, _ := os.ReadDir(dir)
+	var files []string
+	data := map[string][]byte{}
+	for _, e := range ents {
+		name := e.Name()
+		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		if _, ok := reservedNames[name]; ok {
+			continue
+		}
+		if _, ok := reservedKindFold(name); ok && !hasExactEntry(dir, name) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		raw, err := os.ReadFile(path)
+		if err != nil || frontmatterValue(string(raw), "harness_kind") == "bank" {
+			continue
+		}
+		files = append(files, path)
+		data[path] = raw
+	}
+	return files, data
 }
 
 // topicName normalizes a user-supplied name to "<slug>.md" and classifies it against dir: a reserved name
@@ -218,7 +245,7 @@ func applyChecked(base string, c Change) error {
 // region is not parsed, so its pointers are never counted, struck, moved or recorded.
 func indexLinks(index string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(outsideBankRegion(index), "\n") {
+	for line := range strings.SplitSeq(outsideBankRegion(index), "\n") {
 		if target, ok := linkTarget(line); ok {
 			out[target] = line
 		}
@@ -241,16 +268,16 @@ func indexedLinks(dir, index string) map[string]string {
 
 // linkTarget pulls the `](<target>.md)` a pointer line links to.
 func linkTarget(line string) (string, bool) {
-	i := strings.Index(line, "](")
-	if i < 0 || !strings.HasPrefix(strings.TrimSpace(line), "-") {
+	_, after, ok := strings.Cut(line, "](")
+	if !ok || !strings.HasPrefix(strings.TrimSpace(line), "-") {
 		return "", false
 	}
-	rest := line[i+2:]
-	j := strings.Index(rest, ")")
-	if j < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, ")")
+	if !ok0 {
 		return "", false
 	}
-	t := strings.TrimSpace(rest[:j])
+	t := strings.TrimSpace(before0)
 	if !strings.HasSuffix(t, ".md") || strings.Contains(t, "/") {
 		return "", false
 	}
@@ -740,10 +767,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 			unpinnedIdx = append(unpinnedIdx, i)
 		}
 	}
-	budget := keepLines - pinnedCount
-	if budget < 0 {
-		budget = 0
-	}
+	budget := max(keepLines-pinnedCount, 0)
 	if len(unpinnedIdx) <= budget {
 		return 0, checkNativeIndexLimits(string(raw))
 	}

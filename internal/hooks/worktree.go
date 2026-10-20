@@ -42,14 +42,16 @@ func WorktreeRemove(r io.Reader, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "worktree-remove: payload has no worktree_path")
 		return 1
 	}
+	ctx, cancel := hookContext("worktree-remove")
+	defer cancel()
 	main := paths.MainCheckout(path)
-	branch, _ := exec.Command("git", "-C", path, "branch", "--show-current").Output()
-	if out, err := exec.Command("git", "-C", main, "worktree", "remove", path).CombinedOutput(); err != nil {
+	branch, _ := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
+	if out, err := exec.CommandContext(ctx, "git", "-C", main, "worktree", "remove", path).CombinedOutput(); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: %v: %s\n", err, strings.TrimSpace(string(out)))
 		return 1
 	}
 	if b := strings.TrimSpace(string(branch)); b != "" {
-		_ = exec.Command("git", "-C", main, "branch", "-d", b).Run() // -d keeps a branch holding unmerged commits
+		_ = exec.CommandContext(ctx, "git", "-C", main, "branch", "-d", b).Run() // -d keeps unmerged commits.
 	}
 	return ExitProceed
 }

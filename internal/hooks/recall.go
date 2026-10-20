@@ -36,27 +36,32 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {
 		q = string(rs[:recallQueryCapRunes])
 	}
-	if distinctTerms(q) < recallMinTerms {
+	tokens := textsim.Tokenize(q)
+	if distinctTokenCount(tokens) < recallMinTerms {
 		return ExitProceed
 	}
 	root := in.CWD
 	if root == "" {
 		root, _ = os.Getwd()
 	}
-	hits := relevantHits(in.SessionID, q, memory.SearchBanks(root, q, 0))
+	terms := memory.ContentQueryTerms(tokens)
+	hits := relevantTermHits(in.SessionID, terms, memory.SearchBanksTerms(root, q, terms, 0))
 	if len(hits) == 0 {
 		return ExitProceed
 	}
 	var b strings.Builder
 	b.WriteString("<!-- memory-recall: bank blocks matching this prompt; more: claude-code memory search -->")
 	now := time.Now()
+	access := map[string][]string{}
 	for _, h := range hits {
 		line := strings.Join(strings.Fields(h.Block), " ")
-		if rs := []rune(line); len(rs) > recallHitCapRunes {
-			line = string(rs[:recallHitCapRunes]) + "…"
-		}
+		line = recallCut(line, recallHitCapRunes)
 		fmt.Fprintf(&b, "\n- [%s/%s] %s", h.Bank, h.File, line)
-		memory.LogAccess(logDirFor(root, h.Bank), now, h.Bank+":"+h.File, "prompt-recall inject")
+		dir := logDirFor(root, h.Bank)
+		access[dir] = append(access[dir], h.Bank+":"+h.File)
+	}
+	for dir, entries := range access {
+		memory.LogAccessBatch(dir, now, entries, "prompt-recall inject")
 	}
 	memory.MarkSeen(in.SessionID, hits)
 	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}, in.Vendor()); out != "" {
@@ -65,10 +70,13 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	return ExitProceed
 }
 
-// relevantHits keeps up to recallK hits that match enough query terms, score within the floor of the best such
-// hit, and are not already in this session's context (SessionStart's surface or an earlier recall).
-func relevantHits(sessionID, q string, ranked []memory.SearchHit) []memory.SearchHit {
-	need := min(max(recallMinMatched, (memory.QueryTermCount(q)+3)/4), recallMaxMatched)
+// relevantTermHits filters on query coverage, relative score and blocks not already in the session's context.
+func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHit) []memory.SearchHit {
+	seenTerms := map[string]bool{}
+	for _, t := range terms {
+		seenTerms[t] = true
+	}
+	need := min(max(recallMinMatched, (len(seenTerms)+3)/4), recallMaxMatched)
 	seen := memory.SeenBlocks(sessionID)
 	var out []memory.SearchHit
 	floor := -1.0
@@ -99,13 +107,24 @@ func logDirFor(root, bank string) string {
 	return memory.GlobalDir()
 }
 
-// distinctTerms counts distinct tokens of ≥3 chars — a coarse gate on whether to search, never on ranking.
-func distinctTerms(q string) int {
+// distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.
+func distinctTokenCount(tokens []string) int {
 	seen := map[string]bool{}
-	for _, t := range textsim.Tokenize(q) {
+	for _, t := range tokens {
 		if len(t) >= 3 {
 			seen[t] = true
 		}
 	}
 	return len(seen)
+}
+
+func recallCut(s string, limit int) string {
+	n := 0
+	for i := range s {
+		if n == limit {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
 }

@@ -39,7 +39,7 @@ func stripComments(data []byte) []byte {
 			}
 		case c == '/' && i+1 < len(data) && data[i+1] == '*':
 			i += 2
-			for i+1 < len(data) && !(data[i] == '*' && data[i+1] == '/') {
+			for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {
 				i++
 			}
 			i++ // land on the closing '/'
@@ -53,7 +53,7 @@ func stripComments(data []byte) []byte {
 func stripTrailingCommas(data []byte) []byte {
 	out := make([]byte, 0, len(data))
 	inString, escaped := false, false
-	for i := 0; i < len(data); i++ {
+	for i := range data {
 		c := data[i]
 		if inString {
 			out = append(out, c)

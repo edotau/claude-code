@@ -5,6 +5,7 @@ package dispatch
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
@@ -21,12 +22,7 @@ var Agents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
 
 // ValidAgent reports whether name is one of Agents.
 func ValidAgent(name string) bool {
-	for _, a := range Agents {
-		if a == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(Agents, name)
 }
 
 // nameRe is the --name / session-name allowlist: tmux session names embed in shell text we build.
@@ -50,7 +46,7 @@ func randID() string {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "0000"
 	}
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b[:])
 }
 
 // Opts configures one dispatch's remote command.
@@ -171,7 +167,7 @@ type Session struct {
 // ParseSessions parses listCommand's fieldSep-separated output.
 func ParseSessions(output string) []Session {
 	var sessions []Session
-	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		if line == "" {
 			continue
 		}

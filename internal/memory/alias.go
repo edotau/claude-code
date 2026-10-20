@@ -221,11 +221,11 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 		src = src[:s] + src[e:]
 	}
 	seen := map[string]bool{}
-	for _, l := range strings.Split(tgt, "\n") {
+	for l := range strings.SplitSeq(tgt, "\n") {
 		seen[strings.TrimSpace(l)] = true
 	}
 	var add []string
-	for _, l := range strings.Split(src, "\n") {
+	for l := range strings.SplitSeq(src, "\n") {
 		if t := strings.TrimSpace(l); t != "" && !seen[t] {
 			seen[t] = true
 			add = append(add, l)
@@ -319,13 +319,14 @@ func (p *aliasPlan) apply(now time.Time) error {
 	}
 	for _, l := range p.links {
 		tmp := l + ".alias-tmp"
-		os.Remove(tmp)
+		if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 		if err := os.Symlink(p.target, tmp); err != nil {
 			return err
 		}
 		if err := os.Rename(tmp, l); err != nil {
-			os.Remove(tmp)
-			return err
+			return errors.Join(err, os.Remove(tmp))
 		}
 	}
 	var s BankSettlement
@@ -354,8 +355,8 @@ func removeEmptyTree(dir string) error {
 	if err != nil {
 		return err
 	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		if err := os.Remove(dirs[i]); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	for _, dir := range slices.Backward(dirs) {
+		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}

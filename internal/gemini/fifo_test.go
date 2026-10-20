@@ -1,8 +1,9 @@
+//go:build unix
+
 package gemini
 
 import (
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -12,9 +13,6 @@ import (
 // Type() comes from the readdir syscall, no open needed), never opened — opening a FIFO with no
 // writer blocks forever, so a regression here would hang the whole scan rather than just mis-skip.
 func TestWalkDirsSkipsFIFO(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("syscall.Mkfifo is not available on windows")
-	}
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "real.txt"), "hello")
 	fifoPath := filepath.Join(dir, "a.fifo")
@@ -27,7 +25,7 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ctx, err := CollectContext(dir, []string{"."}, nil, 40, 100)
+		ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
 		done <- struct {
 			ctx Context
 			err error

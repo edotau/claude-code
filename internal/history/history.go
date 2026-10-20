@@ -52,8 +52,8 @@ func ConfigFiles() []HistoryFile {
 	files := []HistoryFile{
 		{Label: "settings.json", Path: filepath.Join(cfg, "settings.json")},
 		{Label: "settings.local.json", Path: filepath.Join(cfg, "settings.local.json")},
-		{Label: "providers.json", Path: filepath.Join(cfg, "env.d", "providers.json")},
-		{Label: "provider.env", Path: filepath.Join(paths.EnvDir(), "provider.env")},
+		{Label: filepath.Base(paths.ProvidersOverlay()), Path: paths.ProvidersOverlay()},
+		{Label: filepath.Base(paths.PinFile()), Path: paths.PinFile()},
 		{Label: "claude.json", Path: paths.ClaudeJSON()},
 	}
 	return append(files, vendorConfigs()...)

@@ -39,7 +39,7 @@ func hasGeneratedBanner(text string) bool {
 	if m := fmRes().split.FindStringSubmatch(text); m != nil {
 		body = m[2]
 	}
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -15,12 +14,9 @@ import (
 //go:embed defaults.json
 var defaultsJSON []byte
 
-// UserFile is the per-user registry overlay: providers replace built-ins by name; default/fallback override when set.
-func UserFile() string { return filepath.Join(paths.EnvDir(), "providers.json") }
-
-// Load merges the embedded defaults with UserFile and validates the result.
+// Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
-	user, err := os.ReadFile(UserFile())
+	user, err := os.ReadFile(paths.ProvidersOverlay())
 	if errors.Is(err, fs.ErrNotExist) {
 		user = nil
 	} else if err != nil {
@@ -38,7 +34,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	if len(overlay) > 0 {
 		var o Registry
 		if err := json.Unmarshal(overlay, &o); err != nil {
-			return nil, fmt.Errorf("%s: %w", UserFile(), err)
+			return nil, fmt.Errorf("%s: %w", paths.ProvidersOverlay(), err)
 		}
 		if o.Default != "" {
 			reg.Default = o.Default

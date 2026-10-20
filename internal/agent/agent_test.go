@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/envscrub"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -90,11 +93,28 @@ func TestRubricPrompt(t *testing.T) {
 func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	cmd, tail := childCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "")
+	cmd, tail := childCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil)
 	start := time.Now()
 	err := childErr(ctx, "sh", cmd.Run(), tail)
 	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("grandchild outlived the deadline: took %v, err %v", time.Since(start), err)
+	}
+}
+
+// childCmd sets $PWD alongside cmd.Dir so a child that reads $PWD (not getcwd()) still sees dir; an
+// empty dir (no --workdir) must leave PWD unset so the child inherits the caller's own cwd.
+func TestChildCmdSetsPWD(t *testing.T) {
+	dir := t.TempDir()
+	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil)
+	if !slices.Contains(cmd.Env, "PWD="+dir) {
+		t.Errorf("cmd.Env = %q, want PWD=%s", cmd.Env, dir)
+	}
+
+	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
+	scrubbed, _ := envscrub.Scrub(os.Environ(), nil)
+	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil)
+	if n, want := len(cmd.Env), len(scrubbed); n != want {
+		t.Errorf("cmd.Env has %d entries, want %d (scrubbed os.Environ(), no PWD appended)", n, want)
 	}
 }
 
@@ -158,6 +178,8 @@ func TestLegUnavailable(t *testing.T) {
 		{"canceled", &fakeRunner{name: "codex"}, Request{}, Result{}, canceled, false},
 		{"prompt too large", &fakeRunner{name: "codex"}, Request{}, Result{}, tooLarge, false},
 		{"progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, progressed, false},
+		{"wrapped progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, fmt.Errorf("runner: %w", progressed), false},
+		{"not progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, &Error{Kind: KindFatal, Err: genericErr}, true},
 		{"binary missing", &fakeRunner{name: "codex"}, Request{}, Result{}, genericErr, true},
 		{"claude model slot stays eligible", &fakeRunner{name: "codex"}, Request{Model: "opus"}, Result{}, genericErr, true},
 	}

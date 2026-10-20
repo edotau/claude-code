@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/clean"
+	"github.com/edotau/claude-code/internal/clipboard"
 )
 
 func TestInstallMergesIntoConfigDir(t *testing.T) {
@@ -36,7 +37,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(file)
-	for _, want := range []string{`"spinnerTipsEnabled": false`, `"orca stop"`, "hook stop-format", "hook safety"} {
+	for _, want := range []string{`"spinnerTipsEnabled": false`, `"orca stop"`, "hook stop-format", "hook bash-guard"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("merged settings missing %s:\n%s", want, b)
 		}
@@ -60,6 +61,66 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	}
 	if has, err := settingsHasHooks(file); !has || err != nil {
 		t.Errorf("doctor hook check: %v %v", has, err)
+	}
+}
+
+// Install's wl-paste proxy row follows the real box's WSL-ness (procVersionPath lives in the
+// clipboard package and isn't overridable from here); either way it must never touch the real HOME.
+func TestInstallEnsuresClipboardProxy(t *testing.T) {
+	hermetic(t, "")
+	self := filepath.Join(t.TempDir(), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	file := SettingsFile()
+	if err := os.WriteFile(file, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratchHome := t.TempDir()
+	t.Setenv("HOME", scratchHome)
+	proxyPath := filepath.Join(scratchHome, ".local", "bin", "wl-paste")
+
+	var out bytes.Buffer
+	if err := Install(&out, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if !clipboard.OnWSLKernel() {
+		if _, err := os.Lstat(proxyPath); err == nil {
+			t.Fatal("off-WSL: Install wrote the wl-paste proxy")
+		}
+		return
+	}
+	b, err := os.ReadFile(proxyPath)
+	if err != nil {
+		t.Fatalf("WSL: Install did not write the wl-paste proxy: %v", err)
+	}
+	if !bytes.Equal(b, clipboard.ProxyScript) {
+		t.Error("written proxy does not match the embedded script")
+	}
+	info, err := os.Stat(proxyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
+	}
+	if !strings.Contains(out.String(), "wl-paste") {
+		t.Errorf("install output missing a wl-paste row:\n%s", out.String())
+	}
+
+	// Re-run: proxy is now current, reported as such, and left byte-identical.
+	out.Reset()
+	if err := Install(&out, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "current") {
+		t.Errorf("re-run output = %q, want a current line", out.String())
+	}
+	b2, _ := os.ReadFile(proxyPath)
+	if !bytes.Equal(b2, clipboard.ProxyScript) {
+		t.Error("re-run modified an already-current proxy")
 	}
 }
 

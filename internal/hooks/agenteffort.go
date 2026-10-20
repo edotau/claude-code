@@ -58,7 +58,7 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
-	updated := agentToolInput(in)
+	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}
@@ -71,21 +71,6 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	}
 	fmt.Fprintln(stdout, string(out))
 	return ExitProceed
-}
-
-// agentToolInput clones tool_input so the caller can rewrite one key without mutating the parsed doc.
-func agentToolInput(in *Input) map[string]any {
-	var doc struct {
-		ToolInput map[string]any `json:"tool_input"`
-	}
-	if json.Unmarshal(in.Raw, &doc) != nil || doc.ToolInput == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(doc.ToolInput)+1)
-	for k, v := range doc.ToolInput {
-		clone[k] = v
-	}
-	return clone
 }
 
 // agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it

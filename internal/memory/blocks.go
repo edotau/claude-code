@@ -42,7 +42,7 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 			cur = nil
 		}
 	}
-	for _, ln := range strings.Split(body, "\n") {
+	for ln := range strings.SplitSeq(body, "\n") {
 		if !inFence && isMarker(ln) {
 			flush()
 			inBlock = true
@@ -86,10 +86,14 @@ func appendBlocks(path string, blocks []string) error {
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	for _, b := range blocks {
-		body += "\n" + b + "\n"
+	var b strings.Builder
+	b.WriteString(body)
+	for _, block := range blocks {
+		b.WriteByte('\n')
+		b.WriteString(block)
+		b.WriteByte('\n')
 	}
-	return paths.AtomicWrite(path, []byte(body), 0o600)
+	return paths.AtomicWrite(path, []byte(b.String()), 0o600)
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
@@ -99,7 +103,7 @@ func entriesWithPrefix(path, prefix string) []string {
 		return nil
 	}
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
 			e := truncateLine(stripID(rest))
 			if id := BlockID(rest); id != "" {

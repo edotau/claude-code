@@ -91,7 +91,7 @@ func TestCapturePanes_MalformedRecordIsSkipped(t *testing.T) {
 
 func TestCapturePanes_CapsPaneCount(t *testing.T) {
 	var blob strings.Builder
-	for i := 0; i < maxPanes+10; i++ {
+	for range maxPanes + 10 {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
@@ -206,6 +206,12 @@ func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	}
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Fatalf("capture-pane was never invoked (list-panes must have failed first): %v", statErr)
+	}
+}
+
+func TestCaptureCommandLineLimit(t *testing.T) {
+	if !strings.Contains(captureCommand, `tmux capture-pane -p -t "$pid" -S -50 2>/dev/null`) {
+		t.Fatalf("capture command lost its 50-line limit: %s", captureCommand)
 	}
 }
 

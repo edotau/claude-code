@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,7 +30,7 @@ func parseQualityArgs(args []string) (qualityArgs, error) {
 		case tok == "--language" || tok == "-l":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --language/-l: expected one argument")
+				return a, errors.New("argument --language/-l: expected one argument")
 			}
 			a.language = args[i]
 		case strings.HasPrefix(tok, "--language="):
@@ -37,7 +38,7 @@ func parseQualityArgs(args []string) (qualityArgs, error) {
 		case tok == "--output" || tok == "-o":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --output/-o: expected one argument")
+				return a, errors.New("argument --output/-o: expected one argument")
 			}
 			a.output = args[i]
 		case strings.HasPrefix(tok, "--output="):
@@ -67,7 +68,7 @@ func resolvePath(p string) string {
 	return abs
 }
 
-// RunQuality is the code_quality_checker.py CLI: same flags, same exit codes (1 only on a missing path).
+// RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a missing path or output write error.
 func RunQuality(args []string, stdout, stderr io.Writer) int {
 	parsed, err := parseQualityArgs(args)
 	if err != nil {
@@ -81,7 +82,7 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	var report interface{}
+	var report any
 	if info.IsDir() {
 		if dr, derr := analyzeDirectory(target, parsed.language); derr != nil {
 			report = errorResult{Error: derr.Error()}
@@ -97,25 +98,34 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if parsed.jsonOut {
-		emitQualityJSON(report, parsed.output, stdout)
+		if err := emitQualityJSON(report, parsed.output, stdout); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
 	} else {
 		printQualityReport(report, stdout)
 	}
 	return 0
 }
 
-func emitQualityJSON(report interface{}, output string, stdout io.Writer) {
+func emitQualityJSON(report any, output string, stdout io.Writer) error {
 	var buf strings.Builder
-	writeJSON(&buf, report)
+	if err := writeJSON(&buf, report); err != nil {
+		return err
+	}
 	if output != "" {
-		os.WriteFile(output, []byte(buf.String()), 0o644)
-		fmt.Fprintf(stdout, "Results written to %s\n", output)
+		if err := os.WriteFile(output, []byte(buf.String()), 0o644); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Results written to %s\n", output)
+		return err
 	} else {
-		fmt.Fprintln(stdout, buf.String())
+		_, err := fmt.Fprintln(stdout, buf.String())
+		return err
 	}
 }
 
-func printQualityReport(report interface{}, w io.Writer) {
+func printQualityReport(report any, w io.Writer) {
 	if e, ok := report.(errorResult); ok {
 		fmt.Fprintf(w, "Error: %s\n", e.Error)
 		return

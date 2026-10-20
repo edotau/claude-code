@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,16 +50,44 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
-	if !dryRun { // a vendor or hand edit about to be overwritten stays recoverable via `history diff`
-		if r, err := history.SnapshotConfig("pre-install"); err != nil {
-			fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
-		} else if r.Commit != "" {
-			fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
-		}
-	}
-	self, err := selfBinary()
+	snapshotPreInstall(w, dryRun)
+	target, err := installBinaryAndShims(w, dryRun)
 	if err != nil {
 		return err
+	}
+	installCompletion(w, dryRun)
+	installClipboardProxy(w, dryRun)
+	seedTmuxConf(w, dryRun)
+	moveProvidersFile(w, dryRun)
+	if err := linkOnPath(w, target, dryRun); err != nil {
+		return err
+	}
+	if err := installSettings(w, dryRun); err != nil {
+		return err
+	}
+	syncVendors(w, dryRun)
+	installGitHooks(w, dryRun)
+	return nil
+}
+
+// snapshotPreInstall records history before overwriting settings.json, so a vendor or hand edit
+// about to be overwritten stays recoverable via `history diff`.
+func snapshotPreInstall(w io.Writer, dryRun bool) {
+	if dryRun {
+		return
+	}
+	if r, err := history.SnapshotConfig("pre-install"); err != nil {
+		fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
+	} else if r.Commit != "" {
+		fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
+	}
+}
+
+// installBinaryAndShims copies claude-code into BinDir and links the bare-name shims, returning the target path.
+func installBinaryAndShims(w io.Writer, dryRun bool) (string, error) {
+	self, err := selfBinary()
+	if err != nil {
+		return "", err
 	}
 	bin := paths.BinDir()
 	target := filepath.Join(bin, "claude-code")
@@ -66,7 +95,7 @@ func Install(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "copy     %s → %s\n", self, target)
 		if !dryRun {
 			if err := copyBinary(self, target); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
@@ -80,12 +109,16 @@ func Install(w io.Writer, dryRun bool) error {
 		if !dryRun {
 			_ = os.Remove(link)
 			if err := os.Symlink("claude-code", link); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
-	// Bash tab-completion: best-effort — an unwritable completions dir (no bash-completion package,
-	// read-only $HOME) must never fail the install that got the binary and shims in place.
+	return target, nil
+}
+
+// installCompletion is best-effort — an unwritable completions dir (no bash-completion package,
+// read-only $HOME) must never fail the install that got the binary and shims in place.
+func installCompletion(w io.Writer, dryRun bool) {
 	switch {
 	case dryRun:
 		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
@@ -96,11 +129,18 @@ func Install(w io.Writer, dryRun bool) error {
 			fmt.Fprintf(w, "completion %s\n", path)
 		}
 	}
-	seedTmuxConf(w, dryRun)
-	moveProvidersFile(w, dryRun)
-	if err := linkOnPath(w, target, dryRun); err != nil {
-		return err
+}
+
+// installClipboardProxy ensures the WSL wl-paste proxy; a no-op off WSL, and best-effort like
+// completion — a write failure must never fail the install that got the binary and shims in place.
+func installClipboardProxy(w io.Writer, dryRun bool) {
+	if err := clipboard.InstallProxy(w, dryRun); err != nil {
+		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
 	}
+}
+
+// installSettings merges the rendered harness settings into settings.json, backing up on a real write.
+func installSettings(w io.Writer, dryRun bool) error {
 	file := SettingsFile()
 	existing, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -121,31 +161,22 @@ func Install(w io.Writer, dryRun bool) error {
 	}
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
-		syncVendors(w, dryRun)
-		installGitHooks(w, dryRun)
 		return nil
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
-		syncVendors(w, dryRun)
-		installGitHooks(w, dryRun)
 		return nil
 	}
 	backup, err := settings.WriteWithBackup(file, merged)
 	if backup != "" {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
-	if err != nil {
-		return err
-	}
-	syncVendors(w, dryRun)
-	installGitHooks(w, dryRun)
-	return nil
+	return err
 }
 
 // moveProvidersFile moves a pre-env.d ~/.claude/providers.json into env.d once; both present keeps both and warns.
 func moveProvidersFile(w io.Writer, dryRun bool) {
-	old, dst := filepath.Join(paths.ConfigDir(), "providers.json"), providers.UserFile()
+	old, dst := paths.LegacyProvidersFile(), paths.ProvidersOverlay()
 	if _, err := os.Stat(old); err != nil {
 		return
 	}
@@ -170,7 +201,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
 		return
 	}
-	cur, _ := exec.Command("git", "-C", root, "config", "--get", "core.hooksPath").Output()
+	cur, _ := exec.CommandContext(context.Background(), "git", "-C", root, "config", "--get", "core.hooksPath").Output()
 	if strings.TrimSpace(string(cur)) == ".githooks" {
 		return
 	}
@@ -178,7 +209,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	if dryRun {
 		return
 	}
-	if out, err := exec.Command("git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
 	}
 }
@@ -257,52 +288,12 @@ func DoctorChecks() (checks []Check, ok bool) {
 	bin, err := ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	reg, err := providers.Load()
-	check(err == nil, true, "provider registry", orErr(providers.UserFile(), err))
+	check(err == nil, true, "provider registry", orErr(paths.ProvidersOverlay(), err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, n := range reg.Names() {
-			p := reg.Providers[n]
-			session := serr == nil && sel.Provider == p
-			label := p.Auth.Type
-			if p.Auth.Env != "" {
-				label += " " + p.Auth.Env
-			}
-			if session {
-				label += " (session provider)"
-			}
-			present := providers.CredentialPresent(p)
-			if present {
-				pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-				status, detail := providers.ProbeCredential(pctx, p)
-				cancel()
-				switch status {
-				case "login":
-					if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
-						if providers.HeadlessOAuthToken() != "" {
-							label += " · headless token set"
-						} else {
-							label += " · no headless token (claude-code configure → claude mints one)"
-						}
-					}
-				case "verified":
-					label += " · verified"
-				case "rejected":
-					present = false                           // stored, but the provider refuses it: as unusable as a missing key
-					detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
-					label += " · REJECTED: " + detail
-				default:
-					label += " · " + status + ": " + detail
-				}
-			}
-			if !present {
-				if alt := altAuth(reg, n); alt != "" {
-					if !strings.Contains(label, "REJECTED") {
-						label += " · no key"
-					}
-					present, label = true, label+" · "+alt
-				}
-			}
-			check(present, session, "credential "+n, label)
+			c := providerCredentialCheck(reg, sel, serr, n)
+			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
@@ -324,6 +315,51 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	return checks, ok
+}
+
+func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
+	p := reg.Providers[name]
+	session := selectErr == nil && sel.Provider == p
+	label := p.Auth.Type
+	if p.Auth.Env != "" {
+		label += " " + p.Auth.Env
+	}
+	if session {
+		label += " (session provider)"
+	}
+	present := providers.CredentialPresent(p)
+	if present {
+		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		status, detail := providers.ProbeCredential(pctx, p)
+		cancel()
+		switch status {
+		case "login":
+			if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
+				if providers.HeadlessOAuthToken() != "" {
+					label += " · headless token set"
+				} else {
+					label += " · no headless token (claude-code configure → claude mints one)"
+				}
+			}
+		case "verified":
+			label += " · verified"
+		case "rejected":
+			present = false                           // stored, but the provider refuses it: as unusable as a missing key
+			detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
+			label += " · REJECTED: " + detail
+		default:
+			label += " · " + status + ": " + detail
+		}
+	}
+	if !present {
+		if alt := altAuth(reg, name); alt != "" {
+			if !strings.Contains(label, "REJECTED") {
+				label += " · no key"
+			}
+			present, label = true, label+" · "+alt
+		}
+	}
+	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
 }
 
 // altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:
@@ -405,7 +441,7 @@ func rtkDoctorStatus() string {
 	if bin := hooks.RTKBinary(); bin != "" {
 		return bin + " (" + hooks.RTKCommandList() + ")"
 	}
-	return "not on PATH — rtk-wrap no-ops"
+	return "not on PATH — bash-guard skips the rtk rewrite"
 }
 
 // setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.
@@ -473,9 +509,9 @@ func routerStatus() string {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "stale router.json (port " + fmt.Sprint(st.Port) + " not answering)"
+		return "stale router.json (port " + strconv.Itoa(st.Port) + " not answering)"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return fmt.Sprintf("port %d %s", st.Port, resp.Status)
 }
 
@@ -502,8 +538,7 @@ func settingsHasHooks(file string) (bool, error) {
 	return false, nil
 }
 
-// toolDoctorDetail renders one tool's doctor line: path + version, flagged when it's an npm-global
-// copy that `claude-code install --tools` would retire, or a report-only hint when none is found.
+// toolDoctorDetail renders one tool's doctor line: path + version, npm-global/~/.local/bin flag, then any shim shadowing or extra PATH copies.
 func toolDoctorDetail(s tools.Status) string {
 	if s.Path == "" {
 		if s.Hint != "" {
@@ -511,17 +546,86 @@ func toolDoctorDetail(s tools.Status) string {
 		}
 		return "not found (claude-code install --tools=" + s.Name + ")"
 	}
-	detail := s.Path
+	var detail strings.Builder
+	detail.WriteString(s.Path)
 	if s.Version != "" {
-		detail += " " + s.Version
+		detail.WriteString(" " + s.Version)
 	}
 	switch {
 	case s.NPMGlobal:
-		detail += " (npm-global; claude-code install --tools retires this)"
+		detail.WriteString(" (npm-global; claude-code install --tools retires this)")
 	case s.LocalBin:
-		detail += " (~/.local/bin)"
+		detail.WriteString(" (~/.local/bin)")
 	}
-	return detail
+	copies, shadows := toolPATHCopies(s.Name)
+	if shadows {
+		detail.WriteString(" · shadows the shim " + paths.BinDir() + " (launch env bypassed)")
+	}
+	first, _ := filepath.EvalSymlinks(s.Path)
+	first, _ = filepath.Abs(first)
+	for _, path := range copies {
+		real, _ := filepath.EvalSymlinks(path)
+		real, _ = filepath.Abs(real)
+		if real == first {
+			continue
+		}
+		extra := path
+		if version := toolPATHVersion(path); version != "" {
+			extra += " " + version
+		}
+		detail.WriteString(" · also on PATH: " + extra)
+	}
+	return detail.String()
+}
+
+func toolPATHCopies(name string) ([]string, bool) {
+	shimDir, _ := filepath.Abs(paths.BinDir())
+	self, _ := SelfBinary()
+	shimBinary, _ := filepath.EvalSymlinks(filepath.Join(shimDir, "claude-code"))
+	seen := map[string]bool{}
+	var copies []string
+	shimSeen, firstBeforeShim := false, false
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		if abs, _ := filepath.Abs(dir); abs == shimDir {
+			shimSeen = true
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		real, err = filepath.Abs(real)
+		if err != nil || real == self || real == shimBinary || seen[real] {
+			continue
+		}
+		seen[real] = true
+		if len(copies) == 0 {
+			firstBeforeShim = !shimSeen
+		}
+		copies = append(copies, candidate)
+	}
+	return copies, shimSeen && firstBeforeShim && slices.Contains(ShimNames, name)
+}
+
+func toolPATHVersion(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.WaitDelay = time.Millisecond
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(out), "\n")
+	return strings.TrimSpace(line)
 }
 
 func orErr(s string, err error) string {

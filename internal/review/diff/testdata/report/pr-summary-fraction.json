@@ -1,0 +1,11 @@
+{
+  "status": "analyzed",
+  "summary": {
+    "files_changed": 2,
+    "total_additions": 12.5,
+    "total_deletions": 3,
+    "complexity_score": 4,
+    "complexity_label": "Moderate",
+    "commits": 2
+  }
+}

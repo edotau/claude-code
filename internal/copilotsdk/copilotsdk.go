@@ -12,6 +12,8 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
+
+	"github.com/edotau/claude-code/internal/envscrub"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -24,12 +26,16 @@ const denyFeedback = "Tool use is disabled for this headless run. Answer from th
 type Options struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
+	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
 	Model            string   // Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
 	ReasoningEffort  string
 	WorkingDirectory string
 	AllowAllTools    bool
 	UseLoggedInUser  bool // always explicit: unset, the SDK silently falls back to the GitHub subscription
 	GitHubToken      string
+	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
+	EnableMemory     bool   // SessionConfig.Memory.Enabled
+	SessionID        string // non-empty resumes this session instead of creating a new one
 }
 
 // Result is one completed turn; Model is what the runtime reports actually served it.
@@ -45,28 +51,52 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
+	base, _ := envscrub.Scrub(os.Environ(), envscrub.KeepSet(o.KeepEnv))
 	return &copilot.ClientOptions{
-		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(os.Environ(), o.Env...)},
+		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(base, o.Env...)},
 		WorkingDirectory: o.WorkingDirectory,
-		UseLoggedInUser:  copilot.Bool(o.UseLoggedInUser),
+		UseLoggedInUser:  new(o.UseLoggedInUser),
 		GitHubToken:      o.GitHubToken,
 	}, nil
 }
 
 // BuildSessionConfig denies tool calls unless AllowAllTools is set.
 func BuildSessionConfig(o Options) *copilot.SessionConfig {
-	handler := denyAllTools
-	if o.AllowAllTools {
-		handler = approveToolOnce
-	}
-	return &copilot.SessionConfig{
+	cfg := &copilot.SessionConfig{
 		ClientName:          DefaultClientName,
 		Model:               o.Model,
 		ReasoningEffort:     o.ReasoningEffort,
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
-		OnPermissionRequest: handler,
+		OnPermissionRequest: permissionHandler(o),
 	}
+	if o.EnableMemory {
+		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
+	}
+	return cfg
+}
+
+// buildResumeSessionConfig mirrors BuildSessionConfig for client.ResumeSessionWithOptions.
+func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
+	cfg := &copilot.ResumeSessionConfig{
+		ClientName:          DefaultClientName,
+		Model:               o.Model,
+		ReasoningEffort:     o.ReasoningEffort,
+		WorkingDirectory:    o.WorkingDirectory,
+		Provider:            providerFromEnv(o.Env),
+		OnPermissionRequest: permissionHandler(o),
+	}
+	if o.EnableMemory {
+		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
+	}
+	return cfg
+}
+
+func permissionHandler(o Options) copilot.PermissionHandlerFunc {
+	if o.AllowAllTools {
+		return approveToolOnce
+	}
+	return denyAllTools
 }
 
 // providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
@@ -116,7 +146,7 @@ type Model struct {
 }
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
-var listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+var listModelsFn = func(ctx context.Context, o Options) (models []copilot.ModelInfo, err error) {
 	clientOpts, err := BuildClientOptions(o)
 	if err != nil {
 		return nil, err
@@ -125,7 +155,11 @@ var listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, er
 	if err := client.Start(ctx); err != nil {
 		return nil, fmt.Errorf("start copilot runtime: %w", err)
 	}
-	defer client.Stop()
+	defer func() {
+		if stopErr := client.Stop(); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
+		}
+	}()
 	return client.ListModels(ctx)
 }
 
@@ -145,8 +179,24 @@ func ListModels(ctx context.Context, o Options) ([]Model, error) {
 	return out, nil
 }
 
+// newOrResumedSession resumes o.SessionID when set, else creates a fresh session.
+func newOrResumedSession(ctx context.Context, client *copilot.Client, o Options) (*copilot.Session, error) {
+	if o.SessionID == "" {
+		session, err := client.CreateSession(ctx, BuildSessionConfig(o))
+		if err != nil {
+			return nil, fmt.Errorf("create session: %w", err)
+		}
+		return session, nil
+	}
+	session, err := client.ResumeSessionWithOptions(ctx, o.SessionID, buildResumeSessionConfig(o))
+	if err != nil {
+		return nil, fmt.Errorf("resume session %s: %w", o.SessionID, err)
+	}
+	return session, nil
+}
+
 // Ask runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
-func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
+func Ask(ctx context.Context, o Options, prompt string) (result Result, err error) {
 	if strings.TrimSpace(prompt) == "" {
 		return Result{}, errors.New("empty prompt")
 	}
@@ -158,13 +208,21 @@ func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
 	if err := client.Start(ctx); err != nil {
 		return Result{}, fmt.Errorf("start copilot runtime: %w", err)
 	}
-	defer client.Stop()
+	defer func() {
+		if stopErr := client.Stop(); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
+		}
+	}()
 
-	session, err := client.CreateSession(ctx, BuildSessionConfig(o))
+	session, err := newOrResumedSession(ctx, client, o)
 	if err != nil {
-		return Result{}, fmt.Errorf("create session: %w", err)
+		return Result{}, err
 	}
-	defer session.Disconnect()
+	defer func() {
+		if disconnectErr := session.Disconnect(); disconnectErr != nil {
+			err = errors.Join(err, fmt.Errorf("disconnect copilot session: %w", disconnectErr))
+		}
+	}()
 
 	var (
 		mu    sync.Mutex
@@ -185,8 +243,12 @@ func Ask(ctx context.Context, o Options, prompt string) (Result, error) {
 	})
 	defer unsubscribe()
 
+	msgOpts := copilot.MessageOptions{Prompt: prompt}
+	if o.Autonomous {
+		msgOpts.AgentMode = copilot.AgentModeAutopilot
+	}
 	start := time.Now()
-	if _, err := session.SendAndWait(ctx, copilot.MessageOptions{Prompt: prompt}); err != nil {
+	if _, err := session.SendAndWait(ctx, msgOpts); err != nil {
 		return Result{}, fmt.Errorf("send prompt: %w", err)
 	}
 	mu.Lock()

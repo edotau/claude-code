@@ -190,7 +190,7 @@ func getChangedSourceFiles(repo, base, head string) []string {
 			continue
 		}
 		var files []string
-		for _, line := range strings.Split(out, "\n") {
+		for line := range strings.SplitSeq(out, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -371,9 +371,6 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 	return "block", "Significant issues prevent approval"
 }
 
-func intPtr(i int) *int       { return &i }
-func strPtr(s string) *string { return &s }
-
 func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding {
 	findings := []Finding{}
 	if risks := mMap(prAnalysis, "risks"); risks != nil {
@@ -386,7 +383,7 @@ func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding 
 				}
 				findings = append(findings, Finding{
 					Source: "pr_analysis", Severity: sev, Category: orDefault(mStr(im, "name"), "unknown"),
-					Message: mStr(im, "message"), File: mStr(im, "file"), Count: intPtr(count),
+					Message: mStr(im, "message"), File: mStr(im, "file"), Count: new(count),
 				})
 			}
 		}
@@ -394,7 +391,7 @@ func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding 
 	for _, issue := range extractQualityIssues(qualityAnalysis) {
 		findings = append(findings, Finding{
 			Source: "quality_analysis", Severity: issue["severity"], Category: orDefault(issue["type"], "unknown"),
-			Message: issue["message"], File: issue["file"], Line: strPtr(issue["line"]),
+			Message: issue["message"], File: issue["file"], Line: new(issue["line"]),
 		})
 	}
 	sort.SliceStable(findings, func(i, j int) bool {
@@ -448,9 +445,10 @@ func generateActionItems(findings []Finding) []ActionItem {
 			continue
 		}
 		priority := "P2"
-		if f.Severity == "critical" {
+		switch f.Severity {
+		case "critical":
 			priority = "P0"
-		} else if f.Severity == "high" {
+		case "high":
 			priority = "P1"
 		}
 		filesAffected := []string{}
@@ -468,7 +466,7 @@ func generateActionItems(findings []Finding) []ActionItem {
 
 // generateReport ports generate_report; prAnalysisOverride/qualityAnalysisOverride are non-nil
 // when loaded from --pr-analysis/--quality-analysis JSON files.
-func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) Report {
+func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) (Report, error) {
 	var prReport *PRReport
 	var prMap map[string]any
 	if prAnalysisOverride != nil {
@@ -516,9 +514,14 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 			report.PRSummary = prReport.Summary
 			report.ReviewOrder = prReport.ReviewOrder
 		} else if summary := mMap(prMap, "summary"); summary != nil {
-			b, _ := json.Marshal(summary)
+			b, err := json.Marshal(summary)
+			if err != nil {
+				return Report{}, fmt.Errorf("marshal PR analysis summary: %w", err)
+			}
 			var ps PRSummary
-			json.Unmarshal(b, &ps)
+			if err := json.Unmarshal(b, &ps); err != nil {
+				return Report{}, fmt.Errorf("decode PR analysis summary: %w", err)
+			}
 			report.PRSummary = &ps
 			ro := []string{}
 			for _, v := range mSlice(prMap, "review_order") {
@@ -542,7 +545,7 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 		}
 	}
 
-	return report
+	return report, nil
 }
 
 // RunReport ports review_report_generator.py's CLI.
@@ -600,7 +603,11 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	report := generateReport(repoPath, *base, *head, prOverride, qualityOverride)
+	report, err := generateReport(repoPath, *base, *head, prOverride, qualityOverride)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 
 	outputFormat := *format
 	if *jsonOut {

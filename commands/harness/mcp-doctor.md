@@ -5,8 +5,8 @@ argument-hint: "[health | conflicts | secrets | all]"
 
 # /harness:mcp-doctor — MCP Diagnostic
 
-`claude-code` has no dedicated `mcp` verb — this command drives the stock Claude Code CLI and
-inspects its config files directly. Pass the mode through as `$ARGUMENTS` (default `all` if empty).
+`claude-code mcp doctor [--format json]` runs these checks natively; this command is the stock-CLI
+walkthrough and inspects the config files directly. Pass the mode through as `$ARGUMENTS` (default `all` if empty).
 
 ## What each mode checks
 

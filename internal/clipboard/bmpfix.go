@@ -4,6 +4,7 @@ package clipboard
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -59,20 +60,50 @@ func TranscodePNG(r io.Reader, w io.Writer) error {
 // public encoders so the format-specific part is only the write. Alpha is discarded — correct for a
 // paste target, not a bug.
 func decodeRaster(r io.Reader) (raster, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxBMPBytes+1))
+	data, dib, pixelOffset, err := readBMPHeader(r)
 	if err != nil {
-		return raster{}, fmt.Errorf("clipboard: read input: %w", err)
+		return raster{}, err
+	}
+	img, err := bmpDimensions(dib)
+	if err != nil {
+		return raster{}, err
+	}
+	bitCount := binary.LittleEndian.Uint16(dib[14:16])
+	compression := binary.LittleEndian.Uint32(dib[16:20])
+	rMask, gMask, bMask, err := bmpColorMasks(data, dib, bitCount, compression)
+	if err != nil {
+		return raster{}, err
+	}
+
+	img.stride = rowStride(img.width, int(bitCount))
+	pixelBytes := img.stride * img.height
+	if int64(pixelOffset)+int64(pixelBytes) > int64(len(data)) {
+		return raster{}, fmt.Errorf("clipboard: truncated pixel data (want %d bytes at offset %d, have %d)", pixelBytes, pixelOffset, len(data))
+	}
+	img.rows = data[pixelOffset : int(pixelOffset)+pixelBytes]
+
+	// BI_RGB 24bpp already matches the target shape — pass the bytes through, only fix orientation.
+	if compression == biRGB && bitCount == 24 {
+		return img, nil
+	}
+	return convertRaster(img, bitCount, rMask, gMask, bMask), nil
+}
+
+func readBMPHeader(r io.Reader) (data, dib []byte, pixelOffset uint32, err error) {
+	data, err = io.ReadAll(io.LimitReader(r, maxBMPBytes+1))
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("clipboard: read input: %w", err)
 	}
 	if len(data) > maxBMPBytes {
-		return raster{}, fmt.Errorf("clipboard: input exceeds %d byte cap", maxBMPBytes)
+		return nil, nil, 0, fmt.Errorf("clipboard: input exceeds %d byte cap", maxBMPBytes)
 	}
 	if len(data) < fileHeaderSize+4 {
-		return raster{}, fmt.Errorf("clipboard: truncated file header (%d bytes)", len(data))
+		return nil, nil, 0, fmt.Errorf("clipboard: truncated file header (%d bytes)", len(data))
 	}
 	if data[0] != 'B' || data[1] != 'M' {
-		return raster{}, fmt.Errorf("clipboard: not a BMP (magic %q)", data[0:2])
+		return nil, nil, 0, fmt.Errorf("clipboard: not a BMP (magic %q)", data[0:2])
 	}
-	pixelOffset := binary.LittleEndian.Uint32(data[10:14])
+	pixelOffset = binary.LittleEndian.Uint32(data[10:14])
 
 	dibSize := binary.LittleEndian.Uint32(data[14:18])
 	var headerLen int
@@ -80,17 +111,17 @@ func decodeRaster(r io.Reader) (raster, error) {
 	case 40, 108, 124: // BITMAPINFOHEADER, BITMAPV4HEADER, BITMAPV5HEADER
 		headerLen = int(dibSize)
 	default:
-		return raster{}, fmt.Errorf("clipboard: unsupported DIB header size %d", dibSize)
+		return nil, nil, 0, fmt.Errorf("clipboard: unsupported DIB header size %d", dibSize)
 	}
 	if len(data) < fileHeaderSize+headerLen {
-		return raster{}, fmt.Errorf("clipboard: truncated DIB header (want %d bytes, have %d)", headerLen, len(data)-fileHeaderSize)
+		return nil, nil, 0, fmt.Errorf("clipboard: truncated DIB header (want %d bytes, have %d)", headerLen, len(data)-fileHeaderSize)
 	}
-	dib := data[fileHeaderSize : fileHeaderSize+headerLen]
+	return data, data[fileHeaderSize : fileHeaderSize+headerLen], pixelOffset, nil
+}
 
+func bmpDimensions(dib []byte) (raster, error) {
 	width := int32(binary.LittleEndian.Uint32(dib[4:8]))
 	height := int32(binary.LittleEndian.Uint32(dib[8:12]))
-	bitCount := binary.LittleEndian.Uint16(dib[14:16])
-	compression := binary.LittleEndian.Uint32(dib[16:20])
 
 	if width <= 0 {
 		return raster{}, fmt.Errorf("clipboard: invalid width %d", width)
@@ -109,25 +140,27 @@ func decodeRaster(r io.Reader) (raster, error) {
 	if int64(width)*int64(height) > maxPixels {
 		return raster{}, fmt.Errorf("clipboard: %dx%d (%d pixels) exceeds the %d pixel cap", width, height, int64(width)*int64(height), maxPixels)
 	}
+	return raster{width: int(width), height: int(height), topDown: topDown}, nil
+}
 
-	var rMask, gMask, bMask uint32
+func bmpColorMasks(data, dib []byte, bitCount uint16, compression uint32) (rMask, gMask, bMask uint32, err error) {
 	switch compression {
 	case biRGB:
 		if bitCount != 24 && bitCount != 32 {
-			return raster{}, fmt.Errorf("clipboard: unsupported bit depth %d for BI_RGB", bitCount)
+			return 0, 0, 0, fmt.Errorf("clipboard: unsupported bit depth %d for BI_RGB", bitCount)
 		}
 		if bitCount == 32 {
 			rMask, gMask, bMask = 0x00FF0000, 0x0000FF00, 0x000000FF
 		}
 	case biBitFields:
 		if bitCount != 16 && bitCount != 32 {
-			return raster{}, fmt.Errorf("clipboard: unsupported bit depth %d for BI_BITFIELDS", bitCount)
+			return 0, 0, 0, fmt.Errorf("clipboard: unsupported bit depth %d for BI_BITFIELDS", bitCount)
 		}
-		if headerLen == 40 {
+		if len(dib) == 40 {
 			// classic extension: masks trail the 40-byte header, ahead of the pixel array.
 			maskOff := fileHeaderSize + 40
 			if len(data) < maskOff+12 {
-				return raster{}, fmt.Errorf("clipboard: truncated BITFIELDS masks")
+				return 0, 0, 0, errors.New("clipboard: truncated BITFIELDS masks")
 			}
 			rMask = binary.LittleEndian.Uint32(data[maskOff : maskOff+4])
 			gMask = binary.LittleEndian.Uint32(data[maskOff+4 : maskOff+8])
@@ -139,32 +172,23 @@ func decodeRaster(r io.Reader) (raster, error) {
 			bMask = binary.LittleEndian.Uint32(dib[48:52])
 		}
 	default:
-		return raster{}, fmt.Errorf("clipboard: unsupported compression %d (RLE/JPEG/PNG-in-BMP not handled)", compression)
+		return 0, 0, 0, fmt.Errorf("clipboard: unsupported compression %d (RLE/JPEG/PNG-in-BMP not handled)", compression)
 	}
+	return rMask, gMask, bMask, nil
+}
 
-	srcStride := rowStride(int(width), int(bitCount))
-	pixelBytes := srcStride * int(height)
-	if int64(pixelOffset)+int64(pixelBytes) > int64(len(data)) {
-		return raster{}, fmt.Errorf("clipboard: truncated pixel data (want %d bytes at offset %d, have %d)", pixelBytes, pixelOffset, len(data))
-	}
-	pixels := data[pixelOffset : int(pixelOffset)+pixelBytes]
-
-	// BI_RGB 24bpp already matches the target shape — pass the bytes through, only fix orientation.
-	if compression == biRGB && bitCount == 24 {
-		return raster{int(width), int(height), srcStride, pixels, topDown}, nil
-	}
-
-	dstStride := rowStride(int(width), 24)
-	out := make([]byte, dstStride*int(height))
+func convertRaster(img raster, bitCount uint16, rMask, gMask, bMask uint32) raster {
+	dstStride := rowStride(img.width, 24)
+	out := make([]byte, dstStride*img.height)
 	rShift, rWidth := maskShiftWidth(rMask)
 	gShift, gWidth := maskShiftWidth(gMask)
 	bShift, bWidth := maskShiftWidth(bMask)
 	bytesPerPixel := int(bitCount) / 8
 
-	for y := 0; y < int(height); y++ {
-		srcRow := pixels[y*srcStride : y*srcStride+srcStride]
+	for y := 0; y < img.height; y++ {
+		srcRow := img.rows[y*img.stride : y*img.stride+img.stride]
 		dstRow := out[y*dstStride : y*dstStride+dstStride]
-		for x := 0; x < int(width); x++ {
+		for x := 0; x < img.width; x++ {
 			off := x * bytesPerPixel
 			var px uint32
 			switch bytesPerPixel {
@@ -178,7 +202,8 @@ func decodeRaster(r io.Reader) (raster, error) {
 			dstRow[x*3+2] = scaleChannel(px, rMask, rShift, rWidth)
 		}
 	}
-	return raster{int(width), int(height), dstStride, out, topDown}, nil
+	img.stride, img.rows = dstStride, out
+	return img
 }
 
 // rowStride returns the 4-byte-padded row length for width pixels at bitCount depth.

@@ -53,7 +53,7 @@ func spawnIdleWatcher(in *Input) {
 	if err != nil {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
 	}
-	f.Close()
+	_ = f.Close()
 	args := []string{"--session", in.SessionID, "--transcript", in.TranscriptPath, "--cwd", in.CWD,
 		"--owner", strconv.Itoa(sessionOwnerPid())}
 	if !spawnWatcher(args, in.CWD) {

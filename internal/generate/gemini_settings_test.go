@@ -27,7 +27,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -64,7 +64,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	}
 
 	var out2 bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out2, Agents: []string{"gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out2, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("second Run: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
@@ -89,7 +89,7 @@ func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -125,7 +125,7 @@ func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -147,7 +147,7 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -194,7 +194,7 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"gemini"}}); err != nil {
+				if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 					t.Fatalf("Run: %v\n%s", err, out.String())
 				}
 			}()

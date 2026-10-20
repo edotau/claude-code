@@ -7,7 +7,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestMoveBackupPreservesCollision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	base := path + ".bak-20261020T120000.123456789Z"
+	original := []byte("original backup\n")
+	data := []byte("new backup\n")
+	for name, content := range map[string][]byte{base: original, path: data} {
+		if err := os.WriteFile(name, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	backup, err := moveBackup(path, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backup != base+"-1" {
+		t.Fatalf("backup = %q, want %q", backup, base+"-1")
+	}
+	for name, want := range map[string][]byte{base: original, backup: data} {
+		got, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("source still exists or cannot be checked after move: %v", err)
+	}
+}
 
 // scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor
 // renders instead of skipping), and returns the vendor-config home dir.
@@ -41,10 +74,87 @@ func scratch(t *testing.T) string {
 	return home
 }
 
+func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
+	home := scratch(t)
+	hooksPath := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	for path, body := range map[string]string{hooksPath: "{not valid json", jsoncPath: "{}\n"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	_, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	if err == nil || !strings.Contains(err.Error(), "copilot-hooks: existing file:") {
+		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
+	}
+	for _, rel := range []string{
+		".codex/config.toml", ".codex/hooks.json", ".config/opencode/opencode.json",
+		".config/opencode/tui.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
+	} {
+		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be written after a render error: %v", rel, err)
+		}
+	}
+	if raw, err := os.ReadFile(jsoncPath); err != nil || string(raw) != "{}\n" {
+		t.Errorf("JSONC must not be retired after a render error: %q, %v", raw, err)
+	}
+	if strings.Contains(out.String(), ": wrote ") || strings.Contains(out.String(), ": moved ") {
+		t.Errorf("reported unapplied writes:\n%s", out.String())
+	}
+}
+
+func TestPrepareDefersWritesAndJSONCRetirement(t *testing.T) {
+	home := scratch(t)
+	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	if err := os.MkdirAll(filepath.Dir(jsoncPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jsoncPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	p, drift, err := Prepare(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}})
+	if err != nil || !drift || p == nil {
+		t.Fatalf("Prepare = %v, %v, %v", p, drift, err)
+	}
+	if _, err := os.Stat(opencodeJSONPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("Prepare wrote opencode.json: %v", err)
+	}
+	if _, err := os.Stat(jsoncPath); err != nil {
+		t.Fatalf("Prepare retired opencode.jsonc: %v", err)
+	}
+	if err := p.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(opencodeJSONPath(home)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(jsoncPath); !os.IsNotExist(err) {
+		t.Fatalf("Apply did not retire opencode.jsonc: %v", err)
+	}
+	backups, err := filepath.Glob(jsoncPath + ".bak-*")
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("JSONC backups = %v, %v", backups, err)
+	}
+	stamp := strings.TrimPrefix(backups[0], jsoncPath+".bak-")
+	if _, err := time.Parse("20060102T150405.000000000Z", stamp); err != nil {
+		t.Fatalf("backup timestamp lacks nanosecond precision: %q: %v", stamp, err)
+	}
+	moved := strings.Index(out.String(), "opencode: moved ")
+	wrote := strings.Index(out.String(), "opencode: wrote ")
+	if moved < 0 || wrote < moved {
+		t.Fatalf("JSONC must be retired before writing opencode.json:\n%s", out.String())
+	}
+}
+
 func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	drift, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
@@ -95,7 +205,7 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 
 	// A second run with nothing changed must report no drift and touch no file's content.
 	var out2 bytes.Buffer
-	drift, err = Run(Options{Home: home, Out: &out2, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err = Run(Options{Home: home, Vendors: true, Out: &out2, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
@@ -124,7 +234,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -174,7 +284,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	if drift, err := Run(Options{Home: home, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+	if drift, err := Run(Options{Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	} else if !drift {
 		t.Fatal("expected drift=true against an empty home")
@@ -184,7 +294,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	}
 
 	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	path := filepath.Join(home, ".codex", "config.toml")
@@ -200,7 +310,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out2 bytes.Buffer
-	drift, err := Run(Options{Home: home, Out: &out2, Check: true, Agents: []string{"codex"}})
+	drift, err := Run(Options{Home: home, Vendors: true, Out: &out2, Check: true, Agents: []string{"codex"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -219,7 +329,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	drift, err := Run(Options{Home: home, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
+	drift, err := Run(Options{Home: home, Vendors: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -237,7 +347,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	home := scratch(t)
 	path := filepath.Join(home, ".config", "opencode", "tui.json")
-	if _, err := Run(Options{Home: home, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var cfg map[string]any
@@ -249,7 +359,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"theme":"tokyonight","keybinds":{"leader":"ctrl+x"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	drift, err := Run(Options{Home: home, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
+	drift, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
 	if err != nil {
 		t.Fatalf("Run --check: %v", err)
 	}
@@ -275,7 +385,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
@@ -297,5 +407,50 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	// Top-level approval/sandbox keys are vendorconfig's, independent of login type: written even here.
 	if !strings.Contains(string(raw), "approval_policy") || !strings.Contains(string(raw), "sandbox_mode") {
 		t.Fatalf("own-login codex should still get approval_policy/sandbox_mode:\n%s", raw)
+	}
+}
+
+// TestScratchConfigDirSkipsVendorWritesWithoutFlag reproduces the P0: CLAUDE_CONFIG_DIR pointed at a
+// worktree while vendor destinations stay $HOME-rooted (Options.Home left unset, matching production,
+// where os.UserHomeDir() resolves the real process HOME). Without --vendors nothing is written under
+// that HOME's vendor dirs; with it, writes land exactly as before.
+func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
+	scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
+	vendorHome := t.TempDir()
+	t.Setenv("HOME", vendorHome)
+
+	var out bytes.Buffer
+	drift, err := Run(Options{Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if drift {
+		t.Fatal("a skipped render must report no drift")
+	}
+	if !strings.Contains(out.String(), "skipping vendor configs") {
+		t.Fatalf("expected the skip note, got:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".codex")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .codex under the scratch HOME, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".config", "opencode")); !os.IsNotExist(err) {
+		t.Fatalf("expected no opencode config under the scratch HOME, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .copilot under the scratch HOME, stat err = %v", err)
+	}
+
+	var out2 bytes.Buffer
+	if _, err := Run(Options{Out: &out2, Vendors: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
+		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".codex", "config.toml")); err != nil {
+		t.Fatalf("--vendors must still write codex config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".config", "opencode", "opencode.json")); err != nil {
+		t.Fatalf("--vendors must still write opencode config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json")); err != nil {
+		t.Fatalf("--vendors must still write copilot hooks: %v", err)
 	}
 }

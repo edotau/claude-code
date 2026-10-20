@@ -3,11 +3,17 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/hookspec"
 )
 
 // Exit codes per the Claude Code hook contract.
@@ -35,10 +41,11 @@ type Input struct {
 
 const (
 	VendorClaude  = "claude"
+	VendorCodex   = "codex"
 	VendorCopilot = "copilot"
 )
 
-// Vendor distinguishes Copilot's payload; Claude and Codex share the snake_case contract.
+// Vendor uses the explicit hook vendor or Copilot's payload shape, defaulting to Claude.
 func (in *Input) Vendor() string {
 	if in == nil || in.vendor == "" {
 		return VendorClaude
@@ -50,28 +57,36 @@ func (in *Input) Vendor() string {
 func ParseInput(r io.Reader) *Input {
 	raw, _ := io.ReadAll(r)
 	in := &Input{Raw: raw}
-	_ = json.Unmarshal(raw, in)
-	var alias struct {
-		SessionID      *string `json:"sessionId"`
-		ToolName       string  `json:"toolName"`
-		WorkingDir     string  `json:"workingDirectory"`
-		TranscriptPath string  `json:"transcriptPath"`
+	if json.Unmarshal(raw, &in.doc) != nil {
+		return &Input{Raw: raw}
 	}
-	_ = json.Unmarshal(raw, &alias)
-	if alias.SessionID != nil && in.HookEventName == "" {
+	switch vendor := os.Getenv(hookspec.VendorEnv); vendor {
+	case VendorClaude, VendorCodex, VendorCopilot:
+		in.vendor = vendor
+	}
+	in.SessionID = in.nested("session_id")
+	in.CWD = in.nested("cwd")
+	in.TranscriptPath = in.nested("transcript_path")
+	in.ToolName = in.nested("tool_name")
+	in.HookEventName = in.nested("hook_event_name")
+	in.StopHookActive, _ = in.doc["stop_hook_active"].(bool)
+	in.Prompt = in.nested("prompt")
+	in.AgentID = in.nested("agent_id")
+	in.AgentTranscriptPath = in.nested("agent_transcript_path")
+	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
 		in.vendor = VendorCopilot
 	}
-	if in.SessionID == "" && alias.SessionID != nil {
-		in.SessionID = *alias.SessionID
+	if in.SessionID == "" {
+		in.SessionID = in.nested("sessionId")
 	}
 	if in.ToolName == "" {
-		in.ToolName = alias.ToolName
+		in.ToolName = in.nested("toolName")
 	}
 	if in.CWD == "" {
-		in.CWD = alias.WorkingDir
+		in.CWD = in.nested("workingDirectory")
 	}
 	if in.TranscriptPath == "" {
-		in.TranscriptPath = alias.TranscriptPath
+		in.TranscriptPath = in.nested("transcriptPath")
 	}
 	if in.Vendor() == VendorCopilot {
 		in.normalizeToolArgs()
@@ -81,7 +96,6 @@ func ParseInput(r io.Reader) *Input {
 
 // normalizeToolArgs lets every existing tool_input consumer read Copilot's string or object arguments.
 func (in *Input) normalizeToolArgs() {
-	_ = in.nested("toolArgs")
 	args, _ := in.doc["toolArgs"].(map[string]any)
 	if text, ok := in.doc["toolArgs"].(string); ok {
 		_ = json.Unmarshal([]byte(text), &args)
@@ -106,10 +120,6 @@ func (in *Input) normalizeToolArgs() {
 }
 
 func (in *Input) nested(path ...string) string {
-	if in.doc == nil {
-		in.doc = map[string]any{}
-		_ = json.Unmarshal(in.Raw, &in.doc)
-	}
 	cur := any(in.doc)
 	for _, k := range path {
 		m, ok := cur.(map[string]any)
@@ -120,6 +130,23 @@ func (in *Input) nested(path ...string) string {
 	}
 	s, _ := cur.(string)
 	return s
+}
+
+// ToolInput returns the decoded tool arguments, or nil when absent.
+func (in *Input) ToolInput() map[string]any {
+	input, _ := in.doc["tool_input"].(map[string]any)
+	return input
+}
+
+// cloneToolInput preserves arguments while allowing a hook to replace individual keys.
+func (in *Input) cloneToolInput() map[string]any {
+	input := in.ToolInput()
+	if input == nil {
+		return nil
+	}
+	clone := make(map[string]any, len(input)+1)
+	maps.Copy(clone, input)
+	return clone
 }
 
 // ToolCommand is the Bash command under tool_input (legacy top-level .command tolerated).
@@ -186,10 +213,23 @@ func MergeContext(event string, blocks []string, vendor ...string) string {
 // Handler runs one hook.
 type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
 
+// hookContext gives subprocesses the registered hook budget without changing process signal handling.
+func hookContext(name string) (context.Context, context.CancelFunc) {
+	for _, spec := range hookspec.Registry {
+		if spec.Name == name {
+			return context.WithTimeout(context.Background(), time.Duration(spec.Timeout)*time.Second)
+		}
+	}
+	panic("unknown hook: " + name)
+}
+
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"safety":              safetyOutput,
-	"rtk-wrap":            func(in io.Reader, out, _ io.Writer) int { return RTKWrap(in, out) },
+	"bash-guard": BashGuard,
+	// retired names kept so pre-install sessions and vendor hook files rendered before `claude-code generate`
+	// keep their guard; remove only after every box has re-run generate
+	"safety":              func(in io.Reader, out, errw io.Writer) int { return safetyInput(ParseInput(in), out, errw) },
+	"rtk-wrap":            func(in io.Reader, out, _ io.Writer) int { return rtkWrap(ParseInput(in), out) },
 	"docs-placement":      func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"stop-format":         func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"context-checkpoint":  func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
@@ -203,6 +243,7 @@ var Registry = map[string]Handler{
 	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
 	"agent-inflight-post": func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
+	"plan-mirror":         func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
 	"save-plan":           func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
 	"access-trace":        func(in io.Reader, _, _ io.Writer) int { return AccessTrace(in) },
 	"subagent-stop":       func(in io.Reader, _, errw io.Writer) int { return SubagentStop(in, errw) },

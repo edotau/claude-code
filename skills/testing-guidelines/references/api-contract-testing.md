@@ -7,6 +7,23 @@ Unit tests prove a function behaves. Contract tests prove a *boundary* behaves: 
 shape it accepts, the status codes it returns, the response shape callers depend on, and the
 auth it enforces. 80% of bugs live in the error paths — test those first, not the happy path.
 
+## Boundary checklist
+
+Unit tests prove a function behaves; **contract tests prove a boundary behaves** — accepted
+request shapes, status codes, response shape, enforced auth. Drive endpoint coverage from two
+matrices, not the happy path:
+
+- **Auth/permission** — missing header (401), invalid token (401), expired (401), wrong role
+  (403), not-owner (403), valid (2xx). Missing header and invalid token route differently; test both.
+- **Input validation** — empty body, each required field missing, wrong type, boundaries
+  (min−1/min/max/max+1), null. Bad input is 400, never 500.
+
+Run in-process (DRF `APIClient` + `force_authenticate`, transactional rollback); reserve `httpx`
+for cross-service or deployed checks. Assert the response *shape* and that sensitive fields
+never leak — a 200 with the wrong body is still a bug. A data job's input/output table schema
+is the same kind of contract. Route detection, full matrices, patterns:
+`references/api-contract-testing.md`.
+
 ## Find the endpoints first
 
 Enumerate routes before writing a single test, so coverage is driven by what exists, not by

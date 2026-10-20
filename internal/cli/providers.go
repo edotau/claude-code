@@ -87,7 +87,7 @@ func cmdProviders(args []string) int {
 
 // profileJSON emits the describe provider view: all providers, or the one named, never a credential.
 func profileJSON(reg *providers.Registry, args []string) int {
-	d, err := describe()
+	d, err := describe(reg)
 	if err != nil {
 		return fail("profile: %v", err)
 	}
@@ -138,50 +138,62 @@ func cmdModels(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if *unpin || len(pins) > 0 {
-		kv := map[string]string{}
-		if *unpin {
-			kv[providers.PinModel] = ""
-			for _, s := range models.Slots {
-				kv[providers.SlotPin(s)] = ""
-			}
-		}
-		for _, p := range pins {
-			slot, spec, ok := strings.Cut(p, "=")
-			if !ok {
-				return fail("--pin wants slot=model, got %q", p)
-			}
-			key := providers.PinModel
-			if slot != "all" {
-				if !slices.Contains(models.Slots, slot) {
-					return fail("unknown slot %q (opus|sonnet|haiku|fable|all)", slot)
-				}
-				key = providers.SlotPin(slot)
-			}
-			kv[key] = spec
-		}
-		warn, verr := validateCopilotPins(*provider, pins)
-		if verr != nil {
-			return fail("%v", verr)
-		}
-		if warn != "" {
-			fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
-		}
-		if *dryRun {
-			return printPinDiff(kv)
-		}
-		if err := providers.SetPins(kv); err != nil {
-			return fail("%v", err)
-		}
+	if code, handled := applyModelPins(*provider, *unpin, *dryRun, pins); handled {
+		return code
 	}
 	sel, err := providers.Select(reg, *provider)
 	if err != nil {
 		return fail("%v", err)
 	}
-	if *live {
-		return listLive(reg, sel.Provider, *format)
+	return renderModelSelection(reg, sel, *format, *live)
+}
+
+func applyModelPins(provider string, unpin, dryRun bool, pins []string) (code int, handled bool) {
+	if !unpin && len(pins) == 0 {
+		return 0, false
 	}
-	if *format == "json" {
+	kv := map[string]string{}
+	if unpin {
+		kv[providers.PinModel] = ""
+		for _, s := range models.Slots {
+			kv[providers.SlotPin(s)] = ""
+		}
+	}
+	for _, p := range pins {
+		slot, spec, ok := strings.Cut(p, "=")
+		if !ok {
+			return fail("--pin wants slot=model, got %q", p), true
+		}
+		key := providers.PinModel
+		if slot != "all" {
+			if !slices.Contains(models.Slots, slot) {
+				return fail("unknown slot %q (opus|sonnet|haiku|fable|all)", slot), true
+			}
+			key = providers.SlotPin(slot)
+		}
+		kv[key] = spec
+	}
+	warn, err := validateCopilotPins(provider, pins)
+	if err != nil {
+		return fail("%v", err), true
+	}
+	if warn != "" {
+		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
+	}
+	if dryRun {
+		return printPinDiff(kv), true
+	}
+	if err := providers.SetPins(kv); err != nil {
+		return fail("%v", err), true
+	}
+	return 0, false
+}
+
+func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {
+	if live {
+		return listLive(reg, sel.Provider, format)
+	}
+	if format == "json" {
 		slots := map[string]string{}
 		for _, s := range models.Slots {
 			if t, ok := sel.Slots[s]; ok {
@@ -388,10 +400,10 @@ func cmdToken(args []string) int {
 func printPinDiff(kv map[string]string) int {
 	diff := providers.PinDiff(kv)
 	if len(diff) == 0 {
-		fmt.Println("no change to", providers.PinFile())
+		fmt.Println("no change to", paths.PinFile())
 		return 0
 	}
-	fmt.Println("would write", providers.PinFile()+":")
+	fmt.Println("would write", paths.PinFile()+":")
 	for _, l := range diff {
 		fmt.Println("  " + l)
 	}

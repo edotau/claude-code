@@ -3,11 +3,13 @@ package source
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,10 +83,8 @@ var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
 func detectLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	for _, lang := range languageOrder {
-		for _, e := range Extensions[lang] {
-			if e == ext {
-				return lang
-			}
+		if slices.Contains(Extensions[lang], ext) {
+			return lang
 		}
 	}
 	return ""
@@ -170,7 +170,7 @@ func submatchStrings(content string, loc []int, pattern *regexp.Regexp) []string
 // splitParams mirrors `[p.strip() for p in params_str.split(",") if p.strip()]`.
 func splitParams(s string) []string {
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if strings.TrimSpace(p) != "" {
 			out = append(out, strings.TrimSpace(p))
 		}
@@ -467,7 +467,7 @@ var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__
 
 // pathHasSkippedPart mirrors `SKIP_PARTS & set(filepath.parts)`.
 func pathHasSkippedPart(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+	for part := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		if skipParts[part] {
 			return true
 		}
@@ -486,12 +486,9 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 		}
 	}
 
-	var results []QualityReport
-	for _, ext := range extensions {
-		results = append(results, walkExtension(dir, ext)...)
-	}
+	results := walkExtensions(dir, extensions)
 	if len(results) == 0 {
-		return directoryReport{}, fmt.Errorf("no supported files found")
+		return directoryReport{}, errors.New("no supported files found")
 	}
 
 	total := 0.0
@@ -512,23 +509,31 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 	}, nil
 }
 
-// walkExtension collects files under dir named *ext (recursive), matching Path.glob(f"**/*{ext}").
-func walkExtension(dir, ext string) []QualityReport {
-	var matches []string
-	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+// walkExtensions collects supported files in one traversal, retaining extension and path ordering.
+func walkExtensions(dir string, extensions []string) []QualityReport {
+	byExtension := make(map[string][]string, len(extensions))
+	for _, ext := range extensions {
+		byExtension[ext] = nil
+	}
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || pathHasSkippedPart(p) {
 			return nil
 		}
-		if strings.HasSuffix(p, ext) {
-			matches = append(matches, p)
+		for ext := range byExtension {
+			if strings.HasSuffix(p, ext) {
+				byExtension[ext] = append(byExtension[ext], p)
+			}
 		}
 		return nil
 	})
-	sort.Strings(matches)
 	var out []QualityReport
-	for _, m := range matches {
-		if r, err := Quality(m, ""); err == nil {
-			out = append(out, r)
+	for _, ext := range extensions {
+		matches := byExtension[ext]
+		sort.Strings(matches)
+		for _, m := range matches {
+			if r, err := Quality(m, ""); err == nil {
+				out = append(out, r)
+			}
 		}
 	}
 	return out
@@ -536,7 +541,7 @@ func walkExtension(dir, ext string) []QualityReport {
 
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
 // pairs above U+FFFF) and no HTML-escaping of <, >, & (Go's default does the opposite on both counts).
-func writeJSON(w io.Writer, v interface{}) error {
+func writeJSON(w io.Writer, v any) error {
 	b, err := marshalPyJSON(v)
 	if err != nil {
 		return err
@@ -545,7 +550,7 @@ func writeJSON(w io.Writer, v interface{}) error {
 	return err
 }
 
-func marshalPyJSON(v interface{}) ([]byte, error) {
+func marshalPyJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)

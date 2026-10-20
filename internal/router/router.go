@@ -21,6 +21,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
 )
@@ -51,6 +52,7 @@ type Router struct {
 	cool     map[string]time.Time  // provider → cooling-down until (after a 429)
 	dead     map[string]time.Time  // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
+	credGen  map[string]int        // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 }
 
 // credResult is one provider's cached CredentialPresent outcome.
@@ -64,7 +66,7 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}}
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{}}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -73,7 +75,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.URL.Path == "/healthz" {
-		io.WriteString(w, "ok\n")
+		_, _ = io.WriteString(w, "ok\n")
 		return
 	}
 	if !r.authorized(req) {
@@ -160,7 +162,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 			if d, ok := r.demotion(t); ok {
 				ladder = slices.Insert(ladder, i+1, d)
 				fmt.Fprintf(r.log, "router: %s %s is quota-dead for this key, demoting to %s\n", t.Provider.Name, t.Model, d.Model)
-				audit.Log(audit.RouterFallback, t.Provider.Name, fmt.Sprintf("status=429 quota; demoted to %s", d.Model))
+				audit.Log(audit.RouterFallback, t.Provider.Name, "status=429 quota; demoted to "+d.Model)
 				continue
 			}
 		}
@@ -236,9 +238,11 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 	return providers.Target{}, false
 }
 
-// credentialPresent caches providers.CredentialPresent per provider name for credTTL: an env-auth
-// provider with no process env var falls through to a keyring lookup (a secret-tool subprocess per
-// call), and every fallback candidate is probed on every routed request without this cache.
+// credentialPresent caches providers.CredentialPresent per provider name for credTTL, present results
+// only: an env-auth provider with no process env var falls through to a keyring lookup (a secret-tool
+// subprocess per call), and a present credential is probed once per TTL instead of every routed request.
+// An absent credential is re-checked every call, so a freshly added fallback credential is picked up
+// immediately rather than staying hidden for up to credTTL.
 func (r *Router) credentialPresent(p *providers.Provider) bool {
 	now := r.now()
 	r.mu.Lock()
@@ -246,18 +250,33 @@ func (r *Router) credentialPresent(p *providers.Provider) bool {
 		r.mu.Unlock()
 		return c.present
 	}
+	startGen := r.credGen[p.Name]
 	r.mu.Unlock()
-	present := providers.CredentialPresent(p)
-	r.mu.Lock()
-	r.cred[p.Name] = credResult{present: present, until: now.Add(credTTL)}
-	r.mu.Unlock()
-	return present
+	if !providers.CredentialPresent(p) {
+		return false
+	}
+	r.storeCredentialPresent(p.Name, startGen, now.Add(credTTL))
+	return true
 }
 
-// invalidateCredential drops a provider's cached presence so the next attempt re-probes it.
+// storeCredentialPresent records a probe's "present" outcome only if name's generation has not advanced
+// since the probe started (startGen): an invalidation racing with an in-flight probe must win, so a probe
+// that started before it must never resurrect the cache afterward.
+func (r *Router) storeCredentialPresent(name string, startGen int, until time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.credGen[name] != startGen {
+		return
+	}
+	r.cred[name] = credResult{present: true, until: until}
+}
+
+// invalidateCredential drops a provider's cached presence so the next attempt re-probes it, and bumps its
+// generation so any probe already in flight cannot store a stale "present" after this call returns.
 func (r *Router) invalidateCredential(name string) {
 	r.mu.Lock()
 	delete(r.cred, name)
+	r.credGen[name]++
 	r.mu.Unlock()
 }
 
@@ -275,35 +294,9 @@ func (r *Router) markDead(t providers.Target) {
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
-	p := t.Provider
-	if route, ok := p.Route(providers.DialectAnthropic); ok {
-		url := route + "/v1/messages"
-		if count {
-			url += "/count_tokens"
-		}
-		if in.URL.RawQuery != "" {
-			url += "?" + in.URL.RawQuery
-		}
-		out, err := withModel(body, t.Model)
-		if err != nil {
-			return false, err
-		}
-		resp, err := r.send(in, p, url, out, func(h http.Header) {
-			copyRequestHeaders(h, in.Header)
-			if p.Auth.Type == providers.AuthPassthrough {
-				h.Set("Authorization", in.Header.Get("Authorization"))
-			}
-		})
-		if err != nil {
-			return false, err
-		}
-		if moveOn, hard := r.failover(resp, t, last); moveOn {
-			return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
-		}
-		relay(w, resp)
-		return true, nil
+	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok {
+		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
-	route, _ := p.Route(providers.DialectOpenAI)
 	if count {
 		out, err := translate.CountTokens(body)
 		if err != nil {
@@ -312,6 +305,41 @@ func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t pro
 		writeJSON(w, http.StatusOK, out)
 		return true, nil
 	}
+	return r.tryOpenAI(w, in, body, t, clientModel, last)
+}
+
+func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, route string, count, last bool) (bool, error) {
+	p := t.Provider
+	url := route + "/v1/messages"
+	if count {
+		url += "/count_tokens"
+	}
+	if in.URL.RawQuery != "" {
+		url += "?" + in.URL.RawQuery
+	}
+	out, err := withModel(body, t.Model)
+	if err != nil {
+		return false, err
+	}
+	resp, err := r.send(in, p, url, out, func(h http.Header) {
+		copyRequestHeaders(h, in.Header)
+		if p.Auth.Type == providers.AuthPassthrough {
+			h.Set("Authorization", in.Header.Get("Authorization"))
+		}
+	})
+	if err != nil {
+		return false, err
+	}
+	if moveOn, hard := r.failover(resp, t, last); moveOn {
+		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
+	}
+	relay(w, resp)
+	return true, nil
+}
+
+func (r *Router) tryOpenAI(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
+	p := t.Provider
+	route, _ := p.Route(providers.DialectOpenAI)
 	out, stream, err := translate.ToChatRequest(body, t.Model)
 	if err != nil {
 		return false, err
@@ -397,11 +425,11 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) &&
 		(p.Auth.Type == providers.AuthAPIKey || p.Auth.Type == providers.AuthBearer) {
 		drain(resp)
+		r.invalidateCredential(p.Name) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
 		credential, err := providers.Refresh(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		r.invalidateCredential(p.Name) // the cached presence check predates this refresh; re-probe next time
 		if resp, err = do(credential); err != nil {
 			return nil, err
 		}
@@ -454,7 +482,7 @@ func retryAfter(v string, now time.Time) time.Duration {
 // registry reloads providers.json when its mtime changes, keeping the last good table on a bad edit.
 func (r *Router) registry() (*providers.Registry, error) {
 	var stamp time.Time
-	if fi, err := os.Stat(providers.UserFile()); err == nil {
+	if fi, err := os.Stat(paths.ProvidersOverlay()); err == nil {
 		stamp = fi.ModTime()
 	}
 	r.mu.Lock()
@@ -569,8 +597,8 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 }
 
 func drain(resp *http.Response) {
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
 }
 
 func flusher(w http.ResponseWriter) func() {
@@ -583,7 +611,7 @@ func flusher(w http.ResponseWriter) func() {
 func writeJSON(w http.ResponseWriter, status int, body []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -641,7 +669,7 @@ type idleBody struct {
 }
 
 func newIdleBody(rc io.ReadCloser, idle time.Duration) *idleBody {
-	return &idleBody{rc: rc, idle: idle, timer: time.AfterFunc(idle, func() { rc.Close() })}
+	return &idleBody{rc: rc, idle: idle, timer: time.AfterFunc(idle, func() { _ = rc.Close() })}
 }
 
 func (b *idleBody) Read(p []byte) (int, error) {

@@ -29,9 +29,10 @@ var hardBlocks = lazyCompile(
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
-// pipeBlocks span a pipe by design (a download piped into a shell), so they match the WHOLE command line.
+// pipeBlocks match the WHOLE command text because pipes and encoded Python heredocs span shell segments.
 var pipeBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
 )
 
 // sqlDestructive runs against the lowercased command.
@@ -41,7 +42,7 @@ var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
 
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = lazyCompile(
-	`(env|printenv)\s*>\s*/tmp/`,
+	`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`,
 	`(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc).*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
 	`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`,
 	`(scp|rsync)\s+.*\.ssh/id_`,
@@ -65,8 +66,16 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 	})
 }
 
-func safetyOutput(r io.Reader, stdout, stderr io.Writer) (code int) {
+// BashGuard applies safety before the optional Claude rtk rewrite.
+func BashGuard(r io.Reader, stdout, stderr io.Writer) int {
 	in := ParseInput(r)
+	if code := safetyInput(in, stdout, stderr); code != ExitProceed {
+		return code
+	}
+	return rtkWrap(in, stdout)
+}
+
+func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 	if in.Vendor() == VendorCopilot {
 		var reason strings.Builder
 		stderr = io.MultiWriter(stderr, &reason)
@@ -137,8 +146,7 @@ var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "-
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
-	harness := canonPath(paths.ConfigDir())
-	worktrees := canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees")) // linked worktrees are separate checkouts
+	var harness, worktrees string
 	for _, seg := range shellSegments(cmd) {
 		toks := shellTokens(seg)
 		if len(toks) == 0 {
@@ -155,6 +163,10 @@ func harnessGitBlocked(cmd, cwd string) bool {
 			target, verb, args := gitInvocation(toks[i+1:], cwd)
 			if !bannedGitVerbs[verb] || (verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")) {
 				continue
+			}
+			if harness == "" {
+				harness = canonPath(paths.ConfigDir())
+				worktrees = canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
 			}
 			if tp := canonPath(target); tp == harness || strings.HasPrefix(tp, harness+string(filepath.Separator)) {
 				if strings.HasPrefix(tp, worktrees+string(filepath.Separator)) {
@@ -183,8 +195,8 @@ func gitInvocation(toks []string, cwd string) (target, verb string, args []strin
 				val = toks[i]
 				i++
 			}
-		} else if strings.HasPrefix(t, "-C") {
-			name, val = "-C", strings.TrimPrefix(t, "-C")
+		} else if after, ok0 := strings.CutPrefix(t, "-C"); ok0 {
+			name, val = "-C", after
 		} else {
 			continue // valueless global option: --no-pager, --bare…
 		}

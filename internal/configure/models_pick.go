@@ -133,7 +133,7 @@ var modelChoices = func(p *providers.Provider, claude bool) []string {
 		if bin, err := paths.LookPathReal("opencode"); err == nil {
 			out, _ := exec.CommandContext(ctx, bin, "models", p.OpencodeID).Output()
 			var ids []string
-			for _, line := range strings.Split(string(out), "\n") {
+			for line := range strings.SplitSeq(string(out), "\n") {
 				if id, ok := strings.CutPrefix(strings.TrimSpace(line), p.OpencodeID+"/"); ok {
 					ids = append(ids, id)
 				}

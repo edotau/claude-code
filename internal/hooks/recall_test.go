@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/textsim"
 )
 
 func recall(t *testing.T, prompt, cwd string) string {
@@ -108,11 +109,11 @@ func TestRelevantHitsGatesOnMatchedTerms(t *testing.T) {
 		{Score: 5, Matched: 2, Block: "covered, within floor"},
 		{Score: 4, Matched: 3, Block: "under half the best covered hit"},
 	}
-	got := relevantHits("", "alpha bravo charlie delta", ranked)
+	got := relevantTermHits("", memory.ContentQueryTerms(textsim.Tokenize("alpha bravo charlie delta")), ranked)
 	if len(got) != 2 || got[0].Block != "covered" || got[1].Block != "covered, within floor" {
 		t.Fatalf("want the two covered hits within the floor; got %+v", got)
 	}
-	if long := relevantHits("", "a1 b2 c3 d4 e5 f6 g7 h8 i9 j10 k11 l12 m13", ranked); len(long) != 1 || long[0].Block != "under half the best covered hit" {
+	if long := relevantTermHits("", memory.ContentQueryTerms(textsim.Tokenize("a1 b2 c3 d4 e5 f6 g7 h8 i9 j10 k11 l12 m13")), ranked); len(long) != 1 || long[0].Block != "under half the best covered hit" {
 		t.Errorf("a 13-term query needs 3 matched terms; got %+v", long)
 	}
 }

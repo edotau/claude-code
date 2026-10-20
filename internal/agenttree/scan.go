@@ -366,7 +366,7 @@ func lastActivity(path, cwd string) Activity {
 	}
 	home, _ := os.UserHomeDir()
 	var act Activity
-	for _, raw := range bytes.Split(buf, []byte("\n")) {
+	for raw := range bytes.SplitSeq(buf, []byte("\n")) {
 		if !bytes.Contains(raw, toolUseMarker) && !bytes.Contains(raw, []byte(`"text"`)) {
 			continue
 		}
