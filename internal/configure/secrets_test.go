@@ -126,9 +126,11 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 // editSecret must offer "Move to keyring" for an env var shadowing the file plane (not just a
 // source=="file" row), whenever a keyring tool is reachable. Input is blank (cancel), so no action runs.
 func TestEditSecretOffersMoveToKeyringWhenEnvShadowsFile(t *testing.T) {
-	dir := t.TempDir() // a dummy executable on PATH is enough: Available() only LookPath's it, never runs it here
-	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
+	dir := t.TempDir()                                         // a dummy executable on PATH is enough: Available() only LookPath's it, never runs it here
+	for _, tool := range []string{"secret-tool", "security"} { // Linux and macOS keyring CLIs
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", dir)
 	d, out := newDialog("\n")

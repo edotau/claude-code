@@ -10,19 +10,28 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// fakeSecretTool points PATH at a stub `secret-tool`: `lookup service claude-code account <name>`
-// answers table[name] and exits 0, anything else exits 1 (a plain miss, same as the real tool).
+// fakeSecretTool points PATH at stub keyring CLIs answering table[name] (exit 0) or a miss (exit 1):
+// `secret-tool lookup service claude-code account <name>` (Linux) and
+// `security find-generic-password -a <name> -s claude-code -w` (macOS).
 func fakeSecretTool(t *testing.T, table map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
-	var b strings.Builder
-	b.WriteString("#!/bin/sh\nif [ \"$1\" = lookup ]; then\n  case \"$5\" in\n")
-	for k, v := range table {
-		b.WriteString("    " + k + ") printf '%s' '" + v + "'; exit 0 ;;\n")
+	stub := func(verb, argN string) string {
+		var b strings.Builder
+		b.WriteString("#!/bin/sh\nif [ \"$1\" = " + verb + " ]; then\n  case \"" + argN + "\" in\n")
+		for k, v := range table {
+			b.WriteString("    " + k + ") printf '%s' '" + v + "'; exit 0 ;;\n")
+		}
+		b.WriteString("    *) exit 1 ;;\n  esac\nfi\nexit 1\n")
+		return b.String()
 	}
-	b.WriteString("    *) exit 1 ;;\n  esac\nfi\nexit 1\n")
-	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte(b.String()), 0o755); err != nil {
-		t.Fatal(err)
+	for tool, body := range map[string]string{
+		"secret-tool": stub("lookup", "$5"),
+		"security":    stub("find-generic-password", "$3"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", dir)
 }
