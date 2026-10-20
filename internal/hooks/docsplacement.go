@@ -30,15 +30,34 @@ var rootAnchors = map[string]bool{
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
 func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
-	if in.ToolName != "" && in.ToolName != "Write" && in.ToolName != "Edit" {
+	tool := strings.ToLower(in.ToolName)
+	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
 		return ExitProceed
 	}
 	if os.Getenv(docsPlacementDisableEnv) == "0" {
 		return ExitProceed
 	}
-	path := in.nested("tool_input", "file_path")
+	if tool == "apply_patch" {
+		for _, line := range strings.Split(in.ToolCommand(), "\n") {
+			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
+				if path, ok := strings.CutPrefix(line, prefix); ok {
+					if code := docsPlacementPath(in, strings.TrimSpace(path), stderr); code != ExitProceed {
+						return code
+					}
+				}
+			}
+		}
+		return ExitProceed
+	}
+	return docsPlacementPath(in, in.nested("tool_input", "file_path"), stderr)
+}
+
+func docsPlacementPath(in *Input, path string, stderr io.Writer) int {
 	if path == "" || !isMarkdownPath(path) {
 		return ExitProceed
+	}
+	if !filepath.IsAbs(path) && in.CWD != "" {
+		path = filepath.Join(in.CWD, path)
 	}
 	// Canonicalize, don't just absolutize: a write spelled through a symlink would never compare
 	// equal to the realpath git reports, and would walk straight past the gate.

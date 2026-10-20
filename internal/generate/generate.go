@@ -1,8 +1,4 @@
-// Package generate renders every vendor agent's own config from the provider registry — codex
-// ~/.codex/config.toml, opencode ~/.config/opencode/opencode.json, gemini (report-only: agy has no
-// known settings-auth equivalent), copilot (report-only, launch-time env), in one pass,
-// with no launch. internal/cli's `generate`/`settings` verb renders settings.json itself; this
-// package is the vendor-config half called alongside it.
+// Package generate renders vendor configs and hooks without launching a session.
 package generate
 
 import (
@@ -19,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -84,7 +81,7 @@ func Run(o Options) (drift bool, err error) {
 		case "gemini":
 			d, err = reportGemini(sel, out)
 		case "copilot":
-			d, err = reportCopilot(reg, sel, out)
+			d, err = renderCopilot(reg, sel, home, o, out)
 		}
 		if err != nil {
 			return drift, err
@@ -116,31 +113,30 @@ func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
 }
 
-func renderCodex(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
+func codexProviderSection(reg *providers.Registry, sel providers.Selection, out io.Writer) (string, error) {
 	ctx := context.Background()
 	target, note, err := vendors.ResolveTarget(reg, "codex", sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
-		return false, nil
+		return "", nil
 	}
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
 	if target.Provider != nil && target.Provider.Auth.Type == providers.AuthPassthrough {
 		fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
-		return false, nil
+		return "", nil
 	}
 	_, argv, err := vendors.Configure(ctx, "codex", target, "")
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
-		return false, nil
+		return "", nil
 	}
 	block, err := codexBlockFromArgv(argv)
 	if err != nil {
-		return false, fmt.Errorf("codex: %w", err)
+		return "", fmt.Errorf("codex: %w", err)
 	}
-	path := filepath.Join(home, ".codex", "config.toml")
-	return spliceBannerFile(path, codexBannerSection(block), codexBannerRE, o, out, "codex")
+	return codexBannerSection(block), nil
 }
 
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
@@ -474,22 +470,31 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	return false, nil
 }
 
-// --- copilot: launch-time env only; generate reports the resolved route and writes nothing ---
+// Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
 
-func reportCopilot(reg *providers.Registry, sel providers.Selection, out io.Writer) (bool, error) {
+func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
+	body, err := hookspec.CopilotJSON()
+	if err != nil {
+		return false, err
+	}
+	path := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	drift, err := renderHooksFile(path, body, o, out, "copilot-hooks")
+	if err != nil {
+		return drift, err
+	}
 	ctx := context.Background()
 	target, note, err := vendors.ResolveTarget(reg, "copilot", sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
-		return false, nil
+		return drift, nil
 	}
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
 	if _, _, err := vendors.Configure(ctx, "copilot", target, ""); err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
-		return false, nil
+		return drift, nil
 	}
 	fmt.Fprintf(out, "copilot: launch-time env only; route = %s (%s)\n", target.Provider.Name, target.Model)
-	return false, nil
+	return drift, nil
 }

@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -66,8 +67,23 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 
 // Safety is the PreToolUse(Bash) guard: block destructive and exfiltration commands.
 func Safety(r io.Reader, stderr io.Writer) int {
+	return safetyOutput(r, io.Discard, stderr)
+}
+
+func safetyOutput(r io.Reader, stdout, stderr io.Writer) (code int) {
 	in := ParseInput(r)
-	if in.ToolName != "" && in.ToolName != "Bash" {
+	if in.Vendor() == VendorCopilot {
+		var reason strings.Builder
+		stderr = io.MultiWriter(stderr, &reason)
+		defer func() {
+			if code == ExitBlock {
+				_ = json.NewEncoder(stdout).Encode(map[string]string{
+					"permissionDecision": "deny", "permissionDecisionReason": strings.TrimSpace(reason.String()),
+				})
+			}
+		}()
+	}
+	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
 		return ExitProceed
 	}
 	cmd := in.ToolCommand()

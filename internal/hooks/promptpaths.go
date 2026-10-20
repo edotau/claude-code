@@ -166,13 +166,16 @@ func modelContext(reps []pathReport) string {
 
 // feedbackPayload marshals systemMessage (user-visible) and additionalContext (model-visible) in one
 // envelope, so a single hook write serves both audiences.
-func feedbackPayload(reps []pathReport) string {
+func feedbackPayload(reps []pathReport, vendor ...string) string {
 	payload := map[string]any{
 		"systemMessage": feedbackMessage(reps),
 		"hookSpecificOutput": map[string]any{
 			"hookEventName":     "UserPromptSubmit",
 			"additionalContext": modelContext(reps),
 		},
+	}
+	if len(vendor) > 0 && vendor[0] == VendorCopilot {
+		payload = map[string]any{"additionalContext": modelContext(reps)}
 	}
 	out, _ := json.Marshal(payload)
 	return string(out)
@@ -186,7 +189,7 @@ func promptPathFeedback(r io.Reader, stdout io.Writer, onWSL func() bool) int {
 	if len(reps) == 0 {
 		return ExitProceed
 	}
-	fmt.Fprintln(stdout, feedbackPayload(reps))
+	fmt.Fprintln(stdout, feedbackPayload(reps, in.Vendor()))
 	return ExitProceed
 }
 

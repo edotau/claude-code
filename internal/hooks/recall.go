@@ -59,7 +59,7 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 		memory.LogAccess(logDirFor(root, h.Bank), now, h.Bank+":"+h.File, "prompt-recall inject")
 	}
 	memory.MarkSeen(in.SessionID, hits)
-	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}); out != "" {
+	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}, in.Vendor()); out != "" {
 		fmt.Fprintln(stdout, out)
 	}
 	return ExitProceed
