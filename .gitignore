@@ -86,12 +86,9 @@ coverage.*
 !/skills/architecture-design
 /skills/architecture-design/references/local/
 !/skills/browser-automation
-!/skills/computer-use
 !/skills/evaluate-code
 !/skills/fable-method
 !/skills/find-skills
-!/skills/orca-cli
-!/skills/orchestration
 !/skills/planning
 !/skills/python-patterns
 !/skills/security-reviewer
