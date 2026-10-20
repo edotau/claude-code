@@ -70,8 +70,8 @@ claude-code vscode [--check|--dry-run] # merge the first-party settings + keybin
 (401) reads `REJECTED`, not `present`. For an absent or rejected credential the TTY dialog offers every way to
 fix it side by side — the vendor's browser/device login (`claude auth login`, `codex login`, `copilot login`,
 `opencode auth login`, `agy`) and pasting an API key (opening the provider's key console first, if you want).
-Keys entered in the menu are staged: the last row, **Submit** `[y/N]`, stores them in the OS keyring
-(`env.d/secrets.env` without one); `n` or Esc leaves and discards them. Piped, each option is one `[Y/n]`.
+Keys entered in the menu are staged: the last row, **Submit** `[y/N]`, seals them in the vault
+(`state/vault.db`; [Credentials](#credentials)); `n` or Esc leaves and discards them. Piped, each option is one `[Y/n]`.
 
 The menu's **claude** row (also `configure provider`) is one sub-picker for every backend the agent can run a
 session on: **Subscription** (claude.ai OAuth login, plan usage limits, Remote Control works — pins
@@ -83,16 +83,16 @@ injected only into `claude -p` launches, so an interactive session's Remote Cont
 The Claude **Max plan** has no API key: `claude auth login` is the interactive session (what `claude` uses), and
 `claude setup-token` mints a long-lived OAuth token for unattended runs. The claude submenu reports both states
 (`claude.ai login (max); headless token set`), offers to mint the token when it is missing, captures it from the
-CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in `env.d/secrets.env`; the launcher, `ask --agent claude`
+CLI's output and stores it as `CLAUDE_CODE_OAUTH_TOKEN` in the vault; the launcher, `ask --agent claude`
 and the memory harvest inject it so they keep working after the /login session expires. It is a Claude Code
 credential only — it does not authenticate raw Anthropic API calls (that is `ANTHROPIC_API_KEY`). A vendor running on its own
 login or config (`codex login`, `opencode auth login`, a `model` in `opencode.jsonc`) counts as configured.
 If token minting exits unsuccessfully, `configure` reports the error and does not store any token
 from that command's output.
-`configure` detects what is already there before asking: a key in the process env, `env.d/secrets.env` or the
-OS keyring, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
+`configure` detects what is already there before asking: a key in the process env or the
+vault, or the vendor's own login (Claude subscription, `codex login`, `gh auth`, gemini's Google auth) is
 reported as present and reused. Only an absent credential prompts — on a terminal the vendor's own login is
-offered and run attached, an API key is read with echo off into the OS keyring (`env.d/secrets.env` without one); piped, every repair
+offered and run attached, an API key is read with echo off into the vault; piped, every repair
 prints the exact command and the run continues. The vendor verbs do the same on demand: `claude-code codex`
 first falls back to codex's own ChatGPT login, then offers `configure` for codex, and only then runs the plain
 `codex` CLI untouched (so `agy`'s own Google login always works; opencode's own `opencode auth login` store is a leg too) — the harness never ends a vendor launch on a bare
@@ -136,7 +136,8 @@ Pointer → "Right button single click" → Paste from clipboard; Terminal.app h
 `git clone` refuses a non-empty `~/.claude`; `claude-code install --setup` is the one entry point for that and two
 other migrations — `adopt` backs up colliding tracked paths (never `secrets.env`) then restores the
 index; `nuke --apply` (typed-path confirm) archives untracked content by name, never value, before
-removing the dir; `workspace` scopes a project's own `.claude/`, global harness untouched.
+removing the dir (`state/vault.db` goes in as a ciphertext snapshot; its key stays in the keyring);
+`workspace` scopes a project's own `.claude/`, global harness untouched.
 Nuke refuses to proceed if the user-content scan, a `--keep-memory` walk, or an archive read fails;
 it never treats an incomplete scan as an empty backup. Backup filenames are exclusive, so two runs
 in the same second cannot overwrite one another.
@@ -150,14 +151,16 @@ claude-code install --setup workspace init|link|status
 
 ## Providers
 
-Built-ins live in `internal/providers/defaults.json`. `~/.claude/env.d/providers.json` overlays them **by name**
-(a provider entry replaces the built-in; `"name": null` removes one; `default`/`fallback` override when
-set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
+Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay — the `providers` key of
+`claude-code config edit` — overlays them **by name** (a provider entry replaces the built-in; `"name": null`
+removes one; `default`/`fallback` override when set). Each save keeps the previous overlay in the vault.
 
 ```jsonc
-{
+"providers": {
   "default": "gateway",
   "fallback": ["gateway", "anthropic"],         // 429/5xx ladder (implies the router)
+  "opencodeLadder": ["chatgpt", "github-copilot", "nvidia"],
+  "agentPlans": {"antigravity": [{"id": "*", "tier": "Google AI Pro"}]},
   "providers": {
     "gateway": {
       "kind": "anthropic",                       // dialect base_url itself speaks
@@ -169,7 +172,8 @@ set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
       "headers": {"x-team": "platform"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "gpt-5-nano"},
       "one_m": true                              // upstream serves 1M context for Claude ids
-    }
+    },
+    "ollama": null                               // removes the built-in
   }
 }
 ```
@@ -187,7 +191,7 @@ set). Start from [`env.d/providers.example.json`](env.d/providers.example.json).
 ```bash
 claude-code profile                        # * = default, credential state, dialects, fallback ladder (alias: providers)
 claude-code profile gateway                # routes, auth, models
-claude-code switch gateway                 # pin the session provider (env.d/provider.env) (alias: use)
+claude-code switch gateway                 # pin the session provider in the vault (alias: use)
 claude-code models                         # resolved slots and whether the router is needed
 claude-code models --pin haiku=openai:gpt-5-nano --pin opus=claude-opus-5
 claude-code models --unpin
@@ -200,15 +204,47 @@ before any pin is changed.
 
 Selection order — provider: `--provider` → `HARNESS_PROVIDER` → registry `default`. Slot:
 `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` → the provider's `models` table. Process env beats
-`env.d/provider.env`. A pin of the form `provider:model` crosses providers for that slot.
+the vault pins. A pin of the form `provider:model` crosses providers for that slot.
+
+### Config: `claude-code config show|edit`
+
+Pins, custom launch env, the provider and vendor overlays and `key_command` live in the vault as one JSON
+document. `config show` prints it; `config edit` opens it in `$VISUAL`/`$EDITOR` (no shell) and saves the
+changed sections in one transaction — refused, with nothing written, if the vault changed meanwhile or a section
+fails validation. Secrets never appear in it (`claude-code secrets`). The comments below are illustration; the
+document itself is plain JSON:
+
+```jsonc
+{
+  "pins": {                                      // `switch` and `models --pin` write these
+    "HARNESS_PROVIDER": "anthropic",
+    "HARNESS_OPUS_MODEL": "claude-opus-5",       // HARNESS_MODEL pins every slot; a per-slot pin beats it
+    "HARNESS_HAIKU_MODEL": "openai:gpt-5-nano"   // provider:model crosses providers (implies the router)
+  },
+  "env": {                                       // injected into every launch; harness-managed keys win
+    "MY_PROJECT_ROOT": "/home/me/work",
+    "SOME_API_TOKEN": "@secret"                  // the vault secret of the same name
+  },
+  "providers": {"default": "gateway"},           // the overlay above
+  "vendors": {                                   // an entry replaces the built-in vendor whole; null removes it
+    "vendors": {
+      "opencode": {
+        "permission": {"useGuardRules": true},
+        "mcp": {"allow": ["github"]},
+        "launch": {"env": ["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"]}
+      }
+    }
+  },
+  "vault": {"key_command": ""}                   // see Credentials → The vault key
+}
+```
 
 ## Credentials
 
 A provider's credential resolves through a ladder; the first non-empty source wins:
 
 1. **Process env** — `auth.env` (e.g. `GATEWAY_API_KEY`)
-2. **`~/.claude/env.d/secrets.env`** — `KEY=value` lines for the same name
-   ([`env.d/secrets.env.example`](env.d/secrets.env.example); chmod 600; gitignored)
+2. **The vault** — the secret of the same name, sealed in `state/vault.db` (`claude-code secrets set <KEY>`)
 3. **`auth.file`** — a file holding the credential (`~` expanded)
 4. **`auth.command`** — a shell command that prints it, cached for `auth.ttl` seconds (default 300) and
    re-run after an upstream 401:
@@ -221,16 +257,63 @@ Other commands that fit: `op read op://Private/gateway/credential`, `pass show g
 script that mints a short-lived gateway token. `claude-code token --provider <p>` prints the resolved
 credential — it is the `apiKeyHelper` Claude Code calls, so no key is stored in `settings.json`.
 
-`claude-code secrets` owns two planes, read in the order env → OS keyring (macOS Keychain / libsecret) →
-`env.d/secrets.env`: `secrets set <KEY>` reads the value on stdin and stores it in the keyring, dropping any
-plaintext line (`--file`, or a box with no keyring, writes `env.d/secrets.env` at 0600 instead); bare
-`secrets set` on a terminal opens a dialog over every tracked secret — move a plaintext one into the keyring,
-mint the setup-token, paste a key (its console page opened), delete, or add a custom `NAME` whose pasted
-`NAME=value`/`export NAME="value"` line is parsed and shown only redacted; `secrets get <KEY>` reads it back
-(`--export` prints an eval-able line); `secrets status` reports which provider is served by which source
+A locked vault (no master key) still falls through to `auth.file`/`auth.command`; the lock is named only when
+nothing answers.
+
+`claude-code secrets` owns the vault's secrets. Each value is sealed with AES-256-GCM under the vault's master
+key; names and metadata are readable without it, so `list`, `status`, hooks and the status line never decrypt.
+`secrets set <KEY>` reads the value on stdin and seals it; bare `secrets set` on a terminal opens a dialog over
+every tracked secret — mint the setup-token, paste a key (its console page opened), delete, or add a custom
+`NAME` whose pasted `NAME=value`/`export NAME="value"` line is parsed and shown only redacted; `secrets get <KEY>`
+reads it back (vault → env; `--export` prints an eval-able line); `secrets import <file.env>` seals each
+`NAME=value` line and `secrets export [NAME...] [--out f]` appends plaintext lines to a 0600 file;
+`secrets status` reports which provider is served by which source
 without ever printing a value; `secrets scan` and `secrets git` audit the config surface and git history for a
-leaked credential and exit 1 on a finding; `secrets doctor` checks perms and key names; `secrets all` runs
-every audit. `/harness:secrets-scan` wraps the audits.
+leaked credential and exit 1 on a finding; `secrets doctor` checks the vault's perms, master key, retired keys
+and key names; `secrets all` runs every audit. `/harness:secrets-scan` wraps the audits.
+
+```bash
+claude-code secrets set ANTHROPIC_API_KEY   # names match each provider's auth.env; a process env var wins
+claude-code secrets import keys.env         # NAME=value lines (# skipped); delete the plaintext file after
+```
+
+### The vault key
+
+The master key is 32 random bytes, base64-encoded, resolved in this order:
+
+1. **`HARNESS_VAULT_KEY`** — a hint, not authoritative: a key that does not match the vault falls back to the
+   keyring.
+2. **The OS keyring** (macOS Keychain / libsecret), service `claude-code`, account `vault-key/<id>` — `<id>` is
+   the vault's random id. The first `secrets set` creates it there.
+3. **`key_command`** — the `vault.key_command` of `config edit`, a JSON argv array as a string, run without a
+   shell (10 s), printing the key: `"key_command": "[\"pass\", \"show\", \"claude-vault\"]"`. Tried when the
+   keyring holds no key or cannot answer. A pipe needs a wrapper script.
+
+No key file is written. A box without a keyring tool (Windows, headless, CI) sets `HARNESS_VAULT_KEY` or
+`key_command` before `secrets set` or `make install` imports secrets; a key file is your explicit choice, as a
+`key_command` of `["cat", "/home/me/.config/claude-vault.key"]` (absolute path, no `~`).
+
+`claude-code config rotate-key` generates a new key, re-seals every secret and keeps the old key as
+`vault-key/<id>.<oldkid>`; it needs a keyring-held key. Retired keys are never deleted, so a nuke archive or a
+copied `vault.db` stays decryptable: a copy shares its id and key, and after either side rotates the other still
+opens under the retained key. Moving secrets to a box with a different keyring is `secrets export` → `secrets
+import`.
+
+### Migrating from env.d
+
+Before the vault, config and plaintext secrets lived in `~/.claude/env.d/`. The import is one-shot and reversible
+until you finalize:
+
+- `claude-code config migrate [--dry-run]` imports `env.d/{provider.env,custom.env,providers.json,vendors.json}`,
+  `secrets.env`, keyring-held credentials and a pre-env.d `~/.claude/providers.json` into the vault (absent keys
+  only; `@keyring` becomes `@secret`), renames each source to `<name>.bak` and records it in
+  `state/vault-migration.json`. `make install` runs it before swapping the binary; a migration error aborts the
+  install and leaves the old binary in place. A keyring that does not answer skips the secrets and says to re-run.
+- `claude-code config finalize [--discard NAME]` checks every `.bak` against the vault and every imported keyring
+  value against its vault copy, then deletes the backups, those keyring entries and an empty `env.d/`. A keyring
+  value changed since the migration is kept and reported; `--discard NAME` acknowledges it so finalize proceeds.
+- `claude-code config rollback` (before finalize, with the new binary) restores every `.bak` and moves `vault.db`
+  aside as `vault.db.rolledback-<ts>`; then reinstall the old binary.
 
 ## Routing
 
@@ -276,7 +359,7 @@ keeps its OAuth login in `Authorization`, which the router forwards to `passthro
 
 `claude-code tailscale status|machines|connect|key|exit-node` — stdlib `net/http` JSON against the admin API
 plus exec of the installed `tailscale` CLI; nothing in the harness imports `tailscale.com`. Credentials, resolved
-through the same env → keyring → `secrets.env` ladder as providers:
+through the same env → vault ladder as providers:
 
 - `TAILSCALE_OAUTH_CLIENT_ID` + `TAILSCALE_OAUTH_CLIENT_SECRET` — preferred; mints a short-lived API token.
 - `TAILSCALE_API_KEY` — a 90-day personal key, used as a bearer directly.
@@ -343,7 +426,7 @@ Antigravity CLI `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <
 subscription via `agy` (default `gemini-3.8-flash-high`, `--model` to override; `--provider` sends it to an
 API-key provider instead) — the 1M-context sweep the
 `gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
-tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `env.d/`, `state/`,
+tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `state/`,
 `*.pem`/`*.key` are always skipped; the inlined path list is printed to stderr before the call. Anything else
 launches `agy` (same as `run gemini`).
 `agents sync` projects `agents/` into every vendor's native subagent format — `~/.codex/agents/<name>.toml`,
@@ -454,7 +537,7 @@ brings it back. `access.log` beside each store records every recall.
   Every run also checks for a nested `.claude/` inside the config dir (project scope layered over user
   settings): it goes once user `settings.json` carries all its keys, else clean names the keys to move into the template.
 - `claude-code history snapshot|log|diff` — shadow git history of config + memory, kept at
-  `state/harness/history`; `env.d/secrets.env` is never snapshotted.
+  `state/harness/history`; the vault's pins and provider overlay are snapshotted, its secrets never.
 - `claude-code theme [--preview]` — pick the statusline color palette. A merge refuses to overwrite
   a destination changed concurrently; re-run to merge its newer contents.
 - `claude-code doctor --audit [--days 7] [--format json]` — the typed action log: provider switches, model pins, secret sets (name only), `bash-guard` blocks (reason, never the command), router failovers.
@@ -473,7 +556,7 @@ cmd/claude-code/     main
 internal/            cli (verb table) · providers · router · translate · launch · vendors · agent
                      hooks · hookspec · settings · statusline · models · paths
 agents/ commands/ rules/ skills/ workflows/   loaded by Claude Code
-env.d/               provider.env (pins) · secrets.env (credentials) — untracked; *.example tracked
+state/vault.db       the vault: pins, custom env, overlays, sealed secrets — untracked (state/ is gitignored)
 plans/               implementation plans — Claude Code's native plansDirectory; untracked, gitignored
 ```
 
@@ -487,7 +570,8 @@ Rows that `CLAUDE.md` points here for; "this file" in a row means `CLAUDE.md`.
 | Adopt an existing `~/.claude`, wipe it for a fresh start, or scope a project's own `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` · `scripts/bootstrap.sh` (fresh-box clone+adopt) | [Setup modes](#setup-modes-adopt-nuke-workspace) |
 | Sync VS Code's Machine settings + per-agent terminal keybindings to the harness | `claude-code vscode [--check\|--dry-run] [--dest f] [--keybindings-dest f]` | [Setup](#setup) |
 | Tab-complete claude-code in bash | `claude-code completion --install` (done by `install`); `source <(claude-code completion)` now | [Install](#install) |
-| Add a gateway provider (corporate or self-hosted) | add it to `~/.claude/env.d/providers.json` with `routes` per dialect; copy `env.d/providers.example.json` | [Providers](#providers) |
+| Add a gateway provider (corporate or self-hosted) | `claude-code config edit` → add it under `providers.providers` with `routes` per dialect | [Providers](#providers) |
+| Edit pins, custom env, overlays; import a legacy `env.d/` | `claude-code config show\|edit` · `config migrate\|finalize\|rollback\|rotate-key` | [Config](#config-claude-code-config-showedit) · [The vault key](#the-vault-key) |
 | Set OpenCode reasoning effort | TUI: `ctrl+t` cycles variants, `<leader>v` (ctrl+x v) lists them · `opencode run --variant high` · `claude-code ask --effort high` · default: `provider.<p>.models.<id>.options` in `~/.config/opencode/opencode.json` (not a generate-managed key, survives `generate`) | `opencode models <p> --verbose` shows each model's variants |
 | Project agents + this file into every vendor (codex, copilot, gemini, opencode; local render in `state/projections/`), link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | `commands/harness/sync-agents.md`; `state/projections/` is generated + gitignored — edit `agents/`, `skills/`, this file; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | Start an agent TUI on another tailnet box, detached | `claude-code dispatch --host <name> --agent claude\|codex\|opencode\|gemini\|copilot "<task>"` (tmux session, prints the attach command); `--list --host <h>` · `--attach --host <h> <session>` | `--dry-run` prints the ssh argv |
@@ -496,7 +580,7 @@ Rows that `CLAUDE.md` points here for; "this file" in a row means `CLAUDE.md`.
 | Pane state of dispatched agents on a host | `claude-code dispatch --list --host <h> --status [--format json]` | working \| input-needed \| ready \| unknown \| gone; the web page caches the same |
 | Which browsers Claude in Chrome can drive; install the extension in another one | `claude-code web browsers` · `claude-code web setup --browser edge\|default [--dry-run]` | `doctor` + `configure browser` show the default's state; Safari/Firefox need a different control path |
 | See what acted: provider switches, pins, secret sets, safety blocks, router failovers | `claude-code doctor --audit [--days 7] [--format json]` (`state/harness/audit.jsonl`) | names only, never a value or a blocked command |
-| Inspect or diff the shadow history of config (memory history: `git -C ~/.claude/memory log`) | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | `env.d/secrets.env` is never snapshotted |
+| Inspect or diff the shadow history of config (memory history: `git -C ~/.claude/memory log`) | `claude-code history snapshot\|log\|diff` (lives in `state/harness/history`, gitignored) | vault secrets are never snapshotted |
 | Pick the statusline color palette · apply the whole look (VS Code, statusline, opencode, copilot, gemini) | `claude-code theme [--preview] [<palette>]` · `claude-code theme apply [--dry-run]` | `theme/README.md` — one JSON per tool, merged over its config |
 | Keep the injected MEMORY.md small | `claude-code memory archive` (audit) · `--split 20 --apply` · `--dupes` · `archive <topic> --apply` / `--restore` | [Memory bank](#memory-bank) |
 | Lint a workflow script (model/effort pins, registry-hiding meta/throw) | `claude-code workflow lint [<root>]` · `workflow skeleton <pattern>` scaffolds one | `rules/workflow/master-workflow.md` → Saved Workflows · the `workflow-lint` PreToolUse hook auto-fills `model:'sonnet'` on an unpinned inline `agent()` and blocks only an ambiguous rewrite |

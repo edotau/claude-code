@@ -113,7 +113,7 @@ Optional detector pass on the drafted text (stdin; full CLI: `~/.claude/skills/e
 
 ## Harness guidelines every plan must respect
 
-- **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in keyring/`env.d/`/`auth.command`, propose look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
+- **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in the vault/`auth.command`, propose look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
 - **Dispatch shape:** `~/.claude/rules/workflow/agents.md` — disjoint-package code steps run in parallel; every code step pairs a `copilot` test-repair agent and names a `runner:`; new tests come after the live check.
 - **Cost routing:** spread steps across runners per `~/.claude/skills/subagent-workflows/references/cost-routing.md`; Claude keeps judgement, integration and verification.
 - **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area with explicitly named files.

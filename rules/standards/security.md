@@ -1,7 +1,7 @@
 # Security Standards
 
 Language specifics: `rules/software/<lang>/security.md`. Harness credentials live only in
-the OS keyring (`claude-code secrets set`), `~/.claude/env.d/secrets.env`, or a provider's `auth.command` (see `README.md`).
+the encrypted vault (`claude-code secrets set`) or a provider's `auth.command` (see `README.md` → Credentials).
 
 ## Core Principles
 

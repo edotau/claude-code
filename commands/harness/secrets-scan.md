@@ -1,5 +1,5 @@
 ---
-description: "Audit the Claude config surface for plaintext credentials that should be env.d/secrets.env or a credential file"
+description: "Audit the Claude config surface for plaintext credentials that belong in the vault (`claude-code secrets set`) or a credential file"
 argument-hint: "[scan | git | all]"
 ---
 
@@ -13,7 +13,7 @@ of application code. Pass the mode through as `$ARGUMENTS` (default `scan`).
 
 | Mode | Checks |
 |------|--------|
-| `scan` | Every leaf string in `~/.claude.json`, `settings.json`, `settings.local.json`, `providers.json`, and `.mcp.json` (user + project + cwd) for credential-shaped values that are NOT `${ENV}` refs, file paths, or placeholders |
+| `scan` | Every leaf string in `~/.claude.json`, `settings.json`, `settings.local.json`, the vault's provider overlay (`claude-code config show`), and `.mcp.json` (user + project + cwd) for credential-shaped values that are NOT `${ENV}` refs, file paths, or placeholders |
 | `git` | `git grep` the current repo's **tracked** files for secret-shaped strings (API keys, tokens, bearer secrets). Reports `path:line`, never the value |
 | `all` | both |
 
@@ -28,13 +28,13 @@ git grep -nIE '(api[_-]?key|secret|token|bearer)[[:space:]]*[:=][[:space:]]*["'"
 ```
 
 Severity: a finding in a **git-tracked** file is marked `TRACKED` (urgent — it would be
-committed or already is); a finding in `env.d/secrets.env` or `settings.local.json` (both
-gitignored) is `local`. Treat `${VAR}`, absolute/`~/` paths, and `PLACEHOLDER`/`YOUR_*`/`xxx`
+committed or already is); a finding in `settings.local.json` or the vault overlay (both
+untracked) is `local`. Treat `${VAR}`, absolute/`~/` paths, and `PLACEHOLDER`/`YOUR_*`/`xxx`
 stubs as safe.
 
 After running, summarize findings. For each real secret, recommend: (1) rotate the
 credential at its source, (2) replace the inline value with `${ENV_VAR}` (resolved via
-`env.d/secrets.env` or `auth.command`), (3) for `TRACKED` hits, scrub history if already
+the vault — `claude-code secrets set` — or `auth.command`), (3) for `TRACKED` hits, scrub history if already
 pushed. Do **not** edit files or rotate anything automatically — confirm with the user first.
 
 Pairs with `/harness:mcp-doctor` (MCP-scoped).

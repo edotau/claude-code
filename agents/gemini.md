@@ -60,7 +60,7 @@ claude-code gemini bridge --dirs <d> [--files <globs>] -- "<TASK>"
 ```
 
 No `--dirs`/`--files` means no files are inlined — scope every call. `--dirs .` inlines the whole repo
-(gitignored and secret-like files — `.env`, `env.d/`, `state/`, `*.pem`, `*.key` — are always skipped).
+(gitignored and secret-like files — `.env`, `state/`, `*.pem`, `*.key` — are always skipped).
 
 With scope:
 

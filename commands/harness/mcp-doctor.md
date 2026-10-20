@@ -29,7 +29,7 @@ Read the JSON with `Read`/`jq` rather than parsing by eye for anything beyond a 
 
 After running, summarize the findings and — for any real conflict or inline
 secret — propose the concrete fix (`claude mcp remove <name> -s <scope>`, or
-move the token to `${ENV}` / `env.d/secrets.env`). Do **not** auto-remove or
+move the token to `${ENV}` / `claude-code secrets set`). Do **not** auto-remove or
 rotate anything without confirming with the user first; this command is
 read-only diagnosis.
 
