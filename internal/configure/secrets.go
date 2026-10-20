@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -224,6 +225,10 @@ func ParseAssignment(raw string) (name, value string) {
 func storeValue(d *dialog, name, val string) bool {
 	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(val) {
 		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
+		return false
+	}
+	if err := tailscale.ValidCredential(name, val); err != nil {
+		d.printf("%v\n", err)
 		return false
 	}
 	if d.pending != nil {

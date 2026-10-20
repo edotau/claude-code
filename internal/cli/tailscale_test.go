@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 type tailscaleTestTransport func(*http.Request) (*http.Response, error)
@@ -38,7 +39,7 @@ func fakeTailscaleOnPATH(t *testing.T, backendState string) {
 
 func hermeticTailscaleSecrets(t *testing.T) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	for _, n := range []string{
 		"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
 	} {

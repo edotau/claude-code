@@ -239,8 +239,8 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 }
 
 // credentialPresent caches providers.CredentialPresent per provider name for credTTL, present results
-// only: an env-auth provider with no process env var falls through to a keyring lookup (a secret-tool
-// subprocess per call), and a present credential is probed once per TTL instead of every routed request.
+// only: an env-auth provider with no process env var falls through to a vault read (a bbolt
+// open per call), and a present credential is probed once per TTL instead of every routed request.
 // An absent credential is re-checked every call, so a freshly added fallback credential is picked up
 // immediately rather than staying hidden for up to credTTL.
 func (r *Router) credentialPresent(p *providers.Provider) bool {

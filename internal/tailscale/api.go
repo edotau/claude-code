@@ -19,6 +19,10 @@ import (
 // DefaultBaseURL is the Tailscale admin API.
 const DefaultBaseURL = "https://api.tailscale.com/api/v2"
 
+// apiBaseURL is the base URL NewClient and Doctor's credential check mint tokens against;
+// package-private so tests can point it at an httptest server.
+var apiBaseURL = DefaultBaseURL
+
 // ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
 var ErrNoCredential = errors.New("tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
@@ -33,7 +37,7 @@ type Client struct {
 // NewClient resolves credentials via secrets.Get (the vault, then env):
 // TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
 func NewClient() (*Client, error) {
-	c := &Client{BaseURL: DefaultBaseURL, Tailnet: "-", HTTP: http.DefaultClient}
+	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: http.DefaultClient}
 	if id, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		if secret, _, ok2 := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
