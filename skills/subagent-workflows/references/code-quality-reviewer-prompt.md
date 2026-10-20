@@ -1,7 +1,7 @@
 # Code Quality Reviewer Prompt
 
 Use only after the spec reviewer returns `SPEC_COMPLIANT` and the simplify pass
-([simplifier-prompt.md](simplifier-prompt.md)) has run.
+([simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md)) has run.
 
 ```markdown
 Review the implementation for correctness, maintainability, tests, security, and repository conventions.

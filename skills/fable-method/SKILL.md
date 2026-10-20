@@ -15,7 +15,7 @@ skills that already own it. Do not restate those here — load them.
 |---|---|
 | Done criteria, gate chain, claim discipline | `approval-gate` |
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, `/review-funnel` |
-| Plan artifact, task breakdown | `planning` |
+| Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, over-engineering | `evaluate-code`, `simplify` |
 | Pre-review / post-build gating agent | `codex` (REVIEW / VERIFY modes) |
@@ -114,7 +114,7 @@ Two halves, plus a third whenever you fixed a defect:
 
 **plan** — Steps 0–3, then stop. Deliver the classification, done + its verification, cited
 evidence, and one recommendation with alternatives dismissed in a line each. Touch no file.
-Plan shape: `planning`.
+Plan shape: `agents/Plan.md`.
 
 **audit** — grade the most recent completed work: each step marked **followed**, **skipped**, or
 **faked** (claimed without observation). For every skip or fake, name the concrete risk it

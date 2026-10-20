@@ -30,7 +30,7 @@ Reference real harness skills/agents — never invent namespaces.
 
 ### Design & Plan
 
-- `planning` skill — task breakdown, phase gates
+- `Plan` agent (`agents/Plan.md`) — plan template, task breakdown, phase rules
 - `gemini` agent — warm the context with a codebase scan before architecting
 - **Search before you build** — before writing a new utility/abstraction or adding a dependency, look for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a battle-tested wheel is a should-fix.
 

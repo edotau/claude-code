@@ -87,7 +87,6 @@ coverage.*
 !/skills/evaluate-code
 !/skills/fable-method
 !/skills/find-skills
-!/skills/planning
 !/skills/python-patterns
 !/skills/security-reviewer
 !/skills/simplify
@@ -95,6 +94,8 @@ coverage.*
 !/skills/testing-guidelines
 !/skills/using-git-worktrees
 !/skills/web-search
+# Personal career skill (symlink into ~/.agents/skills): last, so no allowlist line above re-includes them.
+/skills/career
 
 # Editors / OS
 .DS_Store

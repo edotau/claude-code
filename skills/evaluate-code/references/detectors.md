@@ -123,7 +123,7 @@ a conversation about assumptions before coding.
 echo "I'll just export all user data" | claude-code review assumptions -
 ```
 
-**Consumer: the `planning` skill** — its Self-Review Checklist pipes drafted plans through
+**Consumer: the `Plan` agent** (`agents/Plan.md`) — its self-review pipes drafted plans through
 this detector and `review goals`. Both analyze **plan text via stdin (`-`) or a plan .md**,
 never code files — don't point them at source files.
 

@@ -56,7 +56,7 @@ Instructions:
    | Stage | Agent | Notes |
    |-------|-------|-------|
    | explore | `Explore` | Structure, conventions, dependencies → `## Findings` |
-   | plan | `Plan` | Task breakdown per the `planning` skill → `## Plan`; **stop for user approval** |
+   | plan | `Plan` | Task breakdown per `agents/Plan.md` → `## Plan`; **stop for user approval** |
    | refine *(optional)* | `general-purpose` | Self-contained brief per sub-task → `## Refined Briefs` |
    | implement | `code-worker` per sub-task (parallel-safe ones in one message) **‖ `copilot`** | Execute plan steps |
    | simplify | `general-purpose` loading the `simplify` skill | Behavior-preserving cleanup |

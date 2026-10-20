@@ -1,4 +1,4 @@
-# Simplifier Prompt
+# Simplify — Leaf Brief
 
 Use after the spec reviewer returns `SPEC_COMPLIANT` and before the quality reviewer. The manager runs
 `Skill(simplify)` in place when it holds the context; otherwise dispatch this brief to a `code-worker` leaf.
