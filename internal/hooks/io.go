@@ -3,12 +3,16 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/hookspec"
 )
 
 // Exit codes per the Claude Code hook contract.
@@ -203,6 +207,16 @@ func MergeContext(event string, blocks []string, vendor ...string) string {
 // Handler runs one hook.
 type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
 
+// hookContext gives subprocesses the registered hook budget without changing process signal handling.
+func hookContext(name string) (context.Context, context.CancelFunc) {
+	for _, spec := range hookspec.Registry {
+		if spec.Name == name {
+			return context.WithTimeout(context.Background(), time.Duration(spec.Timeout)*time.Second)
+		}
+	}
+	panic("unknown hook: " + name)
+}
+
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
 	"bash-guard":          BashGuard,
@@ -219,7 +233,6 @@ var Registry = map[string]Handler{
 	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
 	"agent-inflight-post": func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
-	"plan-template":       func(in io.Reader, _, errw io.Writer) int { return PlanTemplate(in, errw) },
 	"plan-mirror":         func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
 	"save-plan":           func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
 	"access-trace":        func(in io.Reader, _, _ io.Writer) int { return AccessTrace(in) },

@@ -276,3 +276,43 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 		t.Fatalf("the .dest record must be removed, stat err = %v", err)
 	}
 }
+
+func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	draft := filepath.Join(cfg, "plans", "draft.md")
+	if err := os.MkdirAll(draft, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(draft, "keep")
+	if err := os.WriteFile(child, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
+	if err := recordDest(filepath.Base(draft), dest); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode", "cwd": cfg,
+		"tool_response": map[string]any{"plan": planTemplate, "filePath": draft},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := SavePlan(bytes.NewReader(raw), &stderr); code != ExitProceed {
+		t.Fatalf("SavePlan = %d, want ExitProceed", code)
+	}
+	if !strings.HasPrefix(stderr.String(), "save-plan: ") || !strings.Contains(stderr.String(), draft) {
+		t.Errorf("missing draft removal diagnostic: %s", &stderr)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
+		t.Errorf("saved plan: err=%v content=%q", err, got)
+	}
+	if got, ok := readRecordedDest(filepath.Base(draft)); !ok || got != dest {
+		t.Errorf("retry destination = %q, ok=%v; want %q", got, ok, dest)
+	}
+	if got, err := os.ReadFile(child); err != nil || string(got) != "keep" {
+		t.Errorf("draft directory contents changed: err=%v content=%q", err, got)
+	}
+}

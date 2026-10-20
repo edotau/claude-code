@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -487,7 +488,7 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 
 	results := walkExtensions(dir, extensions)
 	if len(results) == 0 {
-		return directoryReport{}, fmt.Errorf("no supported files found")
+		return directoryReport{}, errors.New("no supported files found")
 	}
 
 	total := 0.0
@@ -514,7 +515,7 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 	for _, ext := range extensions {
 		byExtension[ext] = nil
 	}
-	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || pathHasSkippedPart(p) {
 			return nil
 		}

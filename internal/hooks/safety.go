@@ -317,12 +317,13 @@ func shellSegments(cmd string) []string {
 	return append(out, b.String())
 }
 
+type heredoc struct {
+	word string
+	tabs bool
+}
+
 // withoutHeredocBodies preserves command text while consuming queued heredocs in shell order.
 func withoutHeredocBodies(cmd string) string {
-	type heredoc struct {
-		word string
-		tabs bool
-	}
 	var pending []heredoc
 	var out strings.Builder
 	var quote byte
@@ -347,76 +348,91 @@ func withoutHeredocBodies(cmd string) string {
 		}
 		if c == '<' && i < len(cmd) && cmd[i] == '<' {
 			start := i
-			for i < len(cmd) && cmd[i] == '<' {
-				i++
-			}
-			if i-start != 1 {
-				out.WriteString(cmd[start:i])
-				continue
-			}
-			h := heredoc{}
-			if i < len(cmd) && cmd[i] == '-' {
-				h.tabs = true
-				i++
-			}
-			for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
-				i++
-			}
-			var word strings.Builder
-			var q byte
-			beg := i
-			for i < len(cmd) {
-				ch := cmd[i]
-				if q == 0 && strings.ContainsRune(" \t\r\n;|&<>()", rune(ch)) {
-					break
-				}
-				i++
-				if ch == '\\' && q != '\'' && i < len(cmd) {
-					word.WriteByte(cmd[i])
-					i++
-					continue
-				}
-				if q != 0 {
-					if ch == q {
-						q = 0
-					} else {
-						word.WriteByte(ch)
-					}
-				} else if ch == '\'' || ch == '"' {
-					q = ch
-				} else {
-					word.WriteByte(ch)
-				}
-			}
+			h, end, ok := parseHeredoc(cmd, i)
+			i = end
 			out.WriteString(cmd[start:i])
-			if i > beg {
-				h.word = word.String()
+			if ok {
 				pending = append(pending, h)
 			}
 		}
 		if c == '\n' {
 			for _, h := range pending {
-				for i < len(cmd) {
-					line := cmd[i:]
-					if n := strings.IndexByte(line, '\n'); n >= 0 {
-						line = line[:n]
-						i += n + 1
-					} else {
-						i = len(cmd)
-					}
-					if h.tabs {
-						line = strings.TrimLeft(line, "\t")
-					}
-					if line == h.word {
-						out.WriteString(line + "\n") // the terminator stays, so a second pass is a no-op
-						break
-					}
-				}
+				i = consumeHeredoc(cmd, i, h, &out)
 			}
 			pending = nil
 		}
 	}
 	return out.String()
+}
+
+func parseHeredoc(cmd string, i int) (heredoc, int, bool) {
+	start := i
+	for i < len(cmd) && cmd[i] == '<' {
+		i++
+	}
+	if i-start != 1 {
+		return heredoc{}, i, false
+	}
+	h := heredoc{}
+	if i < len(cmd) && cmd[i] == '-' {
+		h.tabs = true
+		i++
+	}
+	for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
+		i++
+	}
+	word, end := heredocWord(cmd, i)
+	h.word = word
+	return h, end, end > i
+}
+
+func heredocWord(cmd string, i int) (string, int) {
+	var word strings.Builder
+	var quote byte
+	for i < len(cmd) {
+		ch := cmd[i]
+		if quote == 0 && strings.ContainsRune(" \t\r\n;|&<>()", rune(ch)) {
+			break
+		}
+		i++
+		if ch == '\\' && quote != '\'' && i < len(cmd) {
+			word.WriteByte(cmd[i])
+			i++
+			continue
+		}
+		if quote != 0 {
+			if ch == quote {
+				quote = 0
+			} else {
+				word.WriteByte(ch)
+			}
+		} else if ch == '\'' || ch == '"' {
+			quote = ch
+		} else {
+			word.WriteByte(ch)
+		}
+	}
+	return word.String(), i
+}
+
+func consumeHeredoc(cmd string, i int, h heredoc, out *strings.Builder) int {
+	for i < len(cmd) {
+		line := cmd[i:]
+		if n := strings.IndexByte(line, '\n'); n >= 0 {
+			line = line[:n]
+			i += n + 1
+		} else {
+			i = len(cmd)
+		}
+		if h.tabs {
+			line = strings.TrimLeft(line, "\t")
+		}
+		if line == h.word {
+			out.WriteString(line + "\n") // Keep the terminator so a second pass is a no-op.
+			break
+		}
+	}
+	return i
 }
 
 // shellTokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.

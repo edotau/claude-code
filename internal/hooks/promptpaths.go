@@ -83,7 +83,7 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 	}
 	if f, err := os.Open(p); err == nil {
 		cfg, _, derr := image.DecodeConfig(f)
-		f.Close()
+		_ = f.Close()
 		if derr == nil {
 			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, humanBytes(fi.Size())), true, true
 		}

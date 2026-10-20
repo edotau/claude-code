@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// docsPlacementDisableEnv is the sole knob: set to "0" to let every markdown write through unchecked.
+// docsPlacementDisableEnv disables placement checks, not the independent plan-template gate.
 const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
 
 // rootAnchors are the root-level markdown files tooling requires THERE: GitHub/OSS conventions plus the
@@ -30,6 +31,13 @@ var rootAnchors = map[string]bool{
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
 func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
+	if code := docsPlacement(in, stderr); code != ExitProceed {
+		return code
+	}
+	return checkPlanTemplate(in, stderr)
+}
+
+func docsPlacement(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
 		return ExitProceed
@@ -37,6 +45,8 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 	if os.Getenv(docsPlacementDisableEnv) == "0" {
 		return ExitProceed
 	}
+	ctx, cancel := hookContext("docs-placement")
+	defer cancel()
 	if tool == "apply_patch" {
 		var patch string
 		for _, key := range []string{"patch", "input", "command"} {
@@ -52,7 +62,7 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 		for line := range strings.SplitSeq(patch, "\n") {
 			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
 				if path, ok := strings.CutPrefix(line, prefix); ok {
-					if code := docsPlacementPath(in, strings.TrimSpace(path), stderr); code != ExitProceed {
+					if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != ExitProceed {
 						return code
 					}
 				}
@@ -60,10 +70,10 @@ func DocsPlacement(r io.Reader, stderr io.Writer) int {
 		}
 		return ExitProceed
 	}
-	return docsPlacementPath(in, in.nested("tool_input", "file_path"), stderr)
+	return docsPlacementPath(ctx, in, in.nested("tool_input", "file_path"), stderr)
 }
 
-func docsPlacementPath(in *Input, path string, stderr io.Writer) int {
+func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Writer) int {
 	if path == "" || !isMarkdownPath(path) {
 		return ExitProceed
 	}
@@ -81,13 +91,13 @@ func docsPlacementPath(in *Input, path string, stderr io.Writer) int {
 	config := canonDeep(paths.ConfigDir())
 	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
 		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) ||
-			isTracked(config, strings.TrimPrefix(abs, config+string(filepath.Separator))) {
+			isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))) || ctx.Err() != nil {
 			return ExitProceed
 		}
 		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 	}
 	// Two gated shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
-	root := repoRootOf(dir)
+	root := repoRootOf(ctx, dir)
 	if root == "" {
 		return ExitProceed
 	}
@@ -101,18 +111,18 @@ func docsPlacementPath(in *Input, path string, stderr io.Writer) int {
 	if !atRoot && !inDocs {
 		return ExitProceed
 	}
-	if isTracked(root, rel) {
+	if isTracked(ctx, root, rel) || ctx.Err() != nil {
 		return ExitProceed
 	}
 	// A docs/ page the repo COULD own is merely not-yet-added — the project's business. Only a path
 	// git refuses to keep is stranded harness output: it is invisible on every fresh clone.
-	if inDocs && !isIgnored(root, rel) {
+	if inDocs && !isIgnored(ctx, root, rel) {
 		return ExitProceed
 	}
 
-	where := fmt.Sprintf("the repo root (%s)", dir)
+	where := "the repo root (" + dir + ")"
 	if inDocs {
-		where = fmt.Sprintf("%s, which this repo gitignores — it vanishes on a fresh clone", dir)
+		where = dir + ", which this repo gitignores — it vanishes on a fresh clone"
 	}
 	return blockPlacement(stderr, base, where, root)
 }
@@ -149,10 +159,14 @@ func isMarkdownPath(path string) bool {
 // repoRootOf returns dir's git toplevel, or "" when dir is not in a work tree. It climbs to the
 // nearest EXISTING ancestor first: a Write creates its parent dirs, so a gate firing BEFORE the write
 // is handed a path whose directory does not exist yet, and `git -C <missing dir>` just errors.
-func repoRootOf(dir string) string {
+func repoRootOf(ctx context.Context, dir string) string {
 	for dir != "" {
 		if isDir(dir) {
-			return memory.GitToplevel(dir)
+			out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(out))
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -190,17 +204,17 @@ func canonDeep(p string) string {
 
 // isTracked reports whether rel (repo-RELATIVE, slash-separated) is already git-tracked at root — an
 // existing repo doc, so editing it is the user's business, not a placement violation.
-func isTracked(root, rel string) bool {
+func isTracked(ctx context.Context, root, rel string) bool {
 	// :(literal) disables pathspec magic — a glob-shaped name ("*.md") would otherwise match some
 	// OTHER tracked file and wave the untracked write straight through the gate.
-	out, err := exec.Command("git", "-C", root, "ls-files", "--", ":(literal)"+rel).Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--", ":(literal)"+rel).Output()
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
 // isIgnored reports whether root's ignore rules exclude rel. check-ignore takes PATHNAMES, not
 // pathspecs (":(literal)" is a fatal error there), and any failure reads as not-ignored: fail-open.
-func isIgnored(root, rel string) bool {
-	err := exec.Command("git", "-C", root, "check-ignore", "-q", "--", rel).Run()
+func isIgnored(ctx context.Context, root, rel string) bool {
+	err := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel).Run()
 	return err == nil
 }
 

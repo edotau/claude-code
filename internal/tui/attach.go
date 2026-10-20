@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -18,7 +19,7 @@ func RunAttached(argv []string) (bool, error) {
 	if len(argv) == 0 {
 		return false, errors.New("tui: RunAttached: empty command")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...) // attached for its whole life: nothing to cancel
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	swallow := make(chan os.Signal, 1) // never read: a full buffer simply drops later signals
 	signal.Notify(swallow, attachedSignals...)

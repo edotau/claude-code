@@ -142,7 +142,7 @@ func mcpList(claude string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "mcp", "list")

@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -183,7 +184,7 @@ func collectComplexityFiles(target string, extensions []string) []string {
 	}
 	extensionSet := complexityExtensionSet(extensions)
 	var files []string
-	filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -273,7 +274,7 @@ func parseComplexityArgs(args []string) (complexityArgs, error) {
 		case tok == "--threshold":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --threshold: expected one argument")
+				return a, errors.New("argument --threshold: expected one argument")
 			}
 			a.threshold = args[i]
 		case strings.HasPrefix(tok, "--threshold="):
@@ -281,7 +282,7 @@ func parseComplexityArgs(args []string) (complexityArgs, error) {
 		case tok == "--ext":
 			i++
 			if i >= len(args) {
-				return a, fmt.Errorf("argument --ext: expected one argument")
+				return a, errors.New("argument --ext: expected one argument")
 			}
 			a.ext = args[i]
 		case strings.HasPrefix(tok, "--ext="):
@@ -293,7 +294,7 @@ func parseComplexityArgs(args []string) (complexityArgs, error) {
 		}
 	}
 	if len(a.targets) == 0 {
-		return a, fmt.Errorf("the following arguments are required: targets")
+		return a, errors.New("the following arguments are required: targets")
 	}
 	if _, ok := complexityThresholds[a.threshold]; !ok {
 		return a, fmt.Errorf("argument --threshold: invalid choice: %q", a.threshold)
@@ -301,7 +302,7 @@ func parseComplexityArgs(args []string) (complexityArgs, error) {
 	return a, nil
 }
 
-// RunComplexity is the complexity_checker.py CLI: same flags; exit code is always 0 (advisory tool).
+// RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	parsed, err := parseComplexityArgs(args)
 	if err != nil {
@@ -346,22 +347,31 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	}
 	summary := buildComplexitySummary(results, parsed.threshold)
 	if parsed.jsonOut {
-		writeJSON(stdout, summary)
-		fmt.Fprintln(stdout)
+		if err := writeJSON(stdout, summary); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
+		if _, err := fmt.Fprintln(stdout); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
 	} else {
 		printComplexityReport(stdout, summary)
 	}
 	return 0
 }
 
-// reportNoFiles ports the argparse "no files matched" branch (always exits 0, even in error).
+// reportNoFiles ports the argparse "no files matched" branch (advisory unless JSON output fails).
 // json.dumps here has no indent= arg (compact, single line) unlike the summary path below.
 func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonOut bool) int {
 	msg := fmt.Sprintf("No files matching %s under %s", pyListRepr(extensions), strings.Join(targets, " "))
 	if jsonOut {
 		// json.dumps with no indent= still separates with ", " / ": " (Go's compact form has no spaces).
 		line := fmt.Sprintf(`{"status": %s, "message": %s}`, jsonStringLiteral("error"), jsonStringLiteral(msg))
-		fmt.Fprintln(stdout, line)
+		if _, err := fmt.Fprintln(stdout, line); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
 	} else {
 		fmt.Fprintf(stderr, "[error] %s\n", msg)
 	}
@@ -373,7 +383,7 @@ func jsonStringLiteral(s string) string {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	enc.Encode(s)
+	_ = enc.Encode(s) // a string literal always marshals; nothing here can fail
 	return string(escapeNonASCII(bytes.TrimRight(buf.Bytes(), "\n")))
 }
 

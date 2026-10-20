@@ -160,17 +160,6 @@
         ]
       },
       {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook plan-template",
-            "timeout": 5,
-            "statusMessage": "Checking plan template"
-          }
-        ]
-      },
-      {
         "matcher": "Agent|Task",
         "hooks": [
           {

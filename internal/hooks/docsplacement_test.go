@@ -41,6 +41,113 @@ func placementPayload(t *testing.T, tool, path string) string {
 	return string(b)
 }
 
+func TestDocsPlacementPlanTemplate(t *testing.T) {
+	cases := []struct {
+		name     string
+		tool     string
+		path     string
+		content  string
+		existing bool
+		want     int
+	}{
+		{"freeform Write", "Write", "plans/draft.md", "freeform", false, ExitBlock},
+		{"freeform create", "create", "plans/draft.md", "freeform", false, ExitBlock},
+		{"legacy empty tool", "", "plans/draft.md", "freeform", false, ExitBlock},
+		{"missing content", "Write", "plans/draft.md", "", false, ExitBlock},
+		{"templated Write", "Write", "plans/draft.md", planTemplate, false, ExitProceed},
+		{"existing draft", "Write", "plans/draft.md", "freeform", true, ExitProceed},
+		{"Edit bypass", "Edit", "plans/draft.md", "freeform", false, ExitProceed},
+		{"patch bypass", "apply_patch", "plans/draft.md", "freeform", false, ExitProceed},
+		{"other tool", "Bash", "plans/draft.md", "freeform", false, ExitProceed},
+		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, ExitProceed},
+		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, ExitProceed},
+		{"outside plans", "Write", "other/draft.md", "freeform", false, ExitProceed},
+	}
+	for _, knob := range []string{"1", "0"} {
+		for _, c := range cases {
+			t.Run("docs="+knob+"/"+c.name, func(t *testing.T) {
+				cfg := t.TempDir()
+				t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+				t.Setenv(docsPlacementDisableEnv, knob)
+				if c.existing {
+					path := filepath.Join(cfg, c.path)
+					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var stdout, stderr bytes.Buffer
+				code := Run("docs-placement", strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
+				if code != c.want {
+					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
+				}
+				if stdout.Len() != 0 {
+					t.Errorf("unexpected stdout: %s", &stdout)
+				}
+				if c.want == ExitBlock {
+					if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
+						!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
+						!strings.Contains(stderr.String(), filepath.Join(cfg, "agents", "Plan.md")) {
+						t.Errorf("missing first heading/template diagnostic: %s", &stderr)
+					}
+					if _, err := os.Stat(filepath.Join(cfg, c.path)); !os.IsNotExist(err) {
+						t.Errorf("denied draft must remain absent: %v", err)
+					}
+				} else if stderr.Len() != 0 {
+					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestDocsPlacementFirstDenial(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	plans := filepath.Join(cfg, "plans")
+	if err := os.MkdirAll(plans, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", plans, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	for _, c := range []struct {
+		knob string
+		want string
+		not  string
+	}{
+		{"1", "docs-placement: BLOCKED", "plan-template: BLOCKED"},
+		{"0", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
+	} {
+		t.Run("docs="+c.knob, func(t *testing.T) {
+			t.Setenv(docsPlacementDisableEnv, c.knob)
+			var stdout, stderr bytes.Buffer
+			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
+			if code := Run("docs-placement", strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
+				t.Fatalf("code = %d, want ExitBlock; stderr=%s", code, &stderr)
+			}
+			if !strings.HasPrefix(stderr.String(), c.want) || strings.Contains(stderr.String(), c.not) {
+				t.Errorf("want only %s denial, got %s", c.want, &stderr)
+			}
+		})
+	}
+}
+
+func TestPlanTemplateCommandRetired(t *testing.T) {
+	if _, ok := Registry["plan-template"]; ok {
+		t.Fatal("retired plan-template command remains registered")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run("plan-template", strings.NewReader("{}"), &stdout, &stderr); code != 1 {
+		t.Fatalf("retired command returned %d, want 1", code)
+	}
+	if stdout.Len() != 0 || stderr.String() != "claude-code hook: unknown hook \"plan-template\"\n" {
+		t.Fatalf("stdout=%q stderr=%q", &stdout, &stderr)
+	}
+}
+
 func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(docsPlacementDisableEnv, "1")
