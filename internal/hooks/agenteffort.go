@@ -88,9 +88,8 @@ func agentToolInput(in *Input) map[string]any {
 	return clone
 }
 
-// agentPinsModel reports whether the named subagent's frontmatter pins a concrete model (not
-// `inherit`). A name with no roster file is a built-in (Explore/Plan/general-purpose) — not pinned,
-// the classifier applies; only a path-shaped name is refused outright.
+// agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it
+// asks for the session model). No roster file = a built-in, the classifier applies; a path-shaped name is refused.
 func agentPinsModel(name string) bool {
 	if name == "" {
 		return false // no subagent_type = a fresh general-purpose agent, nothing to defer to
@@ -104,5 +103,5 @@ func agentPinsModel(name string) bool {
 	}
 	fm, _ := crossgen.ParseFrontmatter(string(raw))
 	model, _ := fm["model"].(string)
-	return model != "" && model != "inherit"
+	return model != ""
 }

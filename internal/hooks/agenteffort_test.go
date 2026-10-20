@@ -128,8 +128,8 @@ func TestAgentEffortDefersToRosterPin(t *testing.T) {
 		t.Errorf("model-pinned agent was overridden to %v, want untouched", got)
 	}
 	inherit := `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"inherit-agent"}}`
-	if got, _ := runAgentEffort(t, inherit); got == nil || got["model"] != "haiku" {
-		t.Errorf("inherit-model agent = %v, want model=haiku", got)
+	if got, _ := runAgentEffort(t, inherit); got != nil {
+		t.Errorf("inherit-model agent was overridden to %v, want untouched (frontmatter inherit = session model)", got)
 	}
 }
 
