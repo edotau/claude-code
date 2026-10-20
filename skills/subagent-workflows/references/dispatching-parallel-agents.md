@@ -55,7 +55,7 @@ reliable part of a fan-out — lanes have died with `.claude/worktrees/agent-*` 
 
 ```
 Agent(
-  subagent_type="code-workers",
+  subagent_type="code-worker",
   description="Token cache for the router",
   prompt="""
   Own ONLY: internal/router/tokencache.go and tokencache_test.go (both new).

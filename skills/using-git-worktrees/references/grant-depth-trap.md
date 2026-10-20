@@ -22,7 +22,7 @@ simply invisible — no `git status`/`diff`/`log`/`commit`, and no importable ve
 
 **Scope to the repository root, not a subdirectory.** This is why `/workflow:worktree`
 symlinks the shared `.venv` at the worktree root rather than copying it into a subdir, and why
-a code-workers leaf's file scope should still resolve `git`/imports from a root-level checkout
+a code-worker leaf's file scope should still resolve `git`/imports from a root-level checkout
 even when its *edit* scope is narrow.
 
 ## Diagnosing it quickly

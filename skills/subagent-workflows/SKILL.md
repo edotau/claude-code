@@ -14,6 +14,7 @@ Use the smallest workflow that matches the task:
 | Independent tasks | Read [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md) |
 | Ordered plan with review gates | Read [subagent-driven-development.md](references/subagent-driven-development.md) |
 | Pipeline, router, evaluator, or dynamic orchestration | Read [choosing-a-pattern.md](references/choosing-a-pattern.md) |
+| Spend less Anthropic usage: send a step to Copilot/Codex/Gemini/OpenCode via `claude-code ask` | Read [cost-routing.md](references/cost-routing.md) |
 | A second model family adds useful coverage | Read [cross-model-agent-teams.md](references/cross-model-agent-teams.md) |
 | Several agents should attempt the same measurable task and the best result wins | Read [competition-tournament.md](references/competition-tournament.md) |
 | One objective spans several phases with different owners and skills | Run `/workflow:orchestrate` |

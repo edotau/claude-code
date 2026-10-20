@@ -582,7 +582,7 @@ func TestSubagentStopRetiresSlotEvenWhenSimplifyBlocks(t *testing.T) {
 	tr := writeTranscript(t, t.TempDir(), editToolUseLine(t, "a1", "Edit", "/r/a.go"))
 	stop := func(active bool) int {
 		return SubagentStop(strings.NewReader(buildSubagentStopPayload(t, subagentStopFields{
-			agentID: "a1", agentType: "code-workers", stopHookActive: active, agentTranscriptPath: tr,
+			agentID: "a1", agentType: "code-worker", stopHookActive: active, agentTranscriptPath: tr,
 		})), &bytes.Buffer{})
 	}
 	if code := stop(false); code != ExitBlock {

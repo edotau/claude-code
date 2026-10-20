@@ -38,6 +38,9 @@ suggest the slug.
 
 - **Dispatch shape:** code steps on disjoint packages can run in parallel; every code step is paired with a
   `copilot` test-repair agent in the same dispatch (repairs only); new tests come after the live check.
+- **Cost routing:** code steps are spread evenly across runners (claude, copilot, codex, opencode) per
+  `skills/subagent-workflows/references/cost-routing.md`; each step names its `runner:`. Claude keeps
+  judgement, integration and verification.
 - **Vendor CLIs first:** review → `claude-code ask --agent codex`; test edits → the `copilot` agent (Copilot
   CLI); large sweeps → `gemini bridge`; doc drafting → `opencode`. Fallback ends on Claude; raise model and
   effort only for unusually complex steps.

@@ -38,7 +38,7 @@ const d = await subagent('not the primitive')
 func TestUnpinnedAgentCalls(t *testing.T) {
 	p := writeScript(t, t.TempDir(), "wf.js", `const a = await agent('task one', { label: 'x', schema: S })
 const b = await agent('task two', { label: 'y', model: 'sonnet' })
-const c = await agent('task three', { agentType: 'code-workers' })
+const c = await agent('task three', { agentType: 'code-worker' })
 const d = await agent('judge', { label: 'j' }) // lint:opus-ok
 const e = await subagent('not the primitive')
 `)
@@ -248,7 +248,7 @@ func TestFillModel(t *testing.T) {
 	t.Run("already pinned calls are left unchanged", func(t *testing.T) {
 		for _, src := range []string{
 			"agent('p', { model: 'opus' })\n",
-			"agent('p', { agentType: 'code-workers', model: 'sonnet' })\n",
+			"agent('p', { agentType: 'code-worker', model: 'sonnet' })\n",
 		} {
 			out, ambiguous := FillModel(src, model)
 			if out != src {

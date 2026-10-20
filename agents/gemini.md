@@ -22,7 +22,7 @@ description: |
   </example>
 
   <example>
-  Context: About to dispatch a code-workers fan-out and want to warm the context first.
+  Context: About to dispatch a code-worker fan-out and want to warm the context first.
   user: "I'll be dispatching implementers to touch the router soon — get oriented first."
   assistant: "Running gemini to build a findings report on current retry/backoff patterns across internal/router and internal/agent; the dispatch plan will consume it."
   <commentary>
