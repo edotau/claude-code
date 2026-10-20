@@ -61,8 +61,36 @@ func TestSecretsAddCustomStoresFileAndRedacts(t *testing.T) {
 func TestSourceLabel(t *testing.T) {
 	cases := map[string]string{"": "missing", "file": "file:plaintext", "keyring": "keyring", "env": "env"}
 	for src, want := range cases {
-		if got := sourceLabel(src); got != want {
-			t.Errorf("sourceLabel(%q) = %q, want %q", src, got, want)
+		if got := sourceLabel(src, ""); got != want {
+			t.Errorf("sourceLabel(%q, \"\") = %q, want %q", src, got, want)
+		}
+	}
+	shadowCases := []struct{ src, shadowed, want string }{
+		{"env", "keyring", "env over keyring"},
+		{"env", "file", "env over file"},
+	}
+	for _, c := range shadowCases {
+		if got := sourceLabel(c.src, c.shadowed); got != c.want {
+			t.Errorf("sourceLabel(%q, %q) = %q, want %q", c.src, c.shadowed, got, c.want)
+		}
+	}
+}
+
+// Every secrets-page row, worst case "env over keyring" shadowing the setup-token's long name and
+// user list, must still render at 80 columns or fewer (mirrors rowRenderedWidth in rowwidth_test.go).
+func TestSecretsRowWidthFitsEightyColumns(t *testing.T) {
+	list := []trackedSecret{
+		{name: providers.OAuthTokenEnv, source: "env", shadowed: "keyring", users: "claude -p (setup-token)"},
+		{name: "A_CUSTOM", source: "file", shadowed: "", users: "custom"},
+	}
+	var labels []string
+	for _, s := range list {
+		labels = append(labels, s.name)
+	}
+	for _, s := range list {
+		detail := fmt.Sprintf("%-16s %s", sourceLabel(s.source, s.shadowed), s.users)
+		if w := rowRenderedWidth(labels, detail); w > 80 {
+			t.Errorf("secrets row %q = %d cols, want <=80: %q", s.name, w, detail)
 		}
 	}
 }
@@ -92,5 +120,21 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	}
 	if rows["MY_CUSTOM"] != "custom" || rows[providers.OAuthTokenEnv] == "" {
 		t.Errorf("rows = %v, want MY_CUSTOM (custom) and the setup-token", rows)
+	}
+}
+
+// editSecret must offer "Move to keyring" for an env var shadowing the file plane (not just a
+// source=="file" row), whenever a keyring tool is reachable. Input is blank (cancel), so no action runs.
+func TestEditSecretOffersMoveToKeyringWhenEnvShadowsFile(t *testing.T) {
+	dir := t.TempDir() // a dummy executable on PATH is enough: Available() only LookPath's it, never runs it here
+	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	d, out := newDialog("\n")
+	s := trackedSecret{name: "ENV_SHADOWS_FILE", source: "env", shadowed: "file", users: "custom"}
+	editSecret(d, s, false)
+	if !strings.Contains(out.String(), "Move to keyring") {
+		t.Errorf("editSecret did not offer Move to keyring for an env-over-file row:\n%s", out.String())
 	}
 }

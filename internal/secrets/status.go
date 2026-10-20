@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -36,12 +35,8 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		return st
 	}
 	if p.Auth.Env != "" {
-		if v := strings.TrimSpace(os.Getenv(p.Auth.Env)); v != "" {
-			st.Source = "env"
-		} else if _, ok := keyring.Get(p.Auth.Env); ok {
-			st.Source = "keyring"
-		} else if v := ReadAll()[p.Auth.Env]; strings.TrimSpace(v) != "" {
-			st.Source = "file"
+		if _, src := providers.EffectiveSecret(p.Auth.Env); src != "" {
+			st.Source = src
 		}
 	}
 	if st.Source == "" && p.Auth.File != "" {

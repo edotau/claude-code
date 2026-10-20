@@ -32,10 +32,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 		return "", ErrPassthrough
 	}
 	if p.Auth.Env != "" {
-		if v := strings.TrimSpace(os.Getenv(p.Auth.Env)); v != "" {
-			return v, nil
-		}
-		if v := StoredSecret(p.Auth.Env); v != "" {
+		if v, _ := EffectiveSecret(p.Auth.Env); v != "" {
 			return v, nil
 		}
 	}
