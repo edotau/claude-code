@@ -1,0 +1,30 @@
+{
+  "status": "ok",
+  "source": "plan-template.md",
+  "steps_found": 3,
+  "score": 7,
+  "max_score": 9,
+  "percentage": 77.8,
+  "has_final_verification": true,
+  "verdict": "STRONG",
+  "step_results": [
+    {
+      "title": "### Phase 1 \u2014 Parse input",
+      "score": 3,
+      "level": "concrete"
+    },
+    {
+      "title": "### Phase 2 \u2014 Improve output",
+      "score": 1,
+      "level": "vague"
+    },
+    {
+      "title": "### Phase 3 \u2014 Run final regression",
+      "score": 3,
+      "level": "concrete"
+    }
+  ],
+  "recommendations": [
+    "1 step(s) have vague criteria. Replace 'should work' with a concrete check."
+  ]
+}

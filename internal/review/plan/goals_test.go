@@ -29,6 +29,8 @@ func TestRunGoalsMatchesGolden(t *testing.T) {
 	}{
 		{"plan text", []string{"plan-standalone-harness.md"}, "plan-standalone-harness.md.want"},
 		{"plan json", []string{"plan-standalone-harness.md", "--json"}, "plan-standalone-harness.md.want.json"},
+		{"template text", []string{"plan-template.md"}, "plan-template.md.want"},
+		{"template json", []string{"plan-template.md", "--json"}, "plan-template.md.want.json"},
 		{"noplan json", []string{"noplan.txt", "--json"}, "noplan.want.json"},
 	}
 	for _, tc := range cases {
@@ -85,5 +87,22 @@ func TestRunGoalsBadFlag(t *testing.T) {
 	code := RunGoals([]string{"--nope"}, strings.NewReader(""), &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	}
+}
+
+func TestExtractStepsPhaseBoundaries(t *testing.T) {
+	text := "## Phase 1 — Parse\n**Verify:** go test ./internal/paths\n### Details\n1. Read input\n### Phase 2 — Render\n**Verify:** should work\n## Tasks\n- [ ] go test ./...\n## Risks\ngrep final\n## Context\ndiff final\n"
+	steps := extractSteps(text)
+	if len(steps) != 2 {
+		t.Fatalf("steps = %d, want 2", len(steps))
+	}
+	if !strings.Contains(steps[0], "1. Read input") {
+		t.Error("phase lost nested section")
+	}
+	if score, _ := scoreStep(steps[1]); score != 1 {
+		t.Errorf("vague phase score = %d, want 1", score)
+	}
+	if finalRe.MatchString(steps[1]) {
+		t.Error("non-phase sections leaked into final step")
 	}
 }

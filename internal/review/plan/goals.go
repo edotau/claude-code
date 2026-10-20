@@ -52,10 +52,38 @@ var (
 	reasonableRe = regexp.MustCompile(`(?i)\b(?:verify|check|confirm|inspect|review|compare|validate|run\s+and\s+see|manually|open\s+in\s+browser|screenshot)\b`)
 	vagueRe      = regexp.MustCompile(`(?i)\b(?:should\s+work|looks?\s+(?:good|right|fine|ok)|seems?\s+(?:correct|fine)|hopefully|probably\s+works?)\b`)
 	stepRe       = regexp.MustCompile(`^(?:\d+[.)]\s+|[-*]\s+\[.\]\s+|[-*]\s+Step\s+\d+)`)
+	phaseRe      = regexp.MustCompile(`(?m)^#{2,3} Phase\s+[^\n]+`)
+	headingRe    = regexp.MustCompile(`^(#{1,6})\s+`)
 	finalRe      = regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
 )
 
 func extractSteps(text string) []string {
+	if phaseRe.MatchString(text) {
+		var steps []string
+		var current []string
+		level := 0
+		for _, line := range splitLines(text) {
+			heading := headingRe.FindStringSubmatch(line)
+			phase := phaseRe.MatchString(line)
+			if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
+				steps = append(steps, strings.Join(current, "\n"))
+				current = nil
+				level = 0
+			}
+			if phase {
+				level = len(heading[1])
+				current = []string{line}
+			} else if level > 0 {
+				// The template label alone is not verification evidence.
+				current = append(current, strings.ReplaceAll(line, "**Verify:**", ""))
+			}
+		}
+		if level > 0 {
+			steps = append(steps, strings.Join(current, "\n"))
+		}
+		return steps
+	}
+
 	var steps []string
 	var current []string
 	building := false
