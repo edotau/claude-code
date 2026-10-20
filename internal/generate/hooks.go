@@ -51,19 +51,26 @@ func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &rendered); err != nil {
 		return nil, err
 	}
-	merged := map[string][]hookspec.Group{}
-	for event, groups := range existing.Hooks {
-		merged[event] = foreignCodexGroups(groups)
+	merged := mergeHookEvents(existing.Hooks, rendered.Hooks, foreignCodexGroups)
+	return json.MarshalIndent(map[string]any{"hooks": merged}, "", "  ")
+}
+
+// mergeHookEvents keeps the foreign (non-harness) entries of each existing event, then prepends the
+// freshly rendered ones; an event left with nothing is dropped. Shared by mergeCodexHooks/mergeCopilotHooks.
+func mergeHookEvents[T any](existing, rendered map[string][]T, foreign func([]T) []T) map[string][]T {
+	merged := map[string][]T{}
+	for event, items := range existing {
+		merged[event] = foreign(items)
 	}
-	for event, groups := range rendered.Hooks {
-		merged[event] = append(append([]hookspec.Group{}, groups...), merged[event]...)
+	for event, items := range rendered {
+		merged[event] = append(append([]T{}, items...), merged[event]...)
 	}
-	for event, groups := range merged {
-		if len(groups) == 0 {
+	for event, items := range merged {
+		if len(items) == 0 {
 			delete(merged, event)
 		}
 	}
-	return json.MarshalIndent(map[string]any{"hooks": merged}, "", "  ")
+	return merged
 }
 
 // foreignCodexGroups drops harness-owned hooks from each group (by command prefix), keeping a group
@@ -110,27 +117,23 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &rendered); err != nil {
 		return nil, err
 	}
-	merged := map[string][]copilotHookEntry{}
-	for event, entries := range existing.Hooks {
-		for _, e := range entries {
-			if !hookspec.IsHarness(e.Bash) {
-				merged[event] = append(merged[event], e)
-			}
-		}
-	}
-	for event, entries := range rendered.Hooks {
-		merged[event] = append(append([]copilotHookEntry{}, entries...), merged[event]...)
-	}
-	for event, entries := range merged {
-		if len(entries) == 0 {
-			delete(merged, event)
-		}
-	}
+	merged := mergeHookEvents(existing.Hooks, rendered.Hooks, foreignCopilotEntries)
 	version := rendered.Version
 	if version == 0 {
 		version = 1
 	}
 	return json.MarshalIndent(map[string]any{"version": version, "hooks": merged}, "", "  ")
+}
+
+// foreignCopilotEntries drops harness-owned entries (by their "bash" command prefix).
+func foreignCopilotEntries(entries []copilotHookEntry) []copilotHookEntry {
+	var kept []copilotHookEntry
+	for _, e := range entries {
+		if !hookspec.IsHarness(e.Bash) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 func renderCodex(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {

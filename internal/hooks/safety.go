@@ -281,9 +281,9 @@ func canonPath(p string) string {
 	return p
 }
 
-// shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
+// shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline);
+// callers pass cmd already through withoutHeredocBodies, so it is not repeated here.
 func shellSegments(cmd string) []string {
-	cmd = withoutHeredocBodies(cmd)
 	var out []string
 	var b strings.Builder
 	var quote byte

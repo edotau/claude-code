@@ -47,19 +47,14 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 	title := planTitle(plan) // from the approved text, before the checklist adds its own heading
 	plan = withTasks(plan)
 
-	draftPath := cmp.Or(responsePath, inputPath)
-	if !filepath.IsAbs(draftPath) && in.CWD != "" && draftPath != "" {
-		draftPath = filepath.Join(in.CWD, draftPath)
-	}
+	draftPath := resolveCWDPath(cmp.Or(responsePath, inputPath), in.CWD)
 	dest, ok := "", false
 	if draftPath != "" {
 		dest, ok = readRecordedDest(filepath.Base(draftPath))
 	}
 	fresh := true
 	if !ok {
-		slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(in.CWD), in.CWD))
-		dir := filepath.Join(paths.ConfigDir(), "plans", slug)
-		dest, fresh = planDest(dir, time.Now().Format("2006-01-02")+"-"+title, plan)
+		dest, fresh = freshPlanDest(in.CWD, title, plan)
 	}
 	if !fresh {
 		return ExitProceed
@@ -103,6 +98,21 @@ func planTitle(plan []byte) string {
 		}
 	}
 	return "plan"
+}
+
+// resolveCWDPath anchors path to cwd when it isn't already absolute.
+func resolveCWDPath(path, cwd string) string {
+	if path != "" && !filepath.IsAbs(path) && cwd != "" {
+		return filepath.Join(cwd, path)
+	}
+	return path
+}
+
+// freshPlanDest computes today's dated, repo-tagged destination for new plan content.
+func freshPlanDest(cwd, title string, content []byte) (string, bool) {
+	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(cwd), cwd))
+	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
+	return planDest(dir, time.Now().Format("2006-01-02")+"-"+title, content)
 }
 
 // planDest picks <base>.md, then <base>-2.md, …; fresh=false when a candidate already holds this exact plan.
@@ -197,9 +207,7 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 	if path == "" {
 		return ExitProceed
 	}
-	if !filepath.IsAbs(path) && in.CWD != "" {
-		path = filepath.Join(in.CWD, path)
-	}
+	path = resolveCWDPath(path, in.CWD)
 	if !isUndatedDraft(path) {
 		return ExitProceed
 	}
@@ -258,9 +266,7 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 	if path == "" {
 		return ExitProceed
 	}
-	if !filepath.IsAbs(path) && in.CWD != "" {
-		path = filepath.Join(in.CWD, path)
-	}
+	path = resolveCWDPath(path, in.CWD)
 	if !isUndatedDraft(path) {
 		return ExitProceed
 	}
@@ -271,10 +277,7 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 	base := filepath.Base(path)
 	dest, ok := readRecordedDest(base)
 	if !ok {
-		slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(in.CWD), in.CWD))
-		dir := filepath.Join(paths.ConfigDir(), "plans", slug)
-		title := planTitle(content)
-		dest, _ = planDest(dir, time.Now().Format("2006-01-02")+"-"+title, content)
+		dest, _ = freshPlanDest(in.CWD, planTitle(content), content)
 		if err := recordDest(base, dest); err != nil {
 			fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 		}
