@@ -148,7 +148,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings  ## gofmt, vet, shellcheck, yamlfmt, help width, generate --check
+lint: lint-go lint-shell lint-yaml lint-help lint-settings  ## fmt, vet, shellcheck, yamlfmt, tui width, settings
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
