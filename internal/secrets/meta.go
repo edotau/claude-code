@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -132,7 +133,7 @@ func importCredentials() (creds map[string]Meta, complete bool) {
 	complete = true
 	for n := range candidateNames(file) {
 		v, found, err := keyringLookup(n)
-		if err != nil {
+		if errors.Is(err, keyring.ErrNoAnswer) {
 			complete = false
 		}
 		if found {
