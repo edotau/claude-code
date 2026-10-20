@@ -180,18 +180,29 @@ func TestGetMiss(t *testing.T) {
 func TestLookupVaultBeforeEnvAndPreservesError(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Secret(t, "LOOKUP", "vault-value")
+	vaulttest.Secret(t, "LOOKUP_NO_ENV", "vault-value")
 	t.Setenv("LOOKUP", "env-value")
 	if value, source, err := Lookup("LOOKUP"); err != nil || value != "vault-value" || source != "vault" {
 		t.Fatalf("Lookup = (%q, %q, %v), want (vault-value, vault, nil)", value, source, err)
 	}
 
+	// A vault read error with a non-empty env var falls back to it rather than failing outright.
 	wrongVaultKey(t)
-	if value, source, err := Lookup("LOOKUP"); !errors.Is(err, vault.ErrWrongKey) || value != "" || source != "" {
-		t.Fatalf("Lookup with wrong key = (%q, %q, %v), want empty, empty, ErrWrongKey", value, source, err)
+	if value, source, err := Lookup("LOOKUP"); err != nil || value != "env-value" || source != "env" {
+		t.Fatalf("Lookup with wrong key, env set = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
 	}
-	if value, source, ok := Get("LOOKUP"); ok || value != "" || source != "" {
-		t.Fatalf("Get with wrong key = (%q, %q, %v), want empty, empty, false", value, source, ok)
+	if value, source, ok := Get("LOOKUP"); !ok || value != "env-value" || source != "env" {
+		t.Fatalf("Get with wrong key, env set = (%q, %q, %v), want (env-value, env, true)", value, source, ok)
 	}
+
+	// Same locked vault, no env var: the read error surfaces.
+	if value, source, err := Lookup("LOOKUP_NO_ENV"); !errors.Is(err, vault.ErrWrongKey) || value != "" || source != "" {
+		t.Fatalf("Lookup with wrong key, no env = (%q, %q, %v), want empty, empty, ErrWrongKey", value, source, err)
+	}
+	if value, source, ok := Get("LOOKUP_NO_ENV"); ok || value != "" || source != "" {
+		t.Fatalf("Get with wrong key, no env = (%q, %q, %v), want empty, empty, false", value, source, ok)
+	}
+
 	t.Setenv("ENV_FALLBACK", " env-value ")
 	if value, source, err := Lookup("ENV_FALLBACK"); err != nil || value != "env-value" || source != "env" {
 		t.Fatalf("Lookup absent record = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
@@ -622,5 +633,24 @@ func TestPreviewPrefixStopsAtRandomSegment(t *testing.T) {
 		if !strings.HasPrefix(got, want+"*") {
 			t.Errorf("Preview(%.20s…) = %q, want visible prefix %q then stars", in, got, want)
 		}
+	}
+}
+
+// TestLookupVaultErrorFallsBackToEnvOnlyWhenSet: a vault read error (locked key, not "missing")
+// returns a non-empty env var with source "env" and no error; with the env var unset, the same
+// locked vault surfaces the read error instead of silently reporting a miss.
+func TestLookupVaultErrorFallsBackToEnvOnlyWhenSet(t *testing.T) {
+	_, kr := vaulttest.UseKeyring(t)
+	vaulttest.Secret(t, "LOCKED_FALLBACK", "vault-value")
+	kr.Down = true
+
+	t.Setenv("LOCKED_FALLBACK", "env-value")
+	if value, source, err := Lookup("LOCKED_FALLBACK"); err != nil || value != "env-value" || source != "env" {
+		t.Fatalf("Lookup(env set) = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
+	}
+
+	t.Setenv("LOCKED_FALLBACK", "")
+	if value, source, err := Lookup("LOCKED_FALLBACK"); err == nil || value != "" || source != "" {
+		t.Fatalf("Lookup(env unset) = (%q, %q, %v), want empty, empty, a read error", value, source, err)
 	}
 }

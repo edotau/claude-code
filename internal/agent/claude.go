@@ -46,7 +46,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err := plan.WriteOverlay(); err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv)
+	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	cmd.Env = plan.Env(os.Environ())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

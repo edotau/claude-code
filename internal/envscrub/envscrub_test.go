@@ -2,6 +2,7 @@ package envscrub
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +64,36 @@ func TestKeepSetEmpty(t *testing.T) {
 	t.Setenv(KeepEnvVar, "")
 	if keep := KeepSet(nil); len(keep) != 0 {
 		t.Errorf("keep = %v, want empty", keep)
+	}
+}
+
+// ScrubVendor drops HARNESS_VAULT_KEY on top of the shared deny table; Scrub itself must keep it,
+// since the Claude Code launch (not a vendor child) still needs it to open the vault for hooks.
+func TestScrubVendorDropsVaultKeyScrubKeepsIt(t *testing.T) {
+	environ := []string{"HARNESS_VAULT_KEY=topsecret", "PATH=/bin"}
+	kept, dropped := Scrub(environ, nil)
+	if !slices.Contains(kept, "HARNESS_VAULT_KEY=topsecret") {
+		t.Errorf("Scrub kept = %q, want HARNESS_VAULT_KEY kept for the Claude Code launch", kept)
+	}
+	vkept, vdropped := ScrubVendor(environ, nil)
+	if slices.ContainsFunc(vkept, func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") }) {
+		t.Errorf("ScrubVendor kept = %q, want HARNESS_VAULT_KEY dropped from a vendor child", vkept)
+	}
+	if !slices.Contains(vdropped, "HARNESS_VAULT_KEY") {
+		t.Errorf("ScrubVendor dropped = %q, want HARNESS_VAULT_KEY named", vdropped)
+	}
+	if !slices.Contains(vkept, "PATH=/bin") {
+		t.Errorf("ScrubVendor kept = %q, want PATH kept", vkept)
+	}
+	if len(dropped) != 0 {
+		t.Errorf("Scrub dropped = %q, want nothing dropped from this environ", dropped)
+	}
+}
+
+// A keep name lets a vendor child opt HARNESS_VAULT_KEY back in explicitly (e.g. --keep-env).
+func TestScrubVendorHonoursKeep(t *testing.T) {
+	kept, dropped := ScrubVendor([]string{"HARNESS_VAULT_KEY=x"}, map[string]bool{"HARNESS_VAULT_KEY": true})
+	if !slices.Equal(kept, []string{"HARNESS_VAULT_KEY=x"}) || dropped != nil {
+		t.Errorf("kept = %q dropped = %q, want HARNESS_VAULT_KEY kept via --keep-env", kept, dropped)
 	}
 }

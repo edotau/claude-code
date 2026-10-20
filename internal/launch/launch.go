@@ -84,6 +84,7 @@ type Plan struct {
 	Set         map[string]string
 	Unset       []string
 	Keep        []string // names the credential scrub must not drop, from Options.KeepEnv
+	Vendor      bool     // true for a vendor CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
@@ -258,7 +259,7 @@ func headless(args []string) bool {
 // serve it and the caller named no provider explicitly.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	plan, err := vendorPlan(ctx, name, o, args)
-	plan.Keep = o.KeepEnv
+	plan.Keep, plan.Vendor = o.KeepEnv, true
 	return plan, err
 }
 
@@ -360,13 +361,16 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(base, customEnv())
 }
 
-// customEnv is the vault env bucket resolved (@secret refs via secrets.Lookup); an unresolved ref is warned, not set.
+// customEnv is the vault env bucket resolved (@secret refs via secrets.Lookup); an unresolved ref is warned, not
+// set — a Lookup error (e.g. a locked vault) also leaves the key out of vals, so a base env value survives.
 var customEnv = func() map[string]string {
+	errored := map[string]bool{}
 	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
 		v, _, err := secrets.Lookup(k)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code: custom env %s: %v; not set\n", k, err)
-			return "", true
+			errored[k] = true
+			return "", false
 		}
 		return v, v != ""
 	})
@@ -374,6 +378,9 @@ var customEnv = func() map[string]string {
 		fmt.Fprintf(os.Stderr, "claude-code: custom env unreadable: %v\n", err)
 	}
 	for _, k := range missing {
+		if errored[k] {
+			continue // already warned above with the real error
+		}
 		fmt.Fprintf(os.Stderr, "claude-code: custom env %s=@secret has no vault value; not set\n", k)
 	}
 	return vals
@@ -401,7 +408,11 @@ func (p Plan) envWith(base []string, custom map[string]string) []string {
 
 // plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
 func (p Plan) plainEnv(base []string) []string {
-	base, _ = envscrub.Scrub(base, envscrub.KeepSet(p.Keep))
+	if p.Vendor {
+		base, _ = envscrub.ScrubVendor(base, envscrub.KeepSet(p.Keep))
+	} else {
+		base, _ = envscrub.Scrub(base, envscrub.KeepSet(p.Keep))
+	}
 	drop := map[string]bool{}
 	for _, k := range p.Unset {
 		drop[k] = true
@@ -462,7 +473,11 @@ func (p Plan) unsetNames() []string {
 			names[k] = true
 		}
 	}
-	_, dropped := envscrub.Scrub(os.Environ(), envscrub.KeepSet(p.Keep))
+	scrub := envscrub.Scrub
+	if p.Vendor {
+		scrub = envscrub.ScrubVendor
+	}
+	_, dropped := scrub(os.Environ(), envscrub.KeepSet(p.Keep))
 	for _, k := range dropped {
 		if _, set := p.Set[k]; !set {
 			names[k] = true

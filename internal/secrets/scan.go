@@ -174,12 +174,16 @@ func (s *Scanner) ScanFile(path string) {
 func (s *Scanner) ScanVault() {
 	var found []string
 	err := vault.View(func(t *vault.Tx) error {
-		if raw, ok := t.Get(vault.Overlay, "providers"); ok {
+		for _, key := range []string{"providers", "providers.prev", "vendors"} {
+			raw, ok := t.Get(vault.Overlay, key)
+			if !ok {
+				continue
+			}
 			var doc any
 			if json.Unmarshal([]byte(raw), &doc) == nil {
 				walkJSONStrings(nil, doc, func(p []string, val string) {
 					if looksLikeSecret(val, true) {
-						found = append(found, "vault:overlay/providers → "+strings.Join(p, ".")+" holds an inline secret")
+						found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
 					}
 				})
 			}

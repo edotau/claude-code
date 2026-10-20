@@ -148,7 +148,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if v.name == "codex" {
 		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv)
+	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
 	cmd.Stderr = io.MultiWriter(tail, &banner)
 	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)

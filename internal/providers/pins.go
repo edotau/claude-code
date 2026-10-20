@@ -184,20 +184,30 @@ func EffectiveSecret(name string) (value, source string, err error) {
 	return "", "", nil
 }
 
-// HasSecret reports env or vault presence without resolving a master key.
+// HasSecret reports env or vault presence without resolving a master key; a vault read error reads as absent.
 func HasSecret(name string) string {
+	source, _ := HasSecretErr(name)
+	return source
+}
+
+// HasSecretErr is HasSecret with the vault read error surfaced, for callers (secrets status) that must
+// not mistake an unreadable vault for "no credential".
+func HasSecretErr(name string) (source string, err error) {
 	if strings.TrimSpace(os.Getenv(name)) != "" {
-		return "env"
+		return "env", nil
 	}
 	found := false
-	err := vault.View(func(tx *vault.Tx) error {
+	err = vault.View(func(tx *vault.Tx) error {
 		_, found = tx.Get(vault.Secrets, name)
 		return nil
 	})
-	if err == nil && found {
-		return "vault"
+	if err != nil {
+		return "", err
 	}
-	return ""
+	if found {
+		return "vault", nil
+	}
+	return "", nil
 }
 
 // pinCaller names who wrote a pin — the verb and the parent process — so an unexpected switch can be traced.

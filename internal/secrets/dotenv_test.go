@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -162,4 +164,121 @@ func must(b []byte, err error) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// captureStderr redirects os.Stderr to a pipe for the duration of fn and returns what it wrote.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	fn()
+	os.Stderr = old
+	w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+// AppendDotenv must quote any value ParseDotenv would otherwise mis-parse, and ParseDotenv must
+// recover the exact original value back out — including a value that is itself quote-bounded.
+func TestAppendDotenvParseDotenvRoundTripsTrickyValues(t *testing.T) {
+	tricky := []Pair{
+		{"SPACE", "has a space"},
+		{"HASH", "trailing # not a comment"},
+		{"DOLLAR", "price is $5"},
+		{"SINGLE", "it's mine"},
+		{"DOUBLE", `say "hi"`},
+		// These two need the quoting: left raw, ParseDotenv's unconditional "strip one matching
+		// outer quote pair" would eat the value's own quotes, and TrimSpace would eat its padding.
+		{"ALREADY_SINGLE_BOUNDED", "'quoted value'"},
+		{"ALREADY_DOUBLE_BOUNDED", `"quoted value"`},
+		{"LEADING_SPACE", " leading space"},
+		{"TRAILING_SPACE", "trailing space "},
+	}
+	path := filepath.Join(t.TempDir(), ".env")
+	n, skipped, err := AppendDotenv(path, tricky)
+	if err != nil || n != len(tricky) || len(skipped) != 0 {
+		t.Fatalf("AppendDotenv = %d, %v, %v", n, skipped, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs, problems := ParseDotenv(strings.NewReader(string(raw)))
+	if len(problems) != 0 {
+		t.Fatalf("ParseDotenv problems = %v on:\n%s", problems, raw)
+	}
+	if !slices.Equal(pairs, tricky) {
+		t.Fatalf("round-trip = %v, want %v\nfile:\n%s", pairs, tricky, raw)
+	}
+}
+
+// AppendDotenv must refuse to write through a symlink rather than follow it to an arbitrary target.
+func TestAppendDotenvRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real.env")
+	if err := os.WriteFile(target, []byte("EXISTING=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".env")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := AppendDotenv(link, []Pair{{"A", "1"}}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("AppendDotenv through a symlink = %v, want a symlink refusal", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "EXISTING=1\n" {
+		t.Fatalf("AppendDotenv wrote through the symlink: %q", got)
+	}
+}
+
+// AppendDotenv warns on stderr when it writes the default ./.env in a git work tree that does not
+// gitignore it; a non-default path, or one already ignored, must stay silent.
+func TestAppendDotenvWarnsWhenDefaultEnvNotGitignored(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/git"); err != nil {
+		if _, err := os.Stat("/opt/homebrew/bin/git"); err != nil {
+			t.Skip("git not found")
+		}
+	}
+	repo := t.TempDir()
+	t.Chdir(repo)
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("init", "-q")
+
+	out := captureStderr(t, func() {
+		if _, _, err := AppendDotenv(".env", []Pair{{"A", "1"}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, ".env") || !strings.Contains(out, "gitignore") {
+		t.Fatalf("stderr = %q, want a gitignore warning naming .env", out)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out = captureStderr(t, func() {
+		if _, _, err := AppendDotenv(".env", []Pair{{"B", "2"}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out != "" {
+		t.Fatalf("stderr = %q, want silence once .env is gitignored", out)
+	}
 }

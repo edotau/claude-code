@@ -231,12 +231,17 @@ func attachInline(prompt string, paths []string) (string, error) {
 }
 
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
-// is scrubbed of inherited credentials before env (the launch's own additions) is layered on.
-func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string) (*exec.Cmd, *TailBuffer) {
+// is scrubbed of inherited credentials before env (the launch's own additions) is layered on. vendor
+// also scrubs HARNESS_VAULT_KEY: true for every vendor CLI child, false for the claude runner's own child.
+func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, vendor bool) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	base, _ := envscrub.Scrub(os.Environ(), envscrub.KeepSet(keepEnv))
+	scrub := envscrub.Scrub
+	if vendor {
+		scrub = envscrub.ScrubVendor
+	}
+	base, _ := scrub(os.Environ(), envscrub.KeepSet(keepEnv))
 	cmd.Env = append(base, env...) // later duplicates win
 	cmd.Dir = dir
 	if dir != "" {
