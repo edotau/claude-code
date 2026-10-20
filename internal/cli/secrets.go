@@ -175,7 +175,7 @@ func cmdSecretsSet(args []string) int {
 	return 0
 }
 
-// cmdSecretsDelete removes NAME from every managed plane (keyring, secrets.env, names index).
+// cmdSecretsDelete removes NAME from every managed plane (keyring, secrets.env, metadata).
 func cmdSecretsDelete(args []string) int {
 	if len(args) != 1 || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(os.Stderr, "usage: claude-code secrets delete <NAME>")

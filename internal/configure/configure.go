@@ -432,7 +432,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	allOK = true
 	for _, kt := range targets {
 		if kt.present {
-			status, detail := probe(kt)
+			status, detail, age := probeCached(kt)
 			if status == "rejected" {
 				d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
 				if d.o.Interactive && !d.o.Check {
@@ -445,7 +445,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 				continue
 			}
 			if status != "" && status != "login" {
-				d.printf("%-10s present (%s; %s)\n", kt.label, kt.source, status)
+				d.printf("%-10s present (%s; %s%s)\n", kt.label, kt.source, status, ageSuffix(age))
 			} else {
 				d.printf("%-10s present (%s)\n", kt.label, kt.source)
 			}
@@ -478,6 +478,63 @@ func probe(kt keyTarget) (status, detail string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	return providers.ProbeCredential(ctx, kt.provider)
+}
+
+// probeTTL is how long a verified/rejected probe result is trusted before re-probing; "unreachable"
+// is never cached — a transient network blip shouldn't stick for 6 hours.
+const probeTTL = 6 * time.Hour
+
+// probeCached is probe with a TTL cache keyed off the credential's own metadata: a stored value
+// (keyring or file) with a fresh verified/rejected result skips the live probe entirely, returning
+// its age for display. An env-sourced value, or one with no cached row, always probes live (age 0);
+// a fresh probe result is recorded back to metadata so the next render can serve it from cache.
+func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
+	if kt.provider == nil || kt.provider.Auth.Env == "" {
+		status, detail = probe(kt)
+		return status, detail, 0
+	}
+	env := kt.provider.Auth.Env
+	meta, src := probeSource(env)
+	if src != "keyring" && src != "file" {
+		status, detail = probe(kt)
+		return status, detail, 0
+	}
+	if cached, cachedAge, ok := secrets.CachedProbe(meta[env], probeTTL, time.Now()); ok {
+		return cached, "", cachedAge
+	}
+	status, detail = probe(kt)
+	if status == "verified" || status == "rejected" || status == "unreachable" {
+		secrets.RecordProbe(env, status, time.Now())
+	}
+	return status, detail, 0
+}
+
+// probeSource resolves env's current plane the same way a launch would. meta is nil when the meta
+// file is unreadable (a zero Meta then reads back from it, same as "no cached row").
+func probeSource(env string) (meta map[string]secrets.Meta, src string) {
+	meta, err := secrets.LoadMeta()
+	if err != nil {
+		_, src, _, _ = secrets.Effective(env) // meta unreadable: fall back to the live-lookup ladder
+		return nil, src
+	}
+	file := secrets.ReadAll()
+	src, _ = secrets.Locate(env, meta, file)
+	if src == "file" && len(file[env]) != meta[env].Len {
+		return nil, src // hand-edited outside the harness: its cached probe no longer describes this value
+	}
+	return meta, src
+}
+
+// ageSuffix renders a cached result's age (" 2h ago"), or "" when age is zero (a live probe).
+func ageSuffix(age time.Duration) string {
+	switch {
+	case age <= 0:
+		return ""
+	case age < time.Hour:
+		return fmt.Sprintf(" %dm ago", int(age/time.Minute))
+	default:
+		return fmt.Sprintf(" %dh ago", int(age/time.Hour))
+	}
 }
 
 // afterUsing extracts the fallback description from a ResolveTarget note ("…; using <this>").
