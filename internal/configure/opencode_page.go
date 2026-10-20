@@ -22,7 +22,7 @@ var (
 	opencodeList           = tui.List
 	runAttached            = tui.RunAttached
 	confirmKey             = tui.ConfirmKey
-	lookOpencode           = paths.LookPathReal
+	lookOpencode           = paths.VendorBin
 )
 
 // opencodeNames maps well-known opencode integration IDs to display names; others use the integration's Name.
@@ -223,10 +223,10 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 	}
 }
 
-// ocAddAccount delegates sign-in to the real opencode (never the harness shim) and reports the new account count.
+// ocAddAccount delegates sign-in to bin/opencode and reports the new account count.
 func ocAddAccount(d *dialog) {
 	bin, err := lookOpencode("opencode")
-	if err != nil { // a bare "opencode" could only resolve to the shim, which would loop back into claude-code
+	if err != nil {
 		d.printf("opencode: %v\n", err)
 		return
 	}
