@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,31 @@ func TestParseOpenCodeStreamError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "models/x is not found") || res.SessionID != "ses_B" {
 		t.Fatalf("err = %v, res = %+v", err, res)
 	}
+}
+
+func TestParseOpenCodeStreamMultipleTexts(t *testing.T) {
+	stream := `{"type":"text","sessionID":"ses_A","part":{"text":"one"}}
+	{"type":"text","sessionID":"ses_A","part":{"text":""}}
+	{"type":"text","sessionID":"ses_A","part":{"text":"two"}}
+	{"type":"text","sessionID":"ses_A","part":{"text":"three"}}`
+	t.Run("success", func(t *testing.T) {
+		var out strings.Builder
+		res, err := parseOpenCodeStream(strings.NewReader(stream), &out)
+		if err != nil || res.Answer != "one\ntwo\nthree" || out.String() != res.Answer {
+			t.Fatalf("res = %+v, output = %q, err = %v", res, out.String(), err)
+		}
+	})
+	t.Run("newline error", func(t *testing.T) {
+		injected := errors.New("newline rejected")
+		w := &newlineRejectWriter{err: injected}
+		_, err := parseOpenCodeStream(strings.NewReader(stream), w)
+		if !errors.Is(err, injected) {
+			t.Fatalf("err = %v, want injected newline error", err)
+		}
+		if len(w.writes) != 2 || w.writes[0] != "one" || w.writes[1] != "\n" {
+			t.Fatalf("writes = %q, want only first text and rejected newline", w.writes)
+		}
+	})
 }
 
 // Captured live from `agy --output-format stream-json` 1.4.2 on this box.

@@ -27,7 +27,7 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ctx, err := CollectContext(dir, []string{"."}, nil, 40, 100)
+		ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
 		done <- struct {
 			ctx Context
 			err error

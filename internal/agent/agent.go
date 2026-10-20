@@ -365,7 +365,7 @@ func legUnavailable(r Runner, res Result, err error) bool {
 		return false
 	}
 	var e *Error
-	return !(errors.As(err, &e) && e.Progressed)
+	return !errors.As(err, &e) || !e.Progressed
 }
 
 // explicitNonClaude is true when --provider, or a "provider:model" --model, names a provider outright;

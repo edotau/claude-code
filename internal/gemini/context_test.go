@@ -55,7 +55,7 @@ func TestCollectContext(t *testing.T) {
 	w("bin.bin", "\x00\x01binary")
 	w("big.txt", strings.Repeat("x", 100))
 
-	ctx, err := CollectContext(dir, []string{"."}, nil, 40, 10)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestCollectContextMaxFiles(t *testing.T) {
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, n), "x")
 	}
-	ctx, err := CollectContext(dir, []string{"."}, nil, 2, 100)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 2, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestCollectContextGlobError(t *testing.T) {
 	write(t, filepath.Join(dir, "a.txt"), "x")
 
 	// "[" is an unterminated character class: filepath.Glob returns ErrBadPattern for it.
-	ctx, err := CollectContext(dir, nil, []string{"["}, 40, 100)
+	ctx, err := CollectContext(t.Context(), dir, nil, []string{"["}, 40, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestCollectContextWalkError(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(sub, 0o755) }) // let t.TempDir() clean up
 
-	ctx, err := CollectContext(dir, []string{"."}, nil, 40, 100)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestCollectContextSkipsSecretLike(t *testing.T) {
 	w("env.d/x.env", "x")
 	w("state/y.txt", "y")
 
-	ctx, err := CollectContext(dir, []string{"."}, nil, 40, 100)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestCollectContextHonoursGitIgnore(t *testing.T) {
 		}
 	}
 
-	ctx, err := CollectContext(dir, []string{"."}, nil, 40, 100)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestCollectContextAbsDir(t *testing.T) {
 	write(t, filepath.Join(target, "a.go"), "package a")
 
 	other := t.TempDir()
-	ctx, err := CollectContext(other, []string{target}, nil, 40, 100)
+	ctx, err := CollectContext(t.Context(), other, []string{target}, nil, 40, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestCollectContextBoundedRead(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", 1<<20))
 
-	ctx, err := CollectContext(dir, []string{"."}, nil, 40, 1024)
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,8 +292,11 @@ func TestCollectContextBoundedRead(t *testing.T) {
 // TestBuildPrompt: template contains inventory, file blocks, task, and constraints.
 func TestBuildPrompt(t *testing.T) {
 	ctx := Context{
-		Included: []IncludedFile{{Path: "a.go", MediaType: "text/plain", Bytes: 8, Truncated: false, Content: "package a"}},
-		Skipped:  []SkippedFile{{Path: "x.png", Reason: "unsupported-extension"}},
+		Included: []IncludedFile{
+			{Path: "a.go", MediaType: "text/plain", Bytes: 8, Truncated: false, Content: "package a"},
+			{Path: "big.txt", MediaType: "text/plain", Bytes: 100, Truncated: true, Content: "partial"},
+		},
+		Skipped: []SkippedFile{{Path: "x.png", Reason: "unsupported-extension"}},
 	}
 	got := BuildPrompt("do a thing", ctx)
 	for _, want := range []string{
@@ -302,6 +305,8 @@ func TestBuildPrompt(t *testing.T) {
 		"Skipped files:",
 		"- x.png (unsupported-extension)",
 		`<file path="a.go" media_type="text/plain" truncated="false">package a</file>`,
+		"- big.txt | text/plain | 100 bytes | truncated=true",
+		`<file path="big.txt" media_type="text/plain" truncated="true">partial</file>`,
 		"<task>\ndo a thing\n</task>",
 		"Do not invent files",
 	} {

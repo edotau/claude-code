@@ -5,6 +5,7 @@ package dispatch
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
@@ -50,7 +51,7 @@ func randID() string {
 	if _, err := rand.Read(b[:]); err != nil {
 		return "0000"
 	}
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b[:])
 }
 
 // Opts configures one dispatch's remote command.

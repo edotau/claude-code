@@ -158,6 +158,8 @@ func TestLegUnavailable(t *testing.T) {
 		{"canceled", &fakeRunner{name: "codex"}, Request{}, Result{}, canceled, false},
 		{"prompt too large", &fakeRunner{name: "codex"}, Request{}, Result{}, tooLarge, false},
 		{"progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, progressed, false},
+		{"wrapped progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, fmt.Errorf("runner: %w", progressed), false},
+		{"not progressed", &fakeRunner{name: "codex"}, Request{}, Result{}, &Error{Kind: KindFatal, Err: genericErr}, true},
 		{"binary missing", &fakeRunner{name: "codex"}, Request{}, Result{}, genericErr, true},
 		{"claude model slot stays eligible", &fakeRunner{name: "codex"}, Request{Model: "opus"}, Result{}, genericErr, true},
 	}
