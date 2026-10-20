@@ -4,23 +4,19 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/keyring"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Doctor runs the offline coherence checks: vault perms, whether the master key opens the stored
-// secrets, key names against the provider registry, legacy env.d files, and the keyring tool.
-// Never prints a value.
+// Doctor checks vault permissions, master and retired keys, and credential names without printing values.
 func Doctor(out io.Writer, reg *providers.Registry) int {
 	fmt.Fprintln(out, "== secrets doctor ==")
 	fail := false
 	fail = checkVaultPerms(out) || fail
 	fail = checkMasterKey(out) || fail
-	checkLegacy(out)        // informational only
+	checkRetiredKeys(out)   // advisory only
 	checkKeyNames(out, reg) // advisory only, never fails the gate
 	checkKeyringTool(out)   // informational only
 
@@ -67,12 +63,27 @@ func checkMasterKey(out io.Writer) bool {
 	return false
 }
 
-// checkLegacy notes pre-vault secret files that `config migrate` would import.
-func checkLegacy(out io.Writer) {
-	for _, name := range []string{"secrets.env", "secrets.meta.json"} {
-		p := filepath.Join(paths.EnvDir(), name)
-		if _, err := os.Stat(p); err == nil {
-			fmt.Fprintf(out, "  ℹ legacy %s found; `claude-code config migrate` imports it\n", p)
+// checkRetiredKeys reports whether archive keys remain available in the keyring.
+func checkRetiredKeys(out io.Writer) {
+	var id string
+	var kids []string
+	if err := vault.View(func(t *vault.Tx) error {
+		id, _ = t.Get(vault.Meta, "vault_id")
+		kids = vault.Retired(t)
+		return nil
+	}); err != nil {
+		fmt.Fprintf(out, "  ⚠ retired keys: %v\n", err)
+		return
+	}
+	for _, kid := range kids {
+		_, found, err := keyring.Lookup("vault-key/" + id + "." + kid)
+		switch {
+		case err != nil:
+			fmt.Fprintf(out, "  ⚠ retired key %s: %v\n", kid, err)
+		case found:
+			fmt.Fprintf(out, "  ✓ retired key %s retained\n", kid)
+		default:
+			fmt.Fprintf(out, "  ⚠ retired key %s missing from the keyring\n", kid)
 		}
 	}
 }

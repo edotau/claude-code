@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 
@@ -373,6 +374,17 @@ func RotateKey() (oldKid, newKid string, err error) {
 				if e := t.PutRecord(name, r); e != nil {
 					return e
 				}
+			}
+			retired := Retired(t)
+			if !slices.Contains(retired, old.Kid) {
+				retired = append(retired, old.Kid)
+			}
+			data, err := json.Marshal(retired)
+			if err != nil {
+				return err
+			}
+			if err := t.Put(Meta, "retired", string(data)); err != nil {
+				return err
 			}
 			return t.Put(Meta, "kid", next.Kid)
 		}); e != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestDoctorMissingVaultAndLegacyFiles(t *testing.T) {
+func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 	dir := vaulttest.Use(t)
 	noKeyring(t)
 	legacy := filepath.Join(dir, "env.d")
@@ -30,8 +31,6 @@ func TestDoctorMissingVaultAndLegacyFiles(t *testing.T) {
 	}
 	for _, want := range []string{
 		"no vault yet (nothing to check)",
-		"legacy " + filepath.Join(legacy, "secrets.env") + " found; `claude-code config migrate` imports it",
-		"legacy " + filepath.Join(legacy, "secrets.meta.json") + " found; `claude-code config migrate` imports it",
 		"no keyring tool on PATH",
 		"set HARNESS_VAULT_KEY or the vault key_command",
 		"secrets doctor: clean.",
@@ -40,7 +39,7 @@ func TestDoctorMissingVaultAndLegacyFiles(t *testing.T) {
 			t.Errorf("Doctor missing %q: %s", want, out.String())
 		}
 	}
-	if strings.Contains(out.String(), "legacy-content-not-to-print") {
+	if strings.Contains(out.String(), "legacy ") || strings.Contains(out.String(), "legacy-content-not-to-print") {
 		t.Fatal("Doctor printed legacy file contents")
 	}
 	if _, err := os.Stat(vault.Path()); !os.IsNotExist(err) {
@@ -104,5 +103,53 @@ func TestDoctorLockedVault(t *testing.T) {
 				t.Fatal("Doctor printed a secret")
 			}
 		})
+	}
+}
+
+func TestDoctorRetiredKeys(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("fake keyring needs a POSIX shell")
+	}
+	vaulttest.UseKeyring(t)
+	if _, err := vault.EnsureKey(); err != nil {
+		t.Fatal(err)
+	}
+	kid, _, err := vault.RotateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := vault.View(func(tx *vault.Tx) error {
+		id, _ = tx.Get(vault.Meta, "vault_id")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	tool := "secret-tool"
+	miss := "1"
+	if runtime.GOOS == "darwin" {
+		tool, miss = "security", "44"
+	}
+	script := "#!/bin/sh\ncase \"$*\" in *\"$EXPECTED_ACCOUNT\"*) ;; *) echo wrong-account >&2; exit 2;; esac\n" +
+		"case \"$RETIRED_MODE\" in retained) echo fake-key;; missing) exit " + miss + ";; error) echo lookup-failed >&2; exit 2;; esac\n"
+	if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("EXPECTED_ACCOUNT", "vault-key/"+id+"."+kid)
+	for _, tc := range []struct{ mode, want string }{
+		{"retained", "✓ retired key " + kid + " retained"},
+		{"missing", "⚠ retired key " + kid + " missing from the keyring"},
+		{"error", "⚠ retired key " + kid + ": keyring: unavailable: lookup-failed"},
+	} {
+		t.Setenv("RETIRED_MODE", tc.mode)
+		var out bytes.Buffer
+		if rc := Doctor(&out, &providers.Registry{}); rc != ExitClean {
+			t.Fatalf("Doctor = %d: %s", rc, &out)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("missing %q: %s", tc.want, &out)
+		}
 	}
 }
