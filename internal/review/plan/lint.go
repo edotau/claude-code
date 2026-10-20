@@ -129,35 +129,41 @@ func badPinValues(name, src string) []string {
 		}
 		s := stripStrings(window)
 		for _, key := range pinKeys {
-			needle := key + ":"
-			for idx := 0; ; {
-				j := strings.Index(s[idx:], needle)
-				if j < 0 {
-					break
-				}
-				pos := idx + j
-				idx = pos + len(needle)
-				if pos > 0 && isIdentByte(s[pos-1]) {
-					continue
-				}
-				valStart := pos + len(needle)
-				valEnd := len(s)
-				if k := strings.IndexAny(s[valStart:], ",}\n"); k >= 0 {
-					valEnd = valStart + k
-				}
-				for _, m := range quotedLit.FindAllStringSubmatch(window[valStart:valEnd], -1) {
-					v := m[1]
-					if v == "" {
-						v = m[2]
-					}
-					if !pinAllowed[key][v] {
-						out = append(out, fmt.Sprintf("%s:%d: agent() %s value %q is not one of %s"+
-							" — an unknown value silently falls back to the session", name, line, key, v, allowedList(key)))
-					}
-				}
-			}
+			out = append(out, badPinValuesForKey(name, line, window, s, key)...)
 		}
 	})
+	return out
+}
+
+func badPinValuesForKey(name string, line int, window, masked, key string) []string {
+	var out []string
+	needle := key + ":"
+	for idx := 0; ; {
+		j := strings.Index(masked[idx:], needle)
+		if j < 0 {
+			break
+		}
+		pos := idx + j
+		idx = pos + len(needle)
+		if pos > 0 && isIdentByte(masked[pos-1]) {
+			continue
+		}
+		valStart := pos + len(needle)
+		valEnd := len(masked)
+		if k := strings.IndexAny(masked[valStart:], ",}\n"); k >= 0 {
+			valEnd = valStart + k
+		}
+		for _, m := range quotedLit.FindAllStringSubmatch(window[valStart:valEnd], -1) {
+			v := m[1]
+			if v == "" {
+				v = m[2]
+			}
+			if !pinAllowed[key][v] {
+				out = append(out, fmt.Sprintf("%s:%d: agent() %s value %q is not one of %s"+
+					" — an unknown value silently falls back to the session", name, line, key, v, allowedList(key)))
+			}
+		}
+	}
 	return out
 }
 
@@ -279,36 +285,46 @@ func stripStrings(src string) string {
 		c := b[i]
 		// A comment's apostrophe ("don't") must not open a string and blank the real pin after it.
 		if c == '/' && i+1 < len(b) && (b[i+1] == '/' || b[i+1] == '*') {
-			end := "\n"
-			if b[i+1] == '*' {
-				end = "*/"
-			}
-			j := strings.Index(string(b[i+2:]), end)
-			if j < 0 {
-				j = len(b) - i - 2
-			}
-			for k := i; k < i+2+j && k < len(b); k++ {
-				if b[k] != '\n' { // keep line structure so callers can still count lines
-					b[k] = ' '
-				}
-			}
-			i += 1 + j
+			i = maskComment(b, i)
 			continue
 		}
 		if c != '\'' && c != '"' && c != '`' {
 			continue
 		}
-		for i++; i < len(b) && b[i] != c; i++ {
-			if b[i] == '\\' {
-				i++
-				continue
-			}
-			if b[i] != '\n' {
-				b[i] = ' '
-			}
-		}
+		i = maskQuotedContent(b, i)
 	}
 	return string(b)
+}
+
+func maskComment(b []byte, i int) int {
+	end := "\n"
+	if b[i+1] == '*' {
+		end = "*/"
+	}
+	j := strings.Index(string(b[i+2:]), end)
+	if j < 0 {
+		j = len(b) - i - 2
+	}
+	for k := i; k < i+2+j && k < len(b); k++ {
+		if b[k] != '\n' { // keep line structure so callers can still count lines
+			b[k] = ' '
+		}
+	}
+	return i + 1 + j
+}
+
+func maskQuotedContent(b []byte, i int) int {
+	c := b[i]
+	for i++; i < len(b) && b[i] != c; i++ {
+		if b[i] == '\\' {
+			i++
+			continue
+		}
+		if b[i] != '\n' {
+			b[i] = ' '
+		}
+	}
+	return i
 }
 
 // argSpan is one top-level call argument, as a [start,end) byte range relative to the args substring.
