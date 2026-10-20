@@ -29,17 +29,36 @@ func TestCopilotKeyRowLabelShowsTokenState(t *testing.T) {
 func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
 	menuTestEnv(t)
 	var out bytes.Buffer
-	in := strings.NewReader("pasted-gh-token\n")
+	const pasted = "gh" + "p_pastedFAKEtoken1234567890" // valid shape: ValidCopilotToken requires a gh prefix, >=20 chars
+	in := strings.NewReader(pasted + "\n")
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
 	if !copilotKeyRow(d).run() {
 		t.Fatalf("copilotKeyRow(d).run() = false:\n%s", out.String())
 	}
 	v, src, ok := secrets.Get("COPILOT_GITHUB_TOKEN")
-	if !ok || v != "pasted-gh-token" {
-		t.Fatalf("COPILOT_GITHUB_TOKEN = (%q, %q, %v), want pasted-gh-token stored", v, src, ok)
+	if !ok || v != pasted {
+		t.Fatalf("COPILOT_GITHUB_TOKEN = (%q, %q, %v), want %s stored", v, src, ok, pasted)
 	}
 	if strings.Contains(out.String(), "anthropic") {
 		t.Errorf("absent-token paste must never mention the anthropic console:\n%s", out.String())
+	}
+}
+
+// A paste that does not look like a real GitHub token is refused: the row reports failure and
+// nothing is written to the vault.
+func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
+	menuTestEnv(t)
+	var out bytes.Buffer
+	in := strings.NewReader("ok\n")
+	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
+	if copilotKeyRow(d).run() {
+		t.Fatalf("copilotKeyRow(d).run() = true for a short paste, want refused:\n%s", out.String())
+	}
+	if _, _, ok := secrets.Get("COPILOT_GITHUB_TOKEN"); ok {
+		t.Fatal("a refused paste must not store anything")
+	}
+	if !strings.Contains(out.String(), "not a GitHub token") {
+		t.Errorf("output = %q, want the not-a-GitHub-token refusal", out.String())
 	}
 }
 

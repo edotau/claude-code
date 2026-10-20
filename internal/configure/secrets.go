@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // envName is a valid secret name: an env var identifier.
@@ -221,6 +222,10 @@ func ParseAssignment(raw string) (name, value string) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
+	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(val) {
+		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
+		return false
+	}
 	if d.pending != nil {
 		if !d.stage(name, val) {
 			return false
