@@ -154,7 +154,7 @@ func mergePermissions(base, overlay json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("permissions.%s is not a string list", k)
 		}
 		for _, r := range add {
-			if !contains(have, r) {
+			if !slices.Contains(have, r) {
 				have = append(have, r)
 			}
 		}
@@ -283,8 +283,4 @@ func orEmpty(raw json.RawMessage) json.RawMessage {
 		return json.RawMessage("{}")
 	}
 	return raw
-}
-
-func contains(list []string, s string) bool {
-	return slices.Contains(list, s)
 }
