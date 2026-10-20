@@ -35,9 +35,9 @@ type OpencodeIntegration struct {
 	Conns    []OpencodeConn
 }
 
-// opencodeOutput is the exec seam for the real opencode CLI (stdout only; never the harness shim); tests replace it.
+// opencodeOutput is the exec seam for the installed opencode CLI (stdout only); tests replace it.
 var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
-	bin, err := paths.LookPathReal("opencode")
+	bin, err := paths.VendorBin("opencode")
 	if err != nil {
 		return nil, err
 	}
@@ -59,9 +59,9 @@ var (
 
 var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+`)
 
-// opencodeBinKey identifies the opencode binary on PATH (path+size+mtime), so a PATH change or upgrade re-probes.
+// opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
-	p, err := paths.LookPathReal("opencode")
+	p, err := paths.VendorBin("opencode")
 	if err != nil {
 		return ""
 	}
@@ -310,9 +310,9 @@ func OpencodeSwitchArgv(id, credID string) []string {
 	return nil
 }
 
-// opencodeBin is the real opencode path (never the harness shim), else plain "opencode".
+// opencodeBin is the installed opencode path, else plain "opencode".
 func opencodeBin() string {
-	if p, err := paths.LookPathReal("opencode"); err == nil {
+	if p, err := paths.VendorBin("opencode"); err == nil {
 		return p
 	}
 	return "opencode"
