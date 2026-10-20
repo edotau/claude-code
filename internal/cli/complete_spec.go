@@ -3,6 +3,7 @@ package cli
 import (
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -34,6 +35,8 @@ func buildSpecTree() map[string]*compNode {
 		valuedFlag("agent", agentNames), valuedFlag("provider", providerNames), flag("model"),
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
+		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
+		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
 	}
 
 	tree := map[string]*compNode{

@@ -279,3 +279,26 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 		t.Errorf("worktree merge flags = %v, want %v (cmdWorktreeMerge's own flag.NewFlagSet)", got, want)
 	}
 }
+
+// TestAskFlagsMatchItsOwnFlagSet pins ask's completable flags against the literal flag.NewFlagSet
+// calls in cmdAsk (internal/cli/agent.go) — askFlags had silently fallen behind by five flags
+// (fallback, attach, keep-env, autonomous, enable-memory) before this test existed.
+func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
+	node := specTree()["ask"]
+	if node == nil {
+		t.Fatal(`specTree()["ask"] is nil`)
+	}
+	var got []string
+	for _, f := range node.flags {
+		got = append(got, f.name)
+	}
+	slices.Sort(got)
+	want := []string{
+		"agent", "attach", "autonomous", "effort", "enable-memory", "fallback", "format", "keep-env",
+		"log", "model", "native", "provider", "retry", "rubric", "session", "timeout", "tools", "workdir",
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("ask flags = %v, want %v (cmdAsk's own flag.NewFlagSet)", got, want)
+	}
+}
