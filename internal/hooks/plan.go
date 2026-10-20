@@ -45,6 +45,7 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 		return ExitProceed
 	}
 	title := planTitle(plan) // from the approved text, before the checklist adds its own heading
+	approvedText := plan     // snapshot before withTasks, to compare against the draft's current bytes below
 	plan = withTasks(plan)
 
 	draftPath := resolveCWDPath(cmp.Or(responsePath, inputPath), in.CWD)
@@ -74,12 +75,23 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 	}
 	audit.Log(audit.PlanSaved, "save-plan", dest)
 	if draftPath != "" && isUndatedDraft(draftPath) {
-		if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
+		// Only delete the draft when its current bytes still match what was approved — an edit made to the
+		// draft after approval (e.g. by a concurrent agent) must be kept, not silently discarded.
+		switch current, err := os.ReadFile(draftPath); {
+		case os.IsNotExist(err):
+			// already gone; nothing to clean up
+		case err != nil:
 			fmt.Fprintf(stderr, "save-plan: %v\n", err)
-			return ExitProceed
-		}
-		if err := removeRecordedDest(filepath.Base(draftPath)); err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(stderr, "save-plan: %v\n", err)
+		case !bytes.Equal(current, approvedText):
+			fmt.Fprintf(stderr, "save-plan: draft %s was edited after approval; keeping it\n", draftPath)
+		default:
+			if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(stderr, "save-plan: %v\n", err)
+				return ExitProceed
+			}
+			if err := removeRecordedDest(filepath.Base(draftPath)); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(stderr, "save-plan: %v\n", err)
+			}
 		}
 	}
 	return ExitProceed
@@ -113,6 +125,25 @@ func freshPlanDest(cwd, title string, content []byte) (string, bool) {
 	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(cwd), cwd))
 	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
 	return planDest(dir, time.Now().Format("2006-01-02")+"-"+title, content)
+}
+
+// mirrorPlanDest picks <date>-<title>.md, then -2.md, … for a mirror's FIRST write to a draft: unlike
+// planDest it never adopts an existing file as this draft's dest, even one holding byte-identical content —
+// a dest the mirror did not itself create would have a later edit silently overwrite someone else's file.
+func mirrorPlanDest(cwd, title string) string {
+	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(cwd), cwd))
+	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
+	base := time.Now().Format("2006-01-02") + "-" + title
+	for n := 1; ; n++ {
+		name := base + ".md"
+		if n > 1 {
+			name = fmt.Sprintf("%s-%d.md", base, n)
+		}
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err != nil {
+			return p
+		}
+	}
 }
 
 // planDest picks <base>.md, then <base>-2.md, …; fresh=false when a candidate already holds this exact plan.
@@ -192,12 +223,9 @@ func isUndatedDraft(abs string) bool {
 // planTemplateHeadings are the sections agents/Plan.md's template requires before a draft is treated as a plan.
 var planTemplateHeadings = []string{"# Plan:", "## Context", "## Phases", "## Tasks"}
 
-// PlanTemplate is a PreToolUse(Write) gate: the FIRST write to an undated draft under <config>/plans/ must
-// already carry the plan template's required headings, or it is denied (deny-one-call, like docs-placement).
-func PlanTemplate(r io.Reader, stderr io.Writer) int {
-	return checkPlanTemplate(ParseInput(r), stderr)
-}
-
+// checkPlanTemplate is a PreToolUse(Write) check, folded into DocsPlacement: the FIRST write to an undated
+// draft under <config>/plans/ must already carry the plan template's required headings, or it is denied
+// (deny-one-call, like the rest of docs-placement).
 func checkPlanTemplate(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "create" {
@@ -277,7 +305,7 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 	base := filepath.Base(path)
 	dest, ok := readRecordedDest(base)
 	if !ok {
-		dest, _ = freshPlanDest(in.CWD, planTitle(content), content)
+		dest = mirrorPlanDest(in.CWD, planTitle(content))
 		if err := recordDest(base, dest); err != nil {
 			fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 		}
