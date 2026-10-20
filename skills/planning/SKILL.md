@@ -10,71 +10,15 @@ metadata:
 
 Three modes: writing implementation plans, generating construction blueprints, and executing plans.
 
-Invoke this skill (`/planning`) for Mode 1, add `--blueprint <task>` for Mode 2, `--execute <path>` for Mode 3. Plan mode or a `Plan` subagent is the default executor for Mode 1 and follows the rules below.
+Invoke this skill (`/planning`) for Mode 1, add `--blueprint <task>` for Mode 2, `--execute <path>` for Mode 3. Plan mode or a `Plan` subagent (`agents/Plan.md`) is the executor for Mode 1.
 
 ## Mode 1: Write Implementation Plans
 
-### Every plan ends with `## Tasks`
-
-Start from [references/plan-template.md](references/plan-template.md). The last section is a `- [ ]` checklist, one
-line per phase/step plus the closeout items; tick `- [x] … (<commit>)` as each lands and keep it current, so a lost
-session, agent or worktree resumes from the list. The `save-plan` hook appends one (built from Phase/Step/Part
-headings) to an approved plan that has none.
-
-### Task Breakdown Rules
-
-Every task in a plan must be:
-- **Bite-sized**: 2-5 minutes of work per step
-- **Verifiable**: Has a RED (failing test) and GREEN (passing) checkpoint
-- **Self-contained**: Can be understood without reading other tasks
-- **No placeholders**: Every step specifies exactly what to do — no "implement as needed"
-
-### Plan Structure
-
-```markdown
-# Plan: <Feature Name>
-
-## Context
-<Why this exists, what problem it solves>
-
-## Tasks
-
-### Task 1: <Verb> <Object>
-**Files**: `path/to/file.py` (lines X-Y)
-**RED**: Write test that <expected behavior>. Run: `.venv/bin/pytest tests/test_foo.py::test_bar -x -v -n0`. Expect FAIL.
-**GREEN**: Implement <specific change>. Run same test. Expect PASS.
-**Verify**: `make lint && make test-unit`
-
-### Task 2: <Verb> <Object>
-...
-```
-
-Plans live in `~/.claude/plans/` only (untracked): approving one in plan mode makes the `save-plan` hook file it as `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) or `~/.claude/plans/<repo-slug>/YYYY-MM-DD-<slug>.md` (any other repo) — never a repo root or a repo's own `.claude/`. `/workflow:orchestrate` stage handoffs sit beside them as `~/.claude/plans/stages/YYYY-MM-DD-<task-id>.md`. Every plan-family file starts with its `YYYY-MM-DD-` creation date, so `ls` sorts them by age.
-
-### Self-Review Checklist
-
-Before finalizing a plan:
-- [ ] Every task has a concrete verb (Add, Create, Modify, Extract, Remove)
-- [ ] Every task lists specific files and line ranges
-- [ ] No task takes more than 5 minutes
-- [ ] No placeholders ("implement as needed", "add appropriate logic")
-- [ ] Dependencies between tasks are explicit
-- [ ] Parallel-safe tasks are marked
-- [ ] Verification commands use `.venv/bin/` prefix — never bare `python`/`pytest`
-
-**Detector pass (optional but recommended).** Pipe the drafted plan text through the two
-plan-text detectors (stdin; they analyze PLAN TEXT, never code files — full CLI:
-`skills/evaluate-code/references/detectors.md`):
-
-```bash
-cat ~/.claude/plans/YYYY-MM-DD-<slug>.md | claude-code review assumptions - --json   # #1 hidden assumptions
-cat ~/.claude/plans/YYYY-MM-DD-<slug>.md | claude-code review goals - --json         # #4 verification quality
-```
-
-A `CLARIFY` (assumptions) or `MISSING` (verification) verdict means strengthen the plan
-before dispatching it — surface the assumption or add a concrete check to the weak step.
-
-For adversarial review of a finished plan, dispatch the reviewer template at the end of this skill.
+**Canonical source: [`agents/Plan.md`](../../agents/Plan.md)** — the `Plan` subagent (it overrides Claude Code's
+built-in Plan agent, so plan mode uses it too). It holds the plan template (Context → Phases → Risks → `## Tasks`),
+the phase rules, the self-review checklist, the detector pass, and where plans are filed
+(`~/.claude/plans/[<repo-slug>/]YYYY-MM-DD-<slug>.md`, via the `save-plan` hook). Edit Mode 1 there, not here.
+`/workflow:orchestrate` stage handoffs sit beside plans as `~/.claude/plans/stages/YYYY-MM-DD-<task-id>.md`.
 
 ## Mode 2: Generate Blueprints
 
@@ -84,7 +28,7 @@ For multi-session projects that need a construction plan.
 
 ```
 RESEARCH (Explore agents) → DESIGN (interfaces, data flow, parallel/deps) →
-DRAFT (task-breakdown rules above, cold-start executable) →
+DRAFT (phase rules in agents/Plan.md, cold-start executable) →
 REVIEW (adversarial: edge cases, dep order, assumed context, over-large steps) →
 REGISTER (save to ~/.claude/plans/[<repo-slug>/]YYYY-MM-DD-<slug>.md)
 ```
@@ -132,7 +76,6 @@ returns Status (Approved | Issues Found) + Issues + advisory Recommendations.
 ## Related
 
 - `/planning` — this skill; entry point for all three modes
-- Plan mode / the `Plan` subagent — Mode 1 executor
-- `references/writing-plans-detailed.md` — detailed plan-header/checkbox templates
+- `agents/Plan.md` — Mode 1 (plan template, phase rules, self-review); plan mode and the `Plan` subagent
 - `/workflow:orchestrate` — pipeline that consumes plans at the `plan` stage
 - `rules/workflow/master-workflow.md` Phase 1 — adversarial pre-review; run it on MEDIUM+ tasks before planning
