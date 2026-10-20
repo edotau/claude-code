@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -30,6 +31,7 @@ type Options struct {
 	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	Router   bool
 	PrintEnv bool
+	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 }
 
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
@@ -59,6 +61,15 @@ func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
 			o.Router = true
 		case a == "--print-env":
 			o.PrintEnv = true
+		case name == "--keep-env":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return o, nil, fmt.Errorf("%s needs a value", name)
+				}
+				i++
+				val = args[i]
+			}
+			o.KeepEnv = append(o.KeepEnv, strings.Split(val, ",")...)
 		default:
 			rest = append(rest, a)
 		}
@@ -72,6 +83,7 @@ type Plan struct {
 	Argv        []string
 	Set         map[string]string
 	Unset       []string
+	Keep        []string // names the credential scrub must not drop, from Options.KeepEnv
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
@@ -148,6 +160,7 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	}
 	applyOverlay(&plan, passthrough, args, helper)
 	plan.Argv = append(plan.Argv, args...)
+	plan.Keep = o.KeepEnv
 	return plan, nil
 }
 
@@ -244,6 +257,12 @@ func headless(args []string) bool {
 // back to the vendor's own subscription login or a keyed provider when the session provider cannot
 // serve it and the caller named no provider explicitly.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
+	plan, err := vendorPlan(ctx, name, o, args)
+	plan.Keep = o.KeepEnv
+	return plan, err
+}
+
+func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	spec, ok := vendors.Lookup(name)
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
@@ -373,8 +392,9 @@ func (p Plan) envWith(base []string, custom map[string]string) []string {
 	return p.plainEnv(base)
 }
 
-// plainEnv is base minus Unset/Set keys, plus Set.
+// plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
 func (p Plan) plainEnv(base []string) []string {
+	base, _ = envscrub.Scrub(base, envscrub.KeepSet(p.Keep))
 	drop := map[string]bool{}
 	for _, k := range p.Unset {
 		drop[k] = true
@@ -397,10 +417,8 @@ func (p Plan) plainEnv(base []string) []string {
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
 func (p Plan) Print(w io.Writer) {
 	fmt.Fprintf(w, "binary   %s\nargv     %s\n", p.Binary, strings.Join(p.Argv, " "))
-	for _, k := range p.Unset {
-		if _, set := p.Set[k]; !set && os.Getenv(k) != "" {
-			fmt.Fprintf(w, "unset    %s\n", k)
-		}
+	for _, k := range p.unsetNames() {
+		fmt.Fprintf(w, "unset    %s\n", k)
 	}
 	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		v := p.Set[k]
@@ -426,6 +444,24 @@ func (p Plan) Print(w io.Writer) {
 	for _, warn := range p.Warnings {
 		fmt.Fprintf(w, "warning  %s\n", warn)
 	}
+}
+
+// unsetNames is every inherited var this plan drops from the real environment: the fixed Anthropic
+// wipe list plus whatever the credential scrub catches, minus anything the plan itself sets.
+func (p Plan) unsetNames() []string {
+	names := map[string]bool{}
+	for _, k := range p.Unset {
+		if _, set := p.Set[k]; !set && os.Getenv(k) != "" {
+			names[k] = true
+		}
+	}
+	_, dropped := envscrub.Scrub(os.Environ(), envscrub.KeepSet(p.Keep))
+	for _, k := range dropped {
+		if _, set := p.Set[k]; !set {
+			names[k] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(names))
 }
 
 // WriteOverlay writes the --settings overlay the argv names, when the plan has one.

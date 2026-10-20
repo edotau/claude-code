@@ -128,7 +128,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		}
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
-			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous, Env: env,
+			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+			Env: env, KeepEnv: req.KeepEnv,
 		}, stream)
 		res.Answer, res.Usage = out.Answer, out.Usage
 		if out.SessionID != "" {
@@ -147,7 +148,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if v.name == "codex" {
 		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin)
+	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv)
 	cmd.Stderr = io.MultiWriter(tail, &banner)
 	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
@@ -341,7 +342,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	opts := copilotsdk.Options{
-		CLIPath: bin, Env: env, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
+		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true, Autonomous: req.Autonomous, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 	}

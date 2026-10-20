@@ -39,14 +39,14 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
 		args = append(args, "--tools", "", "--setting-sources", "")
 	}
-	plan, err := launch.Claude(ctx, launch.Options{Provider: req.Provider, Model: req.Model}, args)
+	plan, err := launch.Claude(ctx, launch.Options{Provider: req.Provider, Model: req.Model, KeepEnv: req.KeepEnv}, args)
 	if err != nil {
 		return Result{}, err
 	}
 	if err := plan.WriteOverlay(); err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt)
+	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv)
 	cmd.Env = plan.Env(os.Environ())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

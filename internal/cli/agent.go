@@ -41,6 +41,8 @@ func cmdAsk(args []string) int {
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	var attach attachFlag
 	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
+	var keepEnv keepEnvFlag
+	fs.Var(&keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
 	autonomous := fs.Bool("autonomous", false, "drive the leg without stopping to ask, per runner")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
@@ -67,9 +69,13 @@ func cmdAsk(args []string) int {
 		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
+		keepEnv = keepEnvFlag(rec.Request.KeepEnv)
 		fs.Visit(func(f *flag.Flag) {
 			if f.Name == "attach" {
 				attach = nil
+			}
+			if f.Name == "keep-env" {
+				keepEnv = nil
 			}
 		})
 		if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
@@ -110,7 +116,7 @@ func cmdAsk(args []string) int {
 	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
-		Attach: []string(attach), Autonomous: *autonomous, EnableMemory: *enableMemory}
+		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	start := time.Now()
@@ -145,6 +151,16 @@ func (a *attachFlag) Set(s string) error {
 		return fmt.Errorf("--attach %q: not a regular file", s)
 	}
 	*a = append(*a, abs)
+	return nil
+}
+
+// keepEnvFlag collects repeatable --keep-env NAME[,NAME] values, comma-split per occurrence.
+type keepEnvFlag []string
+
+func (k *keepEnvFlag) String() string { return strings.Join(*k, ",") }
+
+func (k *keepEnvFlag) Set(s string) error {
+	*k = append(*k, strings.Split(s, ",")...)
 	return nil
 }
 

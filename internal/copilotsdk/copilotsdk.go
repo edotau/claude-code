@@ -12,6 +12,8 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
+
+	"github.com/edotau/claude-code/internal/envscrub"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -24,6 +26,7 @@ const denyFeedback = "Tool use is disabled for this headless run. Answer from th
 type Options struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
+	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
 	Model            string   // Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
 	ReasoningEffort  string
 	WorkingDirectory string
@@ -48,8 +51,9 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
+	base, _ := envscrub.Scrub(os.Environ(), envscrub.KeepSet(o.KeepEnv))
 	return &copilot.ClientOptions{
-		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(os.Environ(), o.Env...)},
+		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(base, o.Env...)},
 		WorkingDirectory: o.WorkingDirectory,
 		UseLoggedInUser:  new(o.UseLoggedInUser),
 		GitHubToken:      o.GitHubToken,
