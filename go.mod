@@ -5,6 +5,7 @@ go 1.27.2
 require (
 	github.com/anthropics/anthropic-sdk-go v1.57.0
 	github.com/github/copilot-sdk/go v1.0.11
+	go.etcd.io/bbolt v1.5.0
 )
 
 require (
@@ -30,4 +31,5 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
