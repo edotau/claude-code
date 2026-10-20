@@ -1,11 +1,15 @@
 package secrets
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestParseDotenvStrictFormat(t *testing.T) {
@@ -22,19 +26,82 @@ func TestParseDotenvStrictFormat(t *testing.T) {
 }
 
 func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
+	vaulttest.Use(t)
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	for _, kv := range [][2]string{{"A_KEY", "a"}, {"B_KEY", "b"}} {
-		if _, err := Store(kv[0], kv[1], true); err != nil {
+		if err := Store(kv[0], kv[1]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := ExportPairs(nil, nil); !slices.Equal(got, []Pair{{"A_KEY", "a"}, {"B_KEY", "b"}}) {
-		t.Errorf("export all = %v (process env must not leak in)", got)
+	t.Setenv("A_KEY", "shadowing-env")
+	if got, err := ExportPairs(nil); err != nil || !slices.Equal(got, []Pair{{"A_KEY", "a"}, {"B_KEY", "b"}}) {
+		t.Errorf("export all = %v, %v (process env must not leak in)", got, err)
 	}
-	if got := ExportPairs(nil, []string{"B_KEY"}); !slices.Equal(got, []Pair{{"B_KEY", "b"}}) {
-		t.Errorf("export restricted = %v", got)
+	if got, err := ExportPairs([]string{"B_KEY"}); err != nil || !slices.Equal(got, []Pair{{"B_KEY", "b"}}) {
+		t.Errorf("export restricted = %v, %v", got, err)
+	}
+}
+
+func TestListStoredMasksWithoutDecrypting(t *testing.T) {
+	vaulttest.Use(t)
+	const secret = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	for name, value := range map[string]string{"Z_KEY": "short", "A_KEY": secret} {
+		if err := Store(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("ONLY_IN_ENV", "from-env")
+	wrongVaultKey(t)
+	want := []Stored{
+		{Name: "A_KEY", Source: "vault", Prefix: "sk-test-", Len: len(secret)},
+		{Name: "Z_KEY", Source: "vault", Len: 5},
+	}
+	got, err := ListStored(nil)
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("ListStored with wrong key = %+v, %v, want %+v", got, err, want)
+	}
+	if got[0].Masked() != "sk-test-*** (44 chars)" || got[1].Masked() != "5 chars" {
+		t.Fatalf("Masked = %q, %q", got[0].Masked(), got[1].Masked())
+	}
+	if got, err := ListStored([]string{"Z_KEY", "ONLY_IN_ENV", "MISSING"}); err != nil || !slices.Equal(got, want[1:]) {
+		t.Fatalf("ListStored restricted = %+v, %v", got, err)
+	}
+	if pairs, err := ExportPairs(nil); !errors.Is(err, vault.ErrWrongKey) || pairs != nil ||
+		!strings.Contains(err.Error(), "export: A_KEY:") {
+		t.Fatalf("ExportPairs with wrong key = %v, %v, want nil, named ErrWrongKey", pairs, err)
+	}
+}
+
+func TestExportPairsDiscardsPartialOutput(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "A_GOOD", "first-value")
+	vaulttest.Secret(t, "Z_BAD", "second-value")
+	if err := vault.Update(func(tx *vault.Tx) error {
+		r, _, err := tx.Record("Z_BAD")
+		if err != nil {
+			return err
+		}
+		r.Sealed[len(r.Sealed)-1] ^= 1
+		return tx.PutRecord("Z_BAD", r)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if pairs, err := ExportPairs(nil); err == nil || pairs != nil || !strings.Contains(err.Error(), "export: Z_BAD:") {
+		t.Fatalf("ExportPairs = %v, %v, want nil and named decryption error", pairs, err)
+	}
+	if pairs, err := ExportPairs([]string{"A_GOOD"}); err != nil || !slices.Equal(pairs, []Pair{{"A_GOOD", "first-value"}}) {
+		t.Fatalf("restricted ExportPairs = %v, %v", pairs, err)
+	}
+}
+
+func TestListStoredAndExportPairsSurfaceMetadataErrors(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Secrets, "BROKEN", "{")
+	if rows, err := ListStored(nil); err == nil || rows != nil {
+		t.Fatalf("ListStored = %v, %v, want nil, error", rows, err)
+	}
+	if pairs, err := ExportPairs(nil); err == nil || pairs != nil {
+		t.Fatalf("ExportPairs = %v, %v, want nil, error", pairs, err)
 	}
 }
 

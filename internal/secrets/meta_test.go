@@ -1,219 +1,192 @@
 package secrets
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
-	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/keyring"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// withKeyringLookup swaps the keyringLookup seam for the test's duration, restoring it on cleanup.
-func withKeyringLookup(t *testing.T, fn func(name string) (string, bool, error)) {
+func readRecord(t *testing.T, name string) vault.Record {
 	t.Helper()
-	saved := keyringLookup
-	keyringLookup = fn
-	t.Cleanup(func() { keyringLookup = saved })
-}
-
-// LoadMeta's one-time import must never overwrite a meta file that already exists, and a name held
-// in neither the keyring nor the file plane must not be recorded.
-func TestLoadMetaImportIdempotentAndSkipsUnknownNames(t *testing.T) {
-	setConfigDir(t)
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, nil })
-	if err := setFile("FILE_ONLY", "v"); err != nil {
-		t.Fatal(err)
-	}
-
-	m, err := LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := m["FILE_ONLY"]; !ok {
-		t.Fatal("FILE_ONLY must be recorded from the file plane")
-	}
-	if _, ok := m["NEVER_ANYWHERE"]; ok {
-		t.Fatal("a name held in neither plane must not be recorded")
-	}
-
-	// Mutate the file plane after the import; a second LoadMeta must not re-import (file untouched).
-	if err := setFile("NEW_AFTER_IMPORT", "v2"); err != nil {
-		t.Fatal(err)
-	}
-	m2, err := LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := m2["NEW_AFTER_IMPORT"]; ok {
-		t.Fatal("LoadMeta re-ran the import instead of reading the already-written file")
-	}
-}
-
-// An import taken while the keyring does not answer must not be persisted; the next LoadMeta, once
-// the seam answers normally, must run the import again and persist it.
-func TestLoadMetaNotPersistedWhenKeyringDown(t *testing.T) {
-	setConfigDir(t)
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, keyring.ErrNoAnswer })
-	if err := setFile("DOWN_CASE", "v"); err != nil {
-		t.Fatal(err)
-	}
-
-	m, err := LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := m["DOWN_CASE"]; !ok {
-		t.Fatal("LoadMeta must still return the file-plane row for this call, even though it is not persisted")
-	}
-	if _, err := os.Stat(MetaFile()); !os.IsNotExist(err) {
-		t.Fatalf("meta file must not exist after an incomplete import, stat err = %v", err)
-	}
-
-	if err := upsertMeta("DOWN_CASE", "file", "v"); err == nil {
-		t.Fatal("a meta edit must error while the prior import is incomplete")
-	}
-	if _, err := os.Stat(MetaFile()); !os.IsNotExist(err) {
-		t.Fatalf("a refused meta edit must not write the meta file, stat err = %v", err)
-	}
-
-	// Now the seam answers; LoadMeta must retry the import and persist it.
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, nil })
-	if _, err := LoadMeta(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(MetaFile()); err != nil {
-		t.Fatalf("meta file must exist once the import completes: %v", err)
-	}
-}
-
-// A tool that is installed but failing (ErrUnavailable) must behave exactly like ErrNoAnswer: the
-// import stays incomplete so a later, healthy run retries it — distinct from an OS/box that never
-// had a keyring tool at all (R4; the review's MEDIUM #4).
-func TestLoadMetaNotPersistedWhenKeyringUnavailable(t *testing.T) {
-	setConfigDir(t)
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, keyring.ErrUnavailable })
-	if err := setFile("UNAVAILABLE_CASE", "v"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := LoadMeta(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(MetaFile()); !os.IsNotExist(err) {
-		t.Fatalf("meta file must not exist after an import where an installed tool failed, stat err = %v", err)
-	}
-
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, nil })
-	if _, err := LoadMeta(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(MetaFile()); err != nil {
-		t.Fatalf("meta file must exist once the tool recovers and the import completes: %v", err)
-	}
-}
-
-// A box with no keyring tool at all (ErrNoTool, unsupported OS or nothing on PATH) is a genuine
-// file-only install: the import must complete and persist on the first run, with nothing left to
-// retry — distinct from a tool that is present but currently failing (R4).
-func TestLoadMetaPersistsOnNoTool(t *testing.T) {
-	setConfigDir(t)
-	withKeyringLookup(t, func(name string) (string, bool, error) { return "", false, keyring.ErrNoTool })
-	if err := setFile("NO_TOOL_CASE", "v"); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := LoadMeta(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(MetaFile()); err != nil {
-		t.Fatalf("a no-tool box must persist its import as complete on the first run: %v", err)
-	}
-}
-
-// Store must never write a stored value's raw bytes into the meta file, and the file must be 0600.
-func TestStoreNeverLeaksRawBytesIntoMetaFile(t *testing.T) {
-	setConfigDir(t)
-	secret := "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStT12" // 40 chars, file plane
-	if err := setFile("LEAK_CHECK_FILE", secret); err != nil {
-		t.Fatal(err)
-	}
-	if err := upsertMeta("LEAK_CHECK_FILE", "file", secret); err != nil {
-		t.Fatal(err)
-	}
-
-	secret2 := "zZyYxXwWvVuUtTsSrRqQpPoOnNmMlLkKjJiIhHgG98" // keyring plane, via the seam
-	withKeyringLookup(t, func(name string) (string, bool, error) {
-		if name == "LEAK_CHECK_KEYRING" {
-			return secret2, true, nil
+	var record vault.Record
+	if err := vault.View(func(tx *vault.Tx) error {
+		var found bool
+		var err error
+		record, found, err = tx.Record(name)
+		if err == nil && !found {
+			t.Fatalf("record %s missing", name)
 		}
-		return "", false, nil
-	})
-	if err := upsertMeta("LEAK_CHECK_KEYRING", "keyring", secret2); err != nil {
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
+	return record
+}
 
-	b, err := os.ReadFile(MetaFile())
-	if err != nil {
+func TestLoadMetaKeylessAndCurrent(t *testing.T) {
+	vaulttest.Use(t)
+	if err := Store("STORED", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), secret) || strings.Contains(string(b), secret2) {
-		t.Fatal("meta file must never contain a stored value's raw bytes")
+	r := readRecord(t, "STORED")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	t.Setenv("ONLY_IN_ENV", "not-stored")
+	for range 2 {
+		meta, err := LoadMeta()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]Meta{"STORED": {
+			Prefix: r.Prefix, Len: r.Len, SetAt: r.SetAt,
+			VerifiedAt: r.VerifiedAt, VerifyStatus: r.VerifyStatus,
+		}}
+		if !reflect.DeepEqual(meta, want) {
+			t.Fatalf("LoadMeta = %+v, want %+v", meta, want)
+		}
 	}
-	fi, err := os.Stat(MetaFile())
-	if err != nil {
+	if err := Delete("STORED"); err != nil {
 		t.Fatal(err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("perm = %04o, want 0600", perm)
+	if meta, err := LoadMeta(); err != nil || len(meta) != 0 {
+		t.Fatalf("LoadMeta after Delete = %+v, %v", meta, err)
 	}
 }
 
-// A meta file written by a newer binary (version 2) must error on load and must be left untouched.
-func TestLoadMetaRejectsNewerVersion(t *testing.T) {
-	setConfigDir(t)
-	future := `{"version":2,"credentials":{"X":{"plane":"file"}}}`
-	if err := os.MkdirAll(filepath.Dir(MetaFile()), 0o700); err != nil {
+func TestLoadMetaMissingVaultDoesNotCreateIt(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	if meta, err := LoadMeta(); err != nil || len(meta) != 0 {
+		t.Fatalf("LoadMeta = %+v, %v, want empty, nil", meta, err)
+	}
+	if _, err := os.Stat(vault.Path()); !os.IsNotExist(err) {
+		t.Fatalf("LoadMeta created a vault: %v", err)
+	}
+}
+
+func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "PROBE", "sk-test-abcdefghijklmnopqrstuvwxyz")
+	before := readRecord(t, "PROBE")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	if err := RecordProbe("PROBE", "verified", at); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(MetaFile(), []byte(future), 0o600); err != nil {
+	want := before
+	want.VerifyStatus, want.VerifiedAt = "verified", at
+	if got := readRecord(t, "PROBE"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("RecordProbe changed fields beyond the probe: got %+v, want %+v", got, want)
+	}
+	if meta, err := LoadMeta(); err != nil || meta["PROBE"].VerifyStatus != "verified" || !meta["PROBE"].VerifiedAt.Equal(at) {
+		t.Fatalf("LoadMeta probe = %+v, %v", meta, err)
+	}
+	if err := RecordProbe("MISSING", "rejected", at); err != nil {
+		t.Fatal(err)
+	}
+	if got := Names(); len(got) != 1 || got[0] != "PROBE" {
+		t.Fatalf("RecordProbe created an absent record: %v", got)
+	}
+}
+
+func TestStoreNeverLeaksRawBytesIntoMetadataOrVault(t *testing.T) {
+	vaulttest.Use(t)
+	values := []string{"aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStT12", "zZyYxXwWvVuUtTsSrRqQpPoOnNmMlLkKjJiIhHgG98"}
+	for i, name := range []string{"FIRST", "SECOND"} {
+		if err := Store(name, values[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	meta, err := LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawMeta, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawVault, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range values {
+		if bytes.Contains(rawMeta, []byte(value)) || bytes.Contains(rawVault, []byte(value)) {
+			t.Fatal("metadata or vault contains a plaintext secret")
+		}
+	}
+	fi, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("vault mode = %04o, want 0600", fi.Mode().Perm())
+	}
+}
+
+func TestBadRecordSurfacesErrorsWithoutMutation(t *testing.T) {
+	vaulttest.Use(t)
+	const corrupt = `{"ct":`
+	vaulttest.Put(t, vault.Secrets, "X", corrupt)
+	if _, err := LoadMeta(); err == nil {
+		t.Fatal("LoadMeta must report a corrupt record")
+	}
+	if err := RecordProbe("X", "verified", time.Now()); err == nil {
+		t.Fatal("RecordProbe must report a corrupt record, not a successful no-op")
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		if got, _ := tx.Get(vault.Secrets, "X"); got != corrupt {
+			t.Fatalf("corrupt record changed: %q", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadMetaRejectsNewerSchema(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Meta, "schema", "2")
+	before, err := os.ReadFile(vault.Path())
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadMeta(); err == nil {
-		t.Fatal("LoadMeta must error on a version newer than this binary writes")
+		t.Fatal("LoadMeta must reject a newer vault schema")
 	}
-	b, err := os.ReadFile(MetaFile())
+	if err := RecordProbe("X", "verified", time.Now()); err == nil {
+		t.Fatal("RecordProbe must reject a newer vault schema")
+	}
+	after, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != future {
-		t.Fatalf("LoadMeta must leave an unreadable file untouched, got %q", string(b))
+	if !bytes.Equal(before, after) {
+		t.Fatal("unsupported vault was rewritten")
 	}
 }
 
-// Store must clear any prior VerifyStatus/VerifiedAt on the same name; Delete must remove its row.
 func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
-	setConfigDir(t)
-	noKeyring(t)
-	if err := setFile("VERIFY_ME", "v1"); err != nil {
+	vaulttest.Use(t)
+	if err := Store("VERIFY_ME", "v1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := upsertMeta("VERIFY_ME", "file", "v1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordProbe("VERIFY_ME", "verified", time.Now()); err != nil {
+	at := time.Now()
+	if err := RecordProbe("VERIFY_ME", "verified", at); err != nil {
 		t.Fatal(err)
 	}
 	m, err := LoadMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m["VERIFY_ME"].VerifyStatus != "verified" {
-		t.Fatalf("VerifyStatus = %q, want verified", m["VERIFY_ME"].VerifyStatus)
+	if got := m["VERIFY_ME"]; got.VerifyStatus != "verified" || !got.VerifiedAt.Equal(at) {
+		t.Fatalf("probe metadata = %+v", got)
 	}
-
-	if _, err := Store("VERIFY_ME", "v2", true); err != nil {
+	if err := Store("VERIFY_ME", "v2"); err != nil {
 		t.Fatal(err)
 	}
 	m, err = LoadMeta()
@@ -223,7 +196,6 @@ func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
 	if got := m["VERIFY_ME"]; got.VerifyStatus != "" || !got.VerifiedAt.IsZero() {
 		t.Fatalf("Store must clear VerifyStatus/VerifiedAt, got %+v", got)
 	}
-
 	if err := Delete("VERIFY_ME"); err != nil {
 		t.Fatal(err)
 	}
@@ -236,11 +208,10 @@ func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
 	}
 }
 
-// A value made only of short dash-separated segments must never be persisted whole as its prefix.
 func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
-	setConfigDir(t)
+	vaulttest.Use(t)
 	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"} {
-		if _, err := Store("SHORT_SEG", v, true); err != nil {
+		if err := Store("SHORT_SEG", v); err != nil {
 			t.Fatal(err)
 		}
 		m, err := LoadMeta()
@@ -253,85 +224,5 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 	}
 	if p := metaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
 		t.Fatalf("metaPrefix dropped a genuine vendor prefix: %q", p)
-	}
-}
-
-// writeFutureMeta plants a meta file this binary refuses to read (schema version 2).
-func writeFutureMeta(t *testing.T) string {
-	t.Helper()
-	future := `{"version":2,"credentials":{"X":{"plane":"file"}}}`
-	if err := os.MkdirAll(filepath.Dir(MetaFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(MetaFile(), []byte(future), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return future
-}
-
-// An unreadable meta file must not block a file-plane write, must fail a meta edit, and must stay untouched.
-func TestEditStoreBadMetaFailsOnlyMetaEdits(t *testing.T) {
-	setConfigDir(t)
-	future := writeFutureMeta(t)
-	if err := setFile("STILL_LANDS", "v"); err != nil {
-		t.Fatalf("file-plane write must land despite a bad meta file: %v", err)
-	}
-	if ReadAll()["STILL_LANDS"] != "v" {
-		t.Fatal("STILL_LANDS missing from the file plane")
-	}
-	if err := upsertMeta("STILL_LANDS", "file", "v"); err == nil {
-		t.Fatal("a meta edit must surface the meta file's error")
-	}
-	if b, _ := os.ReadFile(MetaFile()); string(b) != future {
-		t.Fatalf("meta file rewritten: %q", b)
-	}
-}
-
-// removeMeta/RecordProbe against an existing row look like a no-op against the corrupt-file's empty
-// stand-in map (nothing to delete/update there), so the read error must still surface rather than
-// being swallowed as a silent success that leaves the corrupt row untouched.
-func TestEditStoreBadMetaSurfacesErrorOnApparentNoOp(t *testing.T) {
-	setConfigDir(t)
-	future := writeFutureMeta(t)
-	if err := removeMeta("X"); err == nil {
-		t.Fatal("removeMeta against a corrupt meta file must surface the read error, not report success")
-	}
-	if err := RecordProbe("X", "verified", time.Now()); err == nil {
-		t.Fatal("RecordProbe against a corrupt meta file must surface the read error, not report success")
-	}
-	if b, _ := os.ReadFile(MetaFile()); string(b) != future {
-		t.Fatalf("meta file rewritten: %q", b)
-	}
-}
-
-// Names must fall back to the file plane's names when the meta file is unreadable, never go blank.
-func TestNamesFallsBackToFilePlane(t *testing.T) {
-	setConfigDir(t)
-	writeFutureMeta(t)
-	for _, n := range []string{"Z_FILE", "A_FILE"} {
-		if err := setFile(n, "v"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if got := Names(); strings.Join(got, ",") != "A_FILE,Z_FILE" {
-		t.Fatalf("Names = %q, want [A_FILE Z_FILE]", got)
-	}
-}
-
-// A meta-only edit must not create secrets.env; editStore writes back only the file that changed.
-func TestEditStoreWritesOnlyChangedFile(t *testing.T) {
-	setConfigDir(t)
-	withKeyringLookup(t, func(string) (string, bool, error) { return "", false, nil })
-	if err := upsertMeta("KR_ONLY", "keyring", "kr-value-0123456789"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(EnvFile()); !os.IsNotExist(err) {
-		t.Fatalf("secrets.env must not exist after a meta-only edit, stat err = %v", err)
-	}
-	if err := removeFile("KR_ONLY"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(EnvFile()); !os.IsNotExist(err) {
-		t.Fatalf("removing an absent name must not create secrets.env, stat err = %v", err)
 	}
 }

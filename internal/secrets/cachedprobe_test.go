@@ -20,6 +20,7 @@ func TestCachedProbe(t *testing.T) {
 		{"rejected within ttl", Meta{VerifyStatus: "rejected", VerifiedAt: now.Add(-10 * time.Minute)}, "rejected", 10 * time.Minute, true},
 		{"unreachable", Meta{VerifyStatus: "unreachable", VerifiedAt: now.Add(-10 * time.Minute)}, "", 10 * time.Minute, false},
 		{"verified older than ttl", Meta{VerifyStatus: "verified", VerifiedAt: now.Add(-2 * time.Hour)}, "", 2 * time.Hour, false},
+		{"verified at ttl", Meta{VerifyStatus: "verified", VerifiedAt: now.Add(-ttl)}, "", ttl, false},
 		{"zero VerifiedAt", Meta{}, "", 0, false},
 	}
 	for _, c := range cases {
@@ -32,20 +33,27 @@ func TestCachedProbe(t *testing.T) {
 }
 
 func TestLocate(t *testing.T) {
-	meta := map[string]Meta{"KR": {Plane: "keyring"}}
-	file := map[string]string{"F": "v"}
-
-	t.Setenv("LOC_ENV_KR", "x")
-	if src, sh := Locate("LOC_ENV_KR", map[string]Meta{"LOC_ENV_KR": {Plane: "keyring"}}, file); src != "env" || sh != "keyring" {
-		t.Errorf("env+keyring: got (%q, %q), want (env, keyring)", src, sh)
-	}
-	if src, sh := Locate("KR", meta, file); src != "keyring" || sh != "" {
-		t.Errorf("keyring only: got (%q, %q), want (keyring, \"\")", src, sh)
-	}
-	if src, sh := Locate("F", meta, file); src != "file" || sh != "" {
-		t.Errorf("file only: got (%q, %q), want (file, \"\")", src, sh)
-	}
-	if src, sh := Locate("NOWHERE", meta, file); src != "" || sh != "" {
-		t.Errorf("none: got (%q, %q), want (\"\", \"\")", src, sh)
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	for _, tc := range []struct {
+		name, env, source, shadowed string
+		stored                      bool
+	}{
+		{"env over vault", "x", "env", "vault", true},
+		{"vault only", "", "vault", "", true},
+		{"env only", "x", "env", "", false},
+		{"none", "", "", "", false},
+		{"blank env over vault", " \n", "vault", "", true},
+		{"blank env", " \n", "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LOCATE_TEST", tc.env)
+			meta := map[string]Meta{}
+			if tc.stored {
+				meta["LOCATE_TEST"] = Meta{}
+			}
+			if src, sh := Locate("LOCATE_TEST", meta); src != tc.source || sh != tc.shadowed {
+				t.Errorf("Locate = (%q, %q), want (%q, %q)", src, sh, tc.source, tc.shadowed)
+			}
+		})
 	}
 }
