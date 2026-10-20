@@ -81,6 +81,11 @@ func Run(o Options) (drift bool, err error) {
 			}
 		case "gemini":
 			d, err = reportGemini(sel, out)
+			if err == nil {
+				var gd bool
+				gd, err = renderGeminiSettings(home, o, out)
+				d = d || gd
+			}
 		case "copilot":
 			d, err = renderCopilot(reg, sel, home, o, out)
 		}
@@ -496,6 +501,68 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	}
 	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
 	return false, nil
+}
+
+// renderGeminiSettings merges the spec's exact-match guard denies into agy's
+// ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
+func renderGeminiSettings(home string, o Options, out io.Writer) (bool, error) {
+	cfg, err := vendorconfig.Load()
+	if err != nil {
+		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
+		return false, nil
+	}
+	if !cfg.Vendor("gemini").Permission.UseGuardRules {
+		return false, nil
+	}
+	var rules []string
+	for _, r := range cfg.Guard().Deny {
+		cmd, ok := strings.CutPrefix(r, "Bash(")
+		cmd, ok2 := strings.CutSuffix(cmd, ")")
+		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
+			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
+			continue
+		}
+		rules = append(rules, "command("+cmd+")")
+	}
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	raw, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	next := map[string]any{}
+	if existed {
+		if err := json.Unmarshal(raw, &next); err != nil {
+			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
+			return false, nil
+		}
+	}
+	perms, _ := next["permissions"].(map[string]any)
+	if perms == nil {
+		perms = map[string]any{}
+	}
+	existing, _ := perms["deny"].([]any)
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(existing)+len(rules))
+	for _, e := range existing {
+		s, ok := e.(string)
+		if !ok || seen[s] {
+			continue
+		}
+		seen[s] = true
+		merged = append(merged, s)
+	}
+	for _, r := range rules {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		merged = append(merged, r)
+	}
+	perms["deny"] = merged
+	next["permissions"] = perms
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("gemini-settings: %w", err)
+	}
+	return commitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
 }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
