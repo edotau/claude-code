@@ -131,7 +131,8 @@ func TestConfigure(t *testing.T) {
 func TestCodexChatGPTLogin(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	t.Setenv("PATH", t.TempDir()) // no real codex: the auth.json fallback is what this test exercises
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no bin/codex: the auth.json fallback is what this test exercises
+	t.Setenv("PATH", t.TempDir())
 	tg := target(t, "chatgpt", "gpt-5.5")
 	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
 		t.Fatalf("no auth.json: err = %v, want a codex login hint", err)

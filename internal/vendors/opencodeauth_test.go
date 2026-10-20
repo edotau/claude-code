@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 // fakeOpencode swaps the exec seam for a scripted opencode: version answers --version, list answers
@@ -17,10 +19,10 @@ import (
 // data home plus a pointer counting `auth list` calls.
 func fakeOpencode(t *testing.T, version, list string, listErr error) (dataHome string, listCalls *int) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dataHome = t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	calls := 0
 	orig := opencodeOutput
@@ -235,17 +237,11 @@ func TestOpencodeAuthV1SeesFileChange(t *testing.T) {
 	}
 }
 
-// fakeOpencodeOnDisk is fakeOpencode plus a stat-able opencode binary on PATH (so the disk cache keys),
-// returning the binary path and a counter of every exec through the seam.
+// fakeOpencodeOnDisk adds an installed binary for cache keys and counts every exec through the seam.
 func fakeOpencodeOnDisk(t *testing.T, version, list string, listErr error) (dataHome, bin string, execs *int) {
 	t.Helper()
 	dataHome, _ = fakeOpencode(t, version, list, listErr)
-	dir := t.TempDir()
-	t.Setenv("PATH", dir)
-	bin = filepath.Join(dir, "opencode")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin = pathstest.FakeVendor(t, "opencode", "")
 	n := 0
 	inner := opencodeOutput
 	opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) { n++; return inner(ctx, args...) }
