@@ -4,11 +4,15 @@ package hookspec
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
-// HookBin is the literal binary reference every harness command starts with; $HOME expands under `sh -c`.
+// HookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
 const HookBin = "$HOME/.claude/bin/claude-code"
+
+// VendorEnv identifies the vendor invoking a hook with a shared payload contract.
+const VendorEnv = "HARNESS_HOOK_VENDOR"
 
 // Claude Code lifecycle event names.
 const (
@@ -40,9 +44,11 @@ type Spec struct {
 // Command is the shell command settings.json carries.
 func (s Spec) Command() string { return HookBin + " hook " + s.Name }
 
-// IsHarness reports whether a settings.json hook command belongs to this harness.
+var harnessCommand = regexp.MustCompile(`^(?:` + VendorEnv + `=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
+
+// IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands.
 func IsHarness(command string) bool {
-	return strings.HasPrefix(strings.TrimSpace(command), HookBin+" ")
+	return harnessCommand.MatchString(strings.TrimSpace(command))
 }
 
 // Registry is the whole chain in per-event execution order.
