@@ -1,18 +1,4 @@
 {
-  "guardRules": {
-    "ask": [
-      "Bash(git push --force:*)",
-      "Bash(git push -f:*)",
-      "Bash(git reset --hard:*)",
-      "Bash(security add-generic-password:*)",
-      "Bash(security delete-generic-password:*)"
-    ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)"
-    ]
-  },
   "vendors": {
     "codex": {
       "permission": {

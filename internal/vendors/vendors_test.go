@@ -599,6 +599,11 @@ func TestGuardPermissionAppliesGuardRulesOnlyWhenOptedIn(t *testing.T) {
 	if bash["git reset --hard *"] != "ask" {
 		t.Errorf("bash[git reset --hard *] = %v, want ask", bash["git reset --hard *"])
 	}
+	// template-only ask (not in the old hand-copied defaults.json guardRules) proves the guard
+	// list now comes from settings.Render(), not a hand-maintained subset.
+	if bash["git push --force origin main *"] != "ask" {
+		t.Errorf("bash[git push --force origin main *] = %v, want ask", bash["git push --force origin main *"])
+	}
 }
 
 func TestJSONField(t *testing.T) {
@@ -730,6 +735,11 @@ func TestOpenCodeInteractiveImports(t *testing.T) {
 	}
 	if bash["git reset --hard *"] != "ask" {
 		t.Errorf("permission.bash[git reset --hard *] = %v, want ask", bash["git reset --hard *"])
+	}
+	// template-only ask, absent from the old hand-copied defaults.json guardRules: proves the
+	// guard list rendered here comes from settings.Render(), not a stale local copy.
+	if bash["git push --force origin main *"] != "ask" {
+		t.Errorf("permission.bash[git push --force origin main *] = %v, want ask", bash["git push --force origin main *"])
 	}
 	if perm["edit"] != "allow" {
 		t.Errorf("permission.edit = %v, want allow", perm["edit"])
