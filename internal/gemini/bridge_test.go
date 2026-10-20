@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -438,16 +439,13 @@ func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	}
 }
 
-// fakeAgyScript writes an executable `agy` at dir/agy that drains stdin, drops a sentinel file (proof it
-// ran) and prints a canned stream-json result line — no step_update, matching the spec's one-line fixture.
-func fakeAgyScript(t *testing.T, dir, sentinel string) {
+// fakeAgyScript installs agy with a sentinel and a canned stream-json result without step_update.
+func fakeAgyScript(t *testing.T, sentinel string) {
 	t.Helper()
 	// printf, not echo: /bin/sh echo expands \n to a literal newline, breaking the JSON line in two.
-	script := "#!/bin/sh\ncat > /dev/null\n: > " + sentinel + "\n" +
+	script := "cat > /dev/null\n: > " + sentinel + "\n" +
 		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"ok","num_turns":1,"usage":{"input_tokens":10,"output_tokens":1}}}'` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	pathstest.FakeVendor(t, "agy", script)
 }
 
 // loginHome returns a temp HOME carrying (or not) agy's cached-login marker.
@@ -471,7 +469,8 @@ func loginHome(t *testing.T, present bool) string {
 // PrintCommand now refuses outright — the bridge's default path never falls back to an API key.
 func TestBridgeRunNoLoginErrors(t *testing.T) {
 	t.Setenv("HOME", loginHome(t, false))
-	t.Setenv("PATH", t.TempDir()) // no agy on PATH either
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no bin/gemini either
+	t.Setenv("PATH", t.TempDir())
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
@@ -488,18 +487,17 @@ func TestBridgeRunNoLoginErrors(t *testing.T) {
 }
 
 // TestBridgeRunExplicitProviderSkipsAgy: an explicit --provider stays on the api runner even with a
-// cached agy login and `agy` on PATH — only the no-flag default (Provider=="") considers agy at all.
+// cached agy login and installed agy — only the no-flag default (Provider=="") considers agy at all.
 func TestBridgeRunExplicitProviderSkipsAgy(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", loginHome(t, true))
-	binDir := t.TempDir()
-	sentinel := filepath.Join(binDir, "ran")
-	fakeAgyScript(t, binDir, sentinel)
-	t.Setenv("PATH", binDir)
 
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupRegistry(t, srv)
+	sentinel := filepath.Join(t.TempDir(), "ran")
+	fakeAgyScript(t, sentinel)
 
 	dir := t.TempDir()
 	res, err := Run(context.Background(), Options{Provider: "tgem", Cwd: dir, Task: "t"}, io.Discard, io.Discard)
@@ -517,20 +515,19 @@ func TestBridgeRunExplicitProviderSkipsAgy(t *testing.T) {
 	}
 }
 
-// TestBridgeRunAgyBackendWhenLoginPresent: Provider=="" with a cached agy login and `agy` on PATH routes
+// TestBridgeRunAgyBackendWhenLoginPresent: Provider=="" with a cached agy login and installed agy routes
 // through agent.RunAgy instead of the api runner — zero HTTP hits, the agy backend log line, and the
 // result event's conversation id surfacing as SessionID even though the fixture carries no step_update.
 func TestBridgeRunAgyBackendWhenLoginPresent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", loginHome(t, true))
-	binDir := t.TempDir()
-	sentinel := filepath.Join(binDir, "ran")
-	fakeAgyScript(t, binDir, sentinel)
-	t.Setenv("PATH", binDir)
 
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupGeminiProviderOverride(t, srv)
+	sentinel := filepath.Join(t.TempDir(), "ran")
+	fakeAgyScript(t, sentinel)
 
 	dir := t.TempDir()
 	var log strings.Builder
@@ -556,15 +553,14 @@ func TestBridgeRunAgyBackendWhenLoginPresent(t *testing.T) {
 // TestBridgeRunPrintCommandAgyBackend: --print-command on the agy path prints the resolved agy argv
 // (model, stream-json both ways) instead of the api runner's POST line, and sends nothing over the wire.
 func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", loginHome(t, true))
-	binDir := t.TempDir()
-	fakeAgyScript(t, binDir, filepath.Join(binDir, "ran")) // present on PATH; --print-command never execs it
-	t.Setenv("PATH", binDir)
 
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupGeminiProviderOverride(t, srv)
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
 
 	dir := t.TempDir()
 	var log strings.Builder
