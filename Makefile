@@ -148,7 +148,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-settings  ## gofmt, vet, shellcheck, yamlfmt, generate --check
+lint: lint-go lint-shell lint-yaml lint-help lint-settings  ## gofmt, vet, shellcheck, yamlfmt, help width, generate --check
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
@@ -161,13 +161,18 @@ lint-go:  # (folded into `lint`) gofmt -l + go vet
 lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
 	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
 
+.PHONY: lint-help
+lint-help:  # (folded into `lint`) every `make help` row fits 80 columns, label included
+	@out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk 'length>80')"; \
+		if [ -n "$$out" ]; then echo "help rows over 80 columns:"; echo "$$out"; exit 1; fi
+
 .PHONY: lint-yaml
 lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
 	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make dev-tools)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
 
 .PHONY: dev-tools
-dev-tools:  ## Install pinned govulncheck, golangci-lint, yamlfmt into GOPATH/bin
+dev-tools:  ## Install pinned govulncheck, golangci-lint, yamlfmt
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION)
