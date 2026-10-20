@@ -235,6 +235,9 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Env = append(os.Environ(), env...) // later duplicates win
 	cmd.Dir = dir
+	if dir != "" {
+		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir
+	}
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}

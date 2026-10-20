@@ -66,6 +66,7 @@ type Headless struct {
 	Tools      bool
 	Autonomous bool     // opencode: --auto
 	Attach     []string // opencode: one -f per path
+	WorkDir    string   // opencode: --dir; cmd.Dir alone doesn't move opencode's own cwd resolution
 }
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -541,6 +542,9 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		return env, nil, nil
 	}
 	argv := []string{"run", "--format", "json", "-m", id + "/" + model}
+	if h.WorkDir != "" {
+		argv = append(argv, "--dir", h.WorkDir)
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	}
@@ -589,6 +593,9 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 	argv = []string{"run", "--format", "json"}
 	if model != "" {
 		argv = append(argv, "-m", model)
+	}
+	if h.WorkDir != "" {
+		argv = append(argv, "--dir", h.WorkDir)
 	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
