@@ -119,15 +119,15 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 
 **Sizing.** One test agent minimum; scale with the implementation fan-out (roughly one per
 distinct suite or module under change). Test agents are lean leaves — `copilot`, or
-`code-workers` for a scoped suite — so they sit outside the ≤8 deep-context tier.
+`code-worker` for a scoped suite — so they sit outside the ≤8 deep-context tier.
 
 **Not satisfied by:**
 
 - One agent told to "implement it and write tests" — that serializes inside a single context, and
   the tests land last or not at all. Separate agents, same message.
 - A test agent dispatched once the implementers return. That IS the serial pass this forbids.
-- "The change is too small." A change too small for a test agent is too small for a dispatch —
-  do it inline.
+- "The change is too small." Speed is the default: the main thread plans and stays free while
+  `code-worker` ‖ `copilot` run in the background (CLAUDE.md guideline 8). Only a one-line edit goes inline.
 
 **Genuinely out of scope:** non-code dispatches (exploration, research, docs, review-only), and a
 target with no test suite — there the test agent's job is to report that, not to invent a framework

@@ -15,7 +15,7 @@ by the concurrency tier (lean leaves ~8–10, deep-context ≤4).
 2. **Write one handoff, reused verbatim** for every competitor — same objective, same acceptance
    criteria, same eval command. Differing prompts measure the prompts, not the approaches. To force
    divergence, vary a single named constraint per leaf ("no new deps", "no schema change") and say so.
-3. **Dispatch all leaves in one message** — `subagent_type: "code-workers"`, `isolation: "worktree"`,
+3. **Dispatch all leaves in one message** — `subagent_type: "code-worker"`, `isolation: "worktree"`,
    one branch per competitor: `compete/<slug>/<n>`. Each leaf commits its own work and reports the
    eval output it measured.
 4. **Re-measure yourself.** Run the eval command in each worktree from the manager; a leaf's
@@ -49,7 +49,7 @@ Rank on the diff, never on the leaf's own summary of it.
 
 - Competitors never see or read each other's branches. Independence is the whole measurement.
 - Never rebase or force-push a competitor branch — the losing approaches stay auditable via their tags.
-- Leaves are terminal: a competitor cannot spawn its own tournament (`agents/code-workers.md`).
+- Leaves are terminal: a competitor cannot spawn its own tournament (`agents/code-worker.md`).
 - Cross-provider variant: when the point is comparing **model families**, run each competitor as
   `claude-code ask --agent <leg> --format json "<the same handoff>"` in its own worktree; the JSON
   envelope is its report (see `cross-model-agent-teams.md`).

@@ -1,12 +1,12 @@
 ---
-description: "Fan out code-workers subagents to finish a series of tasks — parallel (independent), sequential (plan with review gate per task), or auto. The multi-leaf counterpart to a single Agent dispatch."
+description: "Fan out code-worker subagents to finish a series of tasks — parallel (independent), sequential (plan with review gate per task), or auto. The multi-leaf counterpart to a single Agent dispatch."
 argument-hint: "[parallel | sequential | auto] <task1 | task2 | ...>  (tasks '|'-separated; blank reads the approved plan)"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
 The multi-leaf shortcut for subagent fan-out. Where a single `Agent` call dispatches **one**
-agent, this fans out **many** `code-workers` leaves to finish a series of jobs. Each
-leaf is the **code-workers** agent (Sonnet-pinned, cannot fan out further — it does its one task
+agent, this fans out **many** `code-worker` leaves to finish a series of jobs. Each
+leaf is the **code-worker** agent (Sonnet-pinned, cannot fan out further — it does its one task
 in-context and reports back). This is the ergonomic front door to the `subagent-workflows` skill's two
 strategies: `dispatching-parallel-agents` (concurrent) and `subagent-driven-development` (sequential
 with per-task review).
@@ -15,7 +15,7 @@ with per-task review).
 
 | Arg | Shape | What runs |
 |-----|-------|-----------|
-| `parallel` | concurrent fan-out | One `code-workers` leaf per task, **all dispatched in a single message** so they run concurrently, each scoped to disjoint files in the shared tree. Per `subagent-workflows/references/dispatching-parallel-agents.md`. |
+| `parallel` | concurrent fan-out | One `code-worker` leaf per task, **all dispatched in a single message** so they run concurrently, each scoped to disjoint files in the shared tree. Per `subagent-workflows/references/dispatching-parallel-agents.md`. |
 | `sequential` | one-at-a-time + review | One leaf per task in order; after each, a review gate (step 4) before the next. Per `subagent-workflows/references/subagent-driven-development.md`. |
 | *(blank)* or `auto` | infer | Independent tasks / no shared files → parallel; ordered or coupled tasks, or reading a plan → sequential. State the chosen shape and why before dispatching. |
 
@@ -64,7 +64,7 @@ contract from `subagent-workflows/references/choosing-a-pattern.md`:
 
 ## 3. Dispatch
 
-Dispatch each task via the **Agent** tool with `subagent_type: "code-workers"`, passing only the
+Dispatch each task via the **Agent** tool with `subagent_type: "code-worker"`, passing only the
 handoff (NOT this session's history).
 
 - **parallel** — emit **all** `Agent` calls in a **single message** so they run concurrently. Concurrency:

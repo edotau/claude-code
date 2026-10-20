@@ -147,7 +147,7 @@ Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytes
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `/workflow:worktree create|list|merge|clean`.
 
-Concurrency: lean leaves (`code-workers`, Sonnet) ~8–10 in flight; deep-context agents ≤4 — the
+Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context agents ≤4 — the
 input-tokens/min limit is the binding cap.
 
 **Gate**: Each sub-task passes its own verification command before merge.
@@ -218,7 +218,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | `Explore` (built-in) | Codebase scanning | 2 |
 | `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; preloads the `planning` skill | 1, 4 |
 | `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
-| `code-workers` | Parallel fan-out leaf — one scoped sub-task | 6 |
+| `code-worker` | Parallel fan-out leaf — one scoped sub-task | 6 |
 | `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |
 | `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
 

@@ -152,11 +152,11 @@ Apply behavior-preserving cleanups. Extended-scope consolidation is allowed when
 
 **Escalation — orchestrate.** ONLY at the **top level** (main session, Agent tool available) AND with a multi-task plan: follow `subagent-workflows` → `references/subagent-driven-development.md`. Dispatch one implementer per task with simplify + review gates between steps. If you cannot dispatch, fall back to sequential self-contained implementation.
 
-Orchestrate by hand: `code-workers` leaves on disjoint packages ‖ `copilot` test agents in one message. Saved Workflows (`implement-and-verify`, `audit-fix-verify`, `gate-loop`) run only when the user asks for one; a dispatched subagent cannot start a Workflow.
+Orchestrate by hand: `code-worker` leaves on disjoint packages ‖ `copilot` test agents in one message. Saved Workflows (`implement-and-verify`, `audit-fix-verify`, `gate-loop`) run only when the user asks for one; a dispatched subagent cannot start a Workflow.
 
 **You are the ONE manager layer; leaves are terminal.** Fan-out lives here and only here — a dispatched subagent cannot dispatch further; tell every leaf it is terminal. Never run implementer leaves on overlapping code; merge in dependency order and re-gate after each merge.
 
-Dispatch fan-out leaves as `code-workers` (never `inherit`); concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.
+Dispatch fan-out leaves as `code-worker` (never `inherit`); concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.
 
 **You set the skills and the pattern; the leaf sets neither.** A leaf starts cold, with no session history and no `Skill` tool — whatever you leave unnamed, it improvises. Every dispatch decision is yours:
 

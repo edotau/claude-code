@@ -25,7 +25,7 @@ func terminalWidth() int {
 }
 
 // columnWidths sizes the type/status columns to the longest value actually in the rendered set, so
-// a table stays aligned instead of a fixed guess (e.g. "code-workers") breaking it.
+// a table stays aligned instead of a fixed guess (e.g. "code-worker") breaking it.
 type columnWidths struct {
 	subType    int
 	subStatus  int

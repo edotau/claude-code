@@ -42,6 +42,10 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    Every code dispatch carries the `copilot` test agent in the same message. → `rules/standards/quality.md`
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
+8. **Parallel by default; keep the main thread free.** For every code change the main thread plans and
+   briefs, then dispatches `code-worker` (implements) ‖ `copilot` (repairs tests) in one message, in the
+   background, and stays free for discussion, follow-ups and the live check. Inline only for a one-line
+   edit. Brief completely up front; never re-steer a running agent. → `rules/standards/quality.md`
 
 ## How-to (task → command → depth)
 

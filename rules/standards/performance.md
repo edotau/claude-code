@@ -13,7 +13,7 @@ model moves.
 **`sonnet`** — best all-round coding:
 - Planning, code review, orchestrating multi-agent workflows
 - Codebase exploration (the `gemini` agent's in-process backend)
-- Default for `code-workers` fan-out leaves
+- Default for `code-worker` fan-out leaves
 
 **`haiku`** — high-frequency, cost-sensitive:
 - Lightweight, frequently-invoked agents; worker/leaf agents in fan-outs
