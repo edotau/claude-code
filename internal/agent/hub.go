@@ -96,7 +96,7 @@ func (l hubLeg) Caps() Caps {
 // Available requires the opencode binary and an opencode login for this leg's provider; a login-less
 // ladder step reports why here instead of failing mid-exec.
 func (l hubLeg) Available() error {
-	if _, err := paths.LookPathReal("opencode"); err != nil {
+	if _, err := paths.VendorBin("opencode"); err != nil {
 		return err
 	}
 	if !slices.Contains(vendors.OpencodeLogins(), l.provider.OpencodeID) {
@@ -114,7 +114,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	if len(req.Prompt) > MaxPromptBytes {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: errPromptTooLarge(len(req.Prompt))}
 	}
-	bin, err := paths.LookPathReal("opencode")
+	bin, err := paths.VendorBin("opencode")
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -129,7 +131,7 @@ func hint(p *Provider) string {
 
 // ClaudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
 func ClaudeLoginStatus() (loggedIn bool, plan string) {
-	bin, err := exec.LookPath("claude")
+	bin, err := paths.VendorBin("claude")
 	if err != nil {
 		return false, ""
 	}

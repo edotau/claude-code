@@ -52,9 +52,9 @@ func runCommand(timeout time.Duration, name string, args ...string) (string, err
 	return strings.TrimSpace(string(out)), err
 }
 
-// realClaude resolves the claude binary past our own shim dir, or "" (then plain "claude" on PATH).
+// realClaude resolves the vendor claude binary, or "" on error.
 func realClaude() string {
-	p, _ := paths.LookPathReal("claude")
+	p, _ := paths.VendorBin("claude")
 	return p
 }
 

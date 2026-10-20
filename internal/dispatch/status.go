@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,21 +38,25 @@ type PaneStatus struct {
 
 // ansiRE strips cursor/SGR escape sequences and bare carriage returns, in case capture-pane output
 // ever includes them (the default -p omits SGR, but -e or a future caller might not).
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r`)
+var ansiRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r`) })
 
 // spinnerRE normalizes per-frame noise that changes every sample without reflecting new output:
 // braille spinner glyphs and ticking elapsed-seconds counters like "(12s · esc to interrupt)".
-var spinnerRE = regexp.MustCompile(`[\x{2800}-\x{28FF}]|\(\d+s[^)]*\)|\b\d+s\b`)
+var spinnerRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\x{2800}-\x{28FF}]|\(\d+s[^)]*\)|\b\d+s\b`) })
 
 // inputPatterns match an explicit request for the human: a yes/no or numbered choice prompt, a
 // bordered TUI composer box (bubbletea/ink style box-drawing), or a blocking "press enter" notice.
-var inputPatterns = regexp.MustCompile(`(?mi)\(y/n\)|\[y/n\]|do you want to proceed|press enter to continue|waiting for (your )?input|^\s*1\.\s*yes|[╭╮╰╯]|│\s*>`)
+var inputPatterns = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?mi)\(y/n\)|\[y/n\]|do you want to proceed|press enter to continue|waiting for (your )?input|^\s*1\.\s*yes|[╭╮╰╯]|│\s*>`)
+})
 
 // workingPatterns match text an agent CLI prints while actively generating or running a tool.
-var workingPatterns = regexp.MustCompile(`(?i)esc to interrupt|thinking…|thinking\.\.\.|generating|tokens/s|running tool|ctrl-c to stop`)
+var workingPatterns = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)esc to interrupt|thinking…|thinking\.\.\.|generating|tokens/s|running tool|ctrl-c to stop`)
+})
 
 // readyPatterns match a settled, idle prompt: the agent's bare composer caret or a plain shell prompt.
-var readyPatterns = regexp.MustCompile(`^(>|\$|%|❯)\s*$`)
+var readyPatterns = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(>|\$|%|❯)\s*$`) })
 
 // loginShells are the shell names BuildRemoteCommand execs into after the dispatched agent exits.
 var loginShells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "tcsh": true, "csh": true}
@@ -76,8 +81,8 @@ func lastNonEmptyLine(s string) string {
 // Normalize strips ANSI escapes and known animation noise so two samples of unchanged substantive
 // content fingerprint identically even if a spinner or elapsed-time counter ticked between them.
 func Normalize(raw string) string {
-	s := ansiRE.ReplaceAllString(raw, "")
-	s = spinnerRE.ReplaceAllString(s, "·")
+	s := ansiRE().ReplaceAllString(raw, "")
+	s = spinnerRE().ReplaceAllString(s, "·")
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
 		lines[i] = strings.TrimRight(l, " \t")
@@ -99,15 +104,15 @@ func Classify(prevFingerprint string, c PaneCapture) (state, reason, fingerprint
 	switch {
 	case isShellAfterExit(c):
 		return StateReady, "agent exited; login shell idle at prompt", fingerprint
-	case inputPatterns.MatchString(norm):
+	case inputPatterns().MatchString(norm):
 		return StateInputNeeded, "explicit input prompt detected", fingerprint
-	case workingPatterns.MatchString(norm):
+	case workingPatterns().MatchString(norm):
 		return StateWorking, "working indicator detected", fingerprint
 	case prevFingerprint == "":
 		return StateUnknown, "first observation; no baseline yet", fingerprint
 	case fingerprint != prevFingerprint:
 		return StateWorking, "pane output changed since last sample", fingerprint
-	case readyPatterns.MatchString(lastNonEmptyLine(norm)):
+	case readyPatterns().MatchString(lastNonEmptyLine(norm)):
 		return StateReady, "settled prompt, output unchanged", fingerprint
 	default:
 		return StateUnknown, "static ambiguous output, not a recognized prompt", fingerprint

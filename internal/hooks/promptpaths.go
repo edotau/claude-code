@@ -15,15 +15,20 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 // posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
 // then existence-filtered, so over-matching costs a stat, not a false report.
-var posixPathRE = regexp.MustCompile(`/[^\s"'` + "`" + `,;:()\[\]{}]+`)
+var posixPathRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`/[^\s"'` + "`" + `,;:()\[\]{}]+`)
+})
 
 // quotedPathRE matches a double-quoted absolute POSIX path, allowing spaces inside the quotes.
-var quotedPathRE = regexp.MustCompile(`"(/[^"]+)"`)
+var quotedPathRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`"(/[^"]+)"`)
+})
 
 // imageExts are the extensions we report as images. Those image.DecodeConfig cannot read (no stdlib
 // decoder) still get a type+size line — the point is telling the user the path was recognized.
@@ -67,7 +72,7 @@ func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
 
 // scanPosixPaths extracts unique absolute POSIX path tokens. Mirrors scanWinPaths.
 func scanPosixPaths(text string) []string {
-	return scanPaths(text, quotedPathRE, posixPathRE, ".,;:!?)")
+	return scanPaths(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
 }
 
 // describe builds the detail string for an existing file: image type+dimensions when decodable,
@@ -194,10 +199,14 @@ func promptPathFeedback(r io.Reader, stdout io.Writer, onWSL func() bool) int {
 }
 
 // winPathRE matches a bareword Windows path token; a quoted path (spaces inside) is quotedWinPathRE's.
-var winPathRE = regexp.MustCompile(`[A-Za-z]:[\\/][^\s"']+`)
+var winPathRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`[A-Za-z]:[\\/][^\s"']+`)
+})
 
 // quotedWinPathRE matches a double-quoted Windows path, allowing spaces inside the quotes.
-var quotedWinPathRE = regexp.MustCompile(`"([A-Za-z]:[\\/][^"]+)"`)
+var quotedWinPathRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`"([A-Za-z]:[\\/][^"]+)"`)
+})
 
 // OnWSL reports whether we're running under WSL — /proc/version carries "microsoft", or
 // WSL_DISTRO_NAME is set. Off-WSL the normalizer is a no-op (Windows paths never appear).
@@ -227,7 +236,7 @@ func TranslateWinPath(win string) string {
 
 // scanWinPaths is scanPosixPaths for Windows tokens.
 func scanWinPaths(text string) []string {
-	return scanPaths(text, quotedWinPathRE, winPathRE, "")
+	return scanPaths(text, quotedWinPathRE(), winPathRE(), "")
 }
 
 // WSLPathNormalize (UserPromptSubmit) reports every existing file path the prompt names, mapping

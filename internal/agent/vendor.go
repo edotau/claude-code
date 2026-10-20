@@ -83,7 +83,7 @@ func (v vendorRunner) Caps() Caps {
 
 func (v vendorRunner) Available() error {
 	spec, _ := vendors.Lookup(v.name)
-	_, err := paths.LookPathReal(spec.Binary)
+	_, err := paths.VendorBin(spec.Binary)
 	return err
 }
 
@@ -138,7 +138,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		return res, err
 	}
 	spec, _ := vendors.Lookup(v.name)
-	bin, err := paths.LookPathReal(spec.Binary)
+	bin, err := paths.VendorBin(spec.Binary)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
@@ -315,7 +315,7 @@ func (copilotRunner) Caps() Caps {
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true, SessionID: true,
 		Autonomous: true, Memory: true}
 }
-func (copilotRunner) Available() error { _, err := paths.LookPathReal("copilot"); return err }
+func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
 	t, own, err := vendorTarget(req, "copilot")
@@ -333,7 +333,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 		}
 	}
-	bin, err := paths.LookPathReal("copilot")
+	bin, err := paths.VendorBin("copilot")
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -26,6 +27,19 @@ func githubScratch(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
+	}
+}
+
+func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
+	githubScratch(t)
+	_, err := paths.VendorBin("copilot")
+	if err == nil {
+		t.Fatal("expected missing vendor")
+	}
+	var out bytes.Buffer
+	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot")
+	if want := "copilot: " + err.Error() + "\n"; out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
 	}
 }
 

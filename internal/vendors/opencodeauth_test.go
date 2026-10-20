@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 // fakeOpencode swaps the exec seam for a scripted opencode: version answers --version, list answers
@@ -17,10 +19,10 @@ import (
 // data home plus a pointer counting `auth list` calls.
 func fakeOpencode(t *testing.T, version, list string, listErr error) (dataHome string, listCalls *int) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dataHome = t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	calls := 0
 	orig := opencodeOutput
@@ -189,18 +191,34 @@ func TestOpencodeLoginsSameOnBothVersions(t *testing.T) {
 
 func TestOpencodeArgvPerVersion(t *testing.T) {
 	fakeOpencode(t, "2.0.32", "[]", nil)
-	if got := OpencodeLogoutArgv("openai", "cred_2"); !reflect.DeepEqual(got, []string{"opencode", "auth", "logout", "openai", "cred_2"}) {
-		t.Errorf("2.x logout = %v", got)
+	bin := pathstest.FakeVendor(t, "opencode", "exit 0")
+	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "logout", "openai", "cred_2"}) {
+		t.Errorf("2.x logout = %v, err = %v", got, err)
 	}
-	if got := OpencodeSwitchArgv("openai", "cred_2"); !reflect.DeepEqual(got, []string{"opencode", "auth", "switch", "openai", "cred_2"}) {
-		t.Errorf("2.x switch = %v", got)
+	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "switch", "openai", "cred_2"}) {
+		t.Errorf("2.x switch = %v, err = %v", got, err)
 	}
-	fakeOpencode(t, "1.19.3", "", nil)
-	if got := OpencodeLogoutArgv("openai", "openai"); !reflect.DeepEqual(got, []string{"opencode", "auth", "logout", "openai"}) {
-		t.Errorf("1.x logout = %v", got)
+	fakeOpencode(t, "1.19.3", "", nil) // fakeOpencode resets CLAUDE_CONFIG_DIR, so bin/opencode must be re-registered
+	bin = pathstest.FakeVendor(t, "opencode", "exit 0")
+	if got, err := OpencodeLogoutArgv("openai", "openai"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "logout", "openai"}) {
+		t.Errorf("1.x logout = %v, err = %v", got, err)
 	}
-	if got := OpencodeSwitchArgv("openai", "openai"); got != nil {
-		t.Errorf("1.x switch = %v, want nil", got)
+	if got, err := OpencodeSwitchArgv("openai", "openai"); err != nil || got != nil {
+		t.Errorf("1.x switch = %v, err = %v, want nil, nil", got, err)
+	}
+}
+
+// TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup: a missing bin/opencode must surface
+// VendorBin's "not installed" error, never the bare "opencode" string this used to fall back to.
+func TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup(t *testing.T) {
+	fakeOpencode(t, "2.0.32", "[]", nil) // CLAUDE_CONFIG_DIR is fresh here: bin/opencode was never written
+	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err == nil || got != nil {
+		t.Errorf("logout = %v, err = %v, want (nil, VendorBin error)", got, err)
+	} else if strings.Contains(err.Error(), `"opencode"`) || err.Error() == "opencode" {
+		t.Errorf("err = %v, must not be the bare PATH fallback", err)
+	}
+	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err == nil || got != nil {
+		t.Errorf("switch = %v, err = %v, want (nil, VendorBin error)", got, err)
 	}
 }
 
@@ -235,17 +253,11 @@ func TestOpencodeAuthV1SeesFileChange(t *testing.T) {
 	}
 }
 
-// fakeOpencodeOnDisk is fakeOpencode plus a stat-able opencode binary on PATH (so the disk cache keys),
-// returning the binary path and a counter of every exec through the seam.
+// fakeOpencodeOnDisk adds an installed binary for cache keys and counts every exec through the seam.
 func fakeOpencodeOnDisk(t *testing.T, version, list string, listErr error) (dataHome, bin string, execs *int) {
 	t.Helper()
 	dataHome, _ = fakeOpencode(t, version, list, listErr)
-	dir := t.TempDir()
-	t.Setenv("PATH", dir)
-	bin = filepath.Join(dir, "opencode")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin = pathstest.FakeVendor(t, "opencode", "")
 	n := 0
 	inner := opencodeOutput
 	opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) { n++; return inner(ctx, args...) }

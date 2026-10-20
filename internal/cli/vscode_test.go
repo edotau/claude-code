@@ -176,7 +176,6 @@ func TestTemplateIsFirstPartyOnly(t *testing.T) {
 	}
 	body := string(tmpl)
 	for _, want := range []string{
-		`"claudeCode.claudeProcessWrapper": "__CLAUDE_BIN__/claude"`,
 		`"chatgpt.cliExecutable": "__CLAUDE_BIN__/codex"`,
 		`"chat.useClaudeHooks"`,
 		`"github.copilot.`,
@@ -186,9 +185,9 @@ func TestTemplateIsFirstPartyOnly(t *testing.T) {
 			t.Errorf("template missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{`"python.`, `"[python]"`, "databricks", "Databricks"} {
+	for _, unwanted := range []string{`"claudeCode.claudeProcessWrapper"`, `"python.`, `"[python]"`, "databricks", "Databricks"} {
 		if strings.Contains(body, unwanted) {
-			t.Errorf("template retained non-first-party key %q", unwanted)
+			t.Errorf("template retained unwanted key %q", unwanted)
 		}
 	}
 }

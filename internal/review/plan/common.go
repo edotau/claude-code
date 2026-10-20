@@ -9,19 +9,20 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf16"
 
 	"github.com/edotau/claude-code/internal/helptext"
 )
 
-var lineSplitRe = regexp.MustCompile(`\r\n|\r|\n`)
+var lineSplitRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\r\n|\r|\n`) })
 
 // splitLines mirrors Python's str.splitlines() for the line endings these scripts see in practice.
 func splitLines(text string) []string {
 	if text == "" {
 		return nil
 	}
-	return lineSplitRe.Split(text, -1)
+	return lineSplitRe().Split(text, -1)
 }
 
 // truncateRunes matches Python's s[:n] slicing, which counts code points, not bytes.

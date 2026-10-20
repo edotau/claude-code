@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
@@ -215,7 +216,11 @@ func codexMenu(d *dialog) agentMenu {
 
 // codexKeyLogin feeds key to `codex login --with-api-key` on stdin; tests replace it.
 var codexKeyLogin = func(key string) error {
-	cmd := exec.Command("codex", "login", "--with-api-key")
+	bin, err := paths.VendorBin("codex")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, "login", "--with-api-key")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = strings.NewReader(key), os.Stdout, os.Stderr
 	return cmd.Run()
 }

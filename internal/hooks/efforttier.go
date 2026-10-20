@@ -5,6 +5,7 @@ package hooks
 import (
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // complexity is the classifier verdict; neutral emits no extra context.
@@ -18,13 +19,23 @@ const (
 
 var (
 	// filePathRe matches file-ish tokens (foo/bar.go, ./x.py, io.go) — a path signals real code work.
-	filePathRe = regexp.MustCompile(`(?:^|\s)\.{0,2}/?(?:[\w.-]+/)*[\w-]+\.(?:go|py|md|sh|bash|js|ts|tsx|jsx|yaml|yml|json|toml|sql|rs|java|c|h|cpp|rb|css|html|tmpl)\b`)
-	questionRe = regexp.MustCompile(`(?i)^(what|where|why|how|when|which|who|explain|show|list|is|are|does|do|can|should)\b`)
+	filePathRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:^|\s)\.{0,2}/?(?:[\w.-]+/)*[\w-]+\.(?:go|py|md|sh|bash|js|ts|tsx|jsx|yaml|yml|json|toml|sql|rs|java|c|h|cpp|rb|css|html|tmpl)\b`)
+	})
+	questionRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)^(what|where|why|how|when|which|who|explain|show|list|is|are|does|do|can|should)\b`)
+	})
 	// highRe: keywords that mark multi-file / design-level work regardless of prompt length.
-	highRe       = regexp.MustCompile(`(?i)\b(refactor|redesign|design|migrate|migration|implement|architecture|architect|audit|overhaul|rewrite)\b`)
-	mechanicalRe = regexp.MustCompile(`(?i)\b(typo|rename|one[- ]liner)\b`)
+	highRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(refactor|redesign|design|migrate|migration|implement|architecture|architect|audit|overhaul|rewrite)\b`)
+	})
+	mechanicalRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(typo|rename|one[- ]liner)\b`)
+	})
 	// scopeRe: a mechanical verb spanning many sites is multi-file work, not a one-liner — stays neutral.
-	scopeRe = regexp.MustCompile(`(?i)\b(across|every|all|repo-wide|codebase|call ?sites|callers|everywhere|throughout)\b`)
+	scopeRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(across|every|all|repo-wide|codebase|call ?sites|callers|everywhere|throughout)\b`)
+	})
 )
 
 // classifyPrompt is a cheap heuristic complexity read of the raw prompt. It must stay O(len(prompt))
@@ -34,12 +45,12 @@ func classifyPrompt(prompt string) complexity {
 	if p == "" {
 		return complexityNeutral
 	}
-	paths := filePathRe.FindAllString(p, 3)
-	if highRe.MatchString(p) || len(paths) >= 2 || isLongSpec(p) {
+	paths := filePathRe().FindAllString(p, 3)
+	if highRe().MatchString(p) || len(paths) >= 2 || isLongSpec(p) {
 		return complexityHigh
 	}
 	if len(p) < 120 && len(paths) == 0 && !strings.Contains(p, "```") {
-		if questionRe.MatchString(p) || strings.HasSuffix(p, "?") || (mechanicalRe.MatchString(p) && !scopeRe.MatchString(p)) {
+		if questionRe().MatchString(p) || strings.HasSuffix(p, "?") || (mechanicalRe().MatchString(p) && !scopeRe().MatchString(p)) {
 			return complexityLow
 		}
 	}

@@ -266,7 +266,7 @@ func nearMatches(want string, ids []string) []string {
 
 // copilotModelIDs resolves the copilot CLI and lists its live catalog via the SDK (the harness never reads a token).
 func copilotModelIDs() ([]string, error) {
-	bin, err := paths.LookPathReal("copilot")
+	bin, err := paths.VendorBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}

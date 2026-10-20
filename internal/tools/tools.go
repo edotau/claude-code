@@ -1,5 +1,4 @@
-// Package tools installs and updates vendor agent CLIs (claude, copilot, codex, opencode,
-// claude-science) into ~/.local/bin, and reports status for agy/tailscale (installed elsewhere).
+// Package tools installs and updates vendor agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
 package tools
 
 import (
@@ -19,7 +18,7 @@ import (
 )
 
 // action installs or updates one tool; w gets progress lines, dryRun prints without changing anything.
-type action func(ctx context.Context, w io.Writer, dryRun bool) error
+type action func(ctx context.Context, w io.Writer, dir string, dryRun bool) error
 
 // Tool is one row of the install table: Install is nil when there is no known fresh-install path
 // (agy, tailscale); Update is nil when Install also serves as the update (rerunning it is idempotent).
@@ -32,7 +31,7 @@ type Tool struct {
 }
 
 // Tools is the install table in roster order; npmPackages below must cover any entry that also
-// ships via npm, so a ~/.local install can retire the old global copy.
+// ships via npm, so a fresh install can retire the old global copy.
 var Tools = []Tool{
 	{Name: "claude", Binary: "claude", Install: installClaude},
 	{Name: "copilot", Binary: "copilot", Install: installCopilot},
@@ -64,8 +63,7 @@ func Lookup(name string) (Tool, bool) {
 	return Tool{}, false
 }
 
-// InstallSelected installs/updates names (empty = every tool), then retires any npm-global copy
-// the fresh ~/.local install replaces, plus the deprecated @google/gemini-cli whenever it runs.
+// InstallSelected installs/updates names (empty = all), retiring replaced npm-global copies and @google/gemini-cli.
 func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bool) error {
 	sel, err := resolve(names)
 	if err != nil {
@@ -74,15 +72,20 @@ func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bo
 	var errs []error
 	for _, t := range sel {
 		fmt.Fprintf(w, "== %s ==\n", t.Name)
-		old, _ := paths.LookPathReal(t.Binary)
-		if err := runOne(ctx, w, t, old, dryRun); err != nil {
+		old := directInstall(t)
+		if old == "" {
+			old, _ = paths.LookPathReal(t.Binary)
+		}
+		dir := installDir(t, old)
+		if err := runOne(ctx, w, t, old, dir, dryRun); err != nil {
 			fmt.Fprintf(w, "  error: %v\n", err)
 			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
 			continue
 		}
-		npmCleanupFor(ctx, w, t.Name, dryRun)
+		npmCleanupFor(ctx, w, t.Name, dir, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
+	LinkVendors(w, names, dryRun)
 	return errors.Join(errs...)
 }
 
@@ -101,15 +104,15 @@ func resolve(names []string) ([]Tool, error) {
 	return sel, nil
 }
 
-// runOne updates when the binary is already present and the tool has its own Update; installs fresh
-// when absent; otherwise reruns Install (the script/release installers are idempotent); a tool with
-// neither is report-only.
-func runOne(ctx context.Context, w io.Writer, t Tool, oldPath string, dryRun bool) error {
+// runOne updates a present tool that has its own Update, else (re)runs the idempotent Install; else report-only.
+func runOne(ctx context.Context, w io.Writer, t Tool, oldPath, dir string, dryRun bool) error {
 	switch {
 	case oldPath != "" && t.Update != nil:
-		return t.Update(ctx, w, dryRun)
+		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
+		return t.Update(ctx, w, dir, dryRun)
 	case t.Install != nil:
-		return t.Install(ctx, w, dryRun)
+		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
+		return t.Install(ctx, w, dir, dryRun)
 	default:
 		if oldPath != "" {
 			fmt.Fprintf(w, "  present: %s\n", oldPath)
@@ -121,15 +124,48 @@ func runOne(ctx context.Context, w io.Writer, t Tool, oldPath string, dryRun boo
 	}
 }
 
-// localBinDir is the install target for every tool in this package.
+// installDir: a direct bin/ install, else the existing install's dir, else bin/ for a vendor, else ~/.local/bin.
+func installDir(t Tool, oldPath string) string {
+	if t.Name == "claude" {
+		return localBinDir()
+	}
+	_, vendor := paths.VendorName(t.Name)
+	switch {
+	case directInstall(t) != "":
+		return paths.BinDir()
+	case oldPath != "":
+		return filepath.Dir(oldPath)
+	case vendor:
+		return paths.BinDir()
+	}
+	return localBinDir()
+}
+
+// directInstall is BinDir/<bin> when a vendor's CLI is a regular file there (a direct install), else "".
+func directInstall(t Tool) string {
+	bin, ok := paths.VendorName(t.Name)
+	if !ok {
+		return ""
+	}
+	p := filepath.Join(paths.BinDir(), bin)
+	if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+		return p
+	}
+	return ""
+}
+
+// localBinDir is the fallback install target for non-vendor tools.
 func localBinDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "bin")
 }
 
-// installBinary atomically writes data as an executable at localBinDir()/name.
-func installBinary(w io.Writer, name string, data []byte) error {
-	dest := filepath.Join(localBinDir(), name)
+// installBinary atomically writes data as an executable at dir/name.
+func installBinary(w io.Writer, dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	dest := filepath.Join(dir, name)
 	fmt.Fprintf(w, "  install  %s (%d bytes)\n", dest, len(data))
 	return paths.AtomicWrite(dest, data, 0o755)
 }
@@ -137,15 +173,15 @@ func installBinary(w io.Writer, name string, data []byte) error {
 // npmPackages maps a Tool name to the npm package that also ships it, for post-install cleanup.
 var npmPackages = map[string]string{"codex": "@openai/codex", "opencode": "opencode-ai"}
 
-// npmCleanupFor retires npm-global copies on PATH once name has a working ~/.local/bin install.
-func npmCleanupFor(ctx context.Context, w io.Writer, name string, dryRun bool) {
+// npmCleanupFor retires npm-global copies on PATH once dir/name answers --version.
+func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bool) {
 	pkg, ok := npmPackages[name]
 	if !ok {
 		return
 	}
-	localPath := filepath.Join(localBinDir(), name)
+	localPath := filepath.Join(dir, name)
 	if !dryRun && firstVersionLine(localPath) == "" {
-		fmt.Fprintf(w, "  keep     npm-global %s (the ~/.local/bin copy did not answer --version)\n", name)
+		fmt.Fprintf(w, "  keep     npm-global %s (%s did not answer --version)\n", name, localPath)
 		return
 	}
 	seen := make(map[string]bool)
@@ -223,7 +259,7 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 
 // installBrowser: on WSL it runs `web setup` (start the Windows browser with CDP, register chrome-devtools-mcp);
 // elsewhere it only reports — the Claude in Chrome page opens on an explicit `web setup`, never on install.
-func installBrowser(_ context.Context, w io.Writer, dryRun bool) error {
+func installBrowser(_ context.Context, w io.Writer, dir string, dryRun bool) error {
 	env := browser.NewEnv()
 	env.DryRun = dryRun
 	if !env.WSL {
@@ -248,6 +284,6 @@ func installBrowser(_ context.Context, w io.Writer, dryRun bool) error {
 }
 
 // installClipboard writes the WSL wl-paste proxy (a no-op report off WSL).
-func installClipboard(_ context.Context, w io.Writer, dryRun bool) error {
+func installClipboard(_ context.Context, w io.Writer, dir string, dryRun bool) error {
 	return clipboard.InstallProxy(w, dryRun)
 }

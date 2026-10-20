@@ -130,7 +130,7 @@ var modelChoices = func(p *providers.Provider, claude bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if !claude && p.OpencodeID != "" {
-		if bin, err := paths.LookPathReal("opencode"); err == nil {
+		if bin, err := paths.VendorBin("opencode"); err == nil {
 			out, _ := exec.CommandContext(ctx, bin, "models", p.OpencodeID).Output()
 			var ids []string
 			for line := range strings.SplitSeq(string(out), "\n") {

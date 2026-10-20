@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Finding is one assumption-linter hit; field order matches the Python dict literal for JSON parity.
@@ -68,18 +69,22 @@ func simpleMatcher(re *regexp.Regexp) func(string) (string, bool) {
 }
 
 var (
-	vagueActionKeywordRe     = regexp.MustCompile(`(?i)\b(?:fix|improve|optimize|refactor|update|enhance)\b`)
-	vagueActionExceptionRe   = regexp.MustCompile(`(?i)^\s+\w+\s+(?:to|so|by)\b`)
-	unscopedSubjectKeywordRe = regexp.MustCompile(`(?i)\b(?:the\s+user|users)\b`)
-	unscopedSubjectExceptRe  = regexp.MustCompile(`(?i)\b(?:who|which|admin|role|authenticated|specific)\b`)
+	vagueActionKeywordRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:fix|improve|optimize|refactor|update|enhance)\b`)
+	})
+	vagueActionExceptionRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^\s+\w+\s+(?:to|so|by)\b`) })
+	unscopedSubjectKeywordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\b(?:the\s+user|users)\b`) })
+	unscopedSubjectExceptRe  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:who|which|admin|role|authenticated|specific)\b`)
+	})
 )
 
 // vagueActionMatch replicates `\b(keyword)\b(?!\s+\w+\s+(?:to|so|by))` — RE2 has no lookahead, so this
 // walks each keyword occurrence and rejects it if a specific target ("... to/so/by") follows immediately.
 func vagueActionMatch(s string) (string, bool) {
-	for _, m := range vagueActionKeywordRe.FindAllStringIndex(s, -1) {
+	for _, m := range vagueActionKeywordRe().FindAllStringIndex(s, -1) {
 		rest := s[m[1]:]
-		if !vagueActionExceptionRe.MatchString(rest) {
+		if !vagueActionExceptionRe().MatchString(rest) {
 			return s[m[0]:m[1]], true
 		}
 	}
@@ -89,56 +94,60 @@ func vagueActionMatch(s string) (string, bool) {
 // unscopedSubjectMatch replicates `\b(the user|users)\b(?!.*\b(who|...)\b)` without RE2 lookahead:
 // reject an occurrence if any scoping word appears anywhere later on the line.
 func unscopedSubjectMatch(s string) (string, bool) {
-	for _, m := range unscopedSubjectKeywordRe.FindAllStringIndex(s, -1) {
+	for _, m := range unscopedSubjectKeywordRe().FindAllStringIndex(s, -1) {
 		rest := s[m[1]:]
-		if !unscopedSubjectExceptRe.MatchString(rest) {
+		if !unscopedSubjectExceptRe().MatchString(rest) {
 			return s[m[0]:m[1]], true
 		}
 	}
 	return "", false
 }
 
-var signals = []signalDef{
-	{
-		"minimizing",
-		"Minimizing language often hides complexity. What's being skipped?",
-		simpleMatcher(regexp.MustCompile(`(?i)\b(?:just|simply|simple|straightforward|trivial|easy)\b`)),
-	},
-	{
-		"unstated-assumption",
-		"Signals an unstated assumption. Is it really obvious?",
-		simpleMatcher(regexp.MustCompile(`(?i)\b(?:obviously|clearly|of course|naturally)\b`)),
-	},
-	{
-		"hopeful",
-		"Hopeful, not verified. How will you confirm?",
-		simpleMatcher(regexp.MustCompile(`(?i)\b(?:should\s+(?:be\s+fine|work)|shouldn't\s+be\s+a\s+problem|probably)\b`)),
-	},
-	{
-		"explicit-assumption",
-		"Explicit — good — but have you verified it?",
-		simpleMatcher(regexp.MustCompile(`(?i)\b(?:I\s+assume|assuming|I'm\s+guessing)\b`)),
-	},
-	{
-		"absolute-scope",
-		"Absolute scope. Is that really the case for every input?",
-		simpleMatcher(regexp.MustCompile(`(?i)\b(?:all\s+users|every|everything|always|never)\b`)),
-	},
-	{
-		"vague-action",
-		"Vague action verb. What specifically changes? What's the measurable result?",
-		vagueActionMatch,
-	},
-	{
-		"unscoped-subject",
-		"Which user(s)? All? A specific role? Authenticated only?",
-		unscopedSubjectMatch,
-	},
-}
+var signals = sync.OnceValue(func() []signalDef {
+	return []signalDef{
+		{
+			"minimizing",
+			"Minimizing language often hides complexity. What's being skipped?",
+			simpleMatcher(regexp.MustCompile(`(?i)\b(?:just|simply|simple|straightforward|trivial|easy)\b`)),
+		},
+		{
+			"unstated-assumption",
+			"Signals an unstated assumption. Is it really obvious?",
+			simpleMatcher(regexp.MustCompile(`(?i)\b(?:obviously|clearly|of course|naturally)\b`)),
+		},
+		{
+			"hopeful",
+			"Hopeful, not verified. How will you confirm?",
+			simpleMatcher(regexp.MustCompile(`(?i)\b(?:should\s+(?:be\s+fine|work)|shouldn't\s+be\s+a\s+problem|probably)\b`)),
+		},
+		{
+			"explicit-assumption",
+			"Explicit — good — but have you verified it?",
+			simpleMatcher(regexp.MustCompile(`(?i)\b(?:I\s+assume|assuming|I'm\s+guessing)\b`)),
+		},
+		{
+			"absolute-scope",
+			"Absolute scope. Is that really the case for every input?",
+			simpleMatcher(regexp.MustCompile(`(?i)\b(?:all\s+users|every|everything|always|never)\b`)),
+		},
+		{
+			"vague-action",
+			"Vague action verb. What specifically changes? What's the measurable result?",
+			vagueActionMatch,
+		},
+		{
+			"unscoped-subject",
+			"Which user(s)? All? A specific role? Authenticated only?",
+			unscopedSubjectMatch,
+		},
+	}
+})
 
 var (
-	stepBlockRe  = regexp.MustCompile(`(?:^|\n)((?:[ \t]*\d+[.)]\s+.+\n?)+)`)
-	verifyWordRe = regexp.MustCompile(`(?i)\b(?:test|verify|check|assert|confirm|ensure|validate)\b`)
+	stepBlockRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|\n)((?:[ \t]*\d+[.)]\s+.+\n?)+)`) })
+	verifyWordRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:test|verify|check|assert|confirm|ensure|validate)\b`)
+	})
 )
 
 func lintText(text string) []Finding {
@@ -148,7 +157,7 @@ func lintText(text string) []Finding {
 		if stripped == "" || strings.HasPrefix(stripped, "#") {
 			continue
 		}
-		for _, sig := range signals {
+		for _, sig := range signals() {
 			if matched, ok := sig.match(stripped); ok {
 				findings = append(findings, Finding{
 					Line:     i + 1,
@@ -161,9 +170,9 @@ func lintText(text string) []Finding {
 		}
 	}
 
-	for _, m := range stepBlockRe.FindAllStringSubmatch(text, -1) {
+	for _, m := range stepBlockRe().FindAllStringSubmatch(text, -1) {
 		block := m[1]
-		if verifyWordRe.MatchString(block) {
+		if verifyWordRe().MatchString(block) {
 			continue
 		}
 		trimmed := strings.ReplaceAll(strings.TrimSpace(block), "\n", " ")

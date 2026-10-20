@@ -93,7 +93,7 @@ type Plan struct {
 var (
 	ensureRouter = router.Ensure
 	findClaude   = ClaudeBinary
-	lookPath     = paths.LookPathReal
+	lookPath     = paths.VendorBin
 	selfBinary   = SelfBinary
 )
 

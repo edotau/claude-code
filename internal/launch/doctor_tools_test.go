@@ -7,30 +7,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/tools"
 )
 
-func writeToolScript(t *testing.T, dir, version string) string {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "opencode")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\necho "+version+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func TestToolPATHCopiesFlagsShadowAndExtras(t *testing.T) {
+func TestToolPATHCopiesAndExtras(t *testing.T) {
 	scratch := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", scratch)
-	shim := filepath.Join(scratch, "bin")
-	if err := os.MkdirAll(shim, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	a, b, c := filepath.Join(scratch, "A"), filepath.Join(scratch, "B"), filepath.Join(scratch, "C")
-	aBin, bBin := writeToolScript(t, a, "1.0.0"), writeToolScript(t, b, "2.0.0")
+	bin := paths.BinDir()
+	primary := pathstest.FakeVendor(t, "opencode", "echo 1.0.0")
+	aBin := vendorPATHFixture(t, "opencode", "echo 1.0.0")
+	bBin := vendorPATHFixture(t, "opencode", "echo 2.0.0")
+	a, b, c := filepath.Dir(aBin), filepath.Dir(bBin), filepath.Join(scratch, "C")
 	// C/opencode is a symlink to A/opencode: same real file, must dedupe.
 	if err := os.MkdirAll(c, 0o755); err != nil {
 		t.Fatal(err)
@@ -41,43 +30,84 @@ func TestToolPATHCopiesFlagsShadowAndExtras(t *testing.T) {
 	join := func(dirs ...string) string { return strings.Join(dirs, string(os.PathListSeparator)) }
 
 	cases := []struct {
-		name        string
-		path        string
-		wantCopies  []string
-		wantShadows bool
+		name       string
+		path       string
+		wantCopies []string
 	}{
-		{"shim first", join(shim, a, b), []string{aBin, bBin}, false},
-		{"tool before shim", join(a, shim, b), []string{aBin, bBin}, true},
-		{"no shim dir", join(a, b), []string{aBin, bBin}, false},
-		{"symlink dedup", join(shim, a, c), []string{aBin}, false},
+		{"bin first", join(bin, a, b), []string{aBin, bBin}},
+		{"tool before bin", join(a, bin, b), []string{aBin, bBin}},
+		{"no bin dir", join(a, b), []string{aBin, bBin}},
+		{"symlink dedup", join(bin, a, c), []string{aBin}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("PATH", tc.path)
-			copies, shadows := toolPATHCopies("opencode")
-			if !slices.Equal(copies, tc.wantCopies) || shadows != tc.wantShadows {
-				t.Fatalf("toolPATHCopies = %v, %v; want %v, %v", copies, shadows, tc.wantCopies, tc.wantShadows)
+			copies := toolPATHCopies("opencode")
+			if !slices.Equal(copies, tc.wantCopies) {
+				t.Fatalf("toolPATHCopies = %v; want %v", copies, tc.wantCopies)
 			}
 		})
 	}
 
 	status := tools.Status{Name: "opencode", Path: aBin, Version: "1.0.0"}
-	t.Run("detail shadowed", func(t *testing.T) {
-		t.Setenv("PATH", join(a, shim, b))
-		detail := toolDoctorDetail(status)
-		for _, want := range []string{"shadows the shim", "also on PATH: " + bBin + " 2.0.0"} {
-			if !strings.Contains(detail, want) {
-				t.Errorf("detail %q missing %q", detail, want)
+	for _, order := range []string{join(a, bin, b), join(bin, a, b)} {
+		t.Run(order, func(t *testing.T) {
+			t.Setenv("PATH", order)
+			detail := toolDoctorDetail(status)
+			want := primary + " 1.0.0 (direct install in bin/)" +
+				" · also on PATH: " + aBin + " 1.0.0 · also on PATH: " + bBin + " 2.0.0"
+			if detail != want {
+				t.Errorf("detail = %q, want %q", detail, want)
 			}
-		}
-	})
-	t.Run("detail shim first", func(t *testing.T) {
-		t.Setenv("PATH", join(shim, a, b))
-		detail := toolDoctorDetail(status)
-		if !strings.Contains(detail, "also on PATH") || strings.Contains(detail, "shadows") {
-			t.Errorf("detail %q: want extras without shadow warning", detail)
-		}
-	})
+		})
+	}
+}
+
+func TestDoctorVendorRows(t *testing.T) {
+	for _, kind := range []string{"link", "direct", "broken link", "retired shim"} {
+		t.Run(kind, func(t *testing.T) {
+			doctorScratch(t)
+			t.Setenv("HOME", t.TempDir())
+			source := vendorPATHFixture(t, "opencode", "echo 1.2.3")
+			t.Setenv("PATH", filepath.Dir(source))
+			dst := pathstest.FakeVendor(t, "opencode", "echo 4.5.6")
+			want := dst + " 4.5.6 (direct install in bin/)" +
+				" · also on PATH: " + source + " 1.2.3"
+			if kind != "direct" {
+				if err := os.Remove(dst); err != nil {
+					t.Fatal(err)
+				}
+				target := source
+				switch kind {
+				case "link":
+					want = dst + " → " + source + " 1.2.3"
+				case "broken link":
+					target = filepath.Join(t.TempDir(), "missing")
+					want = "opencode: " + dst + " is a broken link (run claude-code install) · on PATH: " + source
+				case "retired shim":
+					target = filepath.Join(t.TempDir(), "claude-code")
+					if err := os.WriteFile(target, []byte("must not execute"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					want = "opencode: " + dst + " is the retired claude-code shim (run claude-code install) · on PATH: " + source
+				}
+				if err := os.Symlink(target, dst); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checks, _ := DoctorChecks()
+			row := findCheck(checks, "tool opencode")
+			if row == nil {
+				t.Fatal("missing tool opencode row")
+			}
+			if row.Detail != want {
+				t.Errorf("detail = %q, want %q", row.Detail, want)
+			}
+			if wantOK := kind == "link" || kind == "direct"; row.OK != wantOK {
+				t.Errorf("OK = %v, want %v", row.OK, wantOK)
+			}
+		})
+	}
 }
 
 func TestInteractiveVendorArgs(t *testing.T) {
