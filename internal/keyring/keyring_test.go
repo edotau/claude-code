@@ -169,7 +169,7 @@ func TestSetDeleteLatchedDownErrors(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"Set", func() error { return Set("NAME", "value") }, "keyring: the keyring did not answer earlier this run — use the file plane instead"},
+		{"Set", func() error { return Set("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
 		{"Delete", func() error { return Delete("NAME") }, "keyring: the keyring did not answer earlier this run"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

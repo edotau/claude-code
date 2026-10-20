@@ -61,6 +61,24 @@ func TestFinalizeSecretValueCheckAndDiscard(t *testing.T) {
 	}
 }
 
+// verifyBackup must accept the vault value when a name's seal-time value came from the keyring, not
+// the backed-up file: migrateSecrets prefers the keyring over secrets.env, so the backup's own bytes
+// legitimately differ from the vault copy, and finalize must succeed without a --discard.
+func TestFinalizeAcceptsKeyringValueOverFileBackup(t *testing.T) {
+	kr := useMigrationKeyring(t)
+	kr.values["FILE_TOKEN"] = "keyring-credential"
+	seedLegacyFile(t, "secrets.env", "FILE_TOKEN=file-credential\n")
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	requireMigrationDone(t, readMigrationManifest(t, 1))
+	requireVaultSecret(t, "FILE_TOKEN", "keyring-credential", true)
+	if err := Finalize(io.Discard, nil); err != nil {
+		t.Fatalf("Finalize(nil) = %v, want success: the keyring value backing FILE_TOKEN still matches", err)
+	}
+	requireMigrationFile(t, manifestPath(), false)
+}
+
 func TestFinalizeVerifiesAllNonSecretBackupsBeforeDeleting(t *testing.T) {
 	useMigrationKeyring(t)
 	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
@@ -307,6 +325,40 @@ func TestFinalizeResumesAfterKeyringDeleteFailure(t *testing.T) {
 	requireMigrationFile(t, legacyDir(), false)
 }
 
+// A backup already gone for a done item counts as already removed, with no Finalizing flag needed:
+// finalize must finish and say "already gone" for each, not refuse or require a resumed-finalize state.
+func TestFinalizeTreatsAlreadyGoneBackupsAsRemoved(t *testing.T) {
+	useMigrationKeyring(t)
+	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
+	seedLegacyFile(t, "custom.env", "PLAIN=value\n")
+	seedLegacyFile(t, "providers.json", `{"default":"openai"}`)
+	seedLegacyFile(t, "vendors.json", `{}`)
+	if err := Migrate(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	m := readMigrationManifest(t, 4)
+	requireMigrationDone(t, m)
+	for _, item := range m.Items {
+		if err := os.Remove(item.Backup); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := Finalize(&out, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range m.Items {
+		if !strings.Contains(out.String(), item.Backup+": already gone\n") {
+			t.Fatalf("finalize did not report %s as already gone", item.Backup)
+		}
+	}
+	if !strings.Contains(out.String(), "finalized: removed 0 backup(s)\n") {
+		t.Fatal("finalize did not report zero owned removals")
+	}
+	requireMigrationFile(t, manifestPath(), false)
+	requireMigrationFile(t, legacyDir(), false)
+}
+
 func TestFinalizeResumesRemovedBackup(t *testing.T) {
 	useMigrationKeyring(t)
 	seedLegacyFile(t, "provider.env", "HARNESS_PROVIDER=openai\n")
@@ -326,8 +378,8 @@ func TestFinalizeResumesRemovedBackup(t *testing.T) {
 	if err := Finalize(&out, nil); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "finalized: removed 1 backup(s)\n" {
-		t.Fatal("resumed finalize did not remove exactly the remaining backup")
+	if out.String() != m.Items[0].Backup+": already gone\nfinalized: removed 1 backup(s)\n" {
+		t.Fatal("resumed finalize did not report the already-gone backup and remove the remaining one")
 	}
 	requireMigrationFile(t, manifestPath(), false)
 	requireMigrationFile(t, legacyDir(), false)

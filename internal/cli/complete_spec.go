@@ -83,10 +83,13 @@ func buildSpecTree() map[string]*compNode {
 			"all":    {flags: []flagInfo{flag("since")}}, // forwards its args to `secrets git`
 		}},
 		"vault": {sub: map[string]*compNode{
-			"show": {flags: []flagInfo{boolFlag("tailscale")}}, "edit": {}, "rollback": {}, "rotate-key": {},
-			"set":      {flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"), boolFlag("dry-run")}},
-			"migrate":  {flags: []flagInfo{boolFlag("dry-run")}},
-			"finalize": {flags: []flagInfo{valuedFlag("discard", secretNames)}},
+			"show": {flags: []flagInfo{boolFlag("tailscale")}}, "edit": {},
+			"rollback":   {flags: []flagInfo{valuedFlag("discard", secretNames)}},
+			"rotate-key": {flags: []flagInfo{boolFlag("force")}},
+			"set":        {flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"), boolFlag("dry-run")}},
+			"migrate":    {flags: []flagInfo{boolFlag("dry-run")}},
+			"finalize":   {flags: []flagInfo{valuedFlag("discard", secretNames)}},
+			"key":        {sub: map[string]*compNode{"show": {}}},
 		}},
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},

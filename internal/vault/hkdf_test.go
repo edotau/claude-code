@@ -183,8 +183,9 @@ func TestWrongInfoCannotOpen(t *testing.T) {
 	}
 }
 
-// TestSchemaWithSecretsRefused: an older-schema vault holding secrets is refused with the migrate
-// message; the same older schema with zero secrets is accepted (and upgraded in place by Update).
+// TestSchemaWithSecretsRefused: an older-schema vault holding secrets is refused with the honest
+// "this build cannot read its secrets" message, not "vault migrate" advice this build cannot act
+// on; the same older schema with zero secrets is accepted (and upgraded in place by Update).
 func TestSchemaWithSecretsRefused(t *testing.T) {
 	useZeroRootVault(t)
 	if err := Update(func(tx *Tx) error {
@@ -199,8 +200,11 @@ func TestSchemaWithSecretsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("an older-schema vault holding secrets was accepted")
 	}
-	if !strings.Contains(err.Error(), "vault schema 1") || !strings.Contains(err.Error(), "vault migrate") {
-		t.Fatalf("error = %q, want it to name the schema and the migrate verb", err.Error())
+	if !strings.Contains(err.Error(), "vault schema 1") || !strings.Contains(err.Error(), "cannot read its secrets") {
+		t.Fatalf("error = %q, want it to name the schema and say it cannot read the secrets", err.Error())
+	}
+	if strings.Contains(err.Error(), "vault migrate") {
+		t.Errorf("error = %q, must not advise a migrate this build cannot run", err.Error())
 	}
 }
 

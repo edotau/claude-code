@@ -30,8 +30,8 @@ var (
 )
 
 // schemaVersion is the current on-disk layout; bumped for the HKDF subkey change (Phase 4b). A
-// vault at an older schema with secret records is refused (no auto re-seal path before Phase 8);
-// one with zero secrets is upgraded in place by the next Update.
+// vault at an older schema with secret records is refused — this build cannot re-seal them; one
+// with zero secrets is upgraded in place by the next Update.
 const schemaVersion = 2
 
 // View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
@@ -74,7 +74,9 @@ func checkSchema(t *Tx) error {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
 	}
 	if n < schemaVersion && len(t.Names(Secrets)) > 0 {
-		return fmt.Errorf("vault schema %d: re-run claude-code vault migrate", n)
+		return fmt.Errorf("vault schema %d: written by an older claude-code (pre-HKDF format); "+
+			"this build cannot read its secrets. Move state/vault.db aside and re-enter secrets with "+
+			"claude-code secrets set, or run the older binary to export them first", n)
 	}
 	return nil
 }

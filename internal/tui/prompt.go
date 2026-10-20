@@ -65,6 +65,9 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 // StdinIsTerminal reports whether stdin is a real terminal (a /dev/null char device is not).
 func StdinIsTerminal() bool { return isTerminal(int(os.Stdin.Fd())) }
 
+// StdoutIsTerminal reports whether stdout is a real terminal (a /dev/null char device is not).
+func StdoutIsTerminal() bool { return isTerminal(int(os.Stdout.Fd())) }
+
 // confirmKey maps one keypress to an answer: y yes; n, Esc, q or Ctrl-C no; Enter the default; done=false waits.
 func confirmKey(k Key, def bool) (answer, done bool) {
 	switch {

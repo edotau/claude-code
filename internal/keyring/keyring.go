@@ -1,6 +1,6 @@
 // Package keyring is the OS secret-service plane: a shell-out to `secret-tool` (libsecret) on Linux,
 // `security` on macOS. Degrades rather than failing hard: no tool, no session, or a locked keyring
-// all read as "this plane holds nothing", so callers fall through to the file plane.
+// all read as "this plane holds nothing", so callers fall through to HARNESS_VAULT_KEY or key_command.
 package keyring
 
 import (
@@ -64,7 +64,8 @@ func Available() bool {
 }
 
 // Lookup looks up name in the OS keyring. err is ErrNoAnswer when the tool timed out or the
-// `down` latch is already set; a plain miss, unsupported OS, or no tool all read as ("", false, nil).
+// `down` latch is already set, ErrNoTool when no tool is on PATH for this OS; a plain,
+// positively-established miss reads as ("", false, nil).
 func Lookup(name string) (value string, found bool, err error) {
 	if name == "" {
 		return "", false, nil
@@ -135,10 +136,10 @@ func Set(name, value string) error {
 		return fmt.Errorf("keyring: %s: name or value spans more than one line", name)
 	}
 	if !Available() {
-		return fmt.Errorf("keyring: no keyring tool on PATH for %s — use the file plane instead", runtime.GOOS)
+		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", runtime.GOOS)
 	}
 	if down.Load() {
-		return errors.New("keyring: the keyring did not answer earlier this run — use the file plane instead")
+		return errors.New("keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
 	defer cancel()

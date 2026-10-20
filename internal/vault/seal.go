@@ -47,6 +47,10 @@ func parseKey(value, vaultID string) (*Key, error) {
 	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, raw: trimmed}, nil
 }
 
+// Raw returns the base64-encoded master key value k was parsed from — the same encoding
+// HARNESS_VAULT_KEY accepts. Callers must only print it through an explicit, audited reveal path.
+func (k *Key) Raw() string { return k.raw }
+
 func (k *Key) Seal(name, value string) []byte {
 	return k.aead.Seal(nil, nil, []byte(value), []byte(secretsInfo+"/"+name))
 }
