@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 )
 
@@ -123,11 +124,14 @@ func tailscaleConnect(ctx context.Context, args []string) int {
 		key = strings.TrimSpace(os.Getenv(*keyEnv))
 	}
 	if key == "" {
+		key, _, _ = secrets.Get("TAILSCALE_AUTHKEY")
+	}
+	if key == "" {
 		if st, err := tailscale.Status(ctx); err == nil && st.BackendState == "Running" {
 			fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
 			return 0
 		}
-		fmt.Fprintln(os.Stderr, "tailscale: no auth key given and not connected; run `claude-code configure` or pass --auth-key")
+		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `tailscale key --save`")
 		return 2
 	}
 	if err := tailscale.Connect(ctx, key, *exitNode); err != nil {
@@ -152,6 +156,7 @@ func tailscaleKey(ctx context.Context, args []string) int {
 	tags := fs.String("tags", "", "comma-separated ACL tags (tag:a,tag:b)")
 	expiry := fs.String("expiry", "90d", "key lifetime: a Go duration, or Nd for N days")
 	desc := fs.String("description", "", "a note shown in the admin console")
+	save := fs.Bool("save", false, "also seal the key as TAILSCALE_AUTHKEY in the vault")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -181,6 +186,13 @@ func tailscaleKey(ctx context.Context, args []string) int {
 	}
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
 	fmt.Println(key.Key) // the only thing on stdout, so it can be piped
+	if *save {
+		if err := secrets.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
+			fmt.Fprintf(os.Stderr, "tailscale key: --save: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", secrets.Redact(key.Key))
+	}
 	return 0
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // isolateCompletionEnv points every on-disk domain (providers, secrets, memory repos, dispatch
@@ -36,10 +37,11 @@ func TestSpecTreeCoversEveryCommand(t *testing.T) {
 // (grepped from the verb's run func at the time this test was written) — a word added to the
 // switch without a matching specTree entry drifts silently otherwise.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
+	vaulttest.Use(t)
 	cases := map[string][]string{
 		"secrets":   {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
 		"history":   {"snapshot", "log", "diff"},
-		"vault":     {"show", "edit", "migrate", "finalize", "rollback", "rotate-key"},
+		"vault":     {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key"},
 		"web":       {"browsers", "search", "setup", "view"},
 		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "dream", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias"},
 		"router":    {"serve", "start", "stop", "status"},
