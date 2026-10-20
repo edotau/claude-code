@@ -23,7 +23,6 @@ var submitRow = enterRow("save keys to the secrets manager and exit")
 // narrows it to that agent's row. Any change made here re-renders settings.json and the vendor configs on exit.
 func runMenu(d *dialog) int {
 	d.pending = map[string]stagedKey{}
-	defer discardKeys(d)
 	defer func() {
 		if d.changed {
 			rerenderConfigs(d)
@@ -40,7 +39,9 @@ func runMenu(d *dialog) int {
 				if !ok {
 					return 1
 				}
+				return 0
 			}
+			discardKeys(d) // saveKeys never ran: nothing was drained, so discard every staged key
 			return 0
 		}
 		start = idx
