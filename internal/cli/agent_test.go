@@ -5,8 +5,11 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // writeFixtureFile creates path (with parents) holding content.
@@ -104,6 +107,80 @@ func TestTimeoutExplicit(t *testing.T) {
 	}
 	if *timeout != 5*time.Minute {
 		t.Errorf("timeout = %v, want 5m", *timeout)
+	}
+}
+
+func TestCmdAskRetryFlags(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		retry       bool
+		flags       []string
+		attachments []string
+		wantTimeout time.Duration
+		wantAttach  []string
+	}{
+		{name: "retry keeps recorded timeout and attachments", retry: true,
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}},
+		{name: "retry typed timeout wins", retry: true, flags: []string{"--timeout", "2m"},
+			wantTimeout: 2 * time.Minute, wantAttach: []string{"a.txt"}},
+		{name: "fresh tools default", flags: []string{"--tools"},
+			wantTimeout: 45 * time.Minute},
+		{name: "fresh tools typed timeout wins", flags: []string{"--tools", "--timeout", "5m"},
+			wantTimeout: 5 * time.Minute},
+		{name: "fresh without tools default", wantTimeout: 10 * time.Minute},
+		{name: "retry attachment replaces recorded", retry: true, attachments: []string{"b.txt"},
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
+		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			t.Setenv("HOME", dir)
+			t.Setenv("PATH", dir)
+			for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+				writeFixtureFile(t, filepath.Join(dir, name), name)
+			}
+			args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
+			wantRecords := 1
+			if tt.retry {
+				rec := agent.NewRecord("claude", agent.Request{
+					Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
+					Attach: []string{filepath.Join(dir, "a.txt")},
+				}, time.Now().Add(-time.Hour))
+				if err := rec.Save(); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--retry", rec.ID)
+				wantRecords++
+			}
+			args = append(args, tt.flags...)
+			for _, name := range tt.attachments {
+				args = append(args, "--attach", filepath.Join(dir, name))
+			}
+			if !tt.retry {
+				args = append(args, "say ok")
+			}
+			code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) })
+			if code != 1 {
+				t.Fatalf("exit = %d, want 1 for unavailable runner; stderr=%s", code, stderr)
+			}
+			records := agent.RecentRecords(2)
+			if len(records) != wantRecords {
+				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
+			}
+			req := records[0].Request
+			if req.Timeout != tt.wantTimeout {
+				t.Errorf("timeout = %v, want %v", req.Timeout, tt.wantTimeout)
+			}
+			var wantAttach []string
+			for _, name := range tt.wantAttach {
+				wantAttach = append(wantAttach, filepath.Join(dir, name))
+			}
+			if !slices.Equal(req.Attach, wantAttach) {
+				t.Errorf("attachments = %q, want %q", req.Attach, wantAttach)
+			}
+		})
 	}
 }
 
