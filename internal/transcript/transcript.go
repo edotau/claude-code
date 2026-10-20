@@ -125,12 +125,35 @@ func EditedFiles(path string, limit int) []string {
 	return out
 }
 
-// CountEdits counts every Edit/Write/MultiEdit/NotebookEdit tool_use in the whole transcript (no window:
-// re-harvest compares against an earlier count).
+// CountEdits counts editor tool_use calls in the transcript's complete JSONL records.
 func CountEdits(path string) int {
-	n := 0
-	eachEdit(path, func(string) { n++ })
+	n, _ := CountEditsFrom(path, 0)
 	return n
+}
+
+// CountEditsFrom counts complete lines from offset and returns the position after the last newline.
+func CountEditsFrom(path string, offset int64) (edits int, next int64) {
+	offset = max(offset, 0)
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, offset
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
+		return 0, offset
+	}
+	if fi.Size() < offset {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return 0, offset
+	}
+	n := 0
+	read := scanLines(f, true, func(line []byte) {
+		eachEditLine(line, func(string) { n++ })
+	})
+	return n, offset + read
 }
 
 // eachEdit calls fn with the target path of each editor tool_use in an assistant record.
@@ -141,38 +164,47 @@ func eachEdit(path string, fn func(filePath string)) {
 	}
 	defer f.Close()
 	eachLine(f, func(line []byte) {
-		if !bytes.Contains(line, toolUseKey) {
-			return
-		}
-		var rec struct {
-			Type    string `json:"type"`
-			Message struct {
-				Content []struct {
-					Type  string `json:"type"`
-					Name  string `json:"name"`
-					Input struct {
-						FilePath     string `json:"file_path"`
-						NotebookPath string `json:"notebook_path"`
-					} `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" {
-			return
-		}
-		for _, c := range rec.Message.Content {
-			if c.Type == "tool_use" && editTools[c.Name] {
-				fn(c.Input.FilePath + c.Input.NotebookPath)
-			}
-		}
+		eachEditLine(line, fn)
 	})
 }
 
-// eachLine hands fn a slice valid only until it returns (ReadSlice, no per-line copy); lines longer than the
-// buffer are joined into an overflow buffer, so a giant tool-result line never aborts the scan.
+func eachEditLine(line []byte, fn func(filePath string)) {
+	if !bytes.Contains(line, toolUseKey) {
+		return
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type  string `json:"type"`
+				Name  string `json:"name"`
+				Input struct {
+					FilePath     string `json:"file_path"`
+					NotebookPath string `json:"notebook_path"`
+				} `json:"input"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" {
+		return
+	}
+	for _, c := range rec.Message.Content {
+		if c.Type == "tool_use" && editTools[c.Name] {
+			fn(c.Input.FilePath + c.Input.NotebookPath)
+		}
+	}
+}
+
+// eachLine includes partial EOF records; callback slices are valid only until fn returns.
 func eachLine(r io.Reader, fn func([]byte)) {
+	scanLines(r, false, fn)
+}
+
+// scanLines avoids common-case copies and joins oversized lines without stopping the scan.
+func scanLines(r io.Reader, completeOnly bool, fn func([]byte)) int64 {
 	br := bufio.NewReaderSize(r, 1<<20)
 	var long []byte
+	var read int64
 	for {
 		line, err := br.ReadSlice('\n')
 		if err == bufio.ErrBufferFull {
@@ -182,11 +214,12 @@ func eachLine(r io.Reader, fn func([]byte)) {
 		if long != nil {
 			line, long = append(long, line...), nil
 		}
-		if len(line) > 0 {
+		if len(line) > 0 && (!completeOnly || err == nil) {
 			fn(line)
+			read += int64(len(line))
 		}
 		if err != nil {
-			return
+			return read
 		}
 	}
 }
