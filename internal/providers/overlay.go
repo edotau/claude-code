@@ -2,18 +2,14 @@ package providers
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // SetProviderFields merges fields into providers.<name> of the user overlay at the raw-JSON level: never through
 // Provider.MarshalJSON (it redacts headers). An entry the overlay lacks is seeded from the built-in one first,
-// because an overlay entry replaces the built-in whole. Backs the old file up, then writes atomically.
+// because an overlay entry replaces the built-in whole. Keeps the previous generation as overlay/providers.prev.
 func SetProviderFields(name string, fields map[string]any) error {
 	return updateProviderFields(name, func(entry map[string]json.RawMessage) error {
 		for k, v := range fields {
@@ -28,25 +24,28 @@ func SetProviderFields(name string, fields map[string]any) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	file := paths.ProvidersOverlay()
-	return paths.WithFileLock(file, func() error {
-		raw, err := os.ReadFile(file)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
+	return vault.Update(func(tx *vault.Tx) error {
+		old, _ := tx.Get(vault.Overlay, "providers")
 		doc := map[string]json.RawMessage{}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &doc); err != nil {
-				return fmt.Errorf("%s: %w", file, err)
+		if len(old) > 0 {
+			if err := json.Unmarshal([]byte(old), &doc); err != nil {
+				return fmt.Errorf("vault overlay/providers: %w", err)
 			}
+		}
+		if doc == nil {
+			doc = map[string]json.RawMessage{}
 		}
 		provs := map[string]map[string]json.RawMessage{}
 		if b, ok := doc["providers"]; ok {
 			if err := json.Unmarshal(b, &provs); err != nil {
-				return fmt.Errorf("%s: providers: %w", file, err)
+				return fmt.Errorf("vault overlay/providers: providers: %w", err)
 			}
 		}
+		if provs == nil {
+			provs = map[string]map[string]json.RawMessage{}
+		}
 		entry := provs[name]
+		var err error
 		if entry == nil {
 			if entry, err = builtinEntry(name); err != nil {
 				return err
@@ -59,52 +58,30 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 		if doc["providers"], err = json.Marshal(provs); err != nil {
 			return err
 		}
-		out, err := json.MarshalIndent(doc, "", "  ")
+		newDoc, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
 			return err
 		}
-		if len(raw) > 0 {
-			if _, err := writeBackup(file+".bak-"+time.Now().Format("20060102-150405.000000000"), raw); err != nil {
-				return err
-			}
+		newDoc = append(newDoc, '\n')
+		if err := Validate(newDoc); err != nil {
+			return err
 		}
-		return paths.AtomicWrite(file, append(out, '\n'), 0o600)
+		if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
+			return err
+		}
+		return tx.Put(vault.Overlay, "providers", string(newDoc))
 	})
-}
-
-func writeBackup(base string, data []byte) (string, error) {
-	for i := 0; ; i++ {
-		dest := base
-		if i > 0 {
-			dest = fmt.Sprintf("%s-%d", base, i)
-		}
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if os.IsExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		_, err = f.Write(data)
-		if err = errors.Join(err, f.Close()); err != nil {
-			return "", errors.Join(err, os.Remove(dest))
-		}
-		return dest, nil
-	}
 }
 
 // SetProviderModel sets one slot's model id for name, keeping its other slots.
 func SetProviderModel(name, slot, id string) error {
 	return updateProviderFields(name, func(entry map[string]json.RawMessage) error {
-		reg, err := Load()
-		if err != nil {
-			return err
+		var m map[string]string
+		if raw, ok := entry["models"]; ok {
+			if err := json.Unmarshal(raw, &m); err != nil {
+				return fmt.Errorf("vault overlay/providers: models: %w", err)
+			}
 		}
-		p, err := reg.Get(name)
-		if err != nil {
-			return err
-		}
-		m := p.Models
 		if m == nil {
 			m = map[string]string{}
 		}

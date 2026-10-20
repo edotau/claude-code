@@ -6,23 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 //go:embed defaults.json
 var defaultsJSON []byte
 
+// OverlayDoc returns vault overlay/providers, or fs.ErrNotExist when absent.
+func OverlayDoc() ([]byte, error) {
+	var doc []byte
+	err := vault.View(func(tx *vault.Tx) error {
+		raw, ok := tx.Get(vault.Overlay, "providers")
+		if !ok {
+			return fmt.Errorf("vault overlay/providers: %w", fs.ErrNotExist)
+		}
+		doc = []byte(raw)
+		return nil
+	})
+	return doc, err
+}
+
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
-	user, err := os.ReadFile(paths.ProvidersOverlay())
+	doc, err := OverlayDoc()
 	if errors.Is(err, fs.ErrNotExist) {
-		user = nil
+		doc = nil
 	} else if err != nil {
 		return nil, err
 	}
-	return Parse(defaultsJSON, user)
+	return Parse(defaultsJSON, doc)
+}
+
+// Validate checks an overlay merged with the embedded defaults.
+func Validate(overlay []byte) error {
+	_, err := Parse(defaultsJSON, overlay)
+	return err
 }
 
 // Parse merges base with an optional overlay document.
@@ -34,7 +53,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	if len(overlay) > 0 {
 		var o Registry
 		if err := json.Unmarshal(overlay, &o); err != nil {
-			return nil, fmt.Errorf("%s: %w", paths.ProvidersOverlay(), err)
+			return nil, fmt.Errorf("vault overlay/providers: %w", err)
 		}
 		if o.Default != "" {
 			reg.Default = o.Default

@@ -68,7 +68,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 		sel.Slots[slot] = ParseTarget(reg, spec, p)
 	}
 	if _, ok := sel.Slots[models.Opus]; !ok {
-		return sel, fmt.Errorf("provider %s: no opus model (set models.opus in providers.json or %s)", p.Name, SlotPin(models.Opus))
+		return sel, fmt.Errorf("provider %s: no opus model (set models.opus with `claude-code config edit` or %s)", p.Name, SlotPin(models.Opus))
 	}
 	return sel, nil
 }
