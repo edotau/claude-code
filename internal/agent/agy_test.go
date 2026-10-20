@@ -1,9 +1,75 @@
 package agent
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
+
+func TestParseAgyStreamResultApplication(t *testing.T) {
+	const init = `{"event":"init","conversation_id":"init-id"}` + "\n"
+	const delta = `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":" partial "}}` + "\n"
+	cases := []struct {
+		name, stream, answer, output, session, err string
+		usage                                      Usage
+	}{
+		{
+			name: "response fallback and result metadata",
+			stream: init + `{"event":"result","result":{"status":"SUCCESS","conversation_id":"result-id",
+				"response":" answer \n","usage":{"input_tokens":7,"output_tokens":3,"thinking_tokens":2,"cache_read_tokens":4}}}`,
+			answer: "answer", output: " answer \n", session: "result-id",
+			usage: Usage{InputTokens: 7, OutputTokens: 5, CacheReadTokens: 4},
+		},
+		{
+			name:   "deltas win and init session survives",
+			stream: init + delta + `{"event":"result","result":{"status":"SUCCESS","response":"duplicate"}}`,
+			answer: "partial", output: " partial ", session: "init-id",
+		},
+		{
+			name: "failure retains partial answer and usage",
+			stream: init + delta + `{"event":"result","result":{"status":"ERROR","response":"not emitted",
+				"error":"upstream failed","usage":{"input_tokens":7,"thinking_tokens":2}}}`,
+			answer: "partial", output: " partial ", session: "init-id", err: "upstream failed",
+			usage: Usage{InputTokens: 7, OutputTokens: 2},
+		},
+		{
+			name: "status error fallback", stream: `{"event":"result","result":{"status":"CANCELLED","response":"not emitted"}}`,
+			err: "agy run CANCELLED",
+		},
+		{
+			name: "missing status error fallback", stream: `{"event":"result","result":{}}`,
+			err: "agy run failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			res, err := parseAgyStream(strings.NewReader(tc.stream), &out)
+			if (err == nil) != (tc.err == "") || err != nil && err.Error() != tc.err {
+				t.Fatalf("err = %v, want %q", err, tc.err)
+			}
+			if res.Answer != tc.answer || out.String() != tc.output || res.SessionID != tc.session || res.Usage != tc.usage {
+				t.Fatalf("res = %+v, output = %q", res, out.String())
+			}
+		})
+	}
+}
+
+type failingStreamWriter struct{}
+
+func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestParseAgyStreamWriteErrors(t *testing.T) {
+	for _, stream := range []string{
+		agyOK,
+		`{"event":"result","result":{"status":"SUCCESS","response":"fallback"}}`,
+	} {
+		if _, err := parseAgyStream(strings.NewReader(stream), failingStreamWriter{}); !errors.Is(err, io.ErrClosedPipe) {
+			t.Fatalf("err = %v, want closed pipe", err)
+		}
+	}
+}
 
 // truncateBeforeResult drops every line at-and-after the "result" event from a stream-json fixture,
 // simulating a connection that dies mid-run (the agy binary itself was not reachable in this sandbox

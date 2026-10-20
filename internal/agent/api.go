@@ -107,9 +107,13 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 		return Usage{}, "", &httpError{status: resp.StatusCode, after: time.Duration(after) * time.Second,
 			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
+	return parseChatStream(resp.Body, w)
+}
+
+func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 	var usage Usage
 	var served string
-	sc := bufio.NewScanner(resp.Body)
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
 		data, ok := bytes.CutPrefix(sc.Bytes(), []byte("data:"))

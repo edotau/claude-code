@@ -1,6 +1,32 @@
 package agenttree
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestLastActivityLineBoundaries(t *testing.T) {
+	const records = `not JSON
+{"type":"assistant","timestamp":"2026-10-18T03:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/repo/old.go"}},{"type":"text","text":"old"}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"ignore"}]}}
+
+{"type":"assistant","timestamp":"2026-10-18T03:01:00Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/new.go"}},{"type":"text","text":"new"}]}}`
+	for _, ending := range []string{"", "\n", "\r\n"} {
+		t.Run("ending="+ending, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.jsonl")
+			if err := os.WriteFile(path, []byte(records+ending), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			act := lastActivity(path, "/repo")
+			want := Activity{Tool: "Edit", Arg: "new.go", Text: "new", At: time.Date(2026, 10, 18, 3, 1, 0, 0, time.UTC)}
+			if act != want {
+				t.Fatalf("activity = %+v, want %+v", act, want)
+			}
+		})
+	}
+}
 
 // TestResultStatusMapsTopLevelStatusWhenResultAbsent: result.status wins outright when the script's
 // return value carries one; otherwise the manifest's own top-level status maps killed->error,
