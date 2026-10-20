@@ -141,7 +141,10 @@ Pointer → "Right button single click" → Paste from clipboard; Terminal.app h
 `git clone` refuses a non-empty `~/.claude`; `claude-code install --setup` is the one entry point for that and two
 other migrations — `adopt` backs up colliding tracked paths (never `secrets.env`) then restores the
 index; `nuke --apply` (typed-path confirm) archives untracked content by name, never value, before
-removing the dir (`state/vault.db` goes in as a ciphertext snapshot; its key stays in the keyring);
+removing the dir (`state/vault.db` goes in with only its secrets bucket sealed — custom env, provider/vendor
+overlays incl. headers, `key_command` and secret name/length metadata ride the archive in plaintext, and
+the key to reopen it may come from `HARNESS_VAULT_KEY` or `key_command`, not only the keyring; the archive is
+0600, and `Apply` refuses outright while `env.d/secrets.env*` still exists, archiving `env.d`'s other files);
 `workspace` scopes a project's own `.claude/`, global harness untouched.
 Nuke refuses to proceed if the user-content scan, a `--keep-memory` walk, or an archive read fails;
 it never treats an incomplete scan as an empty backup. Backup filenames are exclusive, so two runs
@@ -290,7 +293,8 @@ claude-code secrets export --out - | ssh box claude-code secrets import - --yes 
 ```
 
 Secrets are sealed under an HKDF-SHA256 subkey of the master key (salt = the vault id), not the key itself. A
-vault from an older schema that holds secrets is refused with `re-run claude-code vault migrate`.
+vault from an older schema that holds secrets was written by a pre-HKDF build this build cannot read; move
+`state/vault.db` aside and re-enter secrets with `claude-code secrets set`, or export them with the older binary.
 
 ### The vault key
 
@@ -308,11 +312,17 @@ No key file is written. A box without a keyring tool (Windows, headless, CI) set
 `key_command` before `secrets set` or `make install` imports secrets; a key file is your explicit choice, as a
 `key_command` of `["cat", "/home/me/.config/claude-vault.key"]` (absolute path, no `~`).
 
+`HARNESS_VAULT_KEY` never reaches a vendor CLI child (`codex`, `gemini`/`agy`, `opencode`, `copilot` — both
+`claude-code run <vendor>` and `claude-code ask --agent <vendor>`): it is scrubbed from that launch's env. The
+Claude Code launch itself still inherits it, since hooks run under Claude's own env and need it to open the vault.
+
 `claude-code vault rotate-key` generates a new key, re-seals every secret and keeps the old key as
-`vault-key/<id>.<oldkid>`; it needs a keyring-held key. Retired keys are never deleted, so a nuke archive or a
+`vault-key/<id>.<oldkid>`; it needs a keyring-held key, and refuses while `HARNESS_VAULT_KEY` or `key_command`
+is set — `--force` rotates past that guard anyway. Retired keys are never deleted, so a nuke archive or a
 copied `vault.db` stays decryptable: a copy shares its id and key, and after either side rotates the other still
 opens under the retained key. Moving secrets to a box with a different keyring is `secrets export` → `secrets
-import`.
+import`. `claude-code vault key show` prints the current master key (base64) to stdout; refused on a terminal
+(pipe only), for `pass insert -m <name>` or a similar vault of vaults.
 
 ### Migrating from env.d
 
@@ -332,10 +342,12 @@ until you finalize:
   Any keyring or `secrets.env.bak` value that differs from the vault refuses finalize entirely (exit 1, nothing
   deleted); `--discard NAME` (repeatable, either kind) drops that value. Other files left in `env.d/` (e.g. old
   `.bak-*` copies) are kept and listed as `env.d kept: …`.
-- `claude-code vault rollback` (before finalize, with the new binary) refuses unless every source path is free.
-  It writes `state/vault-rollback-<ts>.json` (the non-secret config plus the names of secrets missing from the
-  backups, never values), restores every `.bak`, moves `vault.db` aside as `vault.db.rolledback-<ts>` and the
-  manifest to `vault-migration.rolledback-<ts>.json`; the keyring is untouched. Then reinstall the old binary.
+- `claude-code vault rollback [--discard NAME]...` (before finalize, with the new binary) refuses unless every
+  source path is free, and refuses if a migrated secret changed in the vault since migration — `--discard NAME`
+  (repeatable) drops that check for NAME and proceeds anyway. It writes `state/vault-rollback-<ts>.json` (the
+  non-secret config plus the names of secrets missing from the backups, never values), restores every `.bak`,
+  moves `vault.db` aside as `vault.db.rolledback-<ts>` and the manifest to
+  `vault-migration.rolledback-<ts>.json`; the keyring is untouched. Then reinstall the old binary.
 
 `claude-code doctor` reports the `vault` row (key source, secret and retired-key counts), `legacy env.d` while
 files await migration, and `migration backups` until finalize.
@@ -394,7 +406,8 @@ off the installed CLI alone. `make tailscale-cli` installs the client; `claude-c
 admin credential as one row.
 
 `claude-code tailscale key --save` seals the minted key as `TAILSCALE_AUTHKEY` in the vault; `tailscale connect`
-with no `--auth-key` and not already connected falls back to that saved key.
+with no `--auth-key` and not already connected falls back to that saved key. `--auth-key -` reads the key from
+stdin instead of argv (a literal key on the command line lands in shell history and `ps`).
 
 ## Worktrees and agent views
 
