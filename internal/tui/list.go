@@ -88,7 +88,7 @@ func (s listState) selected() int {
 // matches reports whether every whitespace-separated query term occurs (case-insensitively) in the row's text.
 func (r ListRow) matches(query string) bool {
 	hay := strings.ToLower(strings.Join([]string{r.Label, r.Detail, r.Status, r.Section}, "\x00"))
-	for _, term := range strings.Fields(strings.ToLower(query)) {
+	for term := range strings.FieldsSeq(strings.ToLower(query)) {
 		if !strings.Contains(hay, term) {
 			return false
 		}

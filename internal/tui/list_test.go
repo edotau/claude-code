@@ -224,6 +224,27 @@ func TestListEmptyResult(t *testing.T) {
 	}
 }
 
+func TestListRowMatchesTerms(t *testing.T) {
+	row := ListRow{Label: "Alpha", Detail: "BETA", Status: "Ready", Section: "Grüppe"}
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{
+		{"", true},
+		{" \t\n\u2003", true},
+		{"ALPHA beta", true},
+		{"ready\u2003GRÜPPE", true},
+		{"beta beta", true},
+		{"missing alpha beta", false},
+		{"alpha missing", false},
+		{"alphabeta", false},
+	} {
+		if got := row.matches(tc.query); got != tc.want {
+			t.Errorf("matches(%q) = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+}
+
 func TestListFooter(t *testing.T) {
 	spec := sampleSpec(true)
 	if got, want := listFooter(spec), "↑/↓ select · enter confirm · type to search · esc back · ctrl+d log out"; got != want {

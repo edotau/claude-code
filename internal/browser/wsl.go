@@ -87,7 +87,7 @@ func probeCDP() string {
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var v struct {
 		Browser string `json:"Browser"`
 	}

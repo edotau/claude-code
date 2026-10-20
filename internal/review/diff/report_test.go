@@ -2,9 +2,11 @@ package diff
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +88,32 @@ func TestRunReportMissingRepo(t *testing.T) {
 	code := RunReport([]string{filepath.Join("testdata", "report", "nosuchdir")}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
+	}
+}
+
+func TestMarkdownReportSectionLimits(t *testing.T) {
+	var r Report
+	for i := range 12 {
+		r.ActionItems = append(r.ActionItems, ActionItem{
+			Priority: "P0", Action: fmt.Sprintf("action-%02d", i),
+			FilesAffected: []string{"a", "b", "c", "hidden-file"},
+		})
+		r.Findings = append(r.Findings,
+			Finding{Severity: "critical", Category: "critical", Message: fmt.Sprintf("critical-%02d", i)},
+			Finding{Severity: "high", Category: "high", Message: fmt.Sprintf("high-%02d", i)},
+		)
+		r.ReviewOrder = append(r.ReviewOrder, fmt.Sprintf("review-%02d", i))
+	}
+	got := formatMarkdownReport(r)
+	for _, want := range []string{"action-11", "critical-11", "high-09", "review-09", "Files: a, b, c\n", "in `unknown`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	for _, absent := range []string{"hidden-file", "high-10", "high-11", "review-10", "review-11"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("unexpected %q in report", absent)
+		}
 	}
 }
 
