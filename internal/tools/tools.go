@@ -85,6 +85,7 @@ func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bo
 		npmCleanupFor(ctx, w, t.Name, dir, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
+	LinkVendors(w, names, dryRun)
 	return errors.Join(errs...)
 }
 

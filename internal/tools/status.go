@@ -17,6 +17,7 @@ type Status struct {
 	Version   string // first line of `<path> --version`, best-effort
 	LocalBin  bool   // Path lives under ~/.local/bin
 	NPMGlobal bool   // Path resolves through an npm-global lib/node_modules install
+	Target    string // os.Readlink of BinDir/<bin> for a vendor tool; "" when not a link
 	Hint      string
 }
 
@@ -33,6 +34,9 @@ func StatusAll() []Status {
 
 func statusOne(t Tool) Status {
 	s := Status{Name: t.Name, Hint: t.Hint}
+	if bin, ok := paths.VendorName(t.Name); ok {
+		s.Target = readlink(filepath.Join(paths.BinDir(), bin))
+	}
 	path, err := paths.LookPathReal(t.Binary)
 	if err != nil {
 		return s
