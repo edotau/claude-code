@@ -72,7 +72,6 @@ type workflowManifest struct {
 	Timestamp string          `json:"timestamp"`
 	Script    string          `json:"script"`
 	Result    json.RawMessage `json:"result"`
-	Summary   string          `json:"summary"`
 	Status    string          `json:"status"` // the run's own completed|killed, present on every manifest
 }
 
@@ -136,12 +135,9 @@ func workflowManifests(sessionDir string) map[string]*workflowManifest {
 	return out
 }
 
-// journalEntry is one workflow agent's lifecycle as read from journal.jsonl: label/phase from its
-// "started" line, resulted/errored/result from its "result" line (errored when that result is the
-// JSON literal null — a killed agent; result is a short preview otherwise).
+// journalEntry records lifecycle state and a result preview; a null result marks a killed agent.
 type journalEntry struct {
 	Label       string
-	Phase       string
 	Started     bool
 	Resulted    bool
 	Errored     bool
@@ -155,7 +151,6 @@ type journalLine struct {
 	Type    string          `json:"type"`
 	AgentID string          `json:"agentId"`
 	Label   string          `json:"label"`
-	Phase   string          `json:"phase"`
 	Result  json.RawMessage `json:"result"`
 }
 
@@ -178,7 +173,7 @@ func readJournal(runDir string) map[string]journalEntry {
 		e := out[line.AgentID]
 		switch line.Type {
 		case "started":
-			e.Started, e.Label, e.Phase = true, line.Label, line.Phase
+			e.Started, e.Label = true, line.Label
 		case "result":
 			e.Resulted = true
 			if isJSONNull(line.Result) {

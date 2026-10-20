@@ -212,7 +212,8 @@ func ExecArgs(ctx context.Context, host, remoteCmd string, batch bool) []string 
 }
 
 var (
-	selfOnce  sync.Once
+	selfMu    sync.Mutex
+	selfReady bool
 	selfNames []string
 )
 
@@ -222,19 +223,22 @@ func IsLocalHost(ctx context.Context, host string) bool {
 	if _, at, ok := strings.Cut(h, "@"); ok {
 		h = at
 	}
-	selfOnce.Do(func() {
+	selfMu.Lock()
+	defer selfMu.Unlock()
+	if !selfReady {
 		selfNames = []string{"localhost", "127.0.0.1", "::1"}
 		if n, err := os.Hostname(); err == nil {
 			selfNames = append(selfNames, strings.ToLower(n))
 		}
 		if st, err := tailscale.Status(ctx); err == nil {
+			selfReady = true
 			selfNames = append(selfNames, st.IPs...)
 			if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
 				short, _, _ := strings.Cut(dns, ".")
 				selfNames = append(selfNames, dns, short)
 			}
 		}
-	})
+	}
 	return slices.Contains(selfNames, h)
 }
 

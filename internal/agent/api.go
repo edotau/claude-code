@@ -112,11 +112,11 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
-		data, ok := strings.CutPrefix(sc.Text(), "data:")
-		if data = strings.TrimSpace(data); !ok || data == "" {
+		data, ok := bytes.CutPrefix(sc.Bytes(), []byte("data:"))
+		if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
 			continue
 		}
-		if data == "[DONE]" {
+		if bytes.Equal(data, []byte("[DONE]")) {
 			break
 		}
 		var chunk struct {
@@ -132,7 +132,7 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 			} `json:"usage"`
 			Error *json.RawMessage `json:"error"`
 		}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		if err := json.Unmarshal(data, &chunk); err != nil {
 			return usage, served, fmt.Errorf("decode chat chunk: %w", err)
 		}
 		if chunk.Error != nil {
