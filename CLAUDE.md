@@ -52,7 +52,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (shims in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Render every config the harness owns (settings.json + codex/opencode/gemini) | `claude-code generate [--out f] [--check] [--dry-run]` | `README.md` → Setup |
+| Render settings + vendor configs | `claude-code generate [--out f] [--check] [--dry-run] [--vendors]` | Non-default `CLAUDE_CONFIG_DIR`: vendors skipped unless `--vendors` (still targets live vendor homes); see hard rule 4 + `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, mcp doctor, memory search) |
 | See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude --provider <p>` | pin lands in `env.d/provider.env` |
