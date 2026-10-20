@@ -2,5 +2,7 @@
 # pre-push: run the CI gate (make audit) locally so a push cannot land red. Bypass: git push --no-verify.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# git exports GIT_DIR/GIT_WORK_TREE to hooks; tests that run git in temp dirs would resolve this repo.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 echo "pre-push: running make audit (the ci.yml gate); bypass with --no-verify" >&2
 exec make audit
