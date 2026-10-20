@@ -28,8 +28,8 @@ Spread runners per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-**Step 0, bug fixes only:** capture RED before dispatch — `scripts/isolate.sh /tmp/claude-1000/<lane>/red <owned
-paths>` is HEAD for those paths; reproduce the failure there. After the leaf runs the worktree already holds the fix.
+**Step 0, bug fixes only:** capture RED before dispatch — `scripts/isolate.sh /tmp/claude-1000/<lane>/red`
+with no owned paths is pure HEAD; reproduce the failure there. After the leaf runs the worktree already holds the fix.
 
 Run each leaf in the background (Bash `run_in_background`). Orchestrator files live in `/tmp/claude-1000/<lane>/`;
 the leaf's own scratch is a separate `/tmp/claude-1000/<leaf>/` it may delete:
@@ -74,8 +74,9 @@ the manager.
 3. The leaf's live check: the verb or flow it changed, on real input.
 4. Read the diff: no weakened or deleted assertions, no edits outside `owns:`, no leftover references to removed
    names (`grep -rn <old name>`).
-5. In the worktree: `git diff --cached --name-only` must be empty (another lane's staged file would ride along),
-   then stage the named files only (never a directory); commit a 1–2 line conventional message, no AI footer.
+5. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
+   A pathspec commit is `--only`, so other lanes' staged files never ride along; 1–2 line conventional message,
+   no AI footer.
 6. Tick the box with the short commit id; delete the copy and leaf scratch (`chmod -R u+w <d> && find <d> -delete`).
 
 Copies carry the user's untracked skill symlinks, dangling there; ignore them in `diff -rq`.
