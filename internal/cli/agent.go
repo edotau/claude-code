@@ -46,11 +46,8 @@ func cmdAsk(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *format != "text" && *format != "json" {
-		return fail("ask: --format %q unknown (text|json)", *format)
-	}
-	if !slices.Contains(agent.FallbackModes, *fallback) {
-		return fail("ask: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
+	if err := validateAskFlags(*format, *fallback); err != nil {
+		return fail("ask: %v", err)
 	}
 	if *showLog {
 		return printDispatchLog(*format)
@@ -68,34 +65,18 @@ func cmdAsk(args []string) int {
 		prompt, *rubric = rec.Request.Prompt, ""
 		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	}
-	if prompt == "" || prompt == "-" {
-		raw, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fail("ask: read stdin: %v", err)
-		}
-		prompt = string(raw)
+	prompt, err := resolveAskPrompt(prompt)
+	if err != nil {
+		return fail("ask: %v", err)
 	}
 	if strings.TrimSpace(prompt) == "" {
 		helptext.Fprint(os.Stderr, "usage: claude-code ask [flags] <prompt | ->\n")
 		helptext.Defaults(fs)
 		return 2
 	}
-	r, err := agent.Lookup(*name)
+	r, chain, err := resolveAskAgent(*name, *provider, *fallback, *native)
 	if err != nil {
 		return fail("ask: %v", err)
-	}
-	chain := agent.FallbackChain(r, *fallback)
-	if !*native && agent.IsHubAgent(*name) {
-		reg, err := providers.Load()
-		if err != nil {
-			return fail("ask: %v", err)
-		}
-		start, err := agent.HubStart(reg, *name, *provider)
-		if err != nil {
-			return fail("ask: %v", err)
-		}
-		r = agent.NewHubLeg(*name, start, reg)
-		chain = agent.HubChain(reg, *name, start, *fallback)
 	}
 	if *rubric != "" {
 		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {
@@ -117,10 +98,62 @@ func cmdAsk(args []string) int {
 	res, err := agent.RunWithFallback(ctx, r, chain, req, stream, notify)
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
+	reportAskResult(*format, res, err)
+	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
+	if err != nil {
+		return fail("ask: %v", err)
+	}
+	return 0
+}
+
+func validateAskFlags(format, fallback string) error {
+	if format != "text" && format != "json" {
+		return fmt.Errorf("--format %q unknown (text|json)", format)
+	}
+	if !slices.Contains(agent.FallbackModes, fallback) {
+		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(agent.FallbackModes, "|"))
+	}
+	return nil
+}
+
+// resolveAskPrompt reads stdin when the prompt is empty or the literal "-".
+func resolveAskPrompt(prompt string) (string, error) {
+	if prompt != "" && prompt != "-" {
+		return prompt, nil
+	}
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin: %w", err)
+	}
+	return string(raw), nil
+}
+
+// resolveAskAgent looks up the named runner and, for a hub agent, swaps in the hub leg + chain.
+func resolveAskAgent(name, provider, fallback string, native bool) (agent.Runner, []agent.Runner, error) {
+	r, err := agent.Lookup(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	chain := agent.FallbackChain(r, fallback)
+	if native || !agent.IsHubAgent(name) {
+		return r, chain, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	start, err := agent.HubStart(reg, name, provider)
+	if err != nil {
+		return nil, nil, err
+	}
+	return agent.NewHubLeg(name, start, reg), agent.HubChain(reg, name, start, fallback), nil
+}
+
+func reportAskResult(format string, res agent.Result, err error) {
 	for _, d := range res.Dropped {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
-	if *format == "json" {
+	if format == "json" {
 		env := struct {
 			agent.Result
 			Error string `json:"error,omitempty"`
@@ -130,14 +163,11 @@ func cmdAsk(args []string) int {
 		}
 		body, _ := json.Marshal(env)
 		fmt.Println(string(body))
-	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
+		return
+	}
+	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
-	if err != nil {
-		return fail("ask: %v", err)
-	}
-	return 0
 }
 
 const agentsUsage = `usage: claude-code agents

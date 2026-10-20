@@ -1,13 +1,30 @@
 package cli
 
-import "github.com/edotau/claude-code/internal/statusline"
+import (
+	"sync"
 
-// specTree builds the one completion spec tree, keyed by each verb's canonical name (command.name —
-// see knownPath). Every verb in commands() gets a node, even an empty one, so a launcher is never
-// silently unrepresented. Subcommand words are hand data (mirroring each verb's own dispatch switch,
-// same as before); the three former hand tables (subVerbs/positionals/flagsFor) are gone — this is
-// the one place they're declared, nested instead of parallel.
+	"github.com/edotau/claude-code/internal/statusline"
+)
+
+// specTree returns the one completion spec tree, keyed by each verb's canonical name (command.name —
+// see knownPath). Built once per process (buildSpecTree) since tab completion is hot and the tree
+// never changes after commands() is fixed at startup.
 func specTree() map[string]*compNode {
+	specTreeInit.Do(func() { specTreeCache = buildSpecTree() })
+	return specTreeCache
+}
+
+var (
+	specTreeInit  sync.Once
+	specTreeCache map[string]*compNode
+)
+
+// buildSpecTree does the one-time work specTree caches. Every verb in commands() gets a node, even
+// an empty one, so a launcher is never silently unrepresented. Subcommand words are hand data
+// (mirroring each verb's own dispatch switch, same as before); the three former hand tables
+// (subVerbs/positionals/flagsFor) are gone — this is the one place they're declared, nested instead
+// of parallel.
+func buildSpecTree() map[string]*compNode {
 	flag := func(name string) flagInfo { return flagInfo{name: name} }
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
 	valuedFlag := func(name string, values func() []string) flagInfo { return flagInfo{name: name, values: values} }

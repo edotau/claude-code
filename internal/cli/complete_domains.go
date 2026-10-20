@@ -215,13 +215,19 @@ func webViewAgentIDs() []string {
 	if err != nil || len(sessions) == 0 {
 		return nil
 	}
+	modTime := make(map[string]time.Time, len(sessions)) // stat each session once, not once per comparison
+	for _, s := range sessions {
+		if fi, err := os.Stat(s); err == nil {
+			modTime[s] = fi.ModTime()
+		}
+	}
 	slices.SortFunc(sessions, func(a, b string) int {
-		ai, _ := os.Stat(a)
-		bi, _ := os.Stat(b)
-		if ai == nil || bi == nil {
+		at, aok := modTime[a]
+		bt, bok := modTime[b]
+		if !aok || !bok {
 			return 0
 		}
-		return bi.ModTime().Compare(ai.ModTime())
+		return bt.Compare(at)
 	})
 	const maxSessions = 2
 	if len(sessions) > maxSessions {

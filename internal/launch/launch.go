@@ -132,18 +132,38 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
+	setModelSlotEnv(&plan, sel)
+	main := models.Opus
+	if o.Tier != "" {
+		main = o.Tier
+	}
+	if err := setMainModel(&plan, sel, p, main); err != nil {
+		return Plan{}, err
+	}
+	plan.Set[providers.PinProvider] = p.Name
+	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
+	if err != nil {
+		return Plan{}, err
+	}
+	applyOverlay(&plan, passthrough, args, helper)
+	plan.Argv = append(plan.Argv, args...)
+	return plan, nil
+}
+
+// setModelSlotEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every slot the selection resolved.
+func setModelSlotEnv(plan *Plan, sel providers.Selection) {
 	for _, slot := range models.Slots {
 		if m := sel.ClientModel(slot); m != "" {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = m
 		}
 	}
-	main := models.Opus
-	if o.Tier != "" {
-		main = o.Tier
-	}
-	opus := sel.ClientModel(main)
+}
+
+// setMainModel resolves the main-loop model for tier and sets ANTHROPIC_MODEL + thinking knobs.
+func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, tier string) error {
+	opus := sel.ClientModel(tier)
 	if opus == "" {
-		return Plan{}, fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, main, main)
+		return fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, tier, tier)
 	}
 	plan.Set["ANTHROPIC_MODEL"] = opus
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
@@ -152,41 +172,50 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 			plan.Set["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = disable
 		}
 	}
-	plan.Set[providers.PinProvider] = p.Name
+	return nil
+}
+
+// configureRouting wires the router base URL/headers when needed, else the provider's own route, and
+// returns the apiKeyHelper command for the overlay.
+func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
 	helper := shellQuote(self) + " token --provider " + shellQuote(p.Name)
 	if o.Router || sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
 			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
-				return Plan{}, fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
+				return "", fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
 			}
 		}
 		base, err := ensureRouter(ctx)
 		if err != nil {
-			return Plan{}, fmt.Errorf("router: %w", err)
+			return "", fmt.Errorf("router: %w", err)
 		}
 		plan.Set["ANTHROPIC_BASE_URL"] = router.SessionBase(base, p.Name)
 		if passthrough {
 			// The login stays in Authorization, so the router secret rides in its own header.
 			secret, err := router.ClientSecret()
 			if err != nil {
-				return Plan{}, fmt.Errorf("router secret: %w", err)
+				return "", fmt.Errorf("router secret: %w", err)
 			}
 			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = router.ClientHeader + ": " + secret
 		}
-		helper = shellQuote(self) + " token --router"
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
-	} else {
-		if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
-			plan.Set["ANTHROPIC_BASE_URL"] = route
-		}
-		if h := customHeaders(p.Headers); h != "" {
-			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = h
-		}
-		if !providers.CredentialPresent(p) {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
-		}
-		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json")
+		return shellQuote(self) + " token --router", nil
 	}
+	if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
+		plan.Set["ANTHROPIC_BASE_URL"] = route
+	}
+	if h := customHeaders(p.Headers); h != "" {
+		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = h
+	}
+	if !providers.CredentialPresent(p) {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
+	}
+	plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json")
+	return helper, nil
+}
+
+// applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
+func applyOverlay(plan *Plan, passthrough bool, args []string, helper string) {
 	if passthrough {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
 		if !headless(args) {
@@ -198,13 +227,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 				plan.Set[oauthKey] = tok
 			}
 		}
-	} else {
-		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
-		plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
-		plan.Argv = []string{"--settings", plan.OverlayPath}
+		return
 	}
-	plan.Argv = append(plan.Argv, args...)
-	return plan, nil
+	plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
+	plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
+	plan.Argv = []string{"--settings", plan.OverlayPath}
 }
 
 // headless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.

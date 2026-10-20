@@ -49,16 +49,43 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // Install copies the binary into BinDir, links the shims, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
-	if !dryRun { // a vendor or hand edit about to be overwritten stays recoverable via `history diff`
-		if r, err := history.SnapshotConfig("pre-install"); err != nil {
-			fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
-		} else if r.Commit != "" {
-			fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
-		}
-	}
-	self, err := selfBinary()
+	snapshotPreInstall(w, dryRun)
+	target, err := installBinaryAndShims(w, dryRun)
 	if err != nil {
 		return err
+	}
+	installCompletion(w, dryRun)
+	seedTmuxConf(w, dryRun)
+	moveProvidersFile(w, dryRun)
+	if err := linkOnPath(w, target, dryRun); err != nil {
+		return err
+	}
+	if err := installSettings(w, dryRun); err != nil {
+		return err
+	}
+	syncVendors(w, dryRun)
+	installGitHooks(w, dryRun)
+	return nil
+}
+
+// snapshotPreInstall records history before overwriting settings.json, so a vendor or hand edit
+// about to be overwritten stays recoverable via `history diff`.
+func snapshotPreInstall(w io.Writer, dryRun bool) {
+	if dryRun {
+		return
+	}
+	if r, err := history.SnapshotConfig("pre-install"); err != nil {
+		fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
+	} else if r.Commit != "" {
+		fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
+	}
+}
+
+// installBinaryAndShims copies claude-code into BinDir and links the bare-name shims, returning the target path.
+func installBinaryAndShims(w io.Writer, dryRun bool) (string, error) {
+	self, err := selfBinary()
+	if err != nil {
+		return "", err
 	}
 	bin := paths.BinDir()
 	target := filepath.Join(bin, "claude-code")
@@ -66,7 +93,7 @@ func Install(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "copy     %s → %s\n", self, target)
 		if !dryRun {
 			if err := copyBinary(self, target); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
@@ -80,12 +107,16 @@ func Install(w io.Writer, dryRun bool) error {
 		if !dryRun {
 			_ = os.Remove(link)
 			if err := os.Symlink("claude-code", link); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
-	// Bash tab-completion: best-effort — an unwritable completions dir (no bash-completion package,
-	// read-only $HOME) must never fail the install that got the binary and shims in place.
+	return target, nil
+}
+
+// installCompletion is best-effort — an unwritable completions dir (no bash-completion package,
+// read-only $HOME) must never fail the install that got the binary and shims in place.
+func installCompletion(w io.Writer, dryRun bool) {
 	switch {
 	case dryRun:
 		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
@@ -96,11 +127,10 @@ func Install(w io.Writer, dryRun bool) error {
 			fmt.Fprintf(w, "completion %s\n", path)
 		}
 	}
-	seedTmuxConf(w, dryRun)
-	moveProvidersFile(w, dryRun)
-	if err := linkOnPath(w, target, dryRun); err != nil {
-		return err
-	}
+}
+
+// installSettings merges the rendered harness settings into settings.json, backing up on a real write.
+func installSettings(w io.Writer, dryRun bool) error {
 	file := SettingsFile()
 	existing, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -121,26 +151,17 @@ func Install(w io.Writer, dryRun bool) error {
 	}
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
-		syncVendors(w, dryRun)
-		installGitHooks(w, dryRun)
 		return nil
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
-		syncVendors(w, dryRun)
-		installGitHooks(w, dryRun)
 		return nil
 	}
 	backup, err := settings.WriteWithBackup(file, merged)
 	if backup != "" {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
-	if err != nil {
-		return err
-	}
-	syncVendors(w, dryRun)
-	installGitHooks(w, dryRun)
-	return nil
+	return err
 }
 
 // moveProvidersFile moves a pre-env.d ~/.claude/providers.json into env.d once; both present keeps both and warns.
@@ -405,7 +426,7 @@ func rtkDoctorStatus() string {
 	if bin := hooks.RTKBinary(); bin != "" {
 		return bin + " (" + hooks.RTKCommandList() + ")"
 	}
-	return "not on PATH — rtk-wrap no-ops"
+	return "not on PATH — bash-guard skips the rtk rewrite"
 }
 
 // setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.

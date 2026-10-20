@@ -87,7 +87,7 @@ func cmdProviders(args []string) int {
 
 // profileJSON emits the describe provider view: all providers, or the one named, never a credential.
 func profileJSON(reg *providers.Registry, args []string) int {
-	d, err := describe()
+	d, err := describe(reg)
 	if err != nil {
 		return fail("profile: %v", err)
 	}
