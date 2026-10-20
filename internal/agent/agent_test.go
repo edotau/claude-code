@@ -118,6 +118,23 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 }
 
+// A vendor CLI child never sees HARNESS_VAULT_KEY (it would open the vault outside the harness's own
+// process); the claude runner's own child keeps it since hooks need it to read the vault.
+func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
+	t.Setenv("HARNESS_VAULT_KEY", "secret-value")
+	hasKey := func(env []string) bool {
+		return slices.ContainsFunc(env, func(s string) bool { return strings.HasPrefix(s, "HARNESS_VAULT_KEY=") })
+	}
+	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
+	if hasKey(cmd.Env) {
+		t.Errorf("vendor child env leaked HARNESS_VAULT_KEY: %v", cmd.Env)
+	}
+	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
+	if !hasKey(cmd.Env) {
+		t.Errorf("claude's own child must keep HARNESS_VAULT_KEY, env=%v", cmd.Env)
+	}
+}
+
 func TestSessionFromBanner(t *testing.T) {
 	banner := "OpenAI Codex v0.154.0\n--------\nmodel: m\nsession id: 01a0aa74-a4c4\n--------\nuser\nsession id: not-this\n"
 	if got := sessionFromBanner(banner); got != "01a0aa74-a4c4" {
