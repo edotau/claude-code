@@ -8,9 +8,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
+
+func vendorPATHFixture(t *testing.T, name, body string) string {
+	t.Helper()
+	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	bin := pathstest.FakeVendor(t, name, body)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if name == "agy" {
+		dst := filepath.Join(filepath.Dir(bin), "agy")
+		if err := os.Rename(bin, dst); err != nil {
+			t.Fatal(err)
+		}
+		bin = dst
+	}
+	return bin
+}
 
 // headless is the only launch that carries the setup-token: -p and --print, in any position.
 func TestHeadless(t *testing.T) {
