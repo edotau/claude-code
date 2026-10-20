@@ -315,11 +315,12 @@ func TestRotateSurvivesCrashBeforePointerPromotion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, nextValue, err := randomKey()
+	vaultID := phase1bMeta(t, "vault_id")
+	next, nextValue, err := randomKey(vaultID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	acct := "vault-key/" + phase1bMeta(t, "vault_id")
+	acct := "vault-key/" + vaultID
 	ring.mu.Lock()
 	oldValue := ring.values[acct]
 	// Simulate RotateKey's crash window: the new key is already durable under its own immutable
@@ -447,9 +448,10 @@ func TestStaleWriterRetries(t *testing.T) {
 func TestReadSecretRereadsAfterExternalRotation(t *testing.T) {
 	ring := phase1bRing(t)
 	phase1bPut(t, "TOKEN", "before-external-rotation")
-	acct := "vault-key/" + phase1bMeta(t, "vault_id")
+	vaultID := phase1bMeta(t, "vault_id")
+	acct := "vault-key/" + vaultID
 	oldKid := phase1bMeta(t, "kid")
-	next, nextValue, err := randomKey()
+	next, nextValue, err := randomKey(vaultID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +593,8 @@ func TestRotateRetainsOldKey(t *testing.T) {
 func TestConcurrentRotateSerialized(t *testing.T) {
 	ring := phase1bRing(t)
 	phase1bPut(t, "TOKEN", "serial-rotations")
-	acct := "vault-key/" + phase1bMeta(t, "vault_id")
+	vaultID := phase1bMeta(t, "vault_id")
+	acct := "vault-key/" + vaultID
 	oldKid := phase1bMeta(t, "kid")
 	type result struct {
 		old, next string
@@ -640,7 +643,7 @@ func TestConcurrentRotateSerialized(t *testing.T) {
 		}
 	}
 	ring.mu.Unlock()
-	current, err := parseKey(currentValue)
+	current, err := parseKey(currentValue, vaultID)
 	if err != nil || current.Kid != finalKid {
 		t.Fatalf("current key/meta mismatch: parse=%v meta=%q", err, finalKid)
 	}
@@ -750,7 +753,8 @@ func TestSnapshotToConsistent(t *testing.T) {
 // backslash path all run as exactly the arguments given — never re-tokenized.
 func TestKeyCommandArgvJSON(t *testing.T) {
 	phase1bRing(t)
-	key, raw, err := randomKey()
+	// Kid identifies the root alone (independent of vaultID); this test only compares Kid.
+	key, raw, err := randomKey("")
 	if err != nil {
 		t.Fatal(err)
 	}

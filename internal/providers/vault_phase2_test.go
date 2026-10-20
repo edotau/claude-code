@@ -42,7 +42,7 @@ func TestRenderPinsAbsent(t *testing.T) {
 
 func TestSelectSurfacesUnreadableVault(t *testing.T) {
 	reg := selectTestRegistry(t)
-	vaulttest.Put(t, vault.Meta, "schema", "2")
+	vaulttest.Put(t, vault.Meta, "schema", "3")
 	for _, env := range []string{"", "openai"} {
 		t.Setenv(PinProvider, env)
 		if _, err := Select(reg, ""); err == nil || !strings.Contains(err.Error(), "vault: pins unreadable") {
