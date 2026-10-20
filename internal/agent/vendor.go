@@ -108,6 +108,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	h := vendors.Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach}
+	if v.name == "opencode" {
+		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
+	}
 	var env, argv []string
 	if own {
 		env, argv, err = vendors.OwnLoginHeadless(v.name, h)

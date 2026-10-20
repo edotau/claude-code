@@ -310,6 +310,42 @@ func TestOpenCodeConfigShape(t *testing.T) {
 	}
 }
 
+// TestOpenCodeDirArgv covers both argv builders opencode's workdir plumbing goes through: the BYOK/gateway
+// builder (opencode(), reached via ConfigureHeadless) and the hub ladder's own (OpencodeRunArgv). Both must
+// add --dir only when Headless.WorkDir is set, and never otherwise.
+func TestOpenCodeDirArgv(t *testing.T) {
+	t.Run("BYOK builder", func(t *testing.T) {
+		tg := target(t, "gateway", "anthropic/claude-opus-5")
+		_, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i := slices.Index(argv, "--dir"); i == -1 || argv[i+1] != "/work/dir" {
+			t.Errorf("argv = %q, want --dir /work/dir", argv)
+		}
+
+		_, argv, err = ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(argv, "--dir") {
+			t.Errorf("argv = %q, must not contain --dir when WorkDir is unset", argv)
+		}
+	})
+
+	t.Run("hub ladder", func(t *testing.T) {
+		_, argv := OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		if i := slices.Index(argv, "--dir"); i == -1 || argv[i+1] != "/work/dir" {
+			t.Errorf("argv = %q, want --dir /work/dir", argv)
+		}
+
+		_, argv = OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
+		if slices.Contains(argv, "--dir") {
+			t.Errorf("argv = %q, must not contain --dir when WorkDir is unset", argv)
+		}
+	})
+}
+
 // agy has no custom base URL, so a gateway provider for the gemini vendor must fail fast with a clear error.
 func TestGeminiGateway(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

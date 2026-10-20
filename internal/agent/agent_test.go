@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -95,6 +96,22 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	err := childErr(ctx, "sh", cmd.Run(), tail)
 	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("grandchild outlived the deadline: took %v, err %v", time.Since(start), err)
+	}
+}
+
+// childCmd sets $PWD alongside cmd.Dir so a child that reads $PWD (not getcwd()) still sees dir; an
+// empty dir (no --workdir) must leave PWD unset so the child inherits the caller's own cwd.
+func TestChildCmdSetsPWD(t *testing.T) {
+	dir := t.TempDir()
+	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "")
+	if !slices.Contains(cmd.Env, "PWD="+dir) {
+		t.Errorf("cmd.Env = %q, want PWD=%s", cmd.Env, dir)
+	}
+
+	// dir == "" (no --workdir): childCmd must append nothing past the inherited os.Environ() PWD.
+	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "")
+	if n, want := len(cmd.Env), len(os.Environ()); n != want {
+		t.Errorf("cmd.Env has %d entries, want %d (os.Environ(), no PWD appended)", n, want)
 	}
 }
 
