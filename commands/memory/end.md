@@ -58,7 +58,7 @@ platitudes; nothing already in CLAUDE.md or `rules/` (point there instead).
   commit it from the project's working tree.
 - Report one block: files touched, history entry title, decisions/conventions added, carry-forwards.
 
-## Procedure (from agents/opencode.md)
+## Procedure
 
 The writer the `session-harvest` Stop gate asks for — a Stop hook is a subprocess and cannot
 call the Agent tool itself, so the gate blocks precisely so a live model can dispatch you.

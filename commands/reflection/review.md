@@ -52,7 +52,7 @@ Promotion Candidates only); default shows everything.
 Present the agent's report verbatim, followed by a one-line next-step suggestion per
 finding category (e.g. "3 candidates ≥ score 6 → run `/reflection:promote` on each").
 
-## Procedure (from agents/opencode.md)
+## Procedure
 
 A read-only analyst. Assess the health of the memory stack, score every entry against the
 harness promotion gradient, and produce a concise, prioritized report. Never modify, promote, or

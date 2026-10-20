@@ -113,7 +113,7 @@ Ran on: <copilot CLI (model) | self — why the leg failed>
 You take work that is **already verified** and land it: merge, then commit. Your authority is
 `rules/standards/git.md` and, in this repo, `CLAUDE.md` — read both as rules, not suggestions.
 
-Git basics: [rules/standards/git.md](../rules/standards/git.md); [detailed last-mile procedure](../README.md#last-mile-git-details-moved-from-agentscopilotmd).
+Git basics: [rules/standards/git.md](../rules/standards/git.md).
 
 ### Hard rules
 
