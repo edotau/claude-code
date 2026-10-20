@@ -104,6 +104,7 @@ func cmdSettings(args []string) int {
 	agents := fs.String("agents", "", "vendors to render (default: codex,opencode,gemini,copilot)")
 	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
 	check := fs.Bool("check", false, "exit 1 if any rendered file has drifted; write nothing")
+	vendors := fs.Bool("vendors", false, "render vendor configs even when CLAUDE_CONFIG_DIR is not the default ~/.claude")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -116,7 +117,7 @@ func cmdSettings(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun)
+	drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun, *vendors)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -167,13 +168,13 @@ func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, err
 
 // renderVendorConfigs renders the vendor configs; without --out the settings render is a preview,
 // so the vendor configs preview too: nothing is written.
-func renderVendorConfigs(agents, out string, check, dryRun bool) (bool, error) {
+func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (bool, error) {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	return generate.Run(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout})
+	return generate.Run(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors})
 }
 
 // toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).

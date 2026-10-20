@@ -32,7 +32,7 @@ func TestRenderOpenCodePluginNonEmptyWritesAndManages(t *testing.T) {
 	writeOpencodePluginsOverlay(t, []string{"opencode-gemini-auth@1.4.15"})
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -75,7 +75,7 @@ func TestRenderOpenCodePluginEmptyLeavesUserKeyAlone(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Out: &out, Agents: []string{"opencode"}}); err != nil {
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 

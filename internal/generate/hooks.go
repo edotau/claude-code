@@ -18,12 +18,118 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-func renderHooksFile(path string, body []byte, o Options, out io.Writer, label string) (bool, error) {
+// renderHooksFile writes body to path, merging it over whatever is already there when merge is
+// non-nil: a nil merge overwrites outright (nothing currently needs that for a hooks file).
+func renderHooksFile(path string, body []byte, merge func(existing, body []byte) ([]byte, error), o Options, out io.Writer, label string) (bool, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("%s: %w", label, err)
 	}
-	return commitFile(path, raw, append(body, '\n'), err == nil, o, out, label)
+	existed := err == nil
+	next := body
+	if merge != nil {
+		if next, err = merge(raw, body); err != nil {
+			return false, fmt.Errorf("%s: %w", label, err)
+		}
+	}
+	return commitFile(path, raw, append(next, '\n'), existed, o, out, label)
+}
+
+// mergeCodexHooks keeps every foreign hook already in a Codex hooks.json, replacing only the harness's
+// own groups (by command prefix, hookspec.IsHarness) with the freshly rendered ones; mirrors
+// internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file Codex reads directly.
+func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
+	var existing, rendered struct {
+		Hooks map[string][]hookspec.Group `json:"hooks"`
+	}
+	if len(bytes.TrimSpace(existingRaw)) > 0 {
+		if err := json.Unmarshal(existingRaw, &existing); err != nil {
+			return nil, fmt.Errorf("existing file: %w", err)
+		}
+	}
+	if err := json.Unmarshal(body, &rendered); err != nil {
+		return nil, err
+	}
+	merged := map[string][]hookspec.Group{}
+	for event, groups := range existing.Hooks {
+		merged[event] = foreignCodexGroups(groups)
+	}
+	for event, groups := range rendered.Hooks {
+		merged[event] = append(append([]hookspec.Group{}, groups...), merged[event]...)
+	}
+	for event, groups := range merged {
+		if len(groups) == 0 {
+			delete(merged, event)
+		}
+	}
+	return json.MarshalIndent(map[string]any{"hooks": merged}, "", "  ")
+}
+
+// foreignCodexGroups drops harness-owned hooks from each group (by command prefix), keeping a group
+// only while it still has at least one foreign hook left.
+func foreignCodexGroups(groups []hookspec.Group) []hookspec.Group {
+	var kept []hookspec.Group
+	for _, g := range groups {
+		var hooks []hookspec.Hook
+		for _, h := range g.Hooks {
+			if !hookspec.IsHarness(h.Command) {
+				hooks = append(hooks, h)
+			}
+		}
+		if len(hooks) == 0 {
+			continue
+		}
+		g.Hooks = hooks
+		kept = append(kept, g)
+	}
+	return kept
+}
+
+// copilotHookEntry is the flat per-hook shape CopilotJSON renders (hookspec.vendors.go's own unexported
+// entry type, duplicated here so a merge can decode and re-encode it byte-identically).
+type copilotHookEntry struct {
+	Type       string `json:"type"`
+	Matcher    string `json:"matcher"`
+	Bash       string `json:"bash"`
+	TimeoutSec int    `json:"timeoutSec"`
+}
+
+// mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries: each entry is
+// either kept whole (foreign) or dropped whole (harness-owned, by its "bash" command prefix).
+func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
+	var existing, rendered struct {
+		Version int                           `json:"version"`
+		Hooks   map[string][]copilotHookEntry `json:"hooks"`
+	}
+	if len(bytes.TrimSpace(existingRaw)) > 0 {
+		if err := json.Unmarshal(existingRaw, &existing); err != nil {
+			return nil, fmt.Errorf("existing file: %w", err)
+		}
+	}
+	if err := json.Unmarshal(body, &rendered); err != nil {
+		return nil, err
+	}
+	merged := map[string][]copilotHookEntry{}
+	for event, entries := range existing.Hooks {
+		for _, e := range entries {
+			if !hookspec.IsHarness(e.Bash) {
+				merged[event] = append(merged[event], e)
+			}
+		}
+	}
+	for event, entries := range rendered.Hooks {
+		merged[event] = append(append([]copilotHookEntry{}, entries...), merged[event]...)
+	}
+	for event, entries := range merged {
+		if len(entries) == 0 {
+			delete(merged, event)
+		}
+	}
+	version := rendered.Version
+	if version == 0 {
+		version = 1
+	}
+	return json.MarshalIndent(map[string]any{"version": version, "hooks": merged}, "", "  ")
 }
 
 func renderCodex(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
@@ -56,7 +162,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	if err != nil {
 		return drift, err
 	}
-	d, err := renderHooksFile(hooksPath, body, o, out, "codex-hooks")
+	d, err := renderHooksFile(hooksPath, body, mergeCodexHooks, o, out, "codex-hooks")
 	return drift || d, err
 }
 
