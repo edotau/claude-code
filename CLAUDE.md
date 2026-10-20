@@ -47,6 +47,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    background, and stays free for discussion, follow-ups and the live check. Inline only for a one-line
    edit. Brief completely up front; never re-steer a running agent. Many leaf tasks: one Claude lane
    orchestrator per lane → `skills/subagent-workflows/references/lane-orchestrator.md`, `rules/standards/quality.md`
+9. Tag notable moments in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` · `NOTE:` — the harvest files them.
 
 ## How-to (task → command → depth)
 
