@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,7 +192,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
 		return
 	}
-	cur, _ := exec.Command("git", "-C", root, "config", "--get", "core.hooksPath").Output()
+	cur, _ := exec.CommandContext(context.Background(), "git", "-C", root, "config", "--get", "core.hooksPath").Output()
 	if strings.TrimSpace(string(cur)) == ".githooks" {
 		return
 	}
@@ -199,7 +200,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	if dryRun {
 		return
 	}
-	if out, err := exec.Command("git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
 	}
 }
@@ -499,9 +500,9 @@ func routerStatus() string {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "stale router.json (port " + fmt.Sprint(st.Port) + " not answering)"
+		return "stale router.json (port " + strconv.Itoa(st.Port) + " not answering)"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return fmt.Sprintf("port %d %s", st.Port, resp.Status)
 }
 

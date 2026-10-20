@@ -94,6 +94,7 @@ func TestResolveRepoNonGitDir(t *testing.T) {
 	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	notRepo := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(notRepo))
 	if _, err := ResolveRepo(notRepo); err == nil {
 		t.Fatal("want error for non-git directory")
 	}

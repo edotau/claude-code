@@ -281,16 +281,7 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
-			reg, sel, err = selection(o)
-			if err == nil {
-				target, note, err = vendors.ResolveTarget(reg, name, sel, explicit)
-			}
-			if err == nil {
-				if note != "" {
-					fmt.Fprintln(os.Stderr, note)
-				}
-				env, prefix, err = vendors.Configure(ctx, name, target, "")
-			}
+			env, prefix, err = retryVendorConfigure(ctx, name, o)
 		}
 		if errors.Is(err, vendors.ErrOwnLogin) {
 			return plainPlan(spec, args)
@@ -304,6 +295,21 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 		return Plan{}, err
 	}
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
+}
+
+func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
+	reg, sel, err := selection(o)
+	if err != nil {
+		return nil, nil, err
+	}
+	target, note, err := vendors.ResolveTarget(reg, name, sel, o.Provider != "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	return vendors.Configure(ctx, name, target, "")
 }
 
 func interactiveVendorArgs(args []string) bool {
