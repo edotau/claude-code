@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"github.com/edotau/claude-code/internal/proc"
+	"io/fs"
 	"os"
 	"sort"
 	"strings"
@@ -11,9 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Pin keys: process env beats env.d/provider.env. A model pin may be "provider:model" to cross providers.
+// Pin keys: process env beats vault pins. A model pin may be "provider:model" to cross providers.
 const (
 	PinProvider = "HARNESS_PROVIDER"
 	PinModel    = "HARNESS_MODEL" // fills every slot
@@ -52,69 +54,66 @@ func ReadEnvFile(path string) map[string]string {
 	return out
 }
 
-// Pin reads key from the process env, then the pin file.
+// Pin reads key from the process env, then the vault pins.
 func Pin(key string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
 	}
-	return ReadEnvFile(paths.PinFile())[key]
+	pin, _ := pinLookup()
+	return pin(key)
 }
 
-// pinLookup reads the pin file at most once, only when the process env does not answer — for a
-// loop over several keys (Select); a single Pin lookup has no file read to amortize.
-func pinLookup() func(string) string {
-	var pins map[string]string
+// pinLookup reads the vault pins once; process env takes precedence even when the vault is unreadable.
+func pinLookup() (func(string) string, error) {
+	pins, err := readPins()
 	return func(key string) string {
 		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 			return v
 		}
-		if pins == nil {
-			pins = ReadEnvFile(paths.PinFile())
-		}
 		return pins[key]
-	}
+	}, err
 }
 
-// SetPins writes (value != "") or clears (value == "") keys in the pin file under its lock.
+// readPins is the vault pins table in one read transaction; a missing vault is empty.
+func readPins() (pins map[string]string, err error) {
+	err = vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
+	return pins, err
+}
+
+// SetPins writes (value != "") or clears (value == "") keys in the vault pins in one transaction.
 func SetPins(kv map[string]string) error {
-	file := paths.PinFile()
-	return paths.WithFileLock(file, func() error {
-		cur := ReadEnvFile(file)
+	if err := vault.Update(func(tx *vault.Tx) error {
 		for k, v := range kv {
-			if v == "" {
-				delete(cur, k)
-			} else {
-				cur[k] = v
-			}
-		}
-		keys := make([]string, 0, len(cur))
-		for k := range cur {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var b strings.Builder
-		b.WriteString("# Managed by `claude-code use` / `claude-code models --pin`.\n")
-		for _, k := range keys {
-			b.WriteString(k + "=" + cur[k] + "\n")
-		}
-		if err := paths.AtomicWrite(file, []byte(b.String()), 0o600); err != nil {
-			return err
-		}
-		for k, v := range kv {
-			switch {
-			case k == PinProvider:
-				audit.Log(audit.ProviderSwitch, v, pinCaller())
-			case k == PinModel || (strings.HasPrefix(k, "HARNESS_") && strings.HasSuffix(k, "_MODEL")):
-				audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
+			if err := tx.Put(vault.Pins, k, v); err != nil {
+				return err
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	AuditPins(kv)
+	return nil
+}
+
+// AuditPins records pin changes after their transaction succeeds.
+func AuditPins(kv map[string]string) {
+	for k, v := range kv {
+		switch {
+		case k == PinProvider:
+			audit.Log(audit.ProviderSwitch, v, pinCaller())
+		case k == PinModel || (strings.HasPrefix(k, "HARNESS_") && strings.HasSuffix(k, "_MODEL")):
+			audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
+		}
+	}
 }
 
 // PinDiff previews SetPins(kv): one "KEY: old → new" line per key whose value would change, sorted.
-func PinDiff(kv map[string]string) []string {
-	cur := ReadEnvFile(paths.PinFile())
+func PinDiff(kv map[string]string) ([]string, error) {
+	cur, err := readPins()
+	if err != nil {
+		return nil, err
+	}
 	keys := make([]string, 0, len(kv))
 	for k := range kv {
 		keys = append(keys, k)
@@ -127,7 +126,29 @@ func PinDiff(kv map[string]string) []string {
 		}
 		out = append(out, k+": "+cmp.Or(cur[k], "(unset)")+" → "+cmp.Or(kv[k], "(unset)"))
 	}
-	return out
+	return out, nil
+}
+
+// RenderPins renders vault pins in the legacy format for history.
+func RenderPins() ([]byte, error) {
+	pins, err := readPins()
+	if err != nil {
+		return nil, err
+	}
+	if len(pins) == 0 {
+		return nil, fs.ErrNotExist
+	}
+	keys := make([]string, 0, len(pins))
+	for k := range pins {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("# Managed by `claude-code use` / `claude-code models --pin`.\n")
+	for _, k := range keys {
+		b.WriteString(k + "=" + pins[k] + "\n")
+	}
+	return []byte(b.String()), nil
 }
 
 // OAuthTokenEnv is the env var Claude Code reads a long-lived Max-plan token from (`claude setup-token` mints one).
