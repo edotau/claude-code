@@ -28,7 +28,8 @@ Give every agent:
 
 - one objective and bounded scope;
 - relevant constraints and artifacts;
-- acceptance criteria and an exact verification command;
+- acceptance criteria and an exact verification command — scoped to the packages/dirs the change touches, never
+  the full suite (`make test`, `go test ./...`, bare `pytest`), which runs only at wrap-up with the user's approval;
 - expected output;
 - model/effort sized to the task (Sonnet leaf by default; raise effort before model).
 
