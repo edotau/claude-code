@@ -265,6 +265,40 @@ func TestCopilotEffortAndContextPinsRoundTrip(t *testing.T) {
 	}
 }
 
+// CopilotModel resolves the COPILOT_MODEL pin first; with no pin, it falls back to the
+// github-copilot provider's own opus slot — and names which source won in both cases.
+func TestCopilotModelPinBeatsFallback(t *testing.T) {
+	reg := load(t)
+	t.Setenv(PinCopilotModel, "")
+	if err := SetPins(map[string]string{PinCopilotModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	wantFallback := reg.Providers["github-copilot"].Models[models.Opus]
+	if got, src := CopilotModel(reg); got != wantFallback || src != "github-copilot default" {
+		t.Errorf("CopilotModel(unset) = (%q, %q), want (%q, github-copilot default)", got, src, wantFallback)
+	}
+
+	if err := SetPins(map[string]string{PinCopilotModel: "claude-opus-5.5"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := CopilotModel(reg); got != "claude-opus-5.5" || src != "pin" {
+		t.Errorf("CopilotModel(pinned) = (%q, %q), want (claude-opus-5.5, pin)", got, src)
+	}
+}
+
+// A process env var for COPILOT_MODEL beats the vault pin, same precedence as every other pin.
+func TestCopilotModelEnvBeatsVaultPin(t *testing.T) {
+	reg := load(t)
+	if err := SetPins(map[string]string{PinCopilotModel: "from-vault"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(PinCopilotModel, "from-env")
+	if got, src := CopilotModel(reg); got != "from-env" || src != "pin" {
+		t.Errorf("CopilotModel(env set) = (%q, %q), want (from-env, pin)", got, src)
+	}
+}
+
 // A process env var for either key beats the vault pin, same precedence as every other pin.
 func TestCopilotEffortAndContextEnvBeatsVaultPin(t *testing.T) {
 	vaulttest.UseKeyring(t)

@@ -95,15 +95,14 @@ func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 		{ID: "retired-model", Name: "Retired Model", Enabled: false},
 	}, nil)
 
-	gp, ok := reg.Providers["github-copilot"]
-	if !ok {
+	if _, ok := reg.Providers["github-copilot"]; !ok {
 		t.Skip("no github-copilot provider in the registry")
 	}
 
 	in := strings.NewReader("\n") // blank = cancel; we only need the printed row list
 	var out bytes.Buffer
-	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
-	pickCopilotModel(d, gp)
+	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}
+	pickCopilotModel(d)
 
 	shown := out.String()
 	if !strings.Contains(shown, "claude-sonnet-5") {
@@ -129,17 +128,21 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	if !ok {
 		t.Skip("no github-copilot provider in the registry")
 	}
+	wantOpus := gp.Models["opus"] // must survive untouched: the pick writes only the COPILOT_MODEL pin
 
 	in := strings.NewReader("1\n")
 	var out bytes.Buffer
 	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}
-	pickCopilotModel(d, gp)
+	pickCopilotModel(d)
 
 	if !strings.Contains(out.String(), "opencode") {
 		t.Errorf("output does not name the opencode fallback:\n%s", out.String())
 	}
-	if got := gp.Models["opus"]; got != "claude-opus-5.5" {
-		t.Errorf("opus slot = %q, want claude-opus-5.5 (saved from the fallback list)", got)
+	if got, _ := providers.CopilotModel(reg); got != "claude-opus-5.5" {
+		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5 (saved from the fallback list)", got)
+	}
+	if got := gp.Models["opus"]; got != wantOpus {
+		t.Errorf("github-copilot opus slot = %q, want unchanged %q: the pick must not write the provider overlay", got, wantOpus)
 	}
 }
 

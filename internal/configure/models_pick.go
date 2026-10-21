@@ -59,14 +59,16 @@ func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
 		return nil
 	}
+	if name == "copilot" {
+		model, source := providers.CopilotModel(d.reg)
+		desc := model + " (" + source + ")"
+		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
+	}
 	p, claude := modelTarget(d, name)
 	if p == nil {
 		return nil
 	}
 	desc := currentModel(d, p, claude, models.Opus) + " via " + p.Name
-	if name == "copilot" {
-		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d, p); return true }}
-	}
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
 }
 
@@ -118,13 +120,14 @@ func copilotModelDesc(m copilotsdk.Model, cur string) string {
 }
 
 // pickCopilotModel is the copilot page's Model row: the SDK catalog (the account copilot runs as) first,
-// falling back to opencode's github-copilot catalog when the SDK call fails.
-func pickCopilotModel(d *dialog, p *providers.Provider) {
-	cur := currentModel(d, p, false, models.Opus)
+// falling back to opencode's github-copilot catalog when the SDK call fails. It writes only the
+// COPILOT_MODEL pin — never github-copilot's models table, which opencode's fallback ladder also reads.
+func pickCopilotModel(d *dialog) {
+	cur, _ := providers.CopilotModel(d.reg)
 	list, err := copilotCatalog(d)
 	if err != nil {
 		d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
-		pickCopilotModelFallback(d, p, cur)
+		pickCopilotModelFallback(d, cur)
 		return
 	}
 	var ids []string
@@ -144,12 +147,17 @@ func pickCopilotModel(d *dialog, p *providers.Provider) {
 	if err != nil || j < 0 {
 		return
 	}
-	saveModel(d, p, false, models.Opus, ids[j])
+	saveCopilotModel(d, ids[j])
 	clearIneligibleCopilotPins(d, ids[j])
 }
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
-func pickCopilotModelFallback(d *dialog, p *providers.Provider, cur string) {
+func pickCopilotModelFallback(d *dialog, cur string) {
+	p, ok := d.reg.Providers["github-copilot"]
+	if !ok {
+		d.printf("copilot: no github-copilot provider registered\n")
+		return
+	}
 	ids := modelChoices(p, false)
 	if len(ids) == 0 {
 		d.printf("copilot: no model list available for %s\n", p.Name)
@@ -163,7 +171,18 @@ func pickCopilotModelFallback(d *dialog, p *providers.Provider, cur string) {
 	if err != nil || j < 0 {
 		return
 	}
-	saveModel(d, p, false, models.Opus, ids[j])
+	saveCopilotModel(d, ids[j])
+}
+
+// saveCopilotModel pins COPILOT_MODEL — the copilot agent's own model, independent of the
+// github-copilot provider's opus slot that opencode's fallback ladder reads.
+func saveCopilotModel(d *dialog, id string) {
+	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: id}); err != nil {
+		d.printf("model: %v\n", err)
+		return
+	}
+	d.printf("model: copilot = %s\n", id)
+	d.changed = true
 }
 
 // pickModel is the tier list (tier · use · current), then the account's model ids; the pick is saved at once.

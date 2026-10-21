@@ -115,6 +115,23 @@ func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
 	}
 }
 
+// WriteGithubCopilotModels (the "GitHub (opencode fallback)" section's pick) changes only the
+// github-copilot provider overlay; it must never touch the COPILOT_MODEL pin that copilot's own
+// launch and configure page read, even when a pin is already set to something else.
+func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
+	githubScratch(t)
+	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
+		t.Fatal(err)
+	}
+	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
+	if err := WriteGithubCopilotModels(picks, ""); err != nil {
+		t.Fatalf("WriteGithubCopilotModels: %v", err)
+	}
+	if got := providers.Pin(providers.PinCopilotModel); got != "claude-opus-5.5" {
+		t.Errorf("COPILOT_MODEL pin = %q, want unchanged claude-opus-5.5: the fallback section must not touch it", got)
+	}
+}
+
 // fallback="auto" is rejected outright: opencode's own catalog has no "auto" alias, so substituting
 // it right back in would defeat the whole point of opencode_fallback. The overlay must stay untouched.
 func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {

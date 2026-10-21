@@ -2,6 +2,7 @@ package launch
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
@@ -470,12 +472,15 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if !ok {
 		return fmt.Sprintf("provider=github-copilot file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", file, opencodeLogin, copilotCLILogin)
 	}
-	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s file=%s opencode_login=%v copilot_cli_login=%v",
-		mainID, smallID, file, opencodeLogin, copilotCLILogin)
+	// opus/sonnet/haiku here are github-copilot's own table (configure github), separate from COPILOT_MODEL.
+	opusID := reg.Providers["github-copilot"].Models[models.Opus]
+	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
+		mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
 }
 
 // copilotRouteDetail reports the copilot CLI's resolved leg (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic or gemini key, or none — names/booleans/leg only, never a credential.
+// BYOK with an anthropic or gemini key, or none — names/booleans/leg only, never a credential. On the
+// GitHub login leg it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
 func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
@@ -484,7 +489,14 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if !ri.OK {
 		return ri.Reason
 	}
-	return fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
+	detail := fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
+	if ri.Leg == vendors.LegCopilotLogin {
+		_, source := providers.CopilotModel(reg)
+		effort := cmp.Or(providers.Pin(providers.PinCopilotEffort), "default")
+		context := cmp.Or(providers.Pin(providers.PinCopilotContext), "default")
+		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
+	}
+	return detail
 }
 
 func routerStatus() string {

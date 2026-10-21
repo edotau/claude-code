@@ -75,6 +75,10 @@ func glob(pattern, s string) bool {
 // is the account's opus model id, so a pattern can match a provider's prefixed ids.
 func rawPlanID(d *dialog, name string, st agentState) string {
 	if st.mode != modeSubscription {
+		if name == "copilot" && d.reg != nil {
+			model, _ := providers.CopilotModel(d.reg)
+			return model
+		}
 		if p, claude := modelTarget(d, name); p != nil {
 			return currentModel(d, p, claude, models.Opus)
 		}

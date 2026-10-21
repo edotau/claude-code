@@ -161,6 +161,56 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 	}
 }
 
+// On the copilot-login leg, DescribeRoute's Model comes from the shared resolver (providers.CopilotModel):
+// the COPILOT_MODEL pin when set, else github-copilot's own opus slot — never the registry's stale value.
+func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
+	t.Setenv("GH_TOKEN", secret)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantDefault := reg.Providers["github-copilot"].Models["opus"]
+	if ri := DescribeRoute(reg, "copilot"); ri.Model != wantDefault {
+		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus slot %q", ri.Model, wantDefault)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
+		t.Fatal(err)
+	}
+	if ri := DescribeRoute(reg, "copilot"); ri.Model != "claude-opus-5.5" {
+		t.Fatalf("Model (pinned) = %q, want the COPILOT_MODEL pin claude-opus-5.5", ri.Model)
+	}
+}
+
+// --model (explicit=true) bypasses the fallback chain entirely: ResolveTarget returns the session
+// slot's model unchanged, even when a COPILOT_MODEL pin names something else.
+func TestResolveTargetCopilotExplicitModelBeatsPin(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
+	t.Setenv("GH_TOKEN", secret)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
+		t.Fatal(err)
+	}
+	sub := subscriptionSelection(t, reg)
+	sub.Slots["opus"] = providers.Target{Provider: sub.Provider, Model: "explicit-model"}
+
+	target, note, err := ResolveTarget(reg, "copilot", sub, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note != "" {
+		t.Errorf("explicit --model must not carry a fallback note, got %q", note)
+	}
+	if target.Model != "explicit-model" {
+		t.Errorf("target.Model = %q, want the explicit override, not the COPILOT_MODEL pin", target.Model)
+	}
+}
+
 // A github-copilot login stored by opencode is its own leg, ahead of both the session provider
 // and the generic own-login fallback above: it resolves to a real github-copilot target (no
 // ErrOwnLogin), since the harness, not opencode, now owns writing that route's config.
