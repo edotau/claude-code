@@ -14,7 +14,7 @@ Match the dependency shape; do not add orchestration by default.
 | Discovery ends only when no new work appears | Bounded loop | Repeat with a limit and deduplicated `seen` set — saved: `gate-loop`, `audit-fix-verify` (`rounds`) |
 | Several approaches to one measurable task, best wins | Competition tournament | N leaves in worktrees, then rank and merge one — [competition-tournament.md](competition-tournament.md) |
 
-Reuse a saved workflow (`workflows/*.js`; `vendor-leg` for a non-Claude stage) before scaffolding a
+Reuse a saved workflow (`workflows/*.js`; `external-agent` for a non-Claude stage) before scaffolding a
 new one. Use ad hoc `Agent` calls when the manager should decide tasks during the session. Use
 `Workflow` when the structure must be repeatable. Generate a starting script with:
 

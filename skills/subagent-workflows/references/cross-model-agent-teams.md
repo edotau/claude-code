@@ -21,20 +21,21 @@ Failures are fail-soft: use a local Claude subagent rather than blocking the tas
 |---|---|---|
 | Claude | Manager, synthesis, architecture, final decisions | Local `Agent`/`Workflow` tools |
 | Codex | Scoped implementation or adversarial diff review | `claude-code ask --agent codex "<brief>"` |
-| Gemini | Large-context repository exploration and cross-file analysis | `claude-code ask --agent gemini "<brief>"` |
-| Gemini (bridge) | One-shot 1M-context sweep over inlined workspace files, rides the subscription via `agy` when logged in | `claude-code gemini bridge --dirs <d> -- "<task>"` |
+| Gemini | Repo exploration, cross-file tracing (needs `--tools` to read files) | `claude-code ask --agent gemini --tools --workdir <repo> "<brief>"` |
+| Gemini (bridge) | Whole-module/large 1M-context sweep over inlined workspace files, run by the caller, rides the subscription via `agy` when logged in | `claude-code gemini bridge --dirs <d> -- "<task>"` |
+| Gemini (web) | Web search with cited URLs (needs `--tools`; agy cannot search otherwise) | `claude-code ask --agent gemini --tools --format json "<q; cite URLs>"` |
 | OpenCode / Copilot | Independent implementation or second-opinion review | `claude-code ask --agent opencode\|copilot "<brief>"` |
-| Any leg as a Workflow stage | Smoke-tested, JSON envelope relayed, sonnet fallback | `workflow("vendor-leg", {leg, cwd, task})` or `audit-fix-verify {refuters: ["codex"]}` |
+| Any leg as a Workflow stage | Smoke-tested, JSON envelope relayed, sonnet fallback | `workflow("external-agent", {leg, cwd, task})` or `audit-fix-verify {refuters: ["codex"]}` |
 
 Demonstrated calls per named role:
 
 - **Codex adversarial refuter** — `workflow("audit-fix-verify", {range: "main..HEAD", cwd, refuters: ["codex"]})`;
   codex refutes each finding before fix ‖ test runs per package.
-- **Gemini 1M sweep as a stage** — `workflow("vendor-leg", {leg: "gemini", cwd, task: "<sweep brief>"})`, one
-  call per round inside a loop — never the opus tier.
-- **Copilot commit tail** — `workflow("vendor-leg", {leg: "copilot", cwd, tools: true, task: "stage and commit
+- **Gemini 1M sweep as a stage** — `workflow("external-agent", {leg: "gemini", cwd, task: "<sweep brief>"})`, one
+  call per round inside a loop; no measured 429s on agy, prefer flash-high.
+- **Copilot commit tail** — `workflow("external-agent", {leg: "copilot", cwd, tools: true, task: "stage and commit
   <files> with <message>"})` — `tools: true` runs never fall back; call this only after the gates are green.
-- **OpenCode second opinion** — `workflow("vendor-leg", {leg: "opencode", cwd, task: "<review brief>"})`, roughly
+- **OpenCode second opinion** — `workflow("external-agent", {leg: "opencode", cwd, task: "<review brief>"})`, roughly
   1.5–3 min per call.
 
 `--format json` returns the machine envelope (agent, provider, model, answer, usage). A leg's model and
@@ -50,6 +51,8 @@ The Gemini bridge needs a cached Google sign-in (run `agy` once) so `agy` carrie
 - Run writer then reviewer sequentially; reviewers need the completed artifact.
 - Legs on distinct providers add throughput; legs sharing one provider share its rate limit, so reduce
   concurrency if `429` errors persist.
+- Never dispatch gemini tool-less for repo or web work: without `--tools` agy is told not to call any
+  tools, so it answers from model memory, not the repo or the live web.
 
 A useful default for a large change: Claude manages, Gemini maps broad impact, Codex performs an
 independent review, and Claude resolves findings and verifies the final result.
