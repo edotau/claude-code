@@ -96,7 +96,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if !own {
 		res.Provider = t.Provider.Name
 	}
-	prompt, err := v.attachPrompt(req.Prompt, req.Attach)
+	prompt, err := v.attachPrompt(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
@@ -166,14 +166,18 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 }
 
 // attachPrompt folds --attach into the prompt for a vendor with no file-list argv: codex (prompt rides
-// stdin, so the content must ride along inline) and gemini (agy has no -f flag, but resolves @path live).
+// stdin, so the content must ride along inline) and gemini (agy has no -f flag, but resolves @path live
+// only when tools are on; agy's own no-tools preamble bars it from reading @path, so inline it instead).
 // opencode gets its own -f argv instead (vendors.opencodeRun), so its prompt is untouched here.
-func (v vendorRunner) attachPrompt(prompt string, paths []string) (string, error) {
+func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (string, error) {
 	switch v.name {
 	case "codex":
 		return attachInline(prompt, paths)
 	case "gemini":
-		return attachSuffix(prompt, paths), nil
+		if tools {
+			return attachSuffix(prompt, paths), nil
+		}
+		return attachInline(prompt, paths)
 	default:
 		return prompt, nil
 	}

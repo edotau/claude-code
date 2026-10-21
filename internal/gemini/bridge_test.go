@@ -596,3 +596,201 @@ func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
 		t.Errorf("provider = %q, want agy", res.Provider)
 	}
 }
+
+// dispatchRecords lists the dispatch log Record files under CLAUDE_CONFIG_DIR/state/harness/dispatch.
+func dispatchRecords(t *testing.T) []agent.Record {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "dispatch")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []agent.Record
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r agent.Record
+		if err := json.Unmarshal(b, &r); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// TestBridgeRunAgyTimeoutWithinDeadline: a stub agy that sleeps past Options.Timeout must surface a
+// timeout error well inside the caller's own context deadline, not hang for the full retry ladder.
+func TestBridgeRunAgyTimeoutWithinDeadline(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not on PATH")
+	}
+	pathstest.FakeVendor(t, "agy", "cat > /dev/null\nexec "+sleep+" 5\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = Run(ctx, Options{Cwd: t.TempDir(), Task: "t", Timeout: 100 * time.Millisecond}, io.Discard, io.Discard)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("want a timeout error, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("elapsed = %s, want well inside the 400ms outer deadline (plus one 100ms attempt)", elapsed)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want it to mention the deadline", err)
+	}
+}
+
+// TestBridgeRunAgyRetries503ThenSucceeds: a stub agy that fails its first invocation with a 503-shaped
+// stderr line and succeeds on the second must be retried (not surfaced as a fatal error on attempt 1).
+func TestBridgeRunAgyRetries503ThenSucceeds(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+
+	counter := filepath.Join(t.TempDir(), "attempts")
+	script := `cat > /dev/null
+n=0
+[ -f ` + counter + ` ] && n=$(cat ` + counter + `)
+n=$((n+1))
+echo $n > ` + counter + `
+if [ "$n" -eq 1 ]; then
+  echo "503 Service Unavailable" 1>&2
+  exit 1
+fi
+printf '%s\n' '{"event":"result","result":{"conversation_id":"r2","status":"SUCCESS","response":"ok","usage":{"input_tokens":1,"output_tokens":1}}}'
+`
+	pathstest.FakeVendor(t, "agy", script)
+
+	res, err := Run(context.Background(), Options{Cwd: t.TempDir(), Task: "t"}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("Run after one retry = %v, want nil", err)
+	}
+	if res.Answer != "ok" {
+		t.Errorf("answer = %q, want ok", res.Answer)
+	}
+	got, readErr := os.ReadFile(counter)
+	if readErr != nil || strings.TrimSpace(string(got)) != "2" {
+		t.Errorf("attempt counter = %q (err %v), want exactly 2 invocations (one retry)", got, readErr)
+	}
+}
+
+// TestBridgeRunAgyNoRetryOn400: a stub agy that always fails with a 400-shaped stderr line is fatal on
+// the first attempt — never retried, unlike the transient 503/429 cases.
+func TestBridgeRunAgyNoRetryOn400(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+
+	counter := filepath.Join(t.TempDir(), "attempts")
+	script := `cat > /dev/null
+n=0
+[ -f ` + counter + ` ] && n=$(cat ` + counter + `)
+n=$((n+1))
+echo $n > ` + counter + `
+echo "400 Bad Request: invalid argument" 1>&2
+exit 1
+`
+	pathstest.FakeVendor(t, "agy", script)
+
+	_, err := Run(context.Background(), Options{Cwd: t.TempDir(), Task: "t"}, io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	var ae *agent.Error
+	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal {
+		t.Fatalf("err = %v, want a fatal *agent.Error (400 must not be retried)", err)
+	}
+	got, readErr := os.ReadFile(counter)
+	if readErr != nil || strings.TrimSpace(string(got)) != "1" {
+		t.Errorf("attempt counter = %q (err %v), want exactly 1 invocation (no retry on a 400)", got, readErr)
+	}
+}
+
+// TestBridgeRunAgyWritesDispatchRecord: a successful agy bridge run leaves a dispatch Record behind, so
+// `ask --log` surfaces bridge runs too, labeled distinctly from a plain `ask --agent gemini` dispatch.
+func TestBridgeRunAgyWritesDispatchRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
+
+	if _, err := Run(context.Background(), Options{Cwd: t.TempDir(), Task: "t"}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	recs := dispatchRecords(t)
+	if len(recs) != 1 {
+		t.Fatalf("dispatch records = %d, want 1", len(recs))
+	}
+	if recs[0].Agent != "gemini-bridge" {
+		t.Errorf("record.Agent = %q, want gemini-bridge", recs[0].Agent)
+	}
+	if recs[0].Status != "ok" {
+		t.Errorf("record.Status = %q, want ok", recs[0].Status)
+	}
+}
+
+// TestBridgeRunAgyOverMaxPromptBytesSucceeds: a sweep whose inlined files push the composed prompt well
+// over agent.MaxPromptBytes (96 KiB, the argv-element cap that bounds a vendor-exec runner's prompt) must
+// still succeed — the bridge drives agy over its own stdin-NDJSON path (agent.RunAgy), not the argv-bound
+// vendorRunner, so that cap does not apply here. Regression guard for the CRITICAL that reintroduced it.
+func TestBridgeRunAgyOverMaxPromptBytesSucceeds(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
+
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", 300<<10)) // 300 KiB, over the 96 KiB argv cap
+
+	res, err := Run(context.Background(), Options{
+		Cwd: dir, Dirs: []string{"."}, Task: "t", MaxFiles: -1, MaxFileBytes: 400 << 10,
+	}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("a >96 KiB inlined sweep over agy must not be capped by agent.MaxPromptBytes: %v", err)
+	}
+	if res.Answer != "ok" {
+		t.Errorf("answer = %q, want ok", res.Answer)
+	}
+}
+
+// TestBridgeRunAgyDispatchRecordIsCompact: the dispatch Record's Prompt field must stay a small summary
+// (task text plus a file list), never the full inlined source — so a sentinel string planted deep inside
+// an inlined file never reaches the on-disk dispatch log, and the log never balloons to MiBs per run.
+func TestBridgeRunAgyDispatchRecordIsCompact(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
+
+	dir := t.TempDir()
+	const sentinel = "SENTINEL-DO-NOT-LEAK-7f3a9c"
+	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", 50<<10)+sentinel+strings.Repeat("y", 50<<10))
+
+	const task = "summarize the repo"
+	if _, err := Run(context.Background(), Options{
+		Cwd: dir, Dirs: []string{"."}, Task: task, MaxFiles: -1, MaxFileBytes: 200 << 10,
+	}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	recs := dispatchRecords(t)
+	if len(recs) != 1 {
+		t.Fatalf("dispatch records = %d, want 1", len(recs))
+	}
+	prompt := recs[0].Request.Prompt
+	if len(prompt) >= 16<<10 {
+		t.Errorf("record prompt = %d bytes, want < 16 KiB (compact summary only)", len(prompt))
+	}
+	if !strings.Contains(prompt, task) {
+		t.Errorf("record prompt = %q, want it to contain the task text %q", prompt, task)
+	}
+	if strings.Contains(prompt, sentinel) {
+		t.Errorf("record prompt leaked the inlined file's sentinel: %q", prompt)
+	}
+}
