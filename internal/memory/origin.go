@@ -21,7 +21,7 @@ const OriginVersion = 1
 // Origin ties a store directory to the canonical checkout it serves; Aliases are explicit, never inferred.
 type Origin struct {
 	Version int      `json:"version"`
-	Key     string   `json:"key"`               // the directory name under StoreDir(); HarnessKey for the config checkout
+	Key     string   `json:"key"`               // the directory name under StoreDir(); harnessStoreKey() for the config checkout
 	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks); "" only for the store root
 	Aliases []string `json:"aliases,omitempty"` // other canonical checkout paths accepted as this repo — explicit only
 	Display []string `json:"display,omitempty"` // human names; never used for matching

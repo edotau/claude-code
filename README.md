@@ -519,10 +519,10 @@ the bank changed), on the Copilot CLI with claude-opus-5.5 (Claude fallback). `-
 
 ONE store: `~/.claude/memory/` — a local-only git repo (every settle commits; never pushed; supersede,
 never delete). `memory/index.md` is the generated catalog router (one row per repo store + newest global
-entries; never hand-edit). The top of the tree is GLOBAL (cross-repo); `memory/<repo>/` is per repo (key =
-main-checkout basename; the harness itself is `memory/.claude/`; collisions get a hash suffix; `.origin`
-records identity). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` + topic files)
-and the six typed bank files — `projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`,
+entries; never hand-edit). `memory/global/` holds the global bank (cross-repo); `memory/<repo>/` is per repo (key =
+`origin` remote basename, else the checkout dir's; the harness itself is `memory/claude-code/`; collisions get a
+hash suffix; `.origin` records identity). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` +
+topic files) and the six typed bank files — `projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`,
 `sessionHistory` (frontmatter `harness_kind: bank`). `MEMORY.md` carries a generated `<!-- bank:begin -->`…
 `<!-- bank:end -->` region (≤40 lines/4KB) pointing at the typed files + newest entries; lines outside it are
 native/Claude's and are never rewritten. `~/.claude/projects/<slug>/memory` is a harness-maintained symlink

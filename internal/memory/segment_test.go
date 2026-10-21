@@ -112,7 +112,7 @@ func oracleSearchAll(query string, k int) []SearchHit {
 	blocks := oracleCorpusBlocks(paths.ConfigDir())
 	if entries, err := RepoDirs(); err == nil {
 		for _, e := range entries {
-			if e.Key != HarnessKey {
+			if e.Key != harnessStoreKey() {
 				blocks = append(blocks, oracleStoreBlocks(e)...)
 			}
 		}

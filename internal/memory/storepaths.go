@@ -1,8 +1,8 @@
 package memory
 
-// The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding global memory at its
-// root, every repo's memory under <repo>/, and the harness's own under .claude/. Legacy paths (GlobalDir,
-// Dir, NativeDir) stay untouched until the Phase 2 cutover.
+// The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding global memory under
+// global/, every repo's memory under <repo>/ (keyed by its origin remote), and the harness's own under
+// claude-code/. Legacy paths (GlobalDir, Dir, NativeDir) stay untouched until the Phase 2 cutover.
 
 import (
 	"path/filepath"
@@ -11,20 +11,19 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// HarnessKey is the store key of the harness checkout itself (~/.claude), never collapsed into global.
-const HarnessKey = ".claude"
-
 // CatalogFile is the reserved global catalog at the store root; BuildCatalog (Phase 2) is its only writer.
 const CatalogFile = "index.md"
 
 // StoreReservedDirs are store subdirectories that are never a repo's memory dir.
-var StoreReservedDirs = map[string]bool{".git": true, "archive": true, "handoffs": true, "receipts": true, "reports": true}
+var StoreReservedDirs = map[string]bool{
+	".git": true, "archive": true, "handoffs": true, "receipts": true, "reports": true, "global": true,
+}
 
 // StoreDir is the memory store root and the work tree of the local memory repo.
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
 
-// HarnessStoreDir is the harness's own memory dir inside the store.
-func HarnessStoreDir() string { return filepath.Join(StoreDir(), HarnessKey) }
+// HarnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
+func HarnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
 
 // KnowledgeDir is the tracked, public-safe near-rules tier in the outer repo (plan C.2).
 func KnowledgeDir() string { return filepath.Join(paths.ConfigDir(), "docs", "knowledge") }

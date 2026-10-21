@@ -7,6 +7,11 @@ files:
   - "rules/**/*.md"
   - "skills/**/*.md"
   - "docs/**/*.md"
+  - "internal/memory/templates/*.md"
+overrides:
+  - glob: ["internal/memory/templates/*.md"]
+    rules:
+      empty-section-body: false
 rules:
   line-length:
     max: 120

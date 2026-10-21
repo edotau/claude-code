@@ -59,7 +59,7 @@ through the gate.
 
 - `/reflection:*` curates Claude Code's native project memory and `/memory:*` curates the typed
   bank files — both live in the same `~/.claude/memory/<repo>/` dir (the harness itself is
-  `memory/.claude/`; `~/.claude/projects/<slug>/memory` is a symlink into it). It does not invent
+  `memory/claude-code/`; `~/.claude/projects/<slug>/memory` is a symlink into it). It does not invent
   a third tier — there is no separate "learnings" feedstock file in this harness; a correction
   either routes straight to a `rules/` file (via `/harness:adapt` or `/reflection:promote`) or
   stays in native memory until it does.

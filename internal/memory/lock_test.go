@@ -94,7 +94,8 @@ func TestMaintenanceMarker(t *testing.T) {
 
 func TestStorePathsAndInsideStore(t *testing.T) {
 	cfg := tempConfig(t)
-	if StoreDir() != filepath.Join(cfg, "memory") || HarnessStoreDir() != filepath.Join(cfg, "memory", ".claude") {
+	// No origin remote here, so the harness key falls back to the config dir's own basename, not ".claude".
+	if StoreDir() != filepath.Join(cfg, "memory") || HarnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
 		t.Fatal("store paths moved")
 	}
 	if ReceiptsDir() != filepath.Join(StoreDir(), "receipts") || JournalDir() != filepath.Join(StateDir(), "journal") {

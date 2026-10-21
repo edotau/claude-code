@@ -7,8 +7,8 @@ paths:
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/<repo>/`)
 
 > One store: `~/.claude/memory/` is a local-only git repo (`memory/index.md` is the generated
-> catalog; `memory/<repo>/` is this repo's dir — the harness itself is `memory/.claude/`; the
-> store top is global). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` +
+> catalog; `memory/<repo>/` is this repo's dir — the harness itself is `memory/claude-code/`; the
+> global bank is `memory/global/`). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` +
 > topic files) and six typed bank files, loaded automatically at session start (`session-start`
 > hook) and saved at session end (`/memory:end`, encouraged by the `session-harvest` Stop hook).
 > The bank holds session STATE — durable harness/project FACTS belong in `rules/` or `CLAUDE.md`.
@@ -55,8 +55,8 @@ are never rewritten by `memory index`.
 ## Scope — repo dir and global
 
 - **Repo store** — `memory/<repo>/`. Minted by `claude-code memory init` (or on first use); the
-  config dir itself resolves to `memory/.claude/`.
-- **Global store** — `memory/` itself (the tree top), used by any non-repo cwd and reachable
+  config dir itself resolves to `memory/claude-code/`.
+- **Global store** — `memory/global/`, used by any non-repo cwd and reachable
   from every session via the catalog and `--all`/cross-repo search.
 
 ## Doctrine

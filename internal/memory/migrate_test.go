@@ -128,7 +128,7 @@ func newLegacyFixture(t *testing.T, withOrcaAlias bool) legacyFixture {
 
 	// `orphan-repo/`: changed (non-pristine) content with NO resolvable origin -> unresolved finding + skip.
 	orphanDir := filepath.Join(LegacyGlobalDir(), "orphan-repo")
-	for name := range templates {
+	for name := range templates() {
 		write(t, filepath.Join(orphanDir, name), "# orphan "+name+"\nchanged, unresolved\n")
 	}
 
@@ -167,7 +167,7 @@ func buildNativeStore(t *testing.T, dir string) {
 func buildLegacyGlobalBank(t *testing.T) {
 	t.Helper()
 	g := LegacyGlobalDir()
-	for name := range templates {
+	for name := range templates() {
 		write(t, filepath.Join(g, name), "# global "+name+"\nreal content\n")
 	}
 	write(t, filepath.Join(g, "archive", "sessionHistory-2026-01.md"), "old history\n")
@@ -180,7 +180,7 @@ func buildLegacyGlobalBank(t *testing.T) {
 func buildChangedRepoBank(t *testing.T, slug string) {
 	t.Helper()
 	dir := filepath.Join(LegacyGlobalDir(), slug)
-	for name := range templates {
+	for name := range templates() {
 		write(t, filepath.Join(dir, name), "# "+name+" for "+slug+"\nchanged\n")
 	}
 	write(t, filepath.Join(dir, "archive", "old-decision.md"), "archived decision\n")
@@ -189,7 +189,7 @@ func buildChangedRepoBank(t *testing.T, slug string) {
 // buildPristineBank seeds dir with the six typed files byte-equal to their templates.
 func buildPristineBank(t *testing.T, dir string) {
 	t.Helper()
-	for name, body := range templates {
+	for name, body := range templates() {
 		write(t, filepath.Join(dir, name), body)
 	}
 }
@@ -249,7 +249,7 @@ func TestInventoryReadOnlyAndFindings(t *testing.T) {
 	}
 
 	global := wantItem(t, m.Items, filepath.Join("docs", "memory", "bank", "activeContext.md"), KindGlobalBank, ActionCopy)
-	if global.Dest != filepath.Join(StoreDir(), "activeContext.md") {
+	if global.Dest != filepath.Join(StoreDir(), "global", "activeContext.md") {
 		t.Errorf("global activeContext.md dest = %s", global.Dest)
 	}
 	wantItem(t, m.Items, "a-topic.md", KindNativeTopic, ActionCopy)
@@ -442,7 +442,7 @@ func TestApplyFullImportCommitsAndRetires(t *testing.T) {
 			}
 
 			assertHashMatchesItem(t, m.Items, filepath.Join("docs", "memory", "bank", "activeContext.md"),
-				filepath.Join(StoreDir(), "activeContext.md"))
+				filepath.Join(StoreDir(), "global", "activeContext.md"))
 
 			wantAliases := 0
 			if withAlias {
@@ -642,7 +642,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), "activeContext.md"), string(srcABytes))
+	write(t, filepath.Join(globalStoreDir(), "activeContext.md"), string(srcABytes))
 
 	m, manifestPath := inventoryAndWrite(t, InventoryOptions{})
 	already := wantItem(t, m.Items, "activeContext.md", KindGlobalBank, ActionCopy)
@@ -651,7 +651,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	}
 
 	// progress.md's dest appears with DIFFERENT bytes only after the manifest was written (a race).
-	write(t, filepath.Join(StoreDir(), "progress.md"), "a completely different file\n")
+	write(t, filepath.Join(globalStoreDir(), "progress.md"), "a completely different file\n")
 	srcB := filepath.Join(LegacyGlobalDir(), "progress.md")
 
 	var out bytes.Buffer
@@ -665,7 +665,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	if _, err := os.Stat(srcB); err != nil {
 		t.Error("conflicting source must be kept")
 	}
-	if data, err := os.ReadFile(filepath.Join(StoreDir(), "progress.md")); err != nil || string(data) != "a completely different file\n" {
+	if data, err := os.ReadFile(filepath.Join(globalStoreDir(), "progress.md")); err != nil || string(data) != "a completely different file\n" {
 		t.Error("conflicting dest must be kept untouched")
 	}
 }
@@ -676,7 +676,7 @@ func TestApplyEqualDestVerifiesCommitsAndRetires(t *testing.T) {
 	// seed isolates a fresh box whose dest already holds the source's bytes, returning the dry-run manifest.
 	seed := func() (src, dest string, m Manifest, manifestPath string) {
 		migrateConfig(t)
-		src, dest = filepath.Join(LegacyGlobalDir(), "activeContext.md"), filepath.Join(StoreDir(), "activeContext.md")
+		src, dest = filepath.Join(LegacyGlobalDir(), "activeContext.md"), filepath.Join(globalStoreDir(), "activeContext.md")
 		write(t, src, "# activeContext.md\nminimal real content\n")
 		write(t, dest, "# activeContext.md\nminimal real content\n")
 		m, manifestPath = inventoryAndWrite(t, InventoryOptions{})

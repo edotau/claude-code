@@ -131,11 +131,11 @@ func (inv *inventory) register(path, explicitSlug string, aliases []string) stri
 	return origin
 }
 
-// destFor: $HOME → the store root, the config checkout → HarnessStoreDir, a repo → RepoDir, a non-repo → "".
+// destFor: $HOME → the global dir, the config checkout → HarnessStoreDir, a repo → RepoDir, a non-repo → "".
 func (inv *inventory) destFor(id Identity, canon string, isHome bool) (string, error) {
 	switch {
 	case isHome:
-		return StoreDir(), nil
+		return globalStoreDir(), nil
 	case id.Harness:
 		return HarnessStoreDir(), nil
 	case id.Global:
@@ -186,9 +186,9 @@ func (inv *inventory) destOf(slug string) (string, bool) {
 	return d, ok
 }
 
-// originItemFor plans dest/.origin when it is absent or lacks an alias; the store root never has one.
+// originItemFor plans dest/.origin when it is absent or lacks an alias; the store root and global never have one.
 func (inv *inventory) originItemFor(dest, origin string, aliases []string) {
-	if _, done := inv.originItem[dest]; done || paths.SamePath(dest, StoreDir()) {
+	if _, done := inv.originItem[dest]; done || paths.SamePath(dest, StoreDir()) || paths.SamePath(dest, globalStoreDir()) {
 		return
 	}
 	if cur, err := ReadOrigin(dest); err == nil {
@@ -317,7 +317,7 @@ func (inv *inventory) legacyTree() {
 		case e.IsDir():
 			inv.quarantineTree(p, "unknown directory in the legacy bank tree")
 		default:
-			inv.bankFile(g, name, StoreDir(), "global", KindGlobalBank)
+			inv.bankFile(g, name, globalStoreDir(), "global", KindGlobalBank)
 		}
 	}
 }

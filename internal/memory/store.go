@@ -3,6 +3,7 @@
 package memory
 
 import (
+	"embed"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+//go:embed templates/*.md
+var templatesFS embed.FS
 
 // bankFiles are the six typed files a bank carries (order = injection order).
 var bankFiles = []string{
@@ -51,13 +55,17 @@ func CutOver() bool {
 	return migrated && !incomplete
 }
 
-// GlobalDir is the shared bank: the store root after the cutover, else the top of the legacy bank tree.
+// GlobalDir is the shared bank: store/global after the cutover, else the top of the legacy bank tree.
 func GlobalDir() string {
 	if CutOver() {
-		return StoreDir()
+		return globalStoreDir()
 	}
 	return LegacyGlobalDir()
 }
+
+// globalStoreDir is the post-cutover global dir, unconditionally: migrate plans the FUTURE layout while
+// CutOver() still reports false, so its destinations must never gate on it (GlobalDir() would self-reference).
+func globalStoreDir() string { return filepath.Join(StoreDir(), "global") }
 
 // Dir is root's local bank; the config dir and any non-repo root collapse to the global one.
 func Dir(root string) string {
@@ -119,7 +127,7 @@ func Init(root string) (string, error) {
 	} else if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	for name, body := range templates {
+	for name, body := range templates() {
 		p := filepath.Join(dir, name)
 		if _, err := os.Stat(p); err == nil {
 			continue
@@ -141,20 +149,14 @@ func GitToplevel(dir string) string {
 }
 
 // templates seed a fresh bank's six files; /memory:end fills them from real session work.
-var templates = map[string]string{
-	"projectContext.md": "# Project Context\n\n" +
-		"> Mostly-static orientation. Points at canonical docs — never duplicates them.\n\n" +
-		"(Describe the project in a line or two; link CLAUDE.md/README.)\n",
-	"activeContext.md": "# Active Context\n\n" +
-		"> Current session state — auto-injected at session start. REPLACE each `/memory:end`.\n\n" +
-		"## Current Focus\n\n## Open Questions\n\n## Blockers\n\n## Next Steps\n\n## Parked\n",
-	"progress.md": "# Progress\n\n" +
-		"> Task tracking — auto-injected at session start. REPLACE each `/memory:end`.\n\n" +
-		"## What Works\n\n## In Progress\n\n## What's Next\n\n## Known Issues\n",
-	"decisionLog.md": "# Decision Log\n\n" +
-		"> Dated decisions + rationale. APPEND-ONLY, newest first. Supersede, never delete.\n",
-	"conventions.md": "# Conventions\n\n" +
-		"> Learned patterns/preferences. APPEND one imperative bullet each; prune what no longer holds.\n",
-	"sessionHistory.md": "# Session History\n\n" +
-		"> Newest-first session summaries. APPEND at top, cap 30; overflow → archive/sessionHistory-<yyyy-mm>.md.\n",
-}
+var templates = sync.OnceValue(func() map[string]string {
+	m := make(map[string]string, len(bankFiles))
+	for _, name := range bankFiles {
+		body, err := templatesFS.ReadFile("templates/" + name)
+		if err != nil {
+			panic(err) // embedded alongside bankFiles; a mismatch is a build-time bug, not a runtime one
+		}
+		m[name] = string(body)
+	}
+	return m
+})
