@@ -1,9 +1,7 @@
 package vault
 
 import (
-	"errors"
 	"io"
-	"io/fs"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -15,9 +13,6 @@ import (
 // unrelated writer without the architectural contract that View/Update callbacks must not nest.
 func SnapshotTo(path string, w io.Writer) error {
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
-	if errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
 	if err != nil {
 		return err
 	}
