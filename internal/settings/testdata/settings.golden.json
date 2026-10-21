@@ -5,7 +5,8 @@
   "spinnerTipsEnabled": false,
   "env": {
     "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
-    "CLAUDE_CODE_SCROLL_SPEED": "1"
+    "CLAUDE_CODE_SCROLL_SPEED": "1",
+    "CLAUDE_CODE_AUTO_CONNECT_IDE": "false"
   },
   "permissions": {
     "defaultMode": "auto",
@@ -42,10 +43,16 @@
   "theme": "auto",
   "tui": "default",
   "feedbackDrafts": "off",
+  "dialogExpiry": "never",
+  "idleCompaction": false,
+  "autoConnectIde": false,
+  "cleanupPeriodDays": 30,
+  "preferredNotifChannel": "notifications_disabled",
+  "useAutoModeDuringPlan": true,
   "awaySummaryEnabled": false,
   "agentPushNotifEnabled": false,
   "inputNeededNotifEnabled": true,
-  "remoteControlAtStartup": true,
+  "remoteControlAtStartup": false,
   "skipWorkflowUsageWarning": true,
   "switchModelsOnFlag": true,
   "enabledPlugins": {

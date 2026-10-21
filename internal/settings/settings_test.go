@@ -73,7 +73,7 @@ func TestRenderGolden(t *testing.T) {
 
 const existing = `{
   "env": {"KEEP_ME": "1"},
-  "cleanupPeriodDays": 9,
+  "companyAnnouncements": ["hi"],
   "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Read(~/.ssh/**)"], "additionalDirectories": ["/x"]},
   "statusLine": {"type": "command", "command": "mine"},
   "hooks": {
@@ -143,7 +143,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if sum.ForeignHooks != 2 || sum.HarnessHooks != len(hookspec.Registry) {
 		t.Errorf("summary %+v", sum)
 	}
-	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "cleanupPeriodDays,autoUpdates") {
+	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
 		t.Errorf("kept %v", sum.Kept)
 	}
 	again, _, err := Merge(merged, rendered)
@@ -203,7 +203,7 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := `{"cleanupPeriodDays":7,"autoMemoryDirectory":"/flat/memory","zzForeign":{"a":1}}`
+	in := `{"companyAnnouncements":["hi"],"autoMemoryDirectory":"/flat/memory","zzForeign":{"a":1}}`
 	out, sum, err := Merge([]byte(in), rendered)
 	if err != nil {
 		t.Fatal(err)
@@ -214,10 +214,10 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 	if strings.Join(sum.Retired, ",") != "autoMemoryDirectory" {
 		t.Errorf("retired = %v", sum.Retired)
 	}
-	if strings.Join(sum.Kept, ",") != "cleanupPeriodDays,zzForeign" {
+	if strings.Join(sum.Kept, ",") != "companyAnnouncements,zzForeign" {
 		t.Errorf("kept = %v (want foreign keys in order, no retired key)", sum.Kept)
 	}
-	if i, j := strings.Index(string(out), "cleanupPeriodDays"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
+	if i, j := strings.Index(string(out), "companyAnnouncements"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
 		t.Errorf("foreign key order lost:\n%s", out)
 	}
 	again, sum2, err := Merge(out, rendered)
