@@ -80,6 +80,25 @@ func TestStoreValueRefusesMalformedTailscaleCredential(t *testing.T) {
 	}
 }
 
+// Re-picking a secret name to paste a new value after staging its delete must cancel the staged
+// delete: pendingDeletes must drop the name, and the new value must land in pending.
+func TestStoreValueCancelsStagedDelete(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	const name = "CONFIGURE_RESTAGE_AFTER_DELETE"
+	var out bytes.Buffer
+	d := &dialog{out: &out, pending: map[string]stagedKey{}, pendingDeletes: map[string]bool{name: true}}
+
+	if !storeValue(d, name, "newval") {
+		t.Fatalf("storeValue(...) = false:\n%s", out.String())
+	}
+	if d.pendingDeletes[name] {
+		t.Error("pendingDeletes must no longer carry the name once it is re-staged with a new value")
+	}
+	if got := d.pending[name]; got.val != "newval" {
+		t.Errorf("pending[%q].val = %q, want %q", name, got.val, "newval")
+	}
+}
+
 func TestSourceLabel(t *testing.T) {
 	cases := map[string]string{"": "missing", "vault": "vault", "env": "env"}
 	for src, want := range cases {

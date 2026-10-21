@@ -248,6 +248,7 @@ func storeValue(d *dialog, name, val string) bool {
 		if !d.stage(name, val) {
 			return false
 		}
+		delete(d.pendingDeletes, name) // re-picking a staged delete to paste a new value must cancel the delete
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
 		return true
 	}
