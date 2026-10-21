@@ -30,10 +30,11 @@ func StateDir() string { return filepath.Join(ConfigDir(), "state", "harness") }
 
 // ClaudeJSON is Claude Code's ~/.claude.json (MCP servers, projects); it moves under CLAUDE_CONFIG_DIR when set.
 func ClaudeJSON() string {
-	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" {
+	home, err := os.UserHomeDir()
+	// A CLAUDE_CONFIG_DIR equal to the default ~/.claude still means the real ~/.claude.json.
+	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" && (err != nil || ConfigDir() != filepath.Join(home, ".claude")) {
 		return filepath.Join(ConfigDir(), ".claude.json")
 	}
-	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
