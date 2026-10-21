@@ -88,6 +88,7 @@ coverage.*
 !/skills/fable-method
 !/skills/find-skills
 !/skills/python-patterns
+!/skills/reverse-engineer
 !/skills/security-reviewer
 !/skills/simplify
 !/skills/subagent-workflows
