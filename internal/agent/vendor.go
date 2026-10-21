@@ -123,8 +123,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
 		model := t.Model
-		if req.Model == "" || model == "" { // the slot table's opus is not agy's default: flash-high unless named
-			model = AgyDefaultModel
+		if req.Model == "" || model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+			model = cmp.Or(providers.Pin(providers.PinGeminiModel), AgyDefaultModel)
 		}
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{

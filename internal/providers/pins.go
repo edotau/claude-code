@@ -27,6 +27,14 @@ const (
 	// PinCopilotModel is the copilot agent's own model, independent of the github-copilot provider's
 	// opus slot (which opencode's fallback ladder also reads); unset falls back to that slot.
 	PinCopilotModel = "COPILOT_MODEL"
+	// PinCodexModel is codex's own model (its `debug models` catalog); unset follows codex's own default
+	// (config.toml's model, else its ChatGPT-login provider's opus slot).
+	PinCodexModel = "CODEX_MODEL"
+	// PinCodexEffort is codex's -c model_reasoning_effort on every launch; unset follows codex's own default.
+	PinCodexEffort = "CODEX_REASONING_EFFORT"
+	// PinGeminiModel is agy's own model (its `models` catalog, effort baked into the id); unset falls
+	// back to agent.AgyDefaultModel.
+	PinGeminiModel = "GEMINI_AGENT_MODEL"
 )
 
 // SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.
@@ -42,6 +50,31 @@ func CopilotModel(reg *Registry) (model, source string) {
 		return p.Models[models.Opus], "github-copilot default"
 	}
 	return "", "github-copilot default"
+}
+
+// CodexModel resolves CODEX_MODEL: the pin if set, else "" — codex's own default (config.toml's
+// model, then its ChatGPT-login provider's opus slot) decides.
+func CodexModel() (model, source string) {
+	if m := Pin(PinCodexModel); m != "" {
+		return m, "pin"
+	}
+	return "", "default"
+}
+
+// CodexEffort resolves CODEX_REASONING_EFFORT: the pin if set, else "" — codex's own default effort.
+func CodexEffort() (effort, source string) {
+	if e := Pin(PinCodexEffort); e != "" {
+		return e, "pin"
+	}
+	return "", "default"
+}
+
+// GeminiModel resolves GEMINI_MODEL: the pin if set, else "" — agy's own default (AgyDefaultModel) decides.
+func GeminiModel() (model, source string) {
+	if m := Pin(PinGeminiModel); m != "" {
+		return m, "pin"
+	}
+	return "", "default"
 }
 
 // ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty.

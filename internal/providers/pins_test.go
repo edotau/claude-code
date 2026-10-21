@@ -299,6 +299,71 @@ func TestCopilotModelEnvBeatsVaultPin(t *testing.T) {
 	}
 }
 
+// CodexModel resolves CODEX_MODEL: the pin if set, else "" (codex's own default decides, not the registry).
+func TestCodexModelResolverPinVsDefault(t *testing.T) {
+	load(t)
+	t.Setenv(PinCodexModel, "")
+	if err := SetPins(map[string]string{PinCodexModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := CodexModel(); got != "" || src != "default" {
+		t.Errorf("CodexModel(unset) = (%q, %q), want (\"\", default)", got, src)
+	}
+	if err := SetPins(map[string]string{PinCodexModel: "gpt-6.1-sol"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := CodexModel(); got != "gpt-6.1-sol" || src != "pin" {
+		t.Errorf("CodexModel(pinned) = (%q, %q), want (gpt-6.1-sol, pin)", got, src)
+	}
+}
+
+// CodexEffort resolves CODEX_REASONING_EFFORT the same way, and a process env var beats the vault pin.
+func TestCodexEffortResolverPinVsDefault(t *testing.T) {
+	load(t)
+	t.Setenv(PinCodexEffort, "")
+	if err := SetPins(map[string]string{PinCodexEffort: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := CodexEffort(); got != "" || src != "default" {
+		t.Errorf("CodexEffort(unset) = (%q, %q), want (\"\", default)", got, src)
+	}
+	if err := SetPins(map[string]string{PinCodexEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := CodexEffort(); got != "high" || src != "pin" {
+		t.Errorf("CodexEffort(pinned) = (%q, %q), want (high, pin)", got, src)
+	}
+	t.Setenv(PinCodexEffort, "low")
+	if got, src := CodexEffort(); got != "low" || src != "pin" {
+		t.Errorf("CodexEffort(env set) = (%q, %q), want (low, pin): env beats the vault pin", got, src)
+	}
+}
+
+// GeminiModel resolves GEMINI_AGENT_MODEL: the pin if set, else "" (agy's own default decides). The
+// constant is deliberately not "GEMINI_MODEL" — that name is already used by the unrelated
+// gemini-bridge sweep tool (internal/gemini.ModelEnvKeys) — and an env var under that other name must
+// never leak into this resolver.
+func TestGeminiModelResolverPinVsDefaultIgnoresUnrelatedEnvVar(t *testing.T) {
+	load(t)
+	if PinGeminiModel != "GEMINI_AGENT_MODEL" {
+		t.Fatalf("PinGeminiModel = %q, want GEMINI_AGENT_MODEL (never the bridge tool's GEMINI_MODEL)", PinGeminiModel)
+	}
+	t.Setenv(PinGeminiModel, "")
+	t.Setenv("GEMINI_MODEL", "should-never-be-read")
+	if err := SetPins(map[string]string{PinGeminiModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := GeminiModel(); got != "" || src != "default" {
+		t.Errorf("GeminiModel(unset) = (%q, %q), want (\"\", default); GEMINI_MODEL env must not leak in", got, src)
+	}
+	if err := SetPins(map[string]string{PinGeminiModel: "gemini-3.8-flash-high"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, src := GeminiModel(); got != "gemini-3.8-flash-high" || src != "pin" {
+		t.Errorf("GeminiModel(pinned) = (%q, %q), want (gemini-3.8-flash-high, pin)", got, src)
+	}
+}
+
 // A process env var for either key beats the vault pin, same precedence as every other pin.
 func TestCopilotEffortAndContextEnvBeatsVaultPin(t *testing.T) {
 	vaulttest.UseKeyring(t)
