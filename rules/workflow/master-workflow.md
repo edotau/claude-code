@@ -234,7 +234,7 @@ Deterministic templates of the phases above, runnable by name (`Workflow({name, 
 another script via `workflow(name, args)`. Sequential = awaited stages, Parallel = `parallel()`/`pipeline()`,
 Loop = a bounded `while` — control flow is code, never a model decision. Agents work in the shared tree.
 Every `agent()` call pins `model:` (or `agentType:`) AND `effort:` — an unpinned leaf inherits the session's
-reasoning tier; the one deliberate exception carries `// lint:opus-ok` on the line the call closes on. `meta`
+reasoning tier; a call that deliberately omits `effort:` carries `// lint:opus-ok` on its closing line. `meta`
 is a pure literal and nothing throws at top level, or the saved-workflow registry skips the script silently.
 `claude-code workflow lint` checks all three; `make test` gates the shipped scripts on it.
 
@@ -244,6 +244,6 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | `implement-and-verify` | Parallel intel → implementer ‖ copilot → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings, cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `review-funnel` | Finders → refuter → reasoning-tier verifier | 8 (review) | `[paths]` or `{paths, dimensions}` |
-| `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` |
+| `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` or `[{name, dir}…]` |
 | `dag` | Step graph: deps, skip, when; skips propagate | 6 | `{steps, maxConcurrent?}` |
 | `vendor-leg` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
