@@ -270,6 +270,9 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
 	}
+	if authVendorArgs(args) {
+		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
+	}
 	reg, sel, err := selection(o)
 	if err != nil {
 		return Plan{}, err
@@ -332,6 +335,11 @@ func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string
 		fmt.Fprintln(os.Stderr, note)
 	}
 	return vendors.Configure(ctx, name, target, "")
+}
+
+// authVendorArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
+func authVendorArgs(args []string) bool {
+	return len(args) > 0 && (args[0] == "login" || args[0] == "logout" || args[0] == "auth")
 }
 
 func interactiveVendorArgs(args []string) bool {
