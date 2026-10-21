@@ -267,16 +267,17 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	if err != nil {
 		return false, err
 	}
-	section, err := codexProviderSection(reg, sel, out)
-	if err != nil {
-		return false, err
-	}
 	path := filepath.Join(home, ".codex", "config.toml")
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("codex: %w", err)
 	}
 	existed := err == nil
+	stripped := codexBannerRE().ReplaceAllString(string(raw), "") // sans any prior banner, for the user-value check
+	section, err := codexProviderSection(reg, sel, stripped, out)
+	if err != nil {
+		return false, err
+	}
 	next := string(raw)
 	if section != "" {
 		next = codexBannerRE().ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot

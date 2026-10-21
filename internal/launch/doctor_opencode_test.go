@@ -128,6 +128,71 @@ func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	}
 }
 
+// A stale static key in opencode's own auth.json for a provider the vault now covers fires the
+// soft "opencode auth.json" check, naming the integration id and the logout command, never a value.
+func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
+	xdgData := doctorScratch(t)
+	t.Setenv("NVIDIA_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	authDir := filepath.Join(xdgData, "opencode")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"nvidia":{"type":"api","key":"nvapi-realFAKEsecretvalue"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "opencode auth.json")
+	if c == nil {
+		t.Fatal(`no "opencode auth.json" check in DoctorChecks output`)
+	}
+	if c.OK {
+		t.Errorf("OK = true, want false: a stale vault-covered key must fail the soft check")
+	}
+	if c.Hard {
+		t.Error("the check must be soft, never hard")
+	}
+	if !strings.Contains(c.Detail, "nvidia key") || !strings.Contains(c.Detail, "opencode auth logout nvidia") {
+		t.Errorf("detail = %q, want it to name nvidia and the logout command", c.Detail)
+	}
+	if strings.Contains(c.Detail, "nvapi-realFAKEsecretvalue") {
+		t.Fatalf("detail leaked the stored credential value: %q", c.Detail)
+	}
+}
+
+// No stale key (auth.json absent, or the provider has no vault credential) reports clean.
+func TestDoctorOpenCodeAuthJSONCleanWhenNoStaleKey(t *testing.T) {
+	doctorScratch(t)
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "opencode auth.json")
+	if c == nil {
+		t.Fatal(`no "opencode auth.json" check in DoctorChecks output`)
+	}
+	if !c.OK || c.Detail != "clean" {
+		t.Errorf("check = %+v, want OK=true Detail=clean", c)
+	}
+}
+
+// An oauth connection (not a static "key" method) never counts as stale, even for a vault-covered provider.
+func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
+	xdgData := doctorScratch(t)
+	t.Setenv("NVIDIA_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	authDir := filepath.Join(xdgData, "opencode")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"nvidia":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "opencode auth.json")
+	if c == nil {
+		t.Fatal(`no "opencode auth.json" check in DoctorChecks output`)
+	}
+	if !c.OK || c.Detail != "clean" {
+		t.Errorf("check = %+v, want OK=true Detail=clean for an oauth-only connection", c)
+	}
+}
+
 // The doctor row never prints a secret: GH_TOKEN's value must not surface, only the env var's presence.
 func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	doctorScratch(t)
