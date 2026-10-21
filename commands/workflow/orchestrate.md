@@ -1,5 +1,6 @@
 ---
 description: "Run a multi-stage pipeline for a task — explore, plan, (optional refine), implement, simplify, review, verify"
+allowed-tools: Bash(git branch *) Bash(git worktree *) Bash(ls *)
 argument-hint: "[--scan | --refine] <task description>"
 ---
 
@@ -16,19 +17,16 @@ stage handoff document, no further stages. Skip for single-line/typo fixes or wh
 already warm this session.
 
 Current branch:
-```
-!git branch --show-current
-```
+
+!`git branch --show-current`
 
 Existing worktrees:
-```
-!git worktree list 2>/dev/null
-```
+
+!`git worktree list 2>/dev/null`
 
 Stage handoff files:
-```
-!ls ~/.claude/plans/stages/*.md 2>/dev/null || echo "No active stage files"
-```
+
+!`ls ~/.claude/plans/stages/*.md 2>/dev/null || echo "No active stage files"`
 
 Instructions:
 
@@ -44,6 +42,7 @@ Instructions:
 
 2. Create the stage handoff document `~/.claude/plans/stages/YYYY-MM-DD-{task-id}.md` (include
    `## Refined Briefs` ONLY when `INCLUDE_REFINE=true`):
+
    ```markdown
    # Task: {task-id}
    > **Description**: {task description}
@@ -66,6 +65,7 @@ Instructions:
    disjoint files in the shared tree. **Skip `refine` entirely when `INCLUDE_REFINE=false`.**
 
 4. Stages:
+
    | Stage | Agent | Notes |
    |-------|-------|-------|
    | explore | `Explore` | Structure, conventions, dependencies → `## Findings` |

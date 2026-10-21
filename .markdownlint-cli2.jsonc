@@ -46,11 +46,5 @@
     },
     "MD059": false,
     "MD060": false
-  },
-  "ignores": [
-    "commands/codex/adversarial-review.md",
-    "commands/harness/techdebt.md",
-    "commands/workflow/worktree.md",
-    "commands/workflow/orchestrate.md"
-  ]
+  }
 }

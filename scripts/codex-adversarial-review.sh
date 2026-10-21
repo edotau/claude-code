@@ -1,39 +1,12 @@
----
-description: "Adversarial code review via the codex agent runner — second-opinion review using a different model stack to catch blind spots the session model misses. Writes a session-correlated handoff file."
-argument-hint: "[--session-id <id>] [--uncommitted | --base <branch> | --commit <sha> | --pr] [extra review focus]"
-allowed-tools: Bash
----
-
-# /codex:adversarial-review — Second-Opinion Review via Codex
-
-Runs `claude-code ask --agent codex` with an adversarial framing over a git diff. Uses a
-**different model** than the current session, so it catches different blind spots — security
-assumptions, edge cases the session model overlooked, missing tests, API misuse.
-
-## Session correlation
-
-Each invocation is tied to a session ID so results are traceable:
-
-- **`--session-id <id>`** — explicit session ID (e.g., a task-id from `/workflow:orchestrate`)
-- **omitted** — auto-derived from current git branch + short timestamp
-- **handoff file**: `$(claude-code memory path)/reports/codex-sessions/<session-id>/review-<timestamp>.md`
-- **status file**: `$(claude-code memory path)/reports/codex-sessions/<session-id>/status.md` (updated live)
-- The session ID is printed back to stdout as `SESSION_ID=<id>` so callers can correlate or chain follow-ups.
-
-## Scope (pick one; defaults to `--uncommitted`)
-
-| Flag | What it reviews |
-|------|-----------------|
-| `--uncommitted` *(default)* | Staged + unstaged changes |
-| `--base <branch>` | Diff between current branch and `<branch>` (PR-style) |
-| `--commit <sha>` | A single commit |
-| `--pr` | Shortcut for `--base <origin default branch>` |
-
-Trailing free-text is passed as additional review focus (e.g., `--uncommitted "focus on concurrency"`).
-
-## Execution
-
-!bash -c '
+#!/usr/bin/env bash
+# Scope flags (first word of $1, default --uncommitted): --uncommitted (staged+unstaged) |
+#   --base <branch> (diff vs branch, PR-style) | --commit <sha> (single commit) | --pr (shortcut for
+#   --base <origin default branch>). Optional leading "--session-id <id>" pins the session; default is
+#   derived from the current branch + a UTC timestamp. Remaining text is extra review focus.
+# Session correlation: handoff file is
+#   "$(claude-code memory path)/reports/codex-sessions/<session-id>/review-<timestamp>.md"; a live-updated
+#   status file sits beside it as "status.md". SESSION_ID is echoed to stdout as "SESSION_ID=<id>" so
+#   callers (e.g. /workflow:orchestrate) can correlate or chain follow-ups.
 set -eo pipefail
 
 ARGS="${1:-}"
@@ -162,23 +135,3 @@ echo "=== SESSION_ID=$SESSION_ID ==="
 echo "Status:  $STATUS"
 echo "Handoff: $HANDOFF"
 exit $RC
-' _ "$ARGUMENTS"
-
-## When to use
-
-- **Before shipping a PR** — second-opinion after the `claude` agent's review phase passes
-- **After architecture changes** — catch what a single model perspective missed
-- **Security-sensitive code** — auth, user input, file uploads, injection surfaces
-- **After `codex` (REVIEW mode) flags concerns** — corroborate findings with a fresh run
-
-## Related
-
-- `codex` agent, REVIEW mode — adversarial **pre**-review (before implementation)
-- `claude` agent (review phase) — primary review stage (run this first)
-- Generic task dispatch to the same runner (no review framing): `claude-code ask --agent codex "<task>"`
-
-## Notes
-
-- Runs non-interactively through `claude-code ask --agent codex`.
-- Review is read-only — codex does not modify files in this mode.
-- Session files accumulate under `<memory store>/reports/codex-sessions/` — clean up periodically.
