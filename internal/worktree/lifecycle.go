@@ -84,6 +84,14 @@ func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 	branch, _ := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
 
+	if reason, err := InUseBy(dest); err != nil {
+		result.Reason = "in-use check failed: " + err.Error()
+		return result, nil
+	} else if reason != "" {
+		result.Reason = reason
+		return result, nil
+	}
+
 	locked, err := isLocked(dest)
 	if err != nil {
 		result.Reason = "lock check failed: " + err.Error()

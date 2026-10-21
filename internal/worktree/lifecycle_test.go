@@ -420,6 +420,92 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	}
 }
 
+// TestCleanRefusesInUseAndDryRunReportsIt is the regression test for the busy-cwd guard: Clean must
+// refuse a worktree InUseBy reports as busy, under both the real call and --dry-run's preview.
+func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Create(repo, "busy", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubProcesses(t, func(dir string) ([]Proc, error) {
+		return []Proc{{PID: 999999, Comm: "fakeproc"}}, nil
+	})
+
+	dry, err := Clean(repo, "busy", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Removed {
+		t.Fatal("dry-run must report refusal for a busy worktree, not eligibility")
+	}
+	if !strings.Contains(dry.Reason, "999999") {
+		t.Errorf("dry-run Reason = %q, want the busy pid named", dry.Reason)
+	}
+
+	real, err := Clean(repo, "busy", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if real.Removed {
+		t.Fatal("want refusal for a busy worktree")
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatal("worktree should still exist after a refused clean")
+	}
+}
+
+// TestCleanAllSkipsBusyEntryButRemovesOthers proves CleanAll continues past a busy refusal rather
+// than aborting the whole sweep, and still removes every other eligible entry.
+func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	main := gitRepo(t)
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busyDest, err := Create(repo, "busyall", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(repo, "freeall", ""); err != nil {
+		t.Fatal(err)
+	}
+	stubProcesses(t, func(dir string) ([]Proc, error) {
+		if within(busyDest, dir) {
+			return []Proc{{PID: 999999, Comm: "fakeproc"}}, nil
+		}
+		return nil, nil
+	})
+
+	results, err := CleanAll(repo, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, refused := 0, 0
+	for _, r := range results {
+		if r.Removed {
+			removed++
+		} else {
+			refused++
+			if !strings.Contains(r.Reason, "999999") {
+				t.Errorf("refused entry Reason = %q, want the busy pid named", r.Reason)
+			}
+		}
+	}
+	if removed != 1 || refused != 1 {
+		t.Fatalf("removed=%d refused=%d, want 1 and 1", removed, refused)
+	}
+	if _, err := os.Stat(busyDest); err != nil {
+		t.Fatal("the busy worktree must survive clean-all")
+	}
+}
+
 func TestCleanAllSkipsOrphanedEntries(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	main := gitRepo(t)
