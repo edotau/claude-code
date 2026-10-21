@@ -325,6 +325,9 @@ func TestCheckWindowsSettingsDrift_MissingProfile(t *testing.T) {
 // TestInstallWindowsSettings_MissingProfileSkip proves InstallWindowsSettings prints a one-line skip
 // note and returns nil, never an error, when the profile can't be resolved.
 func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
+	if !hooks.OnWSL() {
+		t.Skip("off WSL InstallWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
+	}
 	hermetic(t, "")
 	brokenCmdPATH(t)
 	var out bytes.Buffer
