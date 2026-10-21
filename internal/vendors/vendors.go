@@ -690,37 +690,65 @@ func copilotHeadless(h *Headless) []string {
 // secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., -password, ...), case-insensitive.
 var secretFlagRE = regexp.MustCompile(`(?i)^--?[a-z0-9_-]*(key|token|secret|password)(=.*)?$`)
 
-// RedactConfig blanks mcp.<name>.environment/headers values, secret-flag values in .command, and the
-// query string of .url in an OPENCODE_CONFIG_CONTENT string; returns s unchanged on any parse error.
+// RedactConfig blanks mcp.<name>.environment/headers values, provider.<name>.options.headers values,
+// secret-flag values in .command, and the query string of .url in an OPENCODE_CONFIG_CONTENT string;
+// returns s unchanged on any parse error.
 func RedactConfig(s string) string {
 	var cfg map[string]any
 	if json.Unmarshal([]byte(s), &cfg) != nil {
 		return s
 	}
-	mcp, ok := cfg["mcp"].(map[string]any)
-	if !ok {
-		return s
-	}
-	for _, raw := range mcp {
-		entry, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, key := range []string{"environment", "headers"} {
-			if m, ok := entry[key].(map[string]any); ok {
-				for k := range m {
-					m[k] = "<redacted>"
-				}
-			}
-		}
-		redactCommandSecrets(entry)
-		redactURLQuery(entry)
-	}
+	redactMCP(cfg["mcp"])
+	redactProviderOptions(cfg["provider"])
 	body, err := json.Marshal(cfg)
 	if err != nil {
 		return s
 	}
 	return string(body)
+}
+
+// redactProviderOptions blanks provider.<name>.options.headers values in the decoded "provider" block;
+// options.apiKey is left alone, it is already an "{env:...}" reference, never the literal secret.
+func redactProviderOptions(raw any) {
+	providers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for _, p := range providers {
+		entry, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if opts, ok := entry["options"].(map[string]any); ok {
+			redactValues(opts["headers"])
+		}
+	}
+}
+
+func redactMCP(raw any) {
+	servers, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for _, s := range servers {
+		entry, ok := s.(map[string]any)
+		if !ok {
+			continue
+		}
+		redactValues(entry["environment"])
+		redactValues(entry["headers"])
+		redactCommandSecrets(entry)
+		redactURLQuery(entry)
+	}
+}
+
+// redactValues blanks every value of raw when it is a JSON object; anything else is left alone.
+func redactValues(raw any) {
+	if m, ok := raw.(map[string]any); ok {
+		for k := range m {
+			m[k] = "<redacted>"
+		}
+	}
 }
 
 // redactCommandSecrets blanks the value following (or after "=" on) any secret-naming flag in entry["command"].
