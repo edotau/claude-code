@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -159,7 +160,10 @@ func backupAndWrite(path string, oldRaw, newRaw []byte, existed bool) error {
 
 // --- codex: ~/.codex/config.toml, a banner-marked [model_providers.claude-code] block ---
 
-var codexBannerRE = regexp.MustCompile(`(?s)# >>> claude-code:managed:begin >>>\n.*?\n# <<< claude-code:managed:end <<<\n?`)
+// codexBannerRE is compiled lazily: a package-level MustCompile runs at every process start (hooks, statusline).
+var codexBannerRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?s)# >>> claude-code:managed:begin >>>\n.*?\n# <<< claude-code:managed:end <<<\n?`)
+})
 
 func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"

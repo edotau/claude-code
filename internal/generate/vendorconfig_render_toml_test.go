@@ -1,6 +1,50 @@
 package generate
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// mergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
+// existing trusted_hash AFTER the array, still inside the same table, is replaced in place —
+// not left stale with a duplicate appended at EOF because the array wrongly reset the active table.
+func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
+	raw := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"old\"\n"
+	entries := map[string]string{"K": "abc123"}
+	got := mergeCodexTrust(raw, entries)
+	want := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"abc123\"\n"
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
+	}
+	if strings.Count(got, "trusted_hash") != 1 {
+		t.Errorf("want exactly one trusted_hash line, got:\n%q", got)
+	}
+}
+
+// A real table header following a "["-led array element must still pick up its own hash, proving
+// the depth tracking resets once the array closes rather than staying stuck open.
+func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
+	raw := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\n"
+	entries := map[string]string{"K2": "def456"}
+	got := mergeCodexTrust(raw, entries)
+	want := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\ntrusted_hash = \"def456\"\n"
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+// The lazily-compiled codex regexps must compile exactly once: every call returns the same *Regexp.
+func TestCodexLazyRegexpsReturnSamePointer(t *testing.T) {
+	if a, b := codexBannerRE(), codexBannerRE(); a != b {
+		t.Error("codexBannerRE() returned a different *Regexp on a repeat call")
+	}
+	if a, b := codexTrustTableRE(), codexTrustTableRE(); a != b {
+		t.Error("codexTrustTableRE() returned a different *Regexp on a repeat call")
+	}
+	if a, b := codexTrustedHashRE(), codexTrustedHashRE(); a != b {
+		t.Error("codexTrustedHashRE() returned a different *Regexp on a repeat call")
+	}
+}
 
 func TestMergeCodexTrustPreservesUnownedText(t *testing.T) {
 	raw := `note = """
