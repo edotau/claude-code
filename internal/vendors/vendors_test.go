@@ -175,6 +175,80 @@ func TestCopilotLogin(t *testing.T) {
 	}
 }
 
+// copilotPinArgv isolation: no gh/token env so CopilotLaunchToken (called unconditionally inside
+// copilotLogin) resolves to "" instead of touching a real GitHub session.
+func noCopilotLogin(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+}
+
+// Interactive copilot (h == nil, own GitHub-login route): the configure page's pins ride argv as
+// --reasoning-effort/--context when set, and neither flag appears when both pins are unset.
+func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
+	tg := target(t, "github-copilot", "claude-opus-5.5")
+	noCopilotLogin(t)
+	for _, k := range []string{providers.PinCopilotEffort, providers.PinCopilotContext} {
+		t.Setenv(k, "")
+	}
+
+	_, argv, err := Configure(context.Background(), "copilot", tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(argv, "--reasoning-effort") || slices.Contains(argv, "--context") {
+		t.Errorf("argv %q with no pins set, want neither flag", argv)
+	}
+
+	t.Setenv(providers.PinCopilotEffort, "xhigh")
+	t.Setenv(providers.PinCopilotContext, "long_context")
+	_, argv, err = Configure(context.Background(), "copilot", tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--reasoning-effort", "xhigh", "--context", "long_context", "--allow-all"}
+	if !slices.Equal(argv, want) {
+		t.Errorf("argv = %q, want %q", argv, want)
+	}
+}
+
+// Interactive copilot (h == nil, BYOK/gateway route): same pin-to-argv wiring as the own-login route.
+func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
+	tg := target(t, "openai", "gpt-5")
+	t.Setenv(providers.PinCopilotEffort, "low")
+	t.Setenv(providers.PinCopilotContext, "default")
+
+	_, argv, err := Configure(context.Background(), "copilot", tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--reasoning-effort", "low", "--context", "default", "--allow-all"}
+	if !slices.Equal(argv, want) {
+		t.Errorf("argv = %q, want %q", argv, want)
+	}
+}
+
+// ConfigureHeadless (h != nil) ignores the pins: copilot always runs headless through copilotRunner's
+// own SDK options, never this argv path, so copilotHeadless must stay untouched by the pins.
+func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
+	tg := target(t, "github-copilot", "claude-opus-5.5")
+	noCopilotLogin(t)
+	t.Setenv(providers.PinCopilotEffort, "max")
+	t.Setenv(providers.PinCopilotContext, "long_context")
+
+	_, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--prompt", "hi"}; !slices.Equal(argv, want) {
+		t.Errorf("argv = %q, want %q (pins must not leak into the headless SDK path)", argv, want)
+	}
+}
+
 // The registry's "auto" slot must not override copilot's own default model: COPILOT_MODEL goes out blank.
 func TestCopilotLoginAutoDefersToCopilotDefault(t *testing.T) {
 	env, _, err := Configure(context.Background(), "copilot", target(t, "github-copilot", "auto"), "")

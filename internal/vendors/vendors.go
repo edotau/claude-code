@@ -635,9 +635,21 @@ func copilotLogin(model string, h *Headless) ([]string, []string, error) {
 		env = append(env, CopilotTokenEnv+"="+tok)
 	}
 	if h == nil {
-		return env, nil, nil
+		return env, copilotPinArgv(), nil
 	}
 	return env, copilotHeadless(h), nil
+}
+
+// copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
+func copilotPinArgv() []string {
+	var argv []string
+	if e := providers.Pin(providers.PinCopilotEffort); e != "" {
+		argv = append(argv, "--reasoning-effort", e)
+	}
+	if c := providers.Pin(providers.PinCopilotContext); c != "" {
+		argv = append(argv, "--context", c)
+	}
+	return argv
 }
 
 func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
@@ -674,7 +686,7 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
 		env = append(env, "COPILOT_PROVIDER_HEADERS="+strings.Join(hs, "\n"))
 	}
 	if h == nil {
-		return env, nil, nil
+		return env, copilotPinArgv(), nil
 	}
 	return env, copilotHeadless(h), nil
 }
