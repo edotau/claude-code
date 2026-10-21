@@ -455,7 +455,11 @@ func renderOpenCodeCopilot(reg *providers.Registry, home string, o Options, out 
 	next := map[string]any{}
 	maps.Copy(next, existing)
 	next["$schema"] = "https://opencode.ai/config.json"
-	next["model"] = "github-copilot/" + mainID
+	model := "github-copilot/" + mainID
+	if p, ok := reg.Providers["github-copilot"]; ok && p.OpencodeVariant != "" {
+		model += "#" + p.OpencodeVariant
+	}
+	next["model"] = model
 	next["small_model"] = "github-copilot/" + smallID
 	if pm, ok := next["provider"].(map[string]any); ok {
 		for k := range pm {

@@ -44,6 +44,21 @@ func TestEmbeddedDefaultsValid(t *testing.T) {
 	}
 }
 
+// github-copilot's embedded default pins OpencodeVariant to "medium", the opencode model-variant suffix.
+func TestEmbeddedDefaultsGithubCopilotOpencodeVariant(t *testing.T) {
+	reg, err := Parse(defaultsJSON, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := reg.Providers["github-copilot"]
+	if !ok {
+		t.Fatal("github-copilot provider missing from embedded defaults")
+	}
+	if p.OpencodeVariant != "medium" {
+		t.Errorf("OpencodeVariant = %q, want %q", p.OpencodeVariant, "medium")
+	}
+}
+
 func TestOverlayAndRoutes(t *testing.T) {
 	reg := load(t)
 	if _, ok := reg.Providers["ollama"]; ok {
