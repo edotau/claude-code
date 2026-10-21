@@ -40,7 +40,8 @@ claude-code --resume    # a leading flag passes to claude, on the session provid
 
 ```bash
 claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
-claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|doctor)
+claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|claude|doctor)
+claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code generate [--out f|--check|--dry-run]   # render settings + vendor configs
 claude-code vscode [--check|--dry-run]             # merge VS Code settings + keybindings
@@ -330,5 +331,5 @@ make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
 - `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
-- `settings.json` is generated: edit `internal/settings/settings.tmpl.json`, then `make install`. Template keys reset
+- `settings.json` is generated: edit `internal/settings/template/`, then `make install`. Template keys reset
   on every install; permission lists are unioned, so a removed rule must also be deleted from `settings.json` by hand.

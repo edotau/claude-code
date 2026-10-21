@@ -32,7 +32,7 @@ Gate 5: DIFF REVIEW   — diff matches intent, no unrelated changes?        — 
 ```
 
 This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `make test` only in Gate 3.
-If `internal/settings/settings.tmpl.json` was touched, also render it (`claude-code settings`) and diff
+If `internal/settings/template/` was touched, also render it (`claude-code settings`) and diff
 the output against the live `settings.json` as part of Gate 3.
 
 ## Gate Loop (max 5 iterations)
