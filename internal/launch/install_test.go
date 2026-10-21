@@ -207,6 +207,44 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	}
 }
 
+// TestInstallContinuesAfterSettingsFailure: installSettings failing (settings.json is a directory, so
+// os.ReadFile returns an error that is not ErrNotExist) must not short-circuit Install — syncVendors and
+// installGitHooks still run, and the error Install returns still names settings so the failure is legible.
+// A corrupt state/vault.db (the seam the brief suggested) does not isolate this: providers.Load, called
+// from config.Migrate before installSettings ever runs, opens the same vault.db and fails Migrate first,
+// so Install returns at the earlier "migration incomplete" guard instead (already covered by
+// TestInstallMigrationFailureKeepsOldBinary). Making settings.json itself unreadable is the seam that
+// actually reaches installSettings without disturbing Migrate.
+func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
+	hermetic(t, "")
+	self := filepath.Join(t.TempDir(), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	file := SettingsFile()
+	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: os.ReadFile fails, not ErrNotExist
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Install(&out, false)
+	if err == nil {
+		t.Fatal("Install with an unreadable settings.json returned nil error")
+	}
+	if !strings.Contains(err.Error(), "settings") {
+		t.Errorf("Install err = %v, want it to name settings", err)
+	}
+	if !strings.Contains(out.String(), "settings skip") {
+		t.Errorf("output missing the settings-skip report:\n%s", &out)
+	}
+	if !strings.Contains(out.String(), "agents   sync") {
+		t.Errorf("syncVendors did not run after the settings failure:\n%s", &out)
+	}
+	if !strings.Contains(out.String(), "tmux") {
+		t.Errorf("installGitHooks/earlier steps did not run either:\n%s", &out)
+	}
+}
+
 // A nested dir that holds only Claude Code's own worktrees is fine; other Keep reasons still ask for a move.
 func TestNestedDetailWorktrees(t *testing.T) {
 	only := clean.Nested{Dir: "/x/.claude", Files: []string{"worktrees"}, Keep: []string{clean.KeepWorktrees}}
