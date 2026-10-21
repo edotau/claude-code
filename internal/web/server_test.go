@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -273,6 +275,75 @@ func TestDispatchOversizeTaskRejected(t *testing.T) {
 	w := postDispatch(t, s, testCSRFToken, dispatchForm("localhost", "claude", "", task))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("oversize task: status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// postDispatchRaw posts a pre-built body with an explicit Content-Type, for cases dispatchForm's
+// url.Values.Encode (which can't produce a worst-case 3x-expanded percent-encoding) can't build.
+func postDispatchRaw(t *testing.T, s *Server, token, contentType, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/api/dispatch", strings.NewReader(body))
+	req.Host = "127.0.0.1:7777"
+	req.Header.Set("Content-Type", contentType)
+	if token != "" {
+		req.Header.Set(csrfHeader, token)
+	}
+	return do(s, req)
+}
+
+// A form or multipart body over maxBodyBytes must be rejected before any field is even decoded.
+func TestDispatchBodyCap(t *testing.T) {
+	huge := strings.Repeat("x", int(maxBodyBytes)+1000)
+
+	t.Run("form", func(t *testing.T) {
+		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+		form := dispatchForm("localhost", "claude", huge, "hi")
+		w := postDispatch(t, s, testCSRFToken, form)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("oversize form body: status = %d, want 400; body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("multipart", func(t *testing.T) {
+		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for field, val := range map[string]string{"host": "localhost", "agent": "claude", "dir": huge, "task": "hi"} {
+			if err := mw.WriteField(field, val); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := mw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		w := postDispatchRaw(t, s, testCSRFToken, mw.FormDataContentType(), buf.String())
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("oversize multipart body: status = %d, want 400; body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	// An 8KiB all-space task, percent-encoded %20 (3x expansion, the worst case maxBodyBytes sizes
+	// for), stays within the body cap and must still be accepted.
+	t.Run("worst-case-encoding-accepted", func(t *testing.T) {
+		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+		body := "host=localhost&agent=claude&dir=&task=" + strings.Repeat("%20", maxTaskBytes)
+		w := postDispatchRaw(t, s, testCSRFToken, "application/x-www-form-urlencoded", body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("worst-case-encoded 8KiB task: status = %d, want 200; body=%s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// resolveHosts must return opts.Hosts verbatim, every call, without ever touching the tailnet cache.
+func TestResolveHostsCached(t *testing.T) {
+	s := newTestServer(t, Options{Hosts: []string{"box-a", "box-b"}}, nil)
+	first := s.resolveHosts(context.Background())
+	second := s.resolveHosts(context.Background())
+	if !slices.Equal(first, s.opts.Hosts) || !slices.Equal(second, s.opts.Hosts) {
+		t.Fatalf("resolveHosts() = %v / %v, want opts.Hosts verbatim %v", first, second, s.opts.Hosts)
+	}
+	if !s.hosts.sampled.IsZero() {
+		t.Error("resolveHosts populated the tailnet cache although opts.Hosts was set")
 	}
 }
 
