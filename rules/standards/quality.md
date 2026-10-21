@@ -79,6 +79,8 @@ there's time". One code agent still means one test agent — the minimum is one,
 
 Ownership split: [ownership table][discipline].
 
+Handoff: the test agent waits for the manager's "landed" `SendMessage`, never a polling loop — [handoff][discipline].
+
 Sizing: [test-agent sizing][discipline].
 
 Not satisfied by: [invalid dispatch patterns][discipline].

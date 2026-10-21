@@ -43,6 +43,11 @@ no live check. NEW coverage is still gated on the live run above, so it is dispa
 | Implementation agent(s) | The code change. |
 | Test agent(s) | Everything else about tests: new coverage (edge cases, table rows, regression guards) **and** the EXISTING tests the change breaks or makes stale. Sized to the change, written after the live check, run scoped to the touched packages. |
 
+**Handoff, not polling.** The test agent never sleep-polls for the code to land. It does what needs no new code
+(baseline run, reading the code under change), then ends its turn waiting. When the implementer hands back, the
+manager `SendMessage`s the test agent the landed files and signatures; it resumes with its context intact. Inside a
+Workflow, `pipeline` gives the same ordering for free.
+
 **Sizing.** One test agent minimum; scale with the implementation fan-out (roughly one per
 distinct suite or module under change). Test agents are lean leaves — `copilot`, or
 `code-worker` for a scoped suite — so they sit outside the ≤8 deep-context tier.

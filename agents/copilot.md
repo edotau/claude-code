@@ -59,6 +59,9 @@ evidence would settle it.
 
 ### Workflow
 
+0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
+   under change, then end your turn saying you are waiting. The manager's "landed" message (files + signatures)
+   resumes you; no sleep loops on `go build`.
 1. **Establish the baseline.** Run the suite and capture the ACTUAL failure output. Never infer
    a failure set from the diff.
 2. **Group the failures by cause**, not by file. One rename usually explains a dozen failures.
