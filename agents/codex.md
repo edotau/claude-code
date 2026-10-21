@@ -138,7 +138,8 @@ pass below breaks.
 Each iteration is cheap: format → lint → the tests for the packages/modules the change
 touched (name them, scoped — never the whole suite), fixing failures minimally. When an
 iteration is clean, run the FULL build + FULL test suite + security scan exactly once as the
-final pass; only a failing final pass continues the loop. This keeps the expensive run to
+final pass — only when the brief says the user approved it (wrap-up); otherwise stop at the scoped pass and say
+the full suite did not run. Only a failing final pass continues the loop. This keeps the expensive run to
 once per VERIFY call, matching `rules/standards/quality.md`'s Verification Order (step 5 runs
 once, not per iteration).
 Gate loop + report template: the `approval-gate` skill; repo command catalogue: `CLAUDE.md`.

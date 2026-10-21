@@ -38,8 +38,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    re-run"). Loop until verified. → 1–4 in depth: `skills/evaluate-code/references/`.
 5. **Terse comments.** 1 line max, ≤120 chars, per section; state the non-obvious "why", not history.
 6. **Live check first; scoped tests during development; the full suite once.** Run the verb or flow
-   the task is about before writing tests around it. Test only the packages you touched. `make test`
-   runs once, when the work is complete — state what ran and that the suite did not.
+   the task is about before writing tests around it. Test only the packages you touched — subagents too. The full
+   suite (`make test`, `go test ./...`) runs once, at wrap-up, with the user's approval (an `ask` rule enforces it).
    Every code dispatch carries the `copilot` test agent in the same message. → `rules/standards/quality.md`
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
@@ -74,7 +74,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote\|alias` | `README.md` → Memory bank |
-| Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
+| Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` only at wrap-up, user-approved; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; `/workflow:orchestrate` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `external-agent` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code`, `skills/security-reviewer` |

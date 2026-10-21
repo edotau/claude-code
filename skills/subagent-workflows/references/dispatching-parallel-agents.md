@@ -83,7 +83,8 @@ Agent(
 - Simplify the integrated diff with `Skill(simplify)` before reviewing it — parallel lanes
   duplicate each other's helpers, and only the integrated diff shows it.
   Delegated: [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md).
-- Re-run scoped checks, then the full suite once (`make test`). Add `-race` for anything concurrent.
+- Re-run scoped checks on the packages the lanes touched. The full suite (`make test`) waits for wrap-up and the
+  user's approval; no leaf ever runs it. Add `-race` for anything concurrent.
 - Rebuild before believing a binary's behavior — `go test` green says nothing about `bin/`.
 - Synthesize only verified results.
 

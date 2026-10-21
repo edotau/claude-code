@@ -51,7 +51,7 @@ formatter diff buried under test failures gets fixed twice.
 | 2 | **Live check** — run the verb, command, endpoint or flow the task is about, on real input | Every change that has a runnable surface, BEFORE any NEW test is written |
 | 3 | The one thing changed — the edited symbol, a targeted assertion, a negative control | Every edit |
 | 4 | Scoped tests for the packages/modules you touched — **only** those; subagents the same | Once the direction settles, or before commit |
-| 5 | Full suite + gate chain (format -> lint -> test -> security) | **Once**, when the app is complete and about to build and push |
+| 5 | Full suite + gate chain (format -> lint -> test -> security) | **Once**, at session wrap-up, **only with the user's approval** (never a subagent) |
 
 Steps 1-3 are always yours to run. Step 4 stays scoped: a package you did not touch is noise during
 development, and every scoped run must name its packages. Step 5 is the one full run per delivery —
