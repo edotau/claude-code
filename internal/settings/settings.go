@@ -49,6 +49,9 @@ var retiredKeys = []string{"autoMemoryDirectory"}
 // retiredEnvPrefix drops the retired claude-dbx harness's env keys, which no template owns and merge would keep.
 const retiredEnvPrefix = "CLAUDE_CODE_DBX_"
 
+// retiredEnvKeys are env keys a template once set; merge would keep them after the template drops them.
+var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL"}
+
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them.
 func Merge(existing, rendered []byte) ([]byte, Summary, error) {
@@ -102,7 +105,7 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	return out, sum, err
 }
 
-// dropPrefixed removes keys starting with prefix, recording each as retired.
+// dropPrefixed removes keys starting with prefix or listed in retiredEnvKeys, recording each as retired.
 func dropPrefixed(raw json.RawMessage, prefix string, sum *Summary) (json.RawMessage, error) {
 	o, err := parseObject(raw)
 	if err != nil {
@@ -110,7 +113,7 @@ func dropPrefixed(raw json.RawMessage, prefix string, sum *Summary) (json.RawMes
 	}
 	kept := &object{vals: map[string]json.RawMessage{}}
 	for _, k := range o.keys {
-		if strings.HasPrefix(k, prefix) {
+		if strings.HasPrefix(k, prefix) || slices.Contains(retiredEnvKeys, k) {
 			sum.Retired = append(sum.Retired, "env."+k)
 			continue
 		}
