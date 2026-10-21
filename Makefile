@@ -94,6 +94,14 @@ bootstrap:  ## Fresh box: Go, install, configure (CHECK=1, TAILSCALE=1)
 	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
+INTO ?= $(HOME)/.claude
+.PHONY: adopt
+adopt:  ## From a stage clone: adopt INTO (~/.claude), then bootstrap it (ADOPT_ARGS=--dry-run)
+	@if [ -e "$(INTO)/.git" ]; then echo "$(INTO) is already a checkout"; exit 0; fi; \
+	$(MAKE) go-toolchain compile && \
+	$(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
+	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
+
 .PHONY: tailscale-cli
 tailscale-cli:  ## Install the Tailscale client; log in via configure
 	@if command -v tailscale >/dev/null 2>&1; then echo -e "$(C_OK)tailscale found: $$(tailscale version | head -1)"; exit 0; fi; \
