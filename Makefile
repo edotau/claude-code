@@ -66,8 +66,6 @@ install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools)
 	@if $(BIN) router status 2>&1 | grep -qE '^router[[:space:]]+running'; then \
 		$(BIN) router stop >/dev/null && $(BIN) router start >/dev/null; \
 		echo -e "$(C_OK)router restarted (was serving the previous binary)"; \
-	else \
-		echo -e "$(C_NOTE)router not running"; \
 	fi
 
 .PHONY: clean
