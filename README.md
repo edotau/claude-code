@@ -58,8 +58,8 @@ claude-code vscode [--check|--dry-run]             # merge VS Code settings + ke
 ### Setup modes: adopt, nuke, workspace
 
 ```bash
-scripts/bootstrap.sh                                                  # fresh box: clone, build, adopt, install
-claude-code install --setup adopt --from <clone> --into ~/.claude     # take over an existing ~/.claude (backs up collisions)
+git clone https://github.com/edotau/claude-code ~/.claude.stage      # ~/.claude already exists: stage the clone,
+make -C ~/.claude.stage adopt                                         # then adopt it (backs up collisions) + bootstrap
 claude-code install --setup nuke [--apply] [--keep-memory]            # archive untracked content, then remove
 claude-code install --setup workspace init|link|status                # scope a project's own .claude/
 ```
