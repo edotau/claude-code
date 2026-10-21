@@ -233,6 +233,34 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	}
 }
 
+// TestWorktreeRemoveRefusesWhenCWDIsInside is the hook-path regression test for InUseBy's cwd guard:
+// WorktreeRemove must refuse (and leave the worktree in place) when the calling process's own cwd is
+// still inside the worktree being removed, the one in-use case this package can trigger without
+// stubbing worktree's unexported process-discovery seam.
+func TestWorktreeRemoveRefusesWhenCWDIsInside(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := gitRepo(t)
+
+	var out bytes.Buffer
+	if code := WorktreeCreate(createPayload(repo, "cwdbusy"), &out, &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("create: got %d", code)
+	}
+	wt := strings.TrimSpace(out.String())
+	t.Chdir(wt)
+
+	var errb bytes.Buffer
+	if code := WorktreeRemove(removePayload(wt, wt), &errb); code != 1 {
+		t.Fatalf("remove: got %d, want 1 (refused); stderr %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "cd out") {
+		t.Errorf("stderr = %q, want it to mention cd-ing out", errb.String())
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree should still exist after a refused remove: %v", err)
+	}
+}
+
 // canonHome resolves a temp HOME the way WorktreeRoot does (macOS tmp dirs live behind a /var symlink).
 func canonHome(t *testing.T, home string) string {
 	t.Helper()
