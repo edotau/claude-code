@@ -127,20 +127,13 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, slot, id string) {
 // modelChoices lists ids the account can serve: opencode's catalog for a hub account, the live API (else the
 // registry's own table) for claude's provider.
 var modelChoices = func(p *providers.Provider, claude bool) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
 	if !claude && p.OpencodeID != "" {
-		if bin, err := paths.VendorBin("opencode"); err == nil {
-			out, _ := exec.CommandContext(ctx, bin, "models", p.OpencodeID).Output()
-			var ids []string
-			for line := range strings.SplitSeq(string(out), "\n") {
-				if id, ok := strings.CutPrefix(strings.TrimSpace(line), p.OpencodeID+"/"); ok {
-					ids = append(ids, id)
-				}
-			}
+		if ids := opencodeModels(p.OpencodeID); len(ids) > 0 {
 			return ids
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	if ids, err := providers.LiveModels(ctx, p); err == nil && len(ids) > 0 {
 		return ids
 	}
@@ -151,5 +144,23 @@ var modelChoices = func(p *providers.Provider, claude bool) []string {
 		}
 	}
 	slices.Sort(ids)
+	return ids
+}
+
+// opencodeModels is `opencode models <id>` with the prefix cut; 45s because a cold catalog fetch takes 15–23s.
+func opencodeModels(opencodeID string) []string {
+	bin, err := paths.VendorBin("opencode")
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, bin, "models", opencodeID).Output()
+	var ids []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if id, ok := strings.CutPrefix(strings.TrimSpace(line), opencodeID+"/"); ok {
+			ids = append(ids, id)
+		}
+	}
 	return ids
 }
