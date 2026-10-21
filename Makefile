@@ -84,7 +84,7 @@ vet:  # (dev recipe, hidden from help) go vet
 
 ##@ Setup
 .PHONY: help-svg
-help-svg: compile  ## Regenerate the README menu image (docs/images/cli-menu.svg)
+help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 
 .PHONY: bootstrap
