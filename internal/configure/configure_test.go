@@ -192,6 +192,22 @@ func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
 	}
 }
 
+// "claude" is a Sections entry: present in the walk order, and listed in the unknown-section error so
+// a typo'd section name tells the user it is a valid choice.
+func TestClaudeSectionIsRegistered(t *testing.T) {
+	if !contains(Sections, "claude") {
+		t.Fatalf("Sections = %v, want \"claude\" present", Sections)
+	}
+	var out bytes.Buffer
+	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "bogus-section")
+	if rc != 2 {
+		t.Errorf("rc = %d, want 2:\n%s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "claude") {
+		t.Errorf("unknown-section output lacks %q:\n%s", "claude", out.String())
+	}
+}
+
 // The Max-plan row offers three ways in: browser login, minting a headless token, pasting one; the minted token
 // is recognised in the CLI's output by its sk-ant-oat prefix.
 func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
