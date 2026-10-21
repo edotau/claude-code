@@ -1,8 +1,11 @@
 package configure
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.
@@ -69,6 +72,30 @@ func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
+		}
+	}
+}
+
+// TestSettingRowFitsEightyColumns: the widest "claude code" page row — the longest catalog key, its
+// longest enum value or "false", plus the worst-case source suffix " · live differs" — stays <=80 cols.
+func TestSettingRowFitsEightyColumns(t *testing.T) {
+	var labels []string
+	for _, f := range settings.Catalog {
+		labels = append(labels, f.Key)
+	}
+	for _, f := range settings.Catalog {
+		longest := "false"
+		for _, v := range f.Values {
+			if len(v) > len(longest) {
+				longest = v
+			}
+		}
+		tmpl := map[string]json.RawMessage{f.Key: json.RawMessage(`"` + longest + `"`)}
+		ov := map[string]json.RawMessage{}
+		live := map[string]json.RawMessage{f.Key: json.RawMessage(`"` + longest + "-differs" + `"`)}
+		row := settingRow(f, tmpl, ov, live)
+		if w := rowRenderedWidth(labels, row[1]); w > 80 {
+			t.Errorf("settingRow(%s) = %d cols, want <=80: %q", f.Key, w, row[1])
 		}
 	}
 }
