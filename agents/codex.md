@@ -104,16 +104,19 @@ wave through: a plausible rationale masking a wrong assumption, convention drift
 own training normalizes, an edge case the phrasing quietly assumes away, scope creep framed as
 thoroughness. Name the blind spot you checked for before clearing a file as clean.
 
-### Session-correlated diff review (`/codex`)
+### Adversarial diff review (`/codex`)
 
-`/codex` drives `scripts/codex-adversarial-review.sh` over a git diff with an adversarial framing
-(skepticism default ON, no praise, severity-ordered findings `<severity> <file:line> <issue> <fix>`,
-or `VERDICT: no actionable findings` if clean). Scope defaults to `--uncommitted`; `--base <branch>`,
-`--commit <sha>` and `--pr` select the diff instead. Each run is tied to a session ID (explicit
-`--session-id`, or derived from the branch + timestamp) and writes a handoff transcript plus a
-live-updated status file under `$(claude-code memory path)/reports/codex-sessions/<session-id>/`;
-`SESSION_ID=<id>` prints to stdout for callers to correlate or chain follow-ups. Review-only — no
-file edits in this path.
+`/codex` attaches a git diff (`--uncommitted` default, `--base <branch>`, `--commit <sha>`, `--pr`) to
+`claude-code ask --agent codex --fallback vendors` (never falls back to Claude) and tees the answer to
+`$(claude-code memory path)/reports/<date>-codex-review-<scope>.md`. Review-only — no file edits. The prompt:
+
+```text
+You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in
+priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
+MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.
+Skepticism ON: name the hidden assumption each change depends on. No praise, no summary — findings only, one
+per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: VERDICT: no actionable findings.
+```
 
 ### Guidelines
 
