@@ -31,7 +31,8 @@ rules/
 ├── standards/        communication · quality · git · documentation · security · performance
 ├── workflow/         master-workflow · agents · memory-bank · memory-consolidation
 ├── harness/          hooks · guardrails · settings-management · docs-placement · change-protocol
-└── software/python/  coding-style · testing · patterns · security   (extend ../../standards/*)
+└── software/         python/ (coding-style · testing · patterns · security) · typescript/ (coding-style ·
+                      testing) · go/ (cli-text) — each extends ../../standards/*
 ```
 
 ## Language overlays
