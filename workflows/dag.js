@@ -2,7 +2,7 @@ export const meta = {
   name: 'dag',
   description: 'DAG runner: validate a step graph, then start each step the moment all its deps settle; skips propagate through, failures skip dependents',
   whenToUse:
-    'A task whose sub-agents form a dependency graph rather than a straight pipeline (port of the harness triggerer dag.go). Usually called inline: workflow("dag", {steps: [...]}). args: {steps: [{name, prompt, deps?: [names], model? | agentType?, effort: "low|medium|high|xhigh|max", schema?, skip?: true, when?: {step, equals}}], maxConcurrent?}. Prompts may reference a dep result as {{depName}}; when.step must be a dep. Returns {order, results, skipped, failed} or {error} before any agent spawns.',
+    'A task whose sub-agents form a dependency graph rather than a straight pipeline (port of the harness triggerer dag.go). Usually called inline: workflow("dag", {steps: [...]}). args: {steps: [{name, prompt, deps?: [names], model, agentType?, effort: "low|medium|high|xhigh|max", schema?, skip?: true, when?: {step, equals}}], maxConcurrent?}. Prompts may reference a dep result as {{depName}}; when.step must be a dep. Returns {order, results, skipped, failed} or {error} before any agent spawns.',
   phases: [
     { title: 'Validate', detail: 'names unique, deps exist, no cycles, every step pinned (model, plus effort; agentType optional), templates reference deps only' },
     { title: 'Steps', detail: 'one phase per step name; event-driven: a step starts as soon as all of its deps settle, no barrier waves' },
