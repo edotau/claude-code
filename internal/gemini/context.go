@@ -16,10 +16,14 @@ import (
 // ModelEnvKeys are consulted in order when no explicit model is passed.
 var ModelEnvKeys = []string{"CLAUDE_CODE_GEMINI_MODEL", "GEMINI_MODEL"}
 
-// Collection defaults (ported from the JS bridge).
+// Collection defaults. The binding limit for a sweep is the total byte budget below, not the file
+// count: DefaultMaxFiles is now a generous safety cap (an explicit --max-files still overrides it).
 const (
-	DefaultMaxFiles     = 40
-	DefaultMaxFileBytes = 32768
+	DefaultMaxFiles     = 5000       // safety cap only; --max-files still hard-overrides this
+	DefaultMaxFileBytes = 128 * 1024 // 128 KiB per file (was 32 KiB)
+	// DefaultTotalBytes: dense code can run ~2.4 bytes/token worst case, so 2.5 MiB stays under the
+	// ~1,048,576-token input limit even then (a 4 bytes/token assumption would not).
+	DefaultTotalBytes = 2560 * 1024 // 2.5 MiB
 )
 
 // ignoredSegments: any path containing one of these segments is skipped.
@@ -118,9 +122,15 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 	for p := range matches {
 		sorted = append(sorted, p)
 	}
-	sort.Strings(sorted)
+	sort.Strings(sorted) // stable path order within a group, applied next
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return groupRank(relSlash(cwd, sorted[i])) < groupRank(relSlash(cwd, sorted[j]))
+	})
+
+	budget := DefaultTotalBytes
 
 	var collected Context
+	var totalBytes int
 	collected.Skipped = append(collected.Skipped, skipped...)
 	for _, abs := range sorted {
 		rel := relSlash(cwd, abs)
@@ -131,19 +141,41 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "secret-like"})
 		case len(collected.Included) >= maxFiles:
 			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "max-files-exceeded"})
+		case totalBytes >= budget:
+			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "budget-exceeded"})
 		default:
 			inc, reason, err := readInclude(abs, rel, maxFileBytes)
 			if err != nil {
 				return collected, err
 			}
-			if reason != "" {
+			switch {
+			case reason != "":
 				collected.Skipped = append(collected.Skipped, SkippedFile{rel, reason})
-			} else {
+			case totalBytes+len(inc.Content) > budget:
+				collected.Skipped = append(collected.Skipped, SkippedFile{rel, "budget-exceeded"})
+			default:
+				totalBytes += len(inc.Content)
 				collected.Included = append(collected.Included, inc)
 			}
 		}
 	}
 	return collected, nil
+}
+
+// groupRank orders inlining candidates: non-test source (0) before tests (1) before
+// testdata/fixtures (2), so a byte-budget cutoff keeps real source code over fixtures.
+func groupRank(rel string) int {
+	for seg := range strings.SplitSeq(rel, "/") {
+		if seg == "testdata" || seg == "fixtures" {
+			return 2
+		}
+	}
+	base := filepath.Base(rel)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	if strings.HasSuffix(name, "_test") || strings.HasPrefix(name, "test_") {
+		return 1
+	}
+	return 0
 }
 
 // walkDirs recursively collects files under dirs, pruning ignored directories and — inside a git work

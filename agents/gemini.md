@@ -88,7 +88,7 @@ Guidance: say what to focus on, what to skip, what shape the output should take.
 error; the fallback order above applies.
 
 Model tiers: `opus` = `gemini-4-argon` (reasoning; use for second-opinion review), `sonnet` =
-`gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`. Resolution: `--model` →
+`gemini-3.8-flash-high` (the default above), `haiku` = `gemini-3.5-flash-lite`. Resolution: `--model` →
 `CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet tier; `--model` accepts a tier
 name or a bare model id. Full flag reference: `claude-code gemini bridge --help`.
 
@@ -145,7 +145,7 @@ Keep the bridge context lean — reference files/lines, don't paste large snippe
 | agy is not signed in | Run `agy` once and sign in with Google |
 | HTTP 404 model | The model id isn't served. Run `claude-code models --live --provider gemini` and pick a listed id. |
 | HTTP 400 input token limit | Narrow `--dirs`/`--files`, lower `--max-files`, or add `--index` instead of full file bodies |
-| HTTP 429 | The runner retries honouring `Retry-After` — no action needed unless it persists |
+| HTTP 429 / 503 | The bridge retries these honouring `Retry-After` — no action needed unless it persists |
 | Timeout | Reduce the context set and tighten the task, or raise `--timeout` (default `10m`) |
 | Canceled context | Cancellation propagates through git/context collection and the provider call; retry when ready |
 | `agy: stream ended without a result event` | The stream was truncated, not successful; retry or inspect the agy failure |
@@ -193,3 +193,7 @@ engine answered.
 - Focus exploration on areas relevant to the current task.
 - Report facts, not opinions. Note what you see, not what you think should change.
 - Keep findings concise — under 150 lines. The goal is context for downstream agents, not a novel.
+- Never ask an agy `--tools` leg to run `claude-code gemini bridge` itself — that nests agy inside agy
+  and hangs. The caller runs the bridge directly via Bash.
+- `--autonomous` is a no-op on agy (`--mode auto is unavailable`); don't rely on it for unattended runs.
+- Spot-check one cited `file:line` or URL per gemini answer before relaying it downstream.
