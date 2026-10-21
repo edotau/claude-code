@@ -118,6 +118,11 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(out), len(existing))
 		return nil
 	}
+	// A Windows-side writer (Orca, Claude Desktop) may have saved since the read; never overwrite its edit.
+	if now, nowBOM, rerr := readStrippingBOM(file); (rerr == nil || !errors.Is(rerr, fs.ErrNotExist)) &&
+		(rerr != nil || nowBOM != bom || !bytes.Equal(now, existing)) {
+		return fmt.Errorf("%s changed during install; re-run claude-code install", file)
+	}
 	backup, err := settings.WriteWithBackup(file, out)
 	if backup != "" {
 		fmt.Fprintf(w, "  backup %s\n", backup)
@@ -156,13 +161,15 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 		return SettingsDrift{File: file}, true, err
 	}
 	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered)
+	// Windows-side writers (Orca hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
+	d.Kept, d.Foreign = d.Foreign, nil
 	return d, true, err
 }
 
 // checkSettingsDriftAt is CheckSettingsDriftWith generalized over which file/local-file pair to check.
 func checkSettingsDriftAt(file, localFile string, rendered []byte) (SettingsDrift, error) {
 	d := SettingsDrift{File: file}
-	existing, rerr := os.ReadFile(file)
+	existing, _, rerr := readStrippingBOM(file) // install preserves a BOM; Diff must not see it
 	switch {
 	case rerr != nil && !errors.Is(rerr, fs.ErrNotExist):
 		return d, rerr
