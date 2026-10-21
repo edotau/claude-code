@@ -67,6 +67,81 @@ func TestWithBankLockContention(t *testing.T) {
 	}
 }
 
+// TestSettleBankLockLivesUnderStateNotStore: SettleBank's physical lock is state/harness/memory/locks/<key>/.postharvest.lock
+// — never a dotfile beside the committed bank files.
+func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
+	cfg := tempConfig(t)
+	root := repoRoot(t, "proj")
+	dir := Dir(root)
+	if _, err := SettleBank(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cfg, "state", "harness", "memory", "locks", "proj", ".postharvest.lock")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("lock file missing at %s: %v", want, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".postharvest.lock")); err == nil {
+		t.Error("a legacy-shaped lock file was written beside the store")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".postharvest")); err == nil {
+		t.Error("a legacy-shaped lock file was written beside the store")
+	}
+}
+
+// TestSettleBankRemovesEmptyLegacyLockButKeepsOneHeld: a pre-existing zero-byte legacy
+// <store>/<key>/.postharvest.lock is swept away by SettleBank's one-time cleanup, but one another
+// process still holds (via its own flock) is left exactly alone.
+func TestSettleBankRemovesEmptyLegacyLockButKeepsOneHeld(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "freed")
+	dir := Dir(root)
+	legacy := filepath.Join(dir, ".postharvest.lock")
+	write(t, legacy, "")
+	if _, err := SettleBank(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); err == nil {
+		t.Error("an unheld, zero-byte legacy lock survived SettleBank")
+	}
+
+	root2 := repoRoot(t, "held")
+	dir2 := Dir(root2)
+	legacy2 := filepath.Join(dir2, ".postharvest.lock")
+	write(t, legacy2, "")
+	f, err := os.OpenFile(legacy2, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if _, err := SettleBank(root2, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy2); err != nil {
+		t.Errorf("a legacy lock held by another flock was removed anyway: %v", err)
+	}
+}
+
+// TestPromoteLockLivesUnderGlobalLocksDir: PromoteLocalToGlobal's lock is state/harness/memory/locks/global/.promote.lock.
+func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
+	cfg := tempConfig(t)
+	want := filepath.Join(cfg, "state", "harness", "memory", "locks", "global", ".promote.lock")
+	if got := globalLockPath(); got != want {
+		t.Fatalf("globalLockPath() = %q, want %q", got, want)
+	}
+	root := repoRoot(t, "proj")
+	write(t, filepath.Join(Dir(root), "conventions.md"), strings.Repeat("- rule\n", 40))
+	if _, err := PromoteLocalToGlobal(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("promote lock file missing at %s: %v", want, err)
+	}
+}
+
 func TestMaintenanceMarker(t *testing.T) {
 	tempConfig(t)
 	if _, ok := InMaintenance(); ok {

@@ -186,7 +186,7 @@ func (inv *inventory) destOf(slug string) (string, bool) {
 	return d, ok
 }
 
-// originItemFor plans dest/.origin when it is absent or lacks an alias; the store root and global never have one.
+// originItemFor plans dest's origin record when absent or lacking an alias; the store root and global never have one.
 func (inv *inventory) originItemFor(dest, origin string, aliases []string) {
 	if _, done := inv.originItem[dest]; done || paths.SamePath(dest, StoreDir()) || paths.SamePath(dest, globalStoreDir()) {
 		return
@@ -200,10 +200,8 @@ func (inv *inventory) originItemFor(dest, origin string, aliases []string) {
 			return
 		}
 	}
-	data, _ := json.MarshalIndent(Origin{Version: OriginVersion, Key: filepath.Base(dest), Origin: origin, Aliases: aliases}, "", "  ")
-	data = append(data, '\n') // the exact bytes putOrigin writes, so the manifest hash matches the file
-	file := filepath.Join(dest, OriginFile)
-	it := MigrateItem{ID: itemID("inline:" + configRel(file)), Kind: KindOriginItem, Dest: file, Inline: data,
+	data, _ := json.Marshal(Origin{Version: OriginVersion, Key: filepath.Base(dest), Origin: origin, Aliases: aliases})
+	it := MigrateItem{ID: itemID("origin:" + configRel(dest)), Kind: KindOriginItem, Dest: dest, Inline: data,
 		Bytes: int64(len(data)), SHA256: sha256Hex(data), Action: ActionCopy, Reason: "origin record for " + origin}
 	inv.m.Items = append(inv.m.Items, it)
 	inv.originItem[dest] = it.ID
@@ -341,7 +339,7 @@ func (inv *inventory) bankFile(dir, name, dest, key, typedKind string) {
 	}
 }
 
-// legacyArchive plans GlobalDir()/archive: *.md to the store archive, native/<pslug>/** to the owning repo.
+// legacyArchive plans GlobalDir()/archive: *.md to the global archive, native/<pslug>/** to the owning repo.
 func (inv *inventory) legacyArchive(dir string) {
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
@@ -355,7 +353,7 @@ func (inv *inventory) legacyArchive(dir string) {
 		case e.IsDir():
 			inv.quarantineTree(p, "unknown archive directory")
 		case e.Type().IsRegular() && strings.HasSuffix(name, ".md"):
-			inv.add(MigrateItem{Kind: KindRepoArchive, Source: p, Dest: filepath.Join(ArchiveDir(StoreDir()), name), Action: ActionCopy, Reason: "global archive"})
+			inv.add(MigrateItem{Kind: KindRepoArchive, Source: p, Dest: filepath.Join(ArchiveDir(globalStoreDir()), name), Action: ActionCopy, Reason: "global archive"})
 		default:
 			inv.add(MigrateItem{Kind: KindUnknownItem, Source: p, Action: ActionQuarantine, Reason: "unknown archive entry"})
 		}

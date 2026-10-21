@@ -30,12 +30,9 @@ const minEntryTokens = 4
 // the reversed list; decisionLog.md is newest-first and keeps the straight split.
 var bottomAppended = map[string]bool{"conventions.md": true}
 
-// globalLockPath serializes all global-bank writers (promote, archive) behind one lock file.
-func globalLockPath() string {
-	dir := GlobalDir()
-	_ = os.MkdirAll(dir, 0o755)
-	return filepath.Join(dir, ".promote.lock")
-}
+// globalLockPath serializes all global-bank writers (promote, archive) behind one lock file under
+// state — never beside the committed global bank.
+func globalLockPath() string { return filepath.Join(storeLockDir(GlobalDir()), ".promote.lock") }
 
 // PromoteLocalToGlobal moves settled overflow from root's local durable files into the shared global
 // bank (deduped) and prunes local back under cap. No-op when local IS global.
@@ -46,6 +43,7 @@ func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
 	localDir, globalDir := Dir(root), GlobalDir()
 	promoted := 0
 	ran, err := paths.TryFileLock(globalLockPath(), 2*time.Second, func() error {
+		cleanupLegacyLocks(globalDir) // one-time: old dotfile locks left beside the global bank
 		for name, capLines := range promoteCaps {
 			n, err := promoteFile(filepath.Join(localDir, name), filepath.Join(globalDir, name), capLines, now)
 			if err != nil {
@@ -70,6 +68,7 @@ func ArchiveSettledOverflow(root string, now time.Time) (int, error) {
 	dir := Dir(root)
 	archived := 0
 	ran, err := paths.TryFileLock(globalLockPath(), 2*time.Second, func() error {
+		cleanupLegacyLocks(dir) // one-time: old dotfile locks left beside the global bank
 		for name, capLines := range promoteCaps {
 			n, err := archiveFile(filepath.Join(dir, name), dir, capLines, now)
 			if err != nil {

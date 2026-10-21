@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -166,18 +167,17 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if err != nil || o.Origin != resolvePath(repo) || o.Key != "my-repo.v2" {
 		t.Fatalf("origin = %+v, %v", o, err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, OriginFile))
 	if again, err := EnsureRepoDir(repo); err != nil || again != dir {
 		t.Fatal(err)
 	}
-	if after, _ := os.ReadFile(filepath.Join(dir, OriginFile)); string(after) != string(data) {
-		t.Error("second EnsureRepoDir rewrote .origin")
+	if after, err := ReadOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
+		t.Errorf("second EnsureRepoDir rewrote the origin record: %+v, %v", after, err)
 	}
 	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != globalStoreDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
-	if _, err := os.Stat(filepath.Join(StoreDir(), OriginFile)); err == nil {
-		t.Error("no .origin at the store root in Phase 1")
+	if _, err := ReadOrigin(globalStoreDir()); err == nil {
+		t.Error("no origin record for the global tier")
 	}
 }
 
@@ -325,7 +325,7 @@ func TestOriginReadWriteGuards(t *testing.T) {
 		t.Error("key must match the directory")
 	}
 	bad := filepath.Join(cfg, "memory", "bad")
-	write(t, filepath.Join(bad, OriginFile), `{"version":99,"key":"bad","origin":"/b"}`)
+	write(t, filepath.Join(bad, legacyOriginFile), `{"version":99,"key":"bad","origin":"/b"}`)
 	if _, err := ReadOrigin(bad); err == nil {
 		t.Error("wrong version must fail")
 	}
@@ -394,6 +394,9 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	}
 	workspace := resolvePath(raw)
 	dir := filepath.Join(cfg, "memory", "ws")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "ws", Origin: workspace}); err != nil {
 		t.Fatal(err)
 	}
@@ -433,10 +436,10 @@ func TestRepoDirsSkipsJunk(t *testing.T) {
 	os.MkdirAll(filepath.Join(store, "noorigin"), 0o755)
 	write(t, filepath.Join(store, "file.md"), "x")
 	os.MkdirAll(filepath.Join(store, "mismatch"), 0o755)
-	write(t, filepath.Join(store, "mismatch", OriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
+	write(t, filepath.Join(store, "mismatch", legacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
 	for r := range maps.Keys(StoreReservedDirs) {
 		os.MkdirAll(filepath.Join(store, r), 0o755)
-		write(t, filepath.Join(store, r, OriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
+		write(t, filepath.Join(store, r, legacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
 	}
 	os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym"))
 	got, err := RepoDirs()

@@ -21,7 +21,7 @@ import (
 // NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
 func NativeDirs(root string) []string {
 	if CutOver() { // native shares the repo's store dir; the global tier holds the user-wide notes
-		out := []string{StoreDir()}
+		out := []string{globalStoreDir()}
 		if d := Dir(root); !slices.Contains(out, d) {
 			out = append(out, d)
 		}
@@ -73,7 +73,7 @@ const (
 	NativeCoreCap          = 20              // max pointer lines SplitNativeIndex leaves injected in MEMORY.md
 )
 
-// topicPaths lists dir's KindTopic files; indexes, the catalog, .origin and typed bank files are not topics.
+// topicPaths lists dir's KindTopic files; indexes, the catalog and typed bank files are not topics.
 func topicPaths(dir string) []string {
 	ents, _ := os.ReadDir(dir)
 	var out []string

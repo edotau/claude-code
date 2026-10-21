@@ -64,8 +64,12 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	if err != nil || hook.Mode()&0o100 == 0 {
 		t.Fatalf("pre-push hook missing or not executable: %v", err)
 	}
-	if data, err := os.ReadFile(filepath.Join(store, ".gitignore")); err != nil || !strings.Contains(string(data), "*.lock") {
+	data, err := os.ReadFile(filepath.Join(store, ".gitignore"))
+	if err != nil || !strings.Contains(string(data), "access.log") {
 		t.Fatalf(".gitignore not seeded: %v", err)
+	}
+	if strings.Contains(string(data), "*.lock") {
+		t.Error(".gitignore still lists *.lock; locks moved to state/, never tracked in the store")
 	}
 	// Idempotent: a user's own .gitignore edit survives a second Ensure.
 	write(t, filepath.Join(store, ".gitignore"), "custom\n")

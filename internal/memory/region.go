@@ -96,7 +96,7 @@ func BuildCatalog(now time.Time) (string, error) {
 		if !last.IsZero() {
 			when = last.Format("2006-01-02")
 		}
-		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md\n", e.Key, storeHook(e.Dir), when, e.Key)
+		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
 	top, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*.md"))
 	nested, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*", "*.md"))
@@ -133,8 +133,8 @@ func BuildCatalog(now time.Time) (string, error) {
 }
 
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.
-func storeHook(dir string) string {
-	if data, err := os.ReadFile(filepath.Join(dir, "projectContext.md")); err == nil {
+func storeHook(e RepoEntry) string {
+	if data, err := os.ReadFile(filepath.Join(e.Dir, "projectContext.md")); err == nil {
 		for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
 			l = strings.TrimSpace(l)
 			if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(") {
@@ -143,10 +143,10 @@ func storeHook(dir string) string {
 			return truncate(l, 100)
 		}
 	}
-	if o, err := ReadOrigin(dir); err == nil && o.Origin != "" {
-		return o.Origin
+	if e.Origin.Origin != "" {
+		return e.Origin.Origin
 	}
-	return filepath.Base(dir)
+	return e.Key
 }
 
 // stripFrontmatter drops a leading --- … --- block; the closing fence must start its own line, so a
@@ -169,7 +169,7 @@ func settleUnified(root string, now time.Time) (BankSettlement, error) {
 	err := WithWritableBankLock(BankLockWait, func() error {
 		var dirs []string
 		own := Dir(root)
-		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with .origin), never here
+		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
 			dirs = append(dirs, own)
 		}
 		if g := GlobalDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {

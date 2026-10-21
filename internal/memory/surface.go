@@ -203,7 +203,7 @@ func unifiedSurface(root string) string {
 	dir := Dir(root)
 	var parts []string
 	if data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile)); err == nil {
-		parts = append(parts, "<!-- MEMORY CATALOG (start here; "+StoreDir()+") -->\n"+capRows(strings.TrimSpace(string(data)), catalogCapChars))
+		parts = append(parts, "<!-- MEMORY CATALOG (start here; "+StoreDir()+") -->\n"+capRows(strings.TrimSpace(stripCatalogOrigins(string(data))), catalogCapChars))
 	}
 	var focus []string
 	if data, err := os.ReadFile(filepath.Join(dir, "activeContext.md")); err == nil {

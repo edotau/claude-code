@@ -64,7 +64,7 @@ type MigrateItem struct {
 	Kind   string   `json:"kind"`             // one of the Kind* constants
 	Source string   `json:"source,omitempty"` // absolute; "" for inline items
 	Dest   string   `json:"dest,omitempty"`   // absolute; "" for delete/quarantine/skip
-	Inline []byte   `json:"inline,omitempty"` // generated content (an .origin record)
+	Inline []byte   `json:"inline,omitempty"` // generated origin record for the store dir Dest (a vault row, not a file)
 	Bytes  int64    `json:"bytes"`
 	SHA256 string   `json:"sha256"` // of Source (or Inline)
 	Action string   `json:"action"` // copy | delete | quarantine | skip

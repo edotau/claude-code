@@ -21,6 +21,38 @@ var ErrBankBusy = errors.New("memory store busy: another harness worker holds th
 // BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (plan §3.1: no .lock.lock variants).
 func BankLockPath() string { return filepath.Join(StateDir(), BankLockFile) }
 
+// storeLockKey namespaces a bank dir's runtime lock files under state: the store dir's base name,
+// or "global" for the global bank itself — locks never live beside the committed memory store.
+func storeLockKey(dir string) string {
+	if paths.SamePath(dir, GlobalDir()) {
+		return "global"
+	}
+	return filepath.Base(dir)
+}
+
+// storeLockDir is state's per-key lock directory for dir's bank, created 0700 on first use.
+func storeLockDir(dir string) string {
+	d := filepath.Join(StateDir(), "locks", storeLockKey(dir))
+	_ = os.MkdirAll(d, 0o700)
+	return d
+}
+
+// legacyLockNames are the pre-migration dotfile locks that used to live beside a bank's own files.
+var legacyLockNames = []string{".postharvest.lock", ".promote.lock", "bank.lock"}
+
+// cleanupLegacyLocks removes a leftover legacy lock file from dir only if it is empty AND this process
+// can itself flock it (proof nothing live still holds it the old way) — one-time hygiene post-migration.
+func cleanupLegacyLocks(dir string) {
+	for _, name := range legacyLockNames {
+		p := filepath.Join(dir, name)
+		fi, err := os.Lstat(p)
+		if err != nil || !fi.Mode().IsRegular() || fi.Size() != 0 {
+			continue
+		}
+		_, _ = paths.TryFileLock(p, 0, func() error { return os.Remove(p) })
+	}
+}
+
 // WithBankLock runs fn holding the bank lock; wait<=0 means BankLockWait. Lock order: worker claim → bank → git index.
 // Not reentrant: *Locked helpers never take it, so settlement cannot deadlock on itself.
 func WithBankLock(wait time.Duration, fn func() error) error {

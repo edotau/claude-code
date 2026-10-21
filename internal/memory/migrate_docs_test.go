@@ -104,7 +104,7 @@ func TestInventoryDocsWalkers(t *testing.T) {
 func (fx docsFixture) repoDest(m Manifest) (string, bool) {
 	for _, it := range m.Items {
 		if it.Kind == KindOriginItem && strings.Contains(string(it.Inline), fx.repoR) {
-			return filepath.Dir(it.Dest), true
+			return it.Dest, true
 		}
 	}
 	return "", false

@@ -4,16 +4,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// OriginFile is the versioned identity record at the top of every repo store.
-const OriginFile = ".origin"
+// legacyOriginFile is the pre-vault per-store record; resolveOrigins imports it into the vault once and removes it.
+const legacyOriginFile = ".origin"
 
 // OriginVersion is the schema version ReadOrigin accepts.
 const OriginVersion = 1
@@ -27,54 +31,155 @@ type Origin struct {
 	Display []string `json:"display,omitempty"` // human names; never used for matching
 }
 
-// ErrOriginConflict is returned instead of ever overwriting a .origin that names a different repo.
-var ErrOriginConflict = errors.New(".origin exists with a different canonical origin")
+// ErrOriginConflict is returned instead of ever overwriting an origin record that names a different repo.
+var ErrOriginConflict = errors.New("origin record exists with a different canonical origin")
 
-type originCacheEntry struct {
-	info   os.FileInfo
-	origin Origin
+// ReadOrigin loads and validates dir's origin record; dir must be a real directory directly under StoreDir().
+func ReadOrigin(dir string) (Origin, error) {
+	key, err := originKey(dir)
+	if err != nil {
+		return Origin{}, err
+	}
+	found, errs := resolveOrigins([]string{key})
+	if o, ok := found[key]; ok {
+		return o, nil
+	}
+	return Origin{}, errs[key]
 }
 
-var originCache sync.Map
-
-// ReadOrigin loads and validates dir/.origin; dir must be a real directory, not a symlink.
-func ReadOrigin(dir string) (Origin, error) {
+// originKey is dir's vault row key (its store key); symlinks and dirs outside the store have none.
+func originKey(dir string) (string, error) {
 	fi, err := os.Lstat(dir)
 	if err != nil {
-		return Origin{}, err
+		return "", err
 	}
 	if !fi.IsDir() {
-		return Origin{}, fmt.Errorf("%s: not a directory", dir)
+		return "", fmt.Errorf("%s: not a directory", dir)
 	}
-	path := filepath.Join(dir, OriginFile)
-	info, err := os.Stat(path)
+	if !paths.SamePath(filepath.Dir(dir), StoreDir()) {
+		return "", fmt.Errorf("%s: not a store directory under %s", dir, StoreDir())
+	}
+	return filepath.Base(dir), nil
+}
+
+// vaultRetryAt defers vault reads after one failed (each waits out View's lock timeout), so a hook pays it once.
+var vaultRetryAt atomic.Int64
+
+const vaultRetryDelay = 30 * time.Second
+
+var errVaultSkipped = errors.New("vault read skipped after a recent failure")
+
+// originRows reads every origin row in one View, skipped while a recent read failed.
+func originRows() (map[string]string, error) {
+	if time.Now().UnixNano() < vaultRetryAt.Load() {
+		return nil, errVaultSkipped
+	}
+	var rows map[string]string
+	if err := vault.View(func(t *vault.Tx) error {
+		rows = t.All(vault.MemoryOrigins)
+		return nil
+	}); err != nil {
+		vaultRetryAt.Store(time.Now().Add(vaultRetryDelay).UnixNano())
+		return nil, err
+	}
+	return rows, nil
+}
+
+// resolveOrigins maps store keys to records: vault row, else a legacy .origin, else index.md. Fallback hits become
+// rows (legacy files removed) unless the vault is unreadable, which leaves the call read-only. errs holds the misses.
+func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error) {
+	rows, verr := originRows()
+	found, errs = map[string]Origin{}, map[string]error{}
+	var catalog map[string]Origin
+	var imports []Origin
+	var legacy []string
+	for _, key := range keys {
+		dir := filepath.Join(StoreDir(), key)
+		if raw, ok := rows[key]; ok {
+			if o, err := decodeOrigin(dir, []byte(raw)); err != nil {
+				errs[key] = err
+			} else {
+				found[key] = o
+			}
+			continue
+		}
+		o, err := readLegacyOrigin(dir)
+		switch {
+		case err == nil:
+			legacy = append(legacy, filepath.Join(dir, legacyOriginFile))
+		case !errors.Is(err, fs.ErrNotExist):
+			errs[key] = err // an invalid legacy record is never imported, nor overwritten
+			continue
+		default:
+			if catalog == nil {
+				catalog = catalogOrigins()
+			}
+			c, ok := catalog[key]
+			if !ok {
+				errs[key] = fmt.Errorf("%s: no origin record: %w", dir, fs.ErrNotExist)
+				continue
+			}
+			if err := validateOrigin(dir, c); err != nil {
+				errs[key] = err
+				continue
+			}
+			o = c
+		}
+		found[key] = o
+		imports = append(imports, o)
+	}
+	if verr == nil && len(imports) > 0 {
+		_ = importOrigins(imports, legacy) // best effort on a read path: a failed import is retried by the next read
+	}
+	return found, errs
+}
+
+// importOrigins writes the rows still absent in one transaction, then removes the legacy files they replace.
+func importOrigins(origins []Origin, legacy []string) error {
+	err := vault.Update(func(t *vault.Tx) error {
+		for _, o := range origins {
+			if _, ok := t.Get(vault.MemoryOrigins, o.Key); ok {
+				continue // another process recorded it first
+			}
+			data, err := json.Marshal(o)
+			if err != nil {
+				return err
+			}
+			if err := t.Put(vault.MemoryOrigins, o.Key, string(data)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return Origin{}, err
+		return err
 	}
-	if cached, ok := originCache.Load(path); ok {
-		c := cached.(originCacheEntry)
-		if os.SameFile(info, c.info) && info.Size() == c.info.Size() && info.ModTime().Equal(c.info.ModTime()) {
-			o := c.origin
-			o.Aliases = slices.Clone(o.Aliases)
-			o.Display = slices.Clone(o.Display)
-			return o, nil
+	for _, f := range legacy {
+		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 	}
-	data, err := os.ReadFile(path)
+	return nil
+}
+
+func readLegacyOrigin(dir string) (Origin, error) {
+	data, err := os.ReadFile(filepath.Join(dir, legacyOriginFile))
 	if err != nil {
 		return Origin{}, err
 	}
+	return decodeOrigin(dir, data)
+}
+
+// decodeOrigin parses and validates one stored record for dir.
+func decodeOrigin(dir string, data []byte) (Origin, error) {
 	var o Origin
 	if err := json.Unmarshal(data, &o); err != nil {
-		return Origin{}, fmt.Errorf("%s/%s: %w", dir, OriginFile, err)
+		return Origin{}, fmt.Errorf("%s: origin record: %w", dir, err)
 	}
 	if err := validateOrigin(dir, o); err != nil {
 		return Origin{}, err
 	}
 	o.Aliases = cleanAliases(o.Aliases)
-	originCache.Store(path, originCacheEntry{info, o})
-	o.Aliases = slices.Clone(o.Aliases)
-	o.Display = slices.Clone(o.Display)
 	return o, nil
 }
 
@@ -82,11 +187,11 @@ func ReadOrigin(dir string) (Origin, error) {
 func validateOrigin(dir string, o Origin) error {
 	switch {
 	case o.Version != OriginVersion:
-		return fmt.Errorf("%s/%s: version %d, want %d", dir, OriginFile, o.Version, OriginVersion)
+		return fmt.Errorf("%s: origin record version %d, want %d", dir, o.Version, OriginVersion)
 	case o.Key != filepath.Base(dir):
-		return fmt.Errorf("%s/%s: key %q does not match directory", dir, OriginFile, o.Key)
+		return fmt.Errorf("%s: origin record key %q does not match directory", dir, o.Key)
 	case o.Origin == "" && !paths.SamePath(dir, StoreDir()):
-		return fmt.Errorf("%s/%s: empty origin", dir, OriginFile)
+		return fmt.Errorf("%s: origin record has an empty origin", dir)
 	}
 	return nil
 }
@@ -105,32 +210,93 @@ func cleanAliases(in []string) []string {
 	return out
 }
 
-// WriteOrigin creates dir/.origin; an existing record for the same Key+Origin is kept byte-for-byte,
+// WriteOrigin records dir's origin; an existing record for the same Key+Origin is kept as is,
 // any other existing record (including an unreadable one) is never overwritten.
 func WriteOrigin(dir string, o Origin) error {
 	if err := validateOrigin(dir, o); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(filepath.Join(dir, OriginFile)); err == nil {
-		cur, err := ReadOrigin(dir)
-		if err != nil {
-			return fmt.Errorf("refusing to overwrite: %w", err)
-		}
-		if cur.Key == o.Key && cur.Origin == o.Origin {
-			return nil
-		}
+	cur, err := ReadOrigin(dir)
+	switch {
+	case err == nil && cur.Key == o.Key && cur.Origin == o.Origin:
+		return nil
+	case err == nil:
 		return fmt.Errorf("%s: %w", dir, ErrOriginConflict)
+	case !errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("refusing to overwrite: %w", err)
 	}
 	return putOrigin(dir, o)
 }
 
 // putOrigin writes the record unconditionally; callers have already proven the overwrite is legal.
 func putOrigin(dir string, o Origin) error {
-	o.Aliases = cleanAliases(o.Aliases)
-	data, err := json.MarshalIndent(o, "", "  ")
+	return foldOrigin(dir, o, "")
+}
+
+// foldOrigin writes dir's record and, when drop is set, deletes that folded store's row in the same transaction.
+func foldOrigin(dir string, o Origin, drop string) error {
+	key, err := originKey(dir)
 	if err != nil {
 		return err
 	}
-	originCache.Delete(filepath.Join(dir, OriginFile))
-	return paths.AtomicWrite(filepath.Join(dir, OriginFile), append(data, '\n'), 0o644)
+	o.Aliases = cleanAliases(o.Aliases)
+	data, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	return vault.Update(func(t *vault.Tx) error {
+		if drop != "" {
+			if err := t.Put(vault.MemoryOrigins, drop, ""); err != nil {
+				return err
+			}
+		}
+		return t.Put(vault.MemoryOrigins, key, string(data))
+	})
+}
+
+// catalogOriginTag opens the machine-readable origin comment BuildCatalog appends to each repo row.
+const catalogOriginTag = " <!-- origin: "
+
+// catalogOrigin is the comment's JSON payload; json.Marshal escapes '>' so a path can never close the comment.
+type catalogOrigin struct {
+	Origin  string   `json:"origin"`
+	Aliases []string `json:"aliases,omitempty"`
+}
+
+// catalogOriginComment is the trailing comment recording o on its catalog row.
+func catalogOriginComment(o Origin) string {
+	data, _ := json.Marshal(catalogOrigin{Origin: o.Origin, Aliases: o.Aliases})
+	return catalogOriginTag + string(data) + " -->"
+}
+
+// catalogOrigins parses the origin comments of index.md's repo rows ("- <key> — …"), keyed by store key.
+func catalogOrigins() map[string]Origin {
+	out := map[string]Origin{}
+	data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile))
+	if err != nil {
+		return out
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
+		i := strings.LastIndex(rest, catalogOriginTag)
+		if !ok || !strings.HasPrefix(line, "- ") || i < 0 || !strings.HasSuffix(rest, " -->") {
+			continue
+		}
+		var c catalogOrigin
+		if json.Unmarshal([]byte(strings.TrimSuffix(rest[i+len(catalogOriginTag):], " -->")), &c) == nil {
+			out[key] = Origin{Version: OriginVersion, Key: key, Origin: c.Origin, Aliases: cleanAliases(c.Aliases)}
+		}
+	}
+	return out
+}
+
+// stripCatalogOrigins drops the origin comments so the injected catalog reads exactly as the visible rows.
+func stripCatalogOrigins(text string) string {
+	lines := strings.Split(text, "\n")
+	for n, l := range lines {
+		if i := strings.LastIndex(l, catalogOriginTag); i >= 0 && strings.HasSuffix(l, " -->") {
+			lines[n] = l[:i]
+		}
+	}
+	return strings.Join(lines, "\n")
 }

@@ -45,7 +45,7 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 		prefix = maybeAutoInit(cwd)
 	}
 	if guard.Migrated && !guard.Paused && !memory.IsHarvestChild() {
-		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (with its .origin)
+		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
