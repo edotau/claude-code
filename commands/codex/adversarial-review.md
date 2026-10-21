@@ -184,7 +184,7 @@ exit $RC
 
 - `codex` agent, REVIEW mode — adversarial **pre**-review (before implementation)
 - `claude` agent (review phase) — primary review stage (run this first)
-- `/codex:dispatch` — generic task dispatch to the same runner (no review framing)
+- Generic task dispatch to the same runner (no review framing): `claude-code ask --agent codex "<task>"`
 
 ## Notes
 

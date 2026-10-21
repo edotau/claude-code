@@ -25,8 +25,8 @@ memory in their reports. The main session writes it to Claude Code's native proj
 
 ## Codebase Intelligence Protocol
 
-**Recommended first step** for any non-trivial task. Run `/workflow` or launch the scan manually
-before engaging any planning or implementation agent.
+**Recommended first step** for any non-trivial task. Run `/workflow:orchestrate --scan` or launch
+the scan manually before engaging any planning or implementation agent.
 
 The protocol launches **2-3 parallel agents** in a **single message**, scoped to the area the
 task touches:
@@ -45,7 +45,8 @@ from a recent scan in the same session. **Scope the fan-out** to the directories
 touches — a repo-wide Explore sweep on every task is the single biggest avoidable input-token
 cost of this protocol.
 
-> For the full step-by-step workflow, see `commands/workflow/workflow.md`.
+> For the full step-by-step workflow, see `commands/workflow/orchestrate.md` (`--scan` mode runs
+> just this protocol).
 
 ## Immediate Agent Usage
 

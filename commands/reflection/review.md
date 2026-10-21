@@ -63,7 +63,7 @@ create files in this mode.
 Read in order:
 
 1. **Catalog** — `memory/index.md` (the generated router, one row per repo store); `claude-code
-   memory path` resolves this repo's store dir (`memory/<repo>/`, harness = `memory/.claude/`)
+   memory path` resolves this repo's store dir (`memory/<repo>/`, harness = `memory/claude-code/`)
 2. **Native MEMORY.md + topic files** — in that same store dir (first ~200 lines of `MEMORY.md`
    auto-load, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region)
 3. **Typed bank files** — the six files beside MEMORY.md in the same dir; `claude-code memory
