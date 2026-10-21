@@ -271,7 +271,7 @@ key; names and metadata are readable without it, so `list`, `status`, hooks and 
 every tracked secret — mint the setup-token, paste a key (its console page opened), delete, or add a custom
 `NAME` whose pasted `NAME=value`/`export NAME="value"` line is parsed and shown only redacted; `secrets get <KEY>`
 reads it back (vault → env; `--export` prints an eval-able line); `secrets import <file.env>` seals each
-`NAME=value` line (an `export ` prefix and one pair of matching quotes are stripped) and
+`NAME=value` line (a leading `export` keyword and one pair of matching quotes are stripped) and
 `secrets export [NAME...] [--out f]` appends plaintext lines to a 0600 file; `export --out -` and
 `import - --yes` stream over a pipe; `secrets status` reports which provider is served by which source
 without ever printing a value; `secrets scan` and `secrets git` audit the config surface and git history for a

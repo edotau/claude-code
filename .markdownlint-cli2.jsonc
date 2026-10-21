@@ -1,0 +1,56 @@
+// Markdown standard (markdownlint v0.41 rule IDs), read by VS Code's markdownlint extension.
+// make lint runs mdsmith from .mdsmith.yml: keep its rules: and ignore: in sync with this file.
+{
+  "config": {
+    "default": true,
+    "MD003": {
+      "style": "atx"
+    },
+    "MD004": {
+      "style": "dash"
+    },
+    "MD007": false,
+    "MD013": {
+      "line_length": 120,
+      "code_blocks": false,
+      "tables": false
+    },
+    "MD014": false,
+    "MD024": {
+      "siblings_only": true
+    },
+    "MD029": false,
+    "MD033": false,
+    "MD035": {
+      "style": "---"
+    },
+    "MD036": false,
+    "MD041": false,
+    "MD043": false,
+    "MD044": false,
+    "MD046": {
+      "style": "fenced"
+    },
+    "MD048": {
+      "style": "backtick"
+    },
+    "MD049": {
+      "style": "asterisk"
+    },
+    "MD050": {
+      "style": "asterisk"
+    },
+    "MD054": false,
+    "MD055": {
+      "style": "leading_and_trailing"
+    },
+    "MD059": false,
+    "MD060": false
+  },
+  "ignores": [
+    "commands/codex/adversarial-review.md",
+    "commands/harness/techdebt.md",
+    "commands/workflow/worktree.md",
+    "commands/workflow/orchestrate.md"
+  ]
+}

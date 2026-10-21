@@ -27,6 +27,10 @@ paths:
 
 ## Markdown Formatting
 
+The enforced standard is `.markdownlint-cli2.jsonc` (VS Code's markdownlint) mirrored by `.mdsmith.yml`
+(`make lint`, which auto-fixes; `CHECK=1` only reports). 120-column lines, ATX headings, `-` bullets,
+fenced code with a language, `*`/`**` emphasis.
+
 - **Headings** — one H1 per file (the title); `##` for major sections, `###` for
   subsections. Don't skip levels.
 - **Lists** — `-` for unordered, `1.` for ordered, `- [ ]` for task lists.

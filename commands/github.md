@@ -4,7 +4,7 @@ argument-hint: "commit [msg] | pr | review | account <gh-user>"
 allowed-tools: Bash
 ---
 
-# /github — GitHub workflow (⇐ merged /git:* + /gh:*)
+# /github — GitHub workflow (⇐ merged `/git:*` + `/gh:*`)
 
 First arg is the mode; the rest are that mode's args. Default (no mode) = `review`.
 
