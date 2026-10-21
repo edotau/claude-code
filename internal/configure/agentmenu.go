@@ -263,7 +263,7 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		{"GitHub user", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
+		{"User", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
 	}
