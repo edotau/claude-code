@@ -16,6 +16,9 @@ const csrfHeader = "X-CSRF-Token"
 // maxTaskBytes caps the dispatch task field; a phone keyboard has no business sending more.
 const maxTaskBytes = 8 << 10
 
+// maxBodyBytes caps a dispatch body: a fully percent-encoded task (3x) plus room for the other fields.
+const maxBodyBytes = 3*maxTaskBytes + 4<<10
+
 // newCSRFToken returns 32 random bytes, hex-encoded, generated once per server process.
 func newCSRFToken() (string, error) {
 	b := make([]byte, 32)

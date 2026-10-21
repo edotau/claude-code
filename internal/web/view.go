@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agenttree"
 )
@@ -26,6 +27,10 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("follow") != "1" {
 		writeJSON(w, snap)
 		return
+	}
+	// The server's 30s WriteTimeout would otherwise cut a live follow stream; ctx still ends it on disconnect.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		s.logger.Printf("view follow: clearing write deadline: %v", err)
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

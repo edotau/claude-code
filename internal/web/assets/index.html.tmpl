@@ -282,7 +282,7 @@ function loadDispatches(host) {
 
 function buildHostTabs(hosts) {
   const el = document.getElementById('hostTabs');
-  el.innerHTML = hosts.map(function (h) { return '<button data-host="' + h + '">' + h + '</button>'; }).join('');
+  el.innerHTML = hosts.map(function (h) { return '<button data-host="' + escapeHTML(h) + '">' + escapeHTML(h) + '</button>'; }).join('');
   el.querySelectorAll('button').forEach(function (btn) {
     btn.addEventListener('click', function () {
       el.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });

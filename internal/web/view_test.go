@@ -1,12 +1,16 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -163,4 +167,81 @@ func TestHandleViewFollowStopsOnContextCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelling the request context did not unblock handleView's follow within 5s")
 	}
+}
+
+// --- follow=1 must survive the server's own WriteTimeout: handleView clears the write deadline,
+// so a late event (after the timeout would otherwise have fired) still reaches the client ---
+
+func TestFollowSurvivesWriteTimeout(t *testing.T) {
+	withEmptyDispatchDir(t)
+	claudeDir := t.TempDir()
+	if err := copyDir(t, agenttreeTestdata, claudeDir); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(claudeDir, "projects", "-Users-fake-demo-repo",
+		"finished-session-aaaa1111", "subagents", "agent-fakeagentid002.jsonl")
+
+	s := newTestServer(t, Options{ClaudeDir: claudeDir, Days: 36500}, nil)
+	ts := httptest.NewUnstartedServer(s.mux)
+	ts.Config.WriteTimeout = 1 * time.Second
+	ts.Start()
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		ts.URL+"/api/view?session=finished-session-aaaa1111&agent=fakeagentid002&follow=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "127.0.0.1:7777"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do(): %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	go func() {
+		time.Sleep(1500 * time.Millisecond) // past ts.Config.WriteTimeout
+		f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		fmt.Fprintln(f, `{"type":"assistant","message":{"content":[{"type":"text","text":"after write timeout"}]}}`)
+	}()
+
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		if strings.Contains(sc.Text(), "after write timeout") {
+			return
+		}
+	}
+	t.Fatalf("stream ended without the post-timeout line; scanner err=%v", sc.Err())
+}
+
+// copyDir recursively copies src into dst (dst must already exist).
+func copyDir(t *testing.T, src, dst string) error {
+	t.Helper()
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, raw, 0o600)
+	})
 }

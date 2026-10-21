@@ -40,6 +40,7 @@ type Server struct {
 	status     *statusCache  // expiring, synchronized pane-status cache, keyed by host
 	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
 	browsers   *browserCache // expiring, synchronized browser.Detect cache
+	hosts      hostsCache    // expiring tailnet machine-name list for resolveHosts
 }
 
 // New builds a Server for opts.Addr (or the resolved default) without binding a listener; callers

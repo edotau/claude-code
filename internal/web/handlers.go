@@ -3,10 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agenttree"
@@ -24,8 +25,8 @@ type pageData struct {
 	Agents    []string
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	data := pageData{CSRFToken: s.csrfToken, Hosts: s.resolveHosts(context.Background()), Agents: dispatch.Agents}
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	data := pageData{CSRFToken: s.csrfToken, Hosts: s.resolveHosts(r.Context()), Agents: dispatch.Agents}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := indexTemplate().Execute(w, data); err != nil {
 		s.logger.Printf("render index: %v", err)
@@ -90,6 +91,7 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web: missing or bad "+csrfHeader, http.StatusForbidden)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes) // bounds the form and multipart paths too
 	req, err := parseDispatchRequest(r)
 	if err != nil {
 		http.Error(w, "web: "+err.Error(), http.StatusBadRequest)
@@ -135,8 +137,7 @@ func parseDispatchRequest(r *http.Request) (dispatchRequest, error) {
 	ct := r.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(ct, "application/json"):
-		body := io.LimitReader(r.Body, maxTaskBytes+4<<10)
-		if err := json.NewDecoder(body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return req, err
 		}
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"), strings.HasPrefix(ct, "multipart/form-data"):
@@ -153,11 +154,28 @@ func parseDispatchRequest(r *http.Request) (dispatchRequest, error) {
 	return req, nil
 }
 
-// resolveHosts is s.opts.Hosts verbatim when set, else every tailnet machine name (best-effort: a
-// tailscale error just yields an empty list, not a failed page load).
+// hostsCacheTTL bounds reuse of the tailnet machine list: each refresh is an admin-API call plus `tailscale status`.
+const hostsCacheTTL = 30 * time.Second
+
+// hostsCache holds the last successful tailnet machine-name list; its zero value is an empty cache.
+type hostsCache struct {
+	mu      sync.Mutex
+	hosts   []string
+	sampled time.Time
+}
+
+// resolveHosts is s.opts.Hosts verbatim when set, else every tailnet machine name, cached for
+// hostsCacheTTL (best-effort: a tailscale error yields an empty, uncached list, not a failed page load).
 func (s *Server) resolveHosts(ctx context.Context) []string {
 	if len(s.opts.Hosts) > 0 {
 		return s.opts.Hosts
+	}
+	c := &s.hosts
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := s.now()
+	if !c.sampled.IsZero() && now.Sub(c.sampled) < hostsCacheTTL {
+		return c.hosts
 	}
 	machines, err := tailscale.Machines(ctx)
 	if err != nil {
@@ -169,6 +187,7 @@ func (s *Server) resolveHosts(ctx context.Context) []string {
 			hosts = append(hosts, m.Name)
 		}
 	}
+	c.hosts, c.sampled = hosts, now
 	return hosts
 }
 
@@ -196,10 +215,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 var (
-	errUnsupportedContentType = jsonErr("web: Content-Type must be application/json or application/x-www-form-urlencoded")
-	errMissingField           = jsonErr("web: host, agent and task are required")
+	errUnsupportedContentType = errors.New("web: Content-Type must be application/json or application/x-www-form-urlencoded")
+	errMissingField           = errors.New("web: host, agent and task are required")
 )
-
-type jsonErr string
-
-func (e jsonErr) Error() string { return string(e) }
