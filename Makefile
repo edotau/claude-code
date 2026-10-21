@@ -154,7 +154,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## fmt, vet, shell, yaml, tui width, settings, markdown
+lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## fmt, vet, shell, yaml, tui width, settings, md fix (CHECK=1)
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
@@ -183,8 +183,8 @@ mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
 
 .PHONY: lint-docs
-lint-docs: mdsmith  ## Lint tracked markdown with mdsmith (FIX=1 auto-fixes)
-	@$(MDSMITH) $(if $(filter 1,$(FIX)),fix,check)
+lint-docs: mdsmith  # (folded into `lint`) mdsmith fix over .mdsmith.yml files; CHECK=1 only reports
+	@$(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix)
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist
