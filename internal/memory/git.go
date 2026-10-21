@@ -34,8 +34,8 @@ var stageSecretRE = regexp.MustCompile(`\bdapi[0-9a-f]{32}|\beyJ[A-Za-z0-9_-]{16
 const prePushHook = "#!/bin/sh\n# memory is local-only (plan C.3): refuse every push; a guard against accidents, not access control.\n" +
 	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"
 
-// storeGitignore keeps runtime beacons beside memory files out of history.
-const storeGitignore = "# harness runtime beacons beside memory files — never history\n*.lock\n.postharvest*\n.promote.lock\n.archive*\naccess.log\n*.tmp-*\n"
+// storeGitignore keeps runtime beacons beside memory files out of history; locks live under state now.
+const storeGitignore = "# harness runtime beacons beside memory files — never history\n.archive*\naccess.log\n*.tmp-*\n"
 
 // Exists reports a real nested repo: <Dir>/.git is a directory (a gitdir: pointer file is a foreign worktree).
 func (r Repo) Exists() bool {

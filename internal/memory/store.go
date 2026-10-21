@@ -1,5 +1,5 @@
 // Package memory is the session memory bank: six typed markdown files per git repo under
-// <ConfigDir>/memory/<repo>/ (harness itself memory/.claude/), global at the top.
+// <ConfigDir>/memory/<repo>/ (harness itself memory/claude-code/), global in memory/global/.
 package memory
 
 import (
@@ -67,13 +67,13 @@ func GlobalDir() string {
 // CutOver() still reports false, so its destinations must never gate on it (GlobalDir() would self-reference).
 func globalStoreDir() string { return filepath.Join(StoreDir(), "global") }
 
-// Dir is root's local bank; the config dir and any non-repo root collapse to the global one.
+// Dir is root's local bank; a non-repo root collapses to the global one.
 func Dir(root string) string {
-	if CutOver() { // one dir per repo shared with native memory; the harness is memory/.claude
+	if CutOver() { // one dir per repo shared with native memory; the harness is memory/claude-code
 		if d, err := RepoDir(root); err == nil {
 			return d
 		}
-		return StoreDir()
+		return globalStoreDir()
 	}
 	if slug := paths.RepoSlug(root); slug != "" && inWorkTree(root) {
 		return filepath.Join(GlobalDir(), slug)
@@ -118,7 +118,7 @@ func Init(root string) (string, error) {
 		return "", err
 	}
 	dir := Dir(root)
-	if CutOver() { // a new repo store needs its .origin before any file lands in it
+	if CutOver() { // a new repo store needs its origin record before any file lands in it
 		d, err := EnsureRepoDir(root)
 		if err != nil {
 			return "", err

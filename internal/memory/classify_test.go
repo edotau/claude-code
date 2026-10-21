@@ -18,9 +18,10 @@ func TestClassifyMemoryFile(t *testing.T) {
 	for _, n := range bankFiles {
 		write(t, filepath.Join(dir, n), "bank body\n")
 	}
-	for _, n := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, CatalogFile, OriginFile} {
+	for _, n := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, CatalogFile} {
 		write(t, filepath.Join(dir, n), "reserved body\n")
 	}
+	write(t, filepath.Join(dir, legacyOriginFile), "{}\n") // origin now lives in the vault; the on-disk file is an unknown dotfile
 	write(t, filepath.Join(dir, "notes.md"), "---\nname: notes\nharness_kind: bank\n---\n\nbody\n")
 	write(t, filepath.Join(dir, "topic.md"), "---\nname: topic\n---\n\nbody\n")
 	write(t, filepath.Join(dir, "real.md"), "---\nname: real\n---\n\nbody\n")
@@ -36,7 +37,7 @@ func TestClassifyMemoryFile(t *testing.T) {
 		NativeSearchableFile:   KindSearchable,
 		NativeArchiveIndexFile: KindArchiveIndex,
 		CatalogFile:            KindCatalog,
-		OriginFile:             KindOrigin,
+		legacyOriginFile:       KindOther,
 		"notes.md":             KindBank,
 		"topic.md":             KindTopic,
 		"link.md":              KindOther,

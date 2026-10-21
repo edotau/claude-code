@@ -422,7 +422,7 @@ func TestArchiveNativeRefusesSymlinkAndSkipsNonTopics(t *testing.T) {
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n")
 	write(t, filepath.Join(dir, "custom.md"), "---\nname: custom\nharness_kind: bank\n---\nbody\n")
 	write(t, filepath.Join(dir, CatalogFile), "# catalog\n")
-	write(t, filepath.Join(dir, OriginFile), "{}\n")
+	write(t, filepath.Join(dir, legacyOriginFile), "{}\n")
 	if err := os.Symlink(filepath.Join(dir, "keep-me.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
 	dir := nativeStore(t)
 	archiveDir := NativeArchiveDir(dir)
 	names := append(append([]string{}, bankFiles...),
-		NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, "index.md", ".origin", "typed-notes.md")
+		NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, "index.md", "typed-notes.md")
 	for _, n := range names {
 		body := "bank body\n"
 		if n == "typed-notes.md" {

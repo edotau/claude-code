@@ -289,14 +289,14 @@ func (a *applier) copyPhase() error {
 		case act != ActionCopy && act != ActionQuarantine: // deletes (and their dir deps) wait for retire
 		case a.unmetDep(it) != "":
 			err = a.mark(it, stepBlocked, "")
+		case it.Inline != nil: // an origin record is a vault row: no dest file to guard
+			err = a.originItem(it)
 		case act == ActionCopy && a.badDest(it):
 			err = a.mark(it, stepConflict, a.j.Steps[it.ID].DestSHA256)
 		case act == ActionCopy && it.Kind == KindAccessLog: // append-only state: merge, never conflict on growth
 			err = a.mergeAccessLog(it)
 		case act == ActionCopy && it.Kind == KindIndexMerge:
 			err = a.mergeIndex(it)
-		case it.Inline != nil:
-			err = a.originItem(it)
 		default:
 			err = a.importItem(it)
 		}
@@ -507,21 +507,20 @@ func (a *applier) recordCopy(it MigrateItem, state, sum string) error {
 	return nil
 }
 
-// originItem writes dest/.origin from the inline record; an existing record for another origin is a conflict.
+// originItem records the store dir Dest's origin row; an existing record for another origin is a conflict.
 func (a *applier) originItem(it MigrateItem) error {
 	var o Origin
 	if err := json.Unmarshal(it.Inline, &o); err != nil {
 		return fmt.Errorf("%s: inline origin: %w", it.ID, err)
 	}
-	dir := filepath.Dir(it.Dest)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(it.Dest, 0o755); err != nil {
 		return err
 	}
 	state, err := stepCopied, error(nil)
-	if exists(it.Dest) {
-		state, err = stepVerified, mergeOriginAliases(dir, o)
+	if _, rerr := ReadOrigin(it.Dest); rerr == nil {
+		state, err = stepVerified, mergeOriginAliases(it.Dest, o)
 	} else {
-		err = WriteOrigin(dir, o)
+		err = WriteOrigin(it.Dest, o)
 	}
 	if errors.Is(err, ErrOriginConflict) {
 		return a.mark(it, stepConflict, "")
@@ -529,11 +528,7 @@ func (a *applier) originItem(it MigrateItem) error {
 	if err != nil {
 		return err
 	}
-	sum, _, err := sha256File(it.Dest)
-	if err != nil {
-		return err
-	}
-	return a.recordCopy(it, state, sum)
+	return a.recordCopy(it, state, sha256Hex(it.Inline))
 }
 
 // recheckDests re-proves every unretired import's dest — still under its root, still the journaled bytes — before it
@@ -544,7 +539,7 @@ func (a *applier) recheckDests() ([]string, map[string]string, error) {
 	items := map[string]string{}
 	for _, it := range a.m.Items {
 		st := a.j.Steps[it.ID]
-		if a.action(it) != ActionCopy || st.State == stepRetired {
+		if a.action(it) != ActionCopy || st.State == stepRetired || it.Inline != nil { // origin rows are not staged
 			continue
 		}
 		rel, inStore, err := destRel(it)

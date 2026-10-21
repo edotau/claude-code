@@ -18,7 +18,7 @@ import (
 type Identity struct {
 	Origin  string // canonical main checkout ("" when Global)
 	Base    string // filepath.Base(Origin)
-	Global  bool   // non-repo cwd → the store root (global tier)
+	Global  bool   // non-repo cwd → memory/global/ (global tier)
 	Harness bool   // the config checkout itself → Key harnessStoreKey()
 }
 
@@ -78,7 +78,7 @@ func within(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
-// workspaceOrigin is the pinned non-git workspace (a store whose .origin names root or an ancestor of it), or "".
+// workspaceOrigin is the pinned non-git workspace (a store whose origin names root or an ancestor of it), or "".
 func workspaceOrigin(root string) string {
 	canon := resolvePath(root)
 	entries, err := RepoDirs()
@@ -180,7 +180,7 @@ func (o Origin) Accepts(origin string) bool {
 }
 
 // takenKeys reports a key as taken when it is reserved, the harness key, a known repo, or any existing
-// entry (a dir without a valid .origin is never claimed — extend the hash instead of clobbering).
+// entry (a dir without a valid origin record is never claimed — extend the hash instead of clobbering).
 func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 	return func(key string) (Origin, bool) {
 		if key == harnessStoreKey() || StoreReservedDirs[key] {
@@ -243,7 +243,7 @@ func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string
 	}
 }
 
-// EnsureRepoDir is RepoDir plus creation: the directory and its .origin exist on return, under the guarded bank lock.
+// EnsureRepoDir is RepoDir plus creation: the directory and its origin record exist on return, under the bank lock.
 func EnsureRepoDir(root string) (string, error) {
 	var dir string
 	err := WithWritableBankLock(BankLockWait, func() error {
@@ -268,7 +268,7 @@ func EnsureRepoDir(root string) (string, error) {
 }
 
 // AddOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
-// that rewrites a .origin, and only with the same Key+Origin.
+// that rewrites an origin record, and only with the same Key+Origin.
 func AddOriginAlias(dir, origin string) error {
 	return WithWritableBankLock(BankLockWait, func() error {
 		origin, err := filepath.EvalSymlinks(filepath.Clean(origin))
@@ -300,7 +300,7 @@ type RepoEntry struct {
 	Origin   Origin
 }
 
-// RepoDirs lists the repo stores: real directories with a valid .origin, reserved names and symlinks skipped.
+// RepoDirs lists the repo stores: real directories with a valid origin record, reserved names and symlinks skipped.
 func RepoDirs() ([]RepoEntry, error) {
 	ents, err := os.ReadDir(StoreDir())
 	if errors.Is(err, fs.ErrNotExist) {
@@ -309,17 +309,18 @@ func RepoDirs() ([]RepoEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []RepoEntry
+	var keys []string
 	for _, e := range ents {
-		if !e.IsDir() || e.Type()&fs.ModeSymlink != 0 || StoreReservedDirs[e.Name()] {
-			continue
+		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !StoreReservedDirs[e.Name()] {
+			keys = append(keys, e.Name())
 		}
-		dir := filepath.Join(StoreDir(), e.Name())
-		o, err := ReadOrigin(dir)
-		if err != nil {
-			continue // no valid .origin: not a repo store
+	}
+	found, _ := resolveOrigins(keys) // one vault read for every store; a dir without a valid record is not a repo store
+	var out []RepoEntry
+	for _, k := range keys {
+		if o, ok := found[k]; ok {
+			out = append(out, RepoEntry{Key: k, Dir: filepath.Join(StoreDir(), k), Origin: o})
 		}
-		out = append(out, RepoEntry{Key: e.Name(), Dir: dir, Origin: o})
 	}
 	slices.SortFunc(out, func(a, b RepoEntry) int { return strings.Compare(a.Key, b.Key) })
 	return out, nil

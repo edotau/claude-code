@@ -68,7 +68,7 @@ func TestCutoverSwitchesGlobalDirAndRepoResolution(t *testing.T) {
 		t.Errorf("NativeDir = %s, want Dir %s", NativeDir(repo), Dir(repo))
 	}
 	gotDirs := NativeDirs(repo)
-	wantDirs := []string{StoreDir(), Dir(repo)}
+	wantDirs := []string{GlobalDir(), Dir(repo)}
 	if len(gotDirs) != 2 || gotDirs[0] != wantDirs[0] || gotDirs[1] != wantDirs[1] {
 		t.Errorf("NativeDirs = %v, want %v", gotDirs, wantDirs)
 	}

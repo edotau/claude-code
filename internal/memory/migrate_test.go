@@ -371,8 +371,8 @@ func assertStoreCommitCoversImports(t *testing.T, items []MigrateItem) {
 		tracked[l] = true
 	}
 	for _, it := range items {
-		if it.Action != ActionCopy || it.Dest == "" {
-			continue
+		if it.Action != ActionCopy || it.Dest == "" || it.Kind == KindOriginItem || it.Inline != nil {
+			continue // an origin item's Dest is the store dir itself (a vault row, not a tracked file)
 		}
 		if rel, ok := InsideStore(it.Dest); ok && !tracked[rel] {
 			t.Errorf("ls-files missing imported rel %s", rel)
@@ -576,6 +576,9 @@ func TestApplyResumeRevalidatesTamperedDest(t *testing.T) {
 
 	var tampered MigrateItem
 	for _, it := range m.Items {
+		if it.Kind == KindOriginItem || it.Inline != nil {
+			continue // its Dest is the store dir itself, not a file to tamper with
+		}
 		if st, ok := j.Steps[it.ID]; ok && st.State == stepCopied {
 			tampered = it
 			break
@@ -913,7 +916,7 @@ func TestApplyRejectsDestUnderSymlinkedAncestor(t *testing.T) {
 		name, src, body string
 		link            func() string
 	}{
-		{"storeArchive", filepath.Join("archive", "note.md"), "archived note\n", func() string { return ArchiveDir(StoreDir()) }},
+		{"globalArchive", filepath.Join("archive", "note.md"), "archived note\n", func() string { return ArchiveDir(filepath.Join(StoreDir(), "global")) }},
 		{"stateAccessLog", "access.log", "2026-01-01T00:00:00Z -- read -- x\n", func() string { return filepath.Join(StateDir(), "access") }},
 	}
 	for _, tc := range cases {
@@ -1056,6 +1059,23 @@ func TestApplySupersedingFinishesEarlierCopies(t *testing.T) {
 	assertAllHashesMatch(t, m2.Items)
 	if g := StartupGuard(); !g.Migrated {
 		t.Errorf("guard does not see the superseding journal as the completed migration: %+v", g)
+	}
+}
+
+// TestLegacyArchiveMdGoesUnderGlobalStoreArchive: a *.md directly under LegacyGlobalDir()/archive is a
+// global archive item, and its dest lands under the global tier's own archive, not the store root's.
+func TestLegacyArchiveMdGoesUnderGlobalStoreArchive(t *testing.T) {
+	migrateConfig(t)
+	write(t, filepath.Join(LegacyGlobalDir(), "archive", "old.md"), "archived\n")
+
+	m, err := Inventory(InventoryOptions{})
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	it := wantItem(t, m.Items, filepath.Join("archive", "old.md"), KindRepoArchive, ActionCopy)
+	want := filepath.Join(StoreDir(), "global", "archive", "old.md")
+	if it.Dest != want {
+		t.Errorf("legacy global archive dest = %s, want %s", it.Dest, want)
 	}
 }
 

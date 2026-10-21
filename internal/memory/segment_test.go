@@ -320,3 +320,28 @@ func oracleTopicContents(dir string) ([]string, map[string][]byte) {
 	}
 	return files, data
 }
+
+// TestCorpusFilesIncludesGlobalNativeTopic: post-cutover, a native topic file living in GlobalDir() is
+// part of a repo's native corpus (bank "native"), not silently dropped by scanning the wrong dir.
+func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
+	root := migrateConfig1(t)
+	cutover(t)
+	if _, err := EnsureRepoDir(root); err != nil {
+		t.Fatal(err)
+	}
+	topic := filepath.Join(GlobalDir(), "global-topic.md")
+	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
+
+	var found bool
+	for _, f := range corpusFiles(root) {
+		if f.path == topic {
+			found = true
+			if f.bank != "native" {
+				t.Errorf("global topic bank = %q, want native", f.bank)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("corpusFiles(%s) missing global topic %s", root, topic)
+	}
+}

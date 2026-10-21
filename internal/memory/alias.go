@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -76,6 +75,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 // aliasPlan is everything apply needs: store changes, the source dir to remove and the symlinks to repoint.
 type aliasPlan struct {
 	target, source string // store dirs; source "" = origin-only alias
+	origin         Origin // the target's record after the fold
 	changes        []Change
 	links          []string // projects/*/memory symlinks that pointed at source
 }
@@ -116,13 +116,8 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	origin := tgt.Origin
 	origin.Aliases = append(slices.Clone(origin.Aliases), canon)
 	origin.Aliases = append(origin.Aliases, src.Origin.Aliases...) // the source's own explicit aliases follow it
-	data, err := marshalOrigin(origin)
-	if err != nil {
-		return res, nil, err
-	}
-	if cur, _ := os.ReadFile(filepath.Join(tgt.Dir, OriginFile)); !bytes.Equal(cur, data) {
-		p.addWrite(tgt.Dir, OriginFile, data, &res, "record alias in "+tgt.Key+"/"+OriginFile)
-	}
+	p.origin = origin
+	res.Lines = append(res.Lines, "record alias in the "+tgt.Key+" origin record (vault)")
 	if err := p.foldFiles(*src, tgt, &res); err != nil {
 		return res, nil, err
 	}
@@ -132,12 +127,6 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	}
 	res.Lines = append(res.Lines, "remove "+src.Dir, "settle + index "+tgt.Key+", regenerate catalog, commit")
 	return res, p, nil
-}
-
-func marshalOrigin(o Origin) ([]byte, error) {
-	o.Aliases = cleanAliases(o.Aliases)
-	data, err := json.MarshalIndent(o, "", "  ")
-	return append(data, '\n'), err
 }
 
 func (p *aliasPlan) rel(dir, name string) string {
@@ -172,7 +161,7 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 		cur, rerr := os.ReadFile(dst)
 		have := rerr == nil
 		switch {
-		case rel == OriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postharvest":
+		case rel == legacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postharvest":
 			return nil // identity, generated index and lock files do not travel
 		case rel == NativeIndexFile:
 			merged, n, err := mergeNativeIndex(string(cur), string(data))
@@ -307,12 +296,15 @@ func projectLinksTo(dir string) []string {
 	return out
 }
 
-// apply runs under the bank lock: journaled commit, remove the source dir, repoint links, settle target + catalog.
+// apply runs under the bank lock: journaled commit, move the origin row, remove the source dir, repoint links, settle.
 func (p *aliasPlan) apply(now time.Time) error {
 	if len(p.changes) > 0 {
 		if _, err := commitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes); err != nil {
 			return err
 		}
+	}
+	if err := foldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
+		return err
 	}
 	if err := removeEmptyTree(p.source); err != nil {
 		return err

@@ -19,7 +19,6 @@ const (
 	KindSearchable                   // SEARCHABLE.md
 	KindArchiveIndex                 // INDEX.md
 	KindCatalog                      // index.md — reserved in every memory dir (the global catalog at the store root)
-	KindOrigin                       // .origin
 )
 
 var kindNames = [...]string{
@@ -30,7 +29,6 @@ var kindNames = [...]string{
 	KindSearchable:   "searchable pointer file",
 	KindArchiveIndex: "archive index",
 	KindCatalog:      "catalog",
-	KindOrigin:       "origin record",
 }
 
 func (k FileKind) String() string {
@@ -52,7 +50,6 @@ func reservedNameKinds() map[string]FileKind {
 		NativeSearchableFile:   KindSearchable,
 		NativeArchiveIndexFile: KindArchiveIndex,
 		CatalogFile:            KindCatalog,
-		OriginFile:             KindOrigin,
 	}
 	for _, name := range bankFiles {
 		out[name] = KindBank
