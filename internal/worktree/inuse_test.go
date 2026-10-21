@@ -118,9 +118,13 @@ func TestInUseBySymlinkedPathMatched(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
+	resolved, err := filepath.EvalSymlinks(real) // darwin's TempDir is itself under the /var -> /private/var symlink
+	if err != nil {
+		t.Fatal(err)
+	}
 	stubProcesses(t, func(dir string) ([]Proc, error) {
 		// production processesIn implementations report the resolved cwd; dir passed in is already resolved.
-		if within(real, dir) {
+		if within(resolved, dir) {
 			return []Proc{{PID: 999999, Comm: "throughlink"}}, nil
 		}
 		return nil, nil
