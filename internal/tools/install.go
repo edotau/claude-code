@@ -253,8 +253,16 @@ func extractTarGzSingleFile(data []byte) ([]byte, error) {
 // codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
 var codexCompanions = []string{"codex-code-mode-host"}
 
-// installCodex extracts the latest platform release and its companion binaries into dir.
+// installCodex extracts the latest platform release and its companion binaries into BinDir(); dir
+// is overridden like installCopilot's bad-dir fallback, since a release binary (unlike a PREFIX/bin
+// installer) always belongs in BinDir() even when it currently resolves elsewhere on PATH (e.g. a
+// Homebrew cask symlink dir) — overwriting that dir would conflict with `brew upgrade`.
 func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	if dir != paths.BinDir() {
+		corrected := paths.BinDir()
+		fmt.Fprintf(w, "  into     %s (codex ships real release binaries; installing into BinDir instead)\n", corrected)
+		dir = corrected
+	}
 	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)
 	data, err := httpGet(ctx, codexReleaseURL)
 	if err != nil {

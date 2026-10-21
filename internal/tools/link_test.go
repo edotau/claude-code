@@ -103,6 +103,61 @@ func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
 	}
 }
 
+// TestLinkVendorsKeepsRealCodexInstallNotSymlink confirms a real codex binary already at
+// BinDir()/codex is left as a regular file, never swapped for a symlink to a different PATH copy.
+func TestLinkVendorsKeepsRealCodexInstallNotSymlink(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	pathCopy := filepath.Join(env.path1, "codex")
+	writeToolsFixture(t, pathCopy, "#!/bin/sh\nprintf 'path copy\\n'\n", 0o755)
+	dst := filepath.Join(paths.BinDir(), "codex")
+	writeToolsFixture(t, dst, "#!/bin/sh\nprintf 'real install\\n'\n", 0o755)
+
+	var out bytes.Buffer
+	LinkVendors(&out, []string{"codex"}, false)
+	fi, err := os.Lstat(dst)
+	if err != nil {
+		t.Fatalf("Lstat(%s): %v", dst, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s became a symlink (→ %s), want the real install left untouched", dst, readlink(dst))
+	}
+	if !fi.Mode().IsRegular() {
+		t.Fatalf("%s is not a regular file: mode %v", dst, fi.Mode())
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "#!/bin/sh\nprintf 'real install\\n'\n" {
+		t.Errorf("%s contents = %q, %v, want the original install untouched", dst, got, err)
+	}
+}
+
+// TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall preserves the existing behavior: with no
+// real file at BinDir()/codex, a stale symlink is replaced to point at the current PATH candidate.
+func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	candidate := filepath.Join(env.path1, "codex")
+	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
+	dst := filepath.Join(paths.BinDir(), "codex")
+	oldTarget := filepath.Join(t.TempDir(), "old-codex")
+	writeToolsFixture(t, oldTarget, "#!/bin/sh\nexit 0\n", 0o755)
+	symlinkToolsFixture(t, oldTarget, dst)
+
+	var out bytes.Buffer
+	LinkVendors(&out, []string{"codex"}, false)
+	fi, err := os.Lstat(dst)
+	if err != nil {
+		t.Fatalf("Lstat(%s): %v", dst, err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink, want the symlink-swap behavior preserved", dst)
+	}
+	if got := readlink(dst); got != candidate {
+		t.Errorf("relinked target = %q, want the current PATH candidate %q", got, candidate)
+	}
+	if want := "link     " + dst + " → " + candidate; !strings.Contains(out.String(), want) {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}
+
 func TestReplaceLinkKeepsRegularFileWithoutReplacing(t *testing.T) {
 	setupToolsTestEnv(t)
 	dst := filepath.Join(t.TempDir(), "codex")
