@@ -14,7 +14,8 @@ memory in their reports. The main session writes it to Claude Code's native proj
 
 `agents/<name>.md` is the single definition (role, modes, rules, report format); `commands/<name>.md`
 is a ~10-line launcher (how to read `$ARGUMENTS`, which agent/script to run, relay the report, a
-pointer to the agent file); shell logic lives in `scripts/<name>.sh`.
+pointer to the agent file); shell logic a skill needs lives in `skills/<name>/scripts/`, anything else in a Go verb
+or a Makefile target.
 
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|

@@ -28,9 +28,11 @@ Spread runners per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-**Step 0, bug fixes only:** capture RED before dispatch — `scripts/isolate.sh /tmp/claude-1000/<lane>/red`
-with no owned paths is pure HEAD; reproduce the failure there. After the leaf runs the worktree already holds the fix.
-Remove it after: `scripts/isolate.sh --remove /tmp/claude-1000/<lane>/red`.
+**Step 0, bug fixes only:** capture RED before dispatch, with no copy: write `git show HEAD:<file>` to scratch, map
+it over the live file with `go test -overlay <overlay.json>`, and reproduce the failure there.
+
+The verify copies below use the skill's own script:
+`iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"`.
 
 Run each leaf in the background (Bash `run_in_background`). Orchestrator files live in `/tmp/claude-1000/<lane>/`;
 the leaf's own scratch is a separate `/tmp/claude-1000/<leaf>/` it may delete:
@@ -67,8 +69,8 @@ the manager.
 
 ## Verify each leaf
 
-1. From the worktree: `scripts/isolate.sh /tmp/claude-1000/<leaf>/copy <owned paths>` — a `git worktree add` at
-   HEAD with only this leaf's owned-path changes applied on top ([isolate.sh](../../../scripts/isolate.sh)).
+1. From the worktree: `"$iso" /tmp/claude-1000/<leaf>/copy <owned paths>` — a `git worktree add` at
+   HEAD with only this leaf's owned-path changes applied on top ([isolate.sh](../scripts/isolate.sh)).
 2. In the copy (it has its own `.git`, a real worktree): build, vet, scoped tests
    (`go build ./... && go vet <pkgs> && go test <pkgs>`). Commit only on exit 0; gate on the exit code itself,
    never on a piped `| tail`.
@@ -83,7 +85,7 @@ the manager.
 6. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
    A pathspec commit is `--only`, so other lanes' staged files never ride along; 1–2 line conventional message,
    no AI footer.
-7. Tick the box with the short commit id; remove the copy (`scripts/isolate.sh --remove <copy>`) and the leaf
+7. Tick the box with the short commit id; remove the copy (`"$iso" --remove <copy>`) and the leaf
    scratch (`chmod -R u+w <d> && find <d> -delete`).
 
 Red at any step: re-dispatch the leaf once with the failure output, or fix a small gap in-lane; still red, report
