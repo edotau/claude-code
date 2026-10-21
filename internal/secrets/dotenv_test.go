@@ -282,3 +282,24 @@ func TestAppendDotenvWarnsWhenDefaultEnvNotGitignored(t *testing.T) {
 		t.Fatalf("stderr = %q, want silence once .env is gitignored", out)
 	}
 }
+
+// warnIfUntrackedDefault must stay silent outside a git work tree: `git check-ignore` there exits
+// 128, not 1, and only exit 1 ("tracked path, not ignored") is a real warning case.
+func TestWarnIfUntrackedDefaultOutsideRepo(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/git"); err != nil {
+		if _, err := os.Stat("/opt/homebrew/bin/git"); err != nil {
+			t.Skip("git not found")
+		}
+	}
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	out := captureStderr(t, func() {
+		if _, _, err := AppendDotenv(".env", []Pair{{"A", "1"}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out != "" {
+		t.Fatalf("stderr = %q, want silence outside a git work tree", out)
+	}
+}

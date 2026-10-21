@@ -33,7 +33,7 @@ func ScanGit(out io.Writer, dir string, since int) int {
 		fmt.Fprintln(out, "  ✓ not inside a git repo — skipped")
 		return ExitClean
 	}
-	args := []string{"-C", dir, "log", "-p", "--no-color", "--"}
+	args := []string{"-C", dir, "log", "-p", "--no-color", "--no-textconv", "--"}
 	if since > 0 {
 		args = append(args[:len(args)-1], "-n", strconv.Itoa(since), "--")
 	}
@@ -54,30 +54,48 @@ func ScanGit(out io.Writer, dir string, since int) int {
 
 	var findings []string
 	commit, file := "", ""
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.HasPrefix(line, "commit "):
-			commit = strings.TrimPrefix(line, "commit ")
-			if len(commit) > 12 {
-				commit = commit[:12]
+	addition, cont := false, false
+	// ReadLine fragments an over-long line (minified bundle, lockfile) instead of aborting the scan mid-pipe.
+	br := bufio.NewReaderSize(stdout, 1<<20)
+	var readErr error
+	for {
+		frag, isPrefix, err := br.ReadLine()
+		if err != nil {
+			if err != io.EOF {
+				readErr = err
 			}
-		case strings.HasPrefix(line, "diff --git "):
-			if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
-				file = b
-			}
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			if !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
-				findings = append(findings, fmt.Sprintf("%s %s", commit, file))
+			break
+		}
+		line := string(frag)
+		if !cont {
+			addition = false
+			switch {
+			case strings.HasPrefix(line, "commit "):
+				commit = strings.TrimPrefix(line, "commit ")
+				if len(commit) > 12 {
+					commit = commit[:12]
+				}
+			case strings.HasPrefix(line, "diff --git "):
+				if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
+					file = b
+				}
+			case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+				addition = true
 			}
 		}
+		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
+			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
+			addition = false // one finding per added line, however many fragments it spans
+		}
+		cont = isPrefix
 	}
-	scanErr := sc.Err()
+	if readErr != nil {
+		cancel() // unread output would block git on a full pipe until the timeout
+	}
 	waitErr := cmd.Wait()
-	if scanErr != nil {
-		fmt.Fprintf(out, "  ⚠ git log output truncated: %v\n", scanErr)
+	if readErr != nil {
+		fmt.Fprintf(out, "  ⚠ git log output truncated: %v\n", readErr)
+		return ExitFindings
 	}
 	if ctx.Err() != nil {
 		fmt.Fprintln(out, "  ⚠ git log timed out — history not fully scanned")
