@@ -122,13 +122,40 @@ func cmdSettings(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
+	winDrift, err := writeWindowsSettingsOutput(*out, *check, *dryRun)
+	if err != nil {
+		return fail("%v", err)
+	}
 	if err := prepared.Apply(); err != nil {
 		return fail("%v", err)
 	}
-	if *check && (drift || outDrift) {
+	if *check && (drift || outDrift || winDrift) {
 		return 1
 	}
 	return 0
+}
+
+// writeWindowsSettingsOutput reports Windows settings.json drift under --check; the Windows file path
+// is fixed (not overridable via --out), and only `install` writes it, so bare/--dry-run generate stay
+// read-only here too, matching settings.json's own preview-only default.
+func writeWindowsSettingsOutput(out string, check, _ bool) (bool, error) {
+	if out != "" || !check {
+		return false, nil
+	}
+	return checkLiveWindowsSettings()
+}
+
+// checkLiveWindowsSettings prints the Windows drift findings and reports whether it has drifted;
+// ok=false (no Windows profile resolved) prints nothing and is not drift.
+func checkLiveWindowsSettings() (bool, error) {
+	drift, ok, err := launch.CheckWindowsSettingsDrift()
+	if err != nil || !ok {
+		return false, err
+	}
+	for _, l := range drift.LinesLabeled("settings (windows)") {
+		fmt.Println(l)
+	}
+	return drift.Drifted(), nil
 }
 
 func snapshotSettingsHistory(out string, dryRun, check bool) {
