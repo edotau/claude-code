@@ -15,6 +15,9 @@ the encrypted vault (`claude-code secrets set`) or a provider's `auth.command` (
    deps; audit for known vulnerabilities; keep updated.
 4. **Data protection** — collect minimal user data; encrypt in transit; follow privacy
    law (GDPR/CCPA) where applicable.
+5. **Production is read-only from a session** — never `exec`/shell into a live production pod or
+   container and never decode a cluster secret's value; read logs and status, copy artifacts out
+   (`kubectl cp`/`oc cp`), and change production only through its deploy pipeline.
 
 ## Mandatory Pre-Commit Checklist
 
