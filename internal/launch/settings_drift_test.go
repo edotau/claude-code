@@ -179,6 +179,74 @@ func TestCheckSettingsDriftLocalDupNotDrift(t *testing.T) {
 	}
 }
 
+// TestTruncate80 pins truncate80's own contract: short strings pass through untouched, and a
+// string over 80 runes is cut to exactly 80 runes (79 kept + the trailing ellipsis rune).
+func TestTruncate80(t *testing.T) {
+	short := "effortLevel"
+	if got := truncate80(short); got != short {
+		t.Errorf("truncate80(%q) = %q, want unchanged", short, got)
+	}
+	long := strings.Repeat("x", 200)
+	got := truncate80(long)
+	gotRunes := []rune(got)
+	if len(gotRunes) != 80 {
+		t.Fatalf("truncate80(200-char key) = %d runes, want 80", len(gotRunes))
+	}
+	if !strings.HasPrefix(got, strings.Repeat("x", 79)) || gotRunes[79] != '…' {
+		t.Errorf("truncate80(long) = %q, want 79 kept runes + ellipsis", got)
+	}
+}
+
+// TestCheckSettingsDriftLinesTruncatesLongForeignKey: a foreign key far longer than 80 runes must
+// still render with a <=80-rune embedded key — truncated, not reported at full length (the verb
+// text around it is not truncated and the whole line can still exceed 80 columns; that is known
+// techdebt, not asserted here).
+func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
+	freshConfigDir(t)
+	rendered, err := settings.RenderLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	longKey := strings.Repeat("k", 200)
+	trimmed := strings.TrimRight(strings.TrimSpace(string(rendered)), "}")
+	withForeign := trimmed + `,"` + longKey + `":true}`
+	if err := os.WriteFile(SettingsFile(), []byte(withForeign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := CheckSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, k := range d.Foreign {
+		if k == longKey {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Foreign = %v, want it to contain the untruncated 200-char key", d.Foreign)
+	}
+	var line string
+	for _, l := range d.Lines() {
+		if strings.Contains(l, "is a foreign key not in the template") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("Lines() = %v, want a foreign-key finding", d.Lines())
+	}
+	if !strings.HasPrefix(line, "settings: ") {
+		t.Errorf("line %q must carry the settings: prefix", line)
+	}
+	embedded := strings.TrimSuffix(strings.TrimPrefix(line, "settings: "), " is a foreign key not in the template")
+	if n := len([]rune(embedded)); n > 80 {
+		t.Errorf("embedded key is %d runes, want <=80", n)
+	}
+	if !strings.HasSuffix(embedded, "…") {
+		t.Errorf("embedded key = %q, want it truncated with an ellipsis", embedded)
+	}
+}
+
 // TestCheckSettingsDriftLinesFitEightyColumns: every reported line, across every finding kind, stays
 // within 80 columns and carries the "settings: " prefix.
 func TestCheckSettingsDriftLinesFitEightyColumns(t *testing.T) {
