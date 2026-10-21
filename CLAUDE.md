@@ -12,7 +12,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 ## Hard rules (always on)
 
-1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/settings.tmpl.json`
+1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/template/`
    (hooks: `internal/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code secrets set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
@@ -69,7 +69,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Project agents + this file into every vendor CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | renders under `state/projections/`; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `clean [--dry-run] <name>` · `clean-all [--yes]` | same engine as the worktree hooks; never forces a removal |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
-| Change permissions / env / statusLine | edit `internal/settings/settings.tmpl.json` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
+| Change permissions / env / statusLine | edit `internal/settings/template/` → `claude-code generate` (alias: `settings`; prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `/harness:mcp-doctor` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |

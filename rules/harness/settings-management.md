@@ -3,7 +3,7 @@ paths:
   - "internal/settings/**"
   - "**/settings.json"
   - "**/settings.local.json"
-  - "**/settings.tmpl.json"
+  - "**/settings/template/*.json"
 ---
 # Settings Management
 
@@ -14,22 +14,32 @@ paths:
 
 **Never edit `.claude/settings.json` directly.**
 
-The file is rendered by `claude-code generate` (alias: `settings`; and baked in at `claude-code install`) from the
-template `internal/settings/settings.tmpl.json`. Any direct edit to `settings.json` is discarded
-on the next regenerate. This covers the env block, the hook chain, permission allowlists,
-`apiKeyHelper`, and `statusLine` — the fields the template owns.
+The file is rendered by `claude-code generate` (alias: `settings`; and baked in at `claude-code install`) from
+`internal/settings/template/` — one JSON file per section, `NN-<section>.json`
+(`00-model`, `10-ui`, `20-notifications`, `30-session`, `40-env`, `50-permissions`, `60-statusline`,
+`70-plugins`), merged in name order. A key defined in two section files fails the render; put a new key in
+the section it belongs to, not the nearest file. Any direct edit to `settings.json` is discarded on the
+next regenerate. This covers the env block, the hook chain, permission allowlists, `apiKeyHelper`, and
+`statusLine` — the fields the template owns.
 
-Only `settings.local.json` is safe to hand-edit — it holds per-workstation preferences
-(`theme`, notification toggles) that a regenerate should never clobber.
+A per-machine override of a plain-value template key (e.g. `theme`) goes through `claude-code configure` →
+"claude code", not a hand edit: it is stored (plain) in the vault (`overlay/settings`) and applied at render time,
+so it survives `make install`. Team-wide defaults still belong in the template.
+
+`~/.claude/settings.local.json` is **not** a user-wide settings layer — Claude Code only reads it as the
+project-local file for sessions started in `$HOME`. Don't put a global preference there.
 
 ## Correct workflow
 
-1. Edit `internal/settings/settings.tmpl.json` (hooks: also edit
+1. Edit `internal/settings/template/` (hooks: also edit
    `internal/hookspec/hookspec.go` first — see `hooks.md`).
 2. Preview without a rebuild: `claude-code generate` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
    previous one as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
+
+`generate --check` fails on invalid JSON in `settings.json`, on a key install would rewrite, on a
+foreign key (including keys Claude Code's `/config` writes), and on a nested `.claude/.claude`.
 
 In a linked worktree, cwd alone does not isolate writes (CLAUDE.md hard rule 4).
 Use `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"` for that checkout's
@@ -48,9 +58,11 @@ settings. A non-default config dir skips vendor renders, previews, and drift che
 
 ## Per-workstation-only overrides
 
-`settings.local.json` is gitignored. Beyond the seeded core scalars, edit it directly for
-strictly-local one-offs (extra permissions, experimental env vars). Provider-specific/infra
-durable config still belongs in the **template**, not here.
+`settings.local.json` is gitignored and project-local to `$HOME` only (see above); use it for
+strictly-local one-offs there (extra permissions, experimental env vars), not for a preference meant to
+follow you everywhere. A plain-value key that should: `claude-code configure` → "claude code" (vault
+overlay, every machine, every launch). Provider-specific/infra durable config still belongs in the
+**template**.
 
 ## Schema reference
 
@@ -60,11 +72,14 @@ key does — consult the published JSON schema:
 - **<https://www.schemastore.org/claude-code-settings.json>**
 
 Use it to confirm a field name and shape **before** adding it to
-`internal/settings/settings.tmpl.json` — the template is hand-written, so the schema is the
+`internal/settings/template/` — the template is hand-written, so the schema is the
 authority on what Claude Code actually accepts.
+
+A new plain-value template key also needs an entry in `internal/settings/catalog.go` — a test enforces
+that every such key is catalogued.
 
 ## Related
 
-- `internal/settings/settings.tmpl.json` — the template (source of truth)
+- `internal/settings/template/` — the template (source of truth)
 - `hooks.md` — hook lifecycle reference
 - `README.md` → Install

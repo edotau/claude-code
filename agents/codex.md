@@ -167,7 +167,7 @@ product code.
    `internal/hookspec/hookspec.go`), agent definitions, model routing (`claude-code models`).
 2. Identify the top 3 leverage areas (hooks, model tiers, routing, context, safety).
 3. Propose minimal, reversible configuration changes.
-4. Apply changes via the template (`internal/settings/settings.tmpl.json` → `make install`) and
+4. Apply changes via the template (`internal/settings/template/` → `make install`) and
    run validation (`claude-code doctor`).
 5. Report before/after deltas.
 
