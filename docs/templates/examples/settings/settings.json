@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "fable",
+  "effortLevel": "high",
+  "alwaysThinkingEnabled": true,
+  "outputStyle": "Concise",
+  "switchModelsOnFlag": true,
+  "theme": "auto",
+  "tui": "default",
+  "prefersReducedMotion": true,
+  "spinnerTipsEnabled": false,
+  "agentPushNotifEnabled": false,
+  "inputNeededNotifEnabled": true,
+  "preferredNotifChannel": "notifications_disabled",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off",
+  "dialogExpiry": "never",
+  "idleCompaction": false,
+  "cleanupPeriodDays": 30,
+  "remoteControlAtStartup": false,
+  "autoConnectIde": false,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true,
+  "env": {
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
+    "CLAUDE_CODE_SCROLL_SPEED": "1",
+    "CLAUDE_CODE_AUTO_CONNECT_IDE": "false"
+  },
+  "permissions": {
+    "defaultMode": "auto",
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)"
+    ],
+    "ask": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(make test:*)",
+      "Bash(make audit:*)",
+      "Bash(make verify:*)",
+      "Bash(go test ./...:*)",
+      "Bash(pytest)",
+      "Bash(npm test)",
+      "Bash(npm run test)",
+      "Bash(npx vitest run)",
+      "Bash(npx vitest run --coverage)",
+      "Bash(npm run e2e:*)",
+      "Bash(npx cypress run:*)",
+      "Bash(git push --force origin main:*)",
+      "Bash(git push -f origin main:*)",
+      "Bash(git push --force origin master:*)",
+      "Bash(git push -f origin master:*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/credentials)",
+      "Read(**/env.d/**)",
+      "Read(**/state/vault.db)",
+      "Read(**/.credentials.json)",
+      "Bash(security add-generic-password:*)",
+      "Bash(security delete-generic-password:*)"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code statusline",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "databricks@claude-plugins-official": false,
+    "impeccable@impeccable": true,
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "impeccable": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/pbakaus/impeccable.git"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-tag",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook plan-mirror",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook save-plan",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook access-trace",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-post",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook pre-compact",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook bash-guard",
+            "timeout": 5,
+            "statusMessage": "Checking command safety"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook docs-placement",
+            "timeout": 5,
+            "statusMessage": "Checking doc placement"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-effort",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook workflow-lint",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-inflight",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-harvest-end",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-start",
+            "timeout": 10,
+            "statusMessage": "Loading session memory"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook context-checkpoint",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook stop-format",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook session-harvest",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook subagent-stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook wsl-path-normalize",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook memory-recall",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook worktree-create",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook worktree-remove",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
