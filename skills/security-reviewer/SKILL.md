@@ -11,7 +11,7 @@ metadata:
 The security half of the review stack. The `evaluate-code` skill owns code *quality* and the
 four-principle discipline lens; this skill owns the *security* pass they run in parallel.
 Loaded by the main session or any subagent (there is no dedicated security-reviewer agent —
-this skill is self-contained), and surfaced by the `/security` command.
+this skill is self-contained); invoke it as `/security-reviewer`.
 
 Three modes: application security review (OWASP-style code audit), configuration security
 scanning (Claude Code harness audit), and dependency auditing (CVEs + license compliance).
@@ -21,8 +21,8 @@ scanning (Claude Code harness audit), and dependency auditing (CVEs + license co
 Propose fixes in findings; **never patch auth/crypto code directly** — a "helpful" auto-edit in
 security-sensitive code is itself a risk. This is a *convention* here (a skill can't restrict
 tools the way the retired agent's `readonly: true` did), so the loading session must honor it:
-report findings, let the human or a write-capable agent apply them. When run as `/security`, keep
-the pass read-only and end with a PASS / FIX REQUIRED / BLOCK verdict.
+report findings, let the human or a write-capable agent apply them. Keep the
+pass read-only and end with a PASS / FIX REQUIRED / BLOCK verdict.
 
 ## Severity Levels
 
@@ -44,12 +44,29 @@ payment code. These are non-negotiable review territory.
 Full OWASP Top 10 code-audit checklist + pre-commit list + response protocol + common
 false positives — **read [references/owasp-checklist.md](references/owasp-checklist.md)**.
 
+Reviewing a diff (was the `/security` command):
+
+1. Scope: an explicit range if given, else the branch vs `main`, else staged changes:
+   `BASE=$(git merge-base HEAD main 2>/dev/null) && RANGE=${RANGE:-$BASE...HEAD}`, then
+   `git diff ${RANGE:---cached} --stat`. With no divergence and nothing staged, say so and use `git diff --cached`.
+2. Mechanical scan of added lines first, citing file:line:
+
+   ```bash
+   git diff $RANGE | grep -nE '^\+' | grep -iE 'password|secret|api[_-]?key|token|BEGIN (RSA|PRIVATE)|eval\(|exec\(|pickle\.loads|md5|sha1|verify=False|shell=True'
+   ```
+
+3. Apply the checklist to the full changed files, not just the hunks. For a large diff, dispatch one read-only
+   `general-purpose` agent that loads this skill and returns findings.
+4. Touched Claude Code config (settings, hooks, MCP, agents) → also Mode 2; touched dependency manifests → also Mode 3.
+5. End with the severity-count table and the verdict; list BLOCK / FIX REQUIRED items first with file:line and the fix.
+
 ## Mode 2: Configuration Security Scan
 
 Scan Claude Code config (CLAUDE.md/settings.json/MCP/hooks/agents) for injection, dangerous
 permissions, and exposed secrets — scan commands, severity grades, common config issues in
 **[references/agentshield-config-scan.md](references/agentshield-config-scan.md)**. For cloud /
-IaC / IAM / CI-CD review, see `cloud-infrastructure-security.md` in this skill directory.
+IaC / IAM / CI-CD review, read
+**[references/cloud-infrastructure-security.md](references/cloud-infrastructure-security.md)**.
 
 ## Mode 3: Dependency Audit
 

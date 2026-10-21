@@ -12,6 +12,10 @@ Located flat at `agents/<name>.md`. Agents hold no per-agent memory scope; they 
 memory in their reports. The main session writes it to Claude Code's native project memory,
 `~/.claude/projects/<slug>/memory/MEMORY.md` (a lean index) plus the topic files beside it.
 
+`agents/<name>.md` is the single definition (role, modes, rules, report format); `commands/<name>.md`
+is a ~10-line launcher (how to read `$ARGUMENTS`, which agent/script to run, relay the report, a
+pointer to the agent file); shell logic lives in `scripts/<name>.sh`.
+
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
 | Explore (built-in) | Fast codebase scanning | **First step** — before planning or coding |
@@ -119,7 +123,7 @@ codex / copilot / gemini as extra hands via `claude-code ask --agent <runner>`.
 - **Quick edits / mechanical changes / search** → `haiku` or `sonnet` leaves (cheap, fast).
   Prefer a Claude sonnet/haiku leaf over recruiting a whole external agent for small work.
 - **Long-context exploration** → `gemini` (its window is the reason to use it).
-- **Adversarial / second-opinion review** → `codex` (`/codex:adversarial-review`) — a
+- **Adversarial / second-opinion review** → `codex` (`/codex`) — a
   genuinely different model family catches what a same-model self-review won't.
 - **Heavy reasoning / architecture** → keep it on `opus`.
 

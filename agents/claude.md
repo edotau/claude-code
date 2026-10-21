@@ -50,7 +50,8 @@ Reference real harness skills/agents — never invent namespaces.
 
 ### Security & Verification
 
-- `security-reviewer` skill (via `/security`) — auth/crypto/SSRF/injection deep-dives (you flag obvious CRITICALs)
+- `security-reviewer` skill (`/security-reviewer`) — auth/crypto/SSRF/injection deep-dives (you flag obvious
+  CRITICALs)
 - `codex` agent (VERIFY mode, via `claude-code ask --agent codex`) / `approval-gate` skill — full format → lint → test →
   security gate loop
 
@@ -73,24 +74,11 @@ requirements.
 3. **Identify 2-3 approaches.** Trade-offs (complexity, risk, effort), patterns followed/broken, what each enables or
    forecloses.
 4. **Recommend the simplest that meets requirements.** Justify briefly.
-5. **Emit the plan:**
+5. **Emit the plan.** Full template, phase rules, and the `## Tasks` checklist: `agents/Plan.md`. Skip the full plan for
+   trivial/single-file changes — say so and implement directly.
 
-   ```markdown
-   ## Plan: {title}
-   ### Approach
-   {1-2 sentences on the chosen approach and why}
-   ### Changes
-   1. {file or module} — {what to do and why}
-   ### Risks
-   - {risk} → {mitigation}
-   ### Verification
-   - {tests, typecheck, manual check}
-   ```
-
-Skip the full plan for trivial/single-file changes — say so and implement directly.
-
-**Plan-only path.** When the caller wants just a phase-gated plan written to a file — write it to the given path with
-objective, phases, per-phase exit criteria, branch, and status line, then stop.
+**Plan-only path.** When the caller wants just a phase-gated plan written to a file, follow `agents/Plan.md`'s
+template and filing rules, then stop.
 
 ### Implement — write the code
 
@@ -108,53 +96,28 @@ the command and its output as evidence. If you cannot verify, say so explicitly 
 
 ### Simplify — mandatory quality gate
 
-`Skill(simplify)` is authoritative; the checklist lives in `skills/simplify/SKILL.md`.
-
-- Behavior preservation is the contract: change *how* code is structured, never *what* it does.
-- Run the detectors (`claude-code review complexity` + `claude-code review diff`); advisory — **you judge**.
-- Manually read the changed files *and the code they touch* (callers, callees, nearby tests, helpers the diff may
-  duplicate) — not the diff alone.
-- Justify every cut ("unreachable because `___`", "single-use because `___` (grep'd)"); if you can't, flag it,
-  don't cut it.
-- Extended-scope consolidation of an existing duplicate is allowed — label it `[extended]` with blast radius; flag if
-  unverifiable.
+`Skill(simplify)` is authoritative; the procedure lives in `skills/simplify/SKILL.md`. Run it after Implement,
+before Review — complexity reduction is part of correctness, not post-processing.
 
 ### Review — quality check after simplification
 
-**`Skill(evaluate-code)`.** Full quality checklist + 4-principle discipline lens. Run its stdlib detectors first, then
-apply judgment. Review only changed code unless there's a CRITICAL security issue in adjacent code.
+`Skill(evaluate-code)` is authoritative; the procedure lives in `skills/evaluate-code/SKILL.md`. Review only
+changed code unless there's a CRITICAL security issue in adjacent code.
 
 ## Workflow (hybrid)
 
 **Default — self-contained phases.** Run Architect → Implement → Simplify → Review inline. This is the path when you are
 a dispatched subagent — subagents cannot fan out further.
 
-**Escalation — orchestrate.** ONLY at the **top level** (main session, Agent tool available) AND with a multi-task plan:
-follow `subagent-workflows` → `references/subagent-driven-development.md`. Dispatch one implementer per task with
-simplify + review gates between steps. If you cannot dispatch, fall back to sequential self-contained implementation.
+**Escalation — orchestrate.** ONLY at the **top level** (main session, Agent tool available) AND with a multi-task plan.
+You are the ONE manager layer; leaves (`code-worker`, never `inherit`) are terminal and cannot fan out further or start
+a Workflow. If you cannot dispatch, fall back to sequential self-contained implementation.
 
-Orchestrate by hand: `code-worker` leaves on disjoint packages ‖ `copilot` test agents in one message. Saved Workflows
-(`implement-and-verify`, `audit-fix-verify`, `gate-loop`) run only when the user asks for one; a dispatched subagent
-cannot start a Workflow.
-
-**Handed a lane** (a lane plan, not one task): you dispatch, verify and commit its vendor leaves via `claude-code ask`
-per `skills/subagent-workflows/references/lane-orchestrator.md`.
-
-**You are the ONE manager layer; leaves are terminal.** Fan-out lives here and only here — a dispatched subagent cannot
-dispatch further; tell every leaf it is terminal. Never run implementer leaves on overlapping code; merge in dependency
-order and re-gate after each merge.
-
-Dispatch fan-out leaves as `code-worker` (never `inherit`); concurrency tiers and effort/model escalation:
-`rules/workflow/agents.md`.
-
-**You set the skills and the pattern; the leaf sets neither.** A leaf starts cold, with no session history and no
-`Skill` tool — whatever you leave unnamed, it improvises. Every dispatch decision is yours:
-
-- **Orchestration pattern** — pick the shape *before* dispatching and state it in one line with why:
-  `subagent-workflows/references/choosing-a-pattern.md` (parallel · pipeline · sequential-with-gates · router ·
-  evaluator · bounded loop · **competition tournament** for N attempts at one measurable task).
-- **Skills per leaf** — name the exact `skills/<name>/SKILL.md` paths that leaf must read (it reads them as files; there
-  is no `Skill` tool on a leaf). Real paths only — never an invented namespace.
+Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are `skills/subagent-workflows/`'s job, not
+restated here: `references/subagent-driven-development.md` (sequential plan execution),
+`references/dispatching-parallel-agents.md` (independent tasks), `references/choosing-a-pattern.md` (pick the shape),
+`references/lane-orchestrator.md` (handed a lane plan). Saved Workflows (`implement-and-verify`, `audit-fix-verify`,
+`gate-loop`) run only when the user asks. Concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.
 
 ## Discipline & Review Standards
 
@@ -187,7 +150,8 @@ with blast radius. Approve when no CRITICAL/HIGH.
 
 ## What You Don't Do
 
-- **Security deep-dive** → `security-reviewer` skill (`/security`) (you flag obvious CRITICAL secrets/injection).
+- **Security deep-dive** → `security-reviewer` skill (`/security-reviewer`); you flag only obvious CRITICAL
+  secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `codex` VERIFY mode (`claude-code ask --agent
   codex`); `Workflow gate-loop` only when the user asks for it.
 - **New test coverage** → `copilot` (TEST mode), dispatched alongside the implementer, written after the live check.

@@ -4,93 +4,17 @@ argument-hint: "[parallel | sequential | auto] <task1 | task2 | ...>  (tasks '|'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
-The multi-leaf shortcut for subagent fan-out. Where a single `Agent` call dispatches **one**
-agent, this fans out **many** `code-worker` leaves to finish a series of jobs. Each
-leaf is the **code-worker** agent (Sonnet-pinned, cannot fan out further — it does its one task
-in-context and reports back). This is the ergonomic front door to the `subagent-workflows` skill's two
-strategies: `dispatching-parallel-agents` (concurrent) and `subagent-driven-development` (sequential
-with per-task spec → simplify → quality gates).
+Launcher only. The dispatch shape, gates, and report format live in
+`skills/subagent-workflows/SKILL.md` (`references/dispatching-parallel-agents.md` for parallel,
+`references/subagent-driven-development.md` for sequential).
 
-# Mode (first arg, optional)
+Strip an optional leading mode word (`parallel`/`sequential`/`auto`) from `$ARGUMENTS`; split the
+rest on `|` into the task list. Blank task list: read the most recent
+`~/.claude/plans/<repo>/*.md` (or `~/.claude/plans/*.md` for this repo) and use its task
+breakdown. `auto` or no mode: infer parallel for independent tasks, sequential for
+coupled/ordered/plan-derived ones, per the skill's work-shape table — state the choice and why.
 
-| Arg | Shape | What runs |
-|-----|-------|-----------|
-| `parallel` | concurrent fan-out | One `code-worker` leaf per task, **all dispatched in a single message** so they run concurrently, each scoped to disjoint files in the shared tree. Per `subagent-workflows/references/dispatching-parallel-agents.md`. |
-| `sequential` | one-at-a-time + review | One leaf per task in order; after each, a review gate (step 4) before the next. Per `subagent-workflows/references/subagent-driven-development.md`. |
-| *(blank)* or `auto` | infer | Independent tasks / no shared files → parallel; ordered or coupled tasks, or reading a plan → sequential. State the chosen shape and why before dispatching. |
-
-The remaining args are the tasks: a `|`-separated list, or blank to read the approved plan.
-
-## 1. Parse mode + tasks
-
-Strip an optional leading mode word from `$ARGUMENTS`, then split the rest on `|` into a task list.
-
-```bash
-ARGS="$ARGUMENTS"
-MODE=auto
-case "$ARGS" in
-  parallel*)   MODE=parallel;   ARGS="${ARGS#parallel}";;
-  sequential*) MODE=sequential; ARGS="${ARGS#sequential}";;
-  auto*)       MODE=auto;       ARGS="${ARGS#auto}";;
-esac
-ARGS="${ARGS#"${ARGS%%[![:space:]]*}"}"   # ltrim
-echo "mode=$MODE"
-echo "tasks (| -separated): $ARGS"
-```
-
-If the task list is empty, read the approved plan — the most recent `$HOME/.claude/plans/*.md`, or
-`$HOME/.claude/plans/<repo>/*.md` for another repo — and extract its task breakdown as the task list.
-
-```bash
-REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
-[ -z "$ARGS" ] && ls -t "$HOME/.claude/plans/$REPO/"*.md "$HOME/.claude/plans/"*.md 2>/dev/null | head -1
-```
-
-State the resolved task list before dispatching. For `auto`, decide the shape (independent → parallel;
-coupled/ordered/plan-derived → sequential) and say why in one line.
-
-## 2. Build a self-contained handoff per task
-
-You start each leaf cold — it inherits none of this session. For every task, construct the handoff
-contract from `subagent-workflows/SKILL.md` → Dispatch contract (implementers: `references/implementer-prompt.md`):
-
-- **Objective** — what to build / review / investigate.
-- **Scope boundary** — the exact files this leaf may touch (so parallel leaves don't collide).
-- **Upstream artifacts** — relevant paths, prior findings, the plan section.
-- **Acceptance criteria** — how the leaf knows it's done.
-- **Verification command** — the exact `make`/`pytest`/script to run before reporting done.
-- **Skills to read** *(optional)* — `skills/<name>/SKILL.md` paths when the task needs a method
-  (e.g. `evaluate-code` for a review leaf, `testing` for a test leaf).
-
-## 3. Dispatch
-
-Dispatch each task via the **Agent** tool with `subagent_type: "code-worker"`, passing only the
-handoff (NOT this session's history). Every dispatch carries a `copilot` test agent in the SAME message
-(`rules/standards/quality.md`) — it owns the test files the leaves must not edit.
-
-- **parallel** — emit **all** `Agent` calls in a **single message** so they run concurrently. Concurrency:
-  lean leaves ~8–10 in flight, deep-context leaves ≤8 (input-tokens/min is the binding cap). Agents share the tree on
-  disk — scope each handoff to disjoint files so concurrent writers don't collide.
-- **sequential** — dispatch **one** leaf, then run the review gate (step 4) before the next task.
-  **Never** run two implementer leaves in parallel here — coupled tasks would edit shared code (the
-  skill's red-flag).
-
-If a leaf reports the task is too big to do in-context (it cannot fan out further), split the task and
-re-dispatch — don't ask the leaf to delegate.
-
-## 4. Gates — spec → simplify → quality
-
-Sequential: after each leaf, before the next task. Parallel: once, over the integrated diff. Spec-compliance pass, then
-`Skill(simplify)` over the diff (a leaf gets `simplify/references/leaf-brief.md`), then the code-quality pass —
-templates in `subagent-workflows/references/` (`spec-reviewer-prompt.md`, `code-quality-reviewer-prompt.md`), or
-`/code-review` over the simplified diff. Loop fixes until the gate passes, then move to the next task. Do not start the
-next task on a red gate.
-
-## 5. Synthesize
-
-Collect each leaf's contract: what it did, files changed, verification result (pass/fail + output),
-and anything surprising (this is how you detect hidden coupling across leaves). Present one
-consolidated report:
-
-- Per-task status table (task · leaf verdict · files · verification).
-- Overall verdict.
+Dispatch each task as a `code-worker` leaf per the skill's process, with a `copilot` test agent in
+the SAME message every time (`rules/standards/quality.md`). Run the spec → simplify → quality
+gates from the skill before moving to the next task (sequential) or over the integrated diff
+(parallel). Relay one consolidated report: per-task status, files, verification, overall verdict.

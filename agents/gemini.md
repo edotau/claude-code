@@ -87,6 +87,72 @@ Guidance: say what to focus on, what to skip, what shape the output should take.
 `--files`, lower `--max-files`, or add `--index` when context overflows. If it can't auth, report the
 error; the fallback order above applies.
 
+Model tiers: `opus` = `gemini-4-argon` (reasoning; use for second-opinion review), `sonnet` =
+`gemini-3.8-flash` (default), `haiku` = `gemini-3.5-flash-lite`. Resolution: `--model` →
+`CLAUDE_CODE_GEMINI_MODEL` → `GEMINI_MODEL` → the provider's sonnet tier; `--model` accepts a tier
+name or a bare model id. Full flag reference: `claude-code gemini bridge --help`.
+
+### Review mode (`/gemini review`)
+
+A first argument of `review` packs whole modules (`--dirs`) into one **opus-tier** call
+(`gemini-4-argon`) for an architecture/consistency second opinion — the 1M window sees cross-file
+drift that per-file review misses:
+
+```bash
+claude-code gemini bridge --model opus --dirs <DIRS> [--files <FILES>] -- "<TASK>"
+```
+
+`<DIRS>` defaults to the directory most relevant to the current task; ask when that is ambiguous.
+
+where `<TASK>` is:
+
+```text
+Task: second-opinion architecture and consistency review of the packed modules.
+Priorities, in order:
+1. Cross-file inconsistencies: divergent naming, duplicated logic, contradictory conventions
+2. Layering/boundary violations: imports or responsibilities that cross module lines
+3. Dead or orphaned code paths visible only with the whole module in view
+4. Doc drift: comments or docs that no longer match the code
+Rules: report findings only, no praise, no summary of what the code does.
+For each finding: <file:line> <one-line issue> <one-line suggestion>.
+If clean, say exactly: VERDICT: no actionable findings.
+<FOCUS, if any: "Additional focus: ...">
+```
+
+Relay findings verbatim under a `## Gemini second opinion` heading, then add a one-paragraph
+assessment of which findings you agree with. The opus tier is pinned on purpose — sonnet/haiku miss
+the cross-file synthesis. Use after a multi-file change lands, before refactoring an unfamiliar
+module, or for doc/code drift sweeps (pack `rules/` with the code they describe); not for
+single-file review, diff review, or interactive debugging.
+
+### Prompt scaffolds (token-efficient `<TASK>` shapes)
+
+Keep the bridge context lean — reference files/lines, don't paste large snippets.
+
+- **Analysis / Plan** (no code changes): `Task: <what to analyze>` · `Repo pointers: <paths + line
+  numbers>` · `Constraints: concise, actionable, reference files not snippets` · `Output: bullet
+  findings + proposed plan`.
+- **Patch** (unified diff only): `Task: <what to change>` · `Repo pointers: <paths + lines>` ·
+  `Constraints: OUTPUT unified diff ONLY, no actual edits, minimal focused changes` · `Output: a
+  single unified diff`.
+- **Review** (audit a diff): `Task: review the diff for correctness, edge cases, missing tests` ·
+  `Constraints: checklist of issues + fixes, no code unless asked` · then paste the diff.
+
+### Error handling
+
+| Error | Solution |
+|-------|----------|
+| agy is not signed in | Run `agy` once and sign in with Google |
+| HTTP 404 model | The model id isn't served. Run `claude-code models --live --provider gemini` and pick a listed id. |
+| HTTP 400 input token limit | Narrow `--dirs`/`--files`, lower `--max-files`, or add `--index` instead of full file bodies |
+| HTTP 429 | The runner retries honouring `Retry-After` — no action needed unless it persists |
+| Timeout | Reduce the context set and tighten the task, or raise `--timeout` (default `10m`) |
+| Canceled context | Cancellation propagates through git/context collection and the provider call; retry when ready |
+| `agy: stream ended without a result event` | The stream was truncated, not successful; retry or inspect the agy failure |
+
+Context collection skips FIFOs and other non-regular files (`non-regular-file`) instead of opening
+them and potentially hanging.
+
 Report findings in the same structured format regardless of backend — consumers downstream shouldn't need to know which
 engine answered.
 

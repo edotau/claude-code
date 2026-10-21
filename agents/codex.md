@@ -61,7 +61,7 @@ implementing agent has crystal-clear marching orders.
 3. **Constraint awareness** — read CLAUDE.md's hard rules + behavioral guidelines; flag any
    violations.
 4. **Security surface** — auth/tokens, user input, filesystem, external APIs? If yes,
-   flag for a `security-reviewer`-skill pass (via `/security`) post-implementation.
+   flag for a `security-reviewer`-skill pass (via `/security-reviewer`) post-implementation.
 5. **Testing expectations** — unit/integration/E2E? Coverage target (default 80%)?
    Existing fixtures?
 6. **Missing context** — what does the implementer need that isn't in the request? Prior
@@ -103,6 +103,17 @@ You are not Claude — use that. Hunt specifically for what a same-family self-r
 wave through: a plausible rationale masking a wrong assumption, convention drift the author's
 own training normalizes, an edge case the phrasing quietly assumes away, scope creep framed as
 thoroughness. Name the blind spot you checked for before clearing a file as clean.
+
+### Session-correlated diff review (`/codex`)
+
+`/codex` drives `scripts/codex-adversarial-review.sh` over a git diff with an adversarial framing
+(skepticism default ON, no praise, severity-ordered findings `<severity> <file:line> <issue> <fix>`,
+or `VERDICT: no actionable findings` if clean). Scope defaults to `--uncommitted`; `--base <branch>`,
+`--commit <sha>` and `--pr` select the diff instead. Each run is tied to a session ID (explicit
+`--session-id`, or derived from the branch + timestamp) and writes a handoff transcript plus a
+live-updated status file under `$(claude-code memory path)/reports/codex-sessions/<session-id>/`;
+`SESSION_ID=<id>` prints to stdout for callers to correlate or chain follow-ups. Review-only — no
+file edits in this path.
 
 ### Guidelines
 

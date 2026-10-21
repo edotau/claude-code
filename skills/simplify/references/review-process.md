@@ -11,12 +11,9 @@ CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
 claude-code review diff --diff HEAD~1..HEAD
 ```
 
-`claude-code review complexity` covers Python, TS/JS and Go. Checks per-function cyclomatic
-complexity, function length, nesting depth; per-file import count, class density, premature
-ABC/Protocol, file length. Thresholds `strict` (new
-code) · `medium` (default) · `relaxed` (legacy); verdict `PASS`/`WARN`/`FAIL`, 0–100 score
-per file. All detectors are advisory (exit 0) — use findings as leads, verify each by
-reading the code; the detectors locate, you judge.
+What each detector checks, languages covered, thresholds, and verdicts: canonical in
+`skills/evaluate-code/references/detectors.md`. Both are advisory (exit 0) — use findings as
+leads, verify each by reading the code; the detectors locate, you judge.
 
 ## Phase 1 — Review
 

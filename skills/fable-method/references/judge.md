@@ -10,7 +10,7 @@ you didn't watch get built. For your own work mid-loop, Step 5 plus `approval-ga
 for a graded transcript walk-through use `audit` mode.
 
 **Related, don't duplicate:** `codex` (VERIFY mode) runs the *project's* gate chain and fixes
-failures. This judges *claims* against *the diff* and changes nothing. `/review-funnel` finds
+failures. This judges *claims* against *the diff* and changes nothing. Workflow `review-funnel` finds
 new defects across dimensions; this refutes asserted ones. `evaluate-code` judges quality;
 this judges honesty.
 

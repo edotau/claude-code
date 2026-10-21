@@ -14,7 +14,7 @@ skills that already own it. Do not restate those here — load them.
 | Step needs | Load |
 |---|---|
 | Done criteria, gate chain, claim discipline | `approval-gate` |
-| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, `/review-funnel` |
+| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `review-funnel` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, over-engineering | `evaluate-code`, `simplify` |
@@ -54,7 +54,7 @@ cannot supply judgment that exists only in your own head. Locate the answer, the
 - **Only in your own inference, nothing to open** → say so. Do not dress a guess as rigor
   (failure mode 18, *costume rigor*). Label it low-confidence explicitly; never silently.
 - **In a procedure the harness lacks, and it recurs** → build it as a skill
-  (`claude-best-practices`, or the `reflection` agent in EXTRACT mode).
+  (`/reflection:extract`, which runs the `opencode` agent in EXTRACT mode).
 
 Any route other than "run the loop" gets named in the report. A silent detour is
 indistinguishable from a skipped step.

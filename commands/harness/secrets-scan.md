@@ -6,7 +6,7 @@ argument-hint: "[scan | git | all]"
 # /harness:secrets-scan — Credential Hygiene Audit
 
 `claude-code` has no dedicated secrets-scan verb; this command is a thin wrapper over the
-**security-reviewer** skill (`/security`), scoped to the harness's own config surface instead
+**security-reviewer** skill (`/security-reviewer`), scoped to the harness's own config surface instead
 of application code. Pass the mode through as `$ARGUMENTS` (default `scan`).
 
 ## What each mode checks

@@ -59,6 +59,16 @@ hotfix/<issue>-<description>   test/<feature>
 - ❌ Vague messages ("fix stuff", "updates"); skipped quality checks
 - ❌ Leave branches unmerged for extended periods
 
+## Staging and Confirmation
+
+- Stage specific changed files by name — **never `git add -A`** (could sweep in `.env`/secrets).
+- Confirm with the user before committing.
+
+## Account Switching
+
+Switch the GitHub CLI identity with `gh auth switch --user <gh-user>`, then `gh auth status` (first 3 lines).
+With no user named, list the logged-in accounts from `gh auth status` and ask which one.
+
 ## Staging Gotcha
 
 `git rm` stages the deletion immediately, and a later `git commit` (without `-a`) commits the whole

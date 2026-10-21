@@ -64,7 +64,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
-| Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini/gemini.md`, `agents/gemini.md` |
+| Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini.md`, `agents/gemini.md` |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider <p> --model <m>`; `--print-env` shows the wiring | `README.md` → Agents |
 | Project agents + this file into every vendor CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | renders under `state/projections/`; no AGENTS.md/GEMINI.md at this root (Claude Code would double-load it) |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `clean [--dry-run] <name>` · `clean-all [--yes]` | same engine as the worktree hooks; never forces a removal |
@@ -77,11 +77,11 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; `/workflow:orchestrate` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `vendor-leg` | `rules/workflow/master-workflow.md` → Saved Workflows |
-| Review a diff | `/code-review` (quality) ‖ `/security` | `skills/evaluate-code`, `skills/security-reviewer` |
-| Fix failing tests | `/testing:test-and-fix` | `agents/copilot` |
+| Review a diff | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code`, `skills/security-reviewer` |
+| Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/references/test-and-fix.md` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
 | Audit / extract / promote / save memory | `/reflection:review` · `:extract` · `:promote` · `:remember` · `:consolidate [--dream]` | `agents/opencode.md` |
-| Second-opinion adversarial review on another model | `/codex:adversarial-review` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
+| Second-opinion adversarial review on another model | `/codex` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `/harness:secrets-scan` · `/harness:mcp-doctor` | `rules/standards/security.md` |
 | Everything else (setup, VS Code, tailscale, theme, history, web, …) | `claude-code describe` | `README.md` → Command reference |
