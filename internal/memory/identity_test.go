@@ -112,7 +112,7 @@ func TestResolveHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Key != HarnessKey || o.Origin != resolvePath(cfg) {
+	if err != nil || o.Key != harnessStoreKey() || o.Origin != resolvePath(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
 	}
 }
@@ -155,8 +155,8 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if _, err := os.Stat(StoreDir()); !errors.Is(err, os.ErrNotExist) {
 		t.Error("RepoDir must not create the store")
 	}
-	if plain := t.TempDir(); mustRepoDir(t, plain) != StoreDir() {
-		t.Error("non-repo must map to the store root")
+	if plain := t.TempDir(); mustRepoDir(t, plain) != globalStoreDir() {
+		t.Error("non-repo must map to the global store dir")
 	}
 	got, err := EnsureRepoDir(repo)
 	if err != nil || got != dir {
@@ -173,7 +173,7 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(dir, OriginFile)); string(after) != string(data) {
 		t.Error("second EnsureRepoDir rewrote .origin")
 	}
-	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != StoreDir() {
+	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != globalStoreDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
 	if _, err := os.Stat(filepath.Join(StoreDir(), OriginFile)); err == nil {
@@ -364,7 +364,7 @@ func TestAliasToHarnessStore(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := Origin{Version: OriginVersion, Key: HarnessKey, Origin: resolvePath(cfg), Aliases: []string{resolvePath(orca)}}
+	o := Origin{Version: OriginVersion, Key: harnessStoreKey(), Origin: resolvePath(cfg), Aliases: []string{resolvePath(orca)}}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}

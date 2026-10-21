@@ -47,7 +47,7 @@ func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 	if !strings.Contains(out, "store live: ") || !strings.Contains(out, "link linked") {
 		t.Errorf("a complete apply must cut over: link native dirs and report the live store: %q", out)
 	}
-	dest := filepath.Join(memory.StoreDir(), "conventions.md")
+	dest := filepath.Join(memory.GlobalDir(), "conventions.md")
 	data, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatalf("imported file missing at %s: %v", dest, err)

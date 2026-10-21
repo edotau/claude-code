@@ -19,7 +19,7 @@ type Identity struct {
 	Origin  string // canonical main checkout ("" when Global)
 	Base    string // filepath.Base(Origin)
 	Global  bool   // non-repo cwd → the store root (global tier)
-	Harness bool   // the config checkout itself → Key HarnessKey
+	Harness bool   // the config checkout itself → Key harnessStoreKey()
 }
 
 // identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
@@ -101,6 +101,16 @@ func harnessIdentity() Identity {
 	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
 }
 
+// harnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
+// other repo, else its basename — the harness is not special-cased for its key (spec §2).
+func harnessStoreKey() string {
+	cfg := paths.ConfigDir()
+	if rb := repoKeyFromRemote(originRemoteURL(cfg)); rb != "" {
+		return rb
+	}
+	return filepath.Base(cfg)
+}
+
 // mainCheckout is root's canonical main checkout via git (a linked worktree's common dir is <main>/.git),
 // or "" outside a work tree.
 func mainCheckout(root string) string {
@@ -124,7 +134,7 @@ func RepoDir(root string) (string, error) {
 	id := Resolve(root)
 	switch {
 	case id.Global:
-		return StoreDir(), nil
+		return globalStoreDir(), nil
 	case id.Harness:
 		return HarnessStoreDir(), nil
 	}
@@ -135,7 +145,11 @@ func RepoDir(root string) (string, error) {
 	if e := findEntry(entries, id.Origin); e != nil {
 		return e.Dir, nil
 	}
-	key, err := slugKey(id.Base, id.Origin, takenKeys(entries))
+	base := id.Base
+	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
+		base = rb
+	}
+	key, err := slugKey(base, id.Origin, takenKeys(entries))
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +183,7 @@ func (o Origin) Accepts(origin string) bool {
 // entry (a dir without a valid .origin is never claimed — extend the hash instead of clobbering).
 func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 	return func(key string) (Origin, bool) {
-		if key == HarnessKey || StoreReservedDirs[key] {
+		if key == harnessStoreKey() || StoreReservedDirs[key] {
 			return Origin{}, true
 		}
 		for _, e := range entries {
@@ -182,6 +196,29 @@ func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 		}
 		return Origin{}, false
 	}
+}
+
+// originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).
+func originRemoteURL(checkout string) string {
+	out, err := gitOut(checkout, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// repoKeyFromRemote is the basename of a git remote URL (ssh://, git@host:, https://), trailing ".git"
+// stripped (spec: store re-layout §1); "" for an empty or unparseable url.
+func repoKeyFromRemote(url string) string {
+	url = strings.TrimSuffix(strings.TrimSpace(url), "/")
+	url = strings.TrimSuffix(url, ".git")
+	if url == "" {
+		return ""
+	}
+	if i := strings.LastIndexAny(url, "/:"); i >= 0 {
+		return url[i+1:]
+	}
+	return url
 }
 
 // slugKey is the directory key for origin: the basename slug, or on a collision with another origin the

@@ -219,7 +219,7 @@ func pristineDir(dir string, legacy bool) bool {
 		if e.Type().IsRegular() && (isLockFile(name) || (legacy && name == "access.log")) {
 			continue
 		}
-		body, ok := templates[name]
+		body, ok := templates()[name]
 		if !ok || !e.Type().IsRegular() {
 			return false
 		}

@@ -54,8 +54,8 @@ func TestCutoverSwitchesGlobalDirAndRepoResolution(t *testing.T) {
 
 	cutover(t)
 
-	if GlobalDir() != StoreDir() {
-		t.Errorf("post-cutover GlobalDir = %s, want %s", GlobalDir(), StoreDir())
+	if want := filepath.Join(StoreDir(), "global"); GlobalDir() != want {
+		t.Errorf("post-cutover GlobalDir = %s, want %s", GlobalDir(), want)
 	}
 	want, err := RepoDir(repo)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestSettleAllCoversEveryStore(t *testing.T) {
 	if !s.Indexed {
 		t.Fatalf("settlement = %+v, want Indexed", s)
 	}
-	for _, dir := range []string{da, db, StoreDir()} {
+	for _, dir := range []string{da, db, GlobalDir()} {
 		if _, err := os.Stat(filepath.Join(dir, NativeIndexFile)); err != nil {
 			t.Errorf("%s missing its regenerated region: %v", dir, err)
 		}

@@ -79,7 +79,7 @@ func SearchAll(query string, k int) []SearchHit {
 	files := corpusFiles(paths.ConfigDir())
 	if entries, err := RepoDirs(); err == nil {
 		for _, e := range entries {
-			if e.Key != HarnessKey {
+			if e.Key != harnessStoreKey() {
 				files = append(files, storeFiles(e)...)
 			}
 		}

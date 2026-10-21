@@ -111,7 +111,7 @@ func BuildCatalog(now time.Time) (string, error) {
 	if len(rows) > 0 {
 		b.WriteString("\n## Knowledge (tracked, docs/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
 	}
-	global := BuildBankIndex(StoreDir(), now)
+	global := BuildBankIndex(GlobalDir(), now)
 	if global != "" {
 		lines := strings.Split(strings.TrimSpace(global), "\n")
 		var keep []string
@@ -120,7 +120,7 @@ func BuildCatalog(now time.Time) (string, error) {
 				keep = append(keep, l)
 			}
 		}
-		b.WriteString("\n## Global (memory/ top)\n\n")
+		b.WriteString("\n## Global (memory/global/)\n\n")
 		for i, l := range keep {
 			if i >= catalogGlobalMax {
 				fmt.Fprintf(&b, "- … %d more (memory search)\n", len(keep)-i)
@@ -172,7 +172,7 @@ func settleUnified(root string, now time.Time) (BankSettlement, error) {
 		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with .origin), never here
 			dirs = append(dirs, own)
 		}
-		if g := StoreDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
+		if g := GlobalDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
 			dirs = append(dirs, g)
 		}
 		for _, d := range dirs {
@@ -197,7 +197,7 @@ func SettleAll(now time.Time) (BankSettlement, error) {
 		if err != nil {
 			return err
 		}
-		dirs := []string{StoreDir()}
+		dirs := []string{GlobalDir()}
 		for _, e := range entries {
 			dirs = append(dirs, e.Dir)
 		}

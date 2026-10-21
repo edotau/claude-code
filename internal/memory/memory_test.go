@@ -245,7 +245,7 @@ func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
 	write(t, journal, `{"phase":"complete","manifest":"/m/done.json"}`)
 	g = StartupGuard()
 	if !g.Paused || !g.Migrated || !strings.Contains(g.Notice, "memory migration complete (20260101-000000.journal.json)") ||
-		!strings.Contains(g.Notice, GlobalDir()) || !strings.Contains(g.Notice, StoreDir()) {
+		!strings.Contains(g.Notice, StoreDir()) {
 		t.Errorf("a complete journal must stay paused until the cutover wires the resolvers: %+v", g)
 	}
 	if _, err := Init(repoRoot(t, "after")); !errors.Is(err, ErrMemoryPaused) {

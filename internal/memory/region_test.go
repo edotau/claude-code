@@ -130,7 +130,7 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	for i := 1; i <= 15; i++ {
 		fmt.Fprintf(&conv, "- rule %d\n", i)
 	}
-	write(t, filepath.Join(StoreDir(), "conventions.md"), conv.String())
+	write(t, filepath.Join(GlobalDir(), "conventions.md"), conv.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	catalog, err := BuildCatalog(now)
