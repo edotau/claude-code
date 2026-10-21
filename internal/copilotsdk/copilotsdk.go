@@ -146,6 +146,19 @@ type Model struct {
 	Vision          bool
 	ReasoningEffort bool
 	Multiplier      *float64 // nil when the model carries no premium billing multiplier
+	Efforts         []string // SupportedReasoningEfforts; empty when the model has none
+	DefaultEffort   string   // "" when the catalog names none
+	ContextTokens   int      // MaxContextWindowTokens; 0 when the catalog reports none
+	Enabled         bool     // Policy == nil or Policy.State == "enabled"
+}
+
+// CatalogOptions is the auth shape every catalog listing needs: a resolved launch-account token
+// (vendors.CopilotToken), or "" to fall back to the copilot CLI's own stored login.
+func CatalogOptions(cliPath, token string) Options {
+	if token != "" {
+		return Options{CLIPath: cliPath, GitHubToken: token}
+	}
+	return Options{CLIPath: cliPath, UseLoggedInUser: true}
 }
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
@@ -174,9 +187,17 @@ func ListModels(ctx context.Context, o Options) ([]Model, error) {
 	}
 	out := make([]Model, len(raw))
 	for i, m := range raw {
-		out[i] = Model{ID: m.ID, Name: m.Name, Vision: m.Capabilities.Supports.Vision, ReasoningEffort: m.Capabilities.Supports.ReasoningEffort}
+		out[i] = Model{
+			ID: m.ID, Name: m.Name, Vision: m.Capabilities.Supports.Vision,
+			ReasoningEffort: m.Capabilities.Supports.ReasoningEffort,
+			Efforts:         m.SupportedReasoningEfforts, DefaultEffort: m.DefaultReasoningEffort,
+			Enabled: m.Policy == nil || m.Policy.State == "enabled",
+		}
 		if m.Billing != nil {
 			out[i].Multiplier = m.Billing.Multiplier
+		}
+		if lim := m.Capabilities.Limits.MaxContextWindowTokens; lim != nil {
+			out[i].ContextTokens = *lim
 		}
 	}
 	return out, nil

@@ -43,12 +43,21 @@ func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, e
 // githubCopilotProviderName mirrors the cli package's constant; duplicated here to avoid an import cycle.
 const githubCopilotProviderName = "github-copilot"
 
+// CopilotTokenFn resolves the launch-account token (vendors.CopilotToken) for copilot catalog calls.
+// providers cannot import internal/vendors directly (vendors already imports providers); vendors sets
+// this at init time instead. nil or "" falls back to the copilot CLI's own stored login.
+var CopilotTokenFn func() string
+
 func liveCopilotModelInfos(ctx context.Context) ([]ModelInfo, error) {
 	bin, err := paths.VendorBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}
-	list, err := copilotsdk.ListModels(ctx, copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true})
+	var tok string
+	if CopilotTokenFn != nil {
+		tok = CopilotTokenFn()
+	}
+	list, err := copilotsdk.ListModels(ctx, copilotsdk.CatalogOptions(bin, tok))
 	if err != nil {
 		return nil, err
 	}

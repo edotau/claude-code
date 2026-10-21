@@ -3,15 +3,18 @@ package configure
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // tierUse says in a few words what each tier is for; a tier row stays within 80 columns.
@@ -67,19 +70,96 @@ func modelRow(d *dialog, name string) *billingRow {
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
 }
 
-// pickCopilotModel is the copilot page's Model row: one model list, saved straight to the opus slot.
+// copilotListModelsFn is the injectable seam over copilotsdk.ListModels; tests fake the SDK catalog.
+var copilotListModelsFn = copilotsdk.ListModels
+
+// copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
+// so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
+func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
+	if d.copilotCatalogLoaded {
+		return d.copilotCatalog, d.copilotCatalogErr
+	}
+	d.copilotCatalogLoaded = true
+	bin, err := paths.VendorBin("copilot")
+	if err != nil {
+		d.copilotCatalogErr = err
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	d.copilotCatalog, d.copilotCatalogErr = copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, vendors.CopilotToken()))
+	return d.copilotCatalog, d.copilotCatalogErr
+}
+
+// copilotCatalogModel finds id in the cached catalog; ok is false when the catalog is unavailable or lacks it.
+func copilotCatalogModel(d *dialog, id string) (copilotsdk.Model, bool) {
+	list, err := copilotCatalog(d)
+	if err != nil {
+		return copilotsdk.Model{}, false
+	}
+	for _, m := range list {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return copilotsdk.Model{}, false
+}
+
+// copilotModelDesc is a catalog row's description: name, premium multiplier, and the current-pick marker.
+func copilotModelDesc(m copilotsdk.Model, cur string) string {
+	desc := m.Name
+	if m.Multiplier != nil {
+		desc += fmt.Sprintf(" · %gx", *m.Multiplier)
+	}
+	if m.ID == cur {
+		desc += " · current"
+	}
+	return desc
+}
+
+// pickCopilotModel is the copilot page's Model row: the SDK catalog (the account copilot runs as) first,
+// falling back to opencode's github-copilot catalog when the SDK call fails.
 func pickCopilotModel(d *dialog, p *providers.Provider) {
+	cur := currentModel(d, p, false, models.Opus)
+	list, err := copilotCatalog(d)
+	if err != nil {
+		d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
+		pickCopilotModelFallback(d, p, cur)
+		return
+	}
+	var ids []string
+	var rows [][2]string
+	for _, m := range list {
+		if !m.Enabled {
+			continue
+		}
+		ids = append(ids, m.ID)
+		rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
+	}
+	if len(ids) == 0 {
+		d.printf("copilot: SDK catalog returned no enabled models\n")
+		return
+	}
+	j, err := pick(d, "copilot — model (SDK catalog)", rows)
+	if err != nil || j < 0 {
+		return
+	}
+	saveModel(d, p, false, models.Opus, ids[j])
+	clearIneligibleCopilotPins(d, ids[j])
+}
+
+// pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
+func pickCopilotModelFallback(d *dialog, p *providers.Provider, cur string) {
 	ids := modelChoices(p, false)
 	if len(ids) == 0 {
 		d.printf("copilot: no model list available for %s\n", p.Name)
 		return
 	}
-	cur := currentModel(d, p, false, models.Opus)
 	choice := make([][2]string, len(ids))
 	for i, id := range ids {
 		choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 	}
-	j, err := pick(d, "copilot — model", choice)
+	j, err := pick(d, "copilot — model (opencode catalog)", choice)
 	if err != nil || j < 0 {
 		return
 	}

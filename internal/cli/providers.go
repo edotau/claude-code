@@ -439,8 +439,5 @@ func printPinDiff(kv map[string]string) int {
 
 // copilotCatalogOptions lists models as the account copilot runs as (COPILOT_GITHUB_USER), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
-	if tok := vendors.CopilotToken(); tok != "" {
-		return copilotsdk.Options{CLIPath: bin, GitHubToken: tok}
-	}
-	return copilotsdk.Options{CLIPath: bin, UseLoggedInUser: true}
+	return copilotsdk.CatalogOptions(bin, vendors.CopilotToken())
 }

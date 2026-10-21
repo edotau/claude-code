@@ -261,6 +261,12 @@ func GHToken(account string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// init wires providers.CopilotTokenFn: internal/providers cannot import internal/vendors (vendors already
+// imports providers), so providers' own copilot catalog listing gets the launch-account token this way.
+func init() {
+	providers.CopilotTokenFn = CopilotToken
+}
+
 // CopilotToken is the token copilot would run with, resolved quietly (no stderr, no audit) for catalog lookups.
 func CopilotToken() string {
 	a, ok := copilotAuthSource()

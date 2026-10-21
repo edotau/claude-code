@@ -87,6 +87,85 @@ func TestListModelsMapsFields(t *testing.T) {
 	}
 }
 
+// ListModels also maps SupportedReasoningEfforts/DefaultReasoningEffort, MaxContextWindowTokens, and the
+// Policy.State enabled gate — Policy nil and Policy.State=="enabled" both count as enabled.
+func TestListModelsMapsEffortsContextAndEnabled(t *testing.T) {
+	old := listModelsFn
+	defer func() { listModelsFn = old }()
+	ctxTokens := 1_000_000
+	listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+		return []copilot.ModelInfo{
+			{ // no Policy at all: enabled by default
+				ID: "claude-sonnet-5",
+				Capabilities: copilot.ModelCapabilities{
+					Limits: copilot.ModelLimits{MaxContextWindowTokens: &ctxTokens},
+				},
+				SupportedReasoningEfforts: []string{"low", "medium", "high"},
+				DefaultReasoningEffort:    "medium",
+			},
+			{ // explicit Policy.State == "enabled"
+				ID:     "gpt-5-mini",
+				Policy: &copilot.ModelPolicy{State: "enabled"},
+			},
+			{ // disabled by policy
+				ID:     "retired-model",
+				Policy: &copilot.ModelPolicy{State: "disabled"},
+			},
+			{ // no context limit reported at all
+				ID: "auto",
+			},
+		}, nil
+	}
+	got, err := ListModels(context.Background(), Options{CLIPath: "/fake/copilot"})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d models, want 4", len(got))
+	}
+	sonnet := got[0]
+	if want := []string{"low", "medium", "high"}; !reflect.DeepEqual(sonnet.Efforts, want) {
+		t.Errorf("sonnet Efforts = %v, want %v", sonnet.Efforts, want)
+	}
+	if sonnet.DefaultEffort != "medium" {
+		t.Errorf("sonnet DefaultEffort = %q, want medium", sonnet.DefaultEffort)
+	}
+	if sonnet.ContextTokens != ctxTokens {
+		t.Errorf("sonnet ContextTokens = %d, want %d", sonnet.ContextTokens, ctxTokens)
+	}
+	if !sonnet.Enabled {
+		t.Error("sonnet (no Policy) Enabled = false, want true (nil policy means enabled)")
+	}
+	if !got[1].Enabled {
+		t.Error(`gpt-5-mini (Policy.State=="enabled") Enabled = false, want true`)
+	}
+	if got[2].Enabled {
+		t.Error(`retired-model (Policy.State=="disabled") Enabled = true, want false`)
+	}
+	if got[3].ContextTokens != 0 {
+		t.Errorf("auto ContextTokens = %d, want 0 (no limit reported)", got[3].ContextTokens)
+	}
+}
+
+// CatalogOptions prefers an explicit token (GitHubToken) over UseLoggedInUser whenever the token is
+// non-empty; an empty token falls back to the CLI's own stored login.
+func TestCatalogOptionsPrefersToken(t *testing.T) {
+	withToken := CatalogOptions("/fake/copilot", "gh-token-123")
+	if withToken.GitHubToken != "gh-token-123" {
+		t.Errorf("GitHubToken = %q, want gh-token-123", withToken.GitHubToken)
+	}
+	if withToken.UseLoggedInUser {
+		t.Error("UseLoggedInUser = true with a token present, want false (token wins)")
+	}
+	noToken := CatalogOptions("/fake/copilot", "")
+	if noToken.GitHubToken != "" {
+		t.Errorf("GitHubToken = %q, want empty", noToken.GitHubToken)
+	}
+	if !noToken.UseLoggedInUser {
+		t.Error("UseLoggedInUser = false with no token, want true (fall back to stored login)")
+	}
+}
+
 // A lister failure (no login, CLI missing, RPC error) surfaces as a wrapped error naming the fix.
 func TestListModelsWrapsListerError(t *testing.T) {
 	old := listModelsFn

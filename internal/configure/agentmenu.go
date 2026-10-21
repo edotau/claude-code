@@ -3,8 +3,10 @@
 package configure
 
 import (
+	"cmp"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -268,41 +270,80 @@ func copilotMenu(d *dialog) agentMenu {
 		{"User", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
-		copilotEffortRow(d),
 	}
 	if p, err := agent.HubStart(d.reg, "copilot", ""); err == nil {
-		if r := copilotContextRow(d, p); r != nil {
+		modelID := p.Models[models.Opus]
+		if r := copilotEffortRow(d, modelID); r != nil {
+			rows = append(rows, *r)
+		}
+		if r := copilotContextRow(d, modelID); r != nil {
 			rows = append(rows, *r)
 		}
 	}
 	return agentMenu{st, rows}
 }
 
-// copilotEffortChoices: menu label → the --reasoning-effort value copilot's CLI and SDK accept.
+// copilotEffortChoices: menu label → the --reasoning-effort value copilot's CLI and SDK accept. Fixed
+// fallback for when the SDK catalog is unavailable; a reachable catalog drives the row from the model's
+// own SupportedReasoningEfforts instead (copilotEffortRow).
 var copilotEffortChoices = [][2]string{
 	{"Low", "low"}, {"Medium", "medium"}, {"High", "high"}, {"Extra High", "xhigh"}, {"Max", "max"},
+}
+
+// copilotEffortLabels maps a catalog reasoning-effort id to its menu label; an unknown id passes through raw.
+var copilotEffortLabels = map[string]string{
+	"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra High", "max": "Max",
 }
 
 // copilotContextChoices: menu label → the --context tier value.
 var copilotContextChoices = [][2]string{{"200K", "default"}, {"1M", "long_context"}}
 
-// copilotEffortRow pins COPILOT_REASONING_EFFORT, applied on every copilot launch.
-func copilotEffortRow(d *dialog) billingRow {
+// copilotContextBaseline is copilot's default context window (200K); a model above it has a long-context tier.
+const copilotContextBaseline = 200_000
+
+// copilotEffortRow pins COPILOT_REASONING_EFFORT; nil when the model doesn't support reasoning effort at
+// all. Lists only modelID's own SupportedReasoningEfforts when the SDK catalog resolves it, else falls
+// back to the fixed list (today's behavior) since there is nothing to check eligibility against.
+func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := providers.Pin(providers.PinCopilotEffort)
-	return billingRow{"Effort", "reasoning effort on every launch " + bracket(cur != "", cur, "unset"), "", func() bool {
-		return pickCopilotPin(d, "effort", providers.PinCopilotEffort, copilotEffortChoices, cur)
+	desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
+	m, ok := copilotCatalogModel(d, modelID)
+	if !ok {
+		r := billingRow{"Effort", desc, "", func() bool {
+			return pickCopilotPin(d, "effort", providers.PinCopilotEffort, copilotEffortChoices, cur)
+		}}
+		return &r
+	}
+	if !m.ReasoningEffort || len(m.Efforts) == 0 {
+		return nil
+	}
+	choices := make([][2]string, len(m.Efforts))
+	for i, e := range m.Efforts {
+		label := cmp.Or(copilotEffortLabels[e], e)
+		if e != "" && e == m.DefaultEffort {
+			label += " (default)"
+		}
+		choices[i] = [2]string{label, e}
+	}
+	r := billingRow{"Effort", desc, "", func() bool {
+		return pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, cur)
 	}}
+	return &r
 }
 
-// copilotContextEligible: the copilot CLI/SDK expose no machine-readable "takes --context" flag (checked
-// `copilot --help`, `help config`, and the SDK's ModelCapabilities) — claude-* ids are the known tier.
-func copilotContextEligible(p *providers.Provider) bool {
-	return strings.HasPrefix(p.Models[models.Opus], "claude-")
+// copilotContextEligible: the SDK catalog's MaxContextWindowTokens when it resolves (a model above
+// copilot's 200K default has a long-context tier to toggle), else the claude-* prefix heuristic — the
+// copilot CLI/SDK expose no other machine-readable "takes --context" flag.
+func copilotContextEligible(d *dialog, modelID string) bool {
+	if m, ok := copilotCatalogModel(d, modelID); ok {
+		return m.ContextTokens > copilotContextBaseline
+	}
+	return strings.HasPrefix(modelID, "claude-")
 }
 
-// copilotContextRow pins COPILOT_CONTEXT_TIER; nil when the current model has no long-context tier.
-func copilotContextRow(d *dialog, p *providers.Provider) *billingRow {
-	if !copilotContextEligible(p) {
+// copilotContextRow pins COPILOT_CONTEXT_TIER; nil when modelID has no long-context tier.
+func copilotContextRow(d *dialog, modelID string) *billingRow {
+	if !copilotContextEligible(d, modelID) {
 		return nil
 	}
 	cur := providers.Pin(providers.PinCopilotContext)
@@ -310,6 +351,28 @@ func copilotContextRow(d *dialog, p *providers.Provider) *billingRow {
 		return pickCopilotPin(d, "context", providers.PinCopilotContext, copilotContextChoices, cur)
 	}}
 	return &r
+}
+
+// clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a
+// copilot model switch; each cleared pin prints the reason on one line.
+func clearIneligibleCopilotPins(d *dialog, modelID string) {
+	if cur := providers.Pin(providers.PinCopilotEffort); cur != "" {
+		if m, ok := copilotCatalogModel(d, modelID); ok && !slices.Contains(m.Efforts, cur) {
+			clearCopilotPin(d, providers.PinCopilotEffort, cur, modelID, "doesn't support that effort")
+		}
+	}
+	if cur := providers.Pin(providers.PinCopilotContext); cur != "" && !copilotContextEligible(d, modelID) {
+		clearCopilotPin(d, providers.PinCopilotContext, cur, modelID, "has no long-context tier")
+	}
+}
+
+// clearCopilotPin unsets key and reports why.
+func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
+	if err := providers.SetPins(map[string]string{key: ""}); err != nil {
+		d.printf("copilot: %v\n", err)
+		return
+	}
+	d.printf("copilot: cleared %s pin (%s) — %s %s\n", key, cur, modelID, why)
 }
 
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
