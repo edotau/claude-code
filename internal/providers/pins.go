@@ -3,13 +3,14 @@ package providers
 import (
 	"bufio"
 	"cmp"
-	"github.com/edotau/claude-code/internal/proc"
 	"io/fs"
 	"os"
 	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -23,10 +24,25 @@ const (
 	PinCopilotEffort = "COPILOT_REASONING_EFFORT"
 	// PinCopilotContext is copilot's --context tier on every launch; unset follows copilot's own default.
 	PinCopilotContext = "COPILOT_CONTEXT_TIER"
+	// PinCopilotModel is the copilot agent's own model, independent of the github-copilot provider's
+	// opus slot (which opencode's fallback ladder also reads); unset falls back to that slot.
+	PinCopilotModel = "COPILOT_MODEL"
 )
 
 // SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.
 func SlotPin(slot string) string { return "HARNESS_" + strings.ToUpper(slot) + "_MODEL" }
+
+// CopilotModel is the one resolver every copilot agent launch, the configure page and doctor share:
+// PinCopilotModel first, else github-copilot's opus slot (no pin = no behavior change).
+func CopilotModel(reg *Registry) (model, source string) {
+	if m := Pin(PinCopilotModel); m != "" {
+		return m, "pin"
+	}
+	if p, ok := reg.Providers["github-copilot"]; ok {
+		return p.Models[models.Opus], "github-copilot default"
+	}
+	return "", "github-copilot default"
+}
 
 // ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty.
 func ReadEnvFile(path string) map[string]string {

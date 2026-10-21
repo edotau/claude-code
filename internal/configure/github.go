@@ -104,8 +104,10 @@ func githubFixCmds(d *dialog, ghOK, copilotOK, opencodeOK bool) {
 	}
 }
 
-// runGithub is the `configure github` / `configure` "github" section: gh/copilot/opencode login state,
-// the opencode and copilot routes, and — on a terminal — a menu to fix any of it or pick copilot models.
+// runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
+// fallback ladder (not the copilot agent's own model, pinned on its own page via COPILOT_MODEL) —
+// gh/copilot/opencode login state, the opencode and copilot routes, and — on a terminal — a menu to
+// fix any of it or pick the github-copilot provider's opus/sonnet/haiku slots.
 func runGithub(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return githubMenu(d)
@@ -127,9 +129,9 @@ func githubMenu(d *dialog) bool {
 			{"Log in to GitHub CLI", "gh auth login"},
 			{"Log in to Copilot", "copilot login"},
 			{"Log in to OpenCode", "opencode auth login (choose GitHub Copilot)"},
-			{"Pick Copilot models", "opus/sonnet/haiku for github-copilot + opencode fallback"},
+			{"Pick fallback models", "opus/sonnet/haiku github-copilot serves to opencode"},
 		}
-		idx, err := tui.PickBack("github — pick an action", rows, 0)
+		idx, err := tui.PickBack("GitHub (opencode fallback) — pick an action", rows, 0)
 		if err != nil || idx < 0 {
 			return true
 		}
@@ -161,8 +163,10 @@ func runGithubLogin(d *dialog, argv []string, label string) {
 }
 
 // pickCopilotModels lists the live copilot catalog (plus the synthetic "auto" router alias), asks for an
-// id per opus/sonnet/haiku slot, and — only if a slot resolved to "auto" — a concrete opencode_fallback
-// (opencode's own catalog has no "auto"), then writes the github-copilot overlay.
+// id per opus/sonnet/haiku slot — the github-copilot provider's table opencode's fallback ladder reads,
+// not the copilot agent's own model (COPILOT_MODEL, picked on the copilot agent page) — and, only if a
+// slot resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
+// writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
 	bin, err := paths.VendorBin("copilot")
 	if err != nil {
@@ -190,9 +194,9 @@ func pickCopilotModels(d *dialog) {
 
 	picks := map[string]string{}
 	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		idx, err := tui.PickBack("copilot models — "+slot+" slot", rows, 0)
+		idx, err := tui.PickBack("github fallback — "+slot+" slot", rows, 0)
 		if err != nil || idx < 0 {
-			d.printf("copilot models: cancelled at the %s slot; nothing written\n", slot)
+			d.printf("github fallback: cancelled at the %s slot; nothing written\n", slot)
 			return
 		}
 		picks[slot] = ids[idx]
@@ -212,23 +216,23 @@ func pickCopilotModels(d *dialog) {
 			fbIDs = append(fbIDs, m.ID)
 			fbRows = append(fbRows, [2]string{m.ID, m.Name})
 		}
-		idx, err := tui.PickBack("copilot models — opencode_fallback (a slot resolved to auto; opencode needs a concrete id)", fbRows, 0)
+		idx, err := tui.PickBack("github fallback — opencode_fallback (auto needs a concrete id)", fbRows, 0)
 		if err != nil || idx < 0 {
-			d.printf("copilot models: cancelled at opencode_fallback; nothing written\n")
+			d.printf("github fallback: cancelled at opencode_fallback; nothing written\n")
 			return
 		}
 		fallback = fbIDs[idx]
 	}
 
 	if err := WriteGithubCopilotModels(picks, fallback); err != nil {
-		d.printf("copilot models: %v\n", err)
+		d.printf("github fallback: %v\n", err)
 		return
 	}
 	suffix := ""
 	if fallback != "" {
 		suffix = " opencode_fallback=" + fallback
 	}
-	d.printf("copilot models: wrote vault overlay/providers (opus=%s sonnet=%s haiku=%s%s)\n",
+	d.printf("github fallback: wrote vault overlay/providers (opus=%s sonnet=%s haiku=%s%s)\n",
 		picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
 }
 

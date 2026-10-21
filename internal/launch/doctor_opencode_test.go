@@ -86,6 +86,48 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	}
 }
 
+// On the copilot CLI's own-login leg, the doctor row names COPILOT_MODEL's resolved source and the
+// effort/context pins: unpinned, source is the github-copilot default and both pins read "default".
+func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
+	doctorScratch(t)
+	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "copilot route")
+	if c == nil {
+		t.Fatal(`no "copilot route" check in DoctorChecks output`)
+	}
+	if !strings.Contains(c.Detail, "source=github-copilot default") {
+		t.Errorf("detail = %q, want source=github-copilot default", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "effort=default") || !strings.Contains(c.Detail, "context=default") {
+		t.Errorf("detail = %q, want effort=default context=default", c.Detail)
+	}
+}
+
+// With COPILOT_MODEL pinned and the effort/context pins set, the doctor row names the pin source
+// and the pinned values, not the github-copilot provider default.
+func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
+	doctorScratch(t)
+	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
+	t.Setenv("COPILOT_MODEL", "claude-opus-5.5")
+	t.Setenv("COPILOT_REASONING_EFFORT", "high")
+	t.Setenv("COPILOT_CONTEXT_TIER", "long_context")
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "copilot route")
+	if c == nil {
+		t.Fatal(`no "copilot route" check in DoctorChecks output`)
+	}
+	if !strings.Contains(c.Detail, "model=claude-opus-5.5") {
+		t.Errorf("detail = %q, want model=claude-opus-5.5", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "source=pin") {
+		t.Errorf("detail = %q, want source=pin", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "effort=high") || !strings.Contains(c.Detail, "context=long_context") {
+		t.Errorf("detail = %q, want effort=high context=long_context", c.Detail)
+	}
+}
+
 // The doctor row never prints a secret: GH_TOKEN's value must not surface, only the env var's presence.
 func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	doctorScratch(t)

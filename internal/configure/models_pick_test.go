@@ -8,7 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// copilot's Model row saves straight to the opus slot (pickCopilotModel): one model list, no tier step.
+// copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no tier step,
+// and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
 func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	reg := menuTestEnv(t)
 	origChoices := modelChoices
@@ -17,13 +18,13 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 		return []string{"claude-opus-5.5", "claude-sonnet-5"}
 	}
 
-	d2 := &dialog{reg: reg, out: discardWriter{}}
-	target, _ := modelTarget(d2, "copilot")
-	if target == nil {
-		t.Skip("no hub account to route the copilot Model row to")
+	gp, ok := reg.Providers["github-copilot"]
+	if !ok {
+		t.Skip("no github-copilot provider in the registry")
 	}
-	wantSonnet := target.Models["sonnet"] // must survive untouched: copilot's row writes only the opus slot
+	wantOpus, wantSonnet := gp.Models["opus"], gp.Models["sonnet"] // must survive untouched
 
+	d2 := &dialog{reg: reg, out: discardWriter{}}
 	r := modelRow(d2, "copilot")
 	if r == nil {
 		t.Fatal("modelRow(copilot) = nil, want the Model row")
@@ -33,15 +34,14 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	if !r.run() {
 		t.Fatal("copilot Model row run() = false")
 	}
-	p, err := reg.Get(target.Name)
-	if err != nil {
-		t.Fatal(err)
+	if got, _ := providers.CopilotModel(reg); got != "claude-opus-5.5" {
+		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5 (one pick, no tier step)", got)
 	}
-	if got := p.Models["opus"]; got != "claude-opus-5.5" {
-		t.Errorf("%s opus slot = %q, want claude-opus-5.5 (one pick, no tier step)", target.Name, got)
+	if got := gp.Models["opus"]; got != wantOpus {
+		t.Errorf("github-copilot opus slot = %q, want unchanged %q: copilot's Model row must not write the provider", got, wantOpus)
 	}
-	if got := p.Models["sonnet"]; got != wantSonnet {
-		t.Errorf("%s sonnet slot = %q, want unchanged %q: copilot's Model row must not write other slots", target.Name, got, wantSonnet)
+	if got := gp.Models["sonnet"]; got != wantSonnet {
+		t.Errorf("github-copilot sonnet slot = %q, want unchanged %q: copilot's Model row must not write other slots", got, wantSonnet)
 	}
 }
 

@@ -9,8 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -271,8 +269,8 @@ func copilotMenu(d *dialog) agentMenu {
 			return pickGitHubUser(d, auth)
 		}},
 	}
-	if p, err := agent.HubStart(d.reg, "copilot", ""); err == nil {
-		modelID := p.Models[models.Opus]
+	if d.reg != nil {
+		modelID, _ := providers.CopilotModel(d.reg)
 		if r := copilotEffortRow(d, modelID); r != nil {
 			rows = append(rows, *r)
 		}

@@ -60,7 +60,8 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 	if a, ok := copilotAuthSource(); ok {
 		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok {
-			return RouteInfo{Vendor: "copilot", Leg: LegCopilotLogin, Provider: p.Name, Model: p.Models[models.Opus],
+			model, _ := providers.CopilotModel(reg)
+			return RouteInfo{Vendor: "copilot", Leg: LegCopilotLogin, Provider: p.Name, Model: model,
 				Reason: "github-copilot (" + a.Label() + ")", OK: true}
 		}
 	}
