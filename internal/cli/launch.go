@@ -104,12 +104,12 @@ func cmdSettings(args []string) int {
 	out := fs.String("out", "", "write the render here (atomically, after a timestamped backup)")
 	agents := fs.String("agents", "", "vendors to render (default: codex,opencode,gemini,copilot)")
 	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
-	check := fs.Bool("check", false, "exit 1 if any rendered file has drifted; write nothing")
+	check := fs.Bool("check", false, "exit 1 if settings.json or a vendor config drifted")
 	vendors := fs.Bool("vendors", false, "render vendor configs even when CLAUDE_CONFIG_DIR is not the default ~/.claude")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	data, err := settings.Render()
+	data, err := settings.RenderLive()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -151,12 +151,11 @@ func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, err
 			return true, nil
 		}
 		return false, nil
+	case out == "" && check: // no --out: check the live settings.json, settings.local.json and nested config
+		return checkLiveSettings(data)
 	case out == "" || dryRun: // a preview: --out names where it WOULD go, never a write
-		if !check {
-			_, err := os.Stdout.Write(data)
-			return false, err
-		}
-		return false, nil
+		_, err := os.Stdout.Write(data)
+		return false, err
 	default:
 		backup, err := settings.WriteWithBackup(out, data)
 		if err != nil {
@@ -169,6 +168,18 @@ func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, err
 		fmt.Println()
 		return false, nil
 	}
+}
+
+// checkLiveSettings prints the drift findings for settings.json and reports whether it has drifted.
+func checkLiveSettings(rendered []byte) (bool, error) {
+	drift, err := launch.CheckSettingsDriftWith(rendered)
+	if err != nil {
+		return false, err
+	}
+	for _, l := range drift.Lines() {
+		fmt.Println(l)
+	}
+	return drift.Drifted(), nil
 }
 
 // renderVendorConfigs prepares the vendor configs; without --out the settings render is a preview,
