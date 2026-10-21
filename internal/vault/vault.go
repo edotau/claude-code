@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"time"
 
@@ -206,12 +205,20 @@ func (t *Tx) All(bucket string) map[string]string {
 	return m
 }
 
+// Names lists bucket's keys in bbolt's byte order (already sorted), never copying values; checkSchema runs it per tx.
 func (t *Tx) Names(bucket string) []string {
 	names := make([]string, 0)
-	for k := range t.All(bucket) {
-		names = append(names, k)
+	if t.tx == nil {
+		return names
 	}
-	sort.Strings(names)
+	if b := t.tx.Bucket([]byte(bucket)); b != nil {
+		_ = b.ForEach(func(k, v []byte) error {
+			if v != nil {
+				names = append(names, string(k))
+			}
+			return nil
+		})
+	}
 	return names
 }
 
