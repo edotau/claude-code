@@ -20,6 +20,7 @@ overrides:
       line-length: false
       blank-line-around-lists: false
       blank-line-around-headings: false
+      cross-file-reference-integrity: false # bank links point at files a real store has, not this folder
 rules:
   # Mirrors .markdownlint-cli2.jsonc (converted with bin/mdsmith init --from-markdownlint) so make lint matches VS Code.
   code-block-style:

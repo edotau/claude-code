@@ -1,0 +1,21 @@
+# Weekly update PRs for pinned dependencies; each PR runs the ci.yml gate (make audit) before it can merge.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore(deps)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci(deps)
