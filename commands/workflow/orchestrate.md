@@ -1,12 +1,19 @@
 ---
 description: "Run a multi-stage pipeline for a task — explore, plan, (optional refine), implement, simplify, review, verify"
-argument-hint: "[--refine] <task description>"
+argument-hint: "[--scan | --refine] <task description>"
 ---
 
 Run a multi-stage pipeline for a task.
 
 Pipeline: `explore → plan → [refine] → implement → simplify → review → verify`.
 The `refine` stage is **opt-in** — it runs only when `--refine` is passed.
+
+**`--scan` mode**: runs only the `explore` stage (the Codebase Intelligence Protocol, canonical
+definition: `rules/workflow/agents.md` → "Codebase Intelligence Protocol") — 2-3 parallel
+Explore/Gemini agents scoped to the area the task touches, merged into a Codebase Context Brief.
+With a task description, chain the brief into plan mode; blank, print the brief and stop. No
+stage handoff document, no further stages. Skip for single-line/typo fixes or when a scan is
+already warm this session.
 
 Current branch:
 
@@ -27,6 +34,12 @@ Stage handoff files:
 ```
 
 Instructions:
+
+0. If the first token of `$ARGUMENTS` is `--scan`: strip it and run **`--scan` mode** (above) —
+   launch the explore stage's 2-3 parallel agents directly, scoped to the area the remaining
+   description touches (or the whole tree if blank), merge into a Codebase Context Brief, chain
+   into plan mode if a description remains, otherwise print the brief and stop. Skip the rest of
+   these instructions entirely.
 
 1. Parse `$ARGUMENTS`. If the first token is `--refine`, set `INCLUDE_REFINE=true` and strip it;
    otherwise `INCLUDE_REFINE=false`. Derive a kebab-case task ID from the remaining description

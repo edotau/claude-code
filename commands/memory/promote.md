@@ -18,7 +18,7 @@ to belong in the global store (or, if near-rule and public-safe, in tracked `doc
 ## Procedure
 
 1. **Resolve the store** — run `claude-code memory path` to get this repo's dir; the global dir
-   is the store top (`claude-code memory path` from any non-repo cwd). Never hardcode either.
+   is `memory/global/` (`claude-code memory path` from any non-repo cwd). Never hardcode either.
 2. **Read the local dir** — `conventions.md` and `decisionLog.md` are the two append-only files
    that accumulate durable lessons; `activeContext.md`/`progress.md`/`sessionHistory.md` are
    session state and never promote.
