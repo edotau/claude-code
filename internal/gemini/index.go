@@ -4,6 +4,7 @@ package gemini
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -67,6 +68,22 @@ func IndexPrompt(ctx Context) string {
 
 // IndexPathCount reports how many files the index covers, for the operator-facing summary line.
 func IndexPathCount(ctx Context) int { return len(ctx.Included) + len(ctx.Skipped) }
+
+// CoverageWarning is a one-line STDOUT summary for when anything was left out of a sweep (the
+// detailed per-reason breakdown stays on STDERR via SortedSkipReasons); "" when nothing was skipped.
+func CoverageWarning(ctx Context) string {
+	if len(ctx.Skipped) == 0 {
+		return ""
+	}
+	var kb int
+	for _, f := range ctx.Included {
+		kb += len(f.Content)
+	}
+	kb /= 1024
+	total := len(ctx.Included) + len(ctx.Skipped)
+	return fmt.Sprintf("bridge: inlined %d of %d files (%d KB); skipped %d: %s",
+		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(SortedSkipReasons(ctx), ", "))
+}
 
 // SortedSkipReasons summarizes why files were left out, so an operator can widen the right knob.
 func SortedSkipReasons(ctx Context) []string {
