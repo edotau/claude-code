@@ -134,6 +134,92 @@ func TestInstallCodexDryRunUsesAssetFromServer(t *testing.T) {
 	}
 }
 
+// TestInstallCodexDryRunNamesBinDirForNonBinDir pins the installCopilot pattern: a dir whose
+// basename isn't "bin" must be corrected to BinDir, never installed into as given.
+func TestInstallCodexDryRunNamesBinDirForNonBinDir(t *testing.T) {
+	setupToolsTestEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"rust-v9.9.9","assets":[
+			{"name":"codex-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"http://unreachable.invalid/codex.tar.gz"}
+		]}`))
+	}))
+	defer srv.Close()
+	oldURL, oldGOOS, oldGOARCH := codexReleaseURL, goosOverride, goarchOverride
+	codexReleaseURL = srv.URL
+	goosOverride, goarchOverride = "linux", "amd64"
+	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
+
+	notBin := filepath.Join(t.TempDir(), "opt-homebrew-bin")
+	var out bytes.Buffer
+	if err := installCodex(context.Background(), &out, notBin, true); err != nil {
+		t.Fatalf("installCodex dry-run: %v", err)
+	}
+	if !strings.Contains(out.String(), paths.BinDir()) {
+		t.Errorf("dry-run output = %q, want it to name BinDir %s", out.String(), paths.BinDir())
+	}
+	if strings.Contains(out.String(), notBin) {
+		t.Errorf("dry-run output = %q, must not reference the non-BinDir dir %s", out.String(), notBin)
+	}
+}
+
+// TestInstallCodexInstallsBothBinariesIntoBinDir confirms codex and its companion land as real,
+// executable regular files in BinDir, even when called with a non-BinDir dir (PATH's own dir).
+func TestInstallCodexInstallsBothBinariesIntoBinDir(t *testing.T) {
+	setupToolsTestEnv(t)
+	codexTar := buildTarGz(t, "codex-x86_64-unknown-linux-musl", "fake-codex-elf")
+	hostTar := buildTarGz(t, "codex-code-mode-host-x86_64-unknown-linux-musl", "fake-host-elf")
+	assets := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "host") {
+			w.Write(hostTar)
+			return
+		}
+		w.Write(codexTar)
+	}))
+	defer assets.Close()
+
+	relSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":"rust-v9.9.9","assets":[
+			{"name":"codex-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"%s/codex.tar.gz"},
+			{"name":"codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"%s/host.tar.gz"}
+		]}`, assets.URL, assets.URL)
+	}))
+	defer relSrv.Close()
+
+	oldURL, oldGOOS, oldGOARCH := codexReleaseURL, goosOverride, goarchOverride
+	codexReleaseURL = relSrv.URL
+	goosOverride, goarchOverride = "linux", "amd64"
+	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
+
+	notBin := filepath.Join(t.TempDir(), "opt-homebrew-bin")
+	var out bytes.Buffer
+	if err := installCodex(context.Background(), &out, notBin, false); err != nil {
+		t.Fatalf("installCodex: %v", err)
+	}
+	for name, want := range map[string]string{"codex": "fake-codex-elf", "codex-code-mode-host": "fake-host-elf"} {
+		p := filepath.Join(paths.BinDir(), name)
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s contents = %q, want %q", p, got, want)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Errorf("%s is not a regular file (mode %v)", p, info.Mode())
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s not executable: mode %o", p, info.Mode().Perm())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(notBin, "codex")); !os.IsNotExist(err) {
+		t.Errorf("codex must not land in the non-BinDir dir %s", notBin)
+	}
+}
+
 func TestRunInstallScriptDryRunTouchesNoNetwork(t *testing.T) {
 	setupToolsTestEnv(t)
 	var buf bytes.Buffer
