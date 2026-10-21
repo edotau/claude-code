@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -266,8 +268,84 @@ func copilotMenu(d *dialog) agentMenu {
 		{"User", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
+		copilotEffortRow(d),
+	}
+	if p, err := agent.HubStart(d.reg, "copilot", ""); err == nil {
+		if r := copilotContextRow(d, p); r != nil {
+			rows = append(rows, *r)
+		}
 	}
 	return agentMenu{st, rows}
+}
+
+// copilotEffortChoices: menu label → the --reasoning-effort value copilot's CLI and SDK accept.
+var copilotEffortChoices = [][2]string{
+	{"Low", "low"}, {"Medium", "medium"}, {"High", "high"}, {"Extra High", "xhigh"}, {"Max", "max"},
+}
+
+// copilotContextChoices: menu label → the --context tier value.
+var copilotContextChoices = [][2]string{{"200K", "default"}, {"1M", "long_context"}}
+
+// copilotEffortRow pins COPILOT_REASONING_EFFORT, applied on every copilot launch.
+func copilotEffortRow(d *dialog) billingRow {
+	cur := providers.Pin(providers.PinCopilotEffort)
+	return billingRow{"Effort", "reasoning effort on every launch " + bracket(cur != "", cur, "unset"), "", func() bool {
+		return pickCopilotPin(d, "effort", providers.PinCopilotEffort, copilotEffortChoices, cur)
+	}}
+}
+
+// copilotContextEligible: the copilot CLI/SDK expose no machine-readable "takes --context" flag (checked
+// `copilot --help`, `help config`, and the SDK's ModelCapabilities) — claude-* ids are the known tier.
+func copilotContextEligible(p *providers.Provider) bool {
+	return strings.HasPrefix(p.Models[models.Opus], "claude-")
+}
+
+// copilotContextRow pins COPILOT_CONTEXT_TIER; nil when the current model has no long-context tier.
+func copilotContextRow(d *dialog, p *providers.Provider) *billingRow {
+	if !copilotContextEligible(p) {
+		return nil
+	}
+	cur := providers.Pin(providers.PinCopilotContext)
+	r := billingRow{"Context", "context window tier on every launch " + bracket(cur != "", cur, "unset"), "", func() bool {
+		return pickCopilotPin(d, "context", providers.PinCopilotContext, copilotContextChoices, cur)
+	}}
+	return &r
+}
+
+// pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
+func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
+	rows := make([][2]string, 0, len(choices)+1)
+	rows = append(rows, [2]string{"unset", "copilot's own default" + curMark(cur == "")})
+	for _, c := range choices {
+		rows = append(rows, [2]string{c[0], c[1] + curMark(c[1] == cur)})
+	}
+	idx, err := pick(d, "copilot — "+title, rows)
+	if err != nil || idx < 0 {
+		return false
+	}
+	val := ""
+	if idx > 0 {
+		val = choices[idx-1][1]
+	}
+	if err := providers.SetPins(map[string]string{key: val}); err != nil {
+		d.printf("copilot: %v\n", err)
+		return false
+	}
+	shown := val
+	if shown == "" {
+		shown = "unset"
+	}
+	d.printf("copilot: %s = %s\n", key, shown)
+	d.changed = true
+	return true
+}
+
+// curMark flags the row holding the pin's current value.
+func curMark(current bool) string {
+	if current {
+		return " (current)"
+	}
+	return ""
 }
 
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.

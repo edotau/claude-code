@@ -50,6 +50,8 @@ func currentModel(d *dialog, p *providers.Provider, claude bool, slot string) st
 }
 
 // modelRow is the agent page's Model row; nil when the agent has no account the hub can route to.
+// copilot's launch argv reads only the opus slot (vendors.describeCopilotRoute), so its page picks
+// one model directly instead of the tier list every other agent's page shows.
 func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
 		return nil
@@ -59,7 +61,29 @@ func modelRow(d *dialog, name string) *billingRow {
 		return nil
 	}
 	desc := currentModel(d, p, claude, models.Opus) + " via " + p.Name
+	if name == "copilot" {
+		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d, p); return true }}
+	}
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
+}
+
+// pickCopilotModel is the copilot page's Model row: one model list, saved straight to the opus slot.
+func pickCopilotModel(d *dialog, p *providers.Provider) {
+	ids := modelChoices(p, false)
+	if len(ids) == 0 {
+		d.printf("copilot: no model list available for %s\n", p.Name)
+		return
+	}
+	cur := currentModel(d, p, false, models.Opus)
+	choice := make([][2]string, len(ids))
+	for i, id := range ids {
+		choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
+	}
+	j, err := pick(d, "copilot — model", choice)
+	if err != nil || j < 0 {
+		return
+	}
+	saveModel(d, p, false, models.Opus, ids[j])
 }
 
 // pickModel is the tier list (tier · use · current), then the account's model ids; the pick is saved at once.

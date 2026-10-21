@@ -345,8 +345,11 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if own || t.Provider.Auth.Login != "" {
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
+	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
+	effort := cmp.Or(req.Effort, providers.Pin(providers.PinCopilotEffort))
 	opts := copilotsdk.Options{
-		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, ReasoningEffort: req.Effort, WorkingDirectory: req.WorkDir,
+		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, ReasoningEffort: effort,
+		Context: providers.Pin(providers.PinCopilotContext), WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true, Autonomous: req.Autonomous, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 	}

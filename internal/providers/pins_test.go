@@ -232,3 +232,51 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 		t.Errorf("HasSecret(env set) = %q, want env", got)
 	}
 }
+
+// Copilot's two launch pins round-trip through SetPins/Pin like any other vault pin: unset reads "",
+// a set value reads back, and clearing (value "") removes it again.
+func TestCopilotEffortAndContextPinsRoundTrip(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	for _, key := range []string{PinCopilotEffort, PinCopilotContext} {
+		t.Setenv(key, "")
+	}
+	for _, key := range []string{PinCopilotEffort, PinCopilotContext} {
+		if got := Pin(key); got != "" {
+			t.Errorf("%s unset = %q, want \"\"", key, got)
+		}
+	}
+	if err := SetPins(map[string]string{PinCopilotEffort: "xhigh", PinCopilotContext: "long_context"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Pin(PinCopilotEffort); got != "xhigh" {
+		t.Errorf("PinCopilotEffort = %q, want xhigh", got)
+	}
+	if got := Pin(PinCopilotContext); got != "long_context" {
+		t.Errorf("PinCopilotContext = %q, want long_context", got)
+	}
+	if err := SetPins(map[string]string{PinCopilotEffort: "", PinCopilotContext: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Pin(PinCopilotEffort); got != "" {
+		t.Errorf("PinCopilotEffort cleared = %q, want \"\"", got)
+	}
+	if got := Pin(PinCopilotContext); got != "" {
+		t.Errorf("PinCopilotContext cleared = %q, want \"\"", got)
+	}
+}
+
+// A process env var for either key beats the vault pin, same precedence as every other pin.
+func TestCopilotEffortAndContextEnvBeatsVaultPin(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	if err := SetPins(map[string]string{PinCopilotEffort: "low", PinCopilotContext: "default"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(PinCopilotEffort, "max")
+	t.Setenv(PinCopilotContext, "long_context")
+	if got := Pin(PinCopilotEffort); got != "max" {
+		t.Errorf("Pin(PinCopilotEffort) = %q, want env value max", got)
+	}
+	if got := Pin(PinCopilotContext); got != "long_context" {
+		t.Errorf("Pin(PinCopilotContext) = %q, want env value long_context", got)
+	}
+}
