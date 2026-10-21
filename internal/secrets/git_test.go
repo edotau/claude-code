@@ -132,6 +132,118 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	}
 }
 
+// ScanGit must still finish promptly and find a planted secret when some other line in history is
+// enormous (a minified bundle or lockfile) — ReadLine fragments it instead of failing the scan.
+func TestScanGitLongLine(t *testing.T) {
+	for _, order := range []string{"leak-then-long", "long-then-leak"} {
+		t.Run(order, func(t *testing.T) {
+			dir := t.TempDir()
+			run := func(args ...string) {
+				cmd := exec.Command("git", args...)
+				cmd.Dir = dir
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v: %s", args, err, out)
+				}
+			}
+			run("init", "-q")
+			run("config", "user.email", "test@example.com")
+			run("config", "user.name", "test")
+			long := strings.Repeat("x", 2<<20) // 2 MiB, one line
+			leak := "k=ghp_abcdefghij1234567890ABCD\n"
+
+			writeCommit := func(name, content string) {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				run("add", name)
+				run("commit", "-q", "-m", "add "+name)
+			}
+			if order == "leak-then-long" {
+				writeCommit("leak.txt", leak)
+				writeCommit("big.txt", long+"\n")
+			} else {
+				writeCommit("big.txt", long+"\n")
+				writeCommit("leak.txt", leak)
+			}
+
+			var buf bytes.Buffer
+			started := time.Now()
+			rc := ScanGit(&buf, dir, 0)
+			if elapsed := time.Since(started); elapsed >= 5*time.Second {
+				t.Errorf("ScanGit took %v, want < 5s", elapsed)
+			}
+			if rc != ExitFindings {
+				t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+			}
+			out := buf.String()
+			if !strings.Contains(out, "leak.txt") {
+				t.Errorf("output does not name leak.txt:\n%s", out)
+			}
+			if strings.Contains(out, "timed out") || strings.Contains(out, "truncated") {
+				t.Errorf("output reports a timeout/truncation:\n%s", out)
+			}
+		})
+	}
+}
+
+// A secret that lands on a fragment of an over-long added line must still be reported exactly once,
+// not once per ReadLine fragment.
+func TestScanGitSecretInsideLongLine(t *testing.T) {
+	dir := runGitScratch(t) // seeds an initial unrelated commit so this isn't the repo's first commit
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	line := strings.Repeat("x", 15*(1<<17)) + "ghp_abcdefghij1234567890ABCD" // ~1.5 MiB prefix + token
+	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "long.txt")
+	run("commit", "-q", "-m", "add long.txt")
+
+	var buf bytes.Buffer
+	rc := ScanGit(&buf, dir, 0)
+	if rc != ExitFindings {
+		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+	}
+	out := buf.String()
+	if n := strings.Count(out, "long.txt"); n != 1 {
+		t.Errorf("long.txt reported %d time(s), want exactly 1:\n%s", n, out)
+	}
+}
+
+// ScanGit passes --no-textconv, so a repo-configured textconv filter (which could run arbitrary
+// commands) must never execute during the scan.
+func TestScanGitNoTextconv(t *testing.T) {
+	dir := runGitScratch(t)
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	marker := filepath.Join(dir, "MARKER")
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt diff=t\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("config", "diff.t.textconv", "sh -c 'touch "+marker+"; cat'")
+	if err := os.WriteFile(filepath.Join(dir, "plain.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".gitattributes", "plain.txt")
+	run("commit", "-q", "-m", "add textconv config")
+
+	var buf bytes.Buffer
+	ScanGit(&buf, dir, 0)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("textconv filter ran during ScanGit (MARKER present)")
+	}
+}
+
 // Prose that only starts like a key carries no digits; a minted token always does.
 func TestTokenShaped(t *testing.T) {
 	jwt := "eyJ" + strings.Repeat("a", 12) + "." + strings.Repeat("b", 12) + "." + strings.Repeat("c", 12)
