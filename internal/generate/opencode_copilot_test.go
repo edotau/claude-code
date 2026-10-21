@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // writeOpencodeCopilotLogin drops a github-copilot entry into opencode's 1.x auth.json, under the
@@ -81,6 +84,72 @@ func TestRenderOpenCodeCopilotWritesModelAndSmallModel(t *testing.T) {
 	}
 	if theme, ok := oc["theme"]; !ok || theme != "custom" {
 		t.Errorf("foreign top-level key %q was dropped: %s", "theme", raw)
+	}
+}
+
+// github-copilot's registry default (OpencodeVariant "medium") appends "#medium" to model only;
+// small_model never carries it, since opencode variants only apply to the main model slot.
+func TestRenderOpenCodeCopilotAppendsVariantToModelOnly(t *testing.T) {
+	home := scratch(t)
+	t.Setenv("HARNESS_SONNET_MODEL", "claude-opus-5.5")
+	t.Setenv("HARNESS_HAIKU_MODEL", "gpt-5.4-mini")
+	writeOpencodeCopilotLogin(t, home)
+
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oc map[string]any
+	if err := json.Unmarshal(raw, &oc); err != nil {
+		t.Fatalf("opencode.json not valid JSON: %v\n%s", err, raw)
+	}
+	model, _ := oc["model"].(string)
+	small, _ := oc["small_model"].(string)
+	if model != "github-copilot/claude-opus-5.5#medium" {
+		t.Errorf("model = %q, want the #medium variant suffix", model)
+	}
+	if strings.Contains(small, "#") {
+		t.Errorf("small_model = %q, want no variant suffix", small)
+	}
+}
+
+// With OpencodeVariant empty, renderOpenCodeCopilot appends no "#" anywhere: the pre-variant behavior.
+func TestRenderOpenCodeCopilotNoVariantNoHash(t *testing.T) {
+	home := scratch(t)
+	t.Setenv("HARNESS_SONNET_MODEL", "claude-opus-5.5")
+	t.Setenv("HARNESS_HAIKU_MODEL", "gpt-5.4-mini")
+	writeOpencodeCopilotLogin(t, home)
+	overlay := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com",` +
+		`"auth":{"type":"passthrough","login":"copilot"},` +
+		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"},` +
+		`"opencode_fallback":"claude-opus-5.5","opencodeID":"github-copilot"}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oc map[string]any
+	if err := json.Unmarshal(raw, &oc); err != nil {
+		t.Fatalf("opencode.json not valid JSON: %v\n%s", err, raw)
+	}
+	model, _ := oc["model"].(string)
+	small, _ := oc["small_model"].(string)
+	if strings.Contains(model, "#") {
+		t.Errorf("model = %q, want no variant suffix with OpencodeVariant empty", model)
+	}
+	if strings.Contains(small, "#") {
+		t.Errorf("small_model = %q, want no variant suffix", small)
 	}
 }
 

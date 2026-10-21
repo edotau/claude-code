@@ -44,6 +44,8 @@ type Provider struct {
 	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
+	// OpencodeVariant, if set, is appended as "#<variant>" to the rendered opencode.json default model.
+	OpencodeVariant string `json:"opencode_variant,omitempty"`
 	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
 	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
 	OpencodeID string `json:"opencodeID,omitempty"`
