@@ -4,12 +4,15 @@ package settings
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,14 +20,102 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-//go:embed settings.tmpl.json
-var tmpl string
+//go:embed template/*.json
+var templateFS embed.FS
 
-// Render returns the harness settings: template with ${HOOK_BIN} expanded plus the hookspec hooks block.
-func Render() ([]byte, error) {
-	o, err := parseObject([]byte(strings.ReplaceAll(tmpl, "${HOOK_BIN}", hookspec.HookBin)))
+const templateDir = "template"
+
+// Section groups the template keys owned by one section file (Name = file stem without its numeric prefix).
+type Section struct {
+	Name string
+	Keys []string
+}
+
+// Sections returns the template sections in file-name (merge) order.
+func Sections() ([]Section, error) {
+	names, err := templateFileNames()
 	if err != nil {
-		return nil, fmt.Errorf("settings template: %w", err)
+		return nil, err
+	}
+	sections := make([]Section, 0, len(names))
+	for _, name := range names {
+		raw, err := templateFS.ReadFile(path.Join(templateDir, name))
+		if err != nil {
+			return nil, err
+		}
+		o, err := parseObject(raw)
+		if err != nil {
+			return nil, fmt.Errorf("settings template %s: %w", name, err)
+		}
+		keys := slices.DeleteFunc(slices.Clone(o.keys), func(k string) bool { return k == "$schema" })
+		sections = append(sections, Section{Name: sectionName(name), Keys: keys})
+	}
+	return sections, nil
+}
+
+// mergeSections merges template/*.json from fsys in file-name order, expanding ${HOOK_BIN}. A top-level
+// key defined in two section files is an error naming both files.
+func mergeSections(fsys fs.FS) (*object, error) {
+	entries, err := fs.ReadDir(fsys, templateDir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	o := &object{vals: map[string]json.RawMessage{}}
+	owner := map[string]string{}
+	for _, name := range names {
+		raw, err := fs.ReadFile(fsys, path.Join(templateDir, name))
+		if err != nil {
+			return nil, err
+		}
+		expanded := strings.ReplaceAll(string(raw), "${HOOK_BIN}", hookspec.HookBin)
+		part, err := parseObject([]byte(expanded))
+		if err != nil {
+			return nil, fmt.Errorf("settings template %s: %w", name, err)
+		}
+		for _, k := range part.keys {
+			if prev, dup := owner[k]; dup {
+				return nil, fmt.Errorf("settings template: %q defined in both %s and %s", k, prev, name)
+			}
+			owner[k] = name
+			o.set(k, part.vals[k])
+		}
+	}
+	return o, nil
+}
+
+// sectionName strips the numeric prefix and extension: "10-ui.json" -> "ui".
+func sectionName(fileName string) string {
+	stem := strings.TrimSuffix(fileName, ".json")
+	if i := strings.IndexByte(stem, '-'); i >= 0 {
+		return stem[i+1:]
+	}
+	return stem
+}
+
+func templateFileNames() ([]string, error) {
+	entries, err := fs.ReadDir(templateFS, templateDir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// Render merges the template sections in file-name order, expands ${HOOK_BIN}, and adds the hookspec hooks
+// block. A top-level key defined in two section files is an error naming both files.
+func Render() ([]byte, error) {
+	o, err := mergeSections(templateFS)
+	if err != nil {
+		return nil, err
 	}
 	hooks, err := hookspec.SettingsJSON()
 	if err != nil {

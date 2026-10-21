@@ -39,7 +39,7 @@ chmod +x .git/hooks/pre-commit
 # or call it from an existing husky / pre-commit chain
 ```
 
-**Option B — Claude Code PreToolUse.** Add the hook to `internal/settings/settings.tmpl.json`, then
+**Option B — Claude Code PreToolUse.** Add the hook to `internal/settings/template/`, then
 re-render `settings.json` with `claude-code install` (never hand-edit the generated file):
 
 ```json

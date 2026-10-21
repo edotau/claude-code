@@ -1,0 +1,7 @@
+{
+  "agentPushNotifEnabled": false,
+  "inputNeededNotifEnabled": true,
+  "preferredNotifChannel": "notifications_disabled",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off"
+}

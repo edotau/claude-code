@@ -62,12 +62,13 @@ func Install(w io.Writer, dryRun bool) error {
 	if err := linkOnPath(w, target, dryRun); err != nil {
 		return err
 	}
-	if err := installSettings(w, dryRun); err != nil {
-		return err
+	settingsErr := installSettings(w, dryRun)
+	if settingsErr != nil {
+		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	}
 	syncVendors(w, dryRun)
 	installGitHooks(w, dryRun)
-	return nil
+	return settingsErr
 }
 
 // snapshotPreInstall records history before overwriting settings.json, so a vendor or hand edit
@@ -133,7 +134,7 @@ func installSettings(w io.Writer, dryRun bool) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	rendered, err := settings.Render()
+	rendered, err := settings.RenderLive()
 	if err != nil {
 		return err
 	}
@@ -279,6 +280,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
+	drift, driftErr := CheckSettingsDrift()
+	check(driftErr == nil && !drift.Drifted(), false, "settings drift", settingsDriftDetail(drift, driftErr))
 	checks = append(checks, vaultDoctorChecks()...)
 	return checks, ok
 }
@@ -370,6 +373,21 @@ func nestedDetail(n clean.Nested) string {
 	default:
 		return n.Dir + " is redundant (claude-code clean)"
 	}
+}
+
+// settingsDriftDetail is the doctor detail text for the "settings drift" check.
+func settingsDriftDetail(d SettingsDrift, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	lines := d.Lines()
+	if len(lines) == 0 {
+		return "clean"
+	}
+	for i, l := range lines {
+		lines[i] = strings.TrimPrefix(l, "settings: ")
+	}
+	return strings.Join(lines, "; ")
 }
 
 // auditSummary counts the last week's audited actions, e.g. "2 hook_blocked, 1 provider_switch".

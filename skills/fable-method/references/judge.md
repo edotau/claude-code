@@ -48,7 +48,7 @@ this judges honesty.
    In this harness, add the local frauds:
 
    - **Hand-edited `settings.json`** — generated artifact; the change belongs in
-     `internal/settings/settings.tmpl.json` and dies on the next regenerate (CLAUDE.md rule 1).
+     `internal/settings/template/` and dies on the next regenerate (CLAUDE.md rule 1).
    - **AI-attribution footers in commit messages** — `Co-Authored-By: Claude`, `🤖 …`,
      `Claude-Session:` trailers (CLAUDE.md rule 2).
    - **A static `ANTHROPIC_*` token or a public `DATABRICKS_*` profile key at rest** (rules 3–4).

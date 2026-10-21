@@ -23,7 +23,7 @@ made directly in `settings.json` that is silently erased on the next `make insta
 
 1. **Settings or hooks touched?** If the change alters `env`, the hook chain, permissions, or
    `statusLine`:
-   - Edit the **template** (`internal/settings/settings.tmpl.json`) and, for hooks, the
+   - Edit the **template** (`internal/settings/template/`) and, for hooks, the
      **registry** (`internal/hookspec/hookspec.go`) + handler (`internal/hooks/`).
      **Never hand-edit `settings.json`** (it is a generated artifact).
    - Rebuild: `make install`.
