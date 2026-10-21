@@ -483,3 +483,46 @@ func TestFilterIdleSessionsKeepsActiveEvenWhenEmpty(t *testing.T) {
 		t.Fatalf("got %d sessions after filterIdleSessions, want 1 (active session kept)", len(kept))
 	}
 }
+
+// --session must be a plain id: no path separator and no ".." component, since it feeds a
+// filepath.Join/Glob pattern directly.
+func TestBuildRejectsSessionPathTraversal(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	for _, bad := range []string{"../../etc/passwd", "foo/../bar", ".."} {
+		if _, err := Build(claudeDir, Options{Session: bad, Now: pinNow(now)}); err == nil {
+			t.Errorf("Build(Session=%q) = nil error, want rejection of a non-plain session id", bad)
+		}
+	}
+}
+
+// buildWorkflowRuns ties two runs with identical Updated timestamps by ID ascending, so a stable
+// sort doesn't just fall back to map-iteration (nondeterministic) order.
+func TestBuildWorkflowRunsTieBreaksByID(t *testing.T) {
+	sessionDir := t.TempDir()
+	workflowsDir := filepath.Join(sessionDir, "workflows")
+	if err := os.MkdirAll(workflowsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ts := "2026-10-18T03:00:00Z"
+	for _, id := range []string{"run-zzz", "run-aaa"} {
+		manifest := map[string]string{"runId": id, "timestamp": ts, "status": "completed"}
+		raw, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workflowsDir, "wf_"+id+".json"), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := buildWorkflowRuns(sessionDir, now, "")
+	if len(runs) != 2 {
+		t.Fatalf("got %d workflow runs, want 2", len(runs))
+	}
+	if runs[0].ID != "run-aaa" || runs[1].ID != "run-zzz" {
+		t.Errorf("got order [%s, %s], want [run-aaa, run-zzz] (ID-ascending tie-break on equal Updated)", runs[0].ID, runs[1].ID)
+	}
+}
