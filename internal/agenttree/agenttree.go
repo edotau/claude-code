@@ -3,6 +3,8 @@
 package agenttree
 
 import (
+	"cmp"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,6 +190,9 @@ const (
 // for --session, else every one modified within --days.
 func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([]string, error) {
 	if opts.Session != "" {
+		if opts.Session != filepath.Base(opts.Session) || opts.Session == ".." {
+			return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", opts.Session)
+		}
 		pattern := filepath.Join(claudeDir, "projects", "*", opts.Session+".jsonl")
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
@@ -356,7 +361,12 @@ func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowR
 	for _, dir := range runDirs {
 		addRun(filepath.Base(dir))
 	}
-	slices.SortStableFunc(runs, func(a, b WorkflowRun) int { return b.Updated.Compare(a.Updated) })
+	slices.SortStableFunc(runs, func(a, b WorkflowRun) int {
+		if c := b.Updated.Compare(a.Updated); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	return runs
 }
 
@@ -366,7 +376,7 @@ func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowR
 func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time, cwd string) WorkflowRun {
 	run := WorkflowRun{ID: runID, Name: runID}
 	if m != nil {
-		run.Name = cmpOr(m.name(), runID)
+		run.Name = cmp.Or(m.name(), runID)
 		run.Updated = m.timestamp()
 	}
 
@@ -378,7 +388,7 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 	for _, f := range files {
 		sub := buildSubagent(f, now, cwd)
 		sub = applyJournalEntry(sub, journal[sub.ID])
-		phaseName := cmpOr(usage.WorkflowPhaseFromMeta(f), "(none)")
+		phaseName := cmp.Or(usage.WorkflowPhaseFromMeta(f), "(none)")
 		phase := byPhase[phaseName]
 		if phase == nil {
 			phase = &WorkflowPhase{Name: phaseName}
@@ -453,12 +463,4 @@ func filterIdleSessions(sessions []Session) []Session {
 		kept = append(kept, s)
 	}
 	return kept
-}
-
-// cmpOr returns a when non-empty, else b.
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
