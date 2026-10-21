@@ -87,11 +87,13 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// The harness's own docs/ holds only images + tracked knowledge; anything else there is a retired home.
+	// The harness's own docs/ holds only images, templates + tracked knowledge; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
 	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
-		if underDir(filepath.Join(harnessDocs, "knowledge"), abs) || underDir(filepath.Join(harnessDocs, "images"), abs) {
-			return ExitProceed
+		for _, tier := range []string{"knowledge", "images", "templates"} {
+			if underDir(filepath.Join(harnessDocs, tier), abs) {
+				return ExitProceed
+			}
 		}
 		if tracked, _ := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || ctx.Err() != nil {
 			return ExitProceed

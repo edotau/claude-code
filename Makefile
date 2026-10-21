@@ -85,6 +85,13 @@ vet:  # (dev recipe, hidden from help) go vet
 help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 
+.PHONY: examples
+examples: help-svg  ## Regenerate docs/templates examples + menu image
+	$(GO) test ./internal/memory -run TestDocsTemplateExamples -update >/dev/null
+	$(GO) test ./internal/settings -run 'TestRenderGolden|TestDocsTemplateExampleSettings' -update >/dev/null
+	$(GO) test ./internal/launch -run TestDocsTemplateExampleWindows -update >/dev/null
+	@echo -e "$(C_OK)examples regenerated; review git diff docs/"
+
 .PHONY: bootstrap
 bootstrap:  ## Fresh box: Go, install, configure (CHECK=1 TAILSCALE=1)
 	@$(MAKE) go-toolchain

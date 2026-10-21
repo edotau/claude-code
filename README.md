@@ -294,6 +294,7 @@ agents/ commands/ rules/ skills/ workflows/   loaded by Claude Code
 state/vault.db       pins, env, overlays, sealed secrets (untracked)
 memory/              the memory store (its own local git repo)
 plans/               implementation plans (untracked)
+docs/templates/      index of every embedded (`//go:embed`) template, with rendered examples
 ```
 
 ## Command reference

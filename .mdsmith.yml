@@ -14,6 +14,12 @@ overrides:
   - glob: ["internal/memory/templates/*.md"]
     rules:
       empty-section-body: false
+  - glob: ["docs/templates/examples/memory/*.md"] # generated verbatim output, not hand-authored prose
+    rules:
+      empty-section-body: false
+      line-length: false
+      blank-line-around-lists: false
+      blank-line-around-headings: false
 rules:
   # Mirrors .markdownlint-cli2.jsonc (converted with bin/mdsmith init --from-markdownlint) so make lint matches VS Code.
   code-block-style:

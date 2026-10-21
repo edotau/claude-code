@@ -45,7 +45,8 @@ filed with the approval date.
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
 - **State, not docs** — the memory store (its own local git repo), `state/projections/` (per-vendor agent renders
   from `agents sync`; `clean --target projections` sweeps them) and the rest of `state/harness/`. This repo's `docs/`
-  holds only `images/` and the tracked `knowledge/` tier.
+  holds only `images/`, `templates/` (the embedded-template reference, `docs/templates/README.md`) and the tracked
+  `knowledge/` tier.
 
 ## Enforcement — the `docs-placement` gate
 
@@ -57,8 +58,8 @@ in either of two shapes, printing the canonical paths to use instead:
    clone (`git check-ignore`; a non-ignored `docs/` is the project's own and is never gated).
 
 It passes on: a root anchor, a git-**tracked** file (`git ls-files`, so a force-added page inside an
-ignored `docs/` passes), the harness's own `docs/knowledge/` and `docs/images/` (any other new page there — a retired
-`docs/handoffs`/`docs/reports` — blocks), every other subdirectory,
+ignored `docs/` passes), the harness's own `docs/knowledge/`, `docs/images/` and `docs/templates/` (any other new
+page there — a retired `docs/handoffs`/`docs/reports` — blocks), every other subdirectory,
 a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
 
 - The handler also checks `apply_patch` Add/Update/Move headers against the same placement rules.
