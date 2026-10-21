@@ -66,6 +66,9 @@ func Install(w io.Writer, dryRun bool) error {
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	}
+	if werr := InstallWindowsSettings(w, dryRun); werr != nil {
+		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
+	}
 	syncVendors(w, dryRun)
 	installGitHooks(w, dryRun)
 	return settingsErr
@@ -282,6 +285,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
 	drift, driftErr := CheckSettingsDrift()
 	check(driftErr == nil && !drift.Drifted(), false, "settings drift", settingsDriftDetail(drift, driftErr))
+	if wdrift, wok, werr := CheckWindowsSettingsDrift(); wok {
+		check(werr == nil && !wdrift.Drifted(), false, "settings (windows)", settingsDriftDetailLabeled(wdrift, werr, "settings (windows)"))
+	}
 	checks = append(checks, vaultDoctorChecks()...)
 	return checks, ok
 }
@@ -377,15 +383,20 @@ func nestedDetail(n clean.Nested) string {
 
 // settingsDriftDetail is the doctor detail text for the "settings drift" check.
 func settingsDriftDetail(d SettingsDrift, err error) string {
+	return settingsDriftDetailLabeled(d, err, "settings")
+}
+
+// settingsDriftDetailLabeled strips label+": " off each drift line, for the doctor detail column.
+func settingsDriftDetailLabeled(d SettingsDrift, err error, label string) string {
 	if err != nil {
 		return err.Error()
 	}
-	lines := d.Lines()
+	lines := d.LinesLabeled(label)
 	if len(lines) == 0 {
 		return "clean"
 	}
 	for i, l := range lines {
-		lines[i] = strings.TrimPrefix(l, "settings: ")
+		lines[i] = strings.TrimPrefix(l, label+": ")
 	}
 	return strings.Join(lines, "; ")
 }
