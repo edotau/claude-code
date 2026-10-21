@@ -12,24 +12,24 @@ It overrides the built-in `/simplify`. Use it directly in place, or hand it to a
 **The lane:** behavior is preserved — you change *how* code is structured, never *what* it does.
 Bug-hunting is `evaluate-code`'s job; security is `security-reviewer`'s.
 
-## Simplicity First (#2)
+## Simplicity First (#2) and Surgical Changes (#3)
 
-CLAUDE.md → Behavioral guidelines #2 states the rule. **The test at simplify time:** would a
-senior engineer call this overcomplicated? If yes, simplify. If you wrote 200 lines and it could
-be 50, rewrite it. Worked before/after examples: `references/simplification-patterns.md` and the
-`evaluate-code` skill's `references/anti-patterns.md`.
+The two principles this skill applies the fix for. Definitions, attribution, and the
+review-time framing are canonical in `skills/evaluate-code/references/karpathy-principles.md`
+(#2, #3); CLAUDE.md → Behavioral guidelines states the base rule. This skill's job is
+narrower: *apply* the fix, not just flag it.
 
-## Surgical Changes (#3)
-
-CLAUDE.md → Behavioral guidelines #3 states the rule. Simplifying inverts the usual risk — the
-failure mode here is **drive-by cleanup**, not over-engineering. Don't reformat/re-quote/
-re-comment untouched code, don't "while I'm here" a refactor, and remove only what *your*
-simplification made dead.
+Simplifying inverts the usual risk for #3 — the failure mode here is **drive-by cleanup**,
+not over-engineering. Don't reformat/re-quote/re-comment untouched code, don't "while I'm
+here" a refactor, and remove only what *your* simplification made dead.
 
 The one exception is **extended-scope consolidation**: if the diff duplicates a helper or
 constant that already exists, consolidating at the source removes duplication the diff
 created — that traces to the task. Say so explicitly (name the out-of-diff file + blast
 radius). When the blast radius is large or unverifiable, flag it instead of reaching for it.
+
+Worked before/after examples: `references/simplification-patterns.md` and the `evaluate-code`
+skill's `references/anti-patterns.md`.
 
 ## Surface the assumption before you cut
 

@@ -132,9 +132,24 @@ Git basics: [rules/standards/git.md](../rules/standards/git.md).
 ### Commit
 
 1. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit.
+   Use the message the user supplied; otherwise write one per `rules/standards/git.md`.
 2. **Verify the staged set builds and tests on its own** where the project allows it — never
    `git stash` (CLAUDE.md hard rule 4: this tree is shared).
 3. Report the hash and the resulting tree state.
+
+### PR
+
+Only when the user asked for a PR, after Commit:
+
+1. **Preflight** — detect the toolchain and run the repo's own lint + test; stop and report on
+   failure, do not commit: `pyproject.toml`→`ruff check . && pytest` ·
+   `package.json`→`npm run lint && npm test` · `Makefile`→`make lint && make test` ·
+   `Cargo.toml`→`cargo clippy && cargo test` · `go.mod`→`go vet ./... && go test ./...`.
+2. Commit (see above).
+3. Push, creating the remote branch if needed: `-u origin <branch>`.
+4. `gh pr create` — title + body: summary of what/why, testing done, notes for reviewers.
+
+Stop and report on any failure in steps 1–4; never retry a push or PR create blindly.
 
 ### LAST-MILE report
 

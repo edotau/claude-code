@@ -1,7 +1,7 @@
 ---
 name: testing-guidelines
 description: >-
-  The harness's testing skill: run it on real data first, then write tests that actually guard —
+  The harness's testing skill (also the "fix failing tests" loop): run it on real data first, then write tests that actually guard —
   the import rule, proving teeth by revert-and-restore, anti-vacuity for equivalence tests,
   reproducing the whole fault, assertions derived from the fixture; plus Given/When/Then
   criteria, root-cause-first bug fixes, mocking at boundaries, pytest fixtures/parametrize/
@@ -128,6 +128,8 @@ route detection, matrices, and patterns.
 
 ## References
 
+- `references/test-and-fix.md` — the run-the-suite-and-fix-failures loop (was `/testing:test-and-fix`): one test at a
+  time, root cause first, max 3 attempts each, then the full suite.
 - [Test discipline](references/test-discipline.md) — live checks, test-agent ownership, fixtures,
   gates, and injection proofs.
 - `references/pytest-patterns.md` — fixtures, parametrize, mocking/patching, markers,

@@ -68,7 +68,7 @@ Scope and mechanical-gate commands: [Dispatch setup](references/tasks.md#dispatc
 2. In a **single message**, launch two subagents concurrently:
    - a **general-purpose** subagent that loads this skill — quality, correctness, the discipline lens.
    - a **general-purpose** subagent that loads the **`security-reviewer` skill** (or run
-     `/security`) — OWASP Top 10, secrets, injection, auth. Read-only (findings only).
+     `/security-reviewer`) — OWASP Top 10, secrets, injection, auth. Read-only (findings only).
 3. Scope each agent to the diff range + changed files, NOT your session history — keeps them on
    the work product and preserves your context. A ready-to-paste dispatch prompt: `references/tasks.md`.
 

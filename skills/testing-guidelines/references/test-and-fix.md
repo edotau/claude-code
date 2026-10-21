@@ -1,11 +1,11 @@
----
-description: "Run tests and fix any failures"
-argument-hint: "[fast | unit | all | path/to/test.py::test_name]"
----
+# Test and Fix Loop
 
-1. If `$ARGUMENTS` is a specific test path, run it directly: `.venv/bin/python -m pytest $ARGUMENTS -x -v`
+Run the suite, then fix failures one at a time. Scope comes from the request: a test path, `fast`/`unit`/`all`, or
+blank.
+
+1. If the request names a specific test path, run it directly: `.venv/bin/python -m pytest <path> -x -v`
    for Python, `go test ./<pkg> -run '<Name>'` for Go
-2. If `$ARGUMENTS` is "fast", "unit", or "all", run the matching `make test-smoke` / `test-unit` /
+2. If the request is "fast", "unit", or "all", run the matching `make test-smoke` / `test-unit` /
    `test-all` target when the Makefile defines it (`make -n <target> >/dev/null 2>&1`); otherwise
    fall back to `make test`
 3. Otherwise, run `make test-unit` if defined, else `make test`

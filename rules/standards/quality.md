@@ -91,7 +91,7 @@ Genuinely out of scope: [exceptions][discipline].
 - [ ] Edge cases and error scenarios tested
 - [ ] Integration points validated
 - [ ] Code review completed (`/code-review` or the **evaluate-code** skill; the **security-reviewer**
-      skill via `/security` for auth/input/API/crypto)
+      skill via `/security-reviewer` for auth/input/API/crypto)
 - [ ] Automated tests passing; manual testing done for user-facing changes
 - [ ] Documentation updated; no broken links or missing references
 

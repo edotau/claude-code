@@ -1,4 +1,4 @@
-# Docstring brevity — ≤120 characters or ≤2 lines
+# Docstring brevity — 1 line, ≤120 characters
 
 A docstring earns its place by saying what the signature can't. When it restates the
 parameter names, narrates the obvious, or pads with ceremony, it's over-engineering in
@@ -6,10 +6,12 @@ prose — the same instinct that produces 150-line abstractions for 3-line probl
 
 ## The rule
 
-- **≤120 characters, or ≤2 lines** — whichever the surrounding code favors.
+Canonical rule: `rules/standards/communication.md` (Comment Brevity — 1 line max, ≤120 chars,
+applies to docstrings too). This file is the how-to:
+
 - Lead with a one-line imperative summary ("Return the discount-adjusted amount.").
 - Drop anything the reader gets for free from the signature and type hints.
-- When the *why* is non-obvious, a short second line for it beats a long first line.
+- When the *why* is non-obvious, say it in that one line rather than the *what* (see "When to relax").
 
 ## When to relax
 

@@ -463,7 +463,7 @@ serves; `--print-env` redacts MCP env, headers, key/token argv and URL queries.
 `claude-code gemini` is the gemini agent verb: `gemini ask "<task>"` = `ask --agent gemini` (drives the Antigravity CLI
 `agy`); `gemini bridge [--dirs|--files|--index|--diff|--rubric <file>] "<task>"` rides the subscription via `agy`
 (default `gemini-3.8-flash-high`, `--model` to override; `--provider` sends it to an API-key provider instead) — the
-1M-context sweep the `gemini` subagent and `/gemini:gemini` / `/gemini:second-opinion` wrap. Inside a git tree only
+1M-context sweep the `gemini` subagent and `/gemini` / `/gemini review` wrap. Inside a git tree only
 tracked/untracked-but-not-ignored files are eligible, and `.env*`, `secrets.env`, `state/`, `*.pem`/`*.key` are always
 skipped; the inlined path list is printed to stderr before the call. Anything else launches `agy` (same as
 `run gemini`). `agents sync` projects `agents/` into every vendor's native subagent format —
@@ -629,7 +629,7 @@ Rows that `CLAUDE.md` points here for; "this file" in a row means `CLAUDE.md`.
 
 ```bash
 go test ./internal/<pkg>           # while developing — only what you touched
-make lint                          # gofmt + vet, shellcheck when installed, generate --check
+make lint                          # fmt + vet, shell, yaml, tui width, settings, md fix (CHECK=1 reports only)
 make lint-deep                     # golangci-lint v2 + .golangci.yml; uncapped issue counts
 make test                          # go vet + full suite, once, before pushing (= make audit, the CI gate)
 ```

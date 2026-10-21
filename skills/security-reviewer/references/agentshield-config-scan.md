@@ -44,4 +44,4 @@ npx ecc-agentshield scan --opus
 - Agents with unrestricted tool access
 
 For cloud / IaC / IAM / CI-CD security review (Terraform, K8s, cloud config), see
-`cloud-infrastructure-security.md` in this skill directory.
+[cloud-infrastructure-security.md](cloud-infrastructure-security.md).

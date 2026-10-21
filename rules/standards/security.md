@@ -50,11 +50,11 @@ subprocess.run(["git", "clone", url], check=True)
 If a security issue is found:
 
 1. **STOP** immediately.
-2. Run the **security-reviewer** skill (via `/security`).
+2. Run the **security-reviewer** skill (via `/security-reviewer`).
 3. Fix CRITICAL issues before continuing anything else.
 4. **Rotate any exposed secret** — assume a committed secret is compromised even after
    removal; rotate the credential, then scrub git history.
 5. Review the codebase for similar instances.
 
 Auth/input/database/file-system/external-API/crypto/payment code is must-review
-territory — run the **security-reviewer** skill (via `/security`) before merge.
+territory — run the **security-reviewer** skill (via `/security-reviewer`) before merge.

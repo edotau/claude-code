@@ -1,8 +1,7 @@
 ---
 paths:
   - "commands/workflow/*.md"
-  - "commands/testing/*.md"
-  - "commands/github.md"
+  - "commands/copilot.md"
   - "commands/code-workers.md"
   - "agents/*.md"
   - "workflows/*.js"
@@ -29,8 +28,8 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on `/workflow:orchestrate`** |
 | 6. Dispatch | `/workflow:orchestrate`, `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
 | 7. Merge + simplify | `/workflow:worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
-| 8. Verify | `/testing:test-and-fix` + the `approval-gate` skill | All gates green | format + lint + test + security pass |
-| 9. Commit | `/github commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
+| 8. Verify | the `testing-guidelines` test-and-fix loop + the `approval-gate` skill | All gates green | format + lint + test + security pass |
+| 9. Commit | `/copilot commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
 
 ---
 
@@ -176,7 +175,7 @@ user asks for it):
 Gate 1: <format>          -- auto-fix formatting
 Gate 2: <lint>            -- fix lint errors
 Gate 3: <test>            -- fix test failures (one at a time, max 3 attempts each)
-Gate 4: security scan     -- hardcoded secrets, injection, unsafe logging (/security)
+Gate 4: security scan     -- hardcoded secrets, injection, unsafe logging (/security-reviewer)
 ```
 
 `<format>`/`<lint>`/`<test>` are the repo's real targets — discover them from the Makefile /
@@ -187,17 +186,18 @@ Gate 4: security scan     -- hardcoded secrets, injection, unsafe logging (/secu
 it); never modify `migrations/` directories.
 
 **Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
-`approval-gate` skill is the pre-completion checklist, not the loop; `/testing:test-and-fix` for targeted
+`approval-gate` skill is the pre-completion checklist, not the loop; the `testing-guidelines`
+test-and-fix loop for targeted
 test fixing, `/harness:techdebt scan` for debt.
 
 ---
 
-## Phase 9: Commit (`/github commit`)
+## Phase 9: Commit (`/copilot commit`)
 
 1. Stage changed files by name (never `git add -A`)
 2. Conventional commit message: `<type>: <description>`
 3. Confirm with the user before committing/pushing
-4. Create a PR if requested (`/github pr`)
+4. Create a PR if requested (`/copilot pr`)
 
 ---
 
@@ -205,12 +205,12 @@ test fixing, `/harness:techdebt scan` for debt.
 
 | Scenario | Commands |
 |----------|----------|
-| Simple bug fix (LOW) | fix code -> `/testing:test-and-fix` -> `/github commit` |
-| Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/github commit` |
-| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` (simplify stage included) -> verify -> `/github commit` |
-| Fix failing tests | `/testing:test-and-fix` |
+| Simple bug fix (LOW) | fix code -> the `testing-guidelines` test-and-fix loop -> `/copilot commit` |
+| Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/copilot commit` |
+| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` (simplify stage included) -> verify -> `/copilot commit` |
+| Fix failing tests | the `testing-guidelines` test-and-fix loop |
 | Clean up tech debt | `/harness:techdebt scan` -> `/harness:techdebt fix` |
-| Review current changes | `/code-review` (quality) ‖ `/security` |
+| Review current changes | `/code-review` (quality) ‖ `/security-reviewer` |
 | Second opinion from another model | `claude-code ask --agent <leg> "<review brief>"` |
 
 ## Agent Reference
@@ -224,7 +224,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |
 | `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
 
-> **Security review is a skill, not an agent.** Run it via `/security` (the `security-reviewer`
+> **Security review is a skill, not an agent.** Run it via `/security-reviewer` (the `security-reviewer`
 > skill), typically alongside Phase 8.
 
 ## Saved Workflows (`workflows/*.js`)

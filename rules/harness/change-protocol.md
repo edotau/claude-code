@@ -55,8 +55,8 @@ made directly in `settings.json` that is silently erased on the next `make insta
 5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
    what was intentionally left for a later pass.
 
-6. **Writing or changing a component (agent/skill/hook/plugin)?** Run the manifest-before-write
-   step in `skills/claude-best-practices/SKILL.md` first — list exact files + action, get approval.
+6. **Writing or changing a component (agent/skill/hook/plugin)?** Write the manifest first:
+   list the exact files and the action on each, and get approval before writing.
 
 ## Verification
 
