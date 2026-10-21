@@ -114,7 +114,8 @@ the command and its output as evidence. If you cannot verify, say so explicitly 
 - Run the detectors (`claude-code review complexity` + `claude-code review diff`); advisory — **you judge**.
 - Manually read the changed files *and the code they touch* (callers, callees, nearby tests, helpers the diff may
   duplicate) — not the diff alone.
-- Justify every cut ("unreachable because ___", "single-use because ___ (grep'd)"); if you can't, flag it, don't cut it.
+- Justify every cut ("unreachable because `___`", "single-use because `___` (grep'd)"); if you can't, flag it,
+  don't cut it.
 - Extended-scope consolidation of an existing duplicate is allowed — label it `[extended]` with blast radius; flag if
   unverifiable.
 

@@ -10,11 +10,38 @@ files:
   - "theme/**/*.md"
   - "vscode/**/*.md"
   - "internal/memory/templates/*.md"
+# Commands whose body is a raw `!bash` script: markdown fixers would rewrite the shell code.
+ignore:
+  - "commands/codex/adversarial-review.md"
+  - "commands/harness/techdebt.md"
+  - "commands/workflow/worktree.md"
+  - "commands/workflow/orchestrate.md"
 overrides:
   - glob: ["internal/memory/templates/*.md"]
     rules:
       empty-section-body: false
 rules:
+  # Mirrors .markdownlint-cli2.jsonc (converted with bin/mdsmith init --from-markdownlint) so make lint matches VS Code.
+  code-block-style:
+    style: fenced
+  commands-show-output: false
+  emphasis-style:
+    bold: asterisk
+    italic: asterisk
+  fenced-code-style:
+    style: backtick
+  heading-style:
+    style: atx
+  horizontal-rule-style:
+    length: 3
+    style: dash
+  list-marker-style:
+    style: dash
+  required-structure: false
+  single-h1: true
+  ambiguous-emphasis: true
+  no-space-in-code-spans: true
+  no-space-in-link-text: true
   line-length:
     max: 120
     exclude: [code-blocks, tables, urls]

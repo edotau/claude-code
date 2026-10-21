@@ -16,20 +16,17 @@ stage handoff document, no further stages. Skip for single-line/typo fixes or wh
 already warm this session.
 
 Current branch:
-
-```bash
+```
 !git branch --show-current
 ```
 
 Existing worktrees:
-
-```bash
+```
 !git worktree list 2>/dev/null
 ```
 
 Stage handoff files:
-
-```bash
+```
 !ls ~/.claude/plans/stages/*.md 2>/dev/null || echo "No active stage files"
 ```
 
@@ -47,7 +44,6 @@ Instructions:
 
 2. Create the stage handoff document `~/.claude/plans/stages/YYYY-MM-DD-{task-id}.md` (include
    `## Refined Briefs` ONLY when `INCLUDE_REFINE=true`):
-
    ```markdown
    # Task: {task-id}
    > **Description**: {task description}

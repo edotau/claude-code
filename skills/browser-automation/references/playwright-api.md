@@ -46,6 +46,7 @@ async with async_playwright() as p:
 ```
 
 **Launch options:**
+
 | Option | Type | Default | Purpose |
 |--------|------|---------|---------|
 | `headless` | bool | True | Run without visible window |
