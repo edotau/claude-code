@@ -230,7 +230,9 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 
 // demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
 func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
-	for d, ok := providers.Demote(t.Provider, t.Model); ok; d, ok = providers.Demote(t.Provider, d.Model) {
+	seen := map[string]bool{t.Model: true} // a slot table like opus=A sonnet=B haiku=A demotes A→B→A forever
+	for d, ok := providers.Demote(t.Provider, t.Model); ok && !seen[d.Model]; d, ok = providers.Demote(t.Provider, d.Model) {
+		seen[d.Model] = true
 		if !r.isDead(d) {
 			return d, true
 		}
@@ -293,7 +295,7 @@ func (r *Router) markDead(t providers.Target) {
 }
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
-func (r *Router) try(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
+func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
 	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
@@ -337,7 +339,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	return true, nil
 }
 
-func (r *Router) tryOpenAI(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
+func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
 	p := t.Provider
 	route, _ := p.Route(providers.DialectOpenAI)
 	out, stream, err := translate.ToChatRequest(body, t.Model)
@@ -369,8 +371,12 @@ func (r *Router) tryOpenAI(w http.ResponseWriter, in *http.Request, body []byte,
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
-		if err := translate.StreamChat(w, flusher(w), resp.Body, clientModel); err != nil && in.Context().Err() == nil {
+		// No explicit 200: a read error before the first event writes nothing, so the caller can still fail over.
+		err := translate.StreamChat(w, flusher(w), resp.Body, clientModel)
+		if err != nil && w.status == 0 {
+			return false, err
+		}
+		if err != nil && in.Context().Err() == nil {
 			fmt.Fprintf(r.log, "router: %s stream translation: %v\n", p.Name, err)
 		}
 		return true, nil

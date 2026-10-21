@@ -453,6 +453,72 @@ func TestOpenAITranslation(t *testing.T) {
 	}
 }
 
+// A slot table like opus=A sonnet=B haiku=A demoted A->B->A->B... forever before demotion tracked
+// models it had already visited; with every slot dead, it must give up instead of spinning.
+func TestDemotionCycleTerminates(t *testing.T) {
+	p := &providers.Provider{Name: "g", Models: map[string]string{"opus": "A", "sonnet": "B", "haiku": "A"}}
+	r := newRouter("s")
+	r.markDead(providers.Target{Provider: p, Model: "A"})
+	r.markDead(providers.Target{Provider: p, Model: "B"})
+	done := make(chan struct{})
+	var ok bool
+	go func() { _, ok = r.demotion(providers.Target{Provider: p, Model: "B"}); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("demotion never returned: the cyclic slot table spins forever")
+	}
+	if ok {
+		t.Error("every slot is dead: demotion must report no usable target, not loop back to a dead one")
+	}
+
+	// With only A dead, B's one live rung is A's neighbor, haiku; demoting from A must land on B instead
+	// of being blocked by the earlier cycle guard.
+	r2 := newRouter("s")
+	r2.markDead(providers.Target{Provider: p, Model: "A"})
+	d, ok := r2.demotion(providers.Target{Provider: p, Model: "A"})
+	if !ok || d.Model != "B" {
+		t.Errorf("demotion(A) = %+v, %v; want B, true", d, ok)
+	}
+}
+
+// tryOpenAI used to write the 200 status before translating the stream; a read error on the very
+// first chunk (upstream hangs up before any SSE event) then left a committed empty 200, which the
+// client treats as a successful but silent response instead of a failure the router can fail over.
+func TestStreamReadErrorBeforeOutputFailsOver(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		conn, _, _ := w.(http.Hijacker).Hijack()
+		conn.Close()
+	})
+	up2 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"from-up2\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	})
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, `{"default":"up1","fallback":["up2"],"providers":{`+
+		`"up1":{"kind":"openai","base_url":"`+up1.URL+`","auth":{"type":"bearer","env":"UP1_KEY"},"models":{"opus":"m1"}},`+
+		`"up2":{"kind":"openai","base_url":"`+up2.URL+`","auth":{"type":"bearer","env":"UP2_KEY"},"models":{"opus":"m2"}}}}`)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1","stream":true,"max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "from-up2") || up2.hits.Load() != 1 {
+		t.Fatalf("status %d body %q up2 hits %d: want 200 with from-up2 after failover, up2 hit once", resp.StatusCode, b, up2.hits.Load())
+	}
+
+	// up1 alone, with no fallback: the same early read error must surface as a 502, not an empty 200.
+	srv2 := setup(t, `{"default":"up1","providers":{`+
+		`"up1":{"kind":"openai","base_url":"`+up1.URL+`","auth":{"type":"bearer","env":"UP1_KEY"},"models":{"opus":"m1"}}}}`)
+	resp2 := post(t, srv2.URL+"/p/up1/v1/messages", `{"model":"m1","stream":true,"max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	b2, _ := io.ReadAll(resp2.Body)
+	if resp2.StatusCode != http.StatusBadGateway || len(b2) == 0 {
+		t.Fatalf("status %d body %q: want 502 with an error body, not an empty 200", resp2.StatusCode, b2)
+	}
+}
+
 func TestIdleBodyCutsWedgedStream(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer pw.Close()
