@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
@@ -278,7 +279,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	existed := err == nil
 	next := string(raw)
 	if section != "" {
-		next = codexBannerRE.ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
+		next = codexBannerRE().ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
 		next = insertTopLevelTOML(next, section)
 	}
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
@@ -373,15 +374,20 @@ func codexHookSourcePath(path string) string {
 	}
 }
 
-var codexTrustTableRE = regexp.MustCompile(`^\[\s*(?:hooks|"hooks"|'hooks')\s*\.\s*(?:state|"state"|'state')\s*\.\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*\]\s*(?:#.*)?$`)
-var codexTrustedHashRE = regexp.MustCompile(`^(\s*(?:trusted_hash|"trusted_hash"|'trusted_hash')\s*=\s*)("(?:[^"\\]|\\.)*"|'[^']*')(.*)$`)
+// Compiled lazily (sync.OnceValue): a package-level MustCompile runs at every process start (hooks, statusline).
+var codexTrustTableRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\[\s*(?:hooks|"hooks"|'hooks')\s*\.\s*(?:state|"state"|'state')\s*\.\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*\]\s*(?:#.*)?$`)
+})
+var codexTrustedHashRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(\s*(?:trusted_hash|"trusted_hash"|'trusted_hash')\s*=\s*)("(?:[^"\\]|\\.)*"|'[^']*')(.*)$`)
+})
 
 // mergeCodexTrust changes only the emitted hooks' hashes, retaining unrelated tables, fields, and comments.
 func mergeCodexTrust(raw string, entries map[string]string) string {
 	remaining := make(map[string]string, len(entries))
 	maps.Copy(remaining, entries)
 	var out strings.Builder
-	active, multiline := "", ""
+	active, state, depth := "", "", 0
 	flush := func() {
 		if hash, ok := remaining[active]; ok {
 			if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
@@ -393,18 +399,19 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 	}
 	for _, line := range strings.SplitAfter(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if multiline == "" && strings.HasPrefix(trimmed, "[") {
+		// A header only counts at depth 0: a "["-led line inside an open array (e.g. extra = [[1, 2]]) is not one.
+		if state == "" && depth == 0 && strings.HasPrefix(trimmed, "[") {
 			flush()
 			active = codexTrustTableKey(trimmed)
 		}
-		if hash, ok := remaining[active]; ok && multiline == "" {
+		if hash, ok := remaining[active]; ok && state == "" && depth == 0 {
 			if replacement, replaced := replaceCodexTrustedHash(line, hash); replaced {
 				line = replacement
 				delete(remaining, active)
 			}
 		}
 		out.WriteString(line)
-		multiline = tomlMultilineState(line, multiline)
+		state, depth = tomlLineState(line, state, depth)
 	}
 	flush()
 	keys := make([]string, 0, len(remaining))
@@ -421,7 +428,7 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 }
 
 func codexTrustTableKey(line string) string {
-	m := codexTrustTableRE.FindStringSubmatch(line)
+	m := codexTrustTableRE().FindStringSubmatch(line)
 	if m == nil {
 		return ""
 	}
@@ -433,7 +440,7 @@ func codexTrustTableKey(line string) string {
 }
 
 func replaceCodexTrustedHash(line, hash string) (string, bool) {
-	m := codexTrustedHashRE.FindStringSubmatch(strings.TrimSuffix(line, "\n"))
+	m := codexTrustedHashRE().FindStringSubmatch(strings.TrimSuffix(line, "\n"))
 	if m == nil {
 		return line, false
 	}
@@ -586,47 +593,4 @@ func tomlLineState(line, state string, depth int) (string, int) {
 		}
 	}
 	return state, depth
-}
-
-// Ignore table-shaped text inside TOML multiline strings while editing the trust ledger.
-func tomlMultilineState(line, state string) string {
-	for i := 0; i < len(line); {
-		if state != "" {
-			if state == `"""` && line[i] == '\\' {
-				i += 2
-			} else if strings.HasPrefix(line[i:], state) {
-				i += 3
-				state = ""
-			} else {
-				i++
-			}
-			continue
-		}
-		if line[i] == '#' {
-			break
-		}
-		if line[i] != '"' && line[i] != '\'' {
-			i++
-			continue
-		}
-		quote := line[i]
-		triple := strings.Repeat(string(quote), 3)
-		if strings.HasPrefix(line[i:], triple) {
-			state = triple
-			i += 3
-			continue
-		}
-		i++
-		for i < len(line) {
-			if line[i] == '\\' && quote == '"' {
-				i += 2
-			} else if line[i] == quote {
-				i++
-				break
-			} else {
-				i++
-			}
-		}
-	}
-	return state
 }
