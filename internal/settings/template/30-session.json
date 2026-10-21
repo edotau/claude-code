@@ -1,0 +1,9 @@
+{
+  "dialogExpiry": "never",
+  "idleCompaction": false,
+  "cleanupPeriodDays": 30,
+  "remoteControlAtStartup": false,
+  "autoConnectIde": false,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true
+}
