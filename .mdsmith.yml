@@ -7,6 +7,8 @@ files:
   - "rules/**/*.md"
   - "skills/**/*.md"
   - "docs/**/*.md"
+  - "theme/**/*.md"
+  - "vscode/**/*.md"
   - "internal/memory/templates/*.md"
 overrides:
   - glob: ["internal/memory/templates/*.md"]

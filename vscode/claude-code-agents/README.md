@@ -23,6 +23,6 @@ Copy Attach Command, all under the "Agents" view's title bar or a dispatch sessi
 
 `node --test <dir>` fails to discover files on this box (mise node 24); use a glob instead:
 
-```
+```bash
 node --test 'vscode/claude-code-agents/test/**/*.test.js'
 ```
