@@ -1,10 +1,12 @@
 package gemini
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -287,6 +289,95 @@ func TestCollectContextBoundedRead(t *testing.T) {
 	if len(f.Content) > 1024 {
 		t.Errorf("len(Content) = %d, want <= 1024", len(f.Content))
 	}
+}
+
+// TestCollectContextByteBudget: many files whose combined size exceeds DefaultTotalBytes are capped at
+// the budget (not the file-count cap, which is set generously high here), and the overflow is recorded
+// as "budget-exceeded" rather than silently dropped.
+func TestCollectContextByteBudget(t *testing.T) {
+	dir := t.TempDir()
+	const perFile = 100_000
+	const numFiles = 35 // 3.5 MB total, over DefaultTotalBytes (~3 MB)
+	for i := range numFiles {
+		write(t, filepath.Join(dir, fmt.Sprintf("f%02d.txt", i)), strings.Repeat("x", perFile))
+	}
+
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 1000, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for _, f := range ctx.Included {
+		total += len(f.Content)
+	}
+	if total > DefaultTotalBytes {
+		t.Errorf("inlined bytes = %d, want <= DefaultTotalBytes (%d)", total, DefaultTotalBytes)
+	}
+	if len(ctx.Included)+len(ctx.Skipped) != numFiles {
+		t.Fatalf("included+skipped = %d, want %d (every file accounted for)", len(ctx.Included)+len(ctx.Skipped), numFiles)
+	}
+	found := false
+	for _, s := range ctx.Skipped {
+		if s.Reason == "budget-exceeded" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected at least one budget-exceeded skip once the total exceeds DefaultTotalBytes")
+	}
+}
+
+// TestCollectContextByteBudgetUnderLimit: when the combined size is comfortably under the byte budget,
+// nothing is skipped for budget reasons — the cap must not trigger early.
+func TestCollectContextByteBudgetUnderLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
+		write(t, filepath.Join(dir, n), strings.Repeat("y", 100))
+	}
+
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ctx.Included) != 3 {
+		t.Fatalf("included = %d, want 3 (well under the byte budget)", len(ctx.Included))
+	}
+	for _, s := range ctx.Skipped {
+		if s.Reason == "budget-exceeded" {
+			t.Errorf("unexpected budget-exceeded skip for %s: nothing should be cut this far under budget", s.Path)
+		}
+	}
+}
+
+// TestCollectContextOrdersSourceBeforeTests: a tight byte budget that can only fit one of two same-size
+// files must keep the non-test source file over the _test.go file, even though the test file alphabetically
+// sorts first — ordering groups real source ahead of tests ahead of testdata/fixtures.
+func TestCollectContextOrdersSourceBeforeTests(t *testing.T) {
+	dir := t.TempDir()
+	body := strings.Repeat("x", 100)
+	write(t, filepath.Join(dir, "a_test.go"), body) // alphabetically first, but must rank after source
+	write(t, filepath.Join(dir, "z.go"), body)
+	write(t, filepath.Join(dir, "testdata", "fixture.txt"), body)
+
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 1000, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, f := range ctx.Included {
+		order = append(order, f.Path)
+	}
+	wantBefore := func(a, b string) {
+		ia, ib := slices.Index(order, a), slices.Index(order, b)
+		if ia < 0 || ib < 0 {
+			t.Fatalf("order = %v, missing %q or %q", order, a, b)
+		}
+		if ia >= ib {
+			t.Errorf("order = %v, want %q before %q", order, a, b)
+		}
+	}
+	wantBefore("z.go", "a_test.go")
+	wantBefore("a_test.go", "testdata/fixture.txt")
 }
 
 // TestBuildPrompt: template contains inventory, file blocks, task, and constraints.

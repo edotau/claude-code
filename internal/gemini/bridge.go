@@ -15,6 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
+// bridgeDispatchLabel marks a bridge run's dispatch Record so `ask --log` distinguishes it from an
+// `ask --agent gemini` run, even though both execute on the same "gemini" Runner.
+const bridgeDispatchLabel = "gemini-bridge"
+
 // Options configures one bridge run: inline workspace files into one prompt, one chat call.
 type Options struct {
 	Task, Model, Provider, Effort, Rubric, Cwd string
@@ -60,6 +64,9 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	}
 	prompt := BuildPrompt(task, ctxFiles)
 	logContextStats(log, ctxFiles)
+	if w := CoverageWarning(ctxFiles); w != "" {
+		fmt.Fprintln(stream, w)
+	}
 
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
 	if useAgy && !o.PrintCommand {
@@ -80,9 +87,40 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 
 	if useAgy {
 		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
-		return agent.RunAgy(ctx, agent.AgyRequest{
-			Prompt: prompt, Model: agyModel(reg, sel, p, o.Model), Effort: o.Effort, Cwd: o.Cwd, Tools: false,
-		}, stream)
+		model := agyModel(reg, sel, p, o.Model)
+		agyReq := agent.AgyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
+		// agy's own stdin-NDJSON path, not agent.Run/vendorRunner.Run: that runner's argv-prompt cap
+		// (agent.MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
+		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
+		// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
+		policy := agent.DefaultPolicy()
+		if o.Timeout > 0 {
+			policy.AttemptTimeout = o.Timeout
+		}
+		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
+
+		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
+		rec := agent.NewRecord(bridgeDispatchLabel, agent.Request{
+			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
+		}, time.Now())
+		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+
+		start := time.Now()
+		cw := &countingWriter{w: stream}
+		var res agent.Result
+		aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
+			cw.n = 0
+			out, err := agent.RunAgy(actx, agyReq, cw)
+			res = out
+			return agent.Classify("gemini", err, cw.n > 0)
+		})
+		var err error
+		if aerr != nil {
+			err = aerr
+		}
+		rec.Finish(res, err, time.Since(start))
+		_ = rec.Save()
+		return res, err
 	}
 
 	r, err := agent.Lookup("api")
@@ -177,6 +215,37 @@ func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *provid
 	fmt.Fprintf(log, "%s (stdin stream-json) files=%d prompt_bytes=%d\n",
 		strings.Join(argv, " "), len(ctxFiles.Included), len(prompt))
 	return agent.Result{Provider: "agy", Model: shown}
+}
+
+// countingWriter tracks whether any bytes reached stream this attempt, so a retry never repeats output
+// that already streamed to the caller (agent.Classify's Progressed gate).
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// compactRecordPrompt is the dispatch Record's Prompt field: the task plus a short inlined-file summary,
+// never the full swept source (that would bloat state/dispatch to MiBs per bridge run).
+func compactRecordPrompt(task string, ctxFiles Context) string {
+	const recordCap = 4 << 10 // a few KB: task text plus a representative file list
+	var totalBytes int
+	paths := make([]string, len(ctxFiles.Included))
+	for i, f := range ctxFiles.Included {
+		totalBytes += f.Bytes
+		paths[i] = f.Path
+	}
+	out := fmt.Sprintf("%s\n[bridge: %d files, %d KB inlined: %s]",
+		task, len(paths), totalBytes/1024, strings.Join(paths, ", "))
+	if len(out) > recordCap {
+		out = out[:recordCap-len("…(truncated)")] + "…(truncated)"
+	}
+	return out
 }
 
 // agyModel is the named (flag or env) model resolved for agy, or agent.AgyDefaultModel when none was named.
