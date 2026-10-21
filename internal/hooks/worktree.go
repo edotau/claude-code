@@ -42,6 +42,13 @@ func WorktreeRemove(r io.Reader, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "worktree-remove: payload has no worktree_path")
 		return 1
 	}
+	if reason, err := worktree.InUseBy(path); err != nil {
+		fmt.Fprintf(stderr, "worktree-remove: in-use check failed: %v\n", err)
+		return 1
+	} else if reason != "" {
+		fmt.Fprintf(stderr, "worktree-remove: %s\n", reason)
+		return 1
+	}
 	ctx, cancel := hookContext("worktree-remove")
 	defer cancel()
 	main := paths.MainCheckout(path)

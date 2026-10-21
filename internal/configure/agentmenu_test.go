@@ -3,6 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
 	"strings"
@@ -59,6 +60,86 @@ func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "not a GitHub token") {
 		t.Errorf("output = %q, want the not-a-GitHub-token refusal", out.String())
+	}
+}
+
+// copilotContextEligible is the claude-* model gate for the Context row: a Claude-backed opus slot is
+// eligible, anything else (an "auto" alias, a GPT id) is not.
+func TestCopilotContextEligible(t *testing.T) {
+	cases := map[string]bool{"claude-opus-5.5": true, "claude-sonnet-5": true, "auto": false, "gpt-5": false, "": false}
+	for model, want := range cases {
+		p := &providers.Provider{Models: map[string]string{"opus": model}}
+		if got := copilotContextEligible(p); got != want {
+			t.Errorf("copilotContextEligible(opus=%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+// copilotContextRow is nil for an ineligible model (no long-context tier to pin) and present for one.
+func TestCopilotContextRowNilWhenIneligible(t *testing.T) {
+	menuTestEnv(t)
+	d := &dialog{out: discardWriter{}}
+	if r := copilotContextRow(d, &providers.Provider{Models: map[string]string{"opus": "auto"}}); r != nil {
+		t.Errorf("ineligible model: row = %+v, want nil", r)
+	}
+	if r := copilotContextRow(d, &providers.Provider{Models: map[string]string{"opus": "claude-opus-5.5"}}); r == nil {
+		t.Error("eligible model: row = nil, want the Context row")
+	}
+}
+
+// copilotEffortRow's desc flips between "unset" and the pinned value as COPILOT_REASONING_EFFORT changes.
+func TestCopilotEffortRowShowsPinState(t *testing.T) {
+	menuTestEnv(t)
+	d := &dialog{out: discardWriter{}}
+	if got := copilotEffortRow(d).desc; !strings.Contains(got, "unset") {
+		t.Errorf("unpinned: desc = %q, want unset", got)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := copilotEffortRow(d).desc; !strings.Contains(got, "high") {
+		t.Errorf("pinned: desc = %q, want high", got)
+	}
+}
+
+// pickCopilotPin, on the non-TTY numbered-prompt path: picking a choice pins its value; picking "unset"
+// clears a previously-set pin. Row 0 is always "unset", so row N+1 is choices[N].
+func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
+	menuTestEnv(t)
+	choices := [][2]string{{"Low", "low"}, {"High", "high"}}
+
+	in := strings.NewReader("2\n") // row 2 = choices[0] = "low"
+	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
+	if !pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, "") {
+		t.Fatal("pickCopilotPin(set) = false")
+	}
+	if got := providers.Pin(providers.PinCopilotEffort); got != "low" {
+		t.Errorf("pin = %q, want low", got)
+	}
+
+	in = strings.NewReader("1\n") // row 1 = "unset"
+	d = &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
+	if !pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, "low") {
+		t.Fatal("pickCopilotPin(clear) = false")
+	}
+	if got := providers.Pin(providers.PinCopilotEffort); got != "" {
+		t.Errorf("pin after clearing = %q, want unset", got)
+	}
+}
+
+// A blank/invalid pick (Back/Esc on the non-TTY path) must leave the pin untouched.
+func TestPickCopilotPinBackLeavesPinUntouched(t *testing.T) {
+	menuTestEnv(t)
+	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "medium"}); err != nil {
+		t.Fatal(err)
+	}
+	in := strings.NewReader("\n")
+	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
+	if pickCopilotPin(d, "effort", providers.PinCopilotEffort, [][2]string{{"Low", "low"}}, "medium") {
+		t.Fatal("pickCopilotPin(blank) = true, want false (Back)")
+	}
+	if got := providers.Pin(providers.PinCopilotEffort); got != "medium" {
+		t.Errorf("pin after Back = %q, want unchanged medium", got)
 	}
 }
 
@@ -186,7 +267,7 @@ func TestSubmenuRowLabels(t *testing.T) {
 		"codex":    "Subscription,API key,Login",
 		"gemini":   "Subscription,Login",
 		"opencode": "", // state only; the page is runOpencodePage
-		"copilot":  "Subscription,API key,Login,GitHub user",
+		"copilot":  "Subscription,API key,Login,User,Effort",
 	}
 	for name, want := range cases {
 		var labels []string
