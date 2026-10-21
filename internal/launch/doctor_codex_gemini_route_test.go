@@ -9,6 +9,7 @@ import (
 // codexRouteDetail/geminiRouteDetail are doctor's own route rows: names/booleans only (never a
 // credential), unset means each vendor's own default decides.
 func TestCodexRouteDetailShowsPinSource(t *testing.T) {
+	doctorScratch(t) // scratch CLAUDE_CONFIG_DIR: SetPins below must never reach the real vault
 	t.Setenv(providers.PinCodexModel, "")
 	t.Setenv(providers.PinCodexEffort, "")
 	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "", providers.PinCodexEffort: ""}); err != nil {
@@ -27,6 +28,7 @@ func TestCodexRouteDetailShowsPinSource(t *testing.T) {
 }
 
 func TestGeminiRouteDetailShowsPinSource(t *testing.T) {
+	doctorScratch(t) // scratch CLAUDE_CONFIG_DIR: SetPins below must never reach the real vault
 	t.Setenv(providers.PinGeminiModel, "")
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
 		t.Fatal(err)
