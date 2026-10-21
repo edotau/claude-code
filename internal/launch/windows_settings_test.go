@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks"
@@ -350,5 +351,57 @@ func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("non-WSL must no-op silently, got %q", out.String())
+	}
+}
+
+// TestCheckWindowsSettingsDrift_ForeignKeptNotDrift: a Windows-only key (Orca's hooks, remote) is reported as
+// kept, never as drift, so `generate --check` stays green while install preserves it.
+func TestCheckWindowsSettingsDrift_ForeignKeptNotDrift(t *testing.T) {
+	profile := winHermetic(t)
+	file := winSettingsPath(profile)
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"remote":{"defaultEnvironmentId":"env_x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var installOut bytes.Buffer
+	if err := InstallWindowsSettings(&installOut, false); err != nil {
+		t.Fatal(err)
+	}
+	drift, _, err := CheckWindowsSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drift.Drifted() || len(drift.Foreign) != 0 {
+		t.Errorf("Drifted() = %v, Foreign = %v; want a kept key, not drift", drift.Drifted(), drift.Foreign)
+	}
+	want := "settings (windows): remote is kept (not in the template)"
+	if lines := drift.LinesLabeled("settings (windows)"); !slices.Contains(lines, want) {
+		t.Errorf("lines = %v, want %q", lines, want)
+	}
+}
+
+// TestCheckWindowsSettingsDrift_BOMIsNotInvalid: install keeps a UTF-8 BOM, so the drift check must read past it.
+func TestCheckWindowsSettingsDrift_BOMIsNotInvalid(t *testing.T) {
+	profile := winHermetic(t)
+	file := winSettingsPath(profile)
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, append([]byte{0xEF, 0xBB, 0xBF}, `{"theme":"light"}`...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var installOut bytes.Buffer
+	if err := InstallWindowsSettings(&installOut, false); err != nil {
+		t.Fatal(err)
+	}
+	drift, _, err := CheckWindowsSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drift.Invalid != nil || drift.Drifted() {
+		t.Errorf("after install of a BOM file: Invalid=%v Drifted=%v lines=%v", drift.Invalid, drift.Drifted(),
+			drift.LinesLabeled("settings (windows)"))
 	}
 }

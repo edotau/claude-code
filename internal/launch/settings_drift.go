@@ -15,6 +15,7 @@ type SettingsDrift struct {
 	Invalid  error
 	Differs  []string
 	Foreign  []string
+	Kept     []string // foreign keys reported but not counted as drift (the Windows file)
 	LocalDup []string
 	Nested   string
 }
@@ -42,6 +43,9 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 	}
 	for _, k := range s.Foreign {
 		lines = append(lines, label+": "+truncate80(k)+" is a foreign key not in the template")
+	}
+	for _, k := range s.Kept {
+		lines = append(lines, label+": "+truncate80(k)+" is kept (not in the template)")
 	}
 	for _, l := range s.LocalDup {
 		lines = append(lines, label+": "+l)
