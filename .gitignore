@@ -46,6 +46,7 @@
 /docs/reports/
 /docs/handoffs/
 MEMORY.md
+!docs/templates/examples/memory/MEMORY.md
 SEARCHABLE.md
 /docs/knowledge/bi-*.md
 /worktrees/
