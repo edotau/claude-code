@@ -267,6 +267,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
+		staticOK, staticDetail := opencodeStaticKeysDetail(reg)
+		check(staticOK, false, "opencode auth.json", staticDetail)
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
 		check(true, false, "codex route", codexRouteDetail())
 		check(true, false, "gemini route", geminiRouteDetail())
@@ -478,6 +480,50 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	opusID := reg.Providers["github-copilot"].Models[models.Opus]
 	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
 		mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
+}
+
+// opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault
+// already supplies via the {env:} indirection — names only, never a credential value.
+func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
+	ints, err := vendors.OpencodeAuth()
+	if err != nil {
+		return true, "skipped: " + err.Error()
+	}
+	var stale []string
+	for _, in := range ints {
+		p := opencodeProviderByID(reg, in.ID)
+		if p == nil || !providers.CredentialPresent(p) {
+			continue // TEST-DISABLE
+		}
+		for _, c := range in.Conns {
+			if c.Kind == "credential" && c.Method == "key" {
+				stale = append(stale, in.ID)
+				break
+			}
+		}
+	}
+	if len(stale) == 0 {
+		return true, "clean"
+	}
+	slices.Sort(stale)
+	notes := make([]string, len(stale))
+	for i, id := range stale {
+		notes[i] = fmt.Sprintf("auth.json still holds %s key; run `opencode auth logout %s`", id, id)
+	}
+	return false, strings.Join(notes, "; ")
+}
+
+// opencodeProviderByID finds the registry provider whose OpencodeID matches id, or nil.
+func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provider {
+	if reg == nil {
+		return nil
+	}
+	for _, p := range reg.Providers {
+		if p.OpencodeID == id {
+			return p
+		}
+	}
+	return nil
 }
 
 // copilotRouteDetail reports the copilot CLI's resolved leg (DescribeRoute): its own GitHub login,

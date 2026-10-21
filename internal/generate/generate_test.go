@@ -183,6 +183,9 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	if firstTable >= 0 && (approvalIdx > firstTable || sandboxIdx > firstTable) {
 		t.Errorf("approval_policy/sandbox_mode must precede the first [table] header:\n%s", codexCfg)
 	}
+	if n := strings.Count(string(codexCfg), `cli_auth_credentials_store = "keyring"`); n != 1 {
+		t.Errorf("cli_auth_credentials_store occurs %d times, want 1:\n%s", n, codexCfg)
+	}
 
 	ocRaw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
 	if err != nil {
@@ -279,6 +282,37 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	}
 	if oc["someForeignKey"] != true {
 		t.Errorf("foreign top-level opencode key was dropped: %s", ocGot)
+	}
+}
+
+// A user-set cli_auth_credentials_store outside the managed banner is kept verbatim, and the render
+// reports it rather than silently overwriting a value the user chose for themselves.
+func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := "cli_auth_credentials_store = \"file\"\n"
+	if err := os.WriteFile(codexPath, []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	got, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `cli_auth_credentials_store = "file"`) {
+		t.Errorf("user's cli_auth_credentials_store was overwritten:\n%s", got)
+	}
+	if strings.Contains(string(got), `cli_auth_credentials_store = "keyring"`) {
+		t.Errorf("harness must not add its own key alongside the user's:\n%s", got)
+	}
+	if !strings.Contains(out.String(), "codex: cli_auth_credentials_store already set by the user; leaving it") {
+		t.Errorf("expected the leaving-it note, got:\n%s", out.String())
 	}
 }
 

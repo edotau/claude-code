@@ -169,7 +169,7 @@ func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
 }
 
-func codexProviderSection(reg *providers.Registry, sel providers.Selection, out io.Writer) (string, error) {
+func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
 	ctx := context.Background()
 	target, note, err := vendors.ResolveTarget(reg, "codex", sel, false)
 	if err != nil {
@@ -180,7 +180,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, out 
 		fmt.Fprintln(out, note)
 	}
 	if target.Provider != nil && target.Provider.Auth.Type == providers.AuthPassthrough {
-		keys := codexPermissionKeys(out)
+		keys := codexPermissionKeys(existing, out)
 		if keys == "" {
 			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
 			return "", nil
@@ -197,15 +197,30 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, out 
 	if err != nil {
 		return "", fmt.Errorf("codex: %w", err)
 	}
-	if keys := codexPermissionKeys(out); keys != "" {
+	if keys := codexPermissionKeys(existing, out); keys != "" {
 		block = keys + "\n" + block
 	}
 	return codexBannerSection(block), nil
 }
 
-// codexPermissionKeys renders approval_policy/sandbox_mode as top-level TOML keys from the vendor
-// spec, each skipped when unset; a vendorconfig load error is reported and treated as unset.
-func codexPermissionKeys(out io.Writer) string {
+// codexCredentialStoreRE matches a top-level cli_auth_credentials_store key already set by the user.
+var codexCredentialStoreRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^cli_auth_credentials_store\s*=`)
+})
+
+// codexCredStoreKey keeps ~/.codex/auth.json out of plaintext by pointing codex at the OS keyring;
+// it never overwrites a value the user already set outside the managed banner.
+func codexCredStoreKey(existing string, out io.Writer) string {
+	if codexCredentialStoreRE().MatchString(existing) {
+		fmt.Fprintln(out, "codex: cli_auth_credentials_store already set by the user; leaving it")
+		return ""
+	}
+	return `cli_auth_credentials_store = "keyring"` + "\n"
+}
+
+// codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
+// TOML keys; approval/sandbox skip when unset, a vendorconfig load error is treated as unset.
+func codexPermissionKeys(existing string, out io.Writer) string {
 	cfg, err := vendorconfig.Load()
 	if err != nil {
 		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
@@ -219,6 +234,7 @@ func codexPermissionKeys(out io.Writer) string {
 	if perm.SandboxMode != "" {
 		fmt.Fprintf(&b, "sandbox_mode = %q\n", perm.SandboxMode)
 	}
+	b.WriteString(codexCredStoreKey(existing, out))
 	return b.String()
 }
 
