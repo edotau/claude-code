@@ -2,11 +2,11 @@ export const meta = {
   name: 'audit-fix-verify',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer ‖ test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings, cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-family refuter via vendor-leg, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute; lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), legs, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings, cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-family refuter via external-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute; lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), legs, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
-    { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings) plus any healthy vendor-leg refuters; re-anchors wrong citations, defaults to refuted when the evidence is thin' },
+    { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings) plus any healthy external-agent refuters; re-anchors wrong citations, defaults to refuted when the evidence is thin' },
     { title: 'Fix', detail: 'per package: implementer (opus only for highs) ‖ test agent' },
     { title: 'Gate', detail: 'gate-loop workflow over the touched packages, then re-audits what it touched for up to rounds rounds' },
   ],
@@ -150,7 +150,7 @@ const REFUTE_BATCH = a.refuteBatch || 6
 const legStatus = []
 const LEGS_OK = []
 // An unregistered or crashing leg is a dropped leg, never a dead audit (workflow() throws on an unknown name).
-const askLeg = opts => workflow('vendor-leg', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
+const askLeg = opts => workflow('external-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
 for (const leg of REFUTERS) {
   const s = await askLeg({ leg, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
   const ok = !!(s && s.ok && /READY/i.test(s.answer || ''))

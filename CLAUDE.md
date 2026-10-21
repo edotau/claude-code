@@ -76,7 +76,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Recall or save session memory | `claude-code memory search <terms>` · `/memory:end` (auto via the Stop/SessionEnd harvest) · `memory init\|index\|path\|doctor\|stats\|timeline\|promote\|alias` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` once at the end; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; `/workflow:orchestrate` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
-| Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `vendor-leg` | `rules/workflow/master-workflow.md` → Saved Workflows |
+| Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `external-agent` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code`, `skills/security-reviewer` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/references/test-and-fix.md` |
 | Capture a session's corrections into rules | `/harness:adapt` (auto at 85% context) | `rules/workflow/memory-consolidation.md` |
