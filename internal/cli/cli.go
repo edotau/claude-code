@@ -54,7 +54,7 @@ func commands() []command {
 		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context repo sweeps (bridge) and research", run: cmdGemini},
 		{name: "opencode", group: groupVendors, summary: "OpenCode on your Copilot plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
-		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecretsOrStub},
+		{name: "secrets", group: groupAuth, summary: "set|get|status, scan|git|all (audit), cred checks", run: cmdSecrets},
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers + credential state; <name> shows its routes", run: cmdProviders},
 		{name: "vault", group: groupAuth, summary: "show|edit pins, env, overlays; migrate|finalize|rotate-key", run: cmdVault},
@@ -74,7 +74,7 @@ func commands() []command {
 		{name: "tailscale", group: groupDiagnostics, summary: "tailnet: status | machines | connect | key | exit-node", run: cmdTailscale},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json (onboarding)", run: cmdInstall},
-		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigureOrStub},
+		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
 		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},

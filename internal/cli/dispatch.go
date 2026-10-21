@@ -49,7 +49,9 @@ func cmdDispatch(args []string) int {
 	interval := fs.Duration("interval", 0, "with --status, sample every interval (0 = once)")
 	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
 	format := fs.String("format", outfmt.Text, "--list output format: text|json")
-	if fs.Parse(args) != nil {
+	// Interspersed: a trailing --dry-run must not join the task and run it for real.
+	rest, err := outfmt.Parse(fs, args)
+	if err != nil {
 		return 2
 	}
 	if *host == "" {
@@ -64,7 +66,6 @@ func cmdDispatch(args []string) int {
 	case *list:
 		return dispatchList(ctx, resolved, *format, *status, *interval)
 	case *attach:
-		rest := fs.Args()
 		if len(rest) != 1 {
 			return fail("dispatch --attach: give exactly one session name")
 		}
@@ -73,7 +74,7 @@ func cmdDispatch(args []string) int {
 		if !dispatch.ValidAgent(*agentName) {
 			return fail("dispatch: --agent %q must be one of %s", *agentName, strings.Join(dispatch.Agents, "|"))
 		}
-		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(fs.Args(), " "), *dryRun)
+		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(rest, " "), *dryRun)
 	}
 }
 

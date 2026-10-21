@@ -165,6 +165,31 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 	}
 }
 
+// TestSetGradientRejectsNullConfigWithoutPanicking: json.Unmarshal("null", &m) succeeds but leaves m
+// nil — a bare `if err != nil` check would miss it and panic on the m["gradient"] = assignment.
+// setGradient must error out instead, and must not touch the file.
+func TestSetGradientRejectsNullConfigWithoutPanicking(t *testing.T) {
+	dir := hermeticTheme(t)
+	path := configPath(dir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := setGradient("ocean")
+	if err == nil {
+		t.Fatal("setGradient on a null config: err = nil, want an error")
+	}
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != "null" {
+		t.Errorf("setGradient on a null config changed the file: %q", raw)
+	}
+}
+
 // TestThemeHelpExitsZeroWithoutRunning guards the flag.ErrHelp class of bug: discarding fs.Parse's
 // error with `_ =` let `-h` print help AND then execute.
 func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {

@@ -81,6 +81,9 @@ func setGradient(name string) error {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
+	if m == nil { // "null" decodes without error but leaves m nil
+		return fmt.Errorf("parse %s: not a JSON object", path)
+	}
 	encoded, err := json.Marshal(name)
 	if err != nil {
 		return err

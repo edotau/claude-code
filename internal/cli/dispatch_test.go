@@ -261,6 +261,37 @@ func TestDispatchListStatusSSHFailure(t *testing.T) {
 	}
 }
 
+// TestDispatchLocalhostDryRunNeverLaunches pins the local branch of ExecArgs (host "localhost" runs
+// under "sh -c", not ssh): even with real-looking sh/tmux stubs on PATH, --dry-run must only print
+// the resolved argv and never invoke either stub — the marker file must stay absent.
+func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
+	hermeticDispatch(t)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "marker")
+	for _, name := range []string{"sh", "tmux"} {
+		script := "#!/bin/sh\ntouch " + shQuote(marker) + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdDispatch([]string{"--host", "localhost", "task", "--dry-run"})
+	})
+	if code != 0 {
+		t.Fatalf("dry-run exit %d, want 0; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, "argv[0]: sh") {
+		t.Errorf("dry-run output missing argv[0]: sh:\n%s", out)
+	}
+	if !strings.Contains(out, "'task'") {
+		t.Errorf("dry-run output missing the quoted task:\n%s", out)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("marker exists — a stubbed sh/tmux was actually launched, stat err=%v", err)
+	}
+}
+
 func TestDispatchHelp(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int { return cmdDispatch(nil) })
 	if code != 2 {

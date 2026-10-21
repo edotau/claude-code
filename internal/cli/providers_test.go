@@ -242,6 +242,75 @@ func TestPrintModelTableAligns(t *testing.T) {
 	}
 }
 
+// applyModelPins qualifies a bare model spec with --provider when it differs from the session's
+// subscribed provider, so the pin resolves against the provider it was validated for.
+func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
+	cliScratch(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinProvider: "anthropic"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
+		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
+	}
+	if got := providers.Pin(providers.SlotPin("opus")); got != "github-copilot:claude-opus-5.5" {
+		t.Errorf("HARNESS_OPUS_MODEL = %q, want %q", got, "github-copilot:claude-opus-5.5")
+	}
+}
+
+// --provider equal to the session's own subscribed provider stores the bare spec, unqualified.
+func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
+	cliScratch(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinProvider: "github-copilot"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
+		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
+	}
+	if got := providers.Pin(providers.SlotPin("opus")); got != "claude-opus-5.5" {
+		t.Errorf("HARNESS_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
+	}
+}
+
+// qualifyPinSpec passes an already-qualified "provider:model" spec through unchanged, even when
+// --provider names a different provider than the one in the spec.
+func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
+	cliScratch(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := qualifyPinSpec(reg, "github-copilot", "anthropic:claude-opus-5.5")
+	if got != "anthropic:claude-opus-5.5" {
+		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
+	}
+}
+
+// --pin all=... qualifies HARNESS_MODEL the same way a per-slot pin does.
+func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
+	cliScratch(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinProvider: "anthropic"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {
+		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
+	}
+	if got := providers.Pin(providers.PinModel); got != "github-copilot:claude-opus-5.5" {
+		t.Errorf("HARNESS_MODEL = %q, want %q", got, "github-copilot:claude-opus-5.5")
+	}
+}
+
 // doctor's/profile's output over a github-copilot pin or route never prints anything secret-looking:
 // no bearer token, no raw API key value, only the env var NAME.
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
