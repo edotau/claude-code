@@ -88,7 +88,7 @@ help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 
 .PHONY: bootstrap
-bootstrap:  ## Fresh box: Go, install, configure (CHECK=1, TAILSCALE=1)
+bootstrap:  ## Fresh box: Go, install, configure (CHECK=1 TAILSCALE=1)
 	@$(MAKE) go-toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
@@ -103,7 +103,7 @@ adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
 
 .PHONY: tailscale-cli
-tailscale-cli:  ## Install the Tailscale client; log in via configure
+tailscale-cli:  ## Install the Tailscale client
 	@if command -v tailscale >/dev/null 2>&1; then echo -e "$(C_OK)tailscale found: $$(tailscale version | head -1)"; exit 0; fi; \
 	case "$$(uname -s)" in \
 	  Darwin) brew install --cask tailscale-app ;; \
@@ -112,7 +112,7 @@ tailscale-cli:  ## Install the Tailscale client; log in via configure
 	esac
 
 .PHONY: go-toolchain
-go-toolchain:  ## Install go.mod's Go to ~/.local/go if none on PATH
+go-toolchain:  ## Install go.mod's Go to ~/.local/go if missing
 	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; exit 0; fi; \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
 	case "$$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac; \
@@ -127,7 +127,7 @@ go-toolchain:  ## Install go.mod's Go to ~/.local/go if none on PATH
 	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"
 
 .PHONY: setup-env
-setup-env:  ## Print the PATH line (APPLY=1 writes it to the shell rc)
+setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	@line='export PATH="$$HOME/.claude/bin:$$HOME/.local/bin:$$HOME/.local/go/bin:$$HOME/go/bin:$$PATH"'; \
 	echo "$$line"; \
 	if [ -n "$(APPLY)" ]; then \
@@ -144,7 +144,7 @@ setup-env:  ## Print the PATH line (APPLY=1 writes it to the shell rc)
 # Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
 # installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
 .PHONY: audit
-audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs smoke
+audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 	$(GO) vet $(PKGS)
 	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
@@ -221,7 +221,7 @@ router: compile  ## Router daemon status (UP=1 starts it)
 	$(BIN) router status
 
 .PHONY: statusline
-statusline: compile  ## Render the statusline on a sample payload (COLS=…)
+statusline: compile  ## Render a sample statusline (COLS=…)
 	@echo '{"model":{"id":"claude-sonnet-5","display_name":"Sonnet 5"},"workspace":{"current_dir":"'$(CURDIR)'"},"transcript_path":"/tmp/x","context_window":{"context_window_size":1000000,"used_percentage":42}}' \
 		| COLUMNS=$${COLS:-120} $(BIN) statusline
 
