@@ -10,12 +10,6 @@ files:
   - "theme/**/*.md"
   - "vscode/**/*.md"
   - "internal/memory/templates/*.md"
-# Commands whose body is a raw `!bash` script: markdown fixers would rewrite the shell code.
-ignore:
-  - "commands/codex/adversarial-review.md"
-  - "commands/harness/techdebt.md"
-  - "commands/workflow/worktree.md"
-  - "commands/workflow/orchestrate.md"
 overrides:
   - glob: ["internal/memory/templates/*.md"]
     rules:

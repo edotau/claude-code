@@ -5,17 +5,15 @@ argument-hint: "[scan | fix | module path]"
 
 Find and catalog technical debt in this codebase.
 
-Context — recently changed files:
-```
-!git diff --name-only HEAD~10 2>/dev/null || find . -name '*.py' -o -name '*.ts' -o -name '*.tsx' | head -50
-```
+First resolve the scope from `$ARGUMENTS` (a module path, or the repo), then gather context with the Bash tool:
 
-Current TODOs and FIXMEs:
-```
-!grep -rn "TODO\|FIXME\|HACK\|XXX\|NOQA" --include='*.py' --include='*.ts' --include='*.tsx' . 2>/dev/null | head -30
+```bash
+git diff --name-only HEAD~10 -- <scope> 2>/dev/null || git ls-files <scope> | head -50
+git grep -n -E 'TODO|FIXME|HACK|XXX|NOQA' -- <scope> | head -30
 ```
 
 Instructions:
+
 1. Scan the recently changed files and TODO/FIXME markers above.
 2. Read the files with the highest concentration of markers.
 3. Categorize debt:
