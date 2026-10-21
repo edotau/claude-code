@@ -2,6 +2,7 @@ package configure
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -131,9 +132,10 @@ func secretsLoop(d *dialog) int {
 }
 
 // pick is tui.Pick on the controlling terminal, a numbered prompt otherwise (tests, pipes).
-func pick(d *dialog, title string, rows [][2]string) (int, error) {
+// start, if given, is the initial cursor row (TUI path only; the numbered-prompt path ignores it).
+func pick(d *dialog, title string, rows [][2]string, start ...int) (int, error) {
 	if isStdinTTY() && d.o.In == os.Stdin {
-		return tui.PickBack(title, rows, 0)
+		return tui.PickBack(title, rows, cmp.Or(start...))
 	}
 	d.println(title)
 	for i, r := range rows {

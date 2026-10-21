@@ -119,36 +119,58 @@ func copilotModelDesc(m copilotsdk.Model, cur string) string {
 	return desc
 }
 
-// pickCopilotModel is the copilot page's Model row: the SDK catalog (the account copilot runs as) first,
-// falling back to opencode's github-copilot catalog when the SDK call fails. It writes only the
-// COPILOT_MODEL pin — never github-copilot's models table, which opencode's fallback ladder also reads.
+// pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
+// current model, defaulting to "default"/"auto" = pin unset), then the SDK catalog (the account
+// copilot runs as), falling back to opencode's github-copilot catalog when the SDK call fails. It
+// writes only the COPILOT_MODEL pin — never github-copilot's models table, which opencode's
+// fallback ladder also reads. Picking Effort/Context re-shows this same picker with the cursor
+// back on that row; picking a model saves it and returns.
 func pickCopilotModel(d *dialog) {
-	cur, _ := providers.CopilotModel(d.reg)
-	list, err := copilotCatalog(d)
-	if err != nil {
-		d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
-		pickCopilotModelFallback(d, cur)
-		return
-	}
-	var ids []string
-	var rows [][2]string
-	for _, m := range list {
-		if !m.Enabled {
+	start := 0
+	for {
+		cur, _ := providers.CopilotModel(d.reg)
+		list, err := copilotCatalog(d)
+		if err != nil {
+			d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
+			pickCopilotModelFallback(d, cur)
+			return
+		}
+		var rows [][2]string
+		var extraRuns []func() bool
+		for _, r := range []*billingRow{copilotEffortRow(d, cur), copilotContextRow(d, cur)} {
+			if r == nil {
+				continue
+			}
+			rows = append(rows, [2]string{r.label, r.desc})
+			extraRuns = append(extraRuns, r.run)
+		}
+		nExtra := len(extraRuns)
+		var ids []string
+		for _, m := range list {
+			if !m.Enabled {
+				continue
+			}
+			ids = append(ids, m.ID)
+			rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
+		}
+		if len(ids) == 0 {
+			d.printf("copilot: SDK catalog returned no enabled models\n")
+			return
+		}
+		j, err := pick(d, "copilot — model (SDK catalog)", rows, start)
+		if err != nil || j < 0 {
+			return
+		}
+		if j < nExtra {
+			extraRuns[j]()
+			start = j
 			continue
 		}
-		ids = append(ids, m.ID)
-		rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
-	}
-	if len(ids) == 0 {
-		d.printf("copilot: SDK catalog returned no enabled models\n")
+		id := ids[j-nExtra]
+		saveCopilotModel(d, id)
+		clearIneligibleCopilotPins(d, id)
 		return
 	}
-	j, err := pick(d, "copilot — model (SDK catalog)", rows)
-	if err != nil || j < 0 {
-		return
-	}
-	saveCopilotModel(d, ids[j])
-	clearIneligibleCopilotPins(d, ids[j])
 }
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
