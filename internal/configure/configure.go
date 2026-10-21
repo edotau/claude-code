@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
@@ -77,6 +78,10 @@ type dialog struct {
 	pendingDeletes map[string]bool
 	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
 	changed bool
+	// copilotCatalog caches the copilot SDK model catalog for the life of this dialog (one dialog, one fetch).
+	copilotCatalog       []copilotsdk.Model
+	copilotCatalogErr    error
+	copilotCatalogLoaded bool
 }
 
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).

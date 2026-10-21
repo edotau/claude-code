@@ -63,41 +63,45 @@ func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	}
 }
 
-// copilotContextEligible is the claude-* model gate for the Context row: a Claude-backed opus slot is
-// eligible, anything else (an "auto" alias, a GPT id) is not.
+// copilotContextEligible is the claude-* model gate for the Context row when the SDK catalog is
+// unreachable (menuTestEnv's PATH has no copilot binary, so copilotCatalogModel always misses): a
+// Claude-backed opus slot is eligible, anything else (an "auto" alias, a GPT id) is not.
 func TestCopilotContextEligible(t *testing.T) {
+	menuTestEnv(t)
 	cases := map[string]bool{"claude-opus-5.5": true, "claude-sonnet-5": true, "auto": false, "gpt-5": false, "": false}
 	for model, want := range cases {
-		p := &providers.Provider{Models: map[string]string{"opus": model}}
-		if got := copilotContextEligible(p); got != want {
-			t.Errorf("copilotContextEligible(opus=%q) = %v, want %v", model, got, want)
+		d := &dialog{out: discardWriter{}}
+		if got := copilotContextEligible(d, model); got != want {
+			t.Errorf("copilotContextEligible(%q) = %v, want %v", model, got, want)
 		}
 	}
 }
 
-// copilotContextRow is nil for an ineligible model (no long-context tier to pin) and present for one.
+// copilotContextRow is nil for an ineligible model (no long-context tier to pin) and present for one,
+// same claude-* fallback as copilotContextEligible since the SDK catalog is unreachable here.
 func TestCopilotContextRowNilWhenIneligible(t *testing.T) {
 	menuTestEnv(t)
 	d := &dialog{out: discardWriter{}}
-	if r := copilotContextRow(d, &providers.Provider{Models: map[string]string{"opus": "auto"}}); r != nil {
+	if r := copilotContextRow(d, "auto"); r != nil {
 		t.Errorf("ineligible model: row = %+v, want nil", r)
 	}
-	if r := copilotContextRow(d, &providers.Provider{Models: map[string]string{"opus": "claude-opus-5.5"}}); r == nil {
+	if r := copilotContextRow(d, "claude-opus-5.5"); r == nil {
 		t.Error("eligible model: row = nil, want the Context row")
 	}
 }
 
-// copilotEffortRow's desc flips between "unset" and the pinned value as COPILOT_REASONING_EFFORT changes.
+// copilotEffortRow's desc flips between "unset" and the pinned value as COPILOT_REASONING_EFFORT
+// changes; the SDK catalog is unreachable here, so the row falls back to the fixed effort list.
 func TestCopilotEffortRowShowsPinState(t *testing.T) {
 	menuTestEnv(t)
 	d := &dialog{out: discardWriter{}}
-	if got := copilotEffortRow(d).desc; !strings.Contains(got, "unset") {
+	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "unset") {
 		t.Errorf("unpinned: desc = %q, want unset", got)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "high"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := copilotEffortRow(d).desc; !strings.Contains(got, "high") {
+	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "high") {
 		t.Errorf("pinned: desc = %q, want high", got)
 	}
 }
