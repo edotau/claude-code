@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Proc identifies a live process with a cwd inside a worktree that Clean is about to remove.
@@ -16,6 +17,10 @@ type Proc struct {
 // processesIn finds live processes whose cwd is dir or under it; each platform's init() assigns the
 // real implementation (linux: /proc/*/cwd, darwin: lsof), seamed here so tests can stub it.
 var processesIn func(dir string) ([]Proc, error)
+
+// inUseSettle is how long a busy worktree is re-checked before refusing: git's own background maintenance
+// (auto gc after a commit) briefly runs inside it and exits on its own.
+var inUseSettle = time.Second
 
 // parentOf returns pid's parent pid, used only to exclude the calling process's own ancestry below.
 var parentOf func(pid int) (int, error)
@@ -36,18 +41,32 @@ func InUseBy(dest string) (string, error) {
 	if processesIn == nil {
 		return "", nil // no detector wired for this OS
 	}
-	procs, err := processesIn(real)
-	if err != nil {
-		return "", err
-	}
 	excluded := ancestry(os.Getpid())
-	for _, p := range procs {
-		if excluded[p.PID] {
-			continue
+	deadline := time.Now().Add(inUseSettle)
+	for {
+		busy, err := foreignProc(real, excluded)
+		if err != nil || busy == nil {
+			return "", err
 		}
-		return fmt.Sprintf("in use by pid %d (%s)", p.PID, p.Comm), nil
+		if time.Now().After(deadline) {
+			return fmt.Sprintf("in use by pid %d (%s)", busy.PID, busy.Comm), nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return "", nil
+}
+
+// foreignProc returns the first live process inside dir that is not the caller or one of its ancestors.
+func foreignProc(dir string, excluded map[int]bool) (*Proc, error) {
+	procs, err := processesIn(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range procs {
+		if !excluded[p.PID] {
+			return &p, nil
+		}
+	}
+	return nil, nil
 }
 
 // within reports whether path equals base or sits under it, comparing with a trailing separator so

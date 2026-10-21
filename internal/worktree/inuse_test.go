@@ -14,10 +14,32 @@ import (
 // originals on cleanup, so a stub in one test never leaks into the next.
 func stubProcesses(t *testing.T, in func(dir string) ([]Proc, error)) {
 	t.Helper()
-	origIn, origParent := processesIn, parentOf
+	origIn, origParent, origSettle := processesIn, parentOf, inUseSettle
 	processesIn = in
 	parentOf = func(pid int) (int, error) { return 0, nil } // no ancestry beyond the stubbed pid itself
-	t.Cleanup(func() { processesIn, parentOf = origIn, origParent })
+	inUseSettle = 0                                         // stubbed processes never exit; refuse on the first look
+	t.Cleanup(func() { processesIn, parentOf, inUseSettle = origIn, origParent, origSettle })
+}
+
+// A process that exits within the settle window (git's background auto-gc) does not block removal.
+func TestInUseByWaitsOutTransientProcess(t *testing.T) {
+	dest := t.TempDir()
+	calls := 0
+	stubProcesses(t, func(dir string) ([]Proc, error) {
+		calls++
+		if calls <= 2 {
+			return []Proc{{PID: 999999, Comm: "git"}}, nil
+		}
+		return nil, nil
+	})
+	inUseSettle = time.Second
+	reason, err := InUseBy(dest)
+	if err != nil || reason != "" {
+		t.Fatalf("InUseBy = %q, %v; want clear once the transient process exits", reason, err)
+	}
+	if calls < 3 {
+		t.Errorf("checked %d times, want a re-check after the first busy look", calls)
+	}
 }
 
 func TestInUseByRefusesWhenStubbedProcessIsInside(t *testing.T) {
