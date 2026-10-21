@@ -269,15 +269,6 @@ func copilotMenu(d *dialog) agentMenu {
 			return pickGitHubUser(d, auth)
 		}},
 	}
-	if d.reg != nil {
-		modelID, _ := providers.CopilotModel(d.reg)
-		if r := copilotEffortRow(d, modelID); r != nil {
-			rows = append(rows, *r)
-		}
-		if r := copilotContextRow(d, modelID); r != nil {
-			rows = append(rows, *r)
-		}
-	}
 	return agentMenu{st, rows}
 }
 
@@ -304,9 +295,9 @@ const copilotContextBaseline = 200_000
 // back to the fixed list (today's behavior) since there is nothing to check eligibility against.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := providers.Pin(providers.PinCopilotEffort)
-	desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
 	m, ok := copilotCatalogModel(d, modelID)
 	if !ok {
+		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
 		r := billingRow{"Effort", desc, "", func() bool {
 			return pickCopilotPin(d, "effort", providers.PinCopilotEffort, copilotEffortChoices, cur)
 		}}
@@ -315,6 +306,11 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	if !m.ReasoningEffort || len(m.Efforts) == 0 {
 		return nil
 	}
+	def := "default"
+	if m.DefaultEffort != "" {
+		def += " (" + m.DefaultEffort + ")"
+	}
+	desc := "reasoning effort on every launch " + bracket(cur != "", cur, def)
 	choices := make([][2]string, len(m.Efforts))
 	for i, e := range m.Efforts {
 		label := cmp.Or(copilotEffortLabels[e], e)
@@ -345,10 +341,21 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 		return nil
 	}
 	cur := providers.Pin(providers.PinCopilotContext)
-	r := billingRow{"Context", "context window tier on every launch " + bracket(cur != "", cur, "unset"), "", func() bool {
+	desc := "context window tier on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
+	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", providers.PinCopilotContext, copilotContextChoices, cur)
 	}}
 	return &r
+}
+
+// copilotContextLabel is val's menu label from copilotContextChoices ("200K"/"1M"); val itself if unknown.
+func copilotContextLabel(val string) string {
+	for _, c := range copilotContextChoices {
+		if c[1] == val {
+			return c[0]
+		}
+	}
+	return val
 }
 
 // clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a

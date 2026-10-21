@@ -28,7 +28,9 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"} {
+	// Copilot pin env beats the vault pin (providers.Pin); a session running inside copilot exports COPILOT_MODEL.
+	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "GEMINI_API_KEY", "ANTHROPIC_API_KEY",
+		providers.PinCopilotModel, providers.PinCopilotEffort, providers.PinCopilotContext} {
 		t.Setenv(k, "")
 	}
 	reg, err := providers.Load()
