@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func closedStdout(t *testing.T) {
@@ -46,8 +48,18 @@ func TestWriteSettingsOutputReportsStdoutFailure(t *testing.T) {
 		})
 	}
 	t.Run("check does not write", func(t *testing.T) {
+		// Hermetic: a clean render in a temp config dir, never the user's live settings.json.
+		dir := t.TempDir()
+		t.Setenv("CLAUDE_CONFIG_DIR", dir)
+		rendered, err := settings.RenderLive()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), rendered, 0o600); err != nil {
+			t.Fatal(err)
+		}
 		closedStdout(t)
-		if drift, err := writeSettingsOutput("", true, false, []byte("{}\n")); drift || err != nil {
+		if drift, err := writeSettingsOutput("", true, false, rendered); drift || err != nil {
 			t.Fatalf("check-only output = %v, %v, want false, nil", drift, err)
 		}
 	})

@@ -12,5 +12,5 @@ each file over that tool's own config (foreign keys kept, a `.bak-<stamp>` besid
 | `copilot.json` | `~/.copilot/settings.json` | `theme` (`default` keeps the terminal background; `github` forces #0d1117) |
 | `gemini.json` | `~/.gemini/settings.json` | `theme` |
 
-Claude Code's own `"theme": "auto"` lives in `internal/settings/settings.tmpl.json` (rendered by `make install`),
+Claude Code's own `"theme": "auto"` lives in `internal/settings/template/` (rendered by `make install`),
 not here. Codex's `appearanceTheme` is set from the ChatGPT desktop app and is left alone.

@@ -43,6 +43,7 @@ func settingsRows(d *dialog) []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
 		{"secrets", "vault", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
+		claudeSettingsRow(d),
 		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
 	}
 }
@@ -385,7 +386,7 @@ func rerenderConfigs(d *dialog) {
 		d.printf("settings.json: %v\n", err)
 		return
 	}
-	rendered, err := settings.Render()
+	rendered, err := settings.RenderLive()
 	if err != nil {
 		d.printf("settings.json: %v\n", err)
 		return
