@@ -1,47 +1,90 @@
 package agent
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// attachPrompt per runner: codex folds the file inline (stdin has no live-read channel), gemini (agy)
-// appends a live @path reference, and every other vendor (opencode included) leaves the prompt untouched
-// since it carries the attachment in its own argv instead (vendors.opencodeRun's -f).
+// attachPrompt per runner: codex folds the file inline (stdin has no live-read channel). gemini (agy)
+// inlines it too when tools are off (agy's no-tools preamble bars it from reading @path live), but
+// appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
+// prompt untouched since it carries the attachment in its own argv instead (vendors.opencodeRun's -f).
 func TestVendorRunnerAttachPrompt(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	inline := "task\n\n<file path=" + `"` + f + `"` + ">\nfile-content\n</file>"
 	cases := []struct {
+		name   string
 		vendor string
+		tools  bool
 		want   string
 	}{
-		{"codex", "task\n\n<file path=" + `"` + f + `"` + ">\nfile-content\n</file>"},
-		{"gemini", "task\n@" + f},
-		{"opencode", "task"},
+		{"codex/tools", "codex", true, inline},
+		{"codex/no-tools", "codex", false, inline},
+		{"gemini/tools", "gemini", true, "task\n@" + f},
+		{"gemini/no-tools", "gemini", false, inline},
+		{"opencode/tools", "opencode", true, "task"},
 	}
 	for _, c := range cases {
-		t.Run(c.vendor, func(t *testing.T) {
-			got, err := vendorRunner{name: c.vendor}.attachPrompt("task", []string{f})
+		t.Run(c.name, func(t *testing.T) {
+			got, err := vendorRunner{name: c.vendor}.attachPrompt("task", []string{f}, c.tools)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != c.want {
-				t.Errorf("attachPrompt(%s) = %q, want %q", c.vendor, got, c.want)
+				t.Errorf("attachPrompt(%s, tools=%v) = %q, want %q", c.vendor, c.tools, got, c.want)
 			}
 		})
 	}
 }
 
-// A missing attachment is a fatal error for the inline path, not a silently dropped reference.
+// A missing attachment is a fatal error for the inline path, not a silently dropped reference,
+// regardless of Tools (gemini without tools now inlines too, so it must fail the same way).
 func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
-	_, err := vendorRunner{name: "codex"}.attachPrompt("task", []string{"/does/not/exist"})
-	if err == nil {
-		t.Fatal("want an error for a missing attachment, got nil")
+	for _, c := range []struct {
+		vendor string
+		tools  bool
+	}{
+		{"codex", true}, {"gemini", false},
+	} {
+		if _, err := (vendorRunner{name: c.vendor}).attachPrompt("task", []string{"/does/not/exist"}, c.tools); err == nil {
+			t.Fatalf("%s tools=%v: want an error for a missing attachment, got nil", c.vendor, c.tools)
+		}
+	}
+}
+
+// A no-tools gemini run whose inlined attachment pushes the composed prompt over MaxPromptBytes errors
+// out before ever touching the agy binary (no bin/agy installed in this test, and it must not need one).
+func TestVendorRunnerGeminiNoToolsOverLimitAttach(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	marker := vendors.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	big := filepath.Join(t.TempDir(), "big.txt")
+	if err := os.WriteFile(big, []byte(strings.Repeat("x", MaxPromptBytes)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Attach: []string{big}}, io.Discard)
+	var e *Error
+	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
+		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
 	}
 }
 
