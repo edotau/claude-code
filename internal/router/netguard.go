@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"syscall"
 	"time"
@@ -25,13 +26,30 @@ var (
 	guardedDialer = &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: rejectLocal}
 )
 
-// guardedDial picks the dialer by how the host was spelled, before any DNS lookup.
+// guardedDial picks the dialer by how the host was spelled, before any DNS lookup. A dial to the
+// configured HTTP(S)_PROXY host is unguarded too (user-configured, like literalLocal); once connected,
+// the CONNECT target host is resolved and reached by the proxy, not dialed by us, so no further guard applies.
 func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(addr)
-	if err == nil && literalLocal(host) {
+	if err == nil && (literalLocal(host) || proxyHosts[strings.ToLower(host)]) {
 		return plainDialer.DialContext(ctx, network, addr)
 	}
 	return guardedDialer.DialContext(ctx, network, addr)
+}
+
+// proxyHosts holds the hostnames of HTTP(S)_PROXY as seen by http.ProxyFromEnvironment, resolved once at init.
+var proxyHosts = resolveProxyHosts()
+
+// resolveProxyHosts reads HTTP_PROXY/HTTPS_PROXY (and lowercase) via the stdlib's own env-proxy resolution.
+func resolveProxyHosts() map[string]bool {
+	hosts := map[string]bool{}
+	for _, scheme := range []string{"http", "https"} {
+		u, err := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: scheme}})
+		if err == nil && u != nil && u.Hostname() != "" {
+			hosts[strings.ToLower(u.Hostname())] = true
+		}
+	}
+	return hosts
 }
 
 // literalLocal is a host the config spelled out as local on purpose: an IP literal or localhost.
