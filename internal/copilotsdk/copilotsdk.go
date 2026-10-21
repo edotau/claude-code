@@ -29,6 +29,7 @@ type Options struct {
 	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
 	Model            string   // Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
 	ReasoningEffort  string
+	Context          string // ContextTier: "default" or "long_context"; empty leaves the model's own default
 	WorkingDirectory string
 	AllowAllTools    bool
 	UseLoggedInUser  bool // always explicit: unset, the SDK silently falls back to the GitHub subscription
@@ -66,6 +67,7 @@ func BuildSessionConfig(o Options) *copilot.SessionConfig {
 		ClientName:          DefaultClientName,
 		Model:               o.Model,
 		ReasoningEffort:     o.ReasoningEffort,
+		ContextTier:         copilot.ContextTier(o.Context),
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
 		OnPermissionRequest: permissionHandler(o),
@@ -82,6 +84,7 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 		ClientName:          DefaultClientName,
 		Model:               o.Model,
 		ReasoningEffort:     o.ReasoningEffort,
+		ContextTier:         copilot.ContextTier(o.Context),
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
 		OnPermissionRequest: permissionHandler(o),

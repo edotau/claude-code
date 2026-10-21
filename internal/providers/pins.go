@@ -19,6 +19,10 @@ const (
 	PinModel    = "HARNESS_MODEL" // fills every slot
 	// PinGitHubUser names the gh account copilot runs as (`gh auth token --user`); unset = gh's active one.
 	PinGitHubUser = "COPILOT_GITHUB_USER"
+	// PinCopilotEffort is copilot's --reasoning-effort on every launch; unset follows copilot's own default.
+	PinCopilotEffort = "COPILOT_REASONING_EFFORT"
+	// PinCopilotContext is copilot's --context tier on every launch; unset follows copilot's own default.
+	PinCopilotContext = "COPILOT_CONTEXT_TIER"
 )
 
 // SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.

@@ -227,6 +227,20 @@ func TestParseRejectsCleanupPeriodDaysZero(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsNull: a JSON null must never satisfy any Kind's Validate — json.Unmarshal(null, ptr)
+// silently succeeds as a no-op, so without an explicit null guard every Kind would accept it unchallenged.
+func TestValidateRejectsNull(t *testing.T) {
+	for _, key := range []string{"alwaysThinkingEnabled", "effortLevel", "outputStyle", "cleanupPeriodDays"} {
+		f, ok := Lookup(key)
+		if !ok {
+			t.Fatalf("%s is not in Catalog", key)
+		}
+		if err := f.Validate(json.RawMessage("null")); err == nil {
+			t.Errorf("%s (Kind=%v): Validate(null) = nil error, want rejection", key, f.Kind)
+		}
+	}
+}
+
 // TestParseRejectsEffortLevelMax: "max" and "ultracode" are session-only per the schema description and are
 // not accepted in the settings file — only low/medium/high/xhigh persist.
 func TestParseRejectsEffortLevelMax(t *testing.T) {
