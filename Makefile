@@ -96,7 +96,7 @@ bootstrap:  ## Fresh box: Go, install, configure (CHECK=1, TAILSCALE=1)
 
 INTO ?= $(HOME)/.claude
 .PHONY: adopt
-adopt:  ## From a stage clone: adopt INTO (~/.claude), then bootstrap it (ADOPT_ARGS=--dry-run)
+adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	@if [ -e "$(INTO)/.git" ]; then echo "$(INTO) is already a checkout"; exit 0; fi; \
 	$(MAKE) go-toolchain compile && \
 	$(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
@@ -162,7 +162,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## fmt, vet, shell, yaml, tui width, settings, md fix (CHECK=1)
+lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## vet, shell, yml, tui width, settings, md fix (CHECK=1)
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
