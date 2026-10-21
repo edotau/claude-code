@@ -82,6 +82,13 @@ type dialog struct {
 	copilotCatalog       []copilotsdk.Model
 	copilotCatalogErr    error
 	copilotCatalogLoaded bool
+	// codexCatalog/geminiCatalog cache that vendor's own CLI model listing for the life of this dialog.
+	codexCatalog        []codexModelInfo
+	codexCatalogErr     error
+	codexCatalogLoaded  bool
+	geminiCatalog       []geminiModelInfo
+	geminiCatalogErr    error
+	geminiCatalogLoaded bool
 }
 
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).

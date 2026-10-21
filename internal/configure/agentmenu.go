@@ -382,12 +382,18 @@ func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
 
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
 func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
+	return pickVendorPin(d, "copilot", title, key, choices, cur)
+}
+
+// pickVendorPin is pickCopilotPin generalized over the vendor naming the pin (its title and printf
+// prefix); copilot, codex and gemini's Effort rows all share it.
+func pickVendorPin(d *dialog, vendor, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", "copilot's own default" + curMark(cur == "")})
+	rows = append(rows, [2]string{"unset", vendor + "'s own default" + curMark(cur == "")})
 	for _, c := range choices {
 		rows = append(rows, [2]string{c[0], c[1] + curMark(c[1] == cur)})
 	}
-	idx, err := pick(d, "copilot — "+title, rows)
+	idx, err := pick(d, vendor+" — "+title, rows)
 	if err != nil || idx < 0 {
 		return false
 	}
@@ -396,14 +402,10 @@ func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur strin
 		val = choices[idx-1][1]
 	}
 	if err := providers.SetPins(map[string]string{key: val}); err != nil {
-		d.printf("copilot: %v\n", err)
+		d.printf("%s: %v\n", vendor, err)
 		return false
 	}
-	shown := val
-	if shown == "" {
-		shown = "unset"
-	}
-	d.printf("copilot: %s = %s\n", key, shown)
+	d.printf("%s: %s = %s\n", vendor, key, cmp.Or(val, "unset"))
 	d.changed = true
 	return true
 }

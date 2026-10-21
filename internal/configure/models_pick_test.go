@@ -47,35 +47,33 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	}
 }
 
-// codex (and every other hub agent) keeps the tier-then-model flow: the first pick selects a tier row
-// (opus/sonnet/haiku), the second pick selects that tier's model id.
-func TestModelRowCodexKeepsTierPicker(t *testing.T) {
+// codex's Model row skips the tier picker too (like copilot's): it goes straight to codex's own
+// `debug models` catalog and saves CODEX_MODEL, never the registry's chatgpt opus slot.
+func TestModelRowCodexSkipsTierPicker(t *testing.T) {
 	reg := menuTestEnv(t)
-	origChoices := modelChoices
-	t.Cleanup(func() { modelChoices = origChoices })
-	modelChoices = func(p *providers.Provider, claude bool) []string { return []string{"gpt-5-codex"} }
+	stubCodexCatalog(t, []codexModelInfo{{Slug: "gpt-5-codex", DisplayName: "GPT-5 Codex"}}, nil)
+
+	gp, ok := reg.Providers["chatgpt"]
+	if !ok {
+		t.Skip("no chatgpt provider in the registry")
+	}
+	wantOpus := gp.Models["opus"] // must survive untouched: codex's Model row writes only CODEX_MODEL
 
 	d2 := &dialog{reg: reg, out: discardWriter{}}
-	target, _ := modelTarget(d2, "codex")
-	if target == nil {
-		t.Skip("no hub account to route the codex Model row to")
-	}
-
 	r := modelRow(d2, "codex")
 	if r == nil {
 		t.Fatal("modelRow(codex) = nil, want the Model row")
 	}
-	in := strings.NewReader("1\n1\n") // tier row 1 = opus, then model row 1 = the only choice
+	in := strings.NewReader("1\n") // numbered pick, non-TTY: row 1 = the only model, no tier prompt first
 	d2.o, d2.br = Options{In: in}, bufio.NewReader(in)
 	if !r.run() {
 		t.Fatal("codex Model row run() = false")
 	}
-	p, err := reg.Get(target.Name)
-	if err != nil {
-		t.Fatal(err)
+	if got, _ := providers.CodexModel(); got != "gpt-5-codex" {
+		t.Errorf("CODEX_MODEL resolver = %q, want gpt-5-codex (one pick, no tier step)", got)
 	}
-	if got := p.Models["opus"]; got != "gpt-5-codex" {
-		t.Errorf("%s opus slot = %q, want gpt-5-codex (tier flow preserved)", target.Name, got)
+	if got := gp.Models["opus"]; got != wantOpus {
+		t.Errorf("chatgpt opus slot = %q, want unchanged %q: codex's Model row must not write the provider", got, wantOpus)
 	}
 }
 

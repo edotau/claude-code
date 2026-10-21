@@ -268,6 +268,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
+		check(true, false, "codex route", codexRouteDetail())
+		check(true, false, "gemini route", geminiRouteDetail())
 	}
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
@@ -497,6 +499,21 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
 	}
 	return detail
+}
+
+// codexRouteDetail reports codex's own CODEX_MODEL/CODEX_REASONING_EFFORT pins — names/booleans only,
+// never a credential; unset means codex's own default (config.toml, then its ChatGPT-login catalog).
+func codexRouteDetail() string {
+	model, source := providers.CodexModel()
+	effort, _ := providers.CodexEffort()
+	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default"))
+}
+
+// geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
+// means agy's own default (agent.AgyDefaultModel).
+func geminiRouteDetail() string {
+	model, source := providers.GeminiModel()
+	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
 }
 
 func routerStatus() string {

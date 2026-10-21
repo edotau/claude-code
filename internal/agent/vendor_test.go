@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -85,6 +86,69 @@ func TestVendorRunnerGeminiNoToolsOverLimitAttach(t *testing.T) {
 	var e *Error
 	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
+	}
+}
+
+// geminiOwnLoginFixture isolates HOME/CLAUDE_CONFIG_DIR and writes agy's own login marker, so
+// vendorTarget's gemini fallback leg (vendors.fallbackTarget) applies without a real Google login.
+func geminiOwnLoginFixture(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	marker := vendors.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// vendorRunner.Run's gemini branch resolves the model agy actually runs as: the GEMINI_AGENT_MODEL pin
+// when the caller named none, else AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
+// comes back correct even though no real agy binary is installed here (RunAgy errors, Run still
+// returns res with Model set — vendor.go Run()).
+func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
+	geminiOwnLoginFixture(t)
+	t.Setenv(providers.PinGeminiModel, "")
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, io.Discard)
+	if err == nil {
+		t.Fatal("want an error (no real agy binary installed), got nil")
+	}
+	if res.Model != AgyDefaultModel {
+		t.Errorf("res.Model = %q, want AgyDefaultModel %q (no pin, no explicit model)", res.Model, AgyDefaultModel)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, io.Discard)
+	if err == nil {
+		t.Fatal("want an error (no real agy binary installed), got nil")
+	}
+	if res.Model != "gemini-2.5-pro" {
+		t.Errorf("res.Model = %q, want the GEMINI_AGENT_MODEL pin gemini-2.5-pro", res.Model)
+	}
+}
+
+// An explicit Request.Model still wins over the GEMINI_AGENT_MODEL pin.
+func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
+	geminiOwnLoginFixture(t)
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Model: "gemini-3.8-flash-low"}, io.Discard)
+	if err == nil {
+		t.Fatal("want an error (no real agy binary installed), got nil")
+	}
+	if res.Model != "gemini-3.8-flash-low" {
+		t.Errorf("res.Model = %q, want the explicit request model, not the gemini-2.5-pro pin", res.Model)
 	}
 }
 

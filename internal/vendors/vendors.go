@@ -3,6 +3,7 @@
 package vendors
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -143,6 +144,9 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			if own := codexOwnModel(); own != "" {
 				model = own
 			}
+			if pin, _ := providers.CodexModel(); pin != "" { // CODEX_MODEL pin beats both
+				model = pin
+			}
 			return providers.Target{Provider: p, Model: model}, "chatgpt (codex login)", true
 		}
 	case "copilot":
@@ -154,7 +158,11 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 		}
 	case "gemini":
 		if p, ok := reg.Providers["gemini"]; ok && GeminiLoginPresent() {
-			return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "gemini (Google login via agy)", true
+			model := p.Models[models.Opus]
+			if pin, _ := providers.GeminiModel(); pin != "" { // GEMINI_MODEL pin beats the registry's bare slot id
+				model = pin
+			}
+			return providers.Target{Provider: p, Model: model}, "gemini (Google login via agy)", true
 		}
 	case "opencode":
 		// opencode's own chain (DescribeRoute): its own GitHub Copilot login, then an anthropic or gemini key.
@@ -432,8 +440,8 @@ func codexHeadless(argv []string, h *Headless) []string {
 	if h == nil {
 		return argv
 	}
-	if h.Effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(h.Effort))
+	if effort := cmp.Or(h.Effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
+		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
 	}
 	sandbox := "read-only"
 	if h.Tools {

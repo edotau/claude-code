@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os/exec"
@@ -63,6 +64,16 @@ func modelRow(d *dialog, name string) *billingRow {
 		model, source := providers.CopilotModel(d.reg)
 		desc := model + " (" + source + ")"
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
+	}
+	if name == "codex" {
+		model, source := providers.CodexModel()
+		desc := cmp.Or(model, "codex's own default") + " (" + source + ")"
+		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCodexModel(d); return true }}
+	}
+	if name == "gemini" {
+		model, source := providers.GeminiModel()
+		desc := cmp.Or(model, agent.AgyDefaultModel) + " (" + source + ")"
+		return &billingRow{label: "Model", desc: desc, run: func() bool { pickGeminiModel(d); return true }}
 	}
 	p, claude := modelTarget(d, name)
 	if p == nil {

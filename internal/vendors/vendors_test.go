@@ -216,6 +216,45 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 	}
 }
 
+// codexHeadless carries CODEX_REASONING_EFFORT into -c model_reasoning_effort when the call names no
+// explicit Effort; an explicit Headless.Effort still wins over the pin (TestConfigure's codex/Effort
+// case already proves the no-pin explicit path, so this proves the pin-only and pin-vs-explicit paths).
+func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.T) {
+	tg := target(t, "openai", "gpt-5")
+	t.Setenv(providers.PinCodexEffort, "")
+	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, argv, err := ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(argv, "model_reasoning_effort=\"\"") || slices.ContainsFunc(argv, func(s string) bool { return strings.Contains(s, "model_reasoning_effort=") }) {
+		t.Errorf("argv %q with no pin and no explicit effort, want no model_reasoning_effort flag", argv)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: "xhigh"}); err != nil {
+		t.Fatal(err)
+	}
+	_, argv, err = ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(argv, `model_reasoning_effort="xhigh"`) {
+		t.Errorf("argv = %q, want the CODEX_REASONING_EFFORT pin (xhigh) carried in", argv)
+	}
+
+	// An explicit Headless.Effort still wins over the pin.
+	_, argv, err = ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(argv, `model_reasoning_effort="low"`) || slices.Contains(argv, `model_reasoning_effort="xhigh"`) {
+		t.Errorf("argv = %q, want the explicit effort (low) to beat the xhigh pin", argv)
+	}
+}
+
 // Interactive copilot (h == nil, BYOK/gateway route): same pin-to-argv wiring as the own-login route.
 func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
@@ -1219,6 +1258,20 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 		t.Fatalf("expected a note naming chatgpt, got %q", note)
 	}
 
+	// The CODEX_MODEL pin beats both the chatgpt provider's own opus slot and codexOwnModel's
+	// config.toml (unset here), once the ChatGPT login fallback applies.
+	t.Setenv(providers.PinCodexModel, "")
+	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "gpt-6.1-sol"}); err != nil {
+		t.Fatal(err)
+	}
+	target, _, err = ResolveTarget(reg, "codex", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Model != "gpt-6.1-sol" {
+		t.Fatalf("CODEX_MODEL pin = gpt-6.1-sol, want it to win the fallback target's model, got %q", target.Model)
+	}
+
 	// An explicit provider choice is never overridden by a fallback.
 	target, note, err = ResolveTarget(reg, "codex", sel, true)
 	if err != nil {
@@ -1226,6 +1279,54 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 	if note != "" || target.Provider != sub {
 		t.Fatalf("explicit provider must not fall back, got target=%v note=%q", target.Provider, note)
+	}
+}
+
+// The GEMINI_AGENT_MODEL pin beats the gemini provider's own registry opus slot once agy's Google
+// login fallback applies (subscription can't serve gemini directly).
+func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	marker := AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := reg.Get("subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+
+	t.Setenv(providers.PinGeminiModel, "")
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+	target, _, err := ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDefault := reg.Providers["gemini"].Models["opus"]
+	if target.Model != wantDefault {
+		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus slot %q", target.Model, wantDefault)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
+		t.Fatal(err)
+	}
+	target, _, err = ResolveTarget(reg, "gemini", sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Model != "gemini-2.5-pro" {
+		t.Fatalf("GEMINI_AGENT_MODEL pin = gemini-2.5-pro, want it to win the fallback target's model, got %q", target.Model)
 	}
 }
 
