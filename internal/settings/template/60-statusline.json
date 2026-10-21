@@ -1,0 +1,7 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "${HOOK_BIN} statusline",
+    "padding": 0
+  }
+}
