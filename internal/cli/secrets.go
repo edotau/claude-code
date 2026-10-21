@@ -18,8 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-func init() { secretsRun = cmdSecrets }
-
 const secretsUsage = `usage: claude-code secrets <op> [flags]
   set [<NAME>]            store a secret (sealed in the vault)
                           NAME: prompts for the value; no NAME: guided dialog

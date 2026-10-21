@@ -138,7 +138,7 @@ func cmdModels(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if code, handled := applyModelPins(*provider, *unpin, *dryRun, pins); handled {
+	if code, handled := applyModelPins(reg, *provider, *unpin, *dryRun, pins); handled {
 		return code
 	}
 	sel, err := providers.Select(reg, *provider)
@@ -148,7 +148,7 @@ func cmdModels(args []string) int {
 	return renderModelSelection(reg, sel, *format, *live)
 }
 
-func applyModelPins(provider string, unpin, dryRun bool, pins []string) (code int, handled bool) {
+func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool, pins []string) (code int, handled bool) {
 	if !unpin && len(pins) == 0 {
 		return 0, false
 	}
@@ -171,7 +171,7 @@ func applyModelPins(provider string, unpin, dryRun bool, pins []string) (code in
 			}
 			key = providers.SlotPin(slot)
 		}
-		kv[key] = spec
+		kv[key] = qualifyPinSpec(reg, provider, spec)
 	}
 	warn, err := validateCopilotPins(provider, pins)
 	if err != nil {
@@ -187,6 +187,29 @@ func applyModelPins(provider string, unpin, dryRun bool, pins []string) (code in
 		return fail("%v", err), true
 	}
 	return 0, false
+}
+
+// qualifyPinSpec stores a cross-provider "provider:model" pin when --provider names a provider other
+// than the session's own, so the pin later resolves against the provider it was validated for, not
+// whichever provider the session happens to be on (the bug: a bare model id pinned under --provider
+// X but resolved under the session provider instead). Already-qualified specs pass through unchanged.
+func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
+	if providerFlag == "" {
+		return spec
+	}
+	if name, model, ok := strings.Cut(spec, ":"); ok {
+		if _, found := reg.Providers[name]; found && model != "" {
+			return spec
+		}
+	}
+	session := providers.Pin(providers.PinProvider)
+	if session == "" {
+		session = reg.Default
+	}
+	if providerFlag == session {
+		return spec
+	}
+	return providerFlag + ":" + spec
 }
 
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {

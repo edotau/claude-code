@@ -57,18 +57,23 @@ func memoryAgent() memory.AgentFunc {
 }
 
 // memoryFlagSet builds the per-subcommand flag.FlagSet shared by every handler below.
-func memoryFlagSet(sub string) (*flag.FlagSet, *string) {
+func memoryFlagSet(sub string) *flag.FlagSet {
 	fs := flag.NewFlagSet("memory "+sub, flag.ContinueOnError)
 	fs.Usage = func() {
 		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
 		helptext.Defaults(fs)
 	}
-	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
-	return fs, repo
+	return fs
+}
+
+// memoryRepoFlagSet adds --repo; only handlers that resolve a bank root take it, so it is never silently ignored.
+func memoryRepoFlagSet(sub string) (*flag.FlagSet, *string) {
+	fs := memoryFlagSet(sub)
+	return fs, fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 }
 
 func cmdMemoryInit(args []string) int {
-	fs, repo := memoryFlagSet("init")
+	fs, repo := memoryRepoFlagSet("init")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -81,7 +86,7 @@ func cmdMemoryInit(args []string) int {
 }
 
 func cmdMemorySearch(args []string) int {
-	fs, repo := memoryFlagSet("search")
+	fs, repo := memoryRepoFlagSet("search")
 	k := fs.Int("k", 8, "maximum hits")
 	all := fs.Bool("all", false, "search the global tier and every repo store")
 	format := outfmt.Flag(fs)
@@ -128,9 +133,10 @@ func cmdMemorySearch(args []string) int {
 }
 
 func cmdMemoryShow(args []string) int {
-	fs, _ := memoryFlagSet("show")
+	fs := memoryFlagSet("show")
 	if fs.Parse(args) != nil || fs.NArg() != 1 {
-		return fail("memory show: give one block id (from `memory search` or a MEMORY.md region)")
+		fail("memory show: give one block id (from `memory search` or a MEMORY.md region)")
+		return 2
 	}
 	path, block, err := memory.ShowBlock(fs.Arg(0))
 	if err != nil {
@@ -141,7 +147,7 @@ func cmdMemoryShow(args []string) int {
 }
 
 func cmdMemoryIndex(args []string) int {
-	fs, repo := memoryFlagSet("index")
+	fs, repo := memoryRepoFlagSet("index")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -165,7 +171,7 @@ func cmdMemoryIndex(args []string) int {
 }
 
 func cmdMemoryPath(args []string) int {
-	fs, repo := memoryFlagSet("path")
+	fs, repo := memoryRepoFlagSet("path")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -174,7 +180,7 @@ func cmdMemoryPath(args []string) int {
 }
 
 func cmdMemoryUpdate(args []string) int {
-	fs, _ := memoryFlagSet("update")
+	fs := memoryFlagSet("update")
 	transcript := fs.String("transcript", "", "finished session's transcript")
 	cwd := fs.String("cwd", "", "project root whose bank to harvest (default: cwd)")
 	session := fs.String("session", "", "finished session's id (outcome recorded under state/harvest/memory)")
@@ -193,7 +199,7 @@ func cmdMemoryUpdate(args []string) int {
 }
 
 func cmdMemoryDream(args []string) int {
-	fs, _ := memoryFlagSet("dream")
+	fs := memoryFlagSet("dream")
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
 	force := fs.Bool("force", false, "run even when not due")
 	if fs.Parse(args) != nil {
@@ -214,7 +220,7 @@ func cmdMemoryDream(args []string) int {
 }
 
 func cmdMemoryDigest(args []string) int {
-	fs, repo := memoryFlagSet("digest")
+	fs, repo := memoryRepoFlagSet("digest")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -232,7 +238,7 @@ func cmdMemoryWatch(args []string) int {
 }
 
 func cmdMemoryDoctor(args []string) int {
-	fs, repo := memoryFlagSet("doctor")
+	fs, repo := memoryRepoFlagSet("doctor")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
 	if fs.Parse(args) != nil {
@@ -256,7 +262,7 @@ func cmdMemoryDoctor(args []string) int {
 }
 
 func cmdMemoryStats(args []string) int {
-	fs, _ := memoryFlagSet("stats")
+	fs := memoryFlagSet("stats")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -265,7 +271,7 @@ func cmdMemoryStats(args []string) int {
 }
 
 func cmdMemoryTimeline(args []string) int {
-	fs, repo := memoryFlagSet("timeline")
+	fs, repo := memoryRepoFlagSet("timeline")
 	n := fs.Int("n", 20, "max entries")
 	if fs.Parse(args) != nil {
 		return 2
@@ -284,7 +290,7 @@ func cmdMemoryTimeline(args []string) int {
 }
 
 func cmdMemoryPromote(args []string) int {
-	fs, repo := memoryFlagSet("promote")
+	fs, repo := memoryRepoFlagSet("promote")
 	if fs.Parse(args) != nil {
 		return 2
 	}

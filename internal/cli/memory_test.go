@@ -137,6 +137,41 @@ func TestMemoryMigrateDryRunApplyAndGuard(t *testing.T) {
 	}
 }
 
+// TestMemorySubcommandsWithoutRepoRejectBareRepoFlag: stats/update/dream/show take no --repo flag —
+// their own flag.FlagSet has nothing registered for it, so passing it is a parse error (exit 2).
+func TestMemorySubcommandsWithoutRepoRejectBareRepoFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cases := []struct {
+		args []string
+		want int
+	}{
+		{[]string{"stats", "--repo", "/x"}, 2},
+		{[]string{"update", "--repo", "/x"}, 2},
+		{[]string{"dream", "--repo", "/x"}, 2},
+		{[]string{"show", "--repo", "/x"}, 2},
+	}
+	for _, c := range cases {
+		code, _, stderr := captureOutput(t, func() int { return cmdMemory(c.args) })
+		if code != c.want {
+			t.Errorf("cmdMemory(%v) = %d, want %d; stderr=%q", c.args, code, c.want, stderr)
+		}
+	}
+}
+
+// TestMemoryPathHonorsRepoFlag: `memory path --repo <dir>` does take --repo, and exits 0 with the
+// bank dir under that repo.
+func TestMemoryPathHonorsRepoFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"path", "--repo", repo}) })
+	if code != 0 {
+		t.Fatalf("memory path --repo %s: code = %d, want 0; stderr=%q", repo, code, stderr)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Error("memory path --repo: empty output, want a bank dir")
+	}
+}
+
 // Phase 1 safety: a raised guard refuses every archive write (--apply, --restore --apply, --split --apply) at the
 // memory layer, exit 1 with the notice, and the store is untouched; dry runs and reports stay ungated.
 func TestMemoryArchiveWritesRefusedWhilePaused(t *testing.T) {

@@ -280,6 +280,50 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 	}
 }
 
+// TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets pins four more verbs' completable flags
+// against the literal flag.NewFlagSet calls in their own handlers (internal/cli/launch.go,
+// internal/cli/providers.go) — every flag the handler defines must have a specTree candidate, or
+// tab-completion silently falls behind the handler the way askFlags once did.
+func TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
+	cases := map[string][]string{
+		"generate": {"out", "agents", "dry-run", "check", "vendors"},          // cmdSettings
+		"profile":  {"format"},                                                // cmdProviders
+		"doctor":   {"audit", "days", "format"},                               // cmdDoctor
+		"models":   {"provider", "unpin", "live", "dry-run", "format", "pin"}, // cmdModels
+	}
+	for verb, flags := range cases {
+		node := specTree()[verb]
+		if node == nil {
+			t.Fatalf("%s: no node in specTree()", verb)
+		}
+		got := flagNames(node)
+		for _, f := range flags {
+			boolForm, valuedForm := "--"+f, "--"+f+" <value>"
+			if !slices.Contains(got, boolForm) && !slices.Contains(got, valuedForm) {
+				t.Errorf("%s: specTree() flags = %v, missing --%s (from its own flag.NewFlagSet)", verb, got, f)
+			}
+		}
+	}
+}
+
+// TestMemoryUpdateAndStatsSpecHaveNoRepoFlag: update/stats take no --repo in their own flag.FlagSet
+// (memoryFlagSet, not memoryRepoFlagSet) — the spec must not advertise one either.
+func TestMemoryUpdateAndStatsSpecHaveNoRepoFlag(t *testing.T) {
+	memNode := specTree()["memory"]
+	if memNode == nil {
+		t.Fatal("memory: no node in specTree()")
+	}
+	for _, sub := range []string{"update", "stats"} {
+		node := memNode.sub[sub]
+		if node == nil {
+			t.Fatalf("memory %s: no sub-node in specTree()", sub)
+		}
+		if got := flagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
+			t.Errorf("memory %s: specTree() flags = %v, must not advertise --repo", sub, got)
+		}
+	}
+}
+
 // TestAskFlagsMatchItsOwnFlagSet pins ask's completable flags against the literal flag.NewFlagSet
 // calls in cmdAsk (internal/cli/agent.go) — askFlags had silently fallen behind by five flags
 // (fallback, attach, keep-env, autonomous, enable-memory) before this test existed.

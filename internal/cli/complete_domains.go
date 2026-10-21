@@ -114,7 +114,7 @@ func secretNames() []string {
 	return slices.Compact(out)
 }
 
-// memoryRepoNames lists the catalog's repo keys (dirs under memory/ with a valid .origin).
+// memoryRepoNames lists the catalog's repo keys (dirs under memory/ with a valid origin record).
 func memoryRepoNames() []string {
 	ents, err := memory.RepoDirs()
 	if err != nil {

@@ -57,6 +57,10 @@ func cmdWebBrowsers(args []string) int {
 	if _, err := outfmt.Parse(fs, args); err != nil {
 		return 2
 	}
+	if err := outfmt.Check(*format); err != nil {
+		fail("web browsers: %v", err)
+		return 2
+	}
 	rep := browser.Detect(browser.NewEnv())
 	if *format == "json" {
 		if err := outfmt.Write(os.Stdout, rep); err != nil {
@@ -80,6 +84,10 @@ func cmdWebSetup(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them")
 	format := outfmt.Flag(fs)
 	if _, err := outfmt.Parse(fs, args); err != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fail("web setup: %v", err)
 		return 2
 	}
 	env := browser.NewEnv()
@@ -123,6 +131,10 @@ func cmdWebView(args []string) int {
 	format := outfmt.Flag(fs)
 	rest, err := outfmt.Parse(fs, args)
 	if err != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fail("web view: %v", err)
 		return 2
 	}
 	if len(rest) != 1 {

@@ -36,6 +36,10 @@ func cmdSetupWorkspace(args []string) int {
 	if err != nil {
 		return 2
 	}
+	if args[0] != "init" && (*with != "" || *dryRun) { // link would write despite --dry-run; refuse
+		fmt.Fprintf(os.Stderr, "claude-code: setup workspace %s: --with/--dry-run apply to init only\n", args[0])
+		return 2
+	}
 	switch args[0] {
 	case "init":
 		return setupWorkspaceInit(pos, *with, *dryRun)

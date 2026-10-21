@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 )
 
 const geminiVerbUsage = `claude-code gemini — the gemini agent
@@ -74,7 +75,9 @@ func cmdGeminiBridge(args []string) int {
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	index := fs.Bool("index", false, "prepend a nested path index of every matched path")
 	diff := fs.Bool("diff", false, "ingest only files changed vs HEAD")
-	if err := fs.Parse(args); err != nil {
+	// Interspersed: `bridge "task" --dirs d` must ingest d, not append "--dirs d" to the task.
+	pos, err := outfmt.Parse(fs, args)
+	if err != nil {
 		return 2
 	}
 	if *format != "text" && *format != "json" {
@@ -84,13 +87,13 @@ func cmdGeminiBridge(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: gemini bridge: --max-files and --max-file-bytes must not be negative")
 		return 2
 	}
-	if *task != "" && fs.NArg() > 0 {
+	if *task != "" && len(pos) > 0 {
 		fmt.Fprintln(os.Stderr, "usage: gemini bridge: --task and trailing positional args are mutually exclusive")
 		return 2
 	}
 	taskText := *task
 	if taskText == "" {
-		taskText = strings.Join(fs.Args(), " ")
+		taskText = strings.Join(pos, " ")
 	}
 	if strings.TrimSpace(taskText) == "" {
 		helptext.Fprint(os.Stderr, "usage: claude-code gemini bridge [flags] <task>\n")

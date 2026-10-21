@@ -49,7 +49,6 @@ func cmdConfigure(args []string) int {
 func isTTY(f *os.File) bool { return ansi.IsTerminal(f) }
 
 func init() {
-	configureRun = cmdConfigure
 	// A vendor the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
 	launch.OfferConfigure = func(vendor string, reason error) bool {
 		if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
