@@ -233,14 +233,15 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 }
 
 func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
-	out, sum, err := Merge([]byte(`{"env":{"CLAUDE_CODE_DBX_HOST":"x","KEEP":"1"}}`), []byte(`{"env":{"A":"b"}}`))
+	in := `{"env":{"CLAUDE_CODE_DBX_HOST":"x","CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL":"1","KEEP":"1"}}`
+	out, sum, err := Merge([]byte(in), []byte(`{"env":{"A":"b"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := string(out); strings.Contains(s, "CLAUDE_CODE_DBX_HOST") || !strings.Contains(s, `"KEEP"`) {
+	if s := string(out); strings.Contains(s, "CLAUDE_CODE_DBX_HOST") || strings.Contains(s, "VIRTUAL_SCROLL") || !strings.Contains(s, `"KEEP"`) {
 		t.Errorf("merged env = %s", s)
 	}
-	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") {
+	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") || !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL") {
 		t.Errorf("retired = %v", sum.Retired)
 	}
 }
