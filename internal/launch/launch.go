@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -434,7 +436,7 @@ func (p Plan) plainEnv(base []string) []string {
 
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
 func (p Plan) Print(w io.Writer) {
-	fmt.Fprintf(w, "binary   %s\nargv     %s\n", p.Binary, strings.Join(p.Argv, " "))
+	fmt.Fprintf(w, "binary   %s\nargv     %s\n", p.Binary, redactQuoted(strings.Join(p.Argv, " ")))
 	for _, k := range p.unsetNames() {
 		fmt.Fprintf(w, "unset    %s\n", k)
 	}
@@ -444,7 +446,7 @@ func (p Plan) Print(w io.Writer) {
 		case secretKey(k):
 			v = "<redacted>"
 		case k == "OPENCODE_CONFIG_CONTENT":
-			v = vendors.RedactConfig(v)
+			v = redactQuoted(vendors.RedactConfig(v))
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
 	}
@@ -512,6 +514,19 @@ func secretKey(k string) bool {
 		}
 	}
 	return false
+}
+
+// quotedRE is one double-quoted string; codex -c TOML and opencode JSON carry static provider headers in them.
+var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+
+// redactQuoted masks every credential-shaped quoted string in s.
+func redactQuoted(s string) string {
+	return quotedRE.ReplaceAllStringFunc(s, func(q string) string {
+		if shapes.Looks(q[1 : len(q)-1]) {
+			return `"<redacted>"`
+		}
+		return q
+	})
 }
 
 func customHeaders(h map[string]string) string {

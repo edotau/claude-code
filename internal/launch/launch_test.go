@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -201,6 +202,53 @@ func TestClaudePassthrough(t *testing.T) {
 	}
 	if _, err := Claude(context.Background(), Options{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "run codex") {
 		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
+	}
+}
+
+// Print used to mask only known secret env keys and vendor headers; a static credential sitting inside
+// a quoted codex -c TOML value or an opencode JSON blob rode straight through. redactQuoted now masks
+// every credential-shaped quoted string in both.
+func TestPrintRedactsQuotedSecrets(t *testing.T) {
+	p := Plan{
+		Binary: "codex",
+		Argv:   []string{"-c", `p={ http_headers = { "cf-aig-authorization" = "Bearer sk-livegatewaysecret0123456789abcdefghijklmnop" } }`},
+		Set: map[string]string{
+			"OPENCODE_CONFIG_CONTENT": `{"provider":{"x":{"options":{"headers":{"h":"sk-abc123"}}}}}`,
+			"ANTHROPIC_MODEL":         "gpt-x",
+		},
+	}
+	var buf bytes.Buffer
+	p.Print(&buf)
+	out := buf.String()
+	if strings.Contains(out, "sk-livegatewaysecret0123456789abcdefghijklmnop") {
+		t.Errorf("argv secret leaked: %s", out)
+	}
+	if strings.Contains(out, "sk-abc123") {
+		t.Errorf("OPENCODE_CONFIG_CONTENT secret leaked: %s", out)
+	}
+	if !strings.Contains(out, "<redacted>") {
+		t.Errorf("expected a <redacted> marker: %s", out)
+	}
+	if !strings.Contains(out, "gpt-x") {
+		t.Errorf("a non-secret value must survive redaction: %s", out)
+	}
+}
+
+// redactQuoted must mask a credential-shaped quoted value, including one with an escaped quote inside
+// it, and must leave an empty quoted string and a ${ENV}-style reference untouched.
+func TestRedactQuotedTable(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{"credential with escaped quote", `"sk-ab\"cdefghijklmnopqrstuvwxyz0123456789"`, `"<redacted>"`},
+		{"empty quoted string untouched", `""`, `""`},
+		{"env reference untouched", `"$HOME"`, `"$HOME"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := redactQuoted(tc.in); got != tc.want {
+				t.Errorf("redactQuoted(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
