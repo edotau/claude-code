@@ -43,7 +43,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"history":   {"snapshot", "log", "diff"},
 		"vault":     {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"},
 		"web":       {"browsers", "search", "setup", "view"},
-		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "dream", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias"},
+		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "dream", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias", "fmt"},
 		"router":    {"serve", "start", "stop", "status"},
 		"mcp":       {"doctor"},
 		"agents":    {"sync", "tree"},

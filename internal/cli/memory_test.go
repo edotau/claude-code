@@ -172,6 +172,65 @@ func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 	}
 }
 
+// TestCmdMemoryFmt: --check is clean (exit 0) on a well-formed bank, reports the over-width file and
+// exits 1 without writing it, and the default pass wraps it and exits 0; the usage string and the
+// settle-writer guard both name "fmt".
+func TestCmdMemoryFmt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	bank := memory.GlobalDir()
+	target := filepath.Join(bank, "decisionLog.md")
+	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
+	if err := os.MkdirAll(bank, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("# decisionLog\n\n"+longLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, _ := captureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
+	if code != 1 || !strings.Contains(out, target) {
+		t.Fatalf("--check over a dirty bank: code=%d out=%q, want 1 naming %s", code, out, target)
+	}
+	if data, err := os.ReadFile(target); err != nil || !strings.Contains(string(data), longLine) {
+		t.Fatalf("--check wrote the file: %q err=%v", data, err)
+	}
+
+	code, out, _ = captureOutput(t, func() int { return cmdMemoryFmt(nil) })
+	if code != 0 || !strings.Contains(out, "wrapped 1 file") {
+		t.Fatalf("default fmt pass: code=%d out=%q, want 0 reporting one wrapped file", code, out)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(data), "\n") {
+		if len([]rune(l)) > memory.BankFmtMaxLine {
+			t.Errorf("rewritten decisionLog.md still has an over-width line: %q", l)
+		}
+	}
+
+	code, out, _ = captureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
+	if code != 0 || !strings.Contains(out, "clean") {
+		t.Errorf("--check after wrapping: code=%d out=%q, want 0 clean", code, out)
+	}
+
+	if !strings.Contains(memoryUsage, "memory fmt [--check]") {
+		t.Error("memoryUsage does not list `memory fmt [--check]`")
+	}
+}
+
+// TestCmdMemoryFmtRefusedWhilePaused: fmt is a settle writer, gated the same as index/promote/update/dream.
+func TestCmdMemoryFmtRefusedWhilePaused(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := memory.SetMaintenance("test"); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"fmt"}) })
+	if code != 1 || !strings.Contains(stderr, "memory maintenance in progress (test)") {
+		t.Errorf("paused fmt: code=%d stderr=%q", code, stderr)
+	}
+}
+
 // Phase 1 safety: a raised guard refuses every archive write (--apply, --restore --apply, --split --apply) at the
 // memory layer, exit 1 with the notice, and the store is untouched; dry runs and reports stay ungated.
 func TestMemoryArchiveWritesRefusedWhilePaused(t *testing.T) {
