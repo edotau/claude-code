@@ -16,6 +16,7 @@ const (
 	KindEnum
 	KindInt
 	KindString
+	KindObject
 )
 
 // Field describes one editable template key: its section, its value shape, and where its
@@ -60,6 +61,9 @@ var Catalog = []Field{
 	{Key: "autoConnectIde", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "useAutoModeDuringPlan", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},
+
+	// Section "" is overlay-only: set via `claude-code vault edit`, never shown on the configure page.
+	{Key: "autoMode", Section: "", Kind: KindObject, Source: "schema"},
 }
 
 var catalogIndex = buildCatalogIndex()
@@ -104,6 +108,8 @@ func (f Field) Parse(input string) (json.RawMessage, error) {
 			return nil, err
 		}
 		raw = b
+	case KindObject:
+		return nil, fmt.Errorf("%s: edit with claude-code vault edit", f.Key)
 	default:
 		return nil, fmt.Errorf("%s: unknown kind", f.Key)
 	}
@@ -148,6 +154,11 @@ func (f Field) Validate(raw json.RawMessage) error {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return fmt.Errorf("%s: want a string", f.Key)
+		}
+	case KindObject:
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return fmt.Errorf("%s: want a JSON object", f.Key)
 		}
 	default:
 		return fmt.Errorf("%s: unknown kind", f.Key)

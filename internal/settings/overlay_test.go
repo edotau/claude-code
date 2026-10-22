@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -26,6 +27,36 @@ func TestApplyOverlaySwapsKnownKey(t *testing.T) {
 	}
 	if string(obj["tui"]) != `"default"` {
 		t.Errorf("unrelated key tui changed: %s", obj["tui"])
+	}
+}
+
+// TestApplyOverlayCarriesAutoModeObject: autoMode is overlay-only (Section==""); applyOverlay must still
+// place it into the rendered output with the object value intact, even when a string inside it contains
+// a path-like token such as "<repo>".
+func TestApplyOverlayCarriesAutoModeObject(t *testing.T) {
+	rendered, err := Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := json.RawMessage(`{"soft_deny":["$defaults"],"environment":"/Users/eric/<repo>/worktrees"}`)
+	ov := map[string]json.RawMessage{"autoMode": want}
+	out, err := applyOverlay(rendered, ov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	var gotVal, wantVal any
+	if err := json.Unmarshal(obj["autoMode"], &gotVal); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(want, &wantVal); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotVal, wantVal) {
+		t.Errorf("autoMode = %s, want %s", obj["autoMode"], want)
 	}
 }
 

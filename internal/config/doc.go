@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vendorconfig"
 )
@@ -26,6 +27,7 @@ type Doc struct {
 	Env       map[string]string `json:"env"`
 	Providers json.RawMessage   `json:"providers"`
 	Vendors   json.RawMessage   `json:"vendors"`
+	Settings  json.RawMessage   `json:"settings"`
 	Vault     struct {
 		KeyCommand string `json:"key_command"`
 	} `json:"vault"`
@@ -34,7 +36,7 @@ type Doc struct {
 // docFrom builds the doc inside an open transaction; it never opens the vault itself.
 func docFrom(t *vault.Tx) (Doc, error) {
 	d := Doc{Pins: t.All(vault.Pins), Env: t.All(vault.Env)}
-	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "vendors": &d.Vendors} {
+	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "vendors": &d.Vendors, "settings": &d.Settings} {
 		if raw, ok := t.Get(vault.Overlay, name); ok {
 			if !json.Valid([]byte(raw)) {
 				return Doc{}, fmt.Errorf("vault overlay/%s: invalid JSON", name)
@@ -95,6 +97,7 @@ func Import(orig, edited []byte) error {
 	}
 	d.Providers = presentJSON(d.Providers)
 	d.Vendors = presentJSON(d.Vendors)
+	d.Settings = presentJSON(d.Settings)
 	if len(d.Providers) != 0 {
 		if err := providers.Validate(d.Providers); err != nil {
 			return sectionError("providers", err)
@@ -103,6 +106,15 @@ func Import(orig, edited []byte) error {
 	if len(d.Vendors) != 0 {
 		if _, err := vendorconfig.Parse(nil, d.Vendors); err != nil {
 			return sectionError("vendors", err)
+		}
+	}
+	if len(d.Settings) != 0 {
+		var ov map[string]json.RawMessage
+		if err := json.Unmarshal(d.Settings, &ov); err != nil {
+			return sectionError("settings", err)
+		}
+		if err := settings.ValidateOverlay(ov); err != nil {
+			return sectionError("settings", err)
 		}
 	}
 	if d.Vault.KeyCommand != "" {
@@ -158,6 +170,7 @@ func Import(orig, edited []byte) error {
 			old, next json.RawMessage
 		}{
 			{"providers", cur.Providers, d.Providers}, {"vendors", cur.Vendors, d.Vendors},
+			{"settings", cur.Settings, d.Settings},
 		} {
 			var old, next bytes.Buffer
 			if raw := presentJSON(section.old); len(raw) != 0 {

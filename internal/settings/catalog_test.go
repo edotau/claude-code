@@ -82,6 +82,10 @@ func checkKindMatchesSchemaType(t *testing.T, f Field, typ string) {
 		if typ != "string" {
 			t.Errorf("%s: catalog Kind=String/Enum, schema type=%q", f.Key, typ)
 		}
+	case KindObject:
+		if typ != "object" {
+			t.Errorf("%s: catalog Kind=Object, schema type=%q", f.Key, typ)
+		}
 	}
 }
 
@@ -172,7 +176,9 @@ func TestEveryScalarTemplateKeyIsCataloged(t *testing.T) {
 }
 
 // TestCatalogSectionsMatchSections: a Catalog entry's Section must name the Sections() entry that actually
-// owns its key, so the configure page groups rows under the right header.
+// owns its key, so the configure page groups rows under the right header. Section=="" is the overlay-only
+// escape hatch (a key the template never renders, so no Sections() entry can own it) — restricted to
+// KindObject so a template key can't silently lose its section this way.
 func TestCatalogSectionsMatchSections(t *testing.T) {
 	sections, err := Sections()
 	if err != nil {
@@ -185,6 +191,15 @@ func TestCatalogSectionsMatchSections(t *testing.T) {
 		}
 	}
 	for _, f := range Catalog {
+		if f.Section == "" {
+			if f.Kind != KindObject {
+				t.Errorf("catalog entry %q: Section=\"\" but Kind=%v, want KindObject (overlay-only)", f.Key, f.Kind)
+			}
+			if _, owned := owner[f.Key]; owned {
+				t.Errorf("catalog entry %q: Section=\"\" but Sections() still owns it as %q", f.Key, owner[f.Key])
+			}
+			continue
+		}
 		want, ok := owner[f.Key]
 		if !ok {
 			t.Errorf("catalog entry %q: no Sections() entry owns this key", f.Key)
@@ -238,6 +253,33 @@ func TestValidateRejectsNull(t *testing.T) {
 		if err := f.Validate(json.RawMessage("null")); err == nil {
 			t.Errorf("%s (Kind=%v): Validate(null) = nil error, want rejection", key, f.Kind)
 		}
+	}
+}
+
+// TestValidateAutoModeAcceptsObject: autoMode (KindObject) accepts any JSON object, rejects non-objects.
+func TestValidateAutoModeAcceptsObject(t *testing.T) {
+	f, ok := Lookup("autoMode")
+	if !ok {
+		t.Fatal("autoMode is not in Catalog")
+	}
+	if err := f.Validate(json.RawMessage(`{"soft_deny":["$defaults"]}`)); err != nil {
+		t.Errorf("Validate(object) = %v, want no error", err)
+	}
+	for _, bad := range []string{`[]`, `"x"`, `null`} {
+		if err := f.Validate(json.RawMessage(bad)); err == nil {
+			t.Errorf("Validate(%s) = nil error, want rejection", bad)
+		}
+	}
+}
+
+// TestParseRejectsAutoMode: autoMode has no text-entry form; Parse always errors, directing to vault edit.
+func TestParseRejectsAutoMode(t *testing.T) {
+	f, ok := Lookup("autoMode")
+	if !ok {
+		t.Fatal("autoMode is not in Catalog")
+	}
+	if _, err := f.Parse(`{"soft_deny":["$defaults"]}`); err == nil {
+		t.Error("Parse on autoMode = nil error, want rejection (no text-entry form)")
 	}
 }
 

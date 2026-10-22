@@ -115,8 +115,17 @@ func compactStr(raw json.RawMessage) (string, error) {
 	if raw == nil {
 		return "", nil
 	}
+	// Decode and re-encode so escape-equivalent spellings (\u003c vs <) compare equal.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", err
+	}
 	var buf bytes.Buffer
-	if err := json.Compact(&buf, raw); err != nil {
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

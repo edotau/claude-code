@@ -27,9 +27,8 @@ func LoadOverlay() (map[string]json.RawMessage, error) {
 	return ov, nil
 }
 
-// SaveOverlay validates every key against Catalog, then writes ov whole; an empty map deletes
-// the vault entry instead of storing "{}".
-func SaveOverlay(ov map[string]json.RawMessage) error {
+// ValidateOverlay checks every key against Catalog and runs its Validate.
+func ValidateOverlay(ov map[string]json.RawMessage) error {
 	for k, v := range ov {
 		f, ok := Lookup(k)
 		if !ok {
@@ -38,6 +37,15 @@ func SaveOverlay(ov map[string]json.RawMessage) error {
 		if err := f.Validate(v); err != nil {
 			return fmt.Errorf("vault overlay/settings: %s: %w", k, err)
 		}
+	}
+	return nil
+}
+
+// SaveOverlay validates every key against Catalog, then writes ov whole; an empty map deletes
+// the vault entry instead of storing "{}".
+func SaveOverlay(ov map[string]json.RawMessage) error {
+	if err := ValidateOverlay(ov); err != nil {
+		return err
 	}
 	var raw string
 	if len(ov) > 0 {
