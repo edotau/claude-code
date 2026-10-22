@@ -141,6 +141,7 @@ func buildSpecTree() map[string]*compNode {
 			"digest":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"index":    {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"path":     {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
+			"fmt":      {flags: []flagInfo{boolFlag("check")}},
 			"update":   {flags: []flagInfo{flag("transcript"), flag("cwd"), flag("session")}},
 			"dream":    {flags: []flagInfo{flag("cwd"), boolFlag("force")}},
 			"watch":    {flags: []flagInfo{flag("session"), flag("transcript"), flag("cwd"), flag("owner"), flag("idle")}},

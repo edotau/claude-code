@@ -28,6 +28,7 @@ const memoryUsage = `usage: claude-code memory init [--repo R]
        claude-code memory dream [--cwd C] [--force]
        claude-code memory watch --session S --transcript T --cwd C
                                 [--owner PID] [--idle 10m]
+       claude-code memory fmt [--check]
        claude-code memory doctor [--stale-days 90] [--notice]
        claude-code memory stats
        claude-code memory timeline [--repo R] [-n 20]
@@ -237,6 +238,31 @@ func cmdMemoryWatch(args []string) int {
 	return hooks.IdleHarvestWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
 }
 
+func cmdMemoryFmt(args []string) int {
+	fs := memoryFlagSet("fmt")
+	check := fs.Bool("check", false, "report would-change files; write nothing")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	changed, err := memory.FormatBank(*check)
+	if err != nil {
+		return fail("memory fmt: %v", err)
+	}
+	for _, f := range changed {
+		fmt.Println(f)
+	}
+	if *check {
+		if len(changed) > 0 {
+			fmt.Printf("%d file(s) would change (run `claude-code memory fmt`)\n", len(changed))
+			return 1
+		}
+		fmt.Println("memory fmt --check: clean")
+		return 0
+	}
+	fmt.Printf("wrapped %d file(s)\n", len(changed))
+	return 0
+}
+
 func cmdMemoryDoctor(args []string) int {
 	fs, repo := memoryRepoFlagSet("doctor")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
@@ -325,6 +351,7 @@ var memorySubcommands = map[string]func([]string) int{
 	"show":     cmdMemoryShow,
 	"index":    cmdMemoryIndex,
 	"path":     cmdMemoryPath,
+	"fmt":      cmdMemoryFmt,
 	"update":   cmdMemoryUpdate,
 	"dream":    cmdMemoryDream,
 	"digest":   cmdMemoryDigest,
@@ -342,7 +369,7 @@ func cmdMemory(args []string) int {
 	}
 	sub := args[0]
 	switch sub {
-	case "index", "promote", "update", "dream": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
+	case "index", "promote", "update", "dream", "fmt": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
 		if g := memory.StartupGuard(); g.Paused {
 			return fail("memory %s: %s", sub, g.Notice)
 		}

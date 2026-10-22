@@ -9,8 +9,13 @@ files:
   - "docs/**/*.md"
   - "theme/**/*.md"
   - "vscode/**/*.md"
+  - ".github/**/*.md"
   - "internal/memory/templates/*.md"
 overrides:
+  - glob: [".github/**/*.md"] # GitHub templates: title is the issue/PR form itself, sections hold an HTML-comment prompt
+    rules:
+      empty-section-body: false
+      heading-increment: false
   - glob: ["internal/memory/templates/*.md"]
     rules:
       empty-section-body: false

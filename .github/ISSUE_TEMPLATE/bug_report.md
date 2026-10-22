@@ -8,7 +8,7 @@ assignees: ''
 
 ## What happened
 
-<!-- One or two sentences. Name the verb, hook, agent or command (e.g. `claude-code configure`, the `bash-guard` hook). -->
+<!-- One or two sentences. Name the verb, hook, agent or command (e.g. `claude-code configure`, `bash-guard`). -->
 
 ## To reproduce
 

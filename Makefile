@@ -169,12 +169,17 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## vet, shell, yml, tui width, settings, md fix (CHECK=1)
+lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## vet, gofmt, shell, yml, width, settings, md+memory (CHECK=1)
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
-lint-go:  # (folded into `lint`) gofmt -l + go vet
-	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
+lint-go:  # (folded into `lint`) gofmt -w (CHECK=1: gofmt -l only) + go vet
+	@if [ "$(CHECK)" = 1 ]; then \
+		out="$$(gofmt -l $(GO_FMT_DIRS))"; \
+		if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make lint"; exit 1; fi; \
+	else \
+		gofmt -w $(GO_FMT_DIRS); \
+	fi
 	$(GO) vet $(PKGS)
 	@echo -e "$(C_OK)gofmt + vet clean"
 
@@ -198,8 +203,9 @@ mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
 
 .PHONY: lint-docs
-lint-docs: mdsmith  # (folded into `lint`) mdsmith fix over .mdsmith.yml files; CHECK=1 only reports
+lint-docs: compile mdsmith  # (folded into `lint`) mdsmith over .mdsmith.yml files, then memory fmt; CHECK=1 only reports
 	@$(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix)
+	@$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check)
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist
