@@ -111,7 +111,7 @@ func archiveFile(path, dir string, capLines int, now time.Time) (int, error) {
 	if err != nil {
 		return 0, nil // absent file — nothing to archive
 	}
-	if lineCount(string(data)) <= capLines {
+	if LogicalLineCount(string(data)) <= capLines {
 		return 0, nil
 	}
 	base := filepath.Base(path)
@@ -141,7 +141,7 @@ func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, 
 	if err != nil {
 		return 0, nil // absent local file — nothing to promote
 	}
-	if lineCount(string(data)) <= capLines {
+	if LogicalLineCount(string(data)) <= capLines {
 		return 0, nil
 	}
 	base := filepath.Base(localPath)
@@ -238,7 +238,7 @@ func jaccard(a, b map[string]bool) float64 {
 // budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.
 // blocks arrives newest-first, so walking forward keeps the newest and settles the oldest end.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
-	used := lineCount(header)
+	used := LogicalLineCount(header)
 	full := false
 	for i, b := range blocks {
 		cost := blockCost(b, i, used)
@@ -257,7 +257,7 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 // blockCost is a block's line cost including the blank separator rejoin inserts — absent only before
 // block 0 of a header-less file.
 func blockCost(block string, i, used int) int {
-	n := lineCount(block)
+	n := LogicalLineCount(block)
 	if used > 0 || i > 0 {
 		n++
 	}

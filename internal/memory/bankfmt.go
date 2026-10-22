@@ -135,6 +135,83 @@ func FormatBankMarkdown(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// GroupLogicalLines splits text's physical lines into logical-line groups: a continuation line that
+// wrapBankLine would have produced (leading spaces matching its predecessor's content column) joins
+// that predecessor's group; every fence/front-matter/heading/comment/blank/table line, and every new
+// bullet/ordered/paragraph line, starts its own group. Mirrors FormatBankMarkdown's state machine line
+// for line so the two can never drift on what counts as "one line".
+func GroupLogicalLines(text string) [][]string {
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	var groups [][]string
+	inFence, inFrontMatter, inRules := false, false, false
+	contCol := -1 // content column an indent-only continuation must match; -1 = none open
+	open := func(line string) { groups = append(groups, []string{line}) }
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case i == 0 && trimmed == "---":
+			inFrontMatter, contCol = true, -1
+			open(line)
+			continue
+		case inFrontMatter:
+			open(line)
+			if trimmed == "---" {
+				inFrontMatter = false
+			}
+			continue
+		case bankFmtFence.MatchString(line):
+			inFence, contCol = !inFence, -1
+			open(line)
+			continue
+		case inFence:
+			open(line)
+			continue
+		case strings.Contains(line, "RULES:BEGIN"):
+			inRules, contCol = true, -1
+			open(line)
+			continue
+		case inRules:
+			open(line)
+			if strings.Contains(line, "RULES:END") {
+				inRules = false
+			}
+			continue
+		case trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
+			bankFmtComment.MatchString(trimmed):
+			contCol = -1
+			open(line)
+			continue
+		}
+		lead := len(line) - len(strings.TrimLeft(line, " "))
+		switch {
+		case bankFmtBullet.MatchString(line):
+			m := bankFmtBullet.FindStringSubmatch(line)
+			contCol = len(m[1]) + len(m[2])
+			open(line)
+		case bankFmtOrdered.MatchString(line):
+			m := bankFmtOrdered.FindStringSubmatch(line)
+			contCol = len(m[1]) + len(m[2])
+			open(line)
+		case contCol >= 0 && lead == contCol:
+			groups[len(groups)-1] = append(groups[len(groups)-1], line) // continuation of the open logical line
+		default:
+			contCol = lead
+			open(line)
+		}
+	}
+	return groups
+}
+
+// LogicalLineCount is len(GroupLogicalLines(text)) — the cap unit every bank line cap counts in: a
+// wrapped bullet or paragraph counts once, matching the pre-wrap line count exactly.
+func LogicalLineCount(text string) int {
+	return len(GroupLogicalLines(text))
+}
+
 // wrapBankLine wraps one list-item or paragraph line at word boundaries, never inside an inline code
 // span, a link, or an HTML comment; a line already within the cap passes through unchanged.
 func wrapBankLine(line string) []string {
