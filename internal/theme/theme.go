@@ -37,7 +37,7 @@ func Targets(home string) []Target {
 	}
 	return []Target{
 		{"vscode", vs},
-		{"statusline", filepath.Join(paths.ConfigDir(), "statusline", "config.json")},
+		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json")},
 		{"opencode", filepath.Join(cfg, "opencode", "tui.json")},
 		{"copilot", filepath.Join(home, ".copilot", "settings.json")},
 		{"gemini", filepath.Join(home, ".gemini", "settings.json")},
@@ -130,7 +130,11 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
 	}
 	if len(raw) > 0 {
-		backup, err = writeBackup(dest+".bak-"+time.Now().Format("20060102-150405.000000000"), raw)
+		bak := paths.BackupPath(dest, time.Now())
+		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
+			return false, "", err
+		}
+		backup, err = writeBackup(bak, raw)
 		if err != nil {
 			return false, "", err
 		}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -152,7 +153,17 @@ func TestMergePreservesForeign(t *testing.T) {
 	}
 }
 
+// hermeticCacheDir isolates CLAUDE_CONFIG_DIR so WriteWithBackup's paths.BackupPath never touches
+// the real ~/.claude/.memory-cache.
+func hermeticCacheDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	return dir
+}
+
 func TestMergeEmptyAndBackup(t *testing.T) {
+	hermeticCacheDir(t)
 	rendered, _ := Render()
 	merged, _, err := Merge(nil, rendered)
 	if err != nil || string(merged) != string(rendered) {
@@ -163,6 +174,7 @@ func TestMergeEmptyAndBackup(t *testing.T) {
 	if b, err := WriteWithBackup(file, []byte("{}\n")); err != nil || b != "" {
 		t.Fatalf("fresh write: %q %v", b, err)
 	}
+	beforeSiblings, _ := os.ReadDir(dir)
 	b, err := WriteWithBackup(file, merged)
 	if err != nil || b == "" {
 		t.Fatalf("backup: %q %v", b, err)
@@ -170,10 +182,19 @@ func TestMergeEmptyAndBackup(t *testing.T) {
 	if old, _ := os.ReadFile(b); string(old) != "{}\n" {
 		t.Errorf("backup content %q", old)
 	}
+	if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
+		t.Errorf("backup %q, want it under CacheDir()/backups", b)
+	}
+	afterSiblings, _ := os.ReadDir(dir)
+	if len(afterSiblings) != len(beforeSiblings) {
+		t.Errorf("files beside dest changed: before %v, after %v", beforeSiblings, afterSiblings)
+	}
 }
 
 func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "settings.json")
+	hermeticCacheDir(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "settings.json")
 	original := []byte("{\"original\":true}\n")
 	if err := os.WriteFile(file, original, 0o600); err != nil {
 		t.Fatal(err)
@@ -195,6 +216,18 @@ func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
 	}
 	if !bytes.Equal(got, original) {
 		t.Errorf("first backup = %q, want %q", got, original)
+	}
+	for _, b := range []string{first, second} {
+		if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
+			t.Errorf("backup %q, want it under CacheDir()/backups", b)
+		}
+	}
+	siblings, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(siblings) != 1 {
+		t.Errorf("files beside dest = %v, want only settings.json itself", siblings)
 	}
 }
 

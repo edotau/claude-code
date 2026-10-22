@@ -10,7 +10,15 @@ import (
 	"testing"
 )
 
+// hermeticVSCode isolates CLAUDE_CONFIG_DIR so Sync/SyncKeybindings backups never touch the real
+// ~/.claude/.memory-cache.
+func hermeticVSCode(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+}
+
 func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
+	hermeticVSCode(t)
 	dir := t.TempDir()
 	tmpl := filepath.Join(dir, "template.json")
 	dest := filepath.Join(dir, "settings.json")
@@ -54,6 +62,12 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 	}
 	if saved, _ := os.ReadFile(result.Backup); string(saved) != original {
 		t.Fatal("backup did not preserve the original JSONC")
+	}
+	if !strings.HasPrefix(result.Backup, filepath.Join(paths.CacheDir(), "backups")) {
+		t.Errorf("backup %q, want it under CacheDir()/backups", result.Backup)
+	}
+	if siblings, _ := os.ReadDir(dir); len(siblings) != 2 {
+		t.Errorf("files beside dest = %v, want only template.json and settings.json", siblings)
 	}
 
 	// A second sync against the now-merged file has nothing left to change.
@@ -156,6 +170,7 @@ func TestStripJSONCHandlesCommentsStringsAndTrailingCommas(t *testing.T) {
 
 // User entries and a leading header comment survive a merge; template entries append in order.
 func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *testing.T) {
+	hermeticVSCode(t)
 	dir := t.TempDir()
 	tmpl := filepath.Join(dir, "keybindings.template.json")
 	dest := filepath.Join(dir, "keybindings.json")
@@ -193,6 +208,12 @@ func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *t
 	if entries[1]["command"] != "workbench.action.terminal.newWithProfile" {
 		t.Errorf("template entry not appended: entries[1] = %v", entries[1])
 	}
+	if !strings.HasPrefix(result.Backup, filepath.Join(paths.CacheDir(), "backups")) {
+		t.Errorf("backup %q, want it under CacheDir()/backups", result.Backup)
+	}
+	if siblings, _ := os.ReadDir(dir); len(siblings) != 2 {
+		t.Errorf("files beside dest = %v, want only keybindings.template.json and keybindings.json", siblings)
+	}
 }
 
 // A second run against the already-merged file has nothing left to change — no rewrite, no new backup.
@@ -209,6 +230,7 @@ func TestSyncKeybindingsIsIdempotent(t *testing.T) {
 
 // A stale template entry — same command + profileName, different key — is replaced in place, not duplicated.
 func TestSyncKeybindingsReplacesStaleEntryByCommandAndProfile(t *testing.T) {
+	hermeticVSCode(t)
 	dir := t.TempDir()
 	tmpl := filepath.Join(dir, "keybindings.template.json")
 	dest := filepath.Join(dir, "keybindings.json")
@@ -317,6 +339,7 @@ func TestDefaultKeybindingsDestSkipsVSCodeServerOnly(t *testing.T) {
 
 func keybindingsFixture(t *testing.T, live string) (tmpl, dest string) {
 	t.Helper()
+	hermeticVSCode(t)
 	dir := t.TempDir()
 	tmpl = filepath.Join(dir, "keybindings.template.json")
 	dest = filepath.Join(dir, "keybindings.json")

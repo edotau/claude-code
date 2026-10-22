@@ -150,11 +150,6 @@ claude-code secrets status|scan|git|doctor|all   # sources and leak audits; neve
 argv run without a shell). No key file is written. Headless boxes set `HARNESS_VAULT_KEY` or `key_command`.
 `HARNESS_VAULT_KEY` is scrubbed from vendor CLI children. `vault rotate-key` re-seals and keeps old keys.
 
-### Migrating from env.d
-
-`claude-code vault migrate [--dry-run]` imports a legacy `env.d/` (run by `make install`), renaming sources to `.bak`.
-`vault finalize` deletes the backups once they match the vault; `vault rollback` restores them.
-
 ## Routing
 
 `claude` launches **direct** when the provider speaks `anthropic`, every slot stays on it, and no `fallback` is set.
@@ -283,7 +278,7 @@ claude-code theme [--preview] | apply     # statusline palette; whole look acros
 ## Status line
 
 `claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router, context
-%, tokens, duration and git state. Config: `~/.claude/statusline/config.json`.
+%, tokens, duration and git state. Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout
 
@@ -293,6 +288,7 @@ internal/            cli (verb table) · providers · router · translate · lau
 agents/ commands/ rules/ skills/ workflows/   loaded by Claude Code
 state/vault.db       pins, env, overlays, sealed secrets (untracked)
 memory/              the memory store (its own local git repo)
+.memory-cache/       harness backups (*.bak-*), shadow config history, vendor caches (untracked)
 plans/               implementation plans (untracked)
 docs/templates/      index of every embedded (`//go:embed`) template, with rendered examples
 ```

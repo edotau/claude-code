@@ -19,7 +19,7 @@ var embeddedConfigJSON []byte
 //go:embed default_palettes.json
 var embeddedPalettesJSON []byte
 
-// Config is the render-time design: <ConfigDir>/statusline/config.json overlaid on the embedded default.
+// Config is the render-time design: <ConfigDir>/state/statusline/config.json overlaid on the embedded default.
 type Config struct {
 	Style          string            `json:"style"`     // gradient|powerline|capsule|minimal|dashboard
 	ColorMode      string            `json:"colorMode"` // auto|truecolor|ansi256|ansi16
@@ -97,7 +97,7 @@ func (c Config) sep(key, def string) string {
 }
 
 // ConfigDir holds the optional config.json / palettes.json overrides.
-func ConfigDir() string { return filepath.Join(paths.ConfigDir(), "statusline") }
+func ConfigDir() string { return filepath.Join(paths.ConfigDir(), "state", "statusline") }
 
 // DefaultConfigJSON returns the embedded statusline/config.json default, for callers (the `theme`
 // verb) that must seed an absent override file rather than render one from scratch.

@@ -230,3 +230,22 @@ func presentJSON(raw json.RawMessage) json.RawMessage {
 func sectionError(section string, err error) error {
 	return fmt.Errorf("%s: %s", section, strings.NewReplacer("\n", " ", "\r", " ").Replace(err.Error()))
 }
+
+// RotateKey retains the old key so archived copies of this vault remain readable.
+func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
+	old, next, err := vault.RotateKey(opts...)
+	if err != nil {
+		return err
+	}
+	var id string
+	if err := vault.View(func(t *vault.Tx) error {
+		id, _ = t.Get(vault.Meta, "vault_id")
+		return nil
+	}); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w,
+		"rotated vault key %s -> %s; old key retained as vault-key/%s.%s\n",
+		old, next, id, old)
+	return err
+}

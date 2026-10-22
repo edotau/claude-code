@@ -318,8 +318,8 @@ func isBinary(path string, data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0
 }
 
-// isSecretLike reports whether rel names an env file, a secrets file, a key/cert, or lives under an
-// env.d/state directory — never inlined even when explicitly matched by --files.
+// isSecretLike reports whether rel names an env file, a secrets file, a key/cert, or lives under a
+// state directory — never inlined even when explicitly matched by --files.
 func isSecretLike(rel string) bool {
 	parts := strings.Split(rel, "/")
 	base := parts[len(parts)-1]
@@ -330,7 +330,7 @@ func isSecretLike(rel string) bool {
 		return true
 	}
 	for _, seg := range parts {
-		if seg == "env.d" || seg == "state" {
+		if seg == "state" {
 			return true
 		}
 	}

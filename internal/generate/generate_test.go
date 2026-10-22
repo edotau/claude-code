@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -137,12 +138,27 @@ func TestPrepareDefersWritesAndJSONCRetirement(t *testing.T) {
 	if _, err := os.Stat(jsoncPath); !os.IsNotExist(err) {
 		t.Fatalf("Apply did not retire opencode.jsonc: %v", err)
 	}
-	backups, err := filepath.Glob(jsoncPath + ".bak-*")
-	if err != nil || len(backups) != 1 {
-		t.Fatalf("JSONC backups = %v, %v", backups, err)
+	if entries, err := os.ReadDir(filepath.Dir(jsoncPath)); err != nil {
+		t.Fatal(err)
+	} else {
+		for _, e := range entries {
+			if strings.Contains(e.Name(), ".bak-") {
+				t.Errorf("no backup must land beside the original jsonc, got %v", e.Name())
+			}
+		}
 	}
-	stamp := strings.TrimPrefix(backups[0], jsoncPath+".bak-")
-	if _, err := time.Parse("20060102T150405.000000000Z", stamp); err != nil {
+	bakDir := filepath.Join(paths.CacheDir(), "backups")
+	var backups []string
+	if err := filepath.WalkDir(bakDir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "opencode.jsonc.bak-") {
+			backups = append(backups, path)
+		}
+		return nil
+	}); err != nil || len(backups) != 1 {
+		t.Fatalf("JSONC backups under %s = %v, %v", bakDir, backups, err)
+	}
+	stamp := strings.TrimPrefix(filepath.Base(backups[0]), "opencode.jsonc.bak-")
+	if _, err := time.Parse("20060102-150405.000000000", stamp); err != nil {
 		t.Fatalf("backup timestamp lacks nanosecond precision: %q: %v", stamp, err)
 	}
 	moved := strings.Index(out.String(), "opencode: moved ")

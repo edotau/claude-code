@@ -23,18 +23,19 @@
 /daemon/
 /daemon.*
 /jobs/
+/uploads/
+/.memory-cache/
 /local/
 /logs/
 /usage-data/
 /config.json
 /stats-cache.json
-/daemon-auth-cooldown
+/daemon-auth-*
 /mcp/
 /remote/
 /session-data/
 /mcp-needs-auth-cache.json
 /.last-*
-/.python-version
 /.claude/
 /state/
 /.orca/
@@ -102,8 +103,5 @@ coverage.*
 .idea/
 .vscode/
 
-# Home-network scripts (UniFi gateway) — personal, kept out of the public repo
-scripts/unifi-*.sh
-/statusline/
 /policy-limits.json*
 /remote-settings.json*

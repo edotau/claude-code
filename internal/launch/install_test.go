@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
@@ -58,7 +59,8 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	if b, _ := os.ReadFile(tmuxConfPaths()[0]); !bytes.Equal(b, tmuxConf) {
 		t.Errorf("tmux.conf not seeded: %q", b)
 	}
-	baks, _ := filepath.Glob(file + ".bak-*")
+	bakSample := paths.BackupPath(file, time.Now())
+	baks, _ := filepath.Glob(filepath.Join(filepath.Dir(bakSample), filepath.Base(file)+".bak-*"))
 	if len(baks) != 1 {
 		t.Errorf("backups %v", baks)
 	}

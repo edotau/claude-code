@@ -45,6 +45,7 @@ func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 // An explicit --dest with no --keybindings-dest must default next to that dest, never to the
 // platform's real keybindings.json — the bug this guards shipped keybindings into the live machine.
 func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := captureOutput(t, func() int {
 		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest}, extDirFlag(t)...))
@@ -62,6 +63,7 @@ func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 }
 
 func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := captureOutput(t, func() int {
 		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest}, isolationFlags(t)...))
@@ -79,6 +81,7 @@ func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
 }
 
 func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	code, out, _ := captureOutput(t, func() int {
@@ -100,6 +103,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := captureOutput(t, func() int {
 		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--check"}, isolationFlags(t)...))
@@ -116,6 +120,7 @@ func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	kbFlag := isolationFlags(t)
 	if code, _, _ := captureOutput(t, func() int {
@@ -135,6 +140,7 @@ func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := captureOutput(t, func() int {
 		return cmdVSCode(append([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"}, isolationFlags(t)...))
@@ -148,6 +154,7 @@ func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 }
 
 func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	for _, flagArg := range []string{"-h", "--help"} {

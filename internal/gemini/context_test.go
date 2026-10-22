@@ -186,14 +186,18 @@ func TestCollectContextSkipsSecretLike(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ctx.Included) != 1 || ctx.Included[0].Path != "a.go" {
-		t.Errorf("Included = %+v, want only a.go", ctx.Included)
+	included := map[string]bool{}
+	for _, inc := range ctx.Included {
+		included[inc.Path] = true
+	}
+	if !included["a.go"] || !included["env.d/x.env"] || len(ctx.Included) != 2 {
+		t.Errorf("Included = %+v, want a.go and env.d/x.env (env.d is no longer secret-like)", ctx.Included)
 	}
 	skipReasons := map[string]string{}
 	for _, s := range ctx.Skipped {
 		skipReasons[s.Path] = s.Reason
 	}
-	for _, p := range []string{".env", ".env.local", "secrets.env", "k.pem", "k.key", "env.d/x.env", "state/y.txt"} {
+	for _, p := range []string{".env", ".env.local", "secrets.env", "k.pem", "k.key", "state/y.txt"} {
 		if skipReasons[p] != "secret-like" {
 			t.Errorf("%s reason = %q, want secret-like", p, skipReasons[p])
 		}

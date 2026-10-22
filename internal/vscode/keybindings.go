@@ -111,7 +111,10 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result
 	}
 	backup := ""
 	if len(rawBase) > 0 {
-		backup = dest + ".bak-" + time.Now().Format("20060102-150405.000000000")
+		backup = paths.BackupPath(dest, time.Now())
+		if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+			return Result{}, err
+		}
 		if err := paths.AtomicWrite(backup, rawBase, 0o600); err != nil {
 			return Result{}, err
 		}

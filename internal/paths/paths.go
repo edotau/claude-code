@@ -25,6 +25,30 @@ func ConfigDir() string {
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
+// CacheDir is the one hidden harness cache: backups, shadow history, vendor disk caches.
+func CacheDir() string { return filepath.Join(ConfigDir(), ".memory-cache") }
+
+// BackupPath maps src to its mirrored backup location under CacheDir, tagged with now; pure, no I/O.
+func BackupPath(src string, now time.Time) string {
+	rel := src
+	if home, err := os.UserHomeDir(); err == nil {
+		if r, err := filepath.Rel(home, src); err == nil && !strings.HasPrefix(r, "..") {
+			rel = r
+		} else {
+			rel = strings.TrimPrefix(src, string(filepath.Separator))
+		}
+	} else {
+		rel = strings.TrimPrefix(src, string(filepath.Separator))
+	}
+	ts := now.Format("20060102-150405.000000000")
+	return filepath.Join(CacheDir(), "backups", rel+".bak-"+ts)
+}
+
+// BackupDir is the per-run directory for internal/setup's backup bundles.
+func BackupDir(label string, now time.Time) string {
+	return filepath.Join(CacheDir(), "backups", "setup", label+"-"+now.Format("20060102-150405"))
+}
+
 // StateDir holds runtime state (router pid/port/secret) that must never be committed.
 func StateDir() string { return filepath.Join(ConfigDir(), "state", "harness") }
 
