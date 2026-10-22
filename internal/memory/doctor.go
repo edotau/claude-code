@@ -35,9 +35,8 @@ func statBank(dir string) BankStat {
 			continue
 		}
 		s.Files++
-		lines := lineCount(string(data))
-		s.Lines += lines
-		if capLines, ok := FileCaps[name]; ok && lines > capLines {
+		s.Lines += lineCount(string(data))
+		if capLines, ok := FileCaps[name]; ok && LogicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
 		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(s.Updated) {
