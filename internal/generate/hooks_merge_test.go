@@ -3,6 +3,7 @@ package generate
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -335,6 +336,286 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 	}
 	if string(got) != originalToml {
 		t.Fatalf("config.toml was written despite the hooks merge failing:\nwant:\n%s\ngot:\n%s", originalToml, got)
+	}
+}
+
+// codexGroupOrder decodes merged into the ordered list of raw groups for one event, so a test can
+// assert position (not just presence) the way json.RawMessage slices preserve it through marshal.
+func codexGroupOrder(t *testing.T, merged []byte, event string) []json.RawMessage {
+	t.Helper()
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatalf("codexGroupOrder: %v\n%s", err, merged)
+	}
+	return doc.Hooks[event]
+}
+
+// TestMergeCodexHooksForeignFirstStaysFirst is the order-preserving RED fixture: when Orca's group
+// precedes the harness group in the existing file, it must still precede the rendered block after the
+// merge, not get pushed after it (the old prepend-always behavior).
+func TestMergeCodexHooksForeignFirstStaysFirst(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[
+		{"hooks":[{"type":"command","command":"orca-stop"}]},
+		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook bash-guard-STALE"}]}
+	]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	groups := codexGroupOrder(t, merged, "PreToolUse")
+	if len(groups) < 2 {
+		t.Fatalf("expected at least 2 groups (orca + rendered), got %d:\n%s", len(groups), merged)
+	}
+	if !strings.Contains(string(groups[0]), "orca-stop") {
+		t.Fatalf("Orca's group must stay first, got first group:\n%s\nfull:\n%s", groups[0], merged)
+	}
+	if strings.Contains(string(merged), "bash-guard-STALE") {
+		t.Errorf("stale harness command should have been replaced:\n%s", merged)
+	}
+	if !strings.Contains(string(groups[1]), "claude-code hook bash-guard") {
+		t.Errorf("rendered block should follow Orca's group, got second group:\n%s\nfull:\n%s", groups[1], merged)
+	}
+}
+
+// TestMergeCodexHooksHarnessFirstStaysFirst mirrors the above the other way: the harness group already
+// precedes Orca's, so the rendered block replaces it in place and Orca's group stays last.
+func TestMergeCodexHooksHarnessFirstStaysFirst(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[
+		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook bash-guard-STALE"}]},
+		{"hooks":[{"type":"command","command":"orca-stop"}]}
+	]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	groups := codexGroupOrder(t, merged, "PreToolUse")
+	if len(groups) < 2 {
+		t.Fatalf("expected at least 2 groups (rendered + orca), got %d:\n%s", len(groups), merged)
+	}
+	last := groups[len(groups)-1]
+	if !strings.Contains(string(last), "orca-stop") {
+		t.Fatalf("Orca's group must stay last, got last group:\n%s\nfull:\n%s", last, merged)
+	}
+	if !strings.Contains(string(groups[0]), "claude-code hook bash-guard") {
+		t.Errorf("rendered block should take the harness group's old position (first), got:\n%s\nfull:\n%s", groups[0], merged)
+	}
+}
+
+// TestMergeCodexHooksNoHarnessItemPrepends is the no-existing-harness-item RED fixture: an event with
+// only foreign groups gets the rendered block prepended (the old, and still correct, behavior for this case).
+func TestMergeCodexHooksNoHarnessItemPrepends(t *testing.T) {
+	existing := []byte(`{"hooks":{"PostToolUse":[
+		{"hooks":[{"type":"command","command":"orca-start"}]}
+	]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	groups := codexGroupOrder(t, merged, "PostToolUse")
+	if len(groups) < 2 {
+		t.Fatalf("expected rendered block + Orca's group, got %d:\n%s", len(groups), merged)
+	}
+	if strings.Contains(string(groups[0]), "orca-start") {
+		t.Fatalf("rendered block must be prepended ahead of Orca when there was no harness item, got first group:\n%s\nfull:\n%s", groups[0], merged)
+	}
+	if !strings.Contains(string(groups[len(groups)-1]), "orca-start") {
+		t.Fatalf("Orca's group should be last, got:\n%s\nfull:\n%s", groups[len(groups)-1], merged)
+	}
+}
+
+// TestMergeCodexHooksMixedGroupSplicesInPlace is the mixed-group RED fixture: a single existing group
+// holding both a foreign and a harness-owned hook still marks the rendered block's splice position, and
+// its rebuilt (foreign-only) remainder is emitted right after that block, keeping any further foreign
+// group after it in original order.
+func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[
+		{"hooks":[{"type":"command","command":"orca-A"}]},
+		{"hooks":[
+			{"type":"command","command":"orca-mixed"},
+			{"type":"command","command":"$HOME/.claude/bin/claude-code hook bash-guard-STALE"}
+		]},
+		{"hooks":[{"type":"command","command":"orca-C"}]}
+	]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCodexHooks: %v", err)
+	}
+	groups := codexGroupOrder(t, merged, "PreToolUse")
+	indexOf := func(marker string) int {
+		for i, g := range groups {
+			if strings.Contains(string(g), marker) {
+				return i
+			}
+		}
+		t.Fatalf("marker %q not found in merged PreToolUse:\n%s", marker, merged)
+		return -1
+	}
+	idxA, idxMixed, idxC := indexOf("orca-A"), indexOf("orca-mixed"), indexOf("orca-C")
+	idxRendered := indexOf("claude-code hook bash-guard")
+	if !(idxA < idxRendered && idxRendered < idxMixed && idxMixed < idxC) {
+		t.Fatalf("expected order orca-A < rendered < rebuilt-mixed < orca-C, got A=%d rendered=%d mixed=%d C=%d:\n%s",
+			idxA, idxRendered, idxMixed, idxC, merged)
+	}
+	if strings.Contains(string(merged), "bash-guard-STALE") {
+		t.Errorf("stale harness hook inside the mixed group should have been dropped, not kept:\n%s", merged)
+	}
+}
+
+// TestMergeCodexHooksIdempotent proves merging the already-merged file again over the same rendered
+// body reproduces it byte-for-byte: the second pass sees only harness-owned (just-rendered) groups plus
+// the untouched foreign ones, so nothing should move or change.
+func TestMergeCodexHooksIdempotent(t *testing.T) {
+	existing := readTestdata(t, "codex-hooks-with-orca.json")
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	once, err := mergeCodexHooks(existing, body)
+	if err != nil {
+		t.Fatalf("first mergeCodexHooks: %v", err)
+	}
+	twice, err := mergeCodexHooks(once, body)
+	if err != nil {
+		t.Fatalf("second mergeCodexHooks: %v", err)
+	}
+	if !bytes.Equal(once, twice) {
+		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
+	}
+}
+
+// TestMergeCopilotHooksIdempotent mirrors the Codex idempotence proof for Copilot's flat entry shape.
+func TestMergeCopilotHooksIdempotent(t *testing.T) {
+	existing := []byte(`{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo hi", "timeoutSec": 10},
+      {"type": "command", "matcher": "bash", "bash": "$HOME/.claude/bin/claude-code hook bash-guard-STALE", "timeoutSec": 5}
+    ]
+  }
+}`)
+	body, err := hookspec.CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	once, err := mergeCopilotHooks(existing, body)
+	if err != nil {
+		t.Fatalf("first mergeCopilotHooks: %v", err)
+	}
+	twice, err := mergeCopilotHooks(once, body)
+	if err != nil {
+		t.Fatalf("second mergeCopilotHooks: %v", err)
+	}
+	if !bytes.Equal(once, twice) {
+		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
+	}
+}
+
+// TestMergeCopilotHooksForeignFirstStaysFirst is the Copilot-side order-preserving RED fixture: its
+// existing fixture already has Orca's entry before the stale harness one, so lock in that the merge
+// keeps it there instead of pushing it after the rendered block.
+func TestMergeCopilotHooksForeignFirstStaysFirst(t *testing.T) {
+	existing := []byte(`{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo hi", "timeoutSec": 10},
+      {"type": "command", "matcher": "bash", "bash": "$HOME/.claude/bin/claude-code hook bash-guard-STALE", "timeoutSec": 5}
+    ]
+  }
+}`)
+	body, err := hookspec.CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCopilotHooks(existing, body)
+	if err != nil {
+		t.Fatalf("mergeCopilotHooks: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(merged, &doc); err != nil {
+		t.Fatal(err)
+	}
+	entries := doc.Hooks["preToolUse"]
+	if len(entries) < 2 {
+		t.Fatalf("expected Orca's entry plus the rendered one, got %d:\n%s", len(entries), merged)
+	}
+	if !strings.Contains(string(entries[0]), orcaMarker) {
+		t.Fatalf("Orca's entry must stay first, got:\n%s\nfull:\n%s", entries[0], merged)
+	}
+	if strings.Contains(string(merged), "bash-guard-STALE") {
+		t.Errorf("stale harness entry should have been replaced:\n%s", merged)
+	}
+}
+
+// TestCodexTrustEntriesSurviveForeignFirstOrder pins trusted_hash keys to the merged file's positions, harness hooks only.
+func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
+	home := scratch(t)
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Orca's group precedes the harness one in PreToolUse: the fixture this whole change exists for.
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	seed := []byte(`{"hooks":{"PreToolUse":[
+		{"hooks":[{"type":"command","command":"orca-stop"}]},
+		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook bash-guard-STALE"}]}
+	]}}`)
+	if err := os.WriteFile(hooksPath, seed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := codexTrustEntries(hooksPath, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toml, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := codexHookSourcePath(hooksPath)
+	// Rendered alone, bash-guard sits at 0:0; behind Orca's group it is 1:0, and Orca's slot gets no entry.
+	bashGuard := rendered[src+":pre_tool_use:0:0"]
+	want := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q", src+":pre_tool_use:1:0", bashGuard)
+	if bashGuard == "" || !strings.Contains(string(toml), want) {
+		t.Errorf("config.toml lacks %s:\n%s", want, toml)
+	}
+	if strings.Contains(string(toml), src+":pre_tool_use:0:0") {
+		t.Errorf("config.toml trusts Orca's slot pre_tool_use:0:0:\n%s", toml)
+	}
+	merged, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), "orca-stop") {
+		t.Errorf("Orca's hook dropped from hooks.json:\n%s", merged)
 	}
 }
 
