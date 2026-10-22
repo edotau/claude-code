@@ -35,7 +35,7 @@ project-local file for sessions started in `$HOME`. Don't put a global preferenc
    `internal/hookspec/hookspec.go` first — see `hooks.md`).
 2. Preview without a rebuild: `claude-code generate` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
-   previous one as `settings.json.bak-<timestamp>`).
+   previous one under `.memory-cache/backups/` as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
 
 `generate --check` fails on invalid JSON in `settings.json`, on a key install would rewrite, on a

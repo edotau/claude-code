@@ -346,12 +346,15 @@ func retireStaleOpenCodeJSONC(home string, o Options, out io.Writer) error {
 	if _, err := os.Stat(jsoncPath); err != nil {
 		return nil
 	}
-	bak := jsoncPath + ".bak-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	bak := paths.BackupPath(jsoncPath, time.Now())
 	if o.DryRun || o.Check {
 		fmt.Fprintf(out, "opencode: would move %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
 		return nil
 	}
 	*o.staged = append(*o.staged, func() error {
+		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
+			return fmt.Errorf("opencode: %w", err)
+		}
 		backup, err := moveBackup(jsoncPath, bak)
 		if err != nil {
 			return fmt.Errorf("opencode: %w", err)

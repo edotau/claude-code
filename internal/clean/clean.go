@@ -45,6 +45,8 @@ type target struct {
 	ageless bool
 	// optIn targets run only when named in --target, never in a bare sweep.
 	optIn bool
+	// keep, when set, is consulted per matched entry before age gating; true protects it from removal.
+	keep func(path string) bool
 }
 
 // targets are the harness's own debris plus the Claude Code CLI's per-session runtime state — this
@@ -82,8 +84,10 @@ func targets() []target {
 			globs: func() []string { return []string{s("router.log")} },
 		},
 		{
-			name: "settings-backups", doc: "settings.json.bak[-<timestamp>] (settings merges) and backups/.claude.json.backup.* (Claude Code CLI)",
-			globs:   func() []string { return []string{g("settings.json.bak*"), g("backups", ".claude.json.backup.*")} },
+			name: "settings-backups", doc: ".memory-cache/backups/** (harness) + backups/.claude.json.backup.* (CLI)",
+			globs: func() []string {
+				return []string{filepath.Join(paths.CacheDir(), "backups", "*"), g("backups", ".claude.json.backup.*")}
+			},
 			ageless: true, // regenerable from the git-tracked template; nothing in them needs aging out
 		},
 		{
@@ -110,12 +114,17 @@ func targets() []target {
 		},
 		{
 			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
-			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
-			name: "sessions", doc: "projects/<slug>: Claude Code session transcripts (<id>.jsonl) and their <id>/ subagent/tool-result dirs; auto-memory kept (opt-in: --target sessions)",
+			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob. The
+			// sessions/<pid>.json|.key registry entries are pruned too, but only for dead pids.
+			name: "sessions", doc: "projects/<slug> transcripts + dead sessions/<pid> registry entries (opt-in)",
 			globs: func() []string {
-				return []string{g("projects", "*", "*.jsonl"), g("projects", "*", "????????-????-????-????-????????????")}
+				return []string{
+					g("projects", "*", "*.jsonl"), g("projects", "*", "????????-????-????-????-????????????"),
+					g("sessions", "*.json"), g("sessions", "*.key"),
+				}
 			},
 			optIn: true,
+			keep:  keepLiveSession,
 		},
 		{
 			name: "cli-caches", doc: "Claude Code CLI rebuildable caches/logs: cache/, image-cache/, debug/, statsig/, logs/, usage-data/, stats-cache.json, mcp-needs-auth-cache.json",
@@ -179,7 +188,7 @@ func Run(args []string, out, errw io.Writer) int {
 		if len(n.Keep) > 0 {
 			fmt.Fprintf(errw, "%-16s kept %s: move %s into internal/settings/template/, make install, re-run\n",
 				"nested-config", n.Dir, strings.Join(n.Keep, ", "))
-		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply); len(hits) > 0 {
+		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply, nil); len(hits) > 0 {
 			totalFiles, totalBytes = len(hits), size
 			verb := "would remove"
 			if apply {
@@ -193,7 +202,7 @@ func Run(args []string, out, errw io.Writer) int {
 		if t.ageless {
 			tcut = time.Now().Add(time.Hour)
 		}
-		hits, size := pruneAged(t.globs(), tcut, apply)
+		hits, size := pruneAged(t.globs(), tcut, apply, t.keep)
 		if len(hits) == 0 {
 			continue
 		}
@@ -233,16 +242,24 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 	if !found {
 		return true
 	}
-	hits, size := pruneAged(sess.globs(), cutoff, false)
+	hits, size := pruneAged(sess.globs(), cutoff, false, sess.keep)
 	if len(hits) == 0 {
 		return true
 	}
 	repos := map[string]bool{}
+	var transcripts, deadEntries int
 	for _, h := range hits {
-		repos[filepath.Base(filepath.Dir(h))] = true
+		dir := filepath.Base(filepath.Dir(h))
+		if dir == "sessions" {
+			deadEntries++
+			continue
+		}
+		transcripts++
+		repos[dir] = true
 	}
-	fmt.Fprintf(errw, "sessions: %d transcript%s (%s) older than %s across %d repo%s\n",
-		len(hits), pluralWord(len(hits), "", "s"), humanBytes(size), olderThan, len(repos), pluralWord(len(repos), "", "s"))
+	fmt.Fprintf(errw, "sessions: %d transcript%s, %d dead-session entr%s (%s) older\n",
+		transcripts, pluralWord(transcripts, "", "s"), deadEntries, pluralWord(deadEntries, "y", "ies"), humanBytes(size))
+	fmt.Fprintf(errw, "  than %s across %d repo%s\n", olderThan, len(repos), pluralWord(len(repos), "", "s"))
 	if autoYes {
 		return true
 	}
@@ -262,9 +279,25 @@ var (
 	promptIn   io.Reader = os.Stdin
 )
 
+// keepLiveSession protects a sessions/<pid>.json|.key registry entry whose process is still running;
+// an unparsable pid prefix is kept too, since it is never pruned by Claude Code's own registry writer.
+// Transcripts and subagent dirs (not under a "sessions" dir) are never covered by this filter.
+func keepLiveSession(p string) bool {
+	if filepath.Base(filepath.Dir(p)) != "sessions" {
+		return false
+	}
+	name, _, _ := strings.Cut(filepath.Base(p), ".")
+	pid, err := strconv.Atoi(name)
+	if err != nil {
+		return true
+	}
+	return pidAlive(pid)
+}
+
 // pruneAged removes every glob match older than cutoff (a directory whole, by its newest mtime).
-// Size is measured BEFORE removal — dirSize on an already-deleted path always reads 0.
-func pruneAged(patterns []string, cutoff time.Time, apply bool) ([]string, int64) {
+// Size is measured BEFORE removal — dirSize on an already-deleted path always reads 0. keep, when
+// non-nil, is consulted per match before removal; a kept entry is never counted or removed.
+func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string) bool) ([]string, int64) {
 	var hit []string
 	var size int64
 	for _, pattern := range patterns {
@@ -274,8 +307,8 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool) ([]string, int64
 			if !ok || !mt.Before(cutoff) {
 				continue
 			}
-			if strings.HasSuffix(m, ".lock") || protected(m) {
-				continue // live bookkeeping and memory stores/migration state: never debris
+			if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
+				continue // live bookkeeping, memory stores/migration state, live sessions: never debris
 			}
 			sz := dirSize(m)
 			if apply {

@@ -197,46 +197,6 @@ func TestCreateBackupFileMode0600(t *testing.T) {
 	}
 }
 
-// TestNukeArchivesEnvDNonSecretFiles: Apply sweeps env.d's non-secret files (providers.json,
-// custom.env, *.bak, …) into the backup tarball alongside the rest of userContentPaths.
-func TestNukeArchivesEnvDNonSecretFiles(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	mustWrite(t, filepath.Join(dir, "env.d", "custom.env"), "FOO=bar\n")
-	mustWrite(t, filepath.Join(dir, "env.d", "providers.json"), "{}")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	for _, want := range []string{"env.d/custom.env", "env.d/providers.json"} {
-		if _, ok := entries[want]; !ok {
-			t.Fatalf("tarball missing %q; has %v", want, tarNames(entries))
-		}
-	}
-}
-
-// TestNukeRefusesApplyWhileEnvDSecretsPresent: a leftover env.d/secrets.env* (plaintext, pre-vault
-// secrets) must refuse Apply outright — migrate/finalize first — rather than archive or lose it.
-func TestNukeRefusesApplyWhileEnvDSecretsPresent(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	mustWrite(t, filepath.Join(dir, "env.d", "secrets.env"), "API_KEY=sk-leftover\n")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir})
-	if !errors.Is(err, ErrEnvDSecrets) {
-		t.Fatalf("Nuke err = %v, want ErrEnvDSecrets", err)
-	}
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatal("dir must survive a refused nuke")
-	}
-	if matches, _ := filepath.Glob(filepath.Join(home, "claude-nuke-*.tgz")); len(matches) != 0 {
-		t.Fatal("no backup should be written on refusal")
-	}
-}
-
 // TestNukeApplyProceedsWhenVaultUnreadable: an unreadable vault (bad schema) only warns in the plan;
 // Apply still archives (the vault.db bytes raw) and removes dir rather than refusing outright.
 func TestNukeApplyProceedsWhenVaultUnreadable(t *testing.T) {

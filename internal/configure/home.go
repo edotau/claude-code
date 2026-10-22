@@ -206,7 +206,11 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		if err := os.WriteFile(path+".bak", raw, 0o600); err != nil {
+		bak := paths.BackupPath(path, time.Now())
+		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(bak, raw, 0o600); err != nil {
 			return err
 		}
 	}

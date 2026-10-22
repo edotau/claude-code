@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // decodeObj decodes a JSON object into key->raw, for presence/absence and value assertions.
@@ -156,7 +159,8 @@ func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 	}
 }
 
-// TestInstallWindowsSettings_BackupCreated proves a changed write leaves a .bak-* alongside the file.
+// TestInstallWindowsSettings_BackupCreated proves a changed write leaves a backup under
+// CacheDir()/backups, mirrored by file's path, and nothing new beside the file itself.
 func TestInstallWindowsSettings_BackupCreated(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
@@ -166,16 +170,34 @@ func TestInstallWindowsSettings_BackupCreated(t *testing.T) {
 	if err := os.WriteFile(file, []byte(`{"theme":"light"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	before, err := filepath.Glob(filepath.Join(filepath.Dir(file), "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	if err := InstallWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)
 	}
-	matches, err := filepath.Glob(file + ".bak-*")
+	sample := paths.BackupPath(file, time.Now())
+	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
+	matches, err := filepath.Glob(prefix + "*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(matches) == 0 {
-		t.Error("no backup file created for a changed write")
+		t.Error("no backup file created under CacheDir()/backups for a changed write")
+	}
+	for _, m := range matches {
+		if !strings.HasPrefix(m, filepath.Join(paths.CacheDir(), "backups")) {
+			t.Errorf("backup %q lands outside CacheDir()/backups", m)
+		}
+	}
+	after, err := filepath.Glob(filepath.Join(filepath.Dir(file), "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("files beside %s changed: before %v, after %v — want only %s itself", filepath.Dir(file), before, after, file)
 	}
 }
 

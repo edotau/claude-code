@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -354,7 +355,7 @@ func rawList(items []json.RawMessage) json.RawMessage {
 	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
 }
 
-// WriteWithBackup copies to <path>.bak-<timestamp> (numbered on collision), then writes data atomically.
+// WriteWithBackup copies to the cache-mirrored backup path (numbered on collision), then writes data atomically.
 func WriteWithBackup(path string, data []byte) (backup string, err error) {
 	mode := os.FileMode(0o644)
 	old, rerr := os.ReadFile(path)
@@ -363,7 +364,10 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
-		base := path + ".bak-" + time.Now().Format("20060102-150405.000000000")
+		base := paths.BackupPath(path, time.Now())
+		if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
+			return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
+		}
 		backup, err = writeBackup(base, old)
 		if err != nil {
 			return "", fmt.Errorf("backup %s: %w", base, err)

@@ -1,7 +1,7 @@
 // Package history keeps a git-backed shadow history of the config files several tools co-own (vendor
 // CLIs, Claude Code itself, and the user), so a change made two runs ago stays recoverable.
 //
-// ONE repo under state/harness/history (gitignored) carries both "planes" — config files and the
+// ONE repo under .memory-cache/history (gitignored) carries both "planes" — config files and the
 // memory view (tree.go) — as flat labeled copies. A plane's commit subject is prefixed "config: " or
 // "memory: ", and Log/Diff filter on that prefix (git log --grep), so the two stay independent
 // histories without needing two separate repos. Every git call runs through gitenv.go's sanitized
@@ -45,9 +45,9 @@ type Result struct {
 	Skipped []Skip
 }
 
-// Dir is the shadow history repo's home: under state/ (gitignored), so these commits never reach the
-// harness's own tracked tree.
-func Dir() string { return filepath.Join(paths.StateDir(), "history") }
+// Dir is the shadow history repo's home: under the hidden cache (gitignored), so these commits never
+// reach the harness's own tracked tree.
+func Dir() string { return filepath.Join(paths.CacheDir(), "history") }
 
 // ConfigFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
 // wrote one of these can rewrite it. The provider overlay and pins are read from the vault; its secrets

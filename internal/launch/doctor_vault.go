@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -34,18 +33,5 @@ func vaultDoctorChecks() []Check {
 			row.Detail += ": " + err.Error()
 		}
 	}
-	checks := []Check{row}
-	pending, backups, err := config.MigrationStatus()
-	if len(pending) > 0 {
-		checks = append(checks, Check{Name: "legacy env.d", Detail: fmt.Sprintf(
-			"%d file(s); run claude-code vault migrate", len(pending))})
-	}
-	if backups || err != nil {
-		detail := "run claude-code vault finalize when verified"
-		if err != nil {
-			detail = err.Error()
-		}
-		checks = append(checks, Check{Name: "migration backups", Detail: detail})
-	}
-	return checks
+	return []Check{row}
 }

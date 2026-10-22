@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -62,7 +64,10 @@ func TestCheckSettingsDriftMissingFile(t *testing.T) {
 func TestCheckSettingsDriftInvalidJSON(t *testing.T) {
 	freshConfigDir(t)
 	file := SettingsFile()
-	backup := file + ".bak-20260101-000000.000000000"
+	backup := paths.BackupPath(file, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(backup, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +257,10 @@ func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 func TestCheckSettingsDriftLinesFitEightyColumns(t *testing.T) {
 	freshConfigDir(t)
 	file := SettingsFile()
-	backup := file + ".bak-20260101-000000.000000000"
+	backup := paths.BackupPath(file, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(backup, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}

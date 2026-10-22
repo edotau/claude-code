@@ -54,7 +54,7 @@ func cmdTheme(args []string) int {
 
 // printPalettes writes one line per gradient palette name, swept across its own stops when colored.
 func printPalettes(w io.Writer, colored bool) {
-	fmt.Fprintln(w, `Statusline palettes — statusline/config.json "gradient"`)
+	fmt.Fprintln(w, `Statusline palettes — state/statusline/config.json "gradient"`)
 	fmt.Fprintln(w)
 	mode, _, _ := statusline.Theme()
 	for _, name := range statusline.GradientNames() {
@@ -66,8 +66,8 @@ func printPalettes(w io.Writer, colored bool) {
 	}
 }
 
-// setGradient merges "gradient":name into statusline/config.json, creating it from the embedded
-// default when absent. It never touches any other key, and never touches settings.json.
+// setGradient merges "gradient":name into state/statusline/config.json, creating it from the
+// embedded default when absent. It never touches any other key, and never touches settings.json.
 func setGradient(name string) error {
 	path := filepath.Join(statusline.ConfigDir(), "config.json")
 	raw, err := os.ReadFile(path)

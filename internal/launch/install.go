@@ -25,7 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -50,9 +49,6 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // Install copies the binary into BinDir, links the vendor CLIs, and merges the harness settings (backing up first).
 func Install(w io.Writer, dryRun bool) error {
-	if err := config.Migrate(w, dryRun); err != nil {
-		return fmt.Errorf("migration incomplete; the old binary stays installed: %w", err)
-	}
 	snapshotPreInstall(w, dryRun)
 	target, err := installBinaryAndLinks(w, dryRun)
 	if err != nil {

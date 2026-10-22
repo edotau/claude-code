@@ -92,7 +92,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
 - `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault show|edit`) and
-  sealed secrets (`secrets`); untracked. A legacy `env.d/` imports once: `vault migrate` (`README.md` → Credentials). -
+  sealed secrets (`secrets`); untracked. -
   `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file
   stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.

@@ -25,19 +25,13 @@ set         only --tailscale: add a Tailscale credential [--api-key]
             [--dry-run]; bare "set" points at claude-code secrets set
 edit        $VISUAL/$EDITOR on that JSON; saved in one transaction,
             refused if the vault changed meanwhile
-migrate     import env.d into the vault; sources become *.bak [--dry-run]
-finalize    delete the *.bak files and imported keyring copies once
-            verified [--discard NAME]...
-rollback    restore the *.bak files and set the vault aside; refuses if a
-            migrated secret changed since [--discard NAME]...
 rotate-key  re-seal every secret under a new master key; the old key
             stays in the keyring [--force past an env/key_command guard]
 key show    print the master key (base64) to a pipe; refused on a TTY`
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
-	"show": configShow, "set": cmdVaultSet, "edit": configEdit, "migrate": configMigrate,
-	"finalize": configFinalize, "rollback": configRollback, "rotate-key": configRotateKey,
+	"show": configShow, "set": cmdVaultSet, "edit": configEdit, "rotate-key": configRotateKey,
 	"key": cmdVaultKey,
 }
 
@@ -230,50 +224,6 @@ func configEdit(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func configMigrate(args []string) int {
-	fs := flag.NewFlagSet("vault migrate", flag.ContinueOnError)
-	dry := fs.Bool("dry-run", false, "parse and report; change nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("migrate", fs.Args())
-	}
-	return configRun("migrate", config.Migrate(os.Stdout, *dry))
-}
-
-// discardFlag collects repeatable --discard NAME acknowledgements.
-type discardFlag []string
-
-func (d *discardFlag) String() string     { return strings.Join(*d, ",") }
-func (d *discardFlag) Set(s string) error { *d = append(*d, s); return nil }
-
-func configFinalize(args []string) int {
-	fs := flag.NewFlagSet("vault finalize", flag.ContinueOnError)
-	var discard discardFlag
-	fs.Var(&discard, "discard", "drop NAME's differing keyring/backup value (repeatable)")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("finalize", fs.Args())
-	}
-	return configRun("finalize", config.Finalize(os.Stdout, discard))
-}
-
-func configRollback(args []string) int {
-	fs := flag.NewFlagSet("vault rollback", flag.ContinueOnError)
-	var discard discardFlag
-	fs.Var(&discard, "discard", "drop NAME's migrated-secret change since migration (repeatable)")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("rollback", fs.Args())
-	}
-	return configRun("rollback", config.Rollback(os.Stdout, discard...))
 }
 
 func configRotateKey(args []string) int {

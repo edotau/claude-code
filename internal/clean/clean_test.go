@@ -46,8 +46,8 @@ func seedDebris(t *testing.T) string {
 		"state/harness/stop-format/abc123.json",
 		"state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log",
-		"settings.json.bak-20260101-000000",
-		"settings.json.bak",
+		".memory-cache/backups/settings.json.bak-20260101-000000",
+		".memory-cache/backups/settings.json.bak",
 		"backups/.claude.json.backup.1700000000000",
 		"jobs/job-aaa/output.log",
 		"file-history/f-aaa/v1",
@@ -126,7 +126,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		"state/harness/memory/harvest-result-sess-aaa", "state/harness/memory/recall-seen/sess-aaa",
 		"state/harness/checkpoint/sess-aaa", "state/harness/simplified/sess-aaa",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
-		"state/harness/router.log", "settings.json.bak-20260101-000000",
+		"state/harness/router.log", ".memory-cache/backups/settings.json.bak-20260101-000000",
 		"jobs/job-aaa", "file-history/f-aaa", "session-env/sess-aaa.json", "paste-cache/p-aaa.txt",
 		"shell-snapshots/snap-aaa.sh", "todos/sess-aaa.json", "cache/model-x.json", "image-cache/img-aaa.png",
 		"debug/debug-aaa.log", "statsig/stat-aaa.json", "logs/log-aaa.log", "usage-data/usage-aaa.json",
@@ -232,7 +232,7 @@ func TestPruneAgedSkipsFailedRemoval(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	hit, size := pruneAged([]string{filepath.Join(dir, "blocked-*")}, time.Now(), true)
+	hit, size := pruneAged([]string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
 	if len(hit) != 0 || size != 0 {
 		t.Errorf("pruneAged counted a failed removal: hit=%v size=%d", hit, size)
 	}
@@ -310,7 +310,7 @@ func TestPruneAgedNeverSweepsVault(t *testing.T) {
 			if protected(debris) {
 				t.Fatal("prefix-sharing sibling must remain sweepable")
 			}
-			hits, size := pruneAged([]string{filepath.Join(dir, "state", "vault.db*")}, time.Now(), apply)
+			hits, size := pruneAged([]string{filepath.Join(dir, "state", "vault.db*")}, time.Now(), apply, nil)
 			if len(hits) != 1 || hits[0] != debris || size != int64(len("debris")) {
 				t.Errorf("pruneAged = %v, %d bytes; want only debris", hits, size)
 			}
@@ -437,7 +437,10 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 func TestBackupsAgeless(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	fresh := []string{filepath.Join(dir, "settings.json.bak"), filepath.Join(dir, "backups", ".claude.json.backup.1")}
+	fresh := []string{
+		filepath.Join(paths.CacheDir(), "backups", "settings.json.bak"),
+		filepath.Join(dir, "backups", ".claude.json.backup.1"),
+	}
 	for _, p := range fresh {
 		write(t, p, "x")
 	}
@@ -447,6 +450,36 @@ func TestBackupsAgeless(t *testing.T) {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("fresh backup kept: %s", p)
 		}
+	}
+}
+
+// TestCleanListShowsBackupsTarget: --list names the renamed settings-backups target (CacheDir, not root).
+func TestCleanListShowsBackupsTarget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--list"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --list = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "settings-backups") || !strings.Contains(out.String(), ".memory-cache/backups") {
+		t.Errorf("--list missing the renamed target:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "settings.json.bak[") {
+		t.Errorf("--list still advertises the old root settings.json.bak* doc:\n%s", out.String())
+	}
+}
+
+// TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles: the new CacheDir glob never reaches outside
+// .memory-cache/backups — a root-level file that merely starts with the same prefix survives.
+func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	unrelated := filepath.Join(dir, "settings.json.bak-20260101-000000")
+	write(t, unrelated, "x")
+	var out, errw bytes.Buffer
+	Run(nil, &out, &errw)
+	if !exists(t, unrelated) {
+		t.Errorf("clean swept a root file outside .memory-cache/backups: %s", unrelated)
 	}
 }
 
@@ -616,7 +649,7 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 		}
 	}
 	hits, _ := pruneAged([]string{filepath.Join(dir, "memory", "*"), filepath.Join(dir, "memory", ".git", "*"),
-		filepath.Join(dir, "state", "harness", "memory", "*"), filepath.Join(dir, "state", "harness", "memory", "*", "*")}, time.Now(), true)
+		filepath.Join(dir, "state", "harness", "memory", "*"), filepath.Join(dir, "state", "harness", "memory", "*", "*")}, time.Now(), true, nil)
 	if len(hits) != 0 {
 		t.Errorf("pruneAged removed protected paths: %v", hits)
 	}

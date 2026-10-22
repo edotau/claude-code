@@ -44,7 +44,7 @@ func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	return code, bo.String(), be.String()
 }
 
-func configPath(dir string) string { return filepath.Join(dir, "statusline", "config.json") }
+func configPath(dir string) string { return filepath.Join(dir, "state", "statusline", "config.json") }
 
 func TestThemeSetPersistsAndReloadsThroughStatuslineLoader(t *testing.T) {
 	hermeticTheme(t)

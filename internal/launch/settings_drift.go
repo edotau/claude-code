@@ -3,6 +3,8 @@ package launch
 import (
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/paths"
@@ -88,9 +90,11 @@ func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	return d, nil
 }
 
-// newestBackup names the latest <file>.bak-* to restore from, or says none was found.
+// newestBackup names the latest cache-mirrored backup to restore from, or says none was found.
 func newestBackup(file string) string {
-	matches, _ := filepath.Glob(file + ".bak-*")
+	sample := paths.BackupPath(file, time.Now())
+	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
+	matches, _ := filepath.Glob(prefix + "*")
 	if len(matches) == 0 {
 		return "no backup found"
 	}

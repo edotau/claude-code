@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -179,14 +180,21 @@ func TestRenderOpenCodeCopilotBacksUpStaleJSONC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bak string
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "opencode.jsonc.bak-") {
-			bak = filepath.Join(jsoncDir, e.Name())
+		if strings.Contains(e.Name(), ".bak-") {
+			t.Errorf("no backup must land beside the original jsonc, got %v", e.Name())
 		}
 	}
+	bakDir := filepath.Join(paths.CacheDir(), "backups")
+	var bak string
+	_ = filepath.WalkDir(bakDir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "opencode.jsonc.bak-") {
+			bak = path
+		}
+		return nil
+	})
 	if bak == "" {
-		t.Fatalf("no opencode.jsonc.bak-<ts> found among %v", entries)
+		t.Fatalf("no opencode.jsonc.bak-<ts> found under %s", bakDir)
 	}
 	got, err := os.ReadFile(bak)
 	if err != nil {

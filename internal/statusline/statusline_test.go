@@ -317,11 +317,11 @@ func TestRunAndConfigOverride(t *testing.T) {
 		t.Errorf("bad flag exit %d", code)
 	}
 	// config.json picks the style and enables the session segment; omitted maps keep the embedded ones.
-	if err := os.MkdirAll(filepath.Join(dir, "statusline"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "state", "statusline"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg := `{"style":"capsule","segments":{"session":true,"git":false,"velocity":false,"router":false}}`
-	if err := os.WriteFile(filepath.Join(dir, "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	want := "tester:/nowhere/proj | ( Opus 5 ) ( " + registryDefault(t) + " ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"

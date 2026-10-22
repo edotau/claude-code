@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Refusal errors: the cli layer maps these to exit 2 (refused), everything else to exit 1.
@@ -49,7 +50,7 @@ func Adopt(opts AdoptOpts) error {
 		label = "adopt"
 	}
 	now := time.Now()
-	backupDir := BackupPath(opts.Into, label, now)
+	backupDir := paths.BackupDir(label, now)
 	Report(opts.Out, clashes, backupDir)
 	if opts.DryRun {
 		fmt.Fprintln(opts.Out, "dry-run: no files were changed")

@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"encoding/base64"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
@@ -30,14 +28,9 @@ func TestCmdVault(t *testing.T) {
 		{"show extra arg", []string{"show", "x"}, 2},
 		{"edit extra arg", []string{"edit", "x"}, 2},
 		{"show", []string{"show"}, 0},
-		{"migrate nothing", []string{"migrate"}, 0},
-		{"migrate dry-run nothing", []string{"migrate", "--dry-run"}, 0},
-		{"migrate extra arg", []string{"migrate", "x"}, 2},
-		{"migrate bad flag", []string{"migrate", "--nope"}, 2},
-		{"finalize no manifest", []string{"finalize"}, 1},
-		{"finalize extra arg", []string{"finalize", "x"}, 2},
-		{"rollback no manifest", []string{"rollback"}, 1},
-		{"rollback extra arg", []string{"rollback", "x"}, 2},
+		{"migrate is unknown", []string{"migrate"}, 2},
+		{"finalize is unknown", []string{"finalize"}, 2},
+		{"rollback is unknown", []string{"rollback"}, 2},
 		{"rotate-key extra arg", []string{"rotate-key", "x"}, 2},
 	}
 	for _, tt := range tests {
@@ -52,7 +45,7 @@ func TestCmdVault(t *testing.T) {
 
 func TestVaultVerbsAndMenu(t *testing.T) {
 	vaulttest.Use(t)
-	want := []string{"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"}
+	want := []string{"show", "set", "edit", "rotate-key", "key"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}
@@ -84,33 +77,16 @@ func TestVaultVerbsAndMenu(t *testing.T) {
 	}
 }
 
-// TestVaultRollbackDiscardReachesConfigRollback: "vault rollback --discard NAME" (repeatable)
-// must pass the names through to config.Rollback, which refuses a migrated secret that changed
-// in the vault since migration unless its name is discarded.
-func TestVaultRollbackDiscardReachesConfigRollback(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	legacyDir := filepath.Join(paths.ConfigDir(), "env.d")
-	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
-		t.Fatal(err)
+// TestVaultMigrateIsUnknownSubcommand: env.d support is gone (D2) — "vault migrate" is no longer a
+// verb at all, not a no-op; it fails the same way any unrecognized subcommand does.
+func TestVaultMigrateIsUnknownSubcommand(t *testing.T) {
+	vaulttest.Use(t)
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"migrate"}) })
+	if code != 2 {
+		t.Fatalf("vault migrate = %d, want 2; stderr = %q", code, stderr)
 	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "secrets.env"), []byte("FILE_TOKEN=original\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"migrate"}) }); code != 0 {
-		t.Fatalf("vault migrate = %d, want 0; stderr = %q", code, stderr)
-	}
-	vaulttest.Secret(t, "FILE_TOKEN", "changed-after-migrate")
-
-	if code, stdout, _ := captureOutput(t, func() int { return cmdVault([]string{"rollback"}) }); code != 1 {
-		t.Fatalf("vault rollback (no --discard) = %d, want 1; stdout = %q", code, stdout)
-	} else if !strings.Contains(stdout, "FILE_TOKEN changed in the vault since migration") {
-		t.Fatalf("vault rollback stdout = %q, want it to name FILE_TOKEN", stdout)
-	}
-
-	if code, _, stderr := captureOutput(t, func() int {
-		return cmdVault([]string{"rollback", "--discard", "FILE_TOKEN"})
-	}); code != 0 {
-		t.Fatalf("vault rollback --discard FILE_TOKEN = %d, want 0; stderr = %q", code, stderr)
+	if !strings.Contains(stderr, `unknown subcommand "migrate"`) {
+		t.Fatalf("vault migrate stderr = %q, want it to name the unknown subcommand", stderr)
 	}
 }
 

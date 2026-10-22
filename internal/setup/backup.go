@@ -5,26 +5,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// BackupPath is where Backup(dir, _, label, now) copies the clash set.
-func BackupPath(dir, label string, now time.Time) string {
-	return filepath.Join(dir, "backups", label+"-"+now.Format("20060102-150405"))
-}
-
-// Backup copies each of relPaths (dir-relative, slash-separated) into BackupPath(dir, label, now),
-// preserving the file mode. A path under env.d/ is never copied, even if passed in — a secret stays
-// where it is, same exclusion the `history` verb applies.
+// Backup copies each of relPaths (dir-relative, slash-separated) into paths.BackupDir(label, now),
+// preserving the file mode.
 func Backup(dir string, relPaths []string, label string, now time.Time) (string, error) {
-	dest := BackupPath(dir, label, now)
+	dest := paths.BackupDir(label, now)
 	for _, rel := range relPaths {
-		if strings.HasPrefix(filepath.ToSlash(rel), "env.d/") {
-			continue
-		}
 		if err := copyFile(filepath.Join(dir, rel), filepath.Join(dest, rel)); err != nil {
 			return dest, err
 		}
