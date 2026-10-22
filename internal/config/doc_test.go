@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func seedTestDoc(t *testing.T) {
 }
 
 func TestExportEmpty(t *testing.T) {
-	const want = "{\n  \"pins\": {},\n  \"env\": {},\n  \"providers\": null,\n  \"vendors\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
+	const want = "{\n  \"pins\": {},\n  \"env\": {},\n  \"providers\": null,\n  \"vendors\": null,\n  \"settings\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
 	for _, created := range []bool{false, true} {
 		name := "missing"
 		if created {
@@ -209,6 +210,74 @@ func TestImportWrites(t *testing.T) {
 				t.Fatalf("Import did not apply exactly the expected %s/%s change", tt.bucket, tt.key)
 			}
 		})
+	}
+}
+
+func TestImportSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings json.RawMessage
+		wantErr  string // substring; empty means no error
+	}{
+		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), ""},
+		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), ""},
+		{"unknown key", json.RawMessage(`{"bogusKey":1}`), "settings"},
+		{"autoMode wrong type", json.RawMessage(`{"autoMode":"x"}`), "settings"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			seedTestDoc(t)
+			orig := exportTestDoc(t)
+			before := vaultTestState(t)
+			edited := editTestDoc(t, orig, func(d *Doc) { d.Settings = tt.settings })
+			err := Import(orig, edited)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Import() = %v, want nil", err)
+				}
+				after := exportTestDoc(t)
+				var got Doc
+				if err := json.Unmarshal(after, &got); err != nil {
+					t.Fatal(err)
+				}
+				var gotVal, wantVal any
+				if err := json.Unmarshal(got.Settings, &gotVal); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(tt.settings, &wantVal); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(gotVal, wantVal) {
+					t.Errorf("Export settings = %s, want %s", got.Settings, tt.settings)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Import() = %v, want error containing %q", err, tt.wantErr)
+			}
+			if got := exportTestDoc(t); !bytes.Equal(got, orig) {
+				t.Error("invalid settings Import changed exported config")
+			}
+			if got := vaultTestState(t); !reflect.DeepEqual(got, before) {
+				t.Error("invalid settings Import changed a vault bucket")
+			}
+		})
+	}
+}
+
+func TestImportSettingsRemoval(t *testing.T) {
+	vaulttest.Use(t)
+	seedTestDoc(t)
+	vaulttest.Put(t, vault.Overlay, "settings", `{"theme":"dark"}`)
+	orig := exportTestDoc(t)
+	edited := editTestDoc(t, orig, func(d *Doc) { d.Settings = json.RawMessage("null") })
+	if err := Import(orig, edited); err != nil {
+		t.Fatal(err)
+	}
+	state := vaultTestState(t)
+	if _, ok := state[vault.Overlay]["settings"]; ok {
+		t.Error("removing settings left the overlay entry present")
 	}
 }
 
