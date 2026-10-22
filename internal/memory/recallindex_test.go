@@ -40,8 +40,8 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		filepath.Join(Dir(root), "conventions.md"):   "# Conventions\n\n- commit small\nreview focused changes\n",
-		filepath.Join(GlobalDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
+		filepath.Join(Dir(root), "conventions.md"):     "# Conventions\n\n- commit small\nreview focused changes\n",
+		filepath.Join(HomeBankDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
 		filepath.Join(Dir(root), "recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",

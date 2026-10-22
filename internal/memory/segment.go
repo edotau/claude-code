@@ -31,10 +31,10 @@ func corpusFiles(root string) []corpusFile {
 			out = append(out, corpusFile{bank, filepath.Join(dir, name), segEntries})
 		}
 	}
-	if !IsGlobal(root) {
+	if !IsHomeBank(root) {
 		banks("local", Dir(root))
 	}
-	banks("global", GlobalDir())
+	banks("home", HomeBankDir())
 	archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md"))
 	for _, path := range archived {
 		out = append(out, corpusFile{"archive", path, segEntries})

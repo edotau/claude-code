@@ -104,7 +104,7 @@ func (inv *inventory) register(path, explicitSlug string, aliases []string) stri
 		return origin
 	}
 	id, isHome := Resolve(canon), paths.SamePath(canon, inv.home)
-	if id.Global && explicitSlug != "" && !isHome { // a pinned non-git workspace gets its own store
+	if id.HomeBank && explicitSlug != "" && !isHome { // a pinned non-git workspace gets its own store
 		id = Identity{Origin: canon, Base: filepath.Base(canon)}
 	}
 	origin := id.Origin
@@ -131,14 +131,14 @@ func (inv *inventory) register(path, explicitSlug string, aliases []string) stri
 	return origin
 }
 
-// destFor: $HOME → the global dir, the config checkout → HarnessStoreDir, a repo → RepoDir, a non-repo → "".
+// destFor: $HOME → the home dir, the config checkout → HarnessStoreDir, a repo → RepoDir, a non-repo → "".
 func (inv *inventory) destFor(id Identity, canon string, isHome bool) (string, error) {
 	switch {
 	case isHome:
-		return globalStoreDir(), nil
+		return homeStoreDir(), nil
 	case id.Harness:
 		return HarnessStoreDir(), nil
-	case id.Global:
+	case id.HomeBank:
 		return "", nil
 	}
 	entries, err := RepoDirs()
@@ -186,9 +186,9 @@ func (inv *inventory) destOf(slug string) (string, bool) {
 	return d, ok
 }
 
-// originItemFor plans dest's origin record when absent or lacking an alias; the store root and global never have one.
+// originItemFor plans dest's origin record when absent or lacking an alias; the store root and home never have one.
 func (inv *inventory) originItemFor(dest, origin string, aliases []string) {
-	if _, done := inv.originItem[dest]; done || paths.SamePath(dest, StoreDir()) || paths.SamePath(dest, globalStoreDir()) {
+	if _, done := inv.originItem[dest]; done || paths.SamePath(dest, StoreDir()) || paths.SamePath(dest, homeStoreDir()) {
 		return
 	}
 	if cur, err := ReadOrigin(dest); err == nil {
@@ -295,7 +295,7 @@ func (inv *inventory) quarantineTree(root, reason string) {
 	inv.tree(root, "", KindUnknownItem, ActionQuarantine, reason)
 }
 
-// legacyTree inventories GlobalDir(): the global six, archive/, <slug>/ banks and anything unknown.
+// legacyTree inventories LegacyGlobalDir(): the home six, archive/, <slug>/ banks and anything unknown.
 func (inv *inventory) legacyTree() {
 	g := LegacyGlobalDir()
 	ents, _ := os.ReadDir(g)
@@ -315,12 +315,12 @@ func (inv *inventory) legacyTree() {
 		case e.IsDir():
 			inv.quarantineTree(p, "unknown directory in the legacy bank tree")
 		default:
-			inv.bankFile(g, name, globalStoreDir(), "global", KindGlobalBank)
+			inv.bankFile(g, name, homeStoreDir(), "home", KindGlobalBank)
 		}
 	}
 }
 
-// bankFile classifies one top-level regular file of a bank dir (global or <slug>) and plans it.
+// bankFile classifies one top-level regular file of a bank dir (home or <slug>) and plans it.
 func (inv *inventory) bankFile(dir, name, dest, key, typedKind string) {
 	p := filepath.Join(dir, name)
 	switch {
@@ -339,7 +339,7 @@ func (inv *inventory) bankFile(dir, name, dest, key, typedKind string) {
 	}
 }
 
-// legacyArchive plans GlobalDir()/archive: *.md to the global archive, native/<pslug>/** to the owning repo.
+// legacyArchive plans LegacyGlobalDir()/archive: *.md to the home archive, native/<pslug>/** to the owning repo.
 func (inv *inventory) legacyArchive(dir string) {
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
@@ -353,7 +353,7 @@ func (inv *inventory) legacyArchive(dir string) {
 		case e.IsDir():
 			inv.quarantineTree(p, "unknown archive directory")
 		case e.Type().IsRegular() && strings.HasSuffix(name, ".md"):
-			inv.add(MigrateItem{Kind: KindRepoArchive, Source: p, Dest: filepath.Join(ArchiveDir(globalStoreDir()), name), Action: ActionCopy, Reason: "global archive"})
+			inv.add(MigrateItem{Kind: KindRepoArchive, Source: p, Dest: filepath.Join(ArchiveDir(homeStoreDir()), name), Action: ActionCopy, Reason: "home archive"})
 		default:
 			inv.add(MigrateItem{Kind: KindUnknownItem, Source: p, Action: ActionQuarantine, Reason: "unknown archive entry"})
 		}
@@ -370,7 +370,7 @@ func (inv *inventory) nativeArchive(root, pslug string) {
 	inv.tree(root, "", KindArchiveNative, ActionQuarantine, "no origin for native archive "+pslug)
 }
 
-// legacyBank plans one GlobalDir()/<slug>/ bank: pristine → delete; resolved → import; unresolved → skip.
+// legacyBank plans one LegacyGlobalDir()/<slug>/ bank: pristine → delete; resolved → import; unresolved → skip.
 func (inv *inventory) legacyBank(dir, slug string) {
 	ents, _ := os.ReadDir(dir)
 	if pristineDir(dir, true) {

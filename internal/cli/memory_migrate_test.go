@@ -31,7 +31,7 @@ func manifestPathFromDryRun(t *testing.T) string {
 func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 	if !strings.Contains(out, "store live: ") || !strings.Contains(out, "link linked") {
 		t.Errorf("a complete apply must cut over: link native dirs and report the live store: %q", out)
 	}
-	dest := filepath.Join(memory.GlobalDir(), "conventions.md")
+	dest := filepath.Join(memory.HomeBankDir(), "conventions.md")
 	data, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatalf("imported file missing at %s: %v", dest, err)
@@ -61,7 +61,7 @@ func TestMemoryMigrateApplyHappyPathCompletes(t *testing.T) {
 func TestMemoryMigrateApplyRefusesWhileNotQuiesced(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestMemoryMigrateApplyRefusesWhileNotQuiesced(t *testing.T) {
 func TestMemoryMigrateApplyRefusesWhileBankLockBusy(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func assertNoMigrationNotice(t *testing.T, verb []string) {
 func TestMemoryCommandsDoNotAutoMigrateLegacyBank(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestMemoryCommandsDoNotAutoMigrateLegacyBank(t *testing.T) {
 func TestMemoryMigrateSupersedeFlag(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestMemoryMigrateSupersedeFlag(t *testing.T) {
 func TestMemoryMigrateApplyRejectsJSONFormat(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}

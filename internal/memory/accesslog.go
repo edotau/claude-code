@@ -150,7 +150,7 @@ func AccessLogPath(dir string) string {
 		if rel, ok := InsideStore(dir); ok {
 			key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
 			if key == "" || key == "." {
-				key = "global"
+				key = "home"
 			}
 			return filepath.Join(AccessStateDir(), key+".log")
 		}

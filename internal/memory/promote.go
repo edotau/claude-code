@@ -20,7 +20,7 @@ var promoteCaps = map[string]int{
 	"decisionLog.md": FileCaps["decisionLog.md"],
 }
 
-// promoteJaccard is the block token-overlap above which a local block already exists in global.
+// promoteJaccard is the block token-overlap above which a local block already exists in the home bank.
 const promoteJaccard = 0.6
 
 // minEntryTokens filters trivially-short blocks (headers, one-word bullets) out of dedup matching.
@@ -30,22 +30,22 @@ const minEntryTokens = 4
 // the reversed list; decisionLog.md is newest-first and keeps the straight split.
 var bottomAppended = map[string]bool{"conventions.md": true}
 
-// globalLockPath serializes all global-bank writers (promote, archive) behind one lock file under
-// state — never beside the committed global bank.
-func globalLockPath() string { return filepath.Join(storeLockDir(GlobalDir()), ".promote.lock") }
+// homeBankLockPath serializes all home-bank writers (promote, archive) behind one lock file under
+// state — never beside the committed home bank.
+func homeBankLockPath() string { return filepath.Join(storeLockDir(HomeBankDir()), ".promote.lock") }
 
-// PromoteLocalToGlobal moves settled overflow from root's local durable files into the shared global
-// bank (deduped) and prunes local back under cap. No-op when local IS global.
+// PromoteLocalToGlobal moves settled overflow from root's local durable files into the shared home
+// bank (deduped) and prunes local back under cap. No-op when local IS the home bank.
 func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
-	if IsGlobal(root) {
+	if IsHomeBank(root) {
 		return 0, nil
 	}
-	localDir, globalDir := Dir(root), GlobalDir()
+	localDir, homeDir := Dir(root), HomeBankDir()
 	promoted := 0
-	ran, err := paths.TryFileLock(globalLockPath(), 2*time.Second, func() error {
-		cleanupLegacyLocks(globalDir) // one-time: old dotfile locks left beside the global bank
+	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
+		cleanupLegacyLocks(homeDir) // one-time: old dotfile locks left beside the home bank
 		for name, capLines := range promoteCaps {
-			n, err := promoteFile(filepath.Join(localDir, name), filepath.Join(globalDir, name), capLines, now)
+			n, err := promoteFile(filepath.Join(localDir, name), filepath.Join(homeDir, name), capLines, now)
 			if err != nil {
 				return err
 			}
@@ -54,21 +54,21 @@ func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
 		return nil
 	})
 	if !ran && err == nil {
-		return 0, errors.New("global bank busy (another worker holds the lock) — promotion deferred")
+		return 0, errors.New("home bank busy (another worker holds the lock) — promotion deferred")
 	}
 	return promoted, err
 }
 
-// ArchiveSettledOverflow is the relief valve when local IS global: no second tier to promote into, so
-// overflow moves to <bank>/archive/<file>-<yyyy-mm>.md instead. No-op for an ordinary project bank.
+// ArchiveSettledOverflow is the relief valve when local IS the home bank: no second tier to promote
+// into, so overflow moves to <bank>/archive/<file>-<yyyy-mm>.md instead. No-op for an ordinary project bank.
 func ArchiveSettledOverflow(root string, now time.Time) (int, error) {
-	if !IsGlobal(root) {
+	if !IsHomeBank(root) {
 		return 0, nil
 	}
 	dir := Dir(root)
 	archived := 0
-	ran, err := paths.TryFileLock(globalLockPath(), 2*time.Second, func() error {
-		cleanupLegacyLocks(dir) // one-time: old dotfile locks left beside the global bank
+	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
+		cleanupLegacyLocks(dir) // one-time: old dotfile locks left beside the home bank
 		for name, capLines := range promoteCaps {
 			n, err := archiveFile(filepath.Join(dir, name), dir, capLines, now)
 			if err != nil {
@@ -79,7 +79,7 @@ func ArchiveSettledOverflow(root string, now time.Time) (int, error) {
 		return nil
 	})
 	if !ran && err == nil {
-		return 0, errors.New("global bank busy (another worker holds the lock) — archive deferred")
+		return 0, errors.New("home bank busy (another worker holds the lock) — archive deferred")
 	}
 	return archived, err
 }
@@ -93,7 +93,7 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 		slices.Reverse(rev)
 		keep, overflow = budgetSplit(header, rev, capLines)
 		slices.Reverse(keep)
-		slices.Reverse(overflow) // oldest-first, so archive/global appends stay chronological
+		slices.Reverse(overflow) // oldest-first, so archive/home appends stay chronological
 		return keep, overflow
 	}
 	return budgetSplit(header, blocks, capLines)
@@ -132,11 +132,11 @@ func archiveFile(path, dir string, capLines int, now time.Time) (int, error) {
 	return len(overflow), nil
 }
 
-// promoteFile prunes localPath to capLines by promoting the OLDEST overflow blocks into globalPath.
-// Near-dups of global blocks simply drop (they already live there); blocks too short to dedup
+// promoteFile prunes localPath to capLines by promoting the OLDEST overflow blocks into homePath.
+// Near-dups of home-bank blocks simply drop (they already live there); blocks too short to dedup
 // reliably are ARCHIVED beside the local bank instead of promoted — overflow is never lost, only
 // re-homed.
-func promoteFile(localPath, globalPath string, capLines int, now time.Time) (int, error) {
+func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, error) {
 	data, err := os.ReadFile(localPath)
 	if err != nil {
 		return 0, nil // absent local file — nothing to promote
@@ -153,30 +153,30 @@ func promoteFile(localPath, globalPath string, capLines int, now time.Time) (int
 	}
 
 	// Credential gate: refuse the whole promote rather than spread a leaked value into the shared
-	// global bank (whence it rides every session's injection). Scrub the block to unblock.
+	// home bank (whence it rides every session's injection). Scrub the block to unblock.
 	if slices.ContainsFunc(overflow, credentialPattern.MatchString) {
 		return 0, fmt.Errorf("%s: possible credential in overflow block — scrub it, then re-run promote", base)
 	}
 
-	// Dedup overflow against what's already in the global file.
-	gData, _ := os.ReadFile(globalPath)
-	_, gBlocks := entryBlocks(filepath.Base(globalPath), string(gData))
-	gSets := make([]map[string]bool, 0, len(gBlocks))
-	for _, b := range gBlocks {
-		gSets = append(gSets, blockTokens(b))
+	// Dedup overflow against what's already in the home-bank file.
+	hData, _ := os.ReadFile(homePath)
+	_, hBlocks := entryBlocks(filepath.Base(homePath), string(hData))
+	hSets := make([]map[string]bool, 0, len(hBlocks))
+	for _, b := range hBlocks {
+		hSets = append(hSets, blockTokens(b))
 	}
 	var toAppend, dropped []string
 	for _, b := range overflow {
 		set := blockTokens(b)
-		if isNearDup(set, gSets) {
-			continue // already in global → safe to drop from local
+		if isNearDup(set, hSets) {
+			continue // already in the home bank → safe to drop from local
 		}
 		if len(set) < minEntryTokens {
 			dropped = append(dropped, b) // too short to dedup reliably — archive, never lose
 			continue
 		}
 		toAppend = append(toAppend, b)
-		gSets = append(gSets, set) // guard against dups WITHIN the overflow too
+		hSets = append(hSets, set) // guard against dups WITHIN the overflow too
 	}
 
 	if len(dropped) > 0 {
@@ -186,11 +186,11 @@ func promoteFile(localPath, globalPath string, capLines int, now time.Time) (int
 		}
 	}
 	if len(toAppend) > 0 {
-		if err := appendBlocks(globalPath, toAppend); err != nil {
+		if err := appendBlocks(homePath, toAppend); err != nil {
 			return 0, err
 		}
 	}
-	// Rewrite local with header + kept blocks (every overflow block is promoted, a global dup, or archived).
+	// Rewrite local with header + kept blocks (every overflow block is promoted, a home-bank dup, or archived).
 	if err := paths.AtomicWrite(localPath, []byte(rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}

@@ -98,13 +98,13 @@ func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHi
 }
 
 // logDirFor is the access-log dir for a recall hit's bank: local hits log beside the local bank
-// (a per-repo audit trail); global and native hits log beside the shared global bank, since that is
+// (a per-repo audit trail); home and native hits log beside the shared home bank, since that is
 // the one access log AccessNominations reads.
 func logDirFor(root, bank string) string {
 	if bank == "local" {
 		return memory.Dir(root)
 	}
-	return memory.GlobalDir()
+	return memory.HomeBankDir()
 }
 
 // distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.

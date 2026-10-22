@@ -77,7 +77,7 @@ func commands() []command {
 		{name: "configure", group: groupSettings, summary: "guided setup: provider, login or key, models, agents", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "pick the statusline color (--preview to list)", run: cmdTheme},
 		{name: "vscode", group: groupSettings, summary: "merge the tracked VS Code settings template (--check)", run: cmdVSCode},
-		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared global bank", run: cmdMemory},
+		{name: "memory", group: groupSettings, summary: "two-layer session memory: namespaced + shared home bank", run: cmdMemory},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected provider", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},

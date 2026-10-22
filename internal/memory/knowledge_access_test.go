@@ -18,7 +18,7 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	}
 	cutover(t)
 	for dir, want := range map[string]string{
-		StoreDir():                           "global.log",
+		StoreDir():                           "home.log",
 		filepath.Join(StoreDir(), ".claude"): ".claude.log",
 		filepath.Join(StoreDir(), "repo-a"):  "repo-a.log",
 	} {

@@ -94,5 +94,5 @@
 <text x="173.2" y="806" fill="#d7d4dc">merge the tracked VS Code settings template (--check)</text>
 <text x="22.0" y="825" fill="#d7d4dc">  </text>
 <text x="38.8" y="825" fill="#ff6b9d" font-weight="bold">memory          </text>
-<text x="173.2" y="825" fill="#d7d4dc">two-layer session memory: namespaced + shared global bank</text>
+<text x="173.2" y="825" fill="#d7d4dc">two-layer session memory: namespaced + shared home bank</text>
 </g></svg>

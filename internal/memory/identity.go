@@ -16,16 +16,16 @@ import (
 
 // Identity is a cwd resolved to the canonical repository it belongs to; worktrees and subdirs share one.
 type Identity struct {
-	Origin  string // canonical main checkout ("" when Global)
-	Base    string // filepath.Base(Origin)
-	Global  bool   // non-repo cwd → memory/global/ (global tier)
-	Harness bool   // the config checkout itself → Key harnessStoreKey()
+	Origin   string // canonical main checkout ("" when HomeBank)
+	Base     string // filepath.Base(Origin)
+	HomeBank bool   // non-repo cwd → memory/home/ (home tier)
+	Harness  bool   // the config checkout itself → Key harnessStoreKey()
 }
 
 // identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
 var identities sync.Map
 
-// Resolve maps root to its canonical identity; any git failure is the global tier, never an error.
+// Resolve maps root to its canonical identity; any git failure is the home tier, never an error.
 func Resolve(root string) Identity {
 	root = filepath.Clean(root)
 	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
@@ -45,14 +45,14 @@ func Resolve(root string) Identity {
 	o := origin.(string)
 	switch {
 	case o == "":
-		return Identity{Global: true}
+		return Identity{HomeBank: true}
 	case paths.SamePath(o, paths.ConfigDir()):
 		return harnessIdentity()
 	}
 	return Identity{Origin: o, Base: filepath.Base(o)}
 }
 
-// storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to Global; else ok=false.
+// storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to HomeBank; else ok=false.
 // Without it the store's own git repo resolves as a project named "memory".
 func storeIdentity(root string) (Identity, bool) {
 	canon, store := resolvePath(root), resolvePath(StoreDir())
@@ -71,7 +71,7 @@ func storeIdentity(root string) (Identity, bool) {
 			return Identity{Origin: o, Base: filepath.Base(o)}, true
 		}
 	}
-	return Identity{Global: true}, true
+	return Identity{HomeBank: true}, true
 }
 
 func within(p, dir string) bool {
@@ -133,8 +133,8 @@ func mainCheckout(root string) string {
 func RepoDir(root string) (string, error) {
 	id := Resolve(root)
 	switch {
-	case id.Global:
-		return globalStoreDir(), nil
+	case id.HomeBank:
+		return homeStoreDir(), nil
 	case id.Harness:
 		return HarnessStoreDir(), nil
 	}
@@ -255,7 +255,7 @@ func EnsureRepoDir(root string) (string, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		if id.Global {
+		if id.HomeBank {
 			return nil
 		}
 		// An existing record that already accepts this checkout (origin or alias) is kept, never rewritten.

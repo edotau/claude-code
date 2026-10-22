@@ -50,7 +50,7 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
 	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := "Session memory bank (local + shared global) loaded below. It auto-saves at session end; /memory:end is the manual override."
+		note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; /memory:end is the manual override."
 		if prefix != "" {
 			note = prefix + " " + note
 		}
@@ -66,7 +66,7 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 			}
 		}
 		// The doctor line comes from the cache `memory update`'s settle path maintains — a full Doctor
-		// pass tokenizes the global bank + access log, which has no place on the launch path.
+		// pass tokenizes the home bank + access log, which has no place on the launch path.
 		if data, err := os.ReadFile(memory.DoctorNoticePath()); err == nil {
 			if notice := strings.TrimSpace(string(data)); notice != "" {
 				if len(notice) > 200 {

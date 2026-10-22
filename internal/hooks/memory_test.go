@@ -287,7 +287,7 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 
 	assertPausedSuppressesHarvest(t, repo)
 
-	// A complete journal retires the legacy bank; until the cutover re-points Dir/GlobalDir at the store, the
+	// A complete journal retires the legacy bank; until the cutover re-points Dir/HomeBankDir at the store, the
 	// hook stays paused so SessionStart never recreates it.
 	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/pending.json"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -296,7 +296,7 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 	if memory.HasBank(repo) || !strings.Contains(got, "memory migration complete") || strings.Contains(got, "scaffolded") {
 		t.Fatalf("a completed journal must keep the pause and scaffold nothing: %q", got[:min(len(got), 300)])
 	}
-	if _, err := os.Stat(memory.GlobalDir()); !os.IsNotExist(err) {
+	if _, err := os.Stat(memory.HomeBankDir()); !os.IsNotExist(err) {
 		t.Error("SessionStart recreated the retired legacy bank")
 	}
 	assertPausedSuppressesHarvest(t, repo)

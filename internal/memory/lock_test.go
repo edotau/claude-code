@@ -125,12 +125,12 @@ func TestSettleBankRemovesEmptyLegacyLockButKeepsOneHeld(t *testing.T) {
 	}
 }
 
-// TestPromoteLockLivesUnderGlobalLocksDir: PromoteLocalToGlobal's lock is state/harness/memory/locks/global/.promote.lock.
+// TestPromoteLockLivesUnderGlobalLocksDir: PromoteLocalToGlobal's lock is state/harness/memory/locks/home/.promote.lock.
 func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
 	cfg := tempConfig(t)
-	want := filepath.Join(cfg, "state", "harness", "memory", "locks", "global", ".promote.lock")
-	if got := globalLockPath(); got != want {
-		t.Fatalf("globalLockPath() = %q, want %q", got, want)
+	want := filepath.Join(cfg, "state", "harness", "memory", "locks", "home", ".promote.lock")
+	if got := homeBankLockPath(); got != want {
+		t.Fatalf("homeBankLockPath() = %q, want %q", got, want)
 	}
 	root := repoRoot(t, "proj")
 	write(t, filepath.Join(Dir(root), "conventions.md"), strings.Repeat("- rule\n", 40))

@@ -222,7 +222,7 @@ func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return GlobalDir(), dir
+	return HomeBankDir(), dir
 }
 
 // TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex: BankFmtTargets walks the six typed

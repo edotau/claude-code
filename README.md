@@ -247,7 +247,7 @@ One store, `~/.claude/memory/`: a local-only git repo (every settle commits, nev
 ```text
 memory/
   index.md       generated catalog — never hand-edit
-  global/        cross-repo bank
+  home/          cross-repo bank
   claude-code/   the harness's own bank
   <repo>/        per repo, keyed by origin remote basename; .origin records identity
 ```

@@ -33,7 +33,7 @@ func DreamDue(cwd string, now time.Time) bool {
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
-	return NewestMtime(Dir(cwd)).After(stamp) || NewestMtime(GlobalDir()).After(stamp)
+	return NewestMtime(Dir(cwd)).After(stamp) || NewestMtime(HomeBankDir()).After(stamp)
 }
 
 // DreamOptions drive one consolidation.
@@ -53,14 +53,14 @@ func agentDreamPrompt() string {
 		text = ""
 	}
 	return "Background daily consolidation of the memory bank. Resolve the local bank with `claude-code memory path`; " +
-		"the global bank is the memory root. Dedupe and merge; strike and archive superseded decisions into archive/; " +
-		"keep every <!-- id:... --> marker; bring local and global conventions.md (80 lines) and decisionLog.md " +
+		"the home bank is the memory root. Dedupe and merge; strike and archive superseded decisions into archive/; " +
+		"keep every <!-- id:... --> marker; bring local and home conventions.md (80 lines) and decisionLog.md " +
 		"(200 lines) under their caps. Never edit RULES regions and never edit CLAUDE.md. Be surgical.\n\n" + text +
 		"\n\nOverride: you are the consolidator, so do the work yourself. Edit only files under the memory root; " +
 		"never edit CLAUDE.md or rules/ — list any promotion candidates in your answer instead."
 }
 
-// Dream promotes local blocks to global, consolidates both banks on the agent, settles, and stamps.
+// Dream promotes local blocks to the home bank, consolidates both banks on the agent, settles, and stamps.
 func Dream(o DreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -75,7 +75,7 @@ func Dream(o DreamOptions) error {
 		if err != nil {
 			fmt.Fprintln(o.Out, "memory dream: promote:", err)
 		}
-		fmt.Fprintf(o.Out, "memory dream: promoted %d block(s) to global\n", n)
+		fmt.Fprintf(o.Out, "memory dream: promoted %d block(s) to home\n", n)
 		if o.Run != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 			defer cancel()

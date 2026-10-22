@@ -66,7 +66,7 @@ through the gate.
 - Native memory edits never touch the approval-gated RULES region
   (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit human approval.
 - `sessionHistory.md` caps at 30 entries (overflow archives via `claude-code memory index`);
-  `conventions.md`/`decisionLog.md` stay in scope (no automatic promotion to global); move
+  `conventions.md`/`decisionLog.md` stay in scope (no automatic promotion to home); move
   durable ones out by hand via `/memory:promote`.
 
 ## Triggering

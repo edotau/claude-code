@@ -22,7 +22,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 | Session memory bank (STATE, not a doc) | `<store>/` | `memory init` / the harvest gate |
 
 `<store>` is the repo's memory store, `~/.claude/memory/<repo>/` (`claude-code memory path` prints it; the harness
-itself is `memory/claude-code/`, the global bank is `memory/global/`). The store is a local-only git repo outside every
+itself is `memory/claude-code/`, the home bank is `memory/home/`). The store is a local-only git repo outside every
 project's tree, so handoffs and reports are never tracked by the repo they describe.
 
 The settings template leaves `plansDirectory` unset (Claude Code's native default).

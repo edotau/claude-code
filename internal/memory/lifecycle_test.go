@@ -35,7 +35,7 @@ func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
 	if lineCount(string(kept)) > FileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", lineCount(string(kept)))
 	}
-	global, err := os.ReadFile(filepath.Join(GlobalDir(), "decisionLog.md"))
+	global, err := os.ReadFile(filepath.Join(HomeBankDir(), "decisionLog.md"))
 	if err != nil || !strings.Contains(string(global), "decision 01") {
 		t.Errorf("oldest entry did not land in the global bank: %v %q", err, global)
 	}
@@ -58,7 +58,7 @@ func TestPromoteRefusesCredentialShapedOverflow(t *testing.T) {
 	if _, err := PromoteLocalToGlobal(root, time.Now()); err == nil || !strings.Contains(err.Error(), "credential") {
 		t.Fatalf("want a credential refusal, got %v", err)
 	}
-	if _, err := os.ReadFile(filepath.Join(GlobalDir(), "decisionLog.md")); err == nil {
+	if _, err := os.ReadFile(filepath.Join(HomeBankDir(), "decisionLog.md")); err == nil {
 		t.Error("a refused promote must not have written anything to the global bank")
 	}
 }
@@ -76,7 +76,7 @@ func TestArchiveSettledOverflowOnlyWhenLocalIsGlobal(t *testing.T) {
 	if err != nil || n == 0 {
 		t.Fatalf("global bank: archived %d err %v", n, err)
 	}
-	arch, err := os.ReadFile(filepath.Join(GlobalDir(), "archive", "decisionLog-"+time.Now().Format("2006-01")+".md"))
+	arch, err := os.ReadFile(filepath.Join(HomeBankDir(), "archive", "decisionLog-"+time.Now().Format("2006-01")+".md"))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
 		t.Errorf("settled entries did not land in the archive: %v", err)
 	}
@@ -84,12 +84,12 @@ func TestArchiveSettledOverflowOnlyWhenLocalIsGlobal(t *testing.T) {
 
 func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(GlobalDir(), "decisionLog.md"), 80)
+	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
 	old := time.Now().AddDate(0, 0, -(DefaultStaleDays + 1))
-	if err := os.Chtimes(filepath.Join(GlobalDir(), "decisionLog.md"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(HomeBankDir(), "decisionLog.md"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	problems := Doctor(GlobalDir(), DefaultStaleDays, time.Now())
+	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "decisionLog.md: over") {
 		t.Errorf("want an over-cap finding, got %v", problems)
@@ -101,8 +101,8 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
-	problems := Doctor(GlobalDir(), DefaultStaleDays, time.Now())
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
+	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
 	}
@@ -110,8 +110,8 @@ func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(GlobalDir(), "decisionLog.md"), 80)
-	if err := WriteDoctorNotice(GlobalDir(), DefaultStaleDays, time.Now()); err != nil {
+	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
+	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, DoctorNoticePath())
@@ -119,8 +119,8 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 		t.Errorf("notice %q", notice)
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
-	write(t, filepath.Join(GlobalDir(), "decisionLog.md"), "# D\n")
-	if err := WriteDoctorNotice(GlobalDir(), DefaultStaleDays, time.Now()); err != nil {
+	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n")
+	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if notice := mustRead(t, DoctorNoticePath()); notice != "" {
@@ -163,7 +163,7 @@ func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 func TestAccessNominationsHotAndCold(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := GlobalDir()
+	dir := HomeBankDir()
 	for d := range 5 {
 		LogAccess(dir, now.AddDate(0, 0, -d), "bank:decisionLog.md", "prompt-recall inject")
 	}

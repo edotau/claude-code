@@ -17,7 +17,7 @@ import (
 // (~1,000 left for the note). The index's slice is reserved so the current pair can never starve it.
 const (
 	localCapBytes    = 20 << 10
-	globalCapBytes   = 24 << 10
+	homeCapBytes     = 24 << 10
 	TotalCapChars    = 8500
 	indexCapChars    = 2500
 	pairCapChars     = TotalCapChars - indexCapChars - 2
@@ -26,7 +26,7 @@ const (
 
 const truncatedNotice = "\n<!-- (surface truncated) -->"
 
-// SessionSurface composes root's local bank surface plus the global one, capped at TotalCapChars; "" when empty.
+// SessionSurface composes root's local bank surface plus the home one, capped at TotalCapChars; "" when empty.
 func SessionSurface(root string) string {
 	if CutOver() {
 		return unifiedSurface(root)
@@ -35,8 +35,8 @@ func SessionSurface(root string) string {
 	if local := capBytes(localSurface(Dir(root), root), localCapBytes); local != "" {
 		parts = append(parts, local)
 	}
-	if !IsGlobal(root) {
-		if shared := capBytes(globalSurface(), globalCapBytes); shared != "" {
+	if !IsHomeBank(root) {
+		if shared := capBytes(homeSurface(), homeCapBytes); shared != "" {
 			parts = append(parts, shared)
 		}
 	}
@@ -80,15 +80,15 @@ func localSurface(dir, root string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// globalSurface points at an indexed shared bank (memory-recall searches it per prompt), else injects promoted lessons.
-func globalSurface() string {
-	dir := GlobalDir()
+// homeSurface points at an indexed shared bank (memory-recall searches it per prompt), else injects promoted lessons.
+func homeSurface() string {
+	dir := HomeBankDir()
 	if readIndex(dir) != "" {
-		return "<!-- SHARED global bank: " + dir + " — recalled per prompt by the memory-recall hook; " +
+		return "<!-- SHARED home bank: " + dir + " — recalled per prompt by the memory-recall hook; " +
 			"claude-code memory search \"<q>\" for more -->"
 	}
-	if shared := ComposePromotedSurface(dir, globalCapBytes); shared != "" {
-		return "<!-- SHARED global bank (index.md missing — run `claude-code memory index`; dir: " + dir + ") -->\n" + shared
+	if shared := ComposePromotedSurface(dir, homeCapBytes); shared != "" {
+		return "<!-- SHARED home bank (index.md missing — run `claude-code memory index`; dir: " + dir + ") -->\n" + shared
 	}
 	return ""
 }
@@ -98,7 +98,7 @@ func readIndex(dir string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// ComposePromotedSurface renders the global conventions/decisionLog newest-first, whole blocks within budget bytes.
+// ComposePromotedSurface renders the home conventions/decisionLog newest-first, whole blocks within budget bytes.
 func ComposePromotedSurface(dir string, budget int) string {
 	var sections []string
 	used := 0
@@ -111,7 +111,7 @@ func ComposePromotedSurface(dir string, budget int) string {
 		if len(blocks) == 0 {
 			continue
 		}
-		head := "<!-- global/" + name + " (newest first) -->"
+		head := "<!-- home/" + name + " (newest first) -->"
 		used += len(head)
 		var kept []string
 		omitted := 0

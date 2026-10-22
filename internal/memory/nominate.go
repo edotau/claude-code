@@ -13,12 +13,12 @@ const (
 	coldDays      = 90 // no recall for this long → archive candidate (log-age gated)
 )
 
-// AccessNominations turns the global bank's access log into doctor advisories: hot entries
+// AccessNominations turns the home bank's access log into doctor advisories: hot entries
 // (recalled often — want a pointer in the injected bank) and cold ones (archive candidates, gated
 // on log age — a young log proves nothing). Covers both bank files and native topics, whichever
 // `LogAccess` recorded a hit for.
 func AccessNominations(now time.Time) []string {
-	stats, oldest := AccessStats(GlobalDir(), now, hotWindowDays)
+	stats, oldest := AccessStats(HomeBankDir(), now, hotWindowDays)
 	if oldest.IsZero() {
 		return nil
 	}

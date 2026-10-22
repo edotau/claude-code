@@ -11,8 +11,8 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// catalogGlobalMax bounds the global entry lines the catalog carries; the rest are reachable by search.
-const catalogGlobalMax = 10
+// catalogHomeMax bounds the home entry lines the catalog carries; the rest are reachable by search.
+const catalogHomeMax = 10
 
 // buildBankRegion renders dir's generated MEMORY.md region: one pointer per typed file, then the newest entries.
 func buildBankRegion(dir string, now time.Time) string {
@@ -81,7 +81,7 @@ func checkBankRegionMarkers(text string) error {
 	return err
 }
 
-// BuildCatalog renders the store-root router: every repo store with its hook and freshness, then global entries.
+// BuildCatalog renders the store-root router: every repo store with its hook and freshness, then home entries.
 func BuildCatalog(now time.Time) (string, error) {
 	entries, err := RepoDirs()
 	if err != nil {
@@ -111,18 +111,18 @@ func BuildCatalog(now time.Time) (string, error) {
 	if len(rows) > 0 {
 		b.WriteString("\n## Knowledge (tracked, docs/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
 	}
-	global := BuildBankIndex(GlobalDir(), now)
-	if global != "" {
-		lines := strings.Split(strings.TrimSpace(global), "\n")
+	homeIdx := BuildBankIndex(HomeBankDir(), now)
+	if homeIdx != "" {
+		lines := strings.Split(strings.TrimSpace(homeIdx), "\n")
 		var keep []string
 		for _, l := range lines {
 			if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "## ") {
 				keep = append(keep, l)
 			}
 		}
-		b.WriteString("\n## Global (memory/global/)\n\n")
+		b.WriteString("\n## Home (memory/home/)\n\n")
 		for i, l := range keep {
-			if i >= catalogGlobalMax {
+			if i >= catalogHomeMax {
 				fmt.Fprintf(&b, "- … %d more (memory search)\n", len(keep)-i)
 				break
 			}
@@ -172,7 +172,7 @@ func settleUnified(root string, now time.Time) (BankSettlement, error) {
 		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
 			dirs = append(dirs, own)
 		}
-		if g := GlobalDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
+		if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
 			dirs = append(dirs, g)
 		}
 		for _, d := range dirs {
@@ -197,7 +197,7 @@ func SettleAll(now time.Time) (BankSettlement, error) {
 		if err != nil {
 			return err
 		}
-		dirs := []string{GlobalDir()}
+		dirs := []string{HomeBankDir()}
 		for _, e := range entries {
 			dirs = append(dirs, e.Dir)
 		}

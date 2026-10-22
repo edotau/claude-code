@@ -70,7 +70,7 @@ func TestDocsTemplateExamplesCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(t, filepath.Join(GlobalDir(), "conventions.md"),
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"),
 		"# Conventions\n\n- commit messages follow Conventional Commits\n- never hand-edit settings.json\n")
 
 	catalog, err := BuildCatalog(now)

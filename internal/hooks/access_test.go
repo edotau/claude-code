@@ -19,7 +19,7 @@ func readAccessLog(t *testing.T, dir string) string {
 
 func TestLogReadAccessGlobalBankFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestLogReadAccessLocalBankFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := memory.Dir(repo)
-	if local == memory.GlobalDir() {
+	if local == memory.HomeBankDir() {
 		t.Fatal("a repo root must own a local bank")
 	}
 	if err := os.MkdirAll(local, 0o755); err != nil {
@@ -46,7 +46,7 @@ func TestLogReadAccessLocalBankFile(t *testing.T) {
 	if got := readAccessLog(t, local); !strings.Contains(got, "bank:"+memory.BankIndexFile+" -- read") {
 		t.Errorf("local bank read not traced: %q", got)
 	}
-	if got := readAccessLog(t, memory.GlobalDir()); got != "" {
+	if got := readAccessLog(t, memory.HomeBankDir()); got != "" {
 		t.Errorf("a local read must not land in the global log: %q", got)
 	}
 }
@@ -54,11 +54,11 @@ func TestLogReadAccessLocalBankFile(t *testing.T) {
 func TestLogReadAccessIgnoresOrdinaryFiles(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
-	logReadAccess(filepath.Join(root, "other", "decisionLog.md"), "", time.Now()) // bank name outside a bank
-	logReadAccess(filepath.Join(memory.GlobalDir(), "notes.md"), "", time.Now())  // in the bank, not a typed file
+	logReadAccess(filepath.Join(root, "other", "decisionLog.md"), "", time.Now())  // bank name outside a bank
+	logReadAccess(filepath.Join(memory.HomeBankDir(), "notes.md"), "", time.Now()) // in the bank, not a typed file
 	logReadAccess(filepath.Join(root, "internal", "memory", "store.go"), "", time.Now())
 	logReadAccess("", "", time.Now())
-	if got := readAccessLog(t, memory.GlobalDir()); got != "" {
+	if got := readAccessLog(t, memory.HomeBankDir()); got != "" {
 		t.Errorf("ordinary reads traced: %q", got)
 	}
 }
@@ -66,7 +66,7 @@ func TestLogReadAccessIgnoresOrdinaryFiles(t *testing.T) {
 // The hook itself: a Read payload lands one line, a non-Read or malformed payload proceeds silently.
 func TestAccessTraceHook(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	if err := os.MkdirAll(bank, 0o755); err != nil {
 		t.Fatal(err)
 	}
