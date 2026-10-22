@@ -51,7 +51,8 @@ compile:  ## Compile bin/claude-code, no install
 	$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
 
 .PHONY: build
-build: install  # (dev recipe, hidden from help) compile + install + audit (SKIP_AUDIT=1)
+build: install  # (dev recipe, hidden from help) compile + install + lint fix + audit (SKIP_AUDIT=1)
+	@$(MAKE) --no-print-directory lint
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
