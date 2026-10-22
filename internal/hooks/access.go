@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// AccessTrace logs the read when the path is a typed file of the global bank or of cwd's local bank.
+// AccessTrace logs the read when the path is a typed file of the home bank or of cwd's local bank.
 func AccessTrace(r io.Reader) int {
 	in := ParseInput(r)
 	logReadAccess(in.nested("tool_input", "file_path"), in.CWD, time.Now())
@@ -30,7 +30,7 @@ func logReadAccess(path, cwd string, now time.Time) {
 		return
 	}
 	dir := filepath.Dir(abs)
-	banks := []string{memory.GlobalDir()}
+	banks := []string{memory.HomeBankDir()}
 	if cwd != "" {
 		banks = append(banks, memory.Dir(cwd))
 	}

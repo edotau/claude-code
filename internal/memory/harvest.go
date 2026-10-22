@@ -153,10 +153,10 @@ func Update(o UpdateOptions) error {
 		return errors.New("claude binary not found")
 	}
 	dir := Dir(o.CWD)
-	var before, beforeGlobal time.Time
+	var before, beforeHome time.Time
 	var runErr error
 	lockErr := paths.WithFileLock(lockPath(dir), func() error {
-		before, beforeGlobal = NewestMtime(dir), NewestMtime(GlobalDir())
+		before, beforeHome = NewestMtime(dir), NewestMtime(HomeBankDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
@@ -179,8 +179,8 @@ func Update(o UpdateOptions) error {
 		runErr = cmd.Run()
 		return nil
 	})
-	// A harvest may legitimately write only the shared global bank (cross-repo facts), so watch both tiers.
-	updated := NewestMtime(dir).After(before) || NewestMtime(GlobalDir()).After(beforeGlobal)
+	// A harvest may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
+	updated := NewestMtime(dir).After(before) || NewestMtime(HomeBankDir()).After(beforeHome)
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}

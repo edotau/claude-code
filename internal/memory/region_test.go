@@ -111,7 +111,7 @@ func TestStripFrontmatterNoFrontmatter(t *testing.T) {
 }
 
 // TestBuildCatalogListsRepoRowsAndCapsGlobal: every repo store gets a row, and the global entry
-// section caps at catalogGlobalMax with an overflow marker.
+// section caps at catalogHomeMax with an overflow marker.
 func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	migrateConfig1(t)
 	a := gitRepo(t, t.TempDir(), "alpha")
@@ -130,7 +130,7 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	for i := 1; i <= 15; i++ {
 		fmt.Fprintf(&conv, "- rule %d\n", i)
 	}
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), conv.String())
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), conv.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	catalog, err := BuildCatalog(now)
@@ -148,8 +148,8 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 			lines++
 		}
 	}
-	if lines > catalogGlobalMax {
-		t.Errorf("catalog carried %d global rule lines, want <= %d", lines, catalogGlobalMax)
+	if lines > catalogHomeMax {
+		t.Errorf("catalog carried %d global rule lines, want <= %d", lines, catalogHomeMax)
 	}
 	if !strings.Contains(catalog, "more (memory search)") {
 		t.Error("catalog missing the global overflow marker")

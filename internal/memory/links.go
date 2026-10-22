@@ -44,7 +44,7 @@ func EnsureNativeLinks() ([]LinkResult, error) {
 		out = append(out, ensureLink(projectsMemory(slug), target))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		add(home, GlobalDir())
+		add(home, HomeBankDir())
 	}
 	for _, e := range entries {
 		add(e.Origin.Origin, e.Dir)

@@ -1,7 +1,7 @@
 package memory
 
 // Wraps long lines in the bank markdown the harness writes (never index.md, never MEMORY.md): the six
-// typed files, archive/*.md, handoffs/*.md and reports/*.md, across every repo store and global/.
+// typed files, archive/*.md, handoffs/*.md and reports/*.md, across every repo store and home/.
 
 import (
 	"os"
@@ -28,10 +28,10 @@ var (
 // bankFmtTargetDirs is the glob paths inside one bank dir worth formatting; bare "*.md" is handled separately.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// BankFmtTargets lists every markdown file FormatBank formats, across every repo store and global/.
+// BankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
 func BankFmtTargets() ([]string, error) {
 	var dirs []string
-	dirs = append(dirs, GlobalDir())
+	dirs = append(dirs, HomeBankDir())
 	entries, err := RepoDirs()
 	if err != nil {
 		return nil, err

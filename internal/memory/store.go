@@ -1,5 +1,5 @@
 // Package memory is the session memory bank: six typed markdown files per git repo under
-// <ConfigDir>/memory/<repo>/ (harness itself memory/claude-code/), global in memory/global/.
+// <ConfigDir>/memory/<repo>/ (harness itself memory/claude-code/), home bank in memory/home/.
 package memory
 
 import (
@@ -55,30 +55,56 @@ func CutOver() bool {
 	return migrated && !incomplete
 }
 
-// GlobalDir is the shared bank: store/global after the cutover, else the top of the legacy bank tree.
-func GlobalDir() string {
+// HomeBankDir is the shared bank: store/home after the cutover, else the top of the legacy bank tree.
+func HomeBankDir() string {
 	if CutOver() {
-		return globalStoreDir()
+		return homeStoreDir()
 	}
 	return LegacyGlobalDir()
 }
 
-// globalStoreDir is the post-cutover global dir, unconditionally: migrate plans the FUTURE layout while
-// CutOver() still reports false, so its destinations must never gate on it (GlobalDir() would self-reference).
-func globalStoreDir() string { return filepath.Join(StoreDir(), "global") }
+// homeStoreDir is the post-cutover home dir, unconditionally: migrate plans the FUTURE layout while
+// CutOver() still reports false, so its destinations must never gate on it (HomeBankDir() would self-reference).
+// Every caller resolves through here, so the one-time global/ → home/ rename rides along for free.
+func homeStoreDir() string {
+	ensureHomeBankRenamed()
+	return filepath.Join(StoreDir(), "home")
+}
 
-// Dir is root's local bank; a non-repo root collapses to the global one.
+// homeBankRenamed memoizes the rename check per store dir (not a single global once: tests run many
+// distinct stores, via distinct ConfigDir, in one process).
+var homeBankRenamed sync.Map
+
+// ensureHomeBankRenamed renames a leftover store/global/ dir (a store that completed the unified-store
+// cutover before this rename landed) to store/home/, once per store dir. Idempotent: a no-op once
+// home/ exists or global/ is absent; both present is left alone for `memory doctor` to flag.
+func ensureHomeBankRenamed() {
+	store := StoreDir()
+	if _, done := homeBankRenamed.LoadOrStore(store, true); done {
+		return
+	}
+	oldDir, newDir := filepath.Join(store, "global"), filepath.Join(store, "home")
+	if _, err := os.Stat(newDir); err == nil {
+		return
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		return
+	}
+	_ = os.Rename(oldDir, newDir)
+}
+
+// Dir is root's local bank; a non-repo root collapses to the home one.
 func Dir(root string) string {
 	if CutOver() { // one dir per repo shared with native memory; the harness is memory/claude-code
 		if d, err := RepoDir(root); err == nil {
 			return d
 		}
-		return globalStoreDir()
+		return homeStoreDir()
 	}
 	if slug := paths.RepoSlug(root); slug != "" && inWorkTree(root) {
-		return filepath.Join(GlobalDir(), slug)
+		return filepath.Join(HomeBankDir(), slug)
 	}
-	return GlobalDir()
+	return HomeBankDir()
 }
 
 // worktrees memoizes the git fork: Dir runs several times per hook, and a flip mid-process would split a bank.
@@ -98,8 +124,8 @@ func inWorkTree(root string) bool {
 	return in
 }
 
-// IsGlobal reports whether root's local bank is the global bank (read it once, not twice).
-func IsGlobal(root string) bool { return paths.SamePath(Dir(root), GlobalDir()) }
+// IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).
+func IsHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
 
 // HasBank reports whether any typed file exists in root's local bank.
 func HasBank(root string) bool {

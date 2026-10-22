@@ -249,7 +249,7 @@ func TestInventoryReadOnlyAndFindings(t *testing.T) {
 	}
 
 	global := wantItem(t, m.Items, filepath.Join("docs", "memory", "bank", "activeContext.md"), KindGlobalBank, ActionCopy)
-	if global.Dest != filepath.Join(StoreDir(), "global", "activeContext.md") {
+	if global.Dest != filepath.Join(StoreDir(), "home", "activeContext.md") {
 		t.Errorf("global activeContext.md dest = %s", global.Dest)
 	}
 	wantItem(t, m.Items, "a-topic.md", KindNativeTopic, ActionCopy)
@@ -442,7 +442,7 @@ func TestApplyFullImportCommitsAndRetires(t *testing.T) {
 			}
 
 			assertHashMatchesItem(t, m.Items, filepath.Join("docs", "memory", "bank", "activeContext.md"),
-				filepath.Join(StoreDir(), "global", "activeContext.md"))
+				filepath.Join(StoreDir(), "home", "activeContext.md"))
 
 			wantAliases := 0
 			if withAlias {
@@ -467,7 +467,7 @@ func TestApplyFullImportCommitsAndRetires(t *testing.T) {
 			if data, err := os.ReadFile(handoff); err != nil || string(data) != "# handoff\nbody\n" {
 				t.Errorf("handoff not landed at %s: %v %q", handoff, err, data)
 			}
-			accessLog := filepath.Join(StateDir(), "access", "global.log")
+			accessLog := filepath.Join(StateDir(), "access", "home.log")
 			if _, err := os.Stat(accessLog); err != nil {
 				t.Errorf("access log not moved to %s: %v", accessLog, err)
 			}
@@ -645,7 +645,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(globalStoreDir(), "activeContext.md"), string(srcABytes))
+	write(t, filepath.Join(homeStoreDir(), "activeContext.md"), string(srcABytes))
 
 	m, manifestPath := inventoryAndWrite(t, InventoryOptions{})
 	already := wantItem(t, m.Items, "activeContext.md", KindGlobalBank, ActionCopy)
@@ -654,7 +654,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	}
 
 	// progress.md's dest appears with DIFFERENT bytes only after the manifest was written (a race).
-	write(t, filepath.Join(globalStoreDir(), "progress.md"), "a completely different file\n")
+	write(t, filepath.Join(homeStoreDir(), "progress.md"), "a completely different file\n")
 	srcB := filepath.Join(LegacyGlobalDir(), "progress.md")
 
 	var out bytes.Buffer
@@ -668,7 +668,7 @@ func TestApplyHandlesPreexistingDestConflictAndEqualBytes(t *testing.T) {
 	if _, err := os.Stat(srcB); err != nil {
 		t.Error("conflicting source must be kept")
 	}
-	if data, err := os.ReadFile(filepath.Join(globalStoreDir(), "progress.md")); err != nil || string(data) != "a completely different file\n" {
+	if data, err := os.ReadFile(filepath.Join(homeStoreDir(), "progress.md")); err != nil || string(data) != "a completely different file\n" {
 		t.Error("conflicting dest must be kept untouched")
 	}
 }
@@ -679,7 +679,7 @@ func TestApplyEqualDestVerifiesCommitsAndRetires(t *testing.T) {
 	// seed isolates a fresh box whose dest already holds the source's bytes, returning the dry-run manifest.
 	seed := func() (src, dest string, m Manifest, manifestPath string) {
 		migrateConfig(t)
-		src, dest = filepath.Join(LegacyGlobalDir(), "activeContext.md"), filepath.Join(globalStoreDir(), "activeContext.md")
+		src, dest = filepath.Join(LegacyGlobalDir(), "activeContext.md"), filepath.Join(homeStoreDir(), "activeContext.md")
 		write(t, src, "# activeContext.md\nminimal real content\n")
 		write(t, dest, "# activeContext.md\nminimal real content\n")
 		m, manifestPath = inventoryAndWrite(t, InventoryOptions{})
@@ -916,7 +916,7 @@ func TestApplyRejectsDestUnderSymlinkedAncestor(t *testing.T) {
 		name, src, body string
 		link            func() string
 	}{
-		{"globalArchive", filepath.Join("archive", "note.md"), "archived note\n", func() string { return ArchiveDir(filepath.Join(StoreDir(), "global")) }},
+		{"globalArchive", filepath.Join("archive", "note.md"), "archived note\n", func() string { return ArchiveDir(filepath.Join(StoreDir(), "home")) }},
 		{"stateAccessLog", "access.log", "2026-01-01T00:00:00Z -- read -- x\n", func() string { return filepath.Join(StateDir(), "access") }},
 	}
 	for _, tc := range cases {
@@ -1073,7 +1073,7 @@ func TestLegacyArchiveMdGoesUnderGlobalStoreArchive(t *testing.T) {
 		t.Fatalf("Inventory: %v", err)
 	}
 	it := wantItem(t, m.Items, filepath.Join("archive", "old.md"), KindRepoArchive, ActionCopy)
-	want := filepath.Join(StoreDir(), "global", "archive", "old.md")
+	want := filepath.Join(StoreDir(), "home", "archive", "old.md")
 	if it.Dest != want {
 		t.Errorf("legacy global archive dest = %s, want %s", it.Dest, want)
 	}

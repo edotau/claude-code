@@ -20,8 +20,8 @@ import (
 
 // NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
 func NativeDirs(root string) []string {
-	if CutOver() { // native shares the repo's store dir; the global tier holds the user-wide notes
-		out := []string{globalStoreDir()}
+	if CutOver() { // native shares the repo's store dir; the home tier holds the user-wide notes
+		out := []string{homeStoreDir()}
 		if d := Dir(root); !slices.Contains(out, d) {
 			out = append(out, d)
 		}

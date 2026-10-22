@@ -22,10 +22,10 @@ var ErrBankBusy = errors.New("memory store busy: another harness worker holds th
 func BankLockPath() string { return filepath.Join(StateDir(), BankLockFile) }
 
 // storeLockKey namespaces a bank dir's runtime lock files under state: the store dir's base name,
-// or "global" for the global bank itself — locks never live beside the committed memory store.
+// or "home" for the home bank itself — locks never live beside the committed memory store.
 func storeLockKey(dir string) string {
-	if paths.SamePath(dir, GlobalDir()) {
-		return "global"
+	if paths.SamePath(dir, HomeBankDir()) {
+		return "home"
 	}
 	return filepath.Base(dir)
 }

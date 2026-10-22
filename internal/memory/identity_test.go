@@ -45,7 +45,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	fixtureGit(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
-	if want.Global || want.Harness || want.Base != "proj" || want.Origin != resolvePath(repo) {
+	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != resolvePath(repo) {
 		t.Fatalf("Resolve(repo) = %+v", want)
 	}
 	for _, root := range []string{sub, wt, filepath.Join(wt, "a")} {
@@ -54,7 +54,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 			t.Errorf("Resolve(%s) = %+v want %+v", root, got, want)
 		}
 	}
-	if got := Resolve(t.TempDir()); !got.Global || got.Origin != "" {
+	if got := Resolve(t.TempDir()); !got.HomeBank || got.Origin != "" {
 		t.Errorf("non-repo must be global, got %+v", got)
 	}
 }
@@ -79,7 +79,7 @@ func TestResolveInsideStore(t *testing.T) {
 	if err := os.MkdirAll(archive, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if id := Resolve(StoreDir()); !id.Global {
+	if id := Resolve(StoreDir()); !id.HomeBank {
 		t.Errorf("Resolve(store top) = %+v, want global", id)
 	}
 	for _, root := range []string{harness, archive} {
@@ -101,7 +101,7 @@ func TestResolveHarness(t *testing.T) {
 	}
 	for _, root := range []string{cfg, sub} {
 		id := Resolve(root)
-		if !id.Harness || id.Global || id.Origin != resolvePath(cfg) {
+		if !id.Harness || id.HomeBank || id.Origin != resolvePath(cfg) {
 			t.Errorf("Resolve(%s) = %+v", root, id)
 		}
 		if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
@@ -156,7 +156,7 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if _, err := os.Stat(StoreDir()); !errors.Is(err, os.ErrNotExist) {
 		t.Error("RepoDir must not create the store")
 	}
-	if plain := t.TempDir(); mustRepoDir(t, plain) != globalStoreDir() {
+	if plain := t.TempDir(); mustRepoDir(t, plain) != homeStoreDir() {
 		t.Error("non-repo must map to the global store dir")
 	}
 	got, err := EnsureRepoDir(repo)
@@ -173,10 +173,10 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if after, err := ReadOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
 		t.Errorf("second EnsureRepoDir rewrote the origin record: %+v, %v", after, err)
 	}
-	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != globalStoreDir() {
+	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != homeStoreDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
-	if _, err := ReadOrigin(globalStoreDir()); err == nil {
+	if _, err := ReadOrigin(homeStoreDir()); err == nil {
 		t.Error("no origin record for the global tier")
 	}
 }
@@ -383,8 +383,8 @@ func TestAliasToHarnessStore(t *testing.T) {
 }
 
 // TestWorkspaceOriginResolvesNonGitDirAndSubdirs: a store whose .origin names a non-git directory
-// resolves that directory AND its subdirs to the workspace (never Global); an unrelated non-git dir
-// has no matching store and stays Global.
+// resolves that directory AND its subdirs to the workspace (never HomeBank); an unrelated non-git dir
+// has no matching store and stays HomeBank.
 func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	cfg := tempConfig(t)
 	t.Setenv("HOME", t.TempDir())
@@ -407,7 +407,7 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	}
 	for _, root := range []string{workspace, sub} {
 		id := Resolve(root)
-		if id.Global || id.Origin != workspace {
+		if id.HomeBank || id.Origin != workspace {
 			t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
 		}
 		if got, err := RepoDir(root); err != nil || got != dir {
@@ -416,8 +416,8 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	}
 
 	unrelated := t.TempDir()
-	if id := Resolve(unrelated); !id.Global || id.Origin != "" {
-		t.Errorf("Resolve(unrelated non-git dir) = %+v, want Global", id)
+	if id := Resolve(unrelated); !id.HomeBank || id.Origin != "" {
+		t.Errorf("Resolve(unrelated non-git dir) = %+v, want HomeBank", id)
 	}
 }
 

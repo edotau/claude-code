@@ -33,7 +33,7 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 	write(t, filepath.Join(local, "conventions.md"), "# Conventions\n\n"+
 		"- commit small\nreview focused changes\n\n"+
 		"- router retry\nidentical tie block\n")
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# Global\n\n"+
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# Global\n\n"+
 		"- router retry\nidentical tie block\n\n"+
 		"- commit small\nreview focused changes\n")
 	write(t, filepath.Join(local, "archive", "sessionHistory-old.md"),
@@ -56,7 +56,7 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 	}{
 		{"router", "local", "decisionLog.md"},
 		{"router router retry", "local", "decisionLog.md"},
-		{"retry router", "global", "conventions.md"},
+		{"retry router", "home", "conventions.md"},
 		{"commit small", "local", "conventions.md"},
 		{"fenced marker", "local", "decisionLog.md"},
 		{"native recall", "native", "recall.md"},
@@ -241,10 +241,10 @@ func oracleSearchSources(root string) []oracleSearchSource {
 		return fs
 	}
 	var out []oracleSearchSource
-	if !IsGlobal(root) {
+	if !IsHomeBank(root) {
 		out = append(out, oracleSearchSource{bank: "local", files: bankPaths(Dir(root))})
 	}
-	out = append(out, oracleSearchSource{bank: "global", files: bankPaths(GlobalDir())})
+	out = append(out, oracleSearchSource{bank: "home", files: bankPaths(HomeBankDir())})
 	if archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md")); len(archived) > 0 {
 		out = append(out, oracleSearchSource{bank: "archive", files: archived})
 	}
@@ -321,7 +321,7 @@ func oracleTopicContents(dir string) ([]string, map[string][]byte) {
 	return files, data
 }
 
-// TestCorpusFilesIncludesGlobalNativeTopic: post-cutover, a native topic file living in GlobalDir() is
+// TestCorpusFilesIncludesGlobalNativeTopic: post-cutover, a native topic file living in HomeBankDir() is
 // part of a repo's native corpus (bank "native"), not silently dropped by scanning the wrong dir.
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := migrateConfig1(t)
@@ -329,7 +329,7 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	if _, err := EnsureRepoDir(root); err != nil {
 		t.Fatal(err)
 	}
-	topic := filepath.Join(GlobalDir(), "global-topic.md")
+	topic := filepath.Join(HomeBankDir(), "global-topic.md")
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool

@@ -8,7 +8,7 @@ paths:
 
 > One store: `~/.claude/memory/` is a local-only git repo (`memory/index.md` is the generated
 > catalog; `memory/<repo>/` is this repo's dir — the harness itself is `memory/claude-code/`; the
-> global bank is `memory/global/`). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` +
+> home bank is `memory/home/`). Each repo dir holds BOTH Claude Code's native auto-memory (`MEMORY.md` +
 > topic files) and six typed bank files, loaded automatically at session start (`session-start`
 > hook) and saved at session end (`/memory:end`, encouraged by the `session-harvest` Stop hook).
 > The bank holds session STATE — durable harness/project FACTS belong in `rules/` or `CLAUDE.md`.
@@ -49,14 +49,14 @@ are never rewritten by `memory index`.
   GENERATED — never hand-edit the bank region or `memory/index.md`.
 - **`claude-code memory doctor`**: reports cap usage and staleness per bank.
 - **`claude-code memory promote`**: runs the same settle pass as `index` (rotate, region, catalog, commit);
-  after the store cutover there is no auto-promotion to global. `/memory:promote` is the judgment layer.
+  after the store cutover there is no auto-promotion to home. `/memory:promote` is the judgment layer.
 - **`claude-code memory alias --repo <checkout> --into <key>`**: folds a second checkout's store into its canonical one.
 
-## Scope — repo dir and global
+## Scope — repo dir and home
 
 - **Repo store** — `memory/<repo>/`. Minted by `claude-code memory init` (or on first use); the
   config dir itself resolves to `memory/claude-code/`.
-- **Global store** — `memory/global/`, used by any non-repo cwd and reachable
+- **Home store** — `memory/home/`, used by any non-repo cwd and reachable
   from every session via the catalog and `--all`/cross-repo search.
 
 ## Doctrine

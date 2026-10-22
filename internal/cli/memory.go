@@ -82,14 +82,14 @@ func cmdMemoryInit(args []string) int {
 	if err != nil {
 		return fail("memory init: %v", err)
 	}
-	fmt.Printf("bank:    %s\nglobal:  %s\nsession-start injects it; /memory:end (or the background harvest) writes it.\n", dir, memory.GlobalDir())
+	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; /memory:end (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
 	return 0
 }
 
 func cmdMemorySearch(args []string) int {
 	fs, repo := memoryRepoFlagSet("search")
 	k := fs.Int("k", 8, "maximum hits")
-	all := fs.Bool("all", false, "search the global tier and every repo store")
+	all := fs.Bool("all", false, "search the home tier and every repo store")
 	format := outfmt.Flag(fs)
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {
@@ -162,7 +162,7 @@ func cmdMemoryIndex(args []string) int {
 		fmt.Printf(" (rotated %d sessionHistory entries to archive/)", s.Rotated)
 	}
 	if s.Promoted > 0 {
-		fmt.Printf(" (promoted %d block(s) to global)", s.Promoted)
+		fmt.Printf(" (promoted %d block(s) to home)", s.Promoted)
 	}
 	if s.Archived > 0 {
 		fmt.Printf(" (archived %d block(s))", s.Archived)
@@ -330,7 +330,7 @@ func cmdMemoryPromote(args []string) int {
 		return 0
 	}
 	if s.Promoted > 0 {
-		fmt.Printf("promoted %d block(s) local -> global (%s), pruned local back under cap\n", s.Promoted, memory.GlobalDir())
+		fmt.Printf("promoted %d block(s) local -> home (%s), pruned local back under cap\n", s.Promoted, memory.HomeBankDir())
 	}
 	if s.Archived > 0 {
 		fmt.Printf("archived %d settled block(s) to %s, pruned back under cap\n", s.Archived, filepath.Join(memory.Dir(root), "archive"))

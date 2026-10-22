@@ -38,14 +38,14 @@ func TestStartupGuardMigratedUnpausedThenPausesWithoutGitRepo(t *testing.T) {
 	}
 }
 
-// TestCutoverSwitchesGlobalDirAndRepoResolution: GlobalDir/Dir resolve against the legacy tree before a
+// TestCutoverSwitchesHomeBankDirAndRepoResolution: HomeBankDir/Dir resolve against the legacy tree before a
 // completed+stored migration, and against the unified store after.
-func TestCutoverSwitchesGlobalDirAndRepoResolution(t *testing.T) {
+func TestCutoverSwitchesHomeBankDirAndRepoResolution(t *testing.T) {
 	migrateConfig(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
 
-	if GlobalDir() != LegacyGlobalDir() {
-		t.Fatalf("pre-cutover GlobalDir = %s, want legacy %s", GlobalDir(), LegacyGlobalDir())
+	if HomeBankDir() != LegacyGlobalDir() {
+		t.Fatalf("pre-cutover HomeBankDir = %s, want legacy %s", HomeBankDir(), LegacyGlobalDir())
 	}
 	wantLegacy := filepath.Join(LegacyGlobalDir(), "proj")
 	if got := Dir(repo); got != wantLegacy {
@@ -54,8 +54,8 @@ func TestCutoverSwitchesGlobalDirAndRepoResolution(t *testing.T) {
 
 	cutover(t)
 
-	if want := filepath.Join(StoreDir(), "global"); GlobalDir() != want {
-		t.Errorf("post-cutover GlobalDir = %s, want %s", GlobalDir(), want)
+	if want := filepath.Join(StoreDir(), "home"); HomeBankDir() != want {
+		t.Errorf("post-cutover HomeBankDir = %s, want %s", HomeBankDir(), want)
 	}
 	want, err := RepoDir(repo)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestCutoverSwitchesGlobalDirAndRepoResolution(t *testing.T) {
 		t.Errorf("NativeDir = %s, want Dir %s", NativeDir(repo), Dir(repo))
 	}
 	gotDirs := NativeDirs(repo)
-	wantDirs := []string{GlobalDir(), Dir(repo)}
+	wantDirs := []string{HomeBankDir(), Dir(repo)}
 	if len(gotDirs) != 2 || gotDirs[0] != wantDirs[0] || gotDirs[1] != wantDirs[1] {
 		t.Errorf("NativeDirs = %v, want %v", gotDirs, wantDirs)
 	}
@@ -134,7 +134,7 @@ func TestSettleAllCoversEveryStore(t *testing.T) {
 	if !s.Indexed {
 		t.Fatalf("settlement = %+v, want Indexed", s)
 	}
-	for _, dir := range []string{da, db, GlobalDir()} {
+	for _, dir := range []string{da, db, HomeBankDir()} {
 		if _, err := os.Stat(filepath.Join(dir, NativeIndexFile)); err != nil {
 			t.Errorf("%s missing its regenerated region: %v", dir, err)
 		}

@@ -79,8 +79,8 @@ func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".pos
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.
 type BankSettlement struct {
 	Rotated  int  // sessionHistory entries moved to <bank>/archive/sessionHistory-<yyyy-mm>.md
-	Promoted int  // blocks moved local → global, deduped
-	Archived int  // blocks moved to <bank>/archive — the relief valve when local IS global
+	Promoted int  // blocks moved local → home, deduped
+	Archived int  // blocks moved to <bank>/archive — the relief valve when local IS home
 	Indexed  bool // the routing index was rewritten
 }
 
@@ -91,9 +91,9 @@ func (s BankSettlement) Moved() int { return s.Promoted + s.Archived }
 func (s BankSettlement) Any() bool { return s.Moved() > 0 || s.Rotated > 0 }
 
 // SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
-// local (and global) index — all under the bank lock. Deletes nothing.
+// local (and home) index — all under the bank lock. Deletes nothing.
 func SettleBank(root string, now time.Time) (BankSettlement, error) {
-	if CutOver() { // overflow archives in scope; no auto-promotion to global
+	if CutOver() { // overflow archives in scope; no auto-promotion to home
 		return settleUnified(root, now)
 	}
 	dir := Dir(root)
@@ -119,13 +119,13 @@ func SettleBank(root string, now time.Time) (BankSettlement, error) {
 		s.Indexed = ierr == nil
 		return ierr
 	})
-	if !IsGlobal(root) {
-		// Promotion appends to the global tier from every project, so its settled overflow must
-		// archive from everywhere too, or the global bank grows unbounded.
-		if a, _ := ArchiveSettledOverflow(GlobalDir(), now); a > 0 {
+	if !IsHomeBank(root) {
+		// Promotion appends to the home tier from every project, so its settled overflow must
+		// archive from everywhere too, or the home bank grows unbounded.
+		if a, _ := ArchiveSettledOverflow(HomeBankDir(), now); a > 0 {
 			s.Archived += a
 		}
-		if _, gerr := WriteBankIndex(GlobalDir(), now); err == nil {
+		if _, gerr := WriteBankIndex(HomeBankDir(), now); err == nil {
 			err = gerr
 		}
 	}

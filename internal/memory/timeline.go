@@ -17,7 +17,7 @@ type TimelineEntry struct {
 }
 
 // Timeline returns the newest-first harvest-receipt trail (bounded by limit) plus the most recent
-// sessionHistory headings from the local then global bank (their files are newest-first already).
+// sessionHistory headings from the local then home bank (their files are newest-first already).
 func Timeline(root string, limit int) (entries []TimelineEntry, sessions []string) {
 	matches, _ := filepath.Glob(filepath.Join(StateDir(), "harvest-result-*"))
 	for _, p := range matches {
@@ -38,9 +38,9 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 	}
 
 	seen := map[string]bool{}
-	dirs := []string{GlobalDir()}
-	if !IsGlobal(root) {
-		dirs = []string{Dir(root), GlobalDir()}
+	dirs := []string{HomeBankDir()}
+	if !IsHomeBank(root) {
+		dirs = []string{Dir(root), HomeBankDir()}
 	}
 	for _, dir := range dirs {
 		for _, h := range entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
 )
@@ -172,12 +173,56 @@ func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 	}
 }
 
+// TestNoPreRenameLabelInUserOutput: user-visible output from `memory init`, `memory index` and
+// the rendered catalog names the renamed "home" tier, never the pre-rename "global" label.
+func TestNoPreRenameLabelInUserOutput(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"init", "--repo", repo}) })
+	if code != 0 {
+		t.Fatalf("memory init: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, "home:") {
+		t.Errorf("memory init output missing the renamed home: line: %q", out)
+	}
+	if strings.Contains(strings.ToLower(out), "global") {
+		t.Errorf("memory init output still names the pre-rename global tier: %q", out)
+	}
+
+	code, out, stderr = captureOutput(t, func() int { return cmdMemory([]string{"index", "--repo", repo}) })
+	if code != 0 {
+		t.Fatalf("memory index: code=%d stderr=%q", code, stderr)
+	}
+	if strings.Contains(strings.ToLower(out), "global") {
+		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
+	}
+
+	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte("# C\n\n- a rule\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := memory.BuildCatalog(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(catalog, "## Home (memory/home/)") {
+		t.Errorf("catalog heading not renamed to Home: %q", catalog)
+	}
+	if strings.Contains(strings.ToLower(catalog), "global") {
+		t.Errorf("rendered catalog still names the pre-rename global tier: %q", catalog)
+	}
+}
+
 // TestCmdMemoryFmt: --check is clean (exit 0) on a well-formed bank, reports the over-width file and
 // exits 1 without writing it, and the default pass wraps it and exits 0; the usage string and the
 // settle-writer guard both name "fmt".
 func TestCmdMemoryFmt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bank := memory.GlobalDir()
+	bank := memory.HomeBankDir()
 	target := filepath.Join(bank, "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
 	if err := os.MkdirAll(bank, 0o755); err != nil {

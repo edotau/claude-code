@@ -94,7 +94,7 @@ func TestEnsureNativeLinksNoopBeforeCutover(t *testing.T) {
 }
 
 // TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases: after cutover every known project's native
-// memory dir is a symlink into its store — $HOME into GlobalDir(), a repo and its alias both into the
+// memory dir is a symlink into its store — $HOME into HomeBankDir(), a repo and its alias both into the
 // same repo store dir.
 func TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases(t *testing.T) {
 	_, home := migrateConfig(t)
@@ -117,7 +117,7 @@ func TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases(t *testing.T) {
 	if len(out) != 3 {
 		t.Fatalf("results = %+v, want 3 (home, repo, alias)", out)
 	}
-	assertLinkedTo(t, projectsMemory(projectSlug(home)), GlobalDir())
+	assertLinkedTo(t, projectsMemory(projectSlug(home)), HomeBankDir())
 	assertLinkedTo(t, projectsMemory(projectSlug(repo)), dir)
 	assertLinkedTo(t, projectsMemory(projectSlug(alias)), dir)
 
@@ -169,14 +169,14 @@ func TestLinkNativeForUsesMainCheckoutAndTypedPath(t *testing.T) {
 	nonGit := t.TempDir()
 	// LinkNativeFor refuses to link into a store dir that doesn't exist yet (same guard the repo case
 	// above relies on EnsureRepoDir for); the global tier now lives in its own subdir, so seed it too.
-	if err := os.MkdirAll(GlobalDir(), 0o755); err != nil {
+	if err := os.MkdirAll(HomeBankDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	res, ok := LinkNativeFor(nonGit)
 	if !ok {
 		t.Fatal("a non-git cwd must still resolve (to the global tier)")
 	}
-	if res.Link != projectsMemory(projectSlug(nonGit)) || res.Target != GlobalDir() {
+	if res.Link != projectsMemory(projectSlug(nonGit)) || res.Target != HomeBankDir() {
 		t.Errorf("non-git LinkNativeFor = %+v, want its own typed path pointed at the global tier", res)
 	}
 }

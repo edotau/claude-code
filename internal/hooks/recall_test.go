@@ -42,10 +42,10 @@ func TestMemoryRecall(t *testing.T) {
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
-	if err := os.MkdirAll(memory.GlobalDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.GlobalDir(), "conventions.md"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"", "/compact alpha bravo charlie delta", "alpha bravo charlie", "zzz yyy xxx www vvv"} {
@@ -54,7 +54,7 @@ func TestMemoryRecall(t *testing.T) {
 		}
 	}
 	got := recall(t, "alpha bravo charlie delta", cwd)
-	if !strings.HasPrefix(got, "<!-- memory-recall:") || !strings.Contains(got, "[global/conventions.md] - alpha bravo charlie delta strong match") {
+	if !strings.HasPrefix(got, "<!-- memory-recall:") || !strings.Contains(got, "[home/conventions.md] - alpha bravo charlie delta strong match") {
 		t.Fatalf("recall block: %q", got)
 	}
 	if strings.Contains(got, "alpha weak") || len([]rune(got)) > recallTotalCapChars || !strings.Contains(got, "…") {
@@ -74,10 +74,10 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 		"activeContext.md": "# Active\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
-		if err := os.MkdirAll(memory.GlobalDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memory.GlobalDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

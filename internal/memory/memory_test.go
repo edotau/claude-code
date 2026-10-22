@@ -43,10 +43,10 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	if got, want := Dir(root), filepath.Join(cfg, "docs", "memory", "bank", "my-repo.v2"); got != want {
 		t.Errorf("Dir = %s want %s", got, want)
 	}
-	if Dir(cfg) != GlobalDir() || !IsGlobal(cfg) || IsGlobal(root) {
+	if Dir(cfg) != HomeBankDir() || !IsHomeBank(cfg) || IsHomeBank(root) {
 		t.Error("the config dir's bank must be the global bank")
 	}
-	if plain := t.TempDir(); !IsGlobal(plain) {
+	if plain := t.TempDir(); !IsHomeBank(plain) {
 		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
 	}
 	dir, err := Init(root)
@@ -91,7 +91,7 @@ func TestSearchBanksRanking(t *testing.T) {
 	root := repoRoot(t, "proj")
 	dir := Dir(root)
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- keep commits small\n")
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := SearchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
@@ -100,7 +100,7 @@ func TestSearchBanksRanking(t *testing.T) {
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
 		t.Errorf("title %q", hits[0].Title())
 	}
-	if g := SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "global" {
+	if g := SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
 		t.Errorf("global hit %+v", g)
 	}
 	if SearchBanks(root, "the and of", 5) != nil {
@@ -154,9 +154,9 @@ func TestSessionSurfaceOrderAndCaps(t *testing.T) {
 	write(t, filepath.Join(dir, "progress.md"), "# Progress\nworks")
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n## d3\n## d2\n## d1\n## d0\n")
 	write(t, filepath.Join(dir, "sessionHistory.md"), "# H\n## newest\n## older\n")
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n- global rule\n")
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n- global rule\n")
 	s := SessionSurface(root)
-	order := []string{"activeContext.md", "progress.md", "decisionLog.md (newest entries)", "## d1", "sessionHistory.md (newest entry)", "## newest", "SHARED global bank", "- global rule"}
+	order := []string{"activeContext.md", "progress.md", "decisionLog.md (newest entries)", "## d1", "sessionHistory.md (newest entry)", "## newest", "SHARED home bank", "- global rule"}
 	last := -1
 	for _, want := range order {
 		i := strings.Index(s, want)
@@ -179,7 +179,7 @@ func TestSessionSurfaceOrderAndCaps(t *testing.T) {
 		t.Errorf("index starved or no truncation marker:\n%s", s[len(s)-400:])
 	}
 	// An indexed global bank is a pointer (memory-recall covers it), not an injected index.
-	write(t, filepath.Join(GlobalDir(), BankIndexFile), "# Memory Bank Index\n- global routed entry\n")
+	write(t, filepath.Join(HomeBankDir(), BankIndexFile), "# Memory Bank Index\n- global routed entry\n")
 	if s = SessionSurface(root); strings.Contains(s, "global routed entry") || !strings.Contains(s, "memory-recall hook") {
 		t.Errorf("global index injected instead of pointed at:\n%s", s[len(s)-400:])
 	}
@@ -251,7 +251,7 @@ func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
 	if _, err := Init(repoRoot(t, "after")); !errors.Is(err, ErrMemoryPaused) {
 		t.Errorf("Init after a completed migration must refuse to scaffold the legacy bank: %v", err)
 	}
-	if _, err := os.Stat(GlobalDir()); !os.IsNotExist(err) {
+	if _, err := os.Stat(HomeBankDir()); !os.IsNotExist(err) {
 		t.Error("the retired legacy bank was recreated")
 	}
 	write(t, journal, `{"phase":"copy","manifest":"/m/pending.json"}`)
@@ -291,7 +291,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
-	write(t, filepath.Join(GlobalDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
 	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {

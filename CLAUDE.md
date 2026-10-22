@@ -106,6 +106,6 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
   wholesale — this repo's own at the top, other repos' under `plans/<repo-slug>/`.
 - `memory/` — the one memory store: a local-only git repo. `memory/index.md` is the generated catalog
   (router, never hand-edit); `memory/<repo>/` holds both native auto-memory (MEMORY.md + topics) and
-  the six typed bank files per repo (harness itself = `memory/claude-code/`); global bank in `memory/global/`.
+  the six typed bank files per repo (harness itself = `memory/claude-code/`); home bank in `memory/home/`.
   `projects/<slug>/memory` is a symlink into it. Engine `internal/memory`, hooks `session-start` /
   `memory-recall` / `session-harvest[-end]`.

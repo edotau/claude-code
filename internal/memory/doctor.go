@@ -21,8 +21,8 @@ type BankStat struct {
 	Oversized []string
 }
 
-// GlobalStat rolls up the shared global bank.
-func GlobalStat() BankStat { return statBank(GlobalDir()) }
+// HomeBankStat rolls up the shared home bank.
+func HomeBankStat() BankStat { return statBank(HomeBankDir()) }
 
 // Stat rolls up root's local bank.
 func Stat(root string) BankStat { return statBank(Dir(root)) }
@@ -51,7 +51,7 @@ func statBank(dir string) BankStat {
 const DefaultStaleDays = 90
 
 // DoctorNoticePath is the cached one-line doctor summary SessionStart reads instead of running Doctor
-// (which tokenizes the global bank + access log) on the launch path.
+// (which tokenizes the home bank + access log) on the launch path.
 func DoctorNoticePath() string { return filepath.Join(StateDir(), "doctor-notice") }
 
 // WriteDoctorNotice runs Doctor for root and caches its first problem (with a +N-more count) as one line;
@@ -71,16 +71,29 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 // credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
 var credentialPattern = regexp.MustCompile(`sk-[A-Za-z0-9]{10,}|ghp_[A-Za-z0-9]{10,}|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)
 
-// Doctor returns advisory problems for root's local bank and the shared global bank: cap offenders,
+// Doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
 func Doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
-	if !IsGlobal(root) {
+	if !IsHomeBank(root) {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
-	problems = append(problems, bankProblems("global", GlobalStat(), staleDays, now)...)
+	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
+	problems = append(problems, leftoverHomeBankDirProblem()...)
 	problems = append(problems, harvestProblems(now)...)
 	return append(problems, AccessNominations(now)...)
+}
+
+// leftoverHomeBankDirProblem flags a store/global/ dir the rename left behind because store/home/
+// already existed (both present): a human call, never guessed at.
+func leftoverHomeBankDirProblem() []string {
+	if !CutOver() {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(StoreDir(), "global")); err != nil {
+		return nil
+	}
+	return []string{"global/ left over; merge into home/ by hand"}
 }
 
 // harvestProblems surfaces receipts that need a human: a failed harvest, or one still "pending" past the
