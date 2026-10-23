@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/usageledger"
 )
 
 // writeFile creates path (with parents) holding content at 0o600.
@@ -546,5 +547,134 @@ func indexOfFields(got, header string) int {
 			return start
 		}
 		searchFrom = start + 1
+	}
+}
+
+// TestUsageShowBogusExitsTwo: an unrecognized --show value is a usage error, not a silent fallback.
+func TestUsageShowBogusExitsTwo(t *testing.T) {
+	claudeDir := t.TempDir()
+	var out, errw bytes.Buffer
+	code := Run([]string{"--show", "bogus"}, claudeDir, &out, &errw)
+	if code != 2 {
+		t.Fatalf("Run --show bogus = %d, want 2; stderr:\n%s", code, errw.String())
+	}
+	if !strings.Contains(errw.String(), "--show must be left, used, or total") {
+		t.Errorf("stderr missing the --show error, got:\n%s", errw.String())
+	}
+}
+
+// TestUsageShowModesRendering: each --show mode renders the quota column/detail its contract
+// promises, from a fixed fake quota list via the fetchQuotas seam.
+func TestUsageShowModesRendering(t *testing.T) {
+	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 25, Used: 1750, Limit: 7000, Resets: "2026-11-01"}}
+	orig := fetchQuotas
+	fetchQuotas = func() []quota { return stub }
+	t.Cleanup(func() { fetchQuotas = orig })
+	claudeDir := t.TempDir()
+
+	cases := []struct {
+		show string
+		want []string
+		not  []string
+	}{
+		{"left", []string{"LEFT", "75%", "5250 of 7000 credits left"}, []string{"USED"}},
+		{"used", []string{"USED", "25%", "1750 / 7000 credits"}, []string{"LEFT"}},
+		{"total", nil, []string{"PROVIDER QUOTAS"}},
+	}
+	for _, c := range cases {
+		var out, errw bytes.Buffer
+		if code := Run([]string{"--show", c.show}, claudeDir, &out, &errw); code != 0 {
+			t.Fatalf("Run --show %s = %d, want 0; stderr:\n%s", c.show, code, errw.String())
+		}
+		got := out.String()
+		for _, want := range c.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("--show %s missing %q:\n%s", c.show, want, got)
+			}
+		}
+		for _, notWant := range c.not {
+			if strings.Contains(got, notWant) {
+				t.Errorf("--show %s should not contain %q:\n%s", c.show, notWant, got)
+			}
+		}
+		if !strings.Contains(got, "API KEYS") {
+			t.Errorf("--show %s missing the API KEYS ledger section:\n%s", c.show, got)
+		}
+	}
+}
+
+// TestUsageShowTotalSkipsSubscriptionFetch: --show total never calls the subscription quota fetch
+// (it only exists to show the API-key ledger section).
+func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
+	called := false
+	orig := fetchQuotas
+	fetchQuotas = func() []quota { called = true; return nil }
+	t.Cleanup(func() { fetchQuotas = orig })
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--show", "total"}, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run --show total = %d; stderr:\n%s", code, errw.String())
+	}
+	if called {
+		t.Error("--show total must not fetch subscription quotas")
+	}
+	if strings.Contains(out.String(), "PROVIDER QUOTAS") {
+		t.Errorf("--show total must not print the subscription quota block:\n%s", out.String())
+	}
+}
+
+// TestUsageLedgerAggregationWindows: today/30d/all-time roll up correctly from a fixture ledger with
+// timestamps fixed relative to the real now (the readLedger seam, not wall-clock fetch, is injected).
+func TestUsageLedgerAggregationWindows(t *testing.T) {
+	now := time.Now()
+	entries := []usageledger.Entry{
+		{Ts: now.Add(-time.Hour), Provider: "openai", Model: "gpt-5", Input: 100, Output: 10},         // today
+		{Ts: now.Add(-20 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 50, Output: 5}, // within 30d, not today
+		{Ts: now.Add(-400 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 9, Output: 1}, // all-time only
+	}
+	origRead, origQuotas := readLedger, fetchQuotas
+	readLedger = func() ([]usageledger.Entry, error) { return entries, nil }
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--format", "json"}, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+	}
+	var doc struct {
+		API []ledgerAgg `json:"api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out.String())
+	}
+	if len(doc.API) != 1 {
+		t.Fatalf("api rows = %d, want 1: %+v", len(doc.API), doc.API)
+	}
+	a := doc.API[0]
+	if a.Today != 110 {
+		t.Errorf("Today = %d, want 110 (only the 1h-old entry)", a.Today)
+	}
+	if a.Last30d != 165 {
+		t.Errorf("Last30d = %d, want 165 (1h + 20d entries)", a.Last30d)
+	}
+	if a.AllTime != 175 {
+		t.Errorf("AllTime = %d, want 175 (every entry)", a.AllTime)
+	}
+}
+
+// TestUsageLedgerEmptyPrintsStartedMessage: no ledger entries prints the "no per-token calls" line
+// instead of a header with zero rows.
+func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
+	origRead, origQuotas := readLedger, fetchQuotas
+	readLedger = func() ([]usageledger.Entry, error) { return nil, nil }
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+
+	var out, errw bytes.Buffer
+	if code := Run(nil, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+	}
+	if !strings.Contains(out.String(), "no per-token calls recorded yet") {
+		t.Errorf("empty ledger missing the started message:\n%s", out.String())
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
+	"github.com/edotau/claude-code/internal/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -335,8 +337,81 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	if moveOn, hard := r.failover(resp, t, last); moveOn {
 		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
+	if !count && p.APIKeyAuth() {
+		var capture bytes.Buffer
+		orig := resp.Body
+		resp.Body = teeReadCloser{io.TeeReader(orig, &capture), orig}
+		relay(w, resp)
+		logLedgerUsage(p, t.Model, scrapeAnthropicUsage(capture.Bytes()))
+		return true, nil
+	}
 	relay(w, resp)
 	return true, nil
+}
+
+// teeReadCloser lets a response body be read through a tee without losing its own Close.
+type teeReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// ledgerUsage is the token counts scraped from a provider's raw bytes for the usage ledger.
+type ledgerUsage struct{ input, output, cacheRead int }
+
+// usageBlockRE matches one `"usage":{...}` object with at most one nested level (prompt_tokens_details).
+var usageBlockRE = regexp.MustCompile(`"usage"\s*:\s*\{(?:[^{}]|\{[^{}]*\})*\}`)
+
+// scrapeChatUsage reads the last OpenAI-dialect usage object; input excludes cached tokens, as translate does.
+func scrapeChatUsage(body []byte) ledgerUsage {
+	matches := usageBlockRE.FindAll(body, -1)
+	if len(matches) == 0 {
+		return ledgerUsage{}
+	}
+	var raw struct {
+		Prompt     int `json:"prompt_tokens"`
+		Completion int `json:"completion_tokens"`
+		Details    *struct {
+			Cached int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	}
+	if json.Unmarshal(matches[len(matches)-1], &raw) != nil {
+		return ledgerUsage{}
+	}
+	u := ledgerUsage{input: raw.Prompt, output: raw.Completion}
+	if raw.Details != nil && raw.Details.Cached > 0 && raw.Details.Cached <= u.input {
+		u.cacheRead = raw.Details.Cached
+		u.input -= u.cacheRead
+	}
+	return u
+}
+
+// scrapeAnthropicUsage sums every usage object: a stream splits input (message_start) from output (message_delta).
+func scrapeAnthropicUsage(body []byte) ledgerUsage {
+	var u ledgerUsage
+	for _, m := range usageBlockRE.FindAll(body, -1) {
+		var raw struct {
+			Input     int `json:"input_tokens"`
+			Output    int `json:"output_tokens"`
+			CacheRead int `json:"cache_read_input_tokens"`
+		}
+		if json.Unmarshal(m, &raw) == nil {
+			u.input += raw.Input
+			u.output += raw.Output
+			u.cacheRead += raw.CacheRead
+		}
+	}
+	return u
+}
+
+// logLedgerUsage records one per-token request to the usage ledger; best-effort, zero counts skipped.
+func logLedgerUsage(p *providers.Provider, model string, u ledgerUsage) {
+	if u.input == 0 && u.output == 0 && u.cacheRead == 0 {
+		return
+	}
+	usageledger.Append(usageledger.Entry{
+		Ts: time.Now(), Provider: p.Name, Model: model,
+		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
+	})
 }
 
 func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
@@ -368,11 +443,21 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 		writeJSON(w, resp.StatusCode, eb)
 		return true, nil
 	}
+	// Per-token providers tee raw bytes so the ledger can scrape usage without changing translate's API.
+	var capture *bytes.Buffer
+	body2 := io.Reader(resp.Body)
+	if p.APIKeyAuth() {
+		capture = &bytes.Buffer{}
+		body2 = io.TeeReader(resp.Body, capture)
+	}
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		// No explicit 200: a read error before the first event writes nothing, so the caller can still fail over.
-		err := translate.StreamChat(w, flusher(w), resp.Body, clientModel)
+		err := translate.StreamChat(w, flusher(w), body2, clientModel)
+		if capture != nil {
+			logLedgerUsage(p, t.Model, scrapeChatUsage(capture.Bytes()))
+		}
 		if err != nil && w.status == 0 {
 			return false, err
 		}
@@ -381,9 +466,12 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 		}
 		return true, nil
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	b, err := io.ReadAll(io.LimitReader(body2, maxBody))
 	if err != nil {
 		return false, err
+	}
+	if capture != nil {
+		logLedgerUsage(p, t.Model, scrapeChatUsage(capture.Bytes()))
 	}
 	ab, err := translate.FromChatResponse(b, clientModel)
 	if err != nil {
