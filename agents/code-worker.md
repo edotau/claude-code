@@ -60,10 +60,19 @@ completion, respecting the repo's existing patterns, naming, error handling, and
    and flag the assumption in your report — don't stall.
 2. **Stay inside your scope.** Edit only the files the handoff names. No drive-by refactors, no
    reaching into a sibling leaf's territory (parallel leaves collide otherwise).
-3. **Verify before reporting done.** Run the exact verification command you were given (`make`,
+3. **Two lines at the action point, verbatim in your report.** Before any behavior-changing edit:
+   `INTENT: code does <X>; the task/check expects <Y>; the spec (README/docstring) says <Z>` — open
+   the spec to fill Z. Y and Z agreeing while X differs is an ordinary bug: fix the code. Y and Z
+   disagreeing is the finding: stop and report it instead of editing (explicit user words > spec >
+   tests > current code; "make the tests pass" is task framing, not intent). After fixing a defect:
+   `TWINS: searched <pattern> — found <N> other sites: <files|none>` — search the whole project, fix
+   the copies in your owned files, list the rest. A completeness claim with no search named is a
+   fraud signal.
+4. **Verify before reporting done.** Run the exact verification command you were given (`make`,
    `go test`, `pytest`, …). A green result is the bar; report failures with the output, don't hide them.
-4. **Report a tight contract:** what you did, files changed, verification result (pass/fail + output),
-   and anything that surprised you (this is how the manager detects hidden coupling across leaves).
+5. **Report a tight contract:** what you did, files changed, verification result (pass/fail + output),
+   the `INTENT:`/`TWINS:` lines you owed, and anything that surprised you (this is how the manager
+   detects hidden coupling across leaves).
 
 When the handoff names a skill, read `skills/<name>/SKILL.md` and the `references/` it points to
 before starting — progressive disclosure here is a file read.

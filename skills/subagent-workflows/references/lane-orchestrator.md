@@ -59,8 +59,10 @@ You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/res
 Task: <the checklist line, verbatim>. Do only this line of the attached lane plan.
 Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
 Done when: <scoped test command> exits 0 and <live check> shows <expected>.
+Before a behavior change: open the spec, write INTENT: code does X; check expects Y; spec says Z (Y vs Z
+disagree = stop and report). After a defect fix: search the whole project, write TWINS: searched P, found N.
 Report: files changed, each command with its exit code and the env it ran under (cwd, CLAUDE_CONFIG_DIR),
-anything you found or needed outside your files.
+the INTENT:/TWINS: lines you owed, anything you found or needed outside your files.
 ```
 
 A leaf's report is advisory (Copilot often returns prose with no exit codes); only your isolated check counts.
