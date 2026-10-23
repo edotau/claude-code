@@ -23,8 +23,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    one checkout shared by parallel subagents and every live session. A linked worktree
    (`~/worktrees/<repo>/<slug>`, shared with Orca, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
    branch there freely, merge back with `/workflow:worktree merge <slug>` (verified, fast-forward-only:
-   `skills/using-git-worktrees/references/merge-and-clean.md`), never `checkout`/`reset` the live tree to it. `make install` and `claude-code` verbs still write to `~/.claude` from a
-   worktree unless `CLAUDE_CONFIG_DIR` points at it.
+   `skills/using-git-worktrees/references/merge-and-clean.md`), never `checkout`/`reset` the live tree to it.
+   `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR`
+   points at it.
 
 ## Behavioral guidelines
 

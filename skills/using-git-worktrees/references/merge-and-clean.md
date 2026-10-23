@@ -53,7 +53,7 @@ crash without re-invoking the agent.
 
 ## clean / clean-all
 
-`claude-code worktree clean --dry-run "$SLUG"`, confirm with the user, then `clean "$SLUG"`: rechecks clean, merged, unlocked and
-owned state live, never forces (there is no force flag); the branch is deleted only when a plain `branch -d`
+`claude-code worktree clean --dry-run "$SLUG"`, confirm with the user, then `clean "$SLUG"`: rechecks clean,
+merged, unlocked and owned state live, never forces (there is no force flag); the branch is deleted only when a plain `branch -d`
 succeeds. `clean-all --dry-run` lists `eligible:` / `refused: … (reason)`; confirm "Remove N worktrees?", then
 `clean-all --yes`. Unregistered directories and git's `prunable` entries are reported, never auto-removed.
