@@ -3,10 +3,6 @@
 **Load this reference when:** writing or changing tests, adding mocks, or tempted to add test-only
 methods to production code.
 
-## Overview
-
-Tests must verify real behavior, not mock behavior. Mocks are a means to isolate, not the thing being tested.
-
 **Core principle:** Test what the code does, not what the mocks do.
 
 ## Mock at boundaries, not everywhere
@@ -30,269 +26,40 @@ anti-patterns** (see `../SKILL.md`).
 
 ## Anti-Pattern 1: Testing Mock Behavior
 
-**The violation:**
-
-```typescript
-// ❌ BAD: Testing that the mock exists
-test('renders sidebar', () => {
-  render(<Page />);
-  expect(screen.getByTestId('sidebar-mock')).toBeInTheDocument();
-});
-```
-
-**Why this is wrong:**
-
-- You're verifying the mock works, not that the component works
-- Test passes when mock is present, fails when it's not
-- Tells you nothing about real behavior
-
-**your human partner's correction:** "Are we testing the behavior of a mock?"
-
-**The fix:**
-
-```typescript
-// ✅ GOOD: Test real component or don't mock it
-test('renders sidebar', () => {
-  render(<Page />);  // Don't mock sidebar
-  expect(screen.getByRole('navigation')).toBeInTheDocument();
-});
-
-// OR if sidebar must be mocked for isolation:
-// Don't assert on the mock - test Page's behavior with sidebar present
-```
-
-### Gate Function
-
-```text
-BEFORE asserting on any mock element:
-  Ask: "Am I testing real component behavior or just mock existence?"
-
-  IF testing mock existence:
-    STOP - Delete the assertion or unmock the component
-
-  Test real behavior instead
-```
+Before: `assert find_by_test_id("sidebar-mock").exists` — proves the mock rendered, not that
+the component works.
+After: `assert find_by_role("navigation").exists`, sidebar unmocked — proves real behavior.
+Gate: before asserting on any mock element, ask "real behavior or just mock existence?"; if the
+latter, delete the assertion or unmock the component.
 
 ## Anti-Pattern 2: Test-Only Methods in Production
 
-**The violation:**
-
-```typescript
-// ❌ BAD: destroy() only used in tests
-class Session {
-  async destroy() {  // Looks like production API!
-    await this._workspaceManager?.destroyWorkspace(this.id);
-    // ... cleanup
-  }
-}
-
-// In tests
-afterEach(() => session.destroy());
-```
-
-**Why this is wrong:**
-
-- Production class polluted with test-only code
-- Dangerous if accidentally called in production
-- Violates YAGNI and separation of concerns
-- Confuses object lifecycle with entity lifecycle
-
-**The fix:**
-
-```typescript
-// ✅ GOOD: Test utilities handle test cleanup
-// Session has no destroy() - it's stateless in production
-
-// In test-utils/
-export async function cleanupSession(session: Session) {
-  const workspace = session.getWorkspaceInfo();
-  if (workspace) {
-    await workspaceManager.destroyWorkspace(workspace.id);
-  }
-}
-
-// In tests
-afterEach(() => cleanupSession(session));
-```
-
-### Gate Function
-
-```text
-BEFORE adding any method to production class:
-  Ask: "Is this only used by tests?"
-
-  IF yes:
-    STOP - Don't add it
-    Put it in test utilities instead
-
-  Ask: "Does this class own this resource's lifecycle?"
-
-  IF no:
-    STOP - Wrong class for this method
-```
+Before: `Session.destroy()` added to production only so `tearDown` can call it.
+After: a `cleanup_session(session)` helper in test utilities; `Session` stays stateless.
+Gate: before adding a method to a production class, ask "only used by tests?" — if yes, it
+belongs in test utilities, not the class.
 
 ## Anti-Pattern 3: Mocking Without Understanding
 
-**The violation:**
-
-```typescript
-// ❌ BAD: Mock breaks test logic
-test('detects duplicate server', () => {
-  // Mock prevents config write that test depends on!
-  vi.mock('ToolCatalog', () => ({
-    discoverAndCacheTools: vi.fn().mockResolvedValue(undefined)
-  }));
-
-  await addServer(config);
-  await addServer(config);  // Should throw - but won't!
-});
-```
-
-**Why this is wrong:**
-
-- Mocked method had side effect test depended on (writing config)
-- Over-mocking to "be safe" breaks actual behavior
-- Test passes for wrong reason or fails mysteriously
-
-**The fix:**
-
-```typescript
-// ✅ GOOD: Mock at correct level
-test('detects duplicate server', () => {
-  // Mock the slow part, preserve behavior test needs
-  vi.mock('MCPServerManager'); // Just mock slow server startup
-
-  await addServer(config);  // Config written
-  await addServer(config);  // Duplicate detected ✓
-});
-```
-
-### Gate Function
-
-```text
-BEFORE mocking any method:
-  STOP - Don't mock yet
-
-  1. Ask: "What side effects does the real method have?"
-  2. Ask: "Does this test depend on any of those side effects?"
-  3. Ask: "Do I fully understand what this test needs?"
-
-  IF depends on side effects:
-    Mock at lower level (the actual slow/external operation)
-    OR use test doubles that preserve necessary behavior
-    NOT the high-level method the test depends on
-
-  IF unsure what test depends on:
-    Run test with real implementation FIRST
-    Observe what actually needs to happen
-    THEN add minimal mocking at the right level
-
-  Red flags:
-    - "I'll mock this to be safe"
-    - "This might be slow, better mock it"
-    - Mocking without understanding the dependency chain
-```
+Before: mocking `discover_and_cache_tools` silently skips the config write a later assertion
+in the same test depends on, so a duplicate-detection check never fires.
+After: mock only the slow/external call (server startup); keep the write path real.
+Gate: before mocking any method, ask what side effects the real method has and whether the
+test depends on them; if unsure, run the real implementation first and observe.
 
 ## Anti-Pattern 4: Incomplete Mocks
 
-**The violation:**
-
-```typescript
-// ❌ BAD: Partial mock - only fields you think you need
-const mockResponse = {
-  status: 'success',
-  data: { userId: '123', name: 'Alice' }
-  // Missing: metadata that downstream code uses
-};
-
-// Later: breaks when code accesses response.metadata.requestId
-```
-
-**Why this is wrong:**
-
-- **Partial mocks hide structural assumptions** - You only mocked fields you know about
-- **Downstream code may depend on fields you didn't include** - Silent failures
-- **Tests pass but integration fails** - Mock incomplete, real API complete
-- **False confidence** - Test proves nothing about real behavior
-
-**The Iron Rule:** Mock the COMPLETE data structure as it exists in reality, not just fields your immediate test uses.
-
-**The fix:**
-
-```typescript
-// ✅ GOOD: Mirror real API completeness
-const mockResponse = {
-  status: 'success',
-  data: { userId: '123', name: 'Alice' },
-  metadata: { requestId: 'req-789', timestamp: 1234567890 }
-  // All fields real API returns
-};
-```
-
-### Gate Function
-
-```text
-BEFORE creating mock responses:
-  Check: "What fields does the real API response contain?"
-
-  Actions:
-    1. Examine actual API response from docs/examples
-    2. Include ALL fields system might consume downstream
-    3. Verify mock matches real response schema completely
-
-  Critical:
-    If you're creating a mock, you must understand the ENTIRE structure
-    Partial mocks fail silently when code depends on omitted fields
-
-  If uncertain: Include all documented fields
-```
+Before: `mock_response = {status, data}` — missing the `metadata` field downstream code reads.
+After: `mock_response = {status, data, metadata}` — mirrors the complete real API shape.
+Gate: before creating a mock response, check what fields the real API returns and include all
+of them, not just the ones the immediate test touches.
 
 ## Anti-Pattern 5: Integration Tests as Afterthought
 
-**The violation:**
-
-```text
-✅ Implementation complete
-❌ No tests written
-"Ready for testing"
-```
-
-**Why this is wrong:**
-
-- Testing is part of implementation, not optional follow-up
-- A live run plus a test that imports the code would have caught this
-- Can't claim complete without tests
-
-**The fix:**
-
-```text
-1. Run the change on real input; read the output
-2. Pin the observed behavior in a test that imports the code
-3. Prove it bites (revert-and-restore)
-4. THEN claim complete
-```
-
-## When Mocks Become Too Complex
-
-**Warning signs:**
-
-- Mock setup longer than test logic
-- Mocking everything to make test pass
-- Mocks missing methods real components have
-- Test breaks when mock changes
-
-**your human partner's question:** "Do we need to be using a mock here?"
-
-**Consider:** Integration tests with real components often simpler than complex mocks
-
-## The Discipline Prevents These Anti-Patterns
-
-1. **Run it live first** → You see what the real dependencies return before mocking them
-2. **Import rule** → A test that never calls the code can't pass on mock behavior alone
-3. **Revert-and-restore** → Confirms the test fails against broken real code, not just a mock
-4. **Mock at boundaries** → No test-only methods creep in
-
-**If you're testing mock behavior, the teeth proof will show it** - revert the fix and the test still passes.
+Before: "implementation complete, no tests written, ready for testing."
+After: run on real input, pin the behavior in a test that imports the code, prove it bites.
+Gate: testing is part of implementation, not an optional follow-up — don't claim complete
+without it.
 
 ## Quick Reference
 
@@ -305,19 +72,7 @@ BEFORE creating mock responses:
 | Tests as afterthought | Live run, then guard tests, before claiming complete |
 | Over-complex mocks | Consider integration tests |
 
-## Red Flags
-
-- Assertion checks for `*-mock` test IDs
-- Methods only called in test files
-- Mock setup is >50% of test
-- Test fails when you remove mock
-- Can't explain why mock is needed
-- Mocking "just to be safe"
-
 ## The Bottom Line
 
-**Mocks are tools to isolate, not things to test.**
-
-If the teeth proof shows you're testing mock behavior, you've gone wrong.
-
-Fix: Test real behavior or question why you're mocking at all.
+**Mocks are tools to isolate, not things to test.** If the teeth proof shows you're testing mock
+behavior, fix it: test real behavior, or question why you're mocking at all.
