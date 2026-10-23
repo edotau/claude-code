@@ -1,6 +1,6 @@
 # Progress
 
-> Task tracking — auto-injected at session start. REPLACE each `/memory:end`.
+> Task tracking — auto-injected at session start. REPLACE each `/reflection:update`.
 
 ## What Works
 

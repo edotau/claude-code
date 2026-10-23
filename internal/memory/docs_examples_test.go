@@ -99,7 +99,7 @@ func TestDocsTemplateExamplesBankRegion(t *testing.T) {
 
 // TestDocsTemplateExamplesSessionHistory and TestDocsTemplateExamplesDecisionLog and
 // TestDocsTemplateExamplesActiveContext check the three typed-file examples in isolation: the shipped
-// template (internal/memory/templates/*.md) plus one hand-written fixture entry — /memory:end's actual
+// template (internal/memory/templates/*.md) plus one hand-written fixture entry — /reflection:update's actual
 // append is model-driven, so the fixture entry is kept in this test, not generated through that path.
 func TestDocsTemplateExamplesSessionHistory(t *testing.T) {
 	checkExample(t, "sessionHistory.md", sessionHistoryExample)
@@ -113,7 +113,7 @@ func TestDocsTemplateExamplesActiveContext(t *testing.T) {
 	checkExample(t, "activeContext.md", activeContextExample)
 }
 
-// decisionLogExample is the shipped template plus one fixture entry (hand-written: /memory:end's real
+// decisionLogExample is the shipped template plus one fixture entry (hand-written: /reflection:update's real
 // append is model-driven, not a code path this test can run).
 const decisionLogExample = `# Decision Log
 
@@ -140,7 +140,7 @@ docs/templates/examples/.
 // so the example shows one plausible filled state rather than template-plus-append).
 const activeContextExample = `# Active Context
 
-> Current session state — auto-injected at session start. REPLACE each ` + "`/memory:end`" + `.
+> Current session state — auto-injected at session start. REPLACE each ` + "`/reflection:update`" + `.
 
 ## Current Focus
 

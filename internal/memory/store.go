@@ -28,7 +28,7 @@ func BankFiles() []string { return bankFiles }
 // SessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
 const SessionHistoryMaxEntries = 30
 
-// FileCaps are the per-file line caps /memory:end holds; sessionHistory rotates by entry count instead.
+// FileCaps are the per-file line caps /reflection:update holds; sessionHistory rotates by entry count instead.
 var FileCaps = map[string]int{
 	"projectContext.md": 60,
 	"activeContext.md":  80,
@@ -77,7 +77,7 @@ var homeBankRenamed sync.Map
 
 // ensureHomeBankRenamed renames a leftover store/global/ dir (a store that completed the unified-store
 // cutover before this rename landed) to store/home/, once per store dir. Idempotent: a no-op once
-// home/ exists or global/ is absent; both present is left alone for `memory doctor` to flag.
+// home/ exists or global/ is absent; both present is left alone for `memory review` to flag.
 func ensureHomeBankRenamed() {
 	store := StoreDir()
 	if _, done := homeBankRenamed.LoadOrStore(store, true); done {
@@ -174,7 +174,7 @@ func GitToplevel(dir string) string {
 	return strings.TrimSpace(out)
 }
 
-// templates seed a fresh bank's six files; /memory:end fills them from real session work.
+// templates seed a fresh bank's six files; /reflection:update fills them from real session work.
 var templates = sync.OnceValue(func() map[string]string {
 	m := make(map[string]string, len(bankFiles))
 	for _, name := range bankFiles {

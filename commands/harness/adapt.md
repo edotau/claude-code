@@ -5,7 +5,7 @@ description: "Adaptive learning checkpoint — capture corrections, update rules
 # /harness:adapt — Adaptive Learning Checkpoint
 
 Focused, fast reinforcement loop that turns this session's corrections and patterns into permanent rules. Lighter than a
-full `/reflection:consolidate`, triggered automatically at 85% context (the `context-checkpoint` Stop hook) or manually
+full `/reflection:dream`, triggered automatically at 85% context (the `context-checkpoint` Stop hook) or manually
 anytime.
 
 ## Usage
@@ -45,7 +45,7 @@ For each signal found, classify it:
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated).
 `/harness:adapt` writes only to the **writable** tiers — `rules/standards/` and
 `rules/software/<lang>/`. It **never** edits `rules/workflow/` (human-authored process), and
-**never** writes to `CLAUDE.md` directly — only `/reflection:consolidate --dream` promotes
+**never** writes to `CLAUDE.md` directly — only `/reflection:dream` promotes
 learnings there after the recurrence + hard-prohibition test passes. Replace `<lang>` with the
 project's primary language directory (e.g., `python`, `go`).
 
@@ -78,7 +78,7 @@ Update `activeContext.md` (contracts: `rules/workflow/memory-bank.md`; path via 
 
 - **Current Focus**: Reflect where the session ended
 - **Next Steps**: Update with immediate next actions
-- (Session summaries belong in `sessionHistory.md` — `/memory:end` owns that; skip here)
+- (Session summaries belong in `sessionHistory.md` — `/reflection:update` owns that; skip here)
 
 Update `progress.md` if:
 
@@ -109,7 +109,7 @@ Signals captured: N
 
 Files updated:
   - Rules: [list of rules/ files updated, or "none"]
-  - CLAUDE.md: no (promotion-gated; only /reflection:consolidate --dream writes here)
+  - CLAUDE.md: no (promotion-gated; only /reflection:dream writes here)
   - Memory bank (activeContext.md / progress.md / decisionLog.md): [yes/no]
   - Agent memories: [list of agents updated]
 

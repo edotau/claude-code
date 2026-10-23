@@ -51,7 +51,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
 	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; /memory:end is the manual override."
+		note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; /reflection:update is the manual override."
 		if prefix != "" {
 			note = prefix + " " + note
 		}
@@ -69,7 +69,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 				if res.Log != "" {
 					hint = " (log: " + res.Log + ")"
 				}
-				note += " NOTE: the previous session's memory harvest did not complete (" + res.Status + ")" + hint + " — run /memory:end to recover it."
+				note += " NOTE: the previous session's memory harvest did not complete (" + res.Status + ")" + hint + " — run /reflection:update to recover it."
 			}
 		}
 		// The doctor line comes from the cache `memory update`'s settle path maintains — a full Doctor
@@ -79,7 +79,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 				if len(notice) > 200 {
 					notice = notice[:200]
 				}
-				note += " memory doctor: " + notice + "."
+				note += " memory review: " + notice + "."
 			}
 		}
 		out = note + "\n\n" + bank
@@ -172,7 +172,7 @@ func maybeAutoInit(cwd string) string {
 	if err != nil {
 		return ""
 	}
-	return "Memory bank scaffolded at " + dir + " — it fills automatically at session end (optionally enrich with /memory:init)."
+	return "Memory bank scaffolded at " + dir + " — it fills automatically at session end (optionally enrich with /reflection:init)."
 }
 
 // scaffoldSafe: the config dir, a dir already carrying .claude/, or a git TOPLEVEL (a subdir would misplace the bank).
@@ -188,7 +188,7 @@ func scaffoldSafe(cwd string) bool {
 }
 
 // SessionHarvest (Stop) dispatches a detached `memory update` once a session has substantive edits;
-// with no spawn possible it blocks at most harvestMaxBlocks times asking for /memory:end.
+// with no spawn possible it blocks at most harvestMaxBlocks times asking for /reflection:update.
 func SessionHarvest(r io.Reader, stderr io.Writer) int {
 	in := ParseInput(r)
 	if !harvestable(in) {
@@ -225,7 +225,7 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		}
 		return ExitProceed
 	case memory.NewestMtime(memory.Dir(in.CWD)).After(st.at):
-		writeStamp(stamp, now, "bg", st.edits) // /memory:end ran by hand: released, re-arms like a dispatch
+		writeStamp(stamp, now, "bg", st.edits) // /reflection:update ran by hand: released, re-arms like a dispatch
 		return ExitProceed
 	case st.blocks >= harvestMaxBlocks:
 		return ExitProceed // fail open
@@ -284,7 +284,7 @@ func harvestable(in *Input) bool {
 
 func blockForHarvest(stderr io.Writer, edits int) int {
 	fmt.Fprintf(stderr, "Session harvest (~%d file edits this session): the background worker could not be started. "+
-		"Before stopping, run /memory:end to save the session to the memory bank.\n", edits)
+		"Before stopping, run /reflection:update to save the session to the memory bank.\n", edits)
 	return ExitBlock
 }
 

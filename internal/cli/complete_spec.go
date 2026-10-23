@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -135,20 +136,24 @@ func buildSpecTree() map[string]*compNode {
 			"clean-all": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("yes")}},
 		}},
 		"memory": {sub: map[string]*compNode{
+			"recall": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"),
+				flag("load"), formatFlag()}},
+			"remember": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), valuedFlag("type", memoryRememberTypes)}},
 			"init":     {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
+			"review": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), flag("stale-days"), boolFlag("notice"),
+				boolFlag("brief")}},
+			"promote": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames),
+				valuedFlag("to", memoryPromoteTargets), boolFlag("dry-run")}},
+			"update":   {flags: []flagInfo{flag("transcript"), flag("cwd"), flag("session")}},
+			"dream":    {flags: []flagInfo{flag("cwd"), boolFlag("force")}},
 			"search":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"), formatFlag()}},
 			"show":     {},
 			"digest":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"index":    {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"path":     {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"fmt":      {flags: []flagInfo{boolFlag("check")}},
-			"update":   {flags: []flagInfo{flag("transcript"), flag("cwd"), flag("session")}},
-			"dream":    {flags: []flagInfo{flag("cwd"), boolFlag("force")}},
 			"watch":    {flags: []flagInfo{flag("session"), flag("transcript"), flag("cwd"), flag("owner"), flag("idle")}},
-			"doctor":   {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), flag("stale-days"), boolFlag("notice")}},
-			"stats":    {},
 			"timeline": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), flag("n")}},
-			"promote":  {flags: []flagInfo{valuedFlag("repo", memoryRepoNames)}},
 			"archive": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("dupes"), flag("split"),
 				boolFlag("apply"), boolFlag("restore")}},
 			"alias":   {flags: []flagInfo{flag("repo"), valuedFlag("into", memoryRepoNames), boolFlag("dry-run")}},
@@ -182,3 +187,9 @@ func reviewSubNodes() map[string]*compNode {
 }
 
 func worktreeResolveAgents() []string { return []string{"claude", "codex"} }
+
+// memoryRememberTypes mirrors memory.RememberTypes' keys for `memory remember --type` completion.
+func memoryRememberTypes() []string { return []string{"user", "feedback", "project", "reference"} }
+
+// memoryPromoteTargets mirrors memory.PromoteTargets for `memory promote --to` completion.
+func memoryPromoteTargets() []string { return memory.PromoteTargets }

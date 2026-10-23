@@ -197,6 +197,107 @@ func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, 
 	return len(toAppend), nil
 }
 
+// PromoteTargets are the `memory promote --to` destinations.
+var PromoteTargets = []string{"home", "rules", "skill", "claude-md"}
+
+// promoteJudgmentTarget names where a judgment promotion lands, for the operator to act on by hand.
+var promoteJudgmentTarget = map[string]string{
+	"rules":     "rules/standards/<topic>.md or rules/software/<lang>/<topic>.md",
+	"skill":     "skills/<name>/SKILL.md or its references/",
+	"claude-md": "CLAUDE.md Known Gotchas (gated: 3+ entries AND a hard prohibition)",
+}
+
+// Promote moves or surfaces block id by --to: "home" is a deterministic move (local -> home bank,
+// settled both sides); "rules"/"skill"/"claude-md" print the block and target for a human/agent to
+// apply by hand (model residue), and never edit those targets themselves.
+func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
+	if target, ok := promoteJudgmentTarget[to]; ok {
+		return promoteJudgment(root, id, target)
+	}
+	if to != "home" {
+		return "", fmt.Errorf("--to %q: want %s", to, strings.Join(PromoteTargets, ", "))
+	}
+	return promoteBlockToHome(root, id, dryRun, now)
+}
+
+// promoteBlockToHome moves one id-marked block from root's local bank into the matching home-bank
+// file, preserving its id, and settles both.
+func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
+	dir := Dir(root)
+	if IsHomeBank(root) {
+		return "", errors.New("root's bank IS the home bank — nothing to promote")
+	}
+	file, block, err := extractBlock(dir, id)
+	if err != nil {
+		return "", err
+	}
+	homePath := filepath.Join(HomeBankDir(), file)
+	if dryRun {
+		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, filepath.Join(dir, file), homePath, block), nil
+	}
+	if err := appendBlocks(homePath, []string{block}); err != nil {
+		return "", err
+	}
+	if err := removeBlock(dir, file, id); err != nil {
+		return "", err
+	}
+	if _, err := SettleBank(root, now); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
+}
+
+// promoteJudgment finds id in root's local bank (falling back to the home bank) and prints it with
+// target for a human/agent follow-up; it is model residue, so Go never writes target itself.
+func promoteJudgment(root, id, target string) (string, error) {
+	dir := Dir(root)
+	_, block, err := extractBlock(dir, id)
+	if err != nil && !IsHomeBank(root) {
+		_, block, err = extractBlock(HomeBankDir(), id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return block + "\n\ntarget: " + target +
+		"\nneeds judgment: follow skills/reflection/references/promote.md\n", nil
+}
+
+// extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
+func extractBlock(dir, id string) (string, string, error) {
+	marker := "<!-- id:" + id + " -->"
+	for name := range idFiles {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || !strings.Contains(string(data), marker) {
+			continue
+		}
+		_, blocks := entryBlocks(name, string(data))
+		for _, b := range blocks {
+			if strings.Contains(b, marker) {
+				return name, b, nil
+			}
+		}
+	}
+	return "", "", ErrNoBlock
+}
+
+// removeBlock drops the id-marked block from dir/name, rewriting the file without it.
+func removeBlock(dir, name, id string) error {
+	marker := "<!-- id:" + id + " -->"
+	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	header, blocks := entryBlocks(name, string(data))
+	var kept []string
+	for _, b := range blocks {
+		if !strings.Contains(b, marker) {
+			kept = append(kept, b)
+		}
+	}
+	return paths.AtomicWrite(path, []byte(rejoin(header, kept)), 0o600)
+}
+
 // blockTokens is a block's lowercase token set — the signal for near-dup matching.
 func blockTokens(s string) map[string]bool {
 	set := map[string]bool{}

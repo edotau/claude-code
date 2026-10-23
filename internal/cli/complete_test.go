@@ -55,8 +55,8 @@ func TestCompletionSubcommands(t *testing.T) {
 	if want := []string{"scan", "set", "status"}; !slices.Equal(got, want) {
 		t.Errorf("secrets s* = %v, want %v", got, want)
 	}
-	if got := completionCandidates([]string{"memory", "do"}); !slices.Equal(got, []string{"doctor"}) {
-		t.Errorf("memory do* = %v, want [doctor]", got)
+	if got := completionCandidates([]string{"memory", "rev"}); !slices.Equal(got, []string{"review"}) {
+		t.Errorf("memory rev* = %v, want [review]", got)
 	}
 	if got := completionCandidates([]string{"router", "start", ""}); len(got) != 0 {
 		t.Errorf("leaf command should offer no candidates, got %v", got)

@@ -1,5 +1,5 @@
 // `access-trace` — PostToolUse(Read): a model read of a bank file (or its generated index) is logged to
-// that bank's access log, so memory doctor's hot/cold nominations count what the model actually opened,
+// that bank's access log, so memory review's hot/cold nominations count what the model actually opened,
 // not only what memory-recall injected. Fail-open — a trace is a signal, never a gate.
 package hooks
 

@@ -20,7 +20,7 @@ import (
 const HarvestPrompt = "Background harvest of a finished session (transcript: %s). " +
 	"Read ONLY the last ~1500 lines of that transcript — it may be many MB and reading it whole will " +
 	"exhaust your turn budget before you can write anything. " +
-	"Then run /memory:end — the COMPLETE pass, every step, not the abbreviated one. " +
+	"Then run /reflection:update — the COMPLETE pass, every step, not the abbreviated one. " +
 	"Do it in this order so a truncated run still leaves the bank coherent: sessionHistory first, then " +
 	"activeContext, then progress, decisionLog, and conventions. Be surgical; touch nothing else."
 
@@ -87,19 +87,20 @@ func (r HarvestResult) NeedsAttention(now time.Time) bool {
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
-// agentHarvestPrompt inlines /memory:end for an agent that has no slash commands.
-func agentHarvestPrompt(transcript string) string {
-	body, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "commands", "memory", "end.md"))
+// agentHarvestPrompt frames /reflection:update for an agent that has no slash commands; the
+// procedure itself is one copy, read from skills/reflection/references/update.md.
+func agentHarvestPrompt(transcript string) (string, error) {
+	ref, err := Reference("update")
 	if err != nil {
-		return fmt.Sprintf(HarvestPrompt, transcript)
+		return "", err
 	}
 	return "Background harvest of a finished session (transcript: " + transcript + "). " +
 		"Read ONLY the last ~1500 lines of that transcript; it may be many MB. " +
 		"Resolve the bank directory with `claude-code memory path`. Follow this procedure, the COMPLETE pass:\n\n" +
-		strings.TrimSpace(stripFrontmatter(string(body))) + "\n\n" +
+		ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
-		tagBlock(transcript)
+		tagBlock(transcript), nil
 }
 
 // tagBlock extracts DECISION/BUG/NEXT/NOTE tags from the whole transcript and appends a filing
@@ -136,7 +137,7 @@ type UpdateOptions struct {
 	Out        io.Writer
 }
 
-// Update runs headless /memory:end under the bank lock, settles the bank, and records the outcome.
+// Update runs headless /reflection:update under the bank lock, settles the bank, and records the outcome.
 func Update(o UpdateOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -160,8 +161,13 @@ func Update(o UpdateOptions) error {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
+			prompt, perr := agentHarvestPrompt(o.Transcript)
+			if perr != nil {
+				runErr = perr
+				return nil
+			}
 			_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
-			who, err := o.Run(ctx, agentHarvestPrompt(o.Transcript), o.CWD)
+			who, err := o.Run(ctx, prompt, o.CWD)
 			runErr = err
 			fmt.Fprintln(o.Out, "memory update: ran on", who)
 			return nil

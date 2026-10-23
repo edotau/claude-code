@@ -183,7 +183,7 @@ Remaining: <what is still uncommitted, or "clean">
 - **Delete a test** to clear a failure. A test that should go away is a recommendation with a
   reason, not an edit you make silently.
 - **Invent a test framework** where none exists. Report that there is no suite.
-- **Consolidate memory** — that's `opencode` (PERSIST mode, driven by `/memory:end` and the
+- **Consolidate memory** — that's `opencode` (PERSIST mode, driven by `/reflection:update` and the
   session-harvest flow).
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.

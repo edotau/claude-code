@@ -74,7 +74,7 @@ var Registry = []Spec{
 	{Name: "plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Timeout: 10},
 	// An approved plan is filed under plans/, tagged with its repo.
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
-	// A model read of a bank file is traced to that bank's access log (memory doctor's hot/cold signal).
+	// A model read of a bank file is traced to that bank's access log (memory review's hot/cold signal).
 	{Name: "access-trace", Event: EventPostToolUse, Matcher: "Read", Timeout: 5, Async: true, Vendors: []string{"codex", "copilot"}},
 	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
 	{Name: "stop-format", Event: EventStop, Timeout: 30},

@@ -39,11 +39,12 @@ func TestSpecTreeCoversEveryCommand(t *testing.T) {
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.Use(t)
 	cases := map[string][]string{
-		"secrets":   {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
-		"history":   {"snapshot", "log", "diff"},
-		"vault":     {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"},
-		"web":       {"browsers", "search", "setup", "view"},
-		"memory":    {"init", "search", "show", "digest", "index", "path", "update", "dream", "watch", "doctor", "stats", "timeline", "promote", "archive", "migrate", "alias", "fmt"},
+		"secrets": {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
+		"history": {"snapshot", "log", "diff"},
+		"vault":   {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"},
+		"web":     {"browsers", "search", "setup", "view"},
+		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
+			"digest", "index", "path", "watch", "timeline", "archive", "migrate", "alias", "fmt"},
 		"router":    {"serve", "start", "stop", "status"},
 		"mcp":       {"doctor"},
 		"agents":    {"sync", "tree"},
@@ -306,21 +307,19 @@ func TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	}
 }
 
-// TestMemoryUpdateAndStatsSpecHaveNoRepoFlag: update/stats take no --repo in their own flag.FlagSet
-// (memoryFlagSet, not memoryRepoFlagSet) — the spec must not advertise one either.
-func TestMemoryUpdateAndStatsSpecHaveNoRepoFlag(t *testing.T) {
+// TestMemoryUpdateSpecHasNoRepoFlag: update takes no --repo in its own flag.FlagSet (memoryFlagSet,
+// not memoryRepoFlagSet) — the spec must not advertise one either.
+func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	memNode := specTree()["memory"]
 	if memNode == nil {
 		t.Fatal("memory: no node in specTree()")
 	}
-	for _, sub := range []string{"update", "stats"} {
-		node := memNode.sub[sub]
-		if node == nil {
-			t.Fatalf("memory %s: no sub-node in specTree()", sub)
-		}
-		if got := flagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
-			t.Errorf("memory %s: specTree() flags = %v, must not advertise --repo", sub, got)
-		}
+	node := memNode.sub["update"]
+	if node == nil {
+		t.Fatal("memory update: no sub-node in specTree()")
+	}
+	if got := flagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
+		t.Errorf("memory update: specTree() flags = %v, must not advertise --repo", got)
 	}
 }
 
