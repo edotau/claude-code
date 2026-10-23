@@ -141,7 +141,9 @@ pass below breaks.
 ### Process — Gate Loop (max 5 iterations)
 
 Run the chain in `rules/standards/quality.md` → Verification Order (`skills/approval-gate/SKILL.md`
-has the loop and report format). Never report a gate you did not run.
+has the loop and report format). The full final pass (full suite + security scan) runs only when the brief
+records the owner's approval; otherwise stop after the scoped gates and report what did not run. Never
+report a gate you did not run.
 
 ### Escalation & hard rules
 

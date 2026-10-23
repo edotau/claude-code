@@ -41,6 +41,8 @@ filed with the approval date.
   `agents/*.md` into `~/.codex/agents/*.toml`, `~/.copilot/agents/*.md`, `~/.gemini/agents/*.md`,
   `~/.config/opencode/agents/*.md`, and symlinks `skills/<name>/` into `~/.agents/skills` (never copies).
   Nothing lands at this repo's root: Claude Code would load a root `AGENTS.md`/`GEMINI.md` as a second CLAUDE.md.
+  Sync prunes only outputs it owns, keeps hand-authored files and foreign symlinks, aborts on an empty or failed
+  discovery, and `--no-prune` skips pruning.
 - **A repo's own documentation** — `docs/` pages a project owns. Tracked pages always pass, and a
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
