@@ -1,6 +1,6 @@
 ---
 name: reverse-engineer
-description: Reverse engineer native, managed, Electron/JavaScript, Android/Apple apps, firmware, packet captures, and live browser or process targets with REA, run on demand from the shell (no MCP server). Use to explain how a shipped app or binary implements a feature, decompile a function, compare versions, trace a feature, or inspect an APK/IPA/Mach-O/PE/WASM. Skip for ordinary source-repo architecture questions.
+description: Reverse engineer native, managed, Electron/JavaScript, Android/Apple apps, and live browser or process targets with REA, run on demand (no MCP server). Use to explain how a shipped app or binary implements a feature, decompile a function, compare versions, trace a feature, or inspect an APK/IPA/Mach-O/PE/WASM. Skip for ordinary source-repo architecture questions.
 ---
 
 # Reverse Engineer (REA, on demand)

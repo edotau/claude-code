@@ -1,6 +1,6 @@
 ---
 name: fable-method
-description: 'Structured problem-solving loop for non-trivial work - classify the deliverable, define done, gather primary-source evidence, commit to one recommendation, act behind an intent gate, verify by observation, report outcome-first (INTENT/AUTH/TWINS/PENDING). Triggers "use the fable method", "/fable-method", "run the loop", "the tests disagree with the spec", "did I fix this everywhere", "is that claim actually verified", "am I faking rigor". Subcommands - plan, audit, judge, report.'
+description: 'Structured problem-solving loop - classify, define done, evidence, one recommendation, intent gate, verify by observation, outcome-first report (INTENT/AUTH/TWINS/PENDING). Triggers "use the fable method", "/fable-method", "run the loop", "the tests disagree with the spec", "did I fix this everywhere", "is that claim actually verified". Subcommands - plan, audit, judge, report.'
 metadata:
   version: 1.1.0
 ---

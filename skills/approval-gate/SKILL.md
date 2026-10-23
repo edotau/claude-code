@@ -1,6 +1,6 @@
 ---
 name: approval-gate
-description: Pre-completion verification (harness variant of the built-in /verify) — the iron law (no completion claims without fresh evidence) plus the ordered gate loop. Triggers on "verify before done", "run the gates", "is this complete", "pre-completion check", "are we done", "claim complete", before commit/push/PR. This is the harness pre-completion gate chain; not the built-in /verify (runtime behavior).
+description: Pre-completion verification (harness variant of the built-in /verify) — the iron law (no completion claims without fresh evidence) plus the ordered gate loop. Triggers on "verify before done", "run the gates", "is this complete", "pre-completion check", "are we done", "claim complete", before commit/push/PR.
 
 metadata:
   version: 1.0.0
