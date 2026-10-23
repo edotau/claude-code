@@ -144,5 +144,9 @@
   "terminal.integrated.defaultProfile.osx": "bash",
   "terminal.integrated.defaultLocation": "editor",
   "workbench.colorTheme": "Monokai",
-  "editor.fontSize": 13
+  "editor.fontSize": 13,
+  "editor.wordWrap": "off",
+  "[markdown]": {
+    "editor.wordWrap": "off"
+  }
 }
