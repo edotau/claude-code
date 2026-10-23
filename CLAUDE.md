@@ -22,8 +22,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. A linked worktree
    (`~/worktrees/<repo>/<slug>`, shared with Orca, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
-   branch there freely, merge back from the live tree (`git merge wt/<slug>`), never `checkout`/`reset`
-   the live tree to it. `make install` and `claude-code` verbs still write to `~/.claude` from a
+   branch there freely, merge back with `/workflow:worktree merge <slug>` (verified, fast-forward-only:
+   `skills/using-git-worktrees/references/merge-and-clean.md`), never `checkout`/`reset` the live tree to it. `make install` and `claude-code` verbs still write to `~/.claude` from a
    worktree unless `CLAUDE_CONFIG_DIR` points at it.
 
 ## Behavioral guidelines
@@ -76,7 +76,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `external-agent` · `fable-eval` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff; catalog tech debt | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code` (debt: `skills/evaluate-code/references/techdebt.md`), `skills/security-reviewer` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/references/test-and-fix.md` |
-| Capture a session's corrections into rules | `/reflection:promote --to rules` (routing table: `skills/reflection/references/promote.md`) | `rules/workflow/memory-consolidation.md` |
+| Capture a session's corrections into rules | `/reflection:remember <fact>` then `/reflection:promote <id> --to rules` (routing table: `skills/reflection/references/promote.md`) | `rules/workflow/memory-consolidation.md` |
 | Audit / recall / remember / promote / save / consolidate memory | `/reflection:review` · `:recall` · `:remember` · `:promote` · `:update` · `:dream` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |

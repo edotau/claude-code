@@ -23,7 +23,8 @@ documented, and secured.
 - **Auto-injected every turn** — the six doctrine files here are unscoped (this README is not), so
   Claude Code loads them into every session prompt. Adding `paths:` frontmatter is what makes one
   on-demand; keep each file short, since every line costs context on every turn.
-- **`/reflection:promote --to rules` writes here** (routing table: `skills/reflection/references/promote.md`)
+- **`/reflection:remember` then `/reflection:promote <id> --to rules` writes here** (routing table:
+  `skills/reflection/references/promote.md`)
   — session corrections are routed into the matching file. Keep entries thin: imperative voice, a
   line to a short paragraph.
 - **Promotion** — a rule that keeps recurring across agent memories and sessions is promoted by

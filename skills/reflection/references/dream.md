@@ -121,7 +121,7 @@ After all updates:
 - **Proactively**: when context window is ≥85% full (the `context-checkpoint` Stop hook's
   threshold, before compaction loses detail)
 - **After corrections**: when user feedback or gate failures revealed a pattern worth capturing
-  — route those into `rules/` via `/reflection:promote --to rules` first; dream only
+  — route those into `rules/` via `/reflection:remember` + `/reflection:promote <id> --to rules` first; dream only
   cross-pollinates what has already settled into 3+ memories
 
 ## Integration

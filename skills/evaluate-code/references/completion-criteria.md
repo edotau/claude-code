@@ -1,7 +1,8 @@
 # Completion criteria and review severity
 
-The checklist every task meets before "done" (from `rules/standards/quality.md`), and the one severity scale
-this skill and `security-reviewer` report in.
+The checklist every task meets before "done" (from `rules/standards/quality.md`) and this skill's severity
+scale. `security-reviewer` keeps its own table (`skills/security-reviewer/SKILL.md` → Severity Levels): same
+levels, but a security HIGH is **fix required**, not warn.
 
 ## Completion checklist
 

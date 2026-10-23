@@ -50,9 +50,9 @@ through the gate.
 
 ## The two writers
 
-- **`/reflection:promote --to rules`** — captures a session's corrections and routes each into the
-  matching `rules/standards/` or `rules/software/` file (routing table in
-  `skills/reflection/references/promote.md`). It **never** edits `rules/workflow/`, and never edits
+- **`/reflection:remember <fact>` then `/reflection:promote <id> --to rules`** — a correction is first
+  captured as a memory entry, then promoted into the matching `rules/standards/` or `rules/software/` file
+  (routing table in `skills/reflection/references/promote.md`). It **never** edits `rules/workflow/`, and never edits
   `CLAUDE.md`.
 - **`/reflection:dream`** — curates native project memory and (gated) promotes hard prohibitions
   up to `CLAUDE.md`. It **never** edits `rules/**` beyond the gated promotion — those files are
