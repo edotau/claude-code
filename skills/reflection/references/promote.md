@@ -61,10 +61,29 @@ promote. (Run `/reflection:review --candidates` first if you need candidates.)
 
 ### Step 2: Route to a target
 
-Pick the writable target by signal type with the routing table in `/harness:adapt`
-(`commands/harness/adapt.md`, "classify it") — the same signals go to the same files. Replace
-`<lang>` with the project's primary language dir (`python`, `go`, …). Honor an explicit
-`--target <path>` only if it points at a writable tier (never `CLAUDE.md`, `rules/workflow/`).
+Pick the writable target by signal type with the table below. Replace `<lang>` with the project's
+primary language dir (`python`, `go`, …). Honor an explicit `--target <path>` only if it points at
+a writable tier (never `CLAUDE.md`, `rules/workflow/`).
+
+| Signal Type | Target File | Section |
+|-------------|-------------|---------|
+| Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
+| Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | Language-specific conventions, or general code quality |
+| Security pattern | `rules/software/<lang>/security.md` or `rules/standards/security.md` | Mandatory checks |
+| Architecture insight | `~/.claude/memory/<repo>/decisionLog.md` | Dated entry, newest first |
+| Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
+| Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
+| Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
+| Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/communication.md` | Markdown/living-docs, or response style |
+| Performance insight | `rules/standards/performance.md` | Relevant subsection |
+| Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
+| Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
+| Completed work | `~/.claude/memory/<repo>/progress.md` | "What Works" / "What's Next" |
+
+**Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
+path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
+never edits `rules/workflow/` (human-authored process), and never writes to `CLAUDE.md` directly —
+only `/reflection:dream` promotes learnings there after the recurrence + hard-prohibition test passes.
 
 ### Step 3: Distill into a rule
 

@@ -20,10 +20,9 @@ paths:
 - CLAUDE.md is the always-on tier; `rules/` is on-demand. Don't duplicate rule bodies
   into CLAUDE.md — point to them.
 - `AGENTS.md` is the cross-agent equivalent (other agent CLIs read it from the project root).
-  If a repo generates it from `CLAUDE.md`, edit the source, not the generated file. This repo does:
-  `claude-code agents sync` renders `CLAUDE.md` + `agents/` into each vendor's own file
-  (`~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`); local renders live under `state/projections/`.
-  This repo keeps no `AGENTS.md` or `GEMINI.md` at its root.
+  If a repo generates it from `CLAUDE.md`, edit the source, not the generated file.
+- Placement rules for every markdown file this harness authors (root anchors, what's generated vs
+  hand-authored, why none land at this repo's root): `rules/harness/docs-placement.md`.
 
 ## Markdown Formatting
 

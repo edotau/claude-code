@@ -50,9 +50,10 @@ through the gate.
 
 ## The two writers
 
-- **`/harness:adapt`** — captures a session's corrections and routes each into the matching
-  `rules/standards/` or `rules/software/` file (routing table in `commands/harness/adapt.md`).
-  It **never** edits `rules/workflow/`, and never edits `CLAUDE.md`.
+- **`/reflection:promote --to rules`** — captures a session's corrections and routes each into the
+  matching `rules/standards/` or `rules/software/` file (routing table in
+  `skills/reflection/references/promote.md`). It **never** edits `rules/workflow/`, and never edits
+  `CLAUDE.md`.
 - **`/reflection:dream`** — curates native project memory and (gated) promotes hard prohibitions
   up to `CLAUDE.md`. It **never** edits `rules/**` beyond the gated promotion — those files are
   human/`adapt`-authored and git-tracked.
@@ -63,7 +64,7 @@ through the gate.
   Code's native project memory and the typed bank files, in the same `~/.claude/memory/<repo>/`
   dir (the harness itself is `memory/claude-code/`; `~/.claude/projects/<slug>/memory` is a symlink
   into it). There is no separate "learnings" feedstock file in this harness; a correction either
-  routes straight to a `rules/` file (via `/harness:adapt` or `/reflection:promote`) or stays in
+  routes straight to a `rules/` file (via `/reflection:promote --to rules`) or stays in
   native memory until it does.
 - Native memory edits never touch the approval-gated RULES region
   (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit human approval.
@@ -74,11 +75,10 @@ through the gate.
 ## Triggering
 
 Event-driven, not scheduled: run `/reflection:update` at the end of a session, when context
-pressure is high (≥85% window — the `context-checkpoint` Stop hook nudges `/harness:adapt`
-first, a lighter sibling of this pipeline), or periodically (`/reflection:dream`) for hygiene.
+pressure is high (≥85% window — the `context-checkpoint` Stop hook nudges a handoff
+(`/reflection:update`) or `/compact`), or periodically (`/reflection:dream`) for hygiene.
 
 ## Related
 
 - `skills/reflection/SKILL.md` — the operational contract (verb table, `references/`; source of truth on drift)
-- `commands/harness/adapt.md` — the lighter, faster correction-capture checkpoint
 - `rules/workflow/memory-bank.md` — the bank's file contracts and caps

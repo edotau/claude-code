@@ -36,9 +36,11 @@ filed with the approval date.
 - **Root anchors** — `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `LICENSE.md`,
   `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. A repo's own
   `AGENTS.md`/`GEMINI.md` belong at its root (Codex/Gemini/Copilot read them there). The harness itself keeps
-  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into `~/.codex/AGENTS.md` and
-  `~/.gemini/GEMINI.md` (rendered locally under `state/projections/`), because Claude Code would load a root copy as a
-  second CLAUDE.md in every session.
+  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into each vendor's global file —
+  `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md` (local copies in `state/projections/<vendor>/`) — plus
+  `agents/*.md` into `~/.codex/agents/*.toml`, `~/.copilot/agents/*.md`, `~/.gemini/agents/*.md`,
+  `~/.config/opencode/agents/*.md`, and symlinks `skills/<name>/` into `~/.agents/skills` (never copies).
+  Nothing lands at this repo's root: Claude Code would load a root `AGENTS.md`/`GEMINI.md` as a second CLAUDE.md.
 - **A repo's own documentation** — `docs/` pages a project owns. Tracked pages always pass, and a
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
