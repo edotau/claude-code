@@ -2,11 +2,9 @@
 name: reflection
 description: >-
   The memory bank's one entry point — `/reflection:<verb>` → `claude-code memory <verb>`. Bank
-  contract (layout, caps, settle), the promotion ladder (bank → home → rules → skill, CLAUDE.md
-  gated to dream), and the public verb table. Trigger on "recall memory", "remember this",
-  "save this session", "promote this to a rule/skill", "memory doctor", "memory stats",
-  "consolidate memory", "dream consolidation", "what's in the memory bank", or any
-  `/reflection:*` / `claude-code memory *` dispatch that needs judgment Go can't do deterministically.
+  contract, promotion ladder, verb table. Trigger on "recall memory", "remember this",
+  "save this session", "promote this to a rule/skill", "memory doctor", "dream consolidation",
+  or any `/reflection:*` / `claude-code memory *` dispatch needing judgment.
 user-invocable: false
 ---
 

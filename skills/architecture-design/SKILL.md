@@ -1,6 +1,6 @@
 ---
 name: architecture-design
-description: 'Use when designing or assessing system architecture — "design the architecture", "monolith vs microservices", "which database/queue/cache", "make a technical decision", "review the system design", "architecture diagram", "analyze dependencies", "plan a migration", or writing an ADR. Defaults to the stack you already run; a local overlay can pin a team''s stack. For code-level quality see evaluate-code; for security see security-reviewer.'
+description: 'Use when designing or assessing system architecture — "design the architecture", "monolith vs microservices", "which database/queue/cache", "make a technical decision", "review the system design", "architecture diagram", "analyze dependencies", "plan a migration", or writing an ADR. For code-level quality see evaluate-code; for security see security-reviewer.'
 ---
 
 # Architecture Design
