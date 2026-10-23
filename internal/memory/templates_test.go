@@ -12,10 +12,10 @@ var oldTemplates = map[string]string{
 		"> Mostly-static orientation. Points at canonical docs — never duplicates them.\n\n" +
 		"(Describe the project in a line or two; link CLAUDE.md/README.)\n",
 	"activeContext.md": "# Active Context\n\n" +
-		"> Current session state — auto-injected at session start. REPLACE each `/memory:end`.\n\n" +
+		"> Current session state — auto-injected at session start. REPLACE each `/reflection:update`.\n\n" +
 		"## Current Focus\n\n## Open Questions\n\n## Blockers\n\n## Next Steps\n\n## Parked\n",
 	"progress.md": "# Progress\n\n" +
-		"> Task tracking — auto-injected at session start. REPLACE each `/memory:end`.\n\n" +
+		"> Task tracking — auto-injected at session start. REPLACE each `/reflection:update`.\n\n" +
 		"## What Works\n\n## In Progress\n\n## What's Next\n\n## Known Issues\n",
 	"decisionLog.md": "# Decision Log\n\n" +
 		"> Dated decisions + rationale. APPEND-ONLY, newest first. Supersede, never delete.\n",

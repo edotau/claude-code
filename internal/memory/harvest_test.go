@@ -46,13 +46,35 @@ func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
 	}
 }
 
-func TestAgentHarvestPrompt_FallbackNoCommandsFile(t *testing.T) {
+func TestAgentHarvestPrompt_MissingReferenceErrors(t *testing.T) {
 	// paths.ConfigDir() resolution is environment-driven; point CLAUDE_CONFIG_DIR at a dir with no
-	// commands/memory/end.md so agentHarvestPrompt takes the fallback branch (no tag block appended).
+	// skills/reflection/references/update.md so agentHarvestPrompt fails loudly instead of running empty.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	path := writeTranscript(t, assistantLine("NOTE: should not appear in the fallback prompt"))
-	got := agentHarvestPrompt(path)
-	if strings.Contains(got, "Tagged this session") {
-		t.Fatalf("fallback prompt unexpectedly carries a tag block:\n%s", got)
+	path := writeTranscript(t, assistantLine("NOTE: should not appear"))
+	if _, err := agentHarvestPrompt(path); err == nil {
+		t.Fatalf("agentHarvestPrompt with no reference file = nil error, want one")
+	}
+}
+
+func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	refDir := filepath.Join(dir, "skills", "reflection", "references")
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(refDir, "update.md"), []byte("the procedure"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := writeTranscript(t, assistantLine("NOTE: keep examples deterministic"))
+	got, err := agentHarvestPrompt(path)
+	if err != nil {
+		t.Fatalf("agentHarvestPrompt: %v", err)
+	}
+	if !strings.Contains(got, "the procedure") {
+		t.Errorf("prompt missing the reference text:\n%s", got)
+	}
+	if !strings.Contains(got, "Tagged this session") {
+		t.Errorf("prompt missing the tag block:\n%s", got)
 	}
 }

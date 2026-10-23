@@ -1,14 +1,13 @@
----
-description: "Session end — save state to the memory bank: summary, active context, progress, decisions, conventions"
----
+# `/reflection:update` — Judgment Residue: the Session Narrative
 
-# /memory:end — Save the Session to the Memory Bank
+> Driven by `/reflection:update` and the `session-harvest` Stop/SessionEnd gate (a Stop hook is a
+> subprocess and cannot call the Agent tool itself, so the gate blocks precisely so a live model
+> can dispatch this). The background job runs on the Copilot CLI (claude-opus-5.5, Claude
+> fallback); a manual run overrides it.
 
-> Bank dir: `claude-code memory path`. The `session-harvest` Stop hook runs this in the background
-> (`claude-code memory update`) once a session has ≥3 file edits; run it by hand to save now or to
-> recover a harvest the session-start note reports as failed.
->
-> The background job runs on the Copilot CLI (claude-opus-5.5, Claude fallback); a manual run overrides it.
+`claude-code memory update` does every mechanical step (resolve the bank dir, collect commits and
+touched files, scan for DECISION/NEXT tags, settle). What it cannot generate is the narrative: what
+actually happened this session, in your own account. That's this reference.
 
 Persist the session so the next one resumes instead of rediscovering. The bank is injected every
 session, so keep it to what is wrong-and-dangerous to forget; don't fatten it with facts a lookup can serve.
@@ -60,20 +59,18 @@ platitudes; nothing already in CLAUDE.md or `rules/` (point there instead).
 
 ## Procedure
 
-The writer the `session-harvest` Stop gate asks for — a Stop hook is a subprocess and cannot
-call the Agent tool itself, so the gate blocks precisely so a live model can dispatch you.
-
-**You have no view of the parent's conversation.** Your context is fresh; the parent's brief is
-your only account of what happened. A thin brief gets an honest "the brief did not say what
-changed," never an invented summary padding a file injected into every future session. If given
-a transcript path, read it; otherwise work from the brief.
+The writer the `session-harvest` Stop gate asks for. **You have no view of the parent's
+conversation.** Your context is fresh; the parent's brief is your only account of what happened. A
+thin brief gets an honest "the brief did not say what changed," never an invented summary padding
+a file injected into every future session. If given a transcript path, read it; otherwise work
+from the brief.
 
 **Drive the CLI, don't improvise file writes.** Prefer the deterministic verbs over hand-editing:
 
 ```bash
-claude-code memory update --transcript <path> --cwd <repo> --session <id> # session-end update: /memory:end + index
+claude-code memory update --transcript <path> --cwd <repo> --session <id> # session-end update
 claude-code memory index     # regenerate the bank's routing index
-claude-code memory doctor    # caps, staleness, cross-tier duplication
+claude-code memory review    # caps, staleness, cross-tier duplication
 claude-code memory path      # resolve the bank paths; never hardcode them
 ```
 
@@ -96,13 +93,13 @@ the gate.
 
 ### What you don't do
 
-- **PERSIST**: don't invent a session summary the brief doesn't support; don't touch a bank file
+- Don't invent a session summary the brief doesn't support; don't touch a bank file
   merely to release the Stop gate; don't promote to `CLAUDE.md`; don't edit the approval-gated
   RULES region of any memory record.
 
 ### Failure Modes
 
-- **Thin or missing brief (PERSIST)** — report exactly what you were and weren't told, persist
+- **Thin or missing brief** — report exactly what you were and weren't told, persist
   only what you can support, and list the gap. Do not fabricate.
-- **A verb fails (PERSIST)** — report the command and its stderr verbatim; don't hand-write what
+- **A verb fails** — report the command and its stderr verbatim; don't hand-write what
   the verb was supposed to produce.

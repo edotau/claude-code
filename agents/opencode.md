@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Docs + memory specialist, five modes. DOC-UPDATE refreshes READMEs/guides after a structural change. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via /reflection:review) is a read-only memory-health report. EXTRACT (via /reflection:extract) turns a proven pattern into a skill. PERSIST (via session-harvest or /memory:end) writes the session into the memory bank. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (claude-opus-5.5, Claude fallback).
+  Docs + memory specialist, five modes. DOC-UPDATE refreshes READMEs/guides after a structural change. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via /reflection:review) is a read-only memory-health report. EXTRACT (via /reflection:promote --to skill) turns a proven pattern into a skill. PERSIST (via session-harvest or /reflection:update) writes the session into the memory bank. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (claude-opus-5.5, Claude fallback).
 
   <example>
   Context: User added a new module and wants docs refreshed.
@@ -70,13 +70,13 @@ if `ask` fails or the draft doesn't hold up, draft it yourself and say why. ANAL
 
 ## Reflection modes
 
-Read the driving command's procedure before running its mode, including on a direct dispatch.
+Read `skills/reflection/references/<verb>.md` before running a mode, including on a direct dispatch.
 
-| Mode | Purpose | Driving command / procedure |
+| Mode | Purpose | Driving command / reference |
 | --- | --- | --- |
-| ANALYZE | Read-only memory-health assessment and prioritized promotion report. | [/reflection:review](../commands/reflection/review.md#procedure) |
-| EXTRACT | Turn a proven, recurring pattern into a portable skill, not hypothetical coverage. | [/reflection:extract](../commands/reflection/extract.md#procedure) |
-| PERSIST | Save a supported session narrative for the session-harvest gate or manual save. | [/memory:end](../commands/memory/end.md#procedure) |
+| ANALYZE | Read-only memory-health assessment and prioritized promotion report. | [/reflection:review](../skills/reflection/references/review.md) |
+| EXTRACT | Turn a proven, recurring pattern into a portable skill, not hypothetical coverage. | [/reflection:promote --to skill](../skills/reflection/references/promote.md) |
+| PERSIST | Save a supported session narrative for the session-harvest gate or manual save. | [/reflection:update](../skills/reflection/references/update.md) |
 
 ---
 

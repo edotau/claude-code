@@ -44,20 +44,15 @@ type DreamOptions struct {
 	Timeout time.Duration // 0 = HarvestTimeout
 }
 
-func agentDreamPrompt() string {
-	body, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "commands", "reflection", "consolidate.md"))
-	text := string(body)
-	if i := strings.Index(text, "## Part 2: Dream Consolidation"); err == nil && i >= 0 {
-		text = text[i:]
-	} else {
-		text = ""
+// agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
+// read from skills/reflection/references/dream.md.
+func agentDreamPrompt() (string, error) {
+	ref, err := Reference("dream")
+	if err != nil {
+		return "", err
 	}
 	return "Background daily consolidation of the memory bank. Resolve the local bank with `claude-code memory path`; " +
-		"the home bank is the memory root. Dedupe and merge; strike and archive superseded decisions into archive/; " +
-		"keep every <!-- id:... --> marker; bring local and home conventions.md (80 lines) and decisionLog.md " +
-		"(200 lines) under their caps. Never edit RULES regions and never edit CLAUDE.md. Be surgical.\n\n" + text +
-		"\n\nOverride: you are the consolidator, so do the work yourself. Edit only files under the memory root; " +
-		"never edit CLAUDE.md or rules/ — list any promotion candidates in your answer instead."
+		"the home bank is the memory root. Be surgical.\n\n" + ref, nil
 }
 
 // Dream promotes local blocks to the home bank, consolidates both banks on the agent, settles, and stamps.
@@ -77,12 +72,17 @@ func Dream(o DreamOptions) error {
 		}
 		fmt.Fprintf(o.Out, "memory dream: promoted %d block(s) to home\n", n)
 		if o.Run != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
-			defer cancel()
-			_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
-			who, err := o.Run(ctx, agentDreamPrompt(), o.CWD)
-			runErr = err
-			fmt.Fprintln(o.Out, "memory dream: ran on", who)
+			prompt, perr := agentDreamPrompt()
+			if perr != nil {
+				runErr = perr
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+				defer cancel()
+				_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
+				who, err := o.Run(ctx, prompt, o.CWD)
+				runErr = err
+				fmt.Fprintln(o.Out, "memory dream: ran on", who)
+			}
 		}
 		return nil
 	})

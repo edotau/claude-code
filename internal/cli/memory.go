@@ -18,25 +18,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-const memoryUsage = `usage: claude-code memory init [--repo R]
-       claude-code memory search [--repo R|--all] [-k 8] [--format fmt] <terms>
-       claude-code memory show <id>
-       claude-code memory digest [--repo R]
-       claude-code memory index [--repo R]
-       claude-code memory path [--repo R]
+const memoryUsage = `usage: claude-code memory recall [--repo R|--all] [-k 3] [--load N] <terms>
+       claude-code memory remember [--repo R] [--type T] <fact>
+       claude-code memory init [--repo R]
+       claude-code memory review [--repo R] [--stale-days 90] [--brief]
+       claude-code memory promote <id> --to home|rules|skill|claude-md
+                                   [--repo R] [--dry-run]
        claude-code memory update --transcript T --cwd C --session S
        claude-code memory dream [--cwd C] [--force]
-       claude-code memory watch --session S --transcript T --cwd C
-                                [--owner PID] [--idle 10m]
-       claude-code memory fmt [--check]
-       claude-code memory doctor [--stale-days 90] [--notice]
-       claude-code memory stats
-       claude-code memory timeline [--repo R] [-n 20]
-       claude-code memory promote [--repo R]
-       claude-code memory archive [--dupes|--split N] [--restore] [--apply] [t]
-       claude-code memory migrate [--dry-run] [--origin S=P]... [--format fmt]
-       claude-code memory migrate --manifest MANIFEST
-       claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]`
+plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,
+          migrate, alias — dispatchable, off the menu above`
 
 // memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
 func memoryAgent() memory.AgentFunc {
@@ -82,8 +73,108 @@ func cmdMemoryInit(args []string) int {
 	if err != nil {
 		return fail("memory init: %v", err)
 	}
-	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; /memory:end (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
+	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; /reflection:update (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
 	return 0
+}
+
+// recallLoadCap bounds `memory recall --load N`'s total appended bytes across every loaded block.
+const recallLoadCap = 4096
+
+func cmdMemoryRecall(args []string) int {
+	fs, repo := memoryRepoFlagSet("recall")
+	k := fs.Int("k", 3, "maximum hits")
+	all := fs.Bool("all", false, "search the home tier and every repo store")
+	load := fs.Int("load", 0, "append `show` bodies of the top N hits (4KB cap)")
+	format := outfmt.Flag(fs)
+	terms, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return 2
+	}
+	if err := outfmt.Check(*format); err != nil {
+		fail("memory recall: %v", err)
+		return 2
+	}
+	if len(terms) == 0 {
+		return fail("memory recall: no query (%s)", memoryUsage)
+	}
+	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	if *format == outfmt.JSON {
+		_ = outfmt.Write(os.Stdout, hits)
+		return 0
+	}
+	if len(hits) == 0 {
+		fmt.Println("no matching blocks (banks empty or query all stopwords)")
+		return 0
+	}
+	for _, h := range hits {
+		id := h.ID
+		if id == "" {
+			id = "(" + filepath.Base(h.File) + ")" // unstamped block: no `show` id, name its file instead
+		}
+		fmt.Printf("%s — %s\n", id, h.Title())
+	}
+	if *load > 0 {
+		recallLoad(hits, *load)
+	}
+	return 0
+}
+
+// recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes total.
+func recallLoad(hits []memory.SearchHit, n int) {
+	if n > len(hits) {
+		n = len(hits)
+	}
+	budget := recallLoadCap
+	for _, h := range hits[:n] {
+		if h.ID == "" || budget <= 0 {
+			continue
+		}
+		_, block, err := memory.ShowBlock(h.ID)
+		if err != nil {
+			continue
+		}
+		block = strings.TrimSpace(block)
+		if len(block) > budget {
+			block = block[:budget]
+		}
+		fmt.Printf("\n<!-- %s -->\n%s\n", h.ID, block)
+		budget -= len(block)
+	}
+}
+
+func cmdMemoryRemember(args []string) int {
+	fs, repo := memoryRepoFlagSet("remember")
+	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md")
+	terms, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(terms) == 0 {
+		return fail("memory remember: no fact text (%s)", memoryUsage)
+	}
+	root := memoryRoot(*repo)
+	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
+	if err != nil {
+		return fail("memory remember: %v", err)
+	}
+	fmt.Printf("remembered [%s] -> %s\n", id, memory.Dir(root))
+	return 0
+}
+
+// searchHits ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
+func searchHits(repo string, all bool, q string, k int) []memory.SearchHit {
+	switch {
+	case all:
+		return memory.SearchAll(q, k)
+	case repo != "": // a store name from the catalog, else a checkout path
+		root := memoryRoot(repo)
+		if e, ok := memory.RepoByName(repo); ok && e.Origin.Origin != "" {
+			root = e.Origin.Origin
+		}
+		return memory.SearchBanks(root, q, k)
+	default:
+		return memory.SearchBanks(memoryRoot(""), q, k)
+	}
 }
 
 func cmdMemorySearch(args []string) int {
@@ -102,20 +193,7 @@ func cmdMemorySearch(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory search: no query (%s)", memoryUsage)
 	}
-	q := strings.Join(terms, " ")
-	var hits []memory.SearchHit
-	switch {
-	case *all:
-		hits = memory.SearchAll(q, *k)
-	case *repo != "": // a store name from the catalog, else a checkout path
-		root := memoryRoot(*repo)
-		if e, ok := memory.RepoByName(*repo); ok && e.Origin.Origin != "" {
-			root = e.Origin.Origin
-		}
-		hits = memory.SearchBanks(root, q, *k)
-	default:
-		hits = memory.SearchBanks(memoryRoot(""), q, *k)
-	}
+	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, hits)
 		return 0
@@ -187,6 +265,10 @@ func cmdMemoryUpdate(args []string) int {
 	session := fs.String("session", "", "finished session's id (outcome recorded under state/harvest/memory)")
 	if fs.Parse(args) != nil {
 		return 2
+	}
+	if *transcript == "" { // without a transcript the worker has nothing to summarize; refuse before spawning it
+		return fail("memory update: --transcript required (hooks pass it); in a live session follow " +
+			"skills/reflection/references/update.md, then run `claude-code memory index`")
 	}
 	root := *cwd
 	if root == "" {
@@ -263,34 +345,31 @@ func cmdMemoryFmt(args []string) int {
 	return 0
 }
 
-func cmdMemoryDoctor(args []string) int {
-	fs, repo := memoryRepoFlagSet("doctor")
+// cmdMemoryReview folds the old `doctor` + `stats` verbs: same engine calls, same output blocks.
+func cmdMemoryReview(args []string) int {
+	fs, repo := memoryRepoFlagSet("review")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
+	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
 	if fs.Parse(args) != nil {
 		return 2
 	}
 	if *notice {
 		if err := memory.WriteDoctorNotice(memoryRoot(*repo), *staleDays, time.Now()); err != nil {
-			return fail("memory doctor: %v", err)
+			return fail("memory review: %v", err)
 		}
 		return 0
 	}
 	problems := memory.Doctor(memoryRoot(*repo), *staleDays, time.Now())
-	if len(problems) == 0 {
+	switch {
+	case len(problems) == 0:
 		fmt.Println("memory doctor: no problems found")
-		return 0
-	}
-	for _, p := range problems {
-		fmt.Println("- " + p)
-	}
-	return 0
-}
-
-func cmdMemoryStats(args []string) int {
-	fs := memoryFlagSet("stats")
-	if fs.Parse(args) != nil {
-		return 2
+	case *brief:
+		fmt.Printf("memory doctor: %d problem(s) found\n", len(problems))
+	default:
+		for _, p := range problems {
+			fmt.Println("- " + p)
+		}
 	}
 	fmt.Print(memory.CollectBankStats().Report())
 	return 0
@@ -315,51 +394,52 @@ func cmdMemoryTimeline(args []string) int {
 	return 0
 }
 
+// cmdMemoryPromote moves/surfaces one block by id: "home" is a deterministic move, settled both
+// sides; "rules"/"skill"/"claude-md" print the block + target for a human/agent to apply by hand
+// (model residue) — Go never writes those targets. `memory index` already settles caps on its own.
 func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
-	if fs.Parse(args) != nil {
+	to := fs.String("to", "", "promotion target: home, rules, skill, or claude-md")
+	dryRun := fs.Bool("dry-run", false, "print the move without writing")
+	pos, err := outfmt.Parse(fs, args)
+	if err != nil {
 		return 2
 	}
-	root := memoryRoot(*repo)
-	s, err := memory.SettleBank(root, time.Now())
+	if len(pos) != 1 || *to == "" {
+		fail("memory promote: %s", memoryUsage)
+		return 2
+	}
+	out, err := memory.Promote(memoryRoot(*repo), pos[0], *to, *dryRun, time.Now())
 	if err != nil {
 		return fail("memory promote: %v", err)
 	}
-	if !s.Any() {
-		fmt.Println("nothing to settle (durable files under their caps, history under its entry cap)")
-		return 0
-	}
-	if s.Promoted > 0 {
-		fmt.Printf("promoted %d block(s) local -> home (%s), pruned local back under cap\n", s.Promoted, memory.HomeBankDir())
-	}
-	if s.Archived > 0 {
-		fmt.Printf("archived %d settled block(s) to %s, pruned back under cap\n", s.Archived, filepath.Join(memory.Dir(root), "archive"))
-	}
-	if s.Rotated > 0 {
-		fmt.Printf("rotated %d sessionHistory entries to archive/\n", s.Rotated)
-	}
+	fmt.Print(out)
 	return 0
 }
 
-// memorySubcommands follows the top-level verb table in internal/cli/cli.go.
+// memorySubcommands follows the top-level verb table in internal/cli/cli.go: public verbs are
+// listed in memoryUsage, private ones dispatch here but only appear in its trailing "plumbing:" line.
 var memorySubcommands = map[string]func([]string) int{
-	"archive":  cmdMemoryArchive,
-	"migrate":  cmdMemoryMigrate,
-	"alias":    cmdMemoryAlias,
+	// public
+	"recall":   cmdMemoryRecall,
+	"remember": cmdMemoryRemember,
 	"init":     cmdMemoryInit,
+	"review":   cmdMemoryReview,
+	"promote":  cmdMemoryPromote,
+	"update":   cmdMemoryUpdate,
+	"dream":    cmdMemoryDream,
+	// private: plumbing
 	"search":   cmdMemorySearch,
 	"show":     cmdMemoryShow,
 	"index":    cmdMemoryIndex,
 	"path":     cmdMemoryPath,
-	"fmt":      cmdMemoryFmt,
-	"update":   cmdMemoryUpdate,
-	"dream":    cmdMemoryDream,
 	"digest":   cmdMemoryDigest,
+	"fmt":      cmdMemoryFmt,
 	"watch":    cmdMemoryWatch,
-	"doctor":   cmdMemoryDoctor,
-	"stats":    cmdMemoryStats,
 	"timeline": cmdMemoryTimeline,
-	"promote":  cmdMemoryPromote,
+	"archive":  cmdMemoryArchive,
+	"migrate":  cmdMemoryMigrate,
+	"alias":    cmdMemoryAlias,
 }
 
 func cmdMemory(args []string) int {
@@ -369,7 +449,7 @@ func cmdMemory(args []string) int {
 	}
 	sub := args[0]
 	switch sub {
-	case "index", "promote", "update", "dream", "fmt": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
+	case "index", "promote", "update", "dream", "fmt", "remember": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
 		if g := memory.StartupGuard(); g.Paused {
 			return fail("memory %s: %s", sub, g.Notice)
 		}

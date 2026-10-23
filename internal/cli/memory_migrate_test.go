@@ -143,7 +143,7 @@ func TestMemoryCommandsDoNotAutoMigrateLegacyBank(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, verb := range [][]string{{"path"}, {"search", "x"}, {"stats"}} {
+	for _, verb := range [][]string{{"path"}, {"search", "x"}, {"review", "--brief"}} {
 		assertNoMigrationNotice(t, verb)
 	}
 

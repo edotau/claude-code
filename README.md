@@ -225,7 +225,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | --- | --- | --- |
 | `bash-guard` | PreToolUse Bash | Blocks destructive commands (`rm -rf /`, force-push main, `curl \| sh`, git resets in `~/.claude`); routes noisy output through rtk |
 | `docs-placement` | PreToolUse Write/Edit | Blocks new `.md` at a repo root or ignored `docs/`; enforces the plan template |
-| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); logs the decision |
+| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); logs the decision; appends up to 3 memory recall pointers to the spawn prompt |
 | `agent-routed` | SubagentStart | Records the subagent's actual launch model against `agent-effort`'s decision log |
 | `workflow-lint` | PreToolUse Workflow | Pins unpinned inline agents to sonnet |
 | `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 8 |
@@ -237,7 +237,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | `memory-recall` | UserPromptSubmit | Injects up to 3 matching memory blocks |
 | `wsl-path-normalize` | UserPromptSubmit | Maps pasted Windows paths to `/mnt/…` |
 | `session-harvest[-end]` / `pre-compact` | Stop / SessionEnd / PreCompact | Saves the session into the memory bank |
-| `access-trace` | PostToolUse Read | Logs bank reads for `memory doctor` |
+| `access-trace` | PostToolUse Read | Logs bank reads for `memory review` |
 | `worktree-create` / `-remove` | Worktree* | Under `~/worktrees/<repo>/`; refuses dirty removals |
 
 ## Memory bank
@@ -261,14 +261,14 @@ A session gets the catalog plus this repo's active context and progress; the res
 `sessionHistory` past 30 entries into `archive/`. `memory dream` consolidates daily in the background.
 
 ```bash
-claude-code memory search [--repo R|--all] <terms>   # BM25 search
-claude-code memory init|path|index|doctor [--repo R]
-claude-code memory stats|timeline|show <id>|promote|digest
+claude-code memory recall [--repo R|--all] <terms>    # BM25 search; public verb
+claude-code memory init|review|promote|remember|update|dream   # public verbs
+claude-code memory path|index|show <id>|digest|timeline|fmt|watch   # private plumbing
 claude-code memory archive [--split N --apply|--dupes]  # keep MEMORY.md small
 claude-code memory migrate|alias                     # one-time cutover; fold a second checkout
 ```
 
-`/memory:init` enriches a bank; `/memory:end` saves manually.
+`/reflection:init` enriches a bank; `/reflection:update` saves manually.
 
 ## Housekeeping
 
