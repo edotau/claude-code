@@ -16,7 +16,8 @@ sources" and it is not optional:
 
 1. **Authorization** — Is this a site we own, an internal BI system, or one we have explicit
    permission / a public API to use? If it's a third party and you're unsure, **ask the user**
-   before proceeding (per `bi-policies`). Automating a site *against* its wishes can breach its
+   before proceeding (and per your organisation's policy skill, if one is installed). Automating a site
+   *against* its wishes can breach its
    ToS and, at scale, the law.
 2. **robots.txt + rate limits** — Run `scripts/preflight_check.py --url <target>`. If it reports
    DISALLOWED, do not scrape that path. Respect any `Crawl-delay`; default to 1–3s between
@@ -24,7 +25,8 @@ sources" and it is not optional:
 3. **Secret hygiene** — If the script authenticates, run `preflight_check.py --script <file>`.
    Credentials come from env vars / `.env` (gitignored) / a secrets manager — **never** hardcoded.
 4. **Data sensitivity** — Do not extract PII or regulated data into unmanaged files. Behind
-   Zscaler/PKI, external calls may hit cert errors that aren't your bug (see `bi-policies`).
+   Zscaler/PKI, external calls may hit cert errors that aren't your bug (your organisation's policy skill, if
+   installed, says how to trust the proxy CA).
 
 ```bash
 python3 scripts/preflight_check.py --url https://example.com/listings --script scrape.py
