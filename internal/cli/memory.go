@@ -107,11 +107,7 @@ func cmdMemoryRecall(args []string) int {
 		return 0
 	}
 	for _, h := range hits {
-		id := h.ID
-		if id == "" {
-			id = "(" + filepath.Base(h.File) + ")" // unstamped block: no `show` id, name its file instead
-		}
-		fmt.Printf("%s — %s\n", id, h.Title())
+		fmt.Printf("%s — %s\n", h.ID, h.Title())
 	}
 	if *load > 0 {
 		recallLoad(hits, *load)
@@ -126,7 +122,7 @@ func recallLoad(hits []memory.SearchHit, n int) {
 	}
 	budget := recallLoadCap
 	for _, h := range hits[:n] {
-		if h.ID == "" || budget <= 0 {
+		if budget <= 0 {
 			continue
 		}
 		_, block, err := memory.ShowBlock(h.ID)

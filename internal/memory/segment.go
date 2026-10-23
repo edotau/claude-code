@@ -265,6 +265,54 @@ func (s segView) valid() bool {
 	return true
 }
 
+// compoundMinLen guards compound matching against over-matching very short terms as substrings.
+const compoundMinLen = 4
+
+// compoundWeight discounts a query term matched only as part of a longer indexed token (agent -> subagent),
+// so an exact hit always outranks a compound one.
+const compoundWeight = 0.4
+
+// lookupWeighted merges exact postings (weight 1) with postings of every other indexed token containing
+// term (weight compoundWeight), deduped per doc by the stronger signal.
+func (s segView) lookupWeighted(term string) map[int]float64 {
+	out := map[int]float64{}
+	add := func(t string, weight float64) {
+		posts, n := s.lookup(t)
+		for p := 0; p < n; p++ {
+			doc := int(binary.LittleEndian.Uint32(posts[p*8:]))
+			tf := float64(binary.LittleEndian.Uint32(posts[p*8+4:])) * weight
+			if cur, ok := out[doc]; !ok || tf > cur {
+				out[doc] = tf
+			}
+		}
+	}
+	add(term, 1)
+	if len(term) >= compoundMinLen {
+		for _, other := range s.terms() {
+			if other != term && strings.Contains(other, term) {
+				add(other, compoundWeight)
+			}
+		}
+	}
+	return out
+}
+
+// terms returns every indexed term in the segment, in their stored (sorted) order.
+func (s segView) terms() []string {
+	termStart := 12 + s.docs()*12
+	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
+	postStart := termStart + 4 + nterms*16
+	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
+	out := make([]string, nterms)
+	for i := 0; i < nterms; i++ {
+		off := termStart + 4 + i*16
+		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
+		end := start + int(binary.LittleEndian.Uint32(s[off+4:]))
+		out[i] = string(s[start:end])
+	}
+	return out
+}
+
 func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
 	if len(qTerms) == 0 {
 		return nil
@@ -279,6 +327,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	var ndocs int
 	var sumdl uint64
 	var usable []int
+	weighted := make([]map[int][]float64, len(segs)) // seg index -> doc -> per-term weighted tf
 	for i, seg := range segs {
 		if seg == nil {
 			continue
@@ -286,10 +335,18 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 		usable = append(usable, i)
 		ndocs += seg.docs()
 		sumdl += seg.sumDL()
+		wt := map[int][]float64{}
 		for term, j := range uniq {
-			_, count := seg.lookup(term)
-			df[j] += count
+			docs := seg.lookupWeighted(term)
+			df[j] += len(docs)
+			for doc, tf := range docs {
+				if wt[doc] == nil {
+					wt[doc] = make([]float64, len(uniq))
+				}
+				wt[doc][j] = tf
+			}
 		}
+		weighted[i] = wt
 	}
 	if ndocs == 0 {
 		return nil
@@ -299,19 +356,9 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	var hits []SearchHit
 	for _, i := range usable {
 		seg := segs[i]
-		tfs := map[int][]float64{}
-		for term, j := range uniq {
-			posts, count := seg.lookup(term)
-			for p := 0; p < count; p++ {
-				doc := int(binary.LittleEndian.Uint32(posts[p*8:]))
-				if tfs[doc] == nil {
-					tfs[doc] = make([]float64, len(uniq))
-				}
-				tfs[doc][j] = float64(binary.LittleEndian.Uint32(posts[p*8+4:]))
-			}
-		}
+		wt := weighted[i]
 		for doc := 0; doc < seg.docs(); doc++ {
-			freqs := tfs[doc]
+			freqs := wt[doc]
 			if freqs == nil {
 				continue
 			}
@@ -335,9 +382,13 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 					}
 				}
 				first, _, _ := strings.Cut(block, "\n")
+				id := BlockID(first)
+				if id == "" {
+					id = ContentRef(block)
+				}
 				hits = append(hits, SearchHit{
 					Score: score, Matched: matched, Bank: files[i].bank,
-					File: filepath.Base(files[i].path), Block: block, ID: BlockID(first),
+					File: filepath.Base(files[i].path), Block: block, ID: id,
 				})
 			}
 		}
