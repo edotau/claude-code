@@ -27,47 +27,77 @@ var tierModel = map[string]string{
 	TierHigh:   "sonnet",
 }
 
-// AgentEffort fills an unset spawn model with the classifier's cost-down tier; emits nothing (and
-// proceeds) in every other case.
+// AgentEffort fills an unset spawn model with the classifier's cost-down tier, AND appends a memory-recall
+// pointer block to the spawn prompt (a subagent gets no UserPromptSubmit, so this is its only recall
+// surface) — both rewrites share ONE updatedInput, since two hooks each rewriting it on the same event race.
+// Emits nothing when neither applies.
 func AgentEffort(r io.Reader, stdout io.Writer) int {
 	in := ParseInput(r)
 	if !spawnTools[in.ToolName] {
 		return ExitProceed
 	}
-	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
-	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
-	// every unpinned spawn on the parent session's model.
-	if m := strings.TrimSpace(in.nested("tool_input", "model")); m != "" && !strings.EqualFold(m, "inherit") {
-		return ExitProceed
-	}
-	// The roster's own pin outranks every decision: a model-pinned agent already carries its tier.
-	if agentPinsModel(in.nested("tool_input", "subagent_type")) {
-		return ExitProceed
-	}
-	task := in.nested("tool_input", "prompt")
-	if task == "" {
-		task = in.nested("tool_input", "description")
-	}
-	if task == "" {
-		return ExitProceed
-	}
-	tier, signal := EffortTierSignal(task)
-	model := tierModel[tier]
-	if model == "" {
-		return ExitProceed // a tier with no row: never emit an empty pin
-	}
-	note := fmt.Sprintf("agent-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
-		" (set model explicitly to override).", tier, model)
-
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
 	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}
-	updated["model"] = model
 
-	appendDecision(map[string]any{
+	promptField := "prompt"
+	task := in.nested("tool_input", "prompt")
+	if task == "" {
+		promptField = "description"
+		task = in.nested("tool_input", "description")
+	}
+
+	recallBlock, recallIDs := agentRecall(in.SessionID, in.CWD, task)
+	promptChanged := recallBlock != ""
+	if promptChanged {
+		updated[promptField] = task + recallBlock
+	}
+
+	note, systemMessage := pinModel(in, updated, task, recallIDs)
+	modelChanged := note != ""
+
+	if !modelChanged && !promptChanged {
+		return ExitProceed // nothing rewritten
+	}
+
+	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": updated}
+	if note != "" {
+		inner["additionalContext"] = note
+	}
+	payload := map[string]any{"hookSpecificOutput": inner}
+	if systemMessage != "" {
+		payload["systemMessage"] = systemMessage
+	}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return ExitProceed
+	}
+	fmt.Fprintln(stdout, string(out))
+	return ExitProceed
+}
+
+// pinModel fills updated["model"] from the classifier when the dispatch left it unset, logs the decision,
+// and returns the model note and visible reason ("" when nothing was pinned).
+func pinModel(in *Input, updated map[string]any, task string, recallIDs []string) (note, systemMessage string) {
+	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
+	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
+	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
+	// decision too: a model-pinned agent already carries its tier.
+	explicit := strings.TrimSpace(in.nested("tool_input", "model")) != "" &&
+		!strings.EqualFold(in.nested("tool_input", "model"), "inherit")
+	if explicit || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
+		return "", ""
+	}
+	tier, signal := EffortTierSignal(task)
+	model := tierModel[tier]
+	if model == "" { // a tier with no row: never emit an empty pin
+		return "", ""
+	}
+	updated["model"] = model
+	decision := map[string]any{
 		"decision_id":   randomHex(8),
 		"session_id":    in.SessionID,
 		"tool_use_id":   in.nested("tool_use_id"),
@@ -76,16 +106,14 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 		"signal":        signal,
 		"model":         model,
 		"at":            time.Now().Unix(),
-	})
-
-	systemMessage := fmt.Sprintf("agent-effort: %s → %s (%s)", tier, model, signal)
-	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
-	out, err := json.Marshal(map[string]any{"systemMessage": systemMessage, "hookSpecificOutput": inner})
-	if err != nil {
-		return ExitProceed
 	}
-	fmt.Fprintln(stdout, string(out))
-	return ExitProceed
+	if len(recallIDs) > 0 {
+		decision["recall_ids"] = recallIDs
+	}
+	appendDecision(decision)
+	return fmt.Sprintf("agent-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
+			" (set model explicitly to override).", tier, model),
+		fmt.Sprintf("agent-effort: %s → %s (%s)", tier, model, signal)
 }
 
 // randomHex is a decision_id: collision-safe enough for a best-effort reconciliation log; a read
