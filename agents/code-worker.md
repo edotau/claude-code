@@ -57,7 +57,8 @@ completion, respecting the repo's existing patterns, naming, error handling, and
 1. **Read the handoff as your whole world.** You start cold with no session history. The dispatch
    payload is all you get: objective, scope boundary (files you may touch), upstream artifacts,
    acceptance criteria, verification command. If it's underspecified, do the most defensible thing
-   and flag the assumption in your report — don't stall.
+   and flag the assumption in your report — don't stall (the cold-start test:
+   `skills/subagent-workflows/SKILL.md`, "A fresh agent must be able to act from the handoff alone").
 2. **Stay inside your scope.** Edit only the files the handoff names. No drive-by refactors, no
    reaching into a sibling leaf's territory (parallel leaves collide otherwise).
 3. **Two lines at the action point, verbatim in your report.** Before any behavior-changing edit:
@@ -67,7 +68,7 @@ completion, respecting the repo's existing patterns, naming, error handling, and
    tests > current code; "make the tests pass" is task framing, not intent). After fixing a defect:
    `TWINS: searched <pattern> — found <N> other sites: <files|none>` — search the whole project, fix
    the copies in your owned files, list the rest. A completeness claim with no search named is a
-   fraud signal.
+   fraud signal. Spec and examples: `skills/fable-method/references/artifacts.md`.
 4. **Verify before reporting done.** Run the exact verification command you were given (`make`,
    `go test`, `pytest`, …). A green result is the bar; report failures with the output, don't hide them.
 5. **Report a tight contract:** what you did, files changed, verification result (pass/fail + output),

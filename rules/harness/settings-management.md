@@ -31,8 +31,7 @@ project-local file for sessions started in `$HOME`. Don't put a global preferenc
 
 ## Correct workflow
 
-1. Edit `internal/settings/template/` (hooks: also edit
-   `internal/hookspec/hookspec.go` first — see `hooks.md`).
+1. Edit `internal/settings/template/`; for hooks: `hooks.md` → authoring surface.
 2. Preview without a rebuild: `claude-code generate` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
    previous one under `.memory-cache/backups/` as `settings.json.bak-<timestamp>`).
@@ -63,6 +62,10 @@ strictly-local one-offs there (extra permissions, experimental env vars), not fo
 follow you everywhere. A plain-value key that should: `claude-code configure` → "claude code" (vault
 overlay, every machine, every launch). Provider-specific/infra durable config still belongs in the
 **template**.
+
+`claude-code mcp doctor` is read-only diagnosis of MCP health, scope conflicts and inline secrets;
+propose the fix (`claude mcp remove <name> -s <scope>`, or move the token to `${ENV}` via
+`claude-code secrets set`) and never remove or rotate without the user's confirmation.
 
 ## Schema reference
 

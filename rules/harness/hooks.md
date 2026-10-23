@@ -28,7 +28,7 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 | `subagent-stop` | SubagentStop | Sends a source-editing agent back for one simplify pass and tells it to re-send its task report as the final message, then retires its inflight slot even if that stop was blocked |
 | `plan-mirror` | PostToolUse (Write\|Edit) | Mirrors native undated drafts into dated, repo-tagged files from the first write, named from the plan's `Suggested slug:` line (else its H1); edits keep the same destination and date |
 | `save-plan` | PostToolUse (ExitPlanMode) | On approval, reuses the mirror destination (or files a response-only plan), adds a checklist if absent, verifies the save, then removes the undated draft |
-| `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can hand off (via `/harness:adapt`) before compaction |
+| `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can write a handoff (`/reflection:update`) before compaction |
 | `stop-format` | Stop | Formats files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed |
 | `session-start` | SessionStart | Injects the `memory/index.md` catalog + this repo's focus sections (Current Focus/Blockers/Next Steps, progress In Progress); repairs the cwd's `projects/<slug>/memory` link; Claude Code loads the repo's `MEMORY.md` itself |
 | `wsl-path-normalize` | UserPromptSubmit | Reports existing file paths; maps pasted or dragged Windows paths to `/mnt/…` equivalents on WSL |
