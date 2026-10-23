@@ -2,8 +2,9 @@
 
 ## Model Selection Strategy
 
-Reference the logical **tier** (`opus`/`sonnet`/`haiku`/`fable`), not a concrete model id — `providers.json`
-maps each provider's tier slot to an id, so this doc doesn't rot when a model moves.
+Reference the logical **tier** (`opus`/`sonnet`/`haiku`/`fable`), not a concrete model id —
+`internal/providers/defaults.json` (plus the vault overlay) maps each provider's tier slot to an id, so this doc
+doesn't rot when a model moves.
 
 - **`opus`** — deepest reasoning: architectural decisions, maximum-reasoning research and analysis.
 - **`sonnet`** — best all-round coding: planning, code review, orchestration, codebase exploration (the
