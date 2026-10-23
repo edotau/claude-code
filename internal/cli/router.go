@@ -22,6 +22,14 @@ func cmdRouter(args []string) int {
 		return 1
 	}
 	ctx := context.Background()
+	// start/stop/status take no arguments: -h prints usage, anything else is a usage error, never a silent start.
+	if args[0] != "serve" && len(args) > 1 {
+		if args[1] == "-h" || args[1] == "--help" {
+			helptext.Fprint(os.Stderr, "usage: claude-code router serve [--port N] | start | stop | status\n")
+			return 1
+		}
+		return fail("router %s: unexpected argument %q", args[0], args[1])
+	}
 	switch args[0] {
 	case "serve":
 		fs := flag.NewFlagSet("router serve", flag.ContinueOnError)
