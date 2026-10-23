@@ -42,6 +42,11 @@ func cmdSecrets(args []string) int {
 		return 2
 	}
 	op, rest := args[0], args[1:]
+	// -h after any op prints usage; read-only ops used to ignore it and just run (the router start -h twin).
+	if slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
+		helptext.Fprint(os.Stderr, secretsUsage)
+		return 2
+	}
 	switch op {
 	case "set":
 		return cmdSecretsSet(rest)
