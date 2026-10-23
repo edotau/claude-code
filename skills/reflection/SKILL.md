@@ -54,7 +54,7 @@ bank entry (conventions.md / decisionLog.md / native topic file)
   CLAUDE.md "Known Gotchas"   ← always-on tier, reached only via `/reflection:dream`
 ```
 
-`--to claude-md` does not exist as a direct target — CLAUDE.md is reached only through
+`--to claude-md` exists but is dream-gated — CLAUDE.md is reached only through
 `/reflection:dream`'s cross-pollination gate. `promote` never edits `rules/workflow/` (human-authored
 process).
 
