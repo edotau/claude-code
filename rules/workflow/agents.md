@@ -146,3 +146,13 @@ For complex problems, use split-role sub-agents:
 - Security expert
 - Consistency reviewer
 - Redundancy checker
+
+## Extended thinking and prompt caching (authoring)
+
+Current Claude models run thinking as **adaptive** — the SDK omits a fixed `budget_tokens` unless the specific
+model requires one. Don't hand-roll a thinking-budget override in a skill or command; a model that genuinely
+needs a fixed budget gets it in provider config, not in prose repeated per task.
+
+For repeated large prefixes (system prompts, CLAUDE.md, big tool schemas), mark the stable prefix with
+`cache_control` so re-sends bill at the cached rate. Content that changes every call must not sit inside a
+cached block, or the cache never hits or silently serves stale context.
