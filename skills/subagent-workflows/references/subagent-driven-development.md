@@ -14,22 +14,22 @@ genuinely independent and safe to run concurrently.
 
 ## Per-task loop
 
-1. Dispatch one implementer using [implementer-prompt.md](implementer-prompt.md) and a `copilot` test agent
+1. Dispatch one implementer using [prompts.md#implementer](prompts.md#implementer) and a `copilot` test agent
    in the SAME message (`rules/standards/quality.md`).
 2. Inspect its status, changes, and test evidence.
-3. Dispatch an independent spec reviewer using [spec-reviewer-prompt.md](spec-reviewer-prompt.md).
+3. Dispatch an independent spec reviewer using [prompts.md#spec-reviewer](prompts.md#spec-reviewer).
 4. Send spec gaps back to the implementer; repeat until compliant.
 5. Simplify the task diff with the `simplify` skill: `Skill(simplify)` in place, or a leaf briefed
    with [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md). Its behavior
    gate is the task's verification command.
-6. Only then dispatch a quality reviewer using [code-quality-reviewer-prompt.md](code-quality-reviewer-prompt.md),
+6. Only then dispatch a quality reviewer using [prompts.md#code-quality-reviewer](prompts.md#code-quality-reviewer),
    passing the simplify report.
 7. Fix and re-review quality findings until approved.
 8. Run the task verification and mark the task complete.
 
 Stop and ask the user when a step's assumptions are wrong (missing file, changed API), scope grows, a
 dependency is blocked, or a decision falls outside the plan. Review a written plan before executing it with
-[plan-reviewer-prompt.md](plan-reviewer-prompt.md).
+[prompts.md#plan-reviewer](prompts.md#plan-reviewer).
 
 Never overlap implementers in this workflow. Gate order is always spec → simplify → quality: simplifying
 non-compliant code polishes the wrong thing, and reviewing before simplifying reviews code about to change.

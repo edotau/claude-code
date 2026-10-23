@@ -9,7 +9,7 @@ lane fans out vendor leaves through `claude-code ask`, verifies each leaf, and c
 |---|---|---|---|
 | Manager | main session | splits work into lanes by disjoint packages/files; dispatches one Claude subagent (`claude` or `code-worker`) per lane; merges, runs the full suite once | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane plan, dispatches each leaf, verifies it, commits named files, ticks the box with the commit id; reports when every box is ticked | edits outside its lane |
-| Leaf | `copilot`, `codex`, `gemini`, `opencode` or `claude` via `claude-code ask` | one checklist item, owned files only | commits, dispatches, `git stash/checkout/reset/restore` |
+| Leaf | `copilot`, `codex`, `gemini`, `opencode` or `claude` via `claude-code ask` | one checklist item, owned files only | commits, dispatches; shared-tree rules: [dispatching-parallel-agents.md](dispatching-parallel-agents.md) |
 
 ## Lane plan
 

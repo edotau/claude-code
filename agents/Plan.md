@@ -97,8 +97,7 @@ Every phase is:
 - **Placeholder-free** — never "TBD", "implement as needed", "add appropriate error handling", "handle edge
   cases", "similar to Phase N", or a reference to a type/function no phase defines.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
-- **Leaf-sized tasks** — each `## Tasks` line is one package (or ≤3 tightly coupled files), ≤10 findings or
-  edits, fits one 45-minute leaf, and names `runner:` and `owns:`; a phase groups several such tasks.
+- **Leaf-sized tasks** — see `## Tasks` leaf-size definition above.
 
 ## Multi-session plans
 
@@ -133,4 +132,4 @@ Optional detector pass on the drafted text (stdin; full CLI: `~/.claude/skills/e
   with explicitly named files.
 - **Docs:** where new documentation goes — `~/.claude/rules/harness/docs-placement.md`.
 - **Adversarial plan review** (dispatched by the caller, not you):
-  `~/.claude/skills/subagent-workflows/references/plan-reviewer-prompt.md`.
+  `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
