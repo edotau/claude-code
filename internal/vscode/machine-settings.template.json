@@ -143,6 +143,7 @@
   "terminal.integrated.defaultProfile.linux": "bash",
   "terminal.integrated.defaultProfile.osx": "bash",
   "terminal.integrated.defaultLocation": "editor",
+  "terminal.integrated.rightClickBehavior": "copyPaste",
   "workbench.colorTheme": "Monokai",
   "editor.fontSize": 13,
   "editor.wordWrap": "off",
