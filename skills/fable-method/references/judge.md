@@ -95,8 +95,8 @@ Judged against whatever the deliverable's own domain treats as authoritative —
 from source, arithmetic recomputed, copy checked line by line against the style or brand
 reference, cited claims opened. Same stance: the deliverable's claims are verified against
 sources, never accepted because they read confidently. Domain work routes to the harness's own
-skills where installed (`scientific-writing`, `devops-engineer`, `databricks-expert`, `bi-policies`;
-untracked local skills, absent on a fresh clone); the two fraud
+skills when installed (local, untracked domain skills: writing, devops, data platform, organisation policy;
+absent on a fresh clone, so nothing here depends on them); the two fraud
 tables below cover the non-code work this harness actually judges (from upstream's domain
 adapters, MIT).
 

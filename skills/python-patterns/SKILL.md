@@ -17,7 +17,7 @@ need a specific pattern. This page is the always-applicable core.
 ## When to Use
 
 - Writing, reviewing, or refactoring any `.py` file
-- Load alongside framework skills (`django`) when relevant
+- Load alongside a framework skill (Django, FastAPI) when one is installed and relevant
 - Designing a package/module layout
 
 ## Detect-before-prescribe
