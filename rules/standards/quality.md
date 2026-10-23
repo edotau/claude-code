@@ -25,6 +25,12 @@ Code quality, immutability, testing, and completion criteria. Language specifics
    case" — they accumulate as dead weight. If the rename breaks something, fix it
    immediately. (External/published APIs still warrant a deprecation path — this is for
    in-repo churn only.)
+6. **Existing descriptions are curated — leave them as written** — when adding a tool, target,
+   flag, or command, write only the NEW entry's description. Do not rename, reword, or "align"
+   prior descriptions, help text, comments, or surrounding context, and do not add, drop, or
+   swap fields in an existing output block (e.g. a status printout); they were written to the
+   user's style and already reviewed. Fix only bugs (wrong/stale facts), spelling, and light
+   grammar. If a prior description genuinely needs more than that, ask first.
 
 ## Code Quality Checklist
 
