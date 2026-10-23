@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,10 +31,41 @@ type quota struct {
 	Limit    float64 `json:"limit_credits,omitempty"`
 	Resets   string  `json:"resets,omitempty"`
 	Note     string  `json:"note,omitempty"`
+	State    string  `json:"state,omitempty"`
 }
 
 // googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.
 const googleNote = "quota not exposed (AI Studio key; Antigravity quota endpoint denies access)"
+
+// warnThreshold parses HARNESS_USAGE_WARN_PCT as float in (0,100], default 80; invalid → 80.
+func warnThreshold() float64 {
+	v := os.Getenv("HARNESS_USAGE_WARN_PCT")
+	if v == "" {
+		return 80
+	}
+	pct, err := strconv.ParseFloat(v, 64)
+	if err != nil || pct <= 0 || pct > 100 {
+		return 80
+	}
+	return pct
+}
+
+// setStates classifies each quota as "ok", "warn", or "exceeded" based on UsedPct and threshold.
+func setStates(qs []quota, threshold float64) {
+	for i := range qs {
+		if qs[i].Note != "" {
+			continue
+		}
+		switch {
+		case qs[i].UsedPct >= 100:
+			qs[i].State = "exceeded"
+		case qs[i].UsedPct >= threshold:
+			qs[i].State = "warn"
+		default:
+			qs[i].State = "ok"
+		}
+	}
+}
 
 // fetchQuotas is the network seam; tests replace it so no test reaches gh or chatgpt.com.
 var fetchQuotas = func() []quota {
@@ -189,23 +221,38 @@ func title(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// bar generates a 10-cell filled/empty bar for a percentage (0-100).
+func bar(pct float64) string {
+	capped := int(math.Round(math.Min(math.Max(pct, 0), 100)))
+	filled := (capped * 10) / 100
+	if filled == 0 && capped > 0 {
+		filled = 1
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
+}
+
 // printQuotas renders the provider rows below the transcript table.
 func printQuotas(out io.Writer, qs []quota) {
 	if len(qs) == 0 {
 		return
 	}
 	fmt.Fprintf(out, "\nPROVIDER QUOTAS (live, account-wide)\n")
-	fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %6s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", "USED", "RESETS", "DETAIL")
+	fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %-16s %6s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", "USED", "STATE", "RESETS", "DETAIL")
 	for _, q := range qs {
-		used, detail := fmt.Sprintf("%.0f%%", q.UsedPct), q.Note
-		if q.Note != "" && q.Limit == 0 {
-			used = "-"
+		var used, state string
+		if q.Note != "" {
+			used, state = "-", "-"
+		} else {
+			pctRounded := math.Round(q.UsedPct*10) / 10
+			used = fmt.Sprintf("%.0f%% %s", pctRounded, bar(q.UsedPct))
+			state = q.State
 		}
+		detail := q.Note
 		if q.Limit > 0 {
 			detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
 		}
-		fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %6s  %-16s  %s\n",
-			q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), used, dash(q.Resets), detail)
+		fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %-16s %6s  %-16s  %s\n",
+			q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), used, state, dash(q.Resets), detail)
 	}
 }
 
