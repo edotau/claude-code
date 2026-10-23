@@ -68,6 +68,16 @@ VERIFICATION REPORT (iteration N/5)
 Verdict: PASS / FAIL (Gate N)
 ```
 
+## Verdicts
+
+Shared discipline across every verdict-bearing mode: the verdict word comes first, alone, from a
+closed vocabulary; evidence follows. Unre-runnable claims are UNVERIFIABLE, never assumed. Never
+soften a failing verdict or inflate a caveat.
+
+Per mode: codex REVIEW `READY | NEEDS CLARIFICATION`; codex diff review `SHIP IT | NEEDS WORK | BLOCK`;
+fable-method judge `VERIFIED | VERIFIED WITH CAVEATS | REFUTED`; this gate `PASS | FAIL`; Claude agent
+`Ship it | Ship after must-fixes | Needs rework`.
+
 ## Escalation
 
 - 5 loop iterations exhausted → escalate to user with remaining failures

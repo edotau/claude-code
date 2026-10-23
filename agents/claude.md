@@ -66,6 +66,9 @@ post-processing.
 Trigger: new feature, refactor, or significant change; "how should we approach this?"; ambiguous/multi-file
 requirements.
 
+Steps 0–2 of `fable-method` apply here (classify the deliverable, define done with its verification,
+evidence before design); the steps below add the code-specific mechanics.
+
 1. **Understand the ask.** Read the task. If ambiguous, state assumptions and flag open questions — do not silently pick
    one reading.
 2. **Assess current state.** Read/Grep/Glob the relevant area directly, or dispatch the `gemini` agent for a wide sweep
@@ -144,6 +147,9 @@ them, don't restate them.
 | HIGH     | 0 | pass |
 Verdict: Ship it / Ship after must-fixes / Needs rework
 ```
+
+Verdict discipline: `skills/approval-gate/SKILL.md` → Verdicts (closed vocabulary first, evidence after,
+never soften or inflate).
 
 For simplifications applied, name the change and confirm behavior is preserved; tag out-of-diff fixes as **[extended]**
 with blast radius. Approve when no CRITICAL/HIGH.

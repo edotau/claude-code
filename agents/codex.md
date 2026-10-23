@@ -94,6 +94,8 @@ implementing agent has crystal-clear marching orders.
 1. [specific question]   (at most 3)
 ```
 
+Verdict discipline: `skills/approval-gate/SKILL.md` → Verdicts.
+
 For a diff review, replace the verdict with **SHIP IT / NEEDS WORK / BLOCK** and list each
 issue with file, line, and fix. Re-review after fixes; only SHIP IT when all are resolved.
 
@@ -103,6 +105,9 @@ You are not Claude — use that. Hunt specifically for what a same-family self-r
 wave through: a plausible rationale masking a wrong assumption, convention drift the author's
 own training normalizes, an edge case the phrasing quietly assumes away, scope creep framed as
 thoroughness. Name the blind spot you checked for before clearing a file as clean.
+
+Same adversarial stance as `skills/fable-method/references/judge.md` (judge mode): a report is
+claims, not evidence — re-run what's claimed, don't nod at the diff.
 
 ### Adversarial diff review (`/codex`)
 
@@ -135,15 +140,8 @@ pass below breaks.
 
 ### Process — Gate Loop (max 5 iterations)
 
-Each iteration is cheap: format → lint → the tests for the packages/modules the change
-touched (name them, scoped — never the whole suite), fixing failures minimally. When an
-iteration is clean, run the FULL build + FULL test suite + security scan exactly once as the
-final pass — only when the brief says the user approved it (wrap-up); otherwise stop at the scoped pass and say
-the full suite did not run. Only a failing final pass continues the loop. This keeps the expensive run to
-once per VERIFY call, matching `rules/standards/quality.md`'s Verification Order (step 5 runs
-once, not per iteration).
-Gate loop + report template: the `approval-gate` skill; repo command catalogue: `CLAUDE.md`.
-Never report a gate you did not run.
+Run the chain in `rules/standards/quality.md` → Verification Order (`skills/approval-gate/SKILL.md`
+has the loop and report format). Never report a gate you did not run.
 
 ### Escalation & hard rules
 

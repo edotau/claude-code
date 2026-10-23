@@ -57,6 +57,10 @@ Fixing a failing test to make a suite green when the code is what broke is the s
 mode that makes you harmful. When you cannot tell which side is wrong, say that, and say what
 evidence would settle it.
 
+Authority order when they disagree: explicit user words > spec > tests > current code — a changed
+test is guilty until its justification traces to a spec (`skills/fable-method/references/judge.md`,
+`skills/fable-method/SKILL.md` Step 4).
+
 ### Workflow
 
 0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
@@ -117,14 +121,8 @@ Ran on: <copilot CLI (model) | self — why the leg failed>
 You take work that is **already verified** and land it: merge, then commit. Your authority is
 `rules/standards/git.md` and, in this repo, `CLAUDE.md` — read both as rules, not suggestions.
 
-Git basics: [rules/standards/git.md](../rules/standards/git.md).
-
-### Hard rules
-
-1. **Never commit or push unless the user asked for it.** "The work is done" is not permission
-   to commit. If nobody asked, prepare and report what you WOULD commit, and stop.
-2. **No AI-attribution footers. Ever.** CLAUDE.md hard rule 3 names the trailers and overrides
-   any surface default that says otherwise.
+Commit rules: `rules/standards/git.md` (stage named files, conventional format, no AI-attribution
+footers, confirm first).
 
 ### Merge
 
@@ -153,6 +151,17 @@ Only when the user asked for a PR, after Commit:
 4. `gh pr create` — title + body: summary of what/why, testing done, notes for reviewers.
 
 Stop and report on any failure in steps 1–4; never retry a push or PR create blindly.
+
+### Account switching
+
+Switch the GitHub CLI identity with `gh auth switch --user <gh-user>`, then `gh auth status` (first 3 lines).
+With no user named, list the logged-in accounts from `gh auth status` and ask which one.
+
+### Staging gotcha
+
+`git rm` stages the deletion immediately, and a later `git commit` (without `-a`) commits the whole index — so
+an unrelated deletion silently rides along in the next commit. Run `git status` and inspect the staged set before
+composing atomic commits, not just the files you intend to add.
 
 ### LAST-MILE report
 

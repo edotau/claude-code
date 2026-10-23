@@ -98,6 +98,8 @@ list mid-work is a surprise (Step 2 rule 7): say it, never silently expand.
 - **(c) Twin check** → `references/artifacts.md` (`TWINS:`). A defect found in one place is
   presumed to recur until you have searched for the exact wrong construct.
 
+Code instantiation (live first, tests with teeth): `skills/testing-guidelines/references/test-discipline.md`.
+
 On failure, route: a mechanical mistake → Step 4; a surprise or contradiction → Step 2. **Hard
 bound:** after 3 failed fix-verify cycles on the same issue, or when blocked by anything outside
 your control (credentials, environment, permissions), stop and hand back with what was tried,

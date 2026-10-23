@@ -64,17 +64,18 @@ Instructions:
    plus the stage's own instructions. Writing stages (implement, simplify) scope each agent to
    disjoint files in the shared tree. **Skip `refine` entirely when `INCLUDE_REFINE=false`.**
 
-4. Stages:
+4. Stages. Each stage is a `rules/workflow/master-workflow.md` phase; that file owns the rules, this
+   table only names the runner:
 
    | Stage | Agent | Notes |
    |-------|-------|-------|
-   | explore | `Explore` | Structure, conventions, dependencies → `## Findings` |
-   | plan | `Plan` | Task breakdown per `agents/Plan.md` → `## Plan`; **stop for user approval** |
-   | refine *(optional)* | `general-purpose` | Self-contained brief per sub-task → `## Refined Briefs` |
-   | implement | `code-worker` per sub-task (parallel-safe ones in one message) **‖ `copilot`** | Execute plan steps |
-   | simplify | `general-purpose` loading the `simplify` skill | Behavior-preserving cleanup |
-   | review | `general-purpose` loading `evaluate-code` **‖** one loading `security-reviewer` | Findings + SHIP / FIX REQUIRED / BLOCK |
-   | verify | main session: `Workflow gate-loop {cwd, scope}` (gate auto-detected), then the `approval-gate` checklist | format → lint → test → security |
+   | explore (Phase 2) | `Explore` | Structure, conventions, dependencies → `## Findings` |
+   | plan (Phase 4) | `Plan` | Task breakdown per `agents/Plan.md` → `## Plan`; **stop for user approval** |
+   | refine (Phase 5, optional) | `general-purpose` | Self-contained brief per sub-task → `## Refined Briefs` |
+   | implement (Phase 6) | `code-worker` per sub-task (parallel-safe ones in one message) **‖ `copilot`** | Execute plan steps |
+   | simplify (Phase 7) | `general-purpose` loading the `simplify` skill | Behavior-preserving cleanup |
+   | review (Phase 1) | `general-purpose` loading `evaluate-code` **‖** one loading `security-reviewer` | Findings + SHIP / FIX REQUIRED / BLOCK |
+   | verify (Phase 8) | main session: `Workflow gate-loop {cwd, scope}` (gate auto-detected), then the `approval-gate` checklist | — |
 
    For an independent second opinion at review, also run
    `claude-code ask --agent <leg> "<review brief with the diff range>"` from Bash (`claude-code agents`

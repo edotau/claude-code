@@ -124,7 +124,8 @@ Each refined brief carries: **Objective**, **Context** (files with paths and lin
 **Constraints** (CLAUDE.md rules relevant to this sub-task), **Implementation Steps**, **Acceptance
 Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytest` command).
 
-**Quality test**: a fresh agent with zero prior context can execute the brief cold.
+**Quality test**: `skills/subagent-workflows/SKILL.md` — "A fresh agent must be able to act from the
+handoff alone."
 
 **Output**: Dispatch Plan table:
 
@@ -155,49 +156,33 @@ Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context
 
 ## Phase 7: Merge Back (`/workflow:worktree merge`)
 
-For each completed worktree, in dependency order:
+Merge and clean per `skills/using-git-worktrees` (its `references/merge-and-clean.md` holds the one
+merge rule, the verify gate and conflict handling); never `stash`/`checkout`/`reset` the live tree
+(CLAUDE.md hard rule 4).
 
-1. **Preview**: `git log wt/<name> --oneline`
-2. **Merge**: `git merge wt/<name> --no-ff`
-3. **Conflict check**: resolve manually, then re-verify
-4. **Clean**: `git worktree remove ~/worktrees/<repo>/<name>`
-5. **Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
-   other's helpers and only the merged diff shows it. A leaf gets `skills/simplify/references/leaf-brief.md`.
+**Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
+other's helpers and only the merged diff shows it. A leaf gets `skills/simplify/references/leaf-brief.md`.
 
 ---
 
 ## Phase 8: Verify
 
 **Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow gate-loop` when the
-user asks for it):
+user asks for it).
 
-```text
-Gate 1: <format>          -- auto-fix formatting
-Gate 2: <lint>            -- fix lint errors
-Gate 3: <test>            -- fix test failures (one at a time, max 3 attempts each)
-Gate 4: security scan     -- hardcoded secrets, injection, unsafe logging (/security-reviewer)
-```
-
-`<format>`/`<lint>`/`<test>` are the repo's real targets — discover them from the Makefile /
-`pyproject.toml` / `package.json`. Scoped tests during development; the full suite once
-(`standards/quality.md`).
-
-**Escalation**: skip a gate after 2 failed fix attempts; stop if a migration is needed (the user runs
-it); never modify `migrations/` directories.
+The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
+`skills/approval-gate/SKILL.md`. Migrations are never edited to make a gate pass.
 
 **Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
-`approval-gate` skill is the pre-completion checklist, not the loop; the `testing-guidelines`
-test-and-fix loop for targeted
-test fixing, `/harness:techdebt scan` for debt.
+`testing-guidelines` test-and-fix loop for targeted test fixing,
+`skills/evaluate-code/references/techdebt.md` (scan and fix sections) for debt.
 
 ---
 
 ## Phase 9: Commit (`/copilot commit`)
 
-1. Stage changed files by name (never `git add -A`)
-2. Conventional commit message: `<type>: <description>`
-3. Confirm with the user before committing/pushing
-4. Create a PR if requested (`/copilot pr`)
+Commit per `rules/standards/git.md` (stage named files, conventional message, confirm first);
+`/copilot commit` is the executor, `/copilot pr` when a PR is requested.
 
 ---
 
@@ -209,7 +194,7 @@ test fixing, `/harness:techdebt scan` for debt.
 | Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/copilot commit` |
 | Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` (simplify stage included) -> verify -> `/copilot commit` |
 | Fix failing tests | the `testing-guidelines` test-and-fix loop |
-| Clean up tech debt | `/harness:techdebt scan` -> `/harness:techdebt fix` |
+| Clean up tech debt | `skills/evaluate-code/references/techdebt.md` (scan, then fix) |
 | Review current changes | `/code-review` (quality) ‖ `/security-reviewer` |
 | Second opinion from another model | `claude-code ask --agent <leg> "<review brief>"` |
 

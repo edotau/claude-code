@@ -10,9 +10,9 @@ you didn't watch get built. For your own work mid-loop, Step 5 plus `approval-ga
 for a graded transcript walk-through use `audit` mode.
 
 **Related, don't duplicate:** `codex` (VERIFY mode) runs the *project's* gate chain and fixes
-failures. This judges *claims* against *the diff* and changes nothing. Workflow `review-funnel` finds
-new defects across dimensions; this refutes asserted ones. `evaluate-code` judges quality;
-this judges honesty.
+failures. This judges *claims* against *the diff* and changes nothing. `codex` REVIEW vets a task
+before code exists; this judges claims after. Workflow `review-funnel` finds new defects across
+dimensions; this refutes asserted ones. `evaluate-code` judges quality; this judges honesty.
 
 ## Protocol
 
@@ -76,6 +76,8 @@ this judges honesty.
 
    Format: verdict on the first line; then a claims table (claim | what was observed); then
    frauds found, if any; then the recommended action.
+
+   Shared verdict discipline: `skills/approval-gate/SKILL.md` → Verdicts.
 
    **Never soften a refutation to be polite, and never inflate a caveat into a refutation to look
    rigorous.** Both are dishonesty; the second is costume rigor (failure mode 18).
