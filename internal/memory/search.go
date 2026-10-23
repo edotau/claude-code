@@ -48,6 +48,17 @@ func (h SearchHit) Title() string {
 	return truncateLine(strings.TrimLeft(stripID(first), "#- "))
 }
 
+// Plain is the whole block on one line, id markers and heading/bullet marks stripped, for compact previews.
+func (h SearchHit) Plain() string {
+	var parts []string
+	for _, l := range strings.Split(h.Block, "\n") {
+		if l = strings.TrimSpace(strings.TrimLeft(stripID(l), "#- ")); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
+}
+
 func contentTerms(s string) []string {
 	return ContentQueryTerms(textsim.Tokenize(s))
 }
