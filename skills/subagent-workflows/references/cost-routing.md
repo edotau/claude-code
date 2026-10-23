@@ -5,6 +5,27 @@ is one of them — so usage is shared between accounts and the results can be co
 delegated step runs through `claude-code ask` and bills to that runner's account; Claude spends only the
 brief and the check.
 
+## Classify the ask
+
+Before picking a runner, classify the task (or honor an explicit `--kind`) into one of five kinds —
+`sweep`, `review`, `mechanical`, `standard`, `reasoning`. Runner mapping for each is in the step-kind
+table below: `sweep` → the sweep row's `gemini bridge`, `review` → the review row's `codex`, `mechanical`
+→ the implementation row sized down to Copilot's `claude-haiku-5.5`, `standard` → in-session or a
+`code-worker` fan-out leaf (the classified default — nothing buys Opus by silence), `reasoning` →
+Claude at `opus`, explicit-only.
+
+Classify by the shape of the ask:
+
+- Many files / whole-repo context needed → `sweep`
+- A diff or a request wants an adversarial second opinion → `review`
+- A one-liner, a lookup, a mechanical edit → `mechanical`
+- Everything else → `standard` (handle it yourself, or fan out via `code-worker`)
+- Explicitly hard reasoning the caller flags with `--kind reasoning` → `reasoning`
+
+Pass `--dirs`/`--files` through to `claude-code gemini bridge` when the chosen leg is `sweep`, so it
+has file context for the 1M-context pass. A caller's `--kind` is a hint, not a gate: when your own
+judgment disagrees, say so and route by judgment instead.
+
 ## Decide per step
 
 1. `claude-code agents` — which runners are available on this box (✓ = binary + credential found).

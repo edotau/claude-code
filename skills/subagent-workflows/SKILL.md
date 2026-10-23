@@ -17,7 +17,7 @@ Use the smallest workflow that matches the task:
 | A second model family adds useful coverage | Read [cross-model-agent-teams.md](references/cross-model-agent-teams.md) |
 | Many leaf-sized tasks on disjoint packages: Claude lane orchestrators fan out vendor leaves via `claude-code ask` | Read [lane-orchestrator.md](references/lane-orchestrator.md) |
 | Several agents should attempt the same measurable task and the best result wins | Read [competition-tournament.md](references/competition-tournament.md) |
-| One objective spans several phases with different owners and skills | Run `/workflow:orchestrate` |
+| One objective spans several phases with different owners and skills | Read [orchestrate.md](references/orchestrate.md) (launcher: `/workflow:orchestrate`) |
 
 Model tiers: `claude-code models` shows what each slot (opus/sonnet/haiku) resolves to. Lean leaves
 (Sonnet) ~8–10 in flight; deep-context agents ≤8 (`rules/workflow/agents.md`).
