@@ -1,6 +1,6 @@
 ---
-description: "Read-only memory health audit — caps, staleness, dupes, hot/cold, and (default/--candidates) ranked promotion candidates"
-argument-hint: "[--brief|--stale|--candidates]"
+description: "Read-only memory health audit — caps, staleness, dupes, hot/cold, and (default) ranked promotion candidates"
+argument-hint: "[--brief|--stale-days N]"
 allowed-tools: Bash, Read, Grep, Glob
 ---
 

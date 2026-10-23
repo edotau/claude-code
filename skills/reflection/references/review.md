@@ -1,8 +1,8 @@
-# `/reflection:review --candidates` — Judgment Residue: Ranking Promotion Candidates
+# `/reflection:review` (no flag) — Judgment Residue: Ranking Promotion Candidates
 
 > Read-only. `claude-code memory review` computes caps, staleness, exact dupes, and hot/cold
-> signals from `access.log` deterministically. `--brief`/`--quick`/`--stale` need no further
-> judgment — report the CLI output directly. `--candidates` (and the unflagged default) need a
+> signals from `access.log` deterministically. `--brief` and `--stale-days N` need no further
+> judgment — report the CLI output directly. the unflagged default needs a
 > model to rank entries against the promotion gradient; that's this reference. Never modify,
 > promote, or create files in this mode — that's `/reflection:promote`'s job.
 

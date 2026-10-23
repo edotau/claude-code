@@ -65,7 +65,7 @@ process).
 | `recall <task>` | public | Search → top-k ids + one-line previews; `--load N` appends bodies under a byte cap | none |
 | `remember <fact> [--type]` | public | Write a typed entry to the right bank/native file, id marker, settle | which `metadata.type` fits ([remember.md](references/remember.md)) |
 | `init` | public | Scaffold the bank | OPTIONAL enrichment from repo state ([init.md](references/init.md)) |
-| `review [--brief\|--stale\|--candidates]` | public | Caps, staleness, exact dupes, hot/cold from `access.log` (folds the old `doctor`/`stats`) | `--candidates`: rank promotion candidates ([review.md](references/review.md)) |
+| `review [--brief\|--stale-days N]` | public | Caps, staleness, exact dupes, hot/cold from `access.log` (folds the old `doctor`/`stats`) | unflagged: rank promotion candidates ([review.md](references/review.md)) |
 | `promote <id> --to home\|rules\|skill\|claude-md` | public | Move/copy the entry, link, drop the source, settle | target wording for `rules`/`skill`; `claude-md` is dream-gated ([promote.md](references/promote.md)) |
 | `update` | public | Collect commits, touched files, DECISION/NEXT tags; write the files; settle | session narrative + focus ([update.md](references/update.md)) |
 | `dream [--dry-run]` | public | Rotate, archive, exact dedupe, cap enforcement | merge near-duplicates in meaning ([dream.md](references/dream.md)) |
