@@ -1,7 +1,8 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
 // (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
-// per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas follow
-// the table (providers.go).
+// per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas and the
+// local per-token ledger (API-key providers; ledger.go) follow the table (providers.go); --show picks
+// left/used/total for the quota column.
 package usage
 
 import (
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/usageledger"
 )
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
@@ -34,6 +36,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	formatFlag := outfmt.Flag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
+	showFlag := fs.String("show", "left", "quota column: left (default), used, or total")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -42,6 +45,11 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	}
 	if err := outfmt.Check(*formatFlag); err != nil {
 		fmt.Fprintln(errw, "usage:", err)
+		return 2
+	}
+	show := *showFlag
+	if show != "left" && show != "used" && show != "total" {
+		fmt.Fprintf(errw, "usage: --show must be left, used, or total (got %q)\n", *showFlag)
 		return 2
 	}
 	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *formatFlag == outfmt.JSON, *workflowsFlag
@@ -77,18 +85,28 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
 
 	var quotas []quota
-	if *providersFlag {
+	if *providersFlag && show != "total" {
 		quotas = fetchQuotas()
+		for i := range quotas {
+			quotas[i].LeftPct = 100 - quotas[i].UsedPct
+		}
 		setStates(quotas, warnThreshold())
 	}
+	ledgerEntries, ledgerErr := readLedger()
+	if ledgerErr != nil {
+		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
+	}
+	now := time.Now()
+	aggs := aggregateLedger(ledgerEntries, now)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(struct {
 			*transcript.UsageAggregate
-			Providers []quota `json:"providers,omitempty"`
-		}{agg, quotas}); err != nil {
+			Providers []quota     `json:"providers,omitempty"`
+			API       []ledgerAgg `json:"api,omitempty"`
+		}{agg, quotas, aggs}); err != nil {
 			return 1
 		}
 		return 0
@@ -98,10 +116,13 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	} else {
 		printUsageTable(out, agg, len(files))
 	}
-	printQuotas(out, quotas)
+	printQuotas(out, quotas, show, aggs, ledgerSince(ledgerEntries))
 	printQuotaWarnings(errw, quotas)
 	return 0
 }
+
+// readLedger is the ledger read seam; a var so tests can stub it without touching the real ledger file.
+var readLedger = usageledger.Read
 
 // usageFilesForSession globs every project dir for <id>/subagents/*.jsonl and the workflow agents at
 // <id>/subagents/workflows/*/agent-*.jsonl — a session id is unique but its parent project-dir

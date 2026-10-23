@@ -73,6 +73,11 @@ type Auth struct {
 	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
 }
 
+// APIKeyAuth reports whether p bills per token on a harness-held key, not a subscription login (ledger gate).
+func (p Provider) APIKeyAuth() bool {
+	return p.Auth.Type == AuthAPIKey || p.Auth.Type == AuthBearer
+}
+
 // Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
 // BaseURL), else BaseURL itself when dialect == Kind.
 func (p Provider) Route(dialect string) (string, bool) {

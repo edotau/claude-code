@@ -56,7 +56,7 @@ func TestParseWham(t *testing.T) {
 func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
 	stub := []quota{
 		{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 11, Used: 750, Limit: 7000, Resets: "2026-11-01"},
-		{Provider: "google", Note: googleNote},
+		{Provider: "google", Plan: "Antigravity", Note: "agy not logged in (run agy login)"},
 	}
 	orig := fetchQuotas
 	fetchQuotas = func() []quota { return stub }
@@ -75,7 +75,8 @@ func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
 	if strings.Contains(s, "<synthetic>") {
 		t.Errorf("zero-token row printed:\n%s", s)
 	}
-	for _, want := range []string{"claude-opus-5", "PROVIDER QUOTAS", "750 / 7000 credits", googleNote} {
+	// default --show is "left": LEFT column + "N of M credits left" detail, not the old USED format.
+	for _, want := range []string{"claude-opus-5", "PROVIDER QUOTAS", "6250 of 7000 credits left", "agy not logged in (run agy login)", "API KEYS"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output missing %q:\n%s", want, s)
 		}
@@ -213,7 +214,7 @@ func TestPrintQuotasStateColumn(t *testing.T) {
 		{Provider: "google", Note: googleNote},
 	}
 	var out bytes.Buffer
-	printQuotas(&out, qs)
+	printSubscriptionQuotas(&out, qs, "used")
 	s := out.String()
 	if !strings.Contains(s, "STATE") {
 		t.Errorf("missing STATE header:\n%s", s)
@@ -267,7 +268,9 @@ func TestUsageRunWarnsOnExceededState(t *testing.T) {
 // TestUsageQuotasWithoutTranscripts: no transcripts still prints the provider block.
 func TestUsageQuotasWithoutTranscripts(t *testing.T) {
 	orig := fetchQuotas
-	fetchQuotas = func() []quota { return []quota{{Provider: "google", Note: googleNote}} }
+	fetchQuotas = func() []quota {
+		return []quota{{Provider: "google", Plan: "Antigravity", Note: "agy not logged in (run agy login)"}}
+	}
 	t.Cleanup(func() { fetchQuotas = orig })
 	var out, errw bytes.Buffer
 	if code := Run(nil, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {

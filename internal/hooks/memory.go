@@ -31,14 +31,15 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if out := MergeContext("SessionStart", []string{memoryContext(cwd, in.SessionID, time.Now())}); out != "" {
+	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
+	if out := MergeContext("SessionStart", []string{ctx}); out != "" {
 		fmt.Fprintln(stdout, out)
 	}
 	return ExitProceed
 }
 
 // memoryContext renders the note line + bank surface and advances the session chain.
-func memoryContext(cwd, sessionID string, now time.Time) string {
+func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
 	guard := memory.StartupGuard()
 	prefix := guard.Notice // paused: the notice ("" otherwise); else a fresh-scaffold notice or ""
 	if !guard.Paused {
@@ -54,10 +55,16 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 		if prefix != "" {
 			note = prefix + " " + note
 		}
-		if prev, _ := os.ReadFile(chain); strings.TrimSpace(string(prev)) != "" {
-			prevID := strings.TrimSpace(string(prev))
+		if entry, ok := readChain(chain); ok {
+			prevID := entry.sessionID
 			note += " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
-			if res, ok := memory.ReadHarvestResult(prevID); ok && res.NeedsAttention(now) {
+			caughtUp := ""
+			if !guard.Paused && !memory.IsHarvestChild() {
+				caughtUp = catchUpPrevious(entry, sessionID, now)
+			}
+			if caughtUp != "" {
+				note += " " + caughtUp
+			} else if res, ok := memory.ReadHarvestResult(prevID); ok && res.NeedsAttention(now) {
 				hint := ""
 				if res.Log != "" {
 					hint = " (log: " + res.Log + ")"
@@ -88,9 +95,72 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 	// A harvest worker is a session too; it must not become the "previous session" of the user's next one.
 	// Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
 	if memory.LooksLikeSessionID(sessionID) && !memory.IsHarvestChild() {
-		_ = paths.AtomicWrite(chain, []byte(sessionID+"\n"), 0o600)
+		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
 	}
 	return out
+}
+
+// chainEntry is the session chain file: id (line 1), transcript path (line 2), cwd (line 3) —
+// lines 2-3 are optional so a pre-upgrade one-line file still parses.
+type chainEntry struct {
+	sessionID      string
+	transcriptPath string
+	cwd            string
+}
+
+func readChain(path string) (chainEntry, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return chainEntry{}, false
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	id := strings.TrimSpace(lines[0])
+	if id == "" {
+		return chainEntry{}, false
+	}
+	e := chainEntry{sessionID: id}
+	if len(lines) > 1 {
+		e.transcriptPath = strings.TrimSpace(lines[1])
+	}
+	if len(lines) > 2 {
+		e.cwd = strings.TrimSpace(lines[2])
+	}
+	return e, true
+}
+
+func writeChain(path string, e chainEntry) {
+	_ = paths.AtomicWrite(path, []byte(e.sessionID+"\n"+e.transcriptPath+"\n"+e.cwd+"\n"), 0o600)
+}
+
+// catchUpPrevious spawns the previous session's missed or failed harvest at most once, before its
+// chain slot is overwritten; a transcript still growing elsewhere (parallel sessions) is left alone.
+func catchUpPrevious(prev chainEntry, sessionID string, now time.Time) string {
+	if prev.sessionID == "" || prev.sessionID == sessionID || prev.transcriptPath == "" {
+		return ""
+	}
+	fi, err := os.Stat(prev.transcriptPath)
+	if err != nil || now.Sub(fi.ModTime()) < reharvestCooldown {
+		return ""
+	}
+	stamp := stampPath(prev.sessionID)
+	st, ok := readStamp(stamp)
+	covered := 0
+	if ok {
+		covered = st.edits
+	}
+	edits := countEdits(prev.transcriptPath, countPath(prev.sessionID))
+	uncovered := edits >= harvestMinEdits && edits > covered
+	res, hasResult := memory.ReadHarvestResult(prev.sessionID)
+	alreadyRetried := ok && st.state == "catchup"
+	failed := hasResult && res.NeedsAttention(now) && !alreadyRetried
+	if !uncovered && !failed {
+		return ""
+	}
+	if !spawnHarvest(prev.transcriptPath, prev.cwd, prev.sessionID) {
+		return ""
+	}
+	writeStamp(stamp, now, "catchup", edits)
+	return "Catching up the previous session's memory harvest in the background."
 }
 
 // maybeAutoInit scaffolds a bank for bank-less safe roots; returns a notice on a fresh scaffold.
@@ -259,12 +329,13 @@ var spawnDream = func(cwd string) bool {
 	return proc.SpawnDetached(self, []string{"memory", "dream", "--cwd", cwd}, cwd, log)
 }
 
-// harvestStamp is "<RFC3339>|<bg|block count>|<edits covered>".
+// harvestStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>".
 type harvestStamp struct {
 	at     time.Time
 	bg     bool
 	blocks int
 	edits  int
+	state  string // raw second field: "bg", "catchup", or a block count
 }
 
 func stampPath(sessionID string) string {
@@ -284,7 +355,7 @@ func readStamp(path string) (harvestStamp, bool) {
 	if err != nil {
 		return harvestStamp{}, false
 	}
-	st := harvestStamp{at: at, bg: parts[1] == "bg"}
+	st := harvestStamp{at: at, bg: parts[1] == "bg", state: parts[1]}
 	st.blocks, _ = strconv.Atoi(parts[1])
 	st.edits, _ = strconv.Atoi(parts[2])
 	return st, true

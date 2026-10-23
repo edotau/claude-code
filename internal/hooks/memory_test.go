@@ -176,8 +176,8 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	t.Setenv(memory.HarvestChildEnv, "1")
 	start("child", repo) // a non-UUID harvest-child id: excluded by IsHarvestChild regardless of shape
-	if b, _ := os.ReadFile(filepath.Join(memory.StateDir(), "last-session")); strings.TrimSpace(string(b)) != s2 {
-		t.Errorf("a harvest child advanced the session chain: %q", b)
+	if e, ok := readChain(filepath.Join(memory.StateDir(), "last-session")); !ok || e.sessionID != s2 {
+		t.Errorf("a harvest child advanced the session chain: %+v ok=%v", e, ok)
 	}
 }
 
@@ -194,14 +194,14 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	const real = "33333333-3333-4333-8333-333333333333"
-	memoryContext(repo, real, time.Now())
+	memoryContext(repo, real, "", time.Now())
 	chain := filepath.Join(memory.StateDir(), "last-session")
-	if b, _ := os.ReadFile(chain); strings.TrimSpace(string(b)) != real {
-		t.Fatalf("a UUID session id must advance last-session: %q", b)
+	if e, ok := readChain(chain); !ok || e.sessionID != real {
+		t.Fatalf("a UUID session id must advance last-session: %+v ok=%v", e, ok)
 	}
-	memoryContext(repo, "probe-x", time.Now())
-	if b, _ := os.ReadFile(chain); strings.TrimSpace(string(b)) != real {
-		t.Errorf("a probe id must not clobber last-session: got %q, want %q", strings.TrimSpace(string(b)), real)
+	memoryContext(repo, "probe-x", "", time.Now())
+	if e, ok := readChain(chain); !ok || e.sessionID != real {
+		t.Errorf("a probe id must not clobber last-session: got %+v, want %s", e, real)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
 	if err := memory.SetMaintenance("test pause"); err != nil {
 		t.Fatal(err)
 	}
-	got := memoryContext(repo, "s1", time.Now())
+	got := memoryContext(repo, "s1", "", time.Now())
 	if memory.HasBank(repo) || !strings.Contains(got, "memory maintenance in progress (test pause)") || strings.Contains(got, "scaffolded") {
 		t.Fatalf("paused SessionStart must emit the notice alone and scaffold nothing: %q", got)
 	}
@@ -253,7 +253,7 @@ func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
 	if err := memory.SetMaintenance("again"); err != nil {
 		t.Fatal(err)
 	}
-	got = memoryContext(repo, "s2", time.Now())
+	got = memoryContext(repo, "s2", "", time.Now())
 	if !strings.HasPrefix(got, "memory maintenance in progress (again)") || !strings.Contains(got, "<!-- activeContext.md -->") {
 		t.Errorf("paused with a bank: notice must prefix the read-only surface: %q", got[:min(len(got), 300)])
 	}
@@ -279,7 +279,7 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := memoryContext(repo, "s1", time.Now())
+	got := memoryContext(repo, "s1", "", time.Now())
 	if memory.HasBank(repo) || !strings.Contains(got, "memory migration incomplete") || !strings.Contains(got, "memory migrate --manifest /m/pending.json") ||
 		strings.Contains(got, "scaffolded") {
 		t.Fatalf("paused SessionStart must emit the migration notice alone and scaffold nothing: %q", got)
@@ -292,7 +292,7 @@ func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
 	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/pending.json"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got = memoryContext(repo, "s2", time.Now())
+	got = memoryContext(repo, "s2", "", time.Now())
 	if memory.HasBank(repo) || !strings.Contains(got, "memory migration complete") || strings.Contains(got, "scaffolded") {
 		t.Fatalf("a completed journal must keep the pause and scaffold nothing: %q", got[:min(len(got), 300)])
 	}
@@ -344,7 +344,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 		t.Fatalf("test setup: guard = %+v, want unpaused and migrated", g)
 	}
 
-	memoryContext(repo, "s1", time.Now())
+	memoryContext(repo, "s1", "", time.Now())
 
 	res, ok := memory.LinkNativeFor(repo)
 	if !ok {
@@ -378,7 +378,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memoryContext(repo, "first", time.Now())
+	memoryContext(repo, "first", "", time.Now())
 
 	dir := memory.Dir(repo)
 	if _, err := memory.ReadOrigin(dir); err != nil {
@@ -424,5 +424,236 @@ func TestPreCompactHarvestsOnlyUncoveredEdits(t *testing.T) {
 	writeEdits(t, tr, 9)
 	if run() != ExitProceed || calls.Load() != 2 {
 		t.Error("paused memory must not spawn")
+	}
+}
+
+// idle backdates tr's mtime so catchUpPrevious treats the transcript as quiet.
+func idle(t *testing.T, path string, d time.Duration) {
+	t.Helper()
+	at := time.Now().Add(-d)
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCatchUpPreviousTable drives catchUpPrevious directly against the spawnHarvest seam: each case is a
+// distinct reason the previous session's harvest either is or isn't missed/failed.
+func TestCatchUpPreviousTable(t *testing.T) {
+	const prevID = "prev-session"
+	const curID = "cur-session"
+
+	newTranscript := func(t *testing.T, edits int, idleFor time.Duration) string {
+		t.Helper()
+		tr := filepath.Join(t.TempDir(), "t.jsonl")
+		writeEdits(t, tr, edits)
+		idle(t, tr, idleFor)
+		return tr
+	}
+
+	cases := []struct {
+		name      string
+		setup     func(t *testing.T, tr string)
+		edits     int
+		idleFor   time.Duration
+		curID     string
+		noTr      bool // prev.transcriptPath == ""
+		wantSpawn bool
+		wantNote  bool
+	}{
+		{
+			name:      "missed harvest spawns",
+			edits:     5,
+			idleFor:   20 * time.Minute,
+			wantSpawn: true,
+			wantNote:  true,
+		},
+		{
+			name: "already covered by stamp: no spawn",
+			setup: func(t *testing.T, tr string) {
+				writeStamp(stampPath(prevID), time.Now().Add(-20*time.Minute), "bg", 5)
+			},
+			edits:   5,
+			idleFor: 20 * time.Minute,
+		},
+		{
+			name:    "fresh transcript (<15min): no spawn",
+			edits:   5,
+			idleFor: 2 * time.Minute,
+		},
+		{
+			name:    "same session id: no spawn",
+			edits:   5,
+			idleFor: 20 * time.Minute,
+			curID:   prevID,
+		},
+		{
+			name:    "fewer than 3 edits: no spawn",
+			edits:   2,
+			idleFor: 20 * time.Minute,
+		},
+		{
+			name: "failed result retries once",
+			setup: func(t *testing.T, tr string) {
+				_ = memory.WriteHarvestResult(prevID, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now()})
+			},
+			edits:     2, // below the floor on its own: the failed result is what drives the retry
+			idleFor:   20 * time.Minute,
+			wantSpawn: true,
+			wantNote:  true,
+		},
+		{
+			name: "failed result already retried (catchup stamp): no second spawn",
+			setup: func(t *testing.T, tr string) {
+				_ = memory.WriteHarvestResult(prevID, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now()})
+				writeStamp(stampPath(prevID), time.Now().Add(-20*time.Minute), "catchup", 2)
+			},
+			edits:   2,
+			idleFor: 20 * time.Minute,
+		},
+		{
+			name:    "legacy/empty transcript path: no spawn, no crash",
+			edits:   5,
+			idleFor: 20 * time.Minute,
+			noTr:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv(memory.HarvestChildEnv, "")
+			tr := newTranscript(t, tc.edits, tc.idleFor)
+			if tc.setup != nil {
+				tc.setup(t, tr)
+			}
+			calls := stubSpawn(t, true)
+			prev := chainEntry{sessionID: prevID, transcriptPath: tr, cwd: t.TempDir()}
+			if tc.noTr {
+				prev.transcriptPath = ""
+			}
+			cur := curID
+			if tc.curID != "" {
+				cur = tc.curID
+			}
+			note := catchUpPrevious(prev, cur, time.Now())
+			gotSpawn := calls.Load() == 1
+			if gotSpawn != tc.wantSpawn {
+				t.Errorf("spawn = %v, want %v (calls=%d)", gotSpawn, tc.wantSpawn, calls.Load())
+			}
+			if (note != "") != tc.wantNote {
+				t.Errorf("note = %q, want non-empty=%v", note, tc.wantNote)
+			}
+		})
+	}
+}
+
+// TestCatchUpPreviousSpawnFailureNoStamp: a failed spawn must not leave a "catchup" stamp behind, so the
+// next SessionStart still sees it as missed and retries rather than silently giving up forever.
+func TestCatchUpPreviousSpawnFailureNoStamp(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 5)
+	idle(t, tr, 20*time.Minute)
+	stubSpawn(t, false) // spawn fails
+	prev := chainEntry{sessionID: "prev2", transcriptPath: tr, cwd: t.TempDir()}
+	if note := catchUpPrevious(prev, "cur2", time.Now()); note != "" {
+		t.Errorf("a failed spawn must not report success: %q", note)
+	}
+	if _, ok := readStamp(stampPath("prev2")); ok {
+		t.Error("a failed spawn must not write a catchup stamp")
+	}
+}
+
+// TestSessionStartCatchUpHarvestChildNeverSpawns: memoryContext gates catchUpPrevious behind
+// !IsHarvestChild — a harvest worker's own SessionStart must never dispatch another harvest.
+func TestSessionStartCatchUpHarvestChildNeverSpawns(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 5)
+	idle(t, tr, 20*time.Minute)
+	chain := filepath.Join(memory.StateDir(), "last-session")
+	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
+	calls := stubSpawn(t, true)
+
+	t.Setenv(memory.HarvestChildEnv, "1")
+	got := memoryContext(repo, "harvest-worker", "", time.Now())
+	if calls.Load() != 0 {
+		t.Errorf("a harvest child must never catch up the previous session, calls=%d", calls.Load())
+	}
+	if strings.Contains(got, "Catching up") {
+		t.Errorf("a harvest child's SessionStart must not surface the catch-up note: %q", got)
+	}
+}
+
+// TestSessionStartChainRewrittenWithTranscriptAndCWD: memoryContext's writeChain must persist all three
+// fields so the NEXT SessionStart can resolve the previous session's transcript for its own catch-up check.
+func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	cwd := t.TempDir()
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 1)
+	const sid = "44444444-4444-4444-8444-444444444444"
+
+	memoryContext(cwd, sid, tr, time.Now())
+
+	chain := filepath.Join(memory.StateDir(), "last-session")
+	e, ok := readChain(chain)
+	if !ok || e.sessionID != sid || e.transcriptPath != tr || e.cwd != cwd {
+		t.Errorf("chain = %+v ok=%v, want {%s %s %s}", e, ok, sid, tr, cwd)
+	}
+}
+
+// TestReadChainLegacyOneLineFormat: a pre-upgrade chain file (bare session id, no transcript/cwd lines)
+// still parses, and catchUpPrevious treats its blank transcript path as "nothing to check" rather than crashing.
+func TestReadChainLegacyOneLineFormat(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	chain := filepath.Join(t.TempDir(), "last-session")
+	if err := os.WriteFile(chain, []byte("legacy-id\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := readChain(chain)
+	if !ok || e.sessionID != "legacy-id" || e.transcriptPath != "" || e.cwd != "" {
+		t.Fatalf("legacy chain parse = %+v ok=%v", e, ok)
+	}
+	if note := catchUpPrevious(e, "new-id", time.Now()); note != "" {
+		t.Errorf("a legacy chain entry must not attempt a catch-up: %q", note)
+	}
+}
+
+// TestReadStampCatchupStateDoesNotBreakParsing: a "catchup" stamp still parses through the same 3-field
+// format the Stop gate reads, with blocks defaulting to 0 (not crashing on a non-numeric second field).
+func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "stamp-x")
+	at := time.Now().Add(-5 * time.Minute)
+	writeStamp(path, at, "catchup", 7)
+
+	st, ok := readStamp(path)
+	if !ok || st.bg || st.state != "catchup" || st.blocks != 0 || st.edits != 7 || !st.at.Equal(at.Truncate(time.Second)) {
+		t.Errorf("readStamp(catchup) = %+v ok=%v", st, ok)
+	}
+
+	// The Stop gate must not crash reading this stamp for a session that resumes under the same id.
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 20)
+	cwd := t.TempDir()
+	stubSpawn(t, false)
+	var errb bytes.Buffer
+	code := SessionHarvest(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr)), &errb)
+	if code != ExitBlock && code != ExitProceed {
+		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
 	}
 }
