@@ -60,7 +60,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
-| Run the model router | `claude-code router start\|status\|stop` (`serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
+| Run the model router | `claude-code router start\|status\|stop` (`router serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini.md`, `agents/gemini.md` |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider <p> --model <m>`; `--print-env` shows the wiring | `README.md` → Agents |
@@ -82,7 +82,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Second-opinion adversarial review on another model | `/codex` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
 | Scan the config surface / MCP for leaked credentials | `claude-code secrets scan` · `claude-code mcp doctor` | `rules/standards/security.md` |
-| Everything else (setup, VS Code, tailscale, theme, history, web, …) | `claude-code describe` | `README.md` → Command reference |
+| Everything else (configure, VS Code, tailscale, theme, history, web, …) | `claude-code describe` | `README.md` → Command reference |
 
 ## Where things live
 
