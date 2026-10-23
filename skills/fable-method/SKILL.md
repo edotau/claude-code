@@ -2,7 +2,7 @@
 name: fable-method
 description: 'Structured problem-solving loop for non-trivial work - classify the deliverable, define done, gather primary-source evidence, commit to one recommendation, act behind an intent gate, verify by observation, report outcome-first (INTENT/AUTH/TWINS/PENDING). Triggers "use the fable method", "/fable-method", "run the loop", "the tests disagree with the spec", "did I fix this everywhere", "is that claim actually verified", "am I faking rigor". Subcommands - plan, audit, judge, report.'
 metadata:
-  version: 1.0.0
+  version: 1.1.0
 ---
 
 # The Fable Method
@@ -17,16 +17,16 @@ skills that already own it. Do not restate those here — load them.
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `review-funnel` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
-| Diff review, scope creep, over-engineering | `evaluate-code`, `simplify` |
+| Diff review, scope creep, detectors | `evaluate-code`, `simplify`, `security-reviewer` |
 | Pre-review / post-build gating agent | `codex` (REVIEW / VERIFY modes) |
 
-On-demand references: `references/artifacts.md` (the four forced lines — read before writing a
-report), `references/failure-modes.md` (19 symptoms → the step that prevents each),
-`references/judge.md` (adversarial verdict protocol for judge mode).
+References: `references/artifacts.md` (the four forced lines — read before any report),
+`references/failure-modes.md` (19 symptoms → step), `references/judge.md` (judge protocol, audit
+rubric), `references/eval.md` (upstream parity; the fixture a rule change must bring).
 
 The steps structure your work, never your output. **Never put step numbers or step names in
 anything the user reads.** The only method artifacts allowed in a report are `INTENT:`, `AUTH:`,
-`TWINS:`, and `PENDING:`.
+`TWINS:`, and `PENDING:`. Audit output is exempt: it grades the method, not the work.
 
 ## Usage
 
@@ -42,22 +42,19 @@ anything the user reads.** The only method artifacts allowed in a report are `IN
 
 Trivial only if **all** hold: one file, <~10 changed lines, no new behavior, and you already
 know the exact change without searching. Then: change it, run the one obvious check, report in
-two sentences. Anything else — including anything you're unsure about — gets the full loop.
+two sentences. Anything else — or any doubt — gets the full loop.
 
 ## Gate 2 — Fit
 
-The loop converts judgment problems into evidence problems *when the answer is reachable*. It
-cannot supply judgment that exists only in your own head. Locate the answer, then route:
+The loop turns judgment into evidence only when the answer is reachable. Locate it, then route:
 
 - **In something you can open** (spec, file, dataset, command output, docs) → run the loop.
 - **In a technique you don't know** → research it first (Step 2's budget), then run the loop.
 - **Only in your own inference, nothing to open** → say so. Do not dress a guess as rigor
-  (failure mode 18, *costume rigor*). Label it low-confidence explicitly; never silently.
-- **In a procedure the harness lacks, and it recurs** → build it as a skill
-  (`/reflection:extract`, which runs the `opencode` agent in EXTRACT mode).
+  (failure mode 18, costume rigor). Label it low-confidence, never silently.
+- **In a procedure the harness lacks, and it recurs** → build it as a skill (`/reflection:extract`).
 
-Any route other than "run the loop" gets named in the report. A silent detour is
-indistinguishable from a skipped step.
+Any route other than "run the loop" is named in the report; a silent detour reads as a skipped step.
 
 ## Step 0 — Classify the deliverable shape
 
@@ -75,7 +72,9 @@ State in one or two sentences what done looks like and how it will be verified.
 ## Step 2 — Gather evidence
 
 1. **Orient before reading.** Enumerate what exists (glob, list) — you cannot pick the right
-   files from memory of what projects usually contain.
+   files from memory of what projects usually contain. The README or spec of the directory you will
+   touch is always in the minimum evidence set: read-narrow without it yields safe outcomes by
+   blindness, not discipline.
 
 [Sources, budget, surprises](references/steps.md#step-2--gather-evidence).
 
@@ -112,14 +111,14 @@ Two halves, plus a third whenever you fixed a defect:
 
 ## Modes
 
-**plan** — Steps 0–3, then stop. Deliver the classification, done + its verification, cited
-evidence, and one recommendation with alternatives dismissed in a line each. Touch no file.
-Plan shape: `agents/Plan.md`.
+**plan** — Steps 0–3, then stop: classification, done + its verification, cited evidence, one
+recommendation with alternatives dismissed in a line each. Touch no file. Shape: `agents/Plan.md`.
 
 **audit** — grade the most recent completed work: each step marked **followed**, **skipped**, or
 **faked** (claimed without observation). For every skip or fake, name the concrete risk it
-created — `references/failure-modes.md` maps symptoms to steps. Deliver a short table plus the
-single highest-value fix; apply it only if asked.
+created — `references/failure-modes.md` maps symptoms to steps. Score it on the 0–2 rubric in
+`references/judge.md` (run the detectors first). Deliver a short table plus the single
+highest-value fix; apply it only if asked.
 
 **judge** — adversarially verify work someone else called done → `references/judge.md`.
 

@@ -35,11 +35,12 @@ question first. Claim discipline: `approval-gate`.
 ## Step 2 — Gather evidence
 
 2. **Primary sources beat memory.** Never invent a signature, endpoint, payload shape, or path
-   from recall. For a library API, fetch current docs (`documentation` agent, `web-search`, or
-   the installed package source). If neither is possible, say you are working from memory.
+   from recall. For a library API, fetch current docs (`opencode` agent in DOC-LOOKUP mode, the
+   Context7 MCP, `web-search`, or the installed package source). If none is reachable, say you
+   are working from memory.
 3. **Parallelize the independent and expensive.** Web fetches, doc lookups, and multi-area
    explorations go out in **one** batch — see `subagent-workflows`. Chain small local reads only
-   when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 6).
+   when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 8).
 4. **Read narrow, never re-read.** Locate the section, read that section. Never re-fetch what
    is already in context.
 5. **Time-box.** One round plus one follow-up covers most tasks; a third needs a stated reason.
@@ -80,7 +81,8 @@ list mid-work is a surprise (Step 2 rule 7): say it, never silently expand.
 4. **Precise edits over rewrites.** Rewrite a whole file only if you authored it this session or
    have fully read it.
 5. **Track multi-part work.** ≥3 heterogeneous steps or >~5 similar items gets a written
-   checklist (TaskCreate) first. Audit the list against the original ask before reporting.
+   checklist first (the harness's todo tool if one exists, else a list in your reply). Audit the
+   list against the original ask before reporting.
 6. **Never destroy without looking.** Before deleting or overwriting, look at what's there. If
    it contradicts how it was described, stop and surface that.
 7. **Failed-edit ladder.** Re-read the exact region, adjust the match, retry once; then widen;

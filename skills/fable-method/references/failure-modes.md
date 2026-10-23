@@ -4,6 +4,9 @@ Nineteen ways agentic work goes wrong, what each looks like **from the outside**
 prevents it. Used by `audit` mode to name the risk a skipped step created; useful standalone as a
 review checklist for any agent transcript. 1–18 are upstream's; 19 was added from a harness run
 where a link scanner's 32 raw hits were nearly reported as 32 defects (most were placeholders).
+Transfer boundary, measured upstream: 16 and 18 are weak-tier reporting failures that no prose
+wording moved (1/12 and 1/14 runs); only the action-point lines (`INTENT:`, `TWINS:`) transferred.
+Do not add more prose for them — add a fixture (`eval.md`) or accept the gap.
 
 | # | Failure mode | Symptom | Prevented by |
 |---|---|---|---|
