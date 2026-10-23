@@ -1,5 +1,5 @@
 // providers.go — live, account-wide plan quota per provider: GitHub Copilot (every gh login), OpenAI (codex's
-// ChatGPT sign-in), Google (no quota API; a fixed row). Tokens stay in memory and child env, never printed.
+// ChatGPT sign-in), Google (Antigravity's agy CLI `/usage`). Tokens stay in memory and child env, never printed.
 package usage
 
 import (
@@ -19,33 +19,35 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// quota is one provider-account-window row; Note replaces the numbers when the lookup failed or has none.
+// quota is one provider-account-window row; Note replaces the numbers on failure, Group labels a valid row.
 type quota struct {
 	Provider string  `json:"provider"`
 	Account  string  `json:"account,omitempty"`
 	Plan     string  `json:"plan,omitempty"`
 	Window   string  `json:"window,omitempty"`
 	UsedPct  float64 `json:"used_percent"`
+	LeftPct  float64 `json:"left_percent"`
 	Used     float64 `json:"used_credits,omitempty"`
 	Limit    float64 `json:"limit_credits,omitempty"`
 	Resets   string  `json:"resets,omitempty"`
 	Note     string  `json:"note,omitempty"`
+	Group    string  `json:"group,omitempty"`
 }
 
-// googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.
-const googleNote = "quota not exposed (AI Studio key; Antigravity quota endpoint denies access)"
-
-// fetchQuotas is the network seam; tests replace it so no test reaches gh or chatgpt.com.
+// fetchQuotas is the network seam; tests replace it so no test reaches gh, chatgpt.com or agy.
 var fetchQuotas = func() []quota {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	var gh, oa []quota
+	agyCtx, agyCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer agyCancel()
+	var gh, oa, ag []quota
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); gh = githubQuotas(ctx) }()
 	go func() { defer wg.Done(); oa = openaiQuotas(ctx) }()
+	go func() { defer wg.Done(); ag = antigravityQuotas(agyCtx) }()
 	wg.Wait()
-	return append(append(gh, oa...), quota{Provider: "google", Note: googleNote})
+	return append(append(gh, oa...), ag...)
 }
 
 // ghRun runs gh with extra env; stdout only, so gh's stderr chatter never lands in a parse.
@@ -189,23 +191,65 @@ func title(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// printQuotas renders the provider rows below the transcript table.
-func printQuotas(out io.Writer, qs []quota) {
+// printQuotas renders the subscription quota table (skipped for --show total) and the API-key ledger
+// section below the transcript table.
+func printQuotas(out io.Writer, qs []quota, show string, aggs []ledgerAgg, since time.Time) {
+	if show != "total" {
+		printSubscriptionQuotas(out, qs, show)
+	}
+	printLedgerSection(out, aggs, since)
+}
+
+// printSubscriptionQuotas renders one row per provider-account-window; column and value follow show.
+func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 	if len(qs) == 0 {
 		return
 	}
+	col := "LEFT"
+	if show == "used" {
+		col = "USED"
+	}
 	fmt.Fprintf(out, "\nPROVIDER QUOTAS (live, account-wide)\n")
-	fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %6s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", "USED", "RESETS", "DETAIL")
+	fmt.Fprintf(out, "%-9s %-22s %-12s %-8s %6s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", col, "RESETS", "DETAIL")
 	for _, q := range qs {
-		used, detail := fmt.Sprintf("%.0f%%", q.UsedPct), q.Note
+		pct, detail := q.UsedPct, q.Note
+		if q.Group != "" {
+			detail = q.Group
+		}
+		if show != "used" {
+			pct = q.LeftPct
+		}
+		val := fmt.Sprintf("%.0f%%", pct)
 		if q.Note != "" && q.Limit == 0 {
-			used = "-"
+			val = "-"
 		}
 		if q.Limit > 0 {
-			detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
+			if show == "used" {
+				detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
+			} else {
+				detail = fmt.Sprintf("%.0f of %.0f credits left", q.Limit-q.Used, q.Limit)
+			}
 		}
-		fmt.Fprintf(out, "%-9s %-22s %-9s %-8s %6s  %-16s  %s\n",
-			q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), used, dash(q.Resets), detail)
+		fmt.Fprintf(out, "%-9s %-22s %-12s %-8s %6s  %-16s  %s\n",
+			q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), val, dash(q.Resets), detail)
+	}
+}
+
+// printLedgerSection renders the local per-token ledger rollup; an empty ledger prints one line instead.
+func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
+	fmt.Fprintf(out, "\nAPI KEYS (per-token, accumulated via harness)\n")
+	if len(aggs) == 0 {
+		when := "now"
+		if !since.IsZero() {
+			when = since.Format("2006-01-02")
+		}
+		fmt.Fprintf(out, "no per-token calls recorded yet (ledger started %s)\n", when)
+		return
+	}
+	fmt.Fprintf(out, "%-9s %-24s %10s %10s %10s\n", "PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME")
+	for _, a := range aggs {
+		fmt.Fprintf(out, "%-9s %-24s %10s %10s %10s\n",
+			a.Provider, a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime))
 	}
 }
 

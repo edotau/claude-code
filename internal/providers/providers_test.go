@@ -318,3 +318,24 @@ func TestHardQuotaAndDemote(t *testing.T) {
 		t.Error("Demote must not return the same model under another slot")
 	}
 }
+
+// TestAPIKeyAuth: only a harness-held credential (x-api-key or bearer) is a per-token request worth
+// recording in the usage ledger — a vendor-CLI passthrough login (subscription) or no auth is not.
+func TestAPIKeyAuth(t *testing.T) {
+	cases := []struct {
+		authType string
+		want     bool
+	}{
+		{AuthAPIKey, true},
+		{AuthBearer, true},
+		{AuthPassthrough, false},
+		{AuthNone, false},
+		{"", false},
+	}
+	for _, c := range cases {
+		p := Provider{Auth: Auth{Type: c.authType}}
+		if got := p.APIKeyAuth(); got != c.want {
+			t.Errorf("APIKeyAuth(type=%q) = %v, want %v", c.authType, got, c.want)
+		}
+	}
+}
