@@ -74,11 +74,13 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Review (`claude-code ask --agent codex`)
 - [ ] Full suite once
 - [ ] Commit + push
-- [ ] Handoff / `/memory:end`
+- [ ] Handoff / `/reflection:update`
 ```
 
-Suggest the slug. Plans live only in `~/.claude/plans/` (untracked): `YYYY-MM-DD-<slug>.md` for this repo,
-`<repo-slug>/YYYY-MM-DD-<slug>.md` for any other — never a repo root or a repo's own `.claude/`. The `save-plan`
+Write a `Suggested slug:` line right under the H1 (e.g. `Suggested slug: fable-method-upstream-refine`): the
+mirror names the file `YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback). Plans live only in
+`~/.claude/plans/` (untracked), this repo at the top, `<repo-slug>/YYYY-MM-DD-<slug>.md` for any other — never a
+repo root or a repo's own `.claude/`. The `save-plan`
 hook appends a `## Tasks` list (built from Phase/Step/Part headings) to an approved plan that has none.
 Plan mode's native draft lands first as an undated file directly under `~/.claude/plans/`: the `plan-template`
 gate denies its first write unless it already has this template's four headings, and `plan-mirror` copies every
