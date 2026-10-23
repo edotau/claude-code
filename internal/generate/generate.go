@@ -34,6 +34,8 @@ type Options struct {
 	Home    string    // overrides os.UserHomeDir() for vendor config paths (tests)
 	Out     io.Writer // status lines; nil -> os.Stdout
 	Vendors bool      // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
+	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
+	Confirm func(path string, lost []string) bool
 	// Prepare's write queue: commitFile and the JSONC retire append to it, Apply runs it.
 	staged *[]func() error
 }
@@ -142,20 +144,6 @@ func configDirIsDefault() bool {
 		return false
 	}
 	return paths.ConfigDir() == filepath.Join(home, ".claude")
-}
-
-// backupAndWrite writes a single `.backup` of oldRaw (only when the file already existed) before
-// atomically replacing path with newRaw.
-func backupAndWrite(path string, oldRaw, newRaw []byte, existed bool) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if existed {
-		if err := os.WriteFile(path+".backup", oldRaw, 0o600); err != nil {
-			return err
-		}
-	}
-	return paths.AtomicWrite(path, newRaw, 0o600)
 }
 
 // --- codex: ~/.codex/config.toml, a banner-marked [model_providers.claude-code] block ---
@@ -308,19 +296,48 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 		if changed {
 			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
 		}
+		if lost := lostLinesFor(label, path, raw, next); len(lost) > 0 {
+			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) not in this render:\n", label, path, len(lost))
+			printLostLines(out, lost)
+		}
 		return changed, nil
 	case !changed:
+		// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
+		if _, err := os.Stat(vendorBaselinePath(label, path)); os.IsNotExist(err) && existed {
+			_ = writeVendorBaseline(label, path, next)
+		}
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return false, nil
 	}
-	*o.staged = append(*o.staged, func() error {
-		if err := backupAndWrite(path, raw, next, existed); err != nil {
-			return fmt.Errorf("%s: %w", label, err)
-		}
-		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
-		return nil
-	})
+	*o.staged = append(*o.staged, func() error { return commitWrite(path, raw, next, existed, o, out, label) })
 	return true, nil
+}
+
+// commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
+// baseline; it is the body of every commitFile staged write.
+func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.Writer, label string) error {
+	if lost := lostLinesFor(label, path, raw, next); len(lost) > 0 {
+		if o.Confirm != nil {
+			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) that would be lost:\n", label, path, len(lost))
+			printLostLines(out, lost)
+			if !o.Confirm(path, lost) {
+				fmt.Fprintf(out, "%s: kept %s (your edits)\n", label, path)
+				return nil
+			}
+		} else {
+			fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code generate --revert` restores\n",
+				label, len(lost), path)
+			printLostLines(out, lost)
+		}
+	}
+	if err := backupAndWrite(path, raw, next, existed); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if err := writeVendorBaseline(label, path, next); err != nil {
+		fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
+	}
+	fmt.Fprintf(out, "%s: wrote %s\n", label, path)
+	return nil
 }
 
 // --- opencode: ~/.config/opencode/opencode.json, reusing vendors.Configure's own render ---

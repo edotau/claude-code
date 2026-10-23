@@ -44,6 +44,7 @@ claude-code configure models          # one section (provider|models|agents|rout
 claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code generate [--out f|--check|--dry-run]   # render settings + vendor configs
+claude-code generate --revert [--agents a,b]       # restore vendor configs from backup
 claude-code vscode [--check|--dry-run]             # merge VS Code settings + keybindings
 ```
 
@@ -53,6 +54,9 @@ claude-code vscode [--check|--dry-run]             # merge VS Code settings + ke
 - Vendor configs are merged, never replaced: `~/.codex/config.toml`, `~/.config/opencode/opencode.json`,
   `~/.gemini/antigravity-cli/settings.json`, Codex/Copilot hooks. Keys are referenced by env var, exported only by a
   routed launch.
+- On a terminal, `generate` prompts before overwriting hand-edited lines it would otherwise lose; a
+  non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
+  timestamped backups; `generate --revert` steps a vendor file back one version at a time.
 - From a worktree, render only that checkout: `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"`
   (vendor homes are skipped unless `--vendors`).
 
