@@ -84,11 +84,12 @@ func Dream(o DreamOptions) error {
 			runErr = err
 			fmt.Fprintln(o.Out, "memory dream: ran on", who)
 		}
-		if _, err := SettleBank(o.CWD, time.Now()); err != nil {
-			fmt.Fprintln(o.Out, "memory dream: settle:", err)
-		}
 		return nil
 	})
+	// Settle after the lock is released: pre-cutover SettleBank takes this same lock and would block forever.
+	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
+		fmt.Fprintln(o.Out, "memory dream: settle:", err)
+	}
 	stampErr := paths.AtomicWrite(DreamStampPath(), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
 	return errors.Join(lockErr, runErr, stampErr)
 }
