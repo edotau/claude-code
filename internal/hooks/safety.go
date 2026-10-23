@@ -183,8 +183,14 @@ func nestedShellCommand(toks []string) (string, bool) {
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
+	masked, subs := extractSubstitutions(cmd)
+	for _, sub := range subs {
+		if harnessGitBlocked(sub, cwd) { // a substitution's cd only affects its own nested evaluation
+			return true
+		}
+	}
 	var harness, worktrees string
-	for _, seg := range shellSegments(cmd) {
+	for _, seg := range shellSegments(masked) {
 		toks := shellTokens(seg)
 		if len(toks) == 0 {
 			continue
@@ -326,6 +332,118 @@ func dqEscapable(c byte) bool {
 	return c == '"' || c == '\\' || c == '$' || c == '`'
 }
 
+// extractSubstitutions pulls `$(...)` and backtick command substitutions out of cmd — including inside
+// double quotes, where the shell evaluates both — leaving a placeholder space so neighboring tokens don't
+// glue; single-quoted text is literal, so a substitution there is left untouched. Returns the bodies for
+// the caller to check separately: they run as their own nested command, not inline in the outer segment.
+func extractSubstitutions(s string) (string, []string) {
+	var out strings.Builder
+	var subs []string
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote == '\'' {
+			out.WriteByte(c)
+			if c == '\'' {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\\' && i+1 < len(s) && (quote == 0 || dqEscapable(s[i+1])) {
+			out.WriteByte(c)
+			i++
+			out.WriteByte(s[i])
+			continue
+		}
+		switch {
+		case c == '\'':
+			quote = '\''
+			out.WriteByte(c)
+		case c == '"':
+			if quote == '"' {
+				quote = 0
+			} else {
+				quote = '"'
+			}
+			out.WriteByte(c)
+		case c == '$' && i+1 < len(s) && s[i+1] == '(':
+			if end := matchParen(s, i+1); end >= 0 {
+				subs = append(subs, s[i+2:end])
+				i = end
+				out.WriteByte(' ')
+				continue
+			}
+			out.WriteByte(c)
+		case c == '`':
+			if end := matchBacktick(s, i); end >= 0 {
+				subs = append(subs, s[i+1:end])
+				i = end
+				out.WriteByte(' ')
+				continue
+			}
+			out.WriteByte(c)
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String(), subs
+}
+
+// matchParen returns the index of the `)` matching the `(` at s[open], or -1; nested parens/quotes count.
+func matchParen(s string, open int) int {
+	depth, quote := 0, byte(0)
+	for i := open; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// matchBacktick returns the index of the closing backtick matching s[start], or -1; quotes inside count.
+func matchBacktick(s string, start int) int {
+	quote := byte(0)
+	for i := start + 1; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '\\':
+			if i+1 < len(s) {
+				i++
+			}
+		case '`':
+			return i
+		}
+	}
+	return -1
+}
+
 // shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func shellSegments(cmd string) []string {
 	var out []string
@@ -405,6 +523,8 @@ func shellTokens(seg string) []string {
 			started = true
 		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
 			flush()
+		case c == ')' || c == '}':
+			flush() // unquoted close of a subshell/group: a word boundary, never part of the word
 		default:
 			b.WriteByte(c)
 			started = true
@@ -412,7 +532,8 @@ func shellTokens(seg string) []string {
 	}
 	flush()
 	if len(out) > 0 {
-		if out[0] = strings.TrimLeft(out[0], "({"); out[0] == "" {
+		out[0] = strings.TrimLeft(out[0], "({")
+		if out[0] == "" {
 			out = out[1:]
 		}
 	}
