@@ -80,7 +80,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Capture a session's corrections into rules | `/reflection:remember <fact>` then `/reflection:promote <id> --to rules` (routing table: `skills/reflection/references/promote.md`) | `rules/workflow/memory-consolidation.md` |
 | Audit / recall / remember / promote / save / consolidate memory | `/reflection:review` · `:recall` · `:remember` · `:promote` · `:update` · `:dream` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
-| Route a task to the cheapest capable leg | `/workflow:route --kind sweep\|review\|mechanical\|reasoning` | `rules/workflow/agents.md` |
+| Route a task to the cheapest capable leg | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `claude-code gemini bridge` / `ask --agent <leg>` | `skills/subagent-workflows/references/cost-routing.md` |
 | Scan the config surface / MCP for leaked credentials | `claude-code secrets scan` · `claude-code mcp doctor` | `rules/standards/security.md` |
 | Everything else (configure, VS Code, tailscale, theme, history, web, …) | `claude-code describe` | `README.md` → Command reference |
 
