@@ -57,7 +57,7 @@ grep -rni "<keywords>" ~/.claude/memory/*/   # one store dir per repo
 ```
 
 Show the matching topic file(s) + `MEMORY.md` index line and confirm this is the entry to
-promote. (Run `/reflection:review --candidates` first if you need candidates.)
+promote. (Run `/reflection:review` first if you need candidates.)
 
 ### Step 2: Route to a target
 
