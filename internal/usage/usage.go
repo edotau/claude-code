@@ -79,6 +79,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	var quotas []quota
 	if *providersFlag {
 		quotas = fetchQuotas()
+		setStates(quotas, warnThreshold())
 	}
 
 	if jsonOut {
@@ -98,6 +99,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		printUsageTable(out, agg, len(files))
 	}
 	printQuotas(out, quotas)
+	printQuotaWarnings(errw, quotas)
 	return 0
 }
 
@@ -210,4 +212,17 @@ func newestModTime(dir string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("walk %s: %w", dir, err)
 	}
 	return newest, nil
+}
+
+// printQuotaWarnings prints warn/exceeded rows to errw.
+func printQuotaWarnings(errw io.Writer, qs []quota) {
+	for _, q := range qs {
+		if q.State == "warn" || q.State == "exceeded" {
+			account := q.Account
+			if account == "" {
+				account = "-"
+			}
+			fmt.Fprintf(errw, "usage: %s %s at %.0f%% (%s)\n", q.Provider, account, q.UsedPct, q.State)
+		}
+	}
 }
