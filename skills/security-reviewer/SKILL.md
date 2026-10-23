@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: 'Use when reviewing code or a diff for security: secrets, injection, SSRF, auth/authorization, unsafe crypto, OWASP Top 10, auditing Claude Code config (settings.json, hooks, MCP), or auditing project dependencies for CVEs and license compliance. Triggers "security review", "review for vulnerabilities", "is this safe", "/security", "check for secrets", "OWASP", "audit dependencies", "any CVEs in our deps", "vulnerable packages", "license compliance".'
+description: 'Use when reviewing code or a diff for security: secrets, injection, SSRF, auth/authorization, unsafe crypto, OWASP Top 10, auditing harness config, or auditing project dependencies for CVEs and license compliance. Triggers "security review", "review for vulnerabilities", "is this safe", "/security", "check for secrets", "OWASP", "audit dependencies", "any CVEs in our deps", "vulnerable packages", "license compliance".'
 
 metadata:
   version: 2.0.0
