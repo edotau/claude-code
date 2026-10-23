@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
@@ -19,15 +20,15 @@ import (
 )
 
 const vaultUsage = `usage: claude-code vault <subcommand>
-show        print the vault's pins, env, overlays and key_command as JSON;
-            secrets never appear (use claude-code secrets) [--tailscale]
-set         only --tailscale: add a Tailscale credential [--api-key]
-            [--dry-run]; bare "set" points at claude-code secrets set
-edit        $VISUAL/$EDITOR on that JSON; saved in one transaction,
-            refused if the vault changed meanwhile
-rotate-key  re-seal every secret under a new master key; the old key
-            stays in the keyring [--force past an env/key_command guard]
-key show    print the master key (base64) to a pipe; refused on a TTY`
+  show        print the pins, env, overlays and key_command
+              [--format text|json] (default text on a terminal) [--tailscale]
+  set         only --tailscale: add a Tailscale credential [--api-key]
+              [--dry-run]; bare "set" points at claude-code secrets set
+  edit        $VISUAL/$EDITOR on that JSON; saved in one transaction,
+              refused if the vault changed meanwhile
+  rotate-key  re-seal every secret under a new master key; the old key
+              stays in the keyring [--force past an env/key_command guard]
+  key show    print the master key (base64) to a pipe; refused on a TTY`
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
@@ -65,6 +66,7 @@ func vaultUsageErr(sub string, args []string) int {
 func configShow(args []string) int {
 	fs := flag.NewFlagSet("vault show", flag.ContinueOnError)
 	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
+	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -74,6 +76,25 @@ func configShow(args []string) int {
 	if *ts {
 		return vaultShowTailscale()
 	}
+	f := *format
+	if f == "" {
+		f = outfmt.JSON
+		if tui.StdoutIsTerminal() {
+			f = outfmt.Text
+		}
+	}
+	if err := outfmt.Check(f); err != nil {
+		fmt.Fprintln(os.Stderr, "vault show:", err)
+		return 2
+	}
+	if f == outfmt.JSON {
+		return vaultShowJSON()
+	}
+	return vaultShowText()
+}
+
+// vaultShowJSON prints config.Export() as-is: the vault's non-secret config, byte-identical for scripts.
+func vaultShowJSON() int {
 	out, err := config.Export()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "vault show:", err)

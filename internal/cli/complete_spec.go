@@ -86,7 +86,7 @@ func buildSpecTree() map[string]*compNode {
 			"all":    {flags: []flagInfo{flag("since")}}, // forwards its args to `secrets git`
 		}},
 		"vault": {sub: map[string]*compNode{
-			"show": {flags: []flagInfo{boolFlag("tailscale")}}, "edit": {},
+			"show": {flags: []flagInfo{boolFlag("tailscale"), formatFlag()}}, "edit": {},
 			"rollback":   {flags: []flagInfo{valuedFlag("discard", secretNames)}},
 			"rotate-key": {flags: []flagInfo{boolFlag("force")}},
 			"set":        {flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"), boolFlag("dry-run")}},
