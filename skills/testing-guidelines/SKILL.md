@@ -1,13 +1,11 @@
 ---
 name: testing-guidelines
 description: >-
-  The harness's testing skill (also the "fix failing tests" loop): run it on real data first, then write tests that actually guard —
-  the import rule, proving teeth by revert-and-restore, anti-vacuity for equivalence tests,
-  reproducing the whole fault, assertions derived from the fixture; plus Given/When/Then
-  criteria, root-cause-first bug fixes, mocking at boundaries, pytest fixtures/parametrize/
-  mocking, and API/contract tests. Trigger on "write tests", "pytest", "mock", "API tests",
-  "contract test", "test this endpoint", "integration test", "does this test have teeth",
-  "would this catch a revert", "unguarded fix", or reviewing a test that accompanies a bug fix.
+  The harness's testing skill: run it on real data first, then write tests that actually guard —
+  the import rule, proving teeth by revert-and-restore, anti-vacuity, reproducing the whole
+  fault, assertions from the fixture; plus Given/When/Then, root-cause-first fixes, mocking at
+  boundaries. Trigger on "write tests", "pytest", "mock", "contract test",
+  "does this test have teeth", "would this catch a revert", "unguarded fix".
 ---
 # Testing guidelines
 

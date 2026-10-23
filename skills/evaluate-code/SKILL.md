@@ -1,6 +1,6 @@
 ---
 name: evaluate-code
-description: 'Use when reviewing code, a PR, or a diff for quality (harness variant of the built-in /code-review) — or receiving review feedback. Covers the four-principle discipline lens (think-before-coding, simplicity, surgical changes, goal-driven), a performance lens (N+1, hot paths, memory), and stdlib detectors. Triggers "review my code", "review this PR", "review my diff", "check complexity", "am I overcomplicating this", "karpathy check", "review feedback", "is this slow", "check performance", "N+1". For the security pass, see the security-reviewer skill.'
+description: 'Use when reviewing code, a PR, or a diff for quality (harness variant of the built-in /code-review). Covers the four-principle discipline lens, a performance lens, and `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "check complexity", "am I overcomplicating this", "karpathy check", "review feedback", "is this slow", "check performance", "N+1". Security: security-reviewer skill.'
 
 metadata:
   version: 3.2.0
@@ -10,14 +10,15 @@ metadata:
 
 Code **quality** review plus the discipline lens that catches how LLM-written code
 characteristically fails. **Security is a separate, parallel pass** — the `security-reviewer`
-skill owns it. The built-in `/code-review` fans out **both** (quality + security) and
-synthesizes one verdict.
+skill owns it.
 
 Pick your path:
 
 - **Reviewing a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
 - **Reviewing by hand** → [Conduct a review](#conduct-a-review) (checklist + severity).
 - **Getting review feedback** → [Receive feedback](#receive-feedback) (verify-first, no gratitude).
+- **Reviewing a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
+  checklists `agents/codex.md` runs).
 
 ## The four principles (discipline lens)
 
@@ -59,6 +60,10 @@ API another package calls) — read the producer and every consumer together and
 consumer path, not just the changed package; a seam is only verified on every caller.
 
 ## Dispatch a review
+
+The built-in `/code-review` already fans out quality and security reviewers and synthesizes
+one verdict; this skill is what the quality reviewer loads, and names which two skills own
+which half.
 
 Determine scope, then fan out **both** reviewers in parallel.
 
