@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
@@ -372,6 +374,212 @@ func TestCmdVaultKeyShowNonTTYDecodesToMasterKey(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("vault key show printed a different key than HARNESS_VAULT_KEY")
+	}
+}
+
+// TestVaultShowDefaultIsJSONUnderCaptureOutput: go test's stdout (captureOutput) is a pipe, never
+// a terminal, so the undecorated default must resolve to the json branch — byte-identical to
+// config.Export(), the contract scripts piping `vault show` depend on.
+func TestVaultShowDefaultIsJSONUnderCaptureOutput(t *testing.T) {
+	vaulttest.Use(t)
+	seedVaultShowFixture(t)
+	want, err := config.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show"}) })
+	if code != 0 {
+		t.Fatalf("vault show = %d, stderr = %q", code, stderr)
+	}
+	if stdout != string(want) {
+		t.Errorf("vault show (default, piped) = %q, want config.Export() %q", stdout, want)
+	}
+}
+
+// TestVaultShowFormatJSONMatchesExport: explicit --format json takes the same byte-identical path.
+func TestVaultShowFormatJSONMatchesExport(t *testing.T) {
+	vaulttest.Use(t)
+	seedVaultShowFixture(t)
+	want, err := config.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("vault show --format json = %d, stderr = %q", code, stderr)
+	}
+	if stdout != string(want) {
+		t.Errorf("vault show --format json = %q, want config.Export() %q", stdout, want)
+	}
+}
+
+// TestVaultShowFormatBogusExitsTwo: an unrecognized --format value is a usage error, not a crash
+// or a silent fallback.
+func TestVaultShowFormatBogusExitsTwo(t *testing.T) {
+	vaulttest.Use(t)
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "bogus"}) })
+	if code != 2 {
+		t.Fatalf("vault show --format bogus = %d, want 2; stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, `"bogus"`) {
+		t.Errorf("stderr = %q, want it to name the bad --format value", stderr)
+	}
+}
+
+// seedVaultShowFixture plants one of every doc section the text renderer must flatten: a null
+// provider (removed), a nested provider map, a top-level array, a settings subtree, and a
+// key_command — plus a secret that must never surface in either format.
+func seedVaultShowFixture(t *testing.T) {
+	t.Helper()
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
+	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keepvalue")
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"default":"anthropic","fallback":["one","two"],"providers":{"openai":null,"custom":{"models":{"opus":"m1"}}}}`)
+	vaulttest.Put(t, vault.Overlay, "vendors", `{}`)
+	vaulttest.Put(t, vault.Overlay, "settings", `{"env":{"FOO":"bar"},"flag":true}`)
+	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
+	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-secret-leak-me-not")
+}
+
+// TestVaultShowTextFixtureFlattensEverySection pins the text renderer's contract against
+// seedVaultShowFixture: uppercase headings, sorted dotted-path rows, "null (removed)" for a
+// removed built-in, "path[i]" for an array, an empty section as "(none)", and no secret value.
+func TestVaultShowTextFixtureFlattensEverySection(t *testing.T) {
+	vaulttest.Use(t)
+	seedVaultShowFixture(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+	if code != 0 {
+		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+	}
+	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"} {
+		if !strings.Contains(stdout, head+"\n") {
+			t.Errorf("stdout missing heading %q; stdout = %q", head, stdout)
+		}
+	}
+	for _, tc := range []struct{ key, value string }{
+		{"HARNESS_PROVIDER", "anthropic"}, // PINS
+		{"KEEP_ENV", "keepvalue"},         // ENV
+		{"custom.models.opus", "m1"},      // PROVIDERS nested
+		{"default", "anthropic"},          // PROVIDERS top-level sibling of providers.*
+		{"fallback[0]", "one"},            // PROVIDERS array index
+		{"fallback[1]", "two"},
+		{"openai", "null (removed)"},           // PROVIDERS removed built-in
+		{"env.FOO", "bar"},                     // SETTINGS nested
+		{"flag", "true"},                       // SETTINGS scalar
+		{"key_command", `["pass","show","x"]`}, // VAULT
+	} {
+		if !vaultTextHasRow(stdout, tc.key, tc.value) {
+			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
+		}
+	}
+	if !strings.Contains(stdout, "VENDORS\n  (none)\n") {
+		t.Errorf("stdout = %q, want VENDORS rendered as (none) for an empty overlay", stdout)
+	}
+	if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
+		t.Error("vault show --format text leaked a secret value")
+	}
+	if strings.Contains(stderr, "tvly-dev-secret-leak-me-not") {
+		t.Error("vault show --format text leaked a secret value on stderr")
+	}
+}
+
+// vaultTextHasRow reports whether the rendered table has a row for key with exactly value,
+// tolerant of the column-alignment padding (vaultSection pads keys to the widest in the section).
+func vaultTextHasRow(stdout, key, value string) bool {
+	re := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(key) + `\s\s+` + regexp.QuoteMeta(value) + `$`)
+	return re.MatchString(stdout)
+}
+
+// TestVaultShowTextEmptyVaultAllSectionsNone: a fresh vault with nothing set renders every
+// section as "(none)" rather than an empty or missing heading.
+//
+// KNOWN BUG (production code, not this test): config.Export() renders an absent providers/
+// vendors/settings overlay as the JSON literal "null", and vaultFlattenSection's emptiness
+// check (`len(strings.TrimSpace(raw)) == 0`) does not treat that 4-byte "null" as empty — it
+// unmarshals to a nil top value, which flattenVaultValue's `case nil` turns into one bogus
+// row with an EMPTY key ("" -> "null (removed)"/"null"), not the section's own "(none)". This
+// test is written to the documented contract and is expected to fail (RED) until
+// vaultFlattenSection treats a raw "null" the same as an empty/absent section.
+func TestVaultShowTextEmptyVaultAllSectionsNone(t *testing.T) {
+	vaulttest.Use(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+	if code != 0 {
+		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+	}
+	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS"} {
+		if !strings.Contains(stdout, head+"\n  (none)\n") {
+			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
+		}
+	}
+	if !strings.Contains(stdout, "VAULT\n  key_command  (none)\n") {
+		t.Errorf("stdout = %q, want VAULT's key_command row to read (none)", stdout)
+	}
+}
+
+// TestVaultShowTextTruncatesToWidth: a row longer than $COLUMNS is clipped to that many runes and
+// ends in the ellipsis, rather than wrapping or overflowing the terminal.
+func TestVaultShowTextTruncatesToWidth(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Env, "LONG_ENV_NAME_FOR_WIDTH_TEST", strings.Repeat("x", 200))
+	t.Setenv("COLUMNS", "40")
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+	if code != 0 {
+		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+	}
+	for _, line := range strings.Split(stdout, "\n") {
+		if n := utf8.RuneCountInString(line); n > 40 {
+			t.Errorf("line %q is %d runes, want <= 40 (COLUMNS)", line, n)
+		}
+	}
+	found := false
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.Contains(line, "LONG_ENV_NAME_FOR_WIDTH_TEST") && strings.HasSuffix(line, "…") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("stdout = %q, want the over-width row clipped with an ellipsis", stdout)
+	}
+}
+
+// usageRow mirrors internal/helptext's unexported row/isRow matcher — kept in sync by hand; if
+// helptext's own regex changes, this test and the real painter can drift apart.
+var usageRow = regexp.MustCompile(`^(\s{2,})(\S.*?)(\s{2,}\S.*)?$`)
+
+func isUsageRow(l string) bool {
+	m := usageRow.FindStringSubmatch(l)
+	if m == nil || len(m[1]) > 4 {
+		return false
+	}
+	return m[3] != "" || strings.HasPrefix(m[2], "-")
+}
+
+// TestVaultUsageRowsMatchHelptextRowRegex: every line naming a subcommand (indent <= 4, helptext's
+// own cutoff) must satisfy helptext's row matcher, or the gradient paint silently skips it. A
+// wrapped continuation line (indent > 4, no column of its own) carries no label and is exempt.
+func TestVaultUsageRowsMatchHelptextRowRegex(t *testing.T) {
+	lines := strings.Split(vaultUsage, "\n")
+	if len(lines) < 2 {
+		t.Fatal("vaultUsage has no subcommand lines")
+	}
+	sawRow := false
+	for _, l := range lines[1:] {
+		m := usageRow.FindStringSubmatch(l)
+		if m == nil {
+			t.Errorf("vaultUsage line %q does not even match the indented-line shape", l)
+			continue
+		}
+		if len(m[1]) > 4 {
+			continue // wrapped continuation line, no label column of its own
+		}
+		if !isUsageRow(l) {
+			t.Errorf("vaultUsage line %q does not match helptext's row regex; it will not be painted", l)
+			continue
+		}
+		sawRow = true
+	}
+	if !sawRow {
+		t.Fatal("vaultUsage has no line helptext would paint as a row")
 	}
 }
 
