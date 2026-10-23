@@ -25,9 +25,9 @@ INTENT: code does <X>; the failing check/task expects <Y>; the spec (README/docs
 You must actually **open** the README/docs/docstring to fill `<Z>`. "There is no spec" is a valid
 `<Z>` only after looking.
 
-**If X, Y, and Z do not all agree, do not edit.** The disagreement is the real finding (Step 2
-rule 7): surface it, say which side you trust and why, and never silently make one side match
-another.
+**If Y and Z disagree, do not edit.** X differing from an agreed Y and Z is an ordinary bug — fix
+the code. A check and a spec that disagree is the real finding (Step 2 rule 7): surface it, say
+which side you trust and why, and never silently make one side match another.
 
 **Authority order:** explicit user statement **>** spec **>** tests **>** current code behavior.
 
@@ -74,7 +74,7 @@ Then fix them or list them. A completeness claim with no search behind it is cos
 
 ```text
 TWINS: searched `os.Getenv("DATABRICKS_CONFIG_PROFILE")` — found 2 other sites:
-       internal/provider/provider.go:88, internal/cli/activate.go:41
+       internal/provider/provider.go:88, internal/cli/activate.go:41   (illustrative paths)
 ```
 
 ## PENDING — a prescribed follow-up you deliberately skipped
@@ -88,7 +88,7 @@ restart, regenerate) and you deliberately did not take it. No prescribed-but-unt
 no line.
 
 ```text
-PENDING: make setup-global to regenerate settings.json — awaiting your authorization
+PENDING: make install to regenerate settings.json — awaiting your authorization
 ```
 
 ## The artifact gate

@@ -247,3 +247,4 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | `test-and-fix-fanout` | Parallel per repo: discover → test → fix loop | 8 | `[dir…]` or `[{name, dir}…]` |
 | `dag` | Step graph: deps, skip, when; skips propagate | 6 | `{steps, maxConcurrent?}` |
 | `external-agent` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
+| `fable-eval` | A/B trap suite for `fable-method` (or any brief): executors control vs method → judge diffs the pristine copy; returns per-run scores + per-cell means | 8 (eval) | `{base, skill, scenarios?, seeds?, model?, conditions?}` |
