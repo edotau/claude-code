@@ -122,8 +122,14 @@ func planHeadings(body []byte) []planHeading {
 	return out
 }
 
-// planTitle slugs the first markdown heading, minus a redundant "Plan:" lead-in.
+// planSlugLine matches the template's "Suggested slug: `name`" line (backticks optional).
+var planSlugLine = regexp.MustCompile("(?im)^(?:suggested )?slug:\\s*`?([a-z0-9][a-z0-9-]*)`?\\s*$")
+
+// planTitle prefers an explicit slug line, else slugs the first heading minus a redundant "Plan:" lead-in.
 func planTitle(plan []byte) string {
+	if m := planSlugLine.FindSubmatch(plan); m != nil {
+		return paths.Slug(string(m[1]), "-", 60, "plan")
+	}
 	headings := planHeadings(plan)
 	if len(headings) == 0 {
 		return "plan"
@@ -199,7 +205,7 @@ var planCloseout = []string{
 	"Review (`claude-code ask --agent codex --fallback vendors`)",
 	"Full suite once",
 	"Commit + push",
-	"Handoff / `/memory:end`",
+	"Handoff / `/reflection:update`",
 }
 
 // withTasks appends a `## Tasks` checklist when the plan has none: the recovery point if a session, agent or

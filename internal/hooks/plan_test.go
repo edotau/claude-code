@@ -198,6 +198,20 @@ func TestPlanTitleSkipsFrontMatter(t *testing.T) {
 	}
 }
 
+// TestPlanTitlePrefersSlugLine: the template's "Suggested slug:" line names the file; the long H1 is only the
+// fallback (a 70-char title-derived name was the complaint).
+func TestPlanTitlePrefersSlugLine(t *testing.T) {
+	plan := "# Plan: refine fable-method against upstream v1.4.0 and push its proven artifacts\n\n" +
+		"Suggested slug: `fable-method-upstream-refine`\n\n## Context\n"
+	if got, want := planTitle([]byte(plan)), "fable-method-upstream-refine"; got != want {
+		t.Errorf("planTitle(slug line) = %q, want %q", got, want)
+	}
+	bare := "# Plan: X\n\nslug: Fable Refine\n"
+	if got, want := planTitle([]byte(bare)), "x"; got != want {
+		t.Errorf("planTitle(non-slug value) must fall back to the H1, got %q, want %q", got, want)
+	}
+}
+
 // TestPlanTitleSkipsFencedHeading: a "#" line inside a fenced code block is not an AST heading, so planTitle
 // correctly falls through to the real heading after the fence (fixed from a raw line scan).
 func TestPlanTitleSkipsFencedHeading(t *testing.T) {
