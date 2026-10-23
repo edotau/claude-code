@@ -149,6 +149,35 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		{`FOO=1 make test`, harness, false, ""},
 		// --login is a long flag distinct from -c; must not block -lc's -c recognition on this wrapper.
 		{`bash --login -c "cd ` + harness + ` && git stash"`, elsewhere, true, ""},
+		// Subshell/group forms: an unquoted trailing `)`/`}` must not glue onto the verb word.
+		{"(cd ~/.claude && git stash)", elsewhere, true, ""},
+		{"(cd ~/.claude && git restore)", elsewhere, true, ""},
+		{"(cd ~/.claude ; git stash)", elsewhere, true, ""},
+		{"((cd ~/.claude && git stash))", elsewhere, true, ""},
+		{"(cd ~/.claude && git -c x=y stash)", elsewhere, true, ""},
+		{"git -C ~/.claude stash)", elsewhere, true, ""},
+		{"pushd ~/.claude && git stash)", elsewhere, true, ""},
+		{"(cd ~/.claude && git clean -fd)", elsewhere, true, ""},
+		// Same shapes elsewhere, or with an allowed verb/word, must still proceed (path/verb-gated, not shape-gated).
+		{"(cd /tmp && git stash)", harness, false, ""},
+		{"(cd ~/.claude && git stash list)", elsewhere, false, ""},
+		{"(cd ~/.claude && ls)", elsewhere, false, ""},
+		// Quoted look-alikes: the `)` sits inside quotes, so it must stay part of the word, not a boundary.
+		{`echo "git stash)"`, harness, false, ""},
+		{`echo 'git stash)'`, harness, false, ""},
+		// Command substitutions: `$(...)` and backtick spans are pulled out and checked as their own nested
+		// command with independent cd tracking, masked from the outer segment so neighboring tokens don't glue.
+		{"`cd ~/.claude && git stash`", harness, true, ""},
+		{"`cd /tmp && git stash`", harness, false, ""},
+		{"$(cd /tmp && git stash)", harness, false, ""},
+		{"$(cd ~/.claude && git stash)", elsewhere, true, ""},
+		// A double-quoted substitution is evaluated by the shell, so it must still be checked.
+		{"echo \"`cd ~/.claude && git stash`\"", harness, true, ""},
+		// A single-quoted substitution is literal text; it must stay allowed.
+		{"echo '`cd ~/.claude && git stash`'", harness, false, ""},
+		{`echo "safe $(echo hi)"`, harness, false, ""},
+		{`echo "$(cd ~/.claude && git stash)"`, harness, true, ""},
+		{`echo "$(cd ~/.claude && git stash)"`, elsewhere, true, ""},
 	}
 	for i, c := range cases {
 		t.Run(fmt.Sprintf("%02d", i), func(t *testing.T) {
