@@ -49,7 +49,7 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 		if h.ID == "" {
 			continue // no persisted id: `memory show` has nothing to load
 		}
-		preview := recallCut(strings.Join(strings.Fields(h.Block), " "), agentRecallPreviewRunes)
+		preview := recallCut(h.Plain(), agentRecallPreviewRunes)
 		lines = append(lines, "\n- "+h.ID+" — "+preview)
 		ids = append(ids, h.ID)
 	}
