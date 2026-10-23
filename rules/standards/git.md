@@ -1,24 +1,13 @@
 # Git Workflow Standards
 
-## Core Principles
-
-1. **Conventional Commits** — every commit follows the spec below; breaking changes marked
-   explicitly (`!` after type/scope + a `BREAKING CHANGE:` body line).
-2. **Semantic Versioning** — automated from commit types: BREAKING CHANGE → MAJOR,
-   `feat` → MINOR, `fix` → PATCH.
-3. **Branch Protection** — main requires review and green quality gates; no force pushes to
-   shared branches.
-
-## Commit Message Format
-
-```text
-<type>[optional scope][!]: <description>
-
-[optional body]
-```
-
-Types: `feat` `fix` `docs` `style` `refactor` `perf` `test` `chore` `ci`.
-Scope is the package, module, or area touched (`router`, `providers`, `skills`, `docs`).
+1. **Conventional Commits** — `<type>[scope][!]: <description>` plus an optional body. Types `feat` `fix` `docs`
+   `style` `refactor` `perf` `test` `chore` `ci`; scope = the package or area; `!` plus a `BREAKING CHANGE:` body
+   line marks a break; `Fixes #42` in the body where an issue exists. **1–2 lines total**: the subject is usually
+   the whole message; a body line only for what the diff cannot show — never a change inventory.
+2. **Semantic versioning** follows the types: BREAKING CHANGE → MAJOR, `feat` → MINOR, `fix` → PATCH.
+3. **Branches**: `feature/<domain>-<component>`, `fix/<issue>-<description>`, `docs/<component>`,
+   `hotfix/<issue>-<description>`, `test/<feature>`; main is protected (review + green gates, no force push);
+   delete branches after merging.
 
 ```bash
 feat(router): fail over on 529 before the first byte
@@ -26,51 +15,11 @@ fix(providers): expand ~ in auth.file
 feat(providers)!: rename auth.cmd to auth.command   # + BREAKING CHANGE: body line
 ```
 
-Reference issue numbers in the body (`Fixes #42`) where one exists.
+**Do**: atomic commits (one logical change each); test before committing; pull before pushing; feature branches
+and PRs for shared mains (a solo repo may say otherwise in its CLAUDE.md).
+**Don't**: force-push shared branches; commit secrets; mix unrelated changes; vague messages ("fix stuff");
+skipped gates; AI-attribution footers (`Co-Authored-By: Claude`, `Generated with …`) — the committer identity
+covers it.
 
-**Length: 1–2 lines total, strictly.** The subject usually IS the whole message; add a body line only
-when it carries something the diff cannot show. No bullet lists, no change inventories, no summaries of
-what the diff already says.
-
-## Branch Naming
-
-```text
-feature/agents-<name>   feature/skills-<name>   feature/<domain>-<component>
-docs/<component>        fix/<issue>-<description>
-hotfix/<issue>-<description>   test/<feature>
-```
-
-## Do / Don't
-
-**Do**
-
-- ✅ Conventional commit format for all commits; reference issues
-- ✅ Atomic commits (one logical change each) with descriptive messages
-- ✅ Test before committing; pull before pushing
-- ✅ Feature branches for all changes; delete branches after merging
-
-**Don't**
-
-- ❌ Commit directly to a shared main — use PRs (a solo repo may say otherwise in its CLAUDE.md)
-- ❌ Force push to shared branches
-- ❌ Commit secrets or credentials
-- ❌ AI-attribution footers (`Co-Authored-By: Claude`, `Generated with …`) — the committer identity covers it
-- ❌ Mix unrelated changes in one commit
-- ❌ Vague messages ("fix stuff", "updates"); skipped quality checks
-- ❌ Leave branches unmerged for extended periods
-
-## Staging and Confirmation
-
-- Stage specific changed files by name — **never `git add -A`** (could sweep in `.env`/secrets).
-- Confirm with the user before committing.
-
-## Account Switching
-
-Switch the GitHub CLI identity with `gh auth switch --user <gh-user>`, then `gh auth status` (first 3 lines).
-With no user named, list the logged-in accounts from `gh auth status` and ask which one.
-
-## Staging Gotcha
-
-`git rm` stages the deletion immediately, and a later `git commit` (without `-a`) commits the whole
-index -- so an unrelated deletion silently rides along in the next commit. Run `git status` and inspect
-the staged set before composing atomic commits, not just the files you intend to add.
+**Stage named files only — never `git add -A`** (it sweeps `.env`/secrets); confirm with the user before
+committing. Executor mechanics (account switching, the `git rm` staging gotcha): `agents/copilot.md` → LAST-MILE.

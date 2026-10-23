@@ -95,24 +95,10 @@ Genuinely out of scope: [exceptions][discipline].
 
 ## Completion Criteria (all tasks)
 
-- [ ] All acceptance criteria satisfied with documented verification
-- [ ] Edge cases and error scenarios tested
-- [ ] Integration points validated
-- [ ] Code review completed (`/code-review` or the **evaluate-code** skill; the **security-reviewer**
-      skill via `/security-reviewer` for auth/input/API/crypto)
-- [ ] Automated tests passing; manual testing done for user-facing changes
-- [ ] Documentation updated; no broken links or missing references
-
-## Review Severity
-
-| Level | Meaning | Action |
-|-------|---------|--------|
-| CRITICAL | Security vuln or data-loss risk | **BLOCK** — must fix |
-| HIGH | Bug or significant quality issue | **WARN** — should fix |
-| MEDIUM | Maintainability concern | **INFO** — consider |
-| LOW | Style / minor | **NOTE** — optional |
-
-Approve when no CRITICAL/HIGH. Block on CRITICAL/HIGH.
+Acceptance criteria verified by observation, not assertion; review done (`/code-review`; `/security-reviewer`
+for auth/input/API/crypto); automated tests green and manual checks for user-facing changes; docs and links
+current. Full checklist and the severity scale (CRITICAL → LOW; approve when no CRITICAL/HIGH):
+`skills/evaluate-code/references/completion-criteria.md`.
 
 Fixtures From the Live Artifact: [fixture discipline][discipline].
 

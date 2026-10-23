@@ -84,10 +84,11 @@ Before ANY commit:
 
 If security issue found:
 
-1. STOP immediately
+1. STOP immediately; run this skill (`/security-reviewer`) over the affected surface
 2. Assess severity (CRITICAL/HIGH/MEDIUM/LOW)
 3. Fix CRITICAL issues before any other work
-4. Rotate any exposed secrets
-5. Review codebase for similar patterns
+4. Rotate any exposed secret — a committed secret is compromised even after removal; rotate, then scrub git
+   history
+5. Review the codebase for similar patterns (the `TWINS:` sweep)
 
 (Common false positives to rule out before flagging are listed in the parent `SKILL.md`.)

@@ -89,7 +89,7 @@ two-phase rule: `references/pr-and-api-review.md`.
 ## Conduct a review
 
 Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping are canonical in
-`rules/standards/quality.md` (Code Quality Checklist · Review Severity) — approve when no
+`rules/standards/quality.md` (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no
 CRITICAL/HIGH, block on either.
 
 **Escalate to the security pass** whenever a change touches auth, user input, DB queries,
