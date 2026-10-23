@@ -136,6 +136,56 @@ func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 	}
 }
 
+// TestContentRefStableAcrossRunsAndResolvesViaShow: an id-less block's ContentRef is identical
+// across two independent SearchBanks calls and resolves through ShowBlock; a block carrying a real
+// persisted id keeps that id rather than getting a derived ref.
+func TestContentRefStableAcrossRunsAndResolvesViaShow(t *testing.T) {
+	migrateConfig(t)
+	cutover(t)
+	repo := gitRepo(t, t.TempDir(), "widget")
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n- never stamped focus item about widgets\n")
+	write(t, filepath.Join(dir, "decisionLog.md"), "# Decisions\n\n## widget policy <!-- id:cafebabe -->\nkeep it simple\n")
+
+	first := SearchBanks(repo, "never stamped focus widgets", 0)
+	second := SearchBanks(repo, "never stamped focus widgets", 0)
+	if len(first) == 0 || len(first) != len(second) {
+		t.Fatalf("fixture produced no stable hit set: first=%#v second=%#v", first, second)
+	}
+	var ref string
+	for i, h := range first {
+		if h.Block != second[i].Block || h.ID != second[i].ID {
+			t.Fatalf("hit %d unstable across runs: %#v vs %#v", i, h, second[i])
+		}
+		if h.File == "activeContext.md" {
+			ref = h.ID
+		}
+	}
+	if ref == "" || !strings.HasPrefix(ref, contentRefPrefix) {
+		t.Fatalf("unstamped hit missing a content ref: %#v", first)
+	}
+	if _, block, err := ShowBlock(ref); err != nil || !strings.Contains(block, "widgets") {
+		t.Fatalf("ShowBlock(%s) = %q, %v; want the unstamped block", ref, block, err)
+	}
+
+	stamped := SearchBanks(repo, "widget policy keep simple", 0)
+	var sawRealID bool
+	for _, h := range stamped {
+		if h.File == "decisionLog.md" {
+			if h.ID != "cafebabe" {
+				t.Errorf("a block with a persisted id got %q instead of its own marker", h.ID)
+			}
+			sawRealID = true
+		}
+	}
+	if !sawRealID {
+		t.Fatal("decisionLog hit missing from the stamped-block search")
+	}
+}
+
 // TestDigestInputIsRawArchiveOnly: the digest reads every raw archive file but never its own output, and refuses past the cap.
 func TestDigestInputIsRawArchiveOnly(t *testing.T) {
 	migrateConfig(t)

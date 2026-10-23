@@ -329,11 +329,24 @@ func TestMemoryArchiveWritesRefusedWhilePaused(t *testing.T) {
 	}
 }
 
-// TestMemoryRecallRanksAndFormatsUnstampedHits: `memory recall` prints each hit "<id> — <title>",
-// and an unstamped hit (no persisted id) prints "(<file basename>) — <title>" instead of a bare "-".
+// TestMemoryRecallRanksAndFormatsUnstampedHits: `memory recall` prints each hit "<ref> — <title>";
+// an unstamped hit (no persisted id) prints a content-derived ref, never a bare "-", and that ref
+// resolves back through `memory show` (the point of giving every hit a ref at all).
 func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	// Cut over to the unified store: memory.ShowBlock only walks memory.StoreDir(), not the legacy
+	// pre-migration layout, so a fresh config dir needs the same marker memory's own cutover(t) writes.
+	if err := os.MkdirAll(memory.MigrateStateDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json"),
+		[]byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -358,11 +371,57 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if !strings.Contains(out, "deadbeef — ") {
 		t.Errorf("recall output missing the stamped id line: %q", out)
 	}
-	if !strings.Contains(out, "(activeContext.md) — ") {
-		t.Errorf("recall output missing the unstamped-hit file-basename format: %q", out)
-	}
 	if strings.Contains(out, "\n- —") || strings.Contains(out, "\n — ") {
 		t.Errorf("an unstamped hit printed the old bare-dash format: %q", out)
+	}
+	var contentRef string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if ref, _, ok := strings.Cut(line, " — "); ok && ref != "deadbeef" {
+			contentRef = ref
+		}
+	}
+	if contentRef == "" || !strings.HasPrefix(contentRef, "z") {
+		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
+	}
+	if _, block, err := memory.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
+		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
+	}
+}
+
+// TestMemoryRecallLoadResolvesUnstampedHitByContentRef: `memory recall --load` fetches an unstamped
+// hit's body through its derived content ref, the same path a persisted id takes.
+func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(memory.MigrateStateDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json"),
+		[]byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
+		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdMemory([]string{"recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout"})
+	})
+	if code != 0 {
+		t.Fatalf("memory recall --load: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, "never settled widget rollout detail") {
+		t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
 	}
 }
 

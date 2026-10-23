@@ -134,7 +134,7 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 		len float64
 	}
 	var docs []doc
-	df := map[string]int{}
+	groups := map[string][]int{} // bank\x00file: the segment scope lookupWeighted's compound match searches within
 	for _, hit := range blocks {
 		tf := map[string]float64{}
 		var dl float64
@@ -151,12 +151,55 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 			continue
 		}
 		docs = append(docs, doc{hit, tf, dl})
-		for t := range tf {
-			df[t]++
-		}
+		key := hit.Bank + "\x00" + hit.File
+		groups[key] = append(groups[key], len(docs)-1)
 	}
 	if len(docs) == 0 {
 		return nil
+	}
+	// weighted[i][t] mirrors segView.lookupWeighted: per doc, the max of t's own exact tf and
+	// compoundWeight times the tf of any other term in the same file containing t as a substring.
+	weighted := make([]map[string]float64, len(docs))
+	for i := range docs {
+		weighted[i] = map[string]float64{}
+	}
+	for _, idxs := range groups {
+		fileTerms := map[string]bool{}
+		for _, i := range idxs {
+			for t := range docs[i].tf {
+				fileTerms[t] = true
+			}
+		}
+		for _, qt := range qTerms {
+			for _, i := range idxs {
+				tf := docs[i].tf[qt]
+				if len(qt) >= compoundMinLen {
+					for other := range fileTerms {
+						if other != qt && strings.Contains(other, qt) {
+							if c := docs[i].tf[other] * compoundWeight; c > tf {
+								tf = c
+							}
+						}
+					}
+				}
+				if tf > 0 {
+					weighted[i][qt] = tf
+				}
+			}
+		}
+	}
+	uniq := map[string]bool{}
+	df := map[string]int{}
+	for _, qt := range qTerms {
+		if uniq[qt] {
+			continue
+		}
+		uniq[qt] = true
+		for i := range docs {
+			if weighted[i][qt] > 0 {
+				df[qt]++
+			}
+		}
 	}
 	var avgdl float64
 	for _, d := range docs {
@@ -165,11 +208,11 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 	n := float64(len(docs))
 	avgdl /= n
 	var hits []SearchHit
-	for _, d := range docs {
+	for i, d := range docs {
 		var score float64
 		matched := map[string]bool{}
 		for _, t := range qTerms {
-			tf := d.tf[t]
+			tf := weighted[i][t]
 			if tf == 0 {
 				continue
 			}
@@ -180,6 +223,9 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 		if score > 0 {
 			first, _, _ := strings.Cut(d.hit.Block, "\n")
 			d.hit.ID = BlockID(first)
+			if d.hit.ID == "" {
+				d.hit.ID = ContentRef(d.hit.Block)
+			}
 			d.hit.Score = score
 			d.hit.Matched = len(matched)
 			hits = append(hits, d.hit)

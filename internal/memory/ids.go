@@ -18,6 +18,30 @@ import (
 // idMarker is a block's persisted ID: assigned once at settle, carried by the block through edits and archive moves.
 var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
 
+// contentRefPrefix leads a derived (unpersisted) block reference; 'z' is never a hex digit, so it can
+// never collide with a real id marker — `show`/`recall --load` tell the two apart by this prefix.
+const contentRefPrefix = "z"
+
+// ContentRef derives a stable, show-able reference for a block with no persisted id marker:
+// the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
+func ContentRef(block string) string {
+	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(block), " ")))
+	return contentRefPrefix + hex.EncodeToString(sum[:4])
+}
+
+// isHex reports whether s is a non-empty run of lowercase hex digits.
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
 var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
 
@@ -65,8 +89,10 @@ func assignIDs(dir string, now time.Time) (int, error) {
 // ErrNoBlock is returned when no block in the store carries the requested ID.
 var ErrNoBlock = errors.New("no memory block with that id")
 
-// ShowBlock finds the block carrying id anywhere in the store (archives included); returns its path and text.
-func ShowBlock(id string) (string, string, error) {
+// ShowBlock finds the block carrying ref anywhere in the store (archives included); ref is either a
+// persisted `<!-- id:xxxx -->` marker or a ContentRef for a block that never got one. Returns path and text.
+func ShowBlock(ref string) (string, string, error) {
+	contentRef := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
 	var foundPath, foundBlock string
 	_ = filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
 		if err != nil || foundPath != "" {
@@ -79,12 +105,21 @@ func ShowBlock(id string) (string, string, error) {
 			return nil
 		}
 		data, err := os.ReadFile(p)
-		if err != nil || !strings.Contains(string(data), "<!-- id:"+id+" -->") {
+		if err != nil {
+			return nil
+		}
+		if !contentRef && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
 			return nil
 		}
 		_, blocks := entryBlocks(logicalName(p), string(data))
 		for _, b := range blocks {
-			if strings.Contains(b, "<!-- id:"+id+" -->") {
+			if contentRef {
+				if ContentRef(b) == ref {
+					foundPath, foundBlock = p, b
+				}
+				continue
+			}
+			if strings.Contains(b, "<!-- id:"+ref+" -->") {
 				foundPath, foundBlock = p, b
 			}
 		}

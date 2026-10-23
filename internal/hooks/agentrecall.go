@@ -23,7 +23,7 @@ const (
 const agentRecallMarker = "<memory-recall>"
 
 // agentRecall ranks root's banks against task and returns a "\n\n<memory-recall>…" block plus the ids
-// it cites, for up to 3 hits that carry a persisted id (only an id can be loaded with `memory show`);
+// it cites, for up to 3 hits (persisted id or derived ContentRef — `memory show` loads either);
 // ("", nil) on no match.
 func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	q := strings.TrimSpace(task)
@@ -46,9 +46,6 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 
 	var lines []string
 	for _, h := range hits {
-		if h.ID == "" {
-			continue // no persisted id: `memory show` has nothing to load
-		}
 		preview := recallCut(h.Plain(), agentRecallPreviewRunes)
 		lines = append(lines, "\n- "+h.ID+" — "+preview)
 		ids = append(ids, h.ID)
