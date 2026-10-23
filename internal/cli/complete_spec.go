@@ -44,7 +44,7 @@ func buildSpecTree() map[string]*compNode {
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"profile":  {args: []func() []string{providerNames}, flags: []flagInfo{formatFlag()}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
-		"generate": {flags: []flagInfo{flag("out"), flag("agents"), boolFlag("dry-run"), boolFlag("check"), boolFlag("vendors")}},
+		"generate": {flags: []flagInfo{flag("out"), flag("agents"), boolFlag("dry-run"), boolFlag("check"), boolFlag("vendors"), boolFlag("revert")}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},

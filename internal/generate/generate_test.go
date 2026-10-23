@@ -3,6 +3,7 @@ package generate
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -329,6 +330,266 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "codex: cli_auth_credentials_store already set by the user; leaving it") {
 		t.Errorf("expected the leaving-it note, got:\n%s", out.String())
+	}
+}
+
+// TestVendorBaselineSeededOnFirstWrite: with no prior baseline, the first write seeds one matching
+// exactly what was written — today's behavior, now backed by an on-disk comparison basis for next time.
+func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := os.ReadFile(vendorBaselinePath("codex", codexPath))
+	if err != nil {
+		t.Fatalf("no baseline seeded: %v", err)
+	}
+	if !bytes.Equal(base, raw) {
+		t.Errorf("seeded baseline = %q, want the written file %q", base, raw)
+	}
+}
+
+// TestVendorBaselineSeededWhenUnchanged: a file already current but with no baseline (installed before
+// baselines existed) gets one, so a later hand edit is still detected.
+func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	opts := func() Options {
+		return Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+	}
+	if _, err := Run(opts()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(vendorBaselinePath("codex", codexPath)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(opts()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(codexPath)
+	base, err := os.ReadFile(vendorBaselinePath("codex", codexPath))
+	if err != nil {
+		t.Fatalf("unchanged render seeded no baseline: %v", err)
+	}
+	if !bytes.Equal(base, raw) {
+		t.Errorf("seeded baseline = %q, want the current file %q", base, raw)
+	}
+}
+
+// TestLostLinesEmptyWhenTheirsMatchesBaseline: theirs (current file) equal to the last-written baseline
+// means the user made no local edits — no lost lines, even when the upcoming render (next) differs.
+func TestLostLinesEmptyWhenTheirsMatchesBaseline(t *testing.T) {
+	base := []byte("a\nb\nc\n")
+	theirs := base // no hand edit since the last render
+	next := []byte("a\nb\nc\nd\n")
+	if got := lostLines(theirs, base, next); got != nil {
+		t.Errorf("lostLines(theirs==base) = %v, want nil", got)
+	}
+}
+
+// TestLostLinesDetectsHandAddedLine: a line present in theirs but absent from both base and next is the
+// user's own edit, lost by the upcoming render.
+func TestLostLinesDetectsHandAddedLine(t *testing.T) {
+	base := []byte("a\nb\n")
+	theirs := []byte("a\nb\nuser-added\n")
+	next := []byte("a\nb\n")
+	got := lostLines(theirs, base, next)
+	if len(got) != 1 || got[0] != "user-added" {
+		t.Errorf("lostLines = %v, want [\"user-added\"]", got)
+	}
+}
+
+// TestLostLineNonInteractiveOverwritesWithWarning: a hand edit inside the managed banner, re-rendered
+// non-interactively (Confirm nil — matches launch/configure/make install), writes anyway and warns.
+func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(raw), `model = "gpt-5"`, `model = "gpt-5-custom"`, 1)
+	if edited == string(raw) {
+		t.Fatal("tamper anchor not found")
+	}
+	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "hand-edited line") || !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
+		t.Errorf("expected a lost-line warning naming the edited line, got:\n%s", out.String())
+	}
+	got, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "gpt-5-custom") {
+		t.Errorf("non-interactive must still overwrite the hand edit:\n%s", got)
+	}
+}
+
+// TestConfirmFalseKeepsFile: an interactive caller's Confirm declining the overwrite leaves the file
+// (and its hand edit) untouched.
+func TestConfirmFalseKeepsFile(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(codexPath)
+	edited := strings.Replace(string(raw), `model = "gpt-5"`, `model = "gpt-5-custom"`, 1)
+	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	opts := Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}
+	opts.Confirm = func(path string, lost []string) bool { return false }
+	if _, err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "kept") {
+		t.Errorf("expected a kept-your-edits note, got:\n%s", out.String())
+	}
+	got, _ := os.ReadFile(codexPath)
+	if !strings.Contains(string(got), "gpt-5-custom") {
+		t.Errorf("Confirm=false must keep the hand edit:\n%s", got)
+	}
+}
+
+// TestConfirmTrueWrites: an interactive caller's Confirm accepting the overwrite writes through,
+// same as the non-interactive path, but by explicit choice rather than by default.
+func TestConfirmTrueWrites(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(codexPath)
+	edited := strings.Replace(string(raw), `model = "gpt-5"`, `model = "gpt-5-custom"`, 1)
+	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+	opts.Confirm = func(path string, lost []string) bool { return true }
+	if _, err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(codexPath)
+	if strings.Contains(string(got), "gpt-5-custom") {
+		t.Errorf("Confirm=true must overwrite the hand edit:\n%s", got)
+	}
+}
+
+// TestCheckListsLostLinesWritesNothing: --check reports the lost line without touching the file.
+func TestCheckListsLostLinesWritesNothing(t *testing.T) {
+	home := scratch(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(codexPath)
+	edited := strings.Replace(string(raw), `model = "gpt-5"`, `model = "gpt-5-custom"`, 1)
+	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
+		t.Errorf("--check must list the lost line, got:\n%s", out.String())
+	}
+	got, _ := os.ReadFile(codexPath)
+	if !strings.Contains(string(got), "gpt-5-custom") {
+		t.Errorf("--check must not write:\n%s", got)
+	}
+}
+
+// TestVersionFilesCappedAtFive: writeVersion prunes to the newest 5 "<file>.backup.<stamp>" versions.
+// Six pre-seeded versions (distinct stamps, so pruning can't collide on a filename) plus one more
+// write must leave exactly 5 — the oldest dropped first.
+func TestVersionFilesCappedAtFive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 6; i++ {
+		stamp := fmt.Sprintf("2026010%dT000000Z", i)
+		if err := os.WriteFile(path+".backup."+stamp, []byte(stamp), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldest := path + ".backup.20260101T000000Z"
+	if err := writeVersion(path, []byte("newest")); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := versionsOf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 5 {
+		t.Fatalf("versions = %d, want 5: %v", len(versions), versions)
+	}
+	if _, err := os.Stat(oldest); !os.IsNotExist(err) {
+		t.Errorf("oldest version %s must be pruned, stat err = %v", oldest, err)
+	}
+}
+
+// TestRevertRestoresNewestThenStepsBack: --revert restores the most recent version, consumes it
+// (removes the version file), and a second --revert steps one version further back.
+func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
+	home := t.TempDir()
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current, older, newer := "current\n", "older\n", "newer\n"
+	if err := os.WriteFile(codexPath, []byte(current), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	olderPath := codexPath + ".backup.20260101T000000Z"
+	newerPath := codexPath + ".backup.20260102T000000Z"
+	if err := os.WriteFile(olderPath, []byte(older), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newerPath, []byte(newer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != newer {
+		t.Fatalf("first revert: got %q, want newest version %q", got, newer)
+	}
+	if _, err := os.Stat(newerPath); !os.IsNotExist(err) {
+		t.Errorf("newest version must be consumed, stat err = %v", err)
+	}
+
+	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(codexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != older {
+		t.Fatalf("second revert: got %q, want next-older version %q", got, older)
 	}
 }
 

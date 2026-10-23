@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/tools"
+	"github.com/edotau/claude-code/internal/tui"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 )
 
@@ -106,8 +107,12 @@ func cmdSettings(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
 	check := fs.Bool("check", false, "exit 1 if settings.json or a vendor config drifted")
 	vendors := fs.Bool("vendors", false, "render vendor configs even when CLAUDE_CONFIG_DIR is not the default ~/.claude")
+	revert := fs.Bool("revert", false, "restore vendor configs from backup (see --agents)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *revert {
+		return cmdGenerateRevert(*agents, *dryRun)
 	}
 	data, err := settings.RenderLive()
 	if err != nil {
@@ -217,7 +222,26 @@ func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*gene
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	return generate.Prepare(generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors})
+	opts := generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors}
+	// Interactive only on a real terminal write: launch/configure callers never reach this function.
+	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
+		opts.Confirm = func(path string, lost []string) bool {
+			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
+		}
+	}
+	return generate.Prepare(opts)
+}
+
+// cmdGenerateRevert handles `generate --revert [--agents a,b] [--dry-run]`.
+func cmdGenerateRevert(agents string, dryRun bool) int {
+	var vendorAgents []string
+	if agents != "" {
+		vendorAgents = strings.Split(agents, ",")
+	}
+	if err := generate.Revert(generate.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
+		return fail("generate --revert: %v", err)
+	}
+	return 0
 }
 
 // toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).
