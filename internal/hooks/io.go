@@ -239,6 +239,7 @@ var Registry = map[string]Handler{
 	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
 	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"agent-effort":        func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },
+	"agent-routed":        func(in io.Reader, _, _ io.Writer) int { return AgentRouted(in) },
 	"workflow-lint":       func(in io.Reader, out, errw io.Writer) int { return WorkflowLint(in, out, errw) },
 	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },

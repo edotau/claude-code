@@ -33,6 +33,83 @@ func runAgentEffort(t *testing.T, stdin string) (map[string]any, int) {
 	return doc.HSO.UpdatedInput, code
 }
 
+// agentEffortDoc is the full emitted payload shape, for tests asserting systemMessage and
+// additionalContext alongside updatedInput.
+type agentEffortDoc struct {
+	SystemMessage string `json:"systemMessage"`
+	HSO           struct {
+		Event             string         `json:"hookEventName"`
+		AdditionalContext string         `json:"additionalContext"`
+		UpdatedInput      map[string]any `json:"updatedInput"`
+	} `json:"hookSpecificOutput"`
+}
+
+func runAgentEffortFull(t *testing.T, stdin string) agentEffortDoc {
+	t.Helper()
+	var out bytes.Buffer
+	AgentEffort(strings.NewReader(stdin), &out)
+	var doc agentEffortDoc
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("emitted invalid JSON (%v): %q", err, out.String())
+	}
+	return doc
+}
+
+// TestAgentEffortSystemMessageAndContextBothPresent: R2 adds a top-level systemMessage beside the
+// existing additionalContext — neither replaces the other, and additionalContext keeps its own note.
+func TestAgentEffortSystemMessageAndContextBothPresent(t *testing.T) {
+	doc := runAgentEffortFull(t, `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`)
+	if want := "agent-effort: low → haiku (mechanical)"; doc.SystemMessage != want {
+		t.Errorf("systemMessage = %q, want %q", doc.SystemMessage, want)
+	}
+	if doc.HSO.AdditionalContext == "" {
+		t.Error("additionalContext must still be present alongside systemMessage")
+	}
+	if doc.HSO.UpdatedInput["model"] != "haiku" {
+		t.Errorf("updatedInput[model] = %v, want haiku", doc.HSO.UpdatedInput["model"])
+	}
+}
+
+// TestAgentEffortAppendsDecisionRow: a filled dispatch appends one decisions.jsonl row carrying the
+// tier/signal/model that fired, under a hermetic CLAUDE_CONFIG_DIR.
+func TestAgentEffortAppendsDecisionRow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	in := `{"session_id":"sess-1","tool_use_id":"tu-1","tool_name":"Agent",` +
+		`"tool_input":{"prompt":"fix the typo in the help text","subagent_type":"general-purpose"}}`
+	if got, _ := runAgentEffort(t, in); got == nil || got["model"] != "haiku" {
+		t.Fatalf("updatedInput = %v, want model=haiku", got)
+	}
+	recs := readJSONLRecords(decisionsPath())
+	if len(recs) != 1 {
+		t.Fatalf("decisions.jsonl rows = %d, want 1: %v", len(recs), recs)
+	}
+	rec := recs[0]
+	if rec["session_id"] != "sess-1" || rec["tool_use_id"] != "tu-1" || rec["tier"] != "low" ||
+		rec["signal"] != "mechanical" || rec["model"] != "haiku" || rec["decision_id"] == "" {
+		t.Errorf("decision row = %+v, want session/tool_use/tier/signal/model/decision_id filled", rec)
+	}
+}
+
+// TestAgentEffortDecisionLogFailureStillProceeds: an unwritable routing dir (CLAUDE_CONFIG_DIR points at
+// a file, not a directory) must not change the hook's exit code or its emitted stdout.
+func TestAgentEffortDecisionLogFailureStillProceeds(t *testing.T) {
+	home := t.TempDir()
+	notADir := filepath.Join(home, "blocked")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", notADir) // every state path under it fails to mkdir
+	in := `{"session_id":"sess-2","tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`
+	got, code := runAgentEffort(t, in)
+	if code != ExitProceed {
+		t.Errorf("exit = %d, want ExitProceed even when the decision log can't be written", code)
+	}
+	if got == nil || got["model"] != "haiku" {
+		t.Errorf("updatedInput = %v, want model=haiku despite the logging failure", got)
+	}
+}
+
 // The hook must never block — it is advisory plumbing, not a gate.
 func TestAgentEffortAlwaysProceeds(t *testing.T) {
 	for _, stdin := range []string{

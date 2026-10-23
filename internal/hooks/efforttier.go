@@ -36,25 +36,52 @@ var (
 	scopeRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(across|every|all|repo-wide|codebase|call ?sites|callers|everywhere|throughout)\b`)
 	})
+	// openSearchRe: the task is a hunt with no known fix target yet — needs the stronger model.
+	openSearchRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(investigate|find out|track down|root[- ]cause|debug|diagnose)\b`)
+	})
+	// liveSystemRe: anything touching a live/production system raises the bar regardless of length.
+	liveSystemRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(production|prod|live|cluster|deploy(?:ment)?|database)\b`)
+	})
 )
 
-// classifyPrompt is a cheap heuristic complexity read of the raw prompt. It must stay O(len(prompt))
-// and advisory-only: any uncertainty returns neutral so no routing hint is emitted.
-func classifyPrompt(prompt string) complexity {
+// classifyPromptSignal is a cheap O(len(prompt)) complexity read plus the rule that fired; uncertainty is neutral.
+func classifyPromptSignal(prompt string) (complexity, string) {
 	p := strings.TrimSpace(prompt)
 	if p == "" {
-		return complexityNeutral
+		return complexityNeutral, "neutral"
 	}
 	paths := filePathRe().FindAllString(p, 3)
-	if highRe().MatchString(p) || len(paths) >= 2 || isLongSpec(p) {
-		return complexityHigh
+	if m := highRe().FindString(p); m != "" {
+		return complexityHigh, "keyword:" + strings.ToLower(m)
+	}
+	if openSearchRe().MatchString(p) {
+		return complexityHigh, "open-search"
+	}
+	if liveSystemRe().MatchString(p) {
+		return complexityHigh, "live-system"
+	}
+	if len(paths) >= 2 {
+		return complexityHigh, "paths>=2"
+	}
+	if isLongSpec(p) {
+		return complexityHigh, "long-spec"
 	}
 	if len(p) < 120 && len(paths) == 0 && !strings.Contains(p, "```") {
-		if questionRe().MatchString(p) || strings.HasSuffix(p, "?") || (mechanicalRe().MatchString(p) && !scopeRe().MatchString(p)) {
-			return complexityLow
+		if questionRe().MatchString(p) || strings.HasSuffix(p, "?") {
+			return complexityLow, "question"
+		}
+		if mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
+			return complexityLow, "mechanical"
 		}
 	}
-	return complexityNeutral
+	// A single touched file plus a mechanical verb and no scope word is still a one-liner, just
+	// one that names its target — allow a longer prompt than the path-less case above.
+	if len(paths) == 1 && len(p) < 200 && mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
+		return complexityLow, "mechanical"
+	}
+	return complexityNeutral, "neutral"
 }
 
 // Effort tiers EffortTier returns; they match the Claude Code effort vocabulary (low|medium|high).
@@ -64,15 +91,23 @@ const (
 	TierHigh   = "high"
 )
 
-// EffortTier is the exported seam onto classifyPrompt (single public entry point). Neutral maps to medium.
+// EffortTier is the exported seam onto classifyPromptSignal. Neutral maps to medium.
 func EffortTier(prompt string) string {
-	switch classifyPrompt(prompt) {
+	tier, _ := EffortTierSignal(prompt)
+	return tier
+}
+
+// EffortTierSignal is EffortTier plus the short rule name that fired (e.g. "keyword:refactor",
+// "paths>=2", "open-search"), for a hook that wants to say WHY it picked a tier.
+func EffortTierSignal(prompt string) (tier, signal string) {
+	c, signal := classifyPromptSignal(prompt)
+	switch c {
 	case complexityLow:
-		return TierLow
+		return TierLow, signal
 	case complexityHigh:
-		return TierHigh
+		return TierHigh, signal
 	default:
-		return TierMedium
+		return TierMedium, signal
 	}
 }
 
