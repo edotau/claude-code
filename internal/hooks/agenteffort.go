@@ -4,12 +4,15 @@
 package hooks
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/paths"
@@ -48,7 +51,7 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	if task == "" {
 		return ExitProceed
 	}
-	tier := EffortTier(task)
+	tier, signal := EffortTierSignal(task)
 	model := tierModel[tier]
 	if model == "" {
 		return ExitProceed // a tier with no row: never emit an empty pin
@@ -64,13 +67,35 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	}
 	updated["model"] = model
 
+	appendDecision(map[string]any{
+		"decision_id":   randomHex(8),
+		"session_id":    in.SessionID,
+		"tool_use_id":   in.nested("tool_use_id"),
+		"subagent_type": in.nested("tool_input", "subagent_type"),
+		"tier":          tier,
+		"signal":        signal,
+		"model":         model,
+		"at":            time.Now().Unix(),
+	})
+
+	systemMessage := fmt.Sprintf("agent-effort: %s → %s (%s)", tier, model, signal)
 	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
-	out, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})
+	out, err := json.Marshal(map[string]any{"systemMessage": systemMessage, "hookSpecificOutput": inner})
 	if err != nil {
 		return ExitProceed
 	}
 	fmt.Fprintln(stdout, string(out))
 	return ExitProceed
+}
+
+// randomHex is a decision_id: collision-safe enough for a best-effort reconciliation log; a read
+// failure on crypto/rand (never on a real OS) falls back to a time-based id rather than an empty one.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return hex.EncodeToString([]byte(time.Now().Format("150405.000000000")))
+	}
+	return hex.EncodeToString(b)
 }
 
 // agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it

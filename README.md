@@ -221,7 +221,8 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | --- | --- | --- |
 | `bash-guard` | PreToolUse Bash | Blocks destructive commands (`rm -rf /`, force-push main, `curl \| sh`, git resets in `~/.claude`); routes noisy output through rtk |
 | `docs-placement` | PreToolUse Write/Edit | Blocks new `.md` at a repo root or ignored `docs/`; enforces the plan template |
-| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet) |
+| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); logs the decision |
+| `agent-routed` | SubagentStart | Records the subagent's actual launch model against `agent-effort`'s decision log |
 | `workflow-lint` | PreToolUse Workflow | Pins unpinned inline agents to sonnet |
 | `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 8 |
 | `subagent-stop` | SubagentStop | One simplify pass for source-editing agents |

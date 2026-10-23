@@ -19,6 +19,7 @@ const (
 	EventPreToolUse         = "PreToolUse"
 	EventPostToolUse        = "PostToolUse"
 	EventPostToolUseFailure = "PostToolUseFailure"
+	EventSubagentStart      = "SubagentStart"
 	EventSubagentStop       = "SubagentStop"
 	EventSessionStart       = "SessionStart"
 	EventUserPromptSubmit   = "UserPromptSubmit"
@@ -58,6 +59,8 @@ var Registry = []Spec{
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
+	// Records the subagent's actual launch model, reconciled against agent-effort's decision log.
+	{Name: "agent-routed", Event: EventSubagentStart, Timeout: 5, Async: true},
 	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
 	{Name: "workflow-lint", Event: EventPreToolUse, Matcher: "Workflow", Timeout: 5},
 	// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.

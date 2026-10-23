@@ -250,6 +250,18 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook agent-routed",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [
