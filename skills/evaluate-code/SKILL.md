@@ -146,6 +146,7 @@ Per mode:
 | task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
 | spec review (`../subagent-workflows/references/prompts.md#spec-reviewer`) | `SPEC_COMPLIANT \| SPEC_ISSUES` |
 | vendor diff review (`claude-code <v> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
+| work report (`../subagent-workflows/SKILL.md` → Handoff contract) | `DONE \| DONE_WITH_CONCERNS \| NEEDS_CONTEXT \| BLOCKED` |
 
 ## Receive feedback
 
