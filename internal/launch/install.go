@@ -109,23 +109,23 @@ func RouteDetail(vendor string) (detail string, ok bool) {
 		return codexRouteDetail(), true
 	case "gemini":
 		return geminiRouteDetail(), true
-	case "opencode", "copilot":
-		// fall through to the registry-dependent routes below
+	case "opencode":
+		reg, err := providers.Load()
+		if err != nil || reg == nil {
+			return "", false
+		}
+		sel, selErr := providers.Select(reg, "")
+		return opencodeRouteDetail(reg, sel, selErr), true
+	case "copilot":
+		reg, err := providers.Load()
+		if err != nil || reg == nil {
+			return "", false
+		}
+		_, selErr := providers.Select(reg, "")
+		return copilotRouteDetail(reg, selErr), true
 	default:
 		return "", false
 	}
-	reg, err := providers.Load()
-	if err != nil || reg == nil {
-		return "", false
-	}
-	sel, selErr := providers.Select(reg, "")
-	switch vendor {
-	case "opencode":
-		return opencodeRouteDetail(reg, sel, selErr), true
-	case "copilot":
-		return copilotRouteDetail(reg, selErr), true
-	}
-	return "", false
 }
 
 func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
