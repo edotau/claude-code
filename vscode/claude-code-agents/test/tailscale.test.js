@@ -8,8 +8,9 @@ const HARNESS = {
   DNSName: 'erics-macbook-pro.tailbb611b.ts.net.',
   IPs: ['100.107.35.117'],
   Peers: [
-    { DNSName: 'wks0003289670.tailbb611b.ts.net.', IPs: ['100.112.103.4'], OS: 'linux', Online: true, ExitNode: true },
-    { DNSName: 'iphone181.tailbb611b.ts.net.', IPs: ['100.105.201.90'], OS: 'iOS', Online: true, ExitNode: false },
+    { DNSName: 'wks0003289670.tailbb611b.ts.net.', IPs: ['100.112.103.4'], OS: 'linux', Online: true, ExitNode: true, ExitNodeOption: true },
+    { DNSName: 'relay.tailbb611b.ts.net.', IPs: ['100.1.1.1'], OS: 'linux', Online: false, ExitNode: false, ExitNodeOption: true },
+    { DNSName: 'iphone181.tailbb611b.ts.net.', IPs: ['100.105.201.90'], OS: 'iOS', Online: true, ExitNode: false, ExitNodeOption: false },
   ],
 };
 const CLI = {
@@ -42,10 +43,10 @@ test('argv: harness list, CLI status, set --exit-node keeps LAN access, empty cl
   assert.deepEqual(ts.setExitNodeArgs(''), ['set', '--exit-node=']);
 });
 
-test('parseHarnessStatus: only ExitNode peers, trailing dot stripped, hostName = first label', () => {
+test('parseHarnessStatus: advertised (ExitNodeOption) and in-use peers, trailing dot stripped, hostName = first label', () => {
   const s = ts.parseHarnessStatus(JSON.stringify(HARNESS));
   assert.equal(s.self, 'erics-macbook-pro.tailbb611b.ts.net');
-  assert.deepEqual(s.options.map((o) => [o.hostName, o.ip, o.online]), [['wks0003289670', '100.112.103.4', true]]);
+  assert.deepEqual(s.options.map((o) => [o.hostName, o.ip, o.online, o.selected]), [['wks0003289670', '100.112.103.4', true, true], ['relay', '100.1.1.1', false, false]]);
 });
 
 test('parseCliStatus: active exit node IP without the /32, advertised peers with selection', () => {
@@ -64,10 +65,10 @@ test('status(): merges the harness list with CLI selection; the harness binary i
   assert.deepEqual(s.options.map((o) => [o.hostName, o.selected]), [['wks0003289670', true], ['relay', false]]);
 });
 
-test('status(): CLI missing → list still works with no selection; both missing → ok:false; stopped backend → ok:false', async () => {
+test('status(): CLI missing → the harness list and its in-use flag stand alone; both missing → ok:false; stopped backend → ok:false', async () => {
   const noCli = await ts.status({ execFileImpl: fake({ 'claude-code': HARNESS }).execFileImpl });
   assert.equal(noCli.ok, true);
-  assert.equal(noCli.exitNode, null);
+  assert.equal(noCli.exitNode.hostName, 'wks0003289670');
   const none = await ts.status({ execFileImpl: fake({}).execFileImpl });
   assert.equal(none.ok, false);
   assert.match(none.message, /not found/);
