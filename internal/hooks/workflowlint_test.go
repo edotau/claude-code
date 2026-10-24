@@ -144,6 +144,30 @@ func TestWorkflowLintSavedUnpinnedBlocksAndNamesFile(t *testing.T) {
 	}
 }
 
+// A scriptPath under skills/*/scripts/ is linted exactly like one under workflows/ — the hook's
+// path resolution does not care which directory the saved script lives in.
+func TestWorkflowLintSavedUnderSkillsScriptsBlocksAndNamesFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "skills", "fable-method", "scripts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "code-evaluator.js")
+	if err := os.WriteFile(path, []byte("export const meta = { name: 'code-evaluator' }\nagent('x');\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := wfLintPayload(t, map[string]any{"scriptPath": path})
+	code, out, errb := runWorkflowLint(payload)
+	if code != ExitBlock {
+		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want empty — a saved script is never rewritten", out)
+	}
+	if !strings.Contains(errb, path) {
+		t.Errorf("stderr = %q, want it to name %q", errb, path)
+	}
+}
+
 func TestWorkflowLintSavedMissingEffortOnlyProceeds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "saved.js")
 	if err := os.WriteFile(path, []byte("agent('x', { model: 'sonnet' });\n"), 0o644); err != nil {

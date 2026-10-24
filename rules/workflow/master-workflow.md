@@ -221,4 +221,6 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | `implement-and-verify` | Parallel intel → implementer ‖ copilot → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `external-agent` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
-| `fable-eval` | A/B trap suite for `fable-method` (or any brief): executors control vs method → judge diffs the pristine copy; returns per-run scores + per-cell means | 8 (eval) | `{base, skill, scenarios?, seeds?, model?, conditions?}` |
+
+The fable-method A/B eval lives under its skill, not here: `skills/fable-method/scripts/code-evaluator.js` (run via
+`scriptPath`, never by name) — `skills/fable-method/references/eval.md`.

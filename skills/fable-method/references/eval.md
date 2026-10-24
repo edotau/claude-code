@@ -21,9 +21,9 @@ done
 # then for each run name (e.g. s2-c1, s2-m1): cp -r "$BASE/pristine/$id" "$BASE/runs/$id-c1"
 ```
 
-Invoke the Workflow tool: `fable-eval` with args `{base: "<BASE>", skill: "<SKILL.md or brief under test>",
-scenarios: ["s2","s13"], seeds: 2, model: "haiku"}`.
-A script not yet in `~/.claude/workflows/` runs via the tool's `scriptPath`.
+Invoke the Workflow tool via `scriptPath` (never by name):
+`Workflow({scriptPath: "~/.claude/skills/fable-method/scripts/code-evaluator.js", args: {base: "<BASE>",
+skill: "<SKILL.md or brief under test>", scenarios: ["s2","s13"], seeds: 2, model: "haiku"}})`.
 
 ## Scenarios
 
