@@ -143,6 +143,9 @@ func Init(root string) (string, error) {
 	if err := CheckWritable(); err != nil {
 		return "", err
 	}
+	if err := checkLegacyWritable(); err != nil {
+		return "", err
+	}
 	dir := Dir(root)
 	if CutOver() { // a new repo store needs its origin record before any file lands in it
 		d, err := EnsureRepoDir(root)

@@ -91,6 +91,15 @@ func StartupGuard() Guard {
 	return Guard{Migrated: migrated}
 }
 
+// checkLegacyWritable refuses a legacy-tree write while a live store exists with no completed journal (not a fresh box).
+func checkLegacyWritable() error {
+	if CutOver() || !StoreRepo().Exists() {
+		return nil
+	}
+	return fmt.Errorf("%w: memory store %s exists but %s holds no completed migration journal; %s is not recreated"+
+		" — restore the journals or re-run `claude-code memory migrate`", ErrMemoryPaused, StoreDir(), MigrateStateDir(), LegacyGlobalDir())
+}
+
 // CheckWritable is the one mutation gate: nil when the store accepts writes, else ErrMemoryPaused with the notice.
 func CheckWritable() error {
 	if g := StartupGuard(); g.Paused {
