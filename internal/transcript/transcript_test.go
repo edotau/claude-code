@@ -219,6 +219,22 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"echo of the quoted phrase", bashLine(`echo "git commit"`), false},
 		{"bare commit, no git", bashLine("echo commit"), false},
 		{"Edit content mentioning git commit", editLine("says git commit here"), false},
+		// Heredoc bodies: a commit mentioned only in the body text must never count as run.
+		{"quoted heredoc body", bashLine("cat <<'EOF'\ngit commit -m x\nEOF"), false},
+		{"unquoted heredoc body", bashLine("cat <<EOF\ngit commit -m x\nEOF"), false},
+		{"dash heredoc body", bashLine("cat <<-EOF\n\tgit commit -m x\n\tEOF"), false},
+		{"here-string stays false (not a heredoc body to strip)", bashLine("cat <<< 'git commit -m x'"), false},
+		// $(...)/backtick substitutions: a captured git commit still runs.
+		{"dollar-paren substitution runs commit", bashLine("x=$(git commit -m x)"), true},
+		{"backtick substitution runs commit", bashLine("x=`git commit -m x`"), true},
+		{"nested substitution runs commit", bashLine("x=$(echo $(git commit -m x))"), true},
+		{"substitution of quoted text stays false", bashLine(`x=$(echo 'git commit -m x')`), false},
+		// Short-circuit global flags: these print something and exit before any verb (incl. commit) runs.
+		{"--version short-circuits", bashLine("git --version commit"), false},
+		{"--help short-circuits", bashLine("git --help commit"), false},
+		{"-h short-circuits", bashLine("git -h commit"), false},
+		{"bare --exec-path short-circuits", bashLine("git --exec-path commit"), false},
+		{"--exec-path= supplies a value, does not short-circuit", bashLine("git --exec-path=/x commit"), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

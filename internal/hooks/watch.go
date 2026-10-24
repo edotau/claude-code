@@ -91,15 +91,34 @@ func IdleHarvestWatch(args []string, stderr io.Writer) int {
 		if err != nil {
 			return 0 // transcript gone: nothing left to harvest
 		}
-		if time.Since(fi.ModTime()) < *idle || !fi.ModTime().After(seen) {
-			continue // still active, or already evaluated at this size
+		latest := newestActivity(*tr, fi.ModTime())
+		if time.Since(latest) < *idle || !latest.After(seen) {
+			continue // still active (main or a subagent), or already evaluated at this mtime
 		}
-		seen = fi.ModTime()
+		seen = latest
 		if idleHarvestOnce(*tr, *cwd, *session, stderr) {
 			fmt.Fprintf(stderr, "memory watch: %s quiet for %s — final harvest dispatched\n", *session, idle.String())
 		}
 	}
 	return 0
+}
+
+// newestActivity is the newest mtime across the main transcript and this session's subagent transcripts
+// (<session>/subagents/agent-*.jsonl) — a subagent still appending after the parent goes idle must not
+// let the watcher treat the session as quiet.
+func newestActivity(tr string, mainMtime time.Time) time.Time {
+	latest := mainMtime
+	dir := subagentDir(tr)
+	if dir == "" {
+		return latest
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
+	for _, m := range matches {
+		if fi, err := os.Stat(m); err == nil && fi.ModTime().After(latest) {
+			latest = fi.ModTime()
+		}
+	}
+	return latest
 }
 
 // idleHarvestOnce dispatches the final harvest when the transcript holds substantive work no dispatch

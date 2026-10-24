@@ -680,8 +680,9 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	}
 }
 
-// TestCountStateOldFormatReadsAndNewFieldsRoundTrip: a pre-upgrade "edits|offset" count file still parses
-// (subEdits/subBytes default to zero), and writeCountState's 3-field format round-trips exactly.
+// TestCountStateOldFormatReadsAndNewFieldsRoundTrip: a pre-upgrade "edits|offset" count file forces a
+// full rescan from 0 (its offset sits past commit lines the old binary never weighted), and
+// writeCountState's 3-field format round-trips exactly.
 func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "count-x")
@@ -689,8 +690,8 @@ func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs, ok := readCountState(path)
-	if !ok || cs != (countState{edits: 5, offset: 120}) {
-		t.Fatalf("old-format read = %+v ok=%v", cs, ok)
+	if !ok || cs != (countState{}) {
+		t.Fatalf("old-format read = %+v ok=%v, want zero state forcing a full rescan", cs, ok)
 	}
 
 	want := countState{edits: 7, offset: 240, subEdits: 4, subBytes: 999}
@@ -698,6 +699,34 @@ func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 	got, ok := readCountState(path)
 	if !ok || got != want {
 		t.Fatalf("round trip = %+v ok=%v, want %+v", got, ok, want)
+	}
+}
+
+// TestCountEditsOldFormatCountFileRescansUnweightedCommit: an old 2-field count file's offset already sits
+// past a `git commit` the old binary never weighted. Upgrading must force a full rescan from 0 so that
+// commit is counted at CommitEditWeight, and the count file is rewritten in the new 3-field format.
+func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
+	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(t.TempDir(), "count-old")
+	// Old binary's "edits|offset": 0 edits recorded, offset past the whole (unweighted) commit line.
+	if err := os.WriteFile(countFile, []byte(fmt.Sprintf("0|%d", len(commit))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := countEdits(tr, countFile); got != harvestMinEdits {
+		t.Fatalf("countEdits after old-format upgrade = %d, want %d (the commit, now weighted)", got, harvestMinEdits)
+	}
+	raw, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 3 {
+		t.Fatalf("count file after upgrade = %q, want the 3-field format", raw)
 	}
 }
 
