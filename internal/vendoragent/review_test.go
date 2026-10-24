@@ -1,10 +1,12 @@
 package vendoragent
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -191,7 +193,7 @@ func TestReviewPromptFocusAppended(t *testing.T) {
 // for a foreground run whose lifetime ends with this call.
 func TestReviewArgsCleanupLifecycle(t *testing.T) {
 	for _, background := range []bool{false, true} {
-		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "")
+		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "")
 		if err != nil {
 			t.Fatalf("ReviewArgs(background=%v): %v", background, err)
 		}
@@ -225,7 +227,7 @@ func TestReviewArgsCleanupLifecycle(t *testing.T) {
 }
 
 func TestReviewArgsShape(t *testing.T) {
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +246,7 @@ func TestReviewArgsShape(t *testing.T) {
 }
 
 func TestReviewArgsBackgroundFlag(t *testing.T) {
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,5 +266,56 @@ func TestReviewArgsBackgroundFlag(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("args = %v, missing --background", args)
+	}
+}
+
+func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
+	// Given a rubric file; When args are built; Then "--rubric <f>" sits right before the trailing prompt
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	n := len(args)
+	if n < 3 || args[n-3] != "--rubric" || args[n-2] != "/tmp/rubric.md" || args[n-1] != ReviewPrompt(false, "") {
+		t.Errorf("args tail = %v, want [--rubric /tmp/rubric.md <prompt>]", args[max(0, n-3):])
+	}
+}
+
+func TestReviewArgsEmptyRubricEmitsNothing(t *testing.T) {
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if slices.Contains(args, "--rubric") {
+		t.Errorf("args = %v, want no --rubric", args)
+	}
+}
+
+func TestReadCappedBoundsLargeFile(t *testing.T) {
+	// Given a file larger than untrackedCap; When read; Then exactly untrackedCap bytes come back
+	path := filepath.Join(t.TempDir(), "big.bin")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("z"), untrackedCap+100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readCapped(path)
+	if err != nil || len(got) != untrackedCap {
+		t.Fatalf("readCapped = %d bytes, err %v, want %d", len(got), err, untrackedCap)
+	}
+}
+
+func TestDiffInlinesUntrackedFileCapped(t *testing.T) {
+	// Given an oversized untracked file; When Diff runs; Then it succeeds and inlines at most the cap
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), bytes.Repeat([]byte("z"), untrackedCap+100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := bytes.Count(out, []byte("z")); c != untrackedCap {
+		t.Errorf("inlined %d bytes of the untracked file, want %d", c, untrackedCap)
 	}
 }

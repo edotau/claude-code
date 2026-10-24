@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,16 +91,30 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 		if rel == "" {
 			continue
 		}
-		data, rerr := os.ReadFile(filepath.Join(cwd, rel))
+		data, rerr := readCapped(filepath.Join(cwd, rel))
 		if rerr != nil {
 			continue // vanished between listing and read; skip rather than fail the whole diff
-		}
-		if len(data) > untrackedCap {
-			data = data[:untrackedCap]
 		}
 		fmt.Fprintf(&b, "new file: %s\n%s\n", rel, data)
 	}
 	return b.String(), nil
+}
+
+// readCapped reads at most untrackedCap bytes of path without loading a larger file whole.
+func readCapped(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, untrackedCap+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > untrackedCap {
+		data = data[:untrackedCap]
+	}
+	return data, nil
 }
 
 // reviewPromptNeutral mirrors the adversarial prompt's shape with a non-adversarial brief.
@@ -128,8 +143,8 @@ func ReviewPrompt(adversarial bool, focus string) string {
 
 // ReviewArgs builds the `ask` argv for a review: the diff lands in a temp file attached via --attach.
 // cleanup removes the temp file in foreground mode; in background mode the detached child reads it, so
-// cleanup is a no-op.
-func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus string) ([]string, func(), error) {
+// cleanup is a no-op. rubric, when set, emits --rubric <f> before the trailing prompt argument.
+func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
 	f, err := os.CreateTemp("", "claude-code-review-*.diff")
 	if err != nil {
 		return nil, nil, err
@@ -146,6 +161,9 @@ func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background boo
 	args := []string{"--agent", vendor, "--fallback", agent.FallbackVendors, "--attach", f.Name()}
 	if background {
 		args = append(args, "--background")
+	}
+	if rubric != "" {
+		args = append(args, "--rubric", rubric)
 	}
 	args = append(args, ReviewPrompt(adversarial, focus))
 	cleanup := func() {}
