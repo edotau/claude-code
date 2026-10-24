@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/frontmatter"
 )
 
 // FileKind classifies one entry of a memory dir; only KindTopic may be archived, restored or re-pointed.
@@ -120,21 +118,20 @@ func hasExactEntry(dir, name string) bool {
 
 // frontmatterValue is key's value inside a closed leading `---` block; "" when absent, unclosed, or a list/map.
 func frontmatterValue(raw, key string) string {
-	fm, _ := frontmatter.Parse(raw)
-	return frontmatterScalarString(fm[key])
-}
-
-// frontmatterScalarString renders a frontmatter.Parse value back to text: Parse coerces `429`/`true` to
-// int/bool, so a scalar is re-stringified here (raw text for strings) and lists/maps are rejected as before.
-func frontmatterScalarString(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case int, bool:
-		return fmt.Sprint(t)
-	default:
+	lines := strings.Split(raw, "\n")
+	if strings.TrimSpace(lines[0]) != "---" {
 		return ""
 	}
+	value := ""
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "---" {
+			return value
+		}
+		if v, found := strings.CutPrefix(line, key+":"); found && value == "" {
+			value = strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
 }
 
 // The harness-generated region of MEMORY.md: its pointer lines are never counted, struck, moved or recorded.
