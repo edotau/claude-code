@@ -83,6 +83,13 @@ test('package.json: the Tasks page settings exist with their defaults', () => {
   }
 });
 
+test('package.json: tasksStartDefault is an ask|here|worktree enum defaulting to ask', () => {
+  const prop = findSetting('claudeCodeAgents.tasksStartDefault');
+  assert.ok(prop, 'claudeCodeAgents.tasksStartDefault setting missing');
+  assert.deepEqual(prop.enum, ['ask', 'here', 'worktree']);
+  assert.equal(prop.default, 'ask');
+});
+
 test('extension.js: settings writes keep every source — no handler hard-codes the GitHub/Bitbucket pair', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
   assert.match(src, /const TASK_SOURCES = \['jira', 'github', 'bitbucket'\];/);

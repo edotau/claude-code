@@ -20,6 +20,7 @@ const tasksJira = require('./lib/tasks-jira');
 const { MutationQueue } = require('./lib/tasks-mutations');
 const tasksBoard = require('./lib/tasks-board');
 const tailscale = require('./lib/tailscale');
+const tasksStart = require('./lib/tasks-start');
 const tasksState = require('./lib/tasks-state');
 const { renderTasksHtml, renderElsewhereHtml, renderLauncherHtml, rowCells, gridKind } = require('./lib/tasks-view');
 
@@ -326,6 +327,10 @@ class TasksViewProvider {
     this.sidebar = undefined; // the left-nav launcher view
     this.restoreTo = []; // view types to re-focus when the editor tab / window closes
     this.launcherHtml = ''; // last launcher markup, so hydration/mutation renders don't reload the launcher document
+    this.jira = { sort: (context && context.workspaceState.get('tasks.jiraSort')) || null, statuses: [], sprint: !!(context && context.workspaceState.get('tasks.jiraSprint')), favourites: [], statusOrder: {} };
+    this.worktrees = []; // `claude-code worktree list --format json` for the first workspace folder
+    this.worktreesAt = 0;
+    this.exec = (binary, argv, cwd) => runBinary(binary, [binary, ...argv], cwd); // seam for tests
     this.viewModes = (context && context.workspaceState.get('tasks.viewModes')) || {}; // source → list|board
     this.mergeMethods = {}; // repo label → {merge, squash, rebase}
     this.assignable = {}; // repo label → logins
@@ -405,12 +410,13 @@ class TasksViewProvider {
     this.detail = { id, key: item.number, data: item, tab: 'conversation', prompt };
     this.render();
     try {
-      const [conv] = await Promise.all([
+      const [conv, threads] = await Promise.all([
         tasksGithub.conversation({ repo: item.repo, number: item.number }),
+        item.type === 'pr' ? tasksGithub.reviewThreads({ repo: item.repo, number: item.number }).catch(() => []) : [],
         item.type === 'pr' && item.hydrated === false ? this.hydrate([id]) : null,
       ]);
       if (!this.detail || this.detail.id !== id) return;
-      this.detail = { ...this.detail, data: this.findItem(id) || item, conversation: conv };
+      this.detail = { ...this.detail, data: this.findItem(id) || item, conversation: conv, threads };
     } catch (err) {
       if (this.detail && this.detail.id === id) this.detail = { ...this.detail, error: tasksGithub.classifyGhError(err) };
     }
@@ -603,6 +609,42 @@ class TasksViewProvider {
     this.render();
   }
 
+  /** Jira list extras: sort, status groups (board column order when one board exists), quick-filter catalog, favourites. */
+  jiraModel(result) {
+    const items = result.items || [];
+    const projects = [...new Set(items.map((i) => i.repo && i.repo.label).filter(Boolean))];
+    for (const key of projects) if (!(key in this.jira.statusOrder)) this.loadStatusOrder(key);
+    const order = projects.length === 1 && this.jira.statusOrder[projects[0]] ? this.jira.statusOrder[projects[0]].columns.map((c) => c.name) : null;
+    const groups = this.viewMode() === 'list' && items.length ? tasksJira.groupByStatus(items.map((i) => ({ ...i, attached: tasksStart.findAttached(this.worktrees, i) })), order || undefined).filter((g) => g.rows.length) : null;
+    return {
+      jiraSort: this.jira.sort,
+      jiraStatuses: this.jira.statuses,
+      jiraSprint: this.jira.sprint,
+      jiraFavourites: this.jira.favourites,
+      jiraStatusCatalog: tasksJira.statusCatalog(items),
+      jiraGroups: groups,
+      jiraJqlPreview: this.jira.statuses.length || this.jira.sprint || this.jira.sort ? result.jql || '' : '',
+    };
+  }
+
+  loadStatusOrder(projectKey) {
+    this.jira.statusOrder[projectKey] = null; // in flight / unknown
+    this.withJiraClient((client) => client.boardStatusOrder(projectKey))
+      .then((cfg) => {
+        if (!cfg) return;
+        this.jira.statusOrder[projectKey] = cfg;
+        this.render();
+      })
+      .catch(() => {});
+  }
+
+  setJira(patch) {
+    this.jira = { ...this.jira, ...patch };
+    this.context.workspaceState.update('tasks.jiraSort', this.jira.sort);
+    this.context.workspaceState.update('tasks.jiraSprint', this.jira.sprint);
+    return this.load({ page: 1 });
+  }
+
   viewMode() {
     return this.viewModes[this.source] || config().get('tasksViewMode', 'list') || 'list';
   }
@@ -621,11 +663,16 @@ class TasksViewProvider {
   /** A board drop = the matching in-panel action; unmapped drops are refused with an inline note (Orca's rule). */
   async moveRow(id, toKey) {
     const item = this.findItem(id);
-    const col = (this.model().board || []).find((c) => c.key === toKey);
+    const targets = tasksBoard.dropTargets(this.model().board);
+    let col = targets.find((c) => c.key === toKey);
+    if (!col) {
+      const parent = (this.model().board || []).find((c) => c.key === toKey && c.sections);
+      col = parent ? targets.find((t) => t.column === parent.key) : null; // a drop on the column itself = its first section
+    }
     if (!item || !col) return;
     if (item.source === 'jira') return this.moveJira(item, col);
     if (item.source === 'github' && item.type === 'issue') {
-      if (col.key.endsWith('open')) return this.setIssueState(id, 'open');
+      if (col.key.endsWith('open')) return item.state === 'closed' ? this.setIssueState(id, 'open') : undefined;
       const reason = await vscode.window.showQuickPick([{ label: 'Close as completed', reason: 'completed' }, { label: 'Close as not planned', reason: 'not_planned' }, { label: 'Close as duplicate…', reason: 'duplicate' }], { placeHolder: `Close #${item.number}` });
       return reason ? this.setIssueState(id, 'closed', reason.reason) : undefined;
     }
@@ -679,6 +726,90 @@ class TasksViewProvider {
     return this.runMutation(item.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, () => this.withJiraClient((client) => client.transition(item.key, t.id, comment, fields)));
   }
 
+  /** Worktrees of the first workspace folder (30 s cache); `force` after a create. */
+  async refreshWorktrees(force) {
+    const dir = workspaceDir();
+    if (!dir) return (this.worktrees = []);
+    if (!force && Date.now() - this.worktreesAt < 30000) return this.worktrees;
+    try {
+      const out = await this.exec(this.cfg().binary, ['worktree', 'list', '--format', 'json'], dir);
+      const parsed = JSON.parse(out || '[]');
+      this.worktrees = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      this.worktrees = [];
+    }
+    this.worktreesAt = Date.now();
+    return this.worktrees;
+  }
+
+  /** Start/Resume (Orca's composer as QuickPicks): where (here / new worktree / attached), then a prompt template. */
+  async start(id, opts) {
+    const { fresh = false } = opts || {};
+    const item = this.findItem(id);
+    if (!item) return;
+    const cfg = this.cfg();
+    const dir = workspaceDir();
+    await this.refreshWorktrees(false);
+    const attached = tasksStart.findAttached(this.worktrees, item);
+    const label = item.source === 'jira' ? item.key : `#${item.number}`;
+    let cwd = dir;
+    let where = cfg.startDefault;
+    if (attached && !fresh) {
+      cwd = attached.Path;
+      where = 'resume';
+    } else if (where === 'ask' || !where) {
+      const name = tasksStart.worktreeNameFor(item);
+      const pick = await vscode.window.showQuickPick(
+        [
+          { id: 'here', label: '$(terminal) Open Claude here', description: dir || '' },
+          { id: 'worktree', label: `$(git-branch) Create worktree ${name}`, description: `~/worktrees/<repo>/${name}`, detail: 'claude-code worktree create, then open Claude inside it' },
+        ],
+        { placeHolder: `Start ${label}: ${item.title}` }
+      );
+      if (!pick) return;
+      where = pick.id;
+    }
+    const lastTemplate = this.context.workspaceState.get('tasks.promptTemplate') || 'implementation';
+    const template = await vscode.window.showQuickPick(
+      tasksStart.PROMPT_TEMPLATES.map((t) => ({ id: t.id, label: t.label, description: t.id === lastTemplate ? 'last used' : '', picked: t.id === lastTemplate })),
+      { placeHolder: 'Prompt template for Claude' }
+    );
+    if (!template) return;
+    this.context.workspaceState.update('tasks.promptTemplate', template.id);
+    if (where === 'worktree') {
+      const name = tasksStart.worktreeNameFor(item);
+      try {
+        await this.exec(cfg.binary, ['worktree', 'create', name], dir);
+      } catch (err) {
+        if (!/already exists|exists/i.test(err.message || '')) return vscode.window.showErrorMessage(`Claude Code Tasks: worktree create failed — ${err.message}`);
+      }
+      await this.refreshWorktrees(true);
+      const wt = this.worktrees.find((w) => (w.Path || '').replace(/[\\/]+$/, '').endsWith(`/${name}`)) || tasksStart.findAttached(this.worktrees, item);
+      if (!wt) return vscode.window.showErrorMessage(`Claude Code Tasks: worktree ${name} was not listed after creation`);
+      cwd = wt.Path;
+      this.render();
+      vscode.window.showInformationMessage(`Worktree ${name} ready`, 'Open in new window').then((choice) => {
+        if (choice) vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(cwd), { forceNewWindow: true });
+      });
+    }
+    if (!cwd) return vscode.window.showWarningMessage('Claude Code Tasks: open a folder first');
+    const promptFile = this.writePromptFile(id, tasksStart.renderPrompt(template.id, item));
+    const t = vscode.window.createTerminal({ name: `Claude · ${label}`, cwd });
+    t.sendText(tasksStart.launchCommand({ binary: cfg.binary, cwd, promptFile }));
+    t.show();
+  }
+
+  /** The prompt goes to a file under global storage so the command line never carries user text. */
+  writePromptFile(id, text) {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dir = path.join(this.context.globalStorageUri.fsPath, 'prompts');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${String(id).replace(/[^A-Za-z0-9._-]+/g, '_')}.md`);
+    fs.writeFileSync(file, `${text}\n`, 'utf8');
+    return file;
+  }
+
   /** Optimistic write through the queue; the error lands on the detail banner / row instead of a toast. */
   async runMutation(id, patch, write) {
     try {
@@ -705,6 +836,7 @@ class TasksViewProvider {
         jira: cfg.get('tasksDefaultQuery.jira') || tasksState.DEFAULT_QUERY.jira,
       },
       tailscaleBinary: cfg.get('tailscaleBinary') || 'tailscale',
+      startDefault: cfg.get('tasksStartDefault', 'ask') || 'ask',
       jiraProjects: (cfg.get('tasksJiraProjects', []) || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean),
       pageSize: Math.max(5, cfg.get('tasksPageSize', 36) || 36),
     };
@@ -843,6 +975,7 @@ class TasksViewProvider {
     const stored = this.context.workspaceState.get('tasks.githubRepos');
     [this.githubRepos, this.bitbucketRepos] = await Promise.all([discoverGitHubRepos(stored), discoverBitbucketRepos(this.dcHost())]);
     this.jiraProjects = cfg.jiraProjects;
+    await this.refreshWorktrees(true);
     if (!this.source || !cfg.visible.includes(this.source)) this.source = cfg.visible.includes(cfg.defaultSource) ? cfg.defaultSource : cfg.visible[0];
     await this.doctor();
     await Promise.all([this.load({ force: true }), this.loadBranch()]);
@@ -858,6 +991,9 @@ class TasksViewProvider {
       tailscale.status({ binary: cfg.binary, tailscaleBinary: cfg.tailscaleBinary }),
     ]);
     const failed = (r) => ({ ok: false, message: r.message || (r.reason === 'rejected' ? 'Token rejected' : 'Unreachable') });
+    if (jira.ok) {
+      this.withJiraClient((client) => client.favouriteFilters()).then((list) => { this.jira = { ...this.jira, favourites: list }; this.render(); }).catch(() => {});
+    }
     this.status = {
       github,
       bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : failed(bitbucket),
@@ -922,7 +1058,7 @@ class TasksViewProvider {
       return tasksGithub.listWorkItems({ repos, query: parsed, page, limit: cfg.pageSize });
     }
     if (source === 'jira') {
-      return this.withJiraClient((client) => tasksJira.list({ client, query: parsed, projects: this.jiraProjects, page, limit: cfg.pageSize, baseUrl: cfg.jiraBaseUrl }));
+      return this.withJiraClient((client) => tasksJira.list({ client, query: parsed, projects: this.jiraProjects, page, limit: cfg.pageSize, baseUrl: cfg.jiraBaseUrl, sort: this.jira.sort, statuses: this.jira.statuses, currentSprint: this.jira.sprint, rawQuery: query }));
     }
     return this.withClient((client) => tasksBitbucket.list({ client, query: parsed, repos: this.bitbucketRepos, page, limit: cfg.pageSize, jiraBaseUrl: cfg.jiraBaseUrl }));
   }
@@ -934,7 +1070,7 @@ class TasksViewProvider {
     const query = this.currentQuery();
     const nonce = ++this.loadNonce;
     const scopes = { github: () => this.githubRepos.filter((r) => r.selected).map((r) => r.label), bitbucket: () => this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), jira: () => this.jiraProjects };
-    const key = { source, repos: (scopes[source] || scopes.bitbucket)(), query, page };
+    const key = { source, repos: (scopes[source] || scopes.bitbucket)(), query: source === 'jira' ? `${query}|${JSON.stringify([this.jira.sort, this.jira.statuses, this.jira.sprint])}` : query, page };
     const cached = force ? null : this.cache.get(key);
     if (cached) {
       this.page = page;
@@ -1032,6 +1168,7 @@ class TasksViewProvider {
       scope: parsed.scope,
       state: parsed.state || 'all',
       presets,
+      ...(this.source === 'jira' ? this.jiraModel(result) : {}),
       activePreset: activePreset ? activePreset.id : null,
       defaultPreset: defaultPreset ? defaultPreset.id : null,
       repos,
@@ -1040,7 +1177,7 @@ class TasksViewProvider {
       loading: this.initialLoad,
       refreshing: this.refreshing,
       loadingPage: this.loadingPage,
-      items: result.items,
+      items: result.items.map((i) => ({ ...i, attached: tasksStart.findAttached(this.worktrees, i) })),
       errors: result.errors,
       failedRepos: result.failedRepos,
       hardError: this.hardError,
@@ -1053,7 +1190,7 @@ class TasksViewProvider {
       board: this.viewMode() === 'board' ? tasksBoard.groupRows(result.items, this.source, parsed.scope, { ensure: this.source === 'jira' ? [{ label: 'Done', category: 'done' }] : [] }) : null,
       pendingIds: result.items.filter((i) => this.mutations.isPending(i.id)).map((i) => i.id),
       mergeMethods: this.mergeMethods,
-      detail: this.detail ? { ...this.detail, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
+      detail: this.detail ? { ...this.detail, data: this.detail.data ? { ...this.detail.data, attached: tasksStart.findAttached(this.worktrees, this.detail.data) } : this.detail.data, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
       settings: {
         expanded: this.settingsExpanded,
         defaultSource: cfg.defaultSource,
@@ -1166,6 +1303,62 @@ class TasksViewProvider {
         if (item.source !== 'jira') return;
         return this.runMutation(msg.id, null, () => this.withJiraClient((client) => client.addComment(item.key, msg.body)));
       }
+      case 'prReady':
+      case 'prDraft': {
+        const item = this.findItem(msg.id);
+        if (!item || item.source !== 'github' || item.type !== 'pr') return;
+        const undo = msg.type === 'prDraft';
+        return this.runMutation(msg.id, { state: undo ? 'draft' : 'open' }, () => tasksGithub.setPrReady({ repo: item.repo, number: item.number, undo }));
+      }
+      case 'prClose':
+      case 'prReopen': {
+        const item = this.findItem(msg.id);
+        if (!item || item.source !== 'github' || item.type !== 'pr') return;
+        const state = msg.type === 'prReopen' ? 'open' : 'closed';
+        return this.runMutation(msg.id, { state, merge: state === 'closed' ? { state: 'closed', label: 'Closed' } : item.merge }, () => tasksGithub.setPrState({ repo: item.repo, number: item.number, state }));
+      }
+      case 'rerunChecks': {
+        const item = this.findItem(msg.id);
+        if (!item || item.source !== 'github' || !item.headSha) return;
+        const runs = (this.detail && this.detail.id === msg.id && this.detail.checks) || (await tasksGithub.checkRuns({ repo: item.repo, sha: item.headSha }));
+        return this.runMutation(msg.id, { checks: { ...(item.checks || {}), state: 'in_progress', label: 'Rerunning…' } }, async () => {
+          const r = await tasksGithub.rerunFailedChecks({ repo: item.repo, runs });
+          if (this.detail && this.detail.id === msg.id) this.detail = { ...this.detail, checks: undefined };
+          vscode.window.setStatusBarMessage(`${r.reruns} rerun${r.reruns === 1 ? '' : 's'} requested`, 3000);
+          return r;
+        });
+      }
+      case 'prTitle':
+      case 'issueTitle': {
+        const item = this.findItem(msg.id);
+        if (!item || item.source !== 'github') return;
+        const title = await vscode.window.showInputBox({ prompt: `Rename #${item.number}`, value: item.title, ignoreFocusOut: true });
+        if (!title || title.trim() === item.title) return;
+        const write = item.type === 'pr' ? () => tasksGithub.setPrTitle({ repo: item.repo, number: item.number, title: title.trim() }) : () => tasksGithub.editIssue({ repo: item.repo, number: item.number, title: title.trim() });
+        return this.runMutation(msg.id, { title: title.trim() }, write);
+      }
+      case 'resolveThread': {
+        const item = this.findItem(msg.id);
+        if (!item || !this.detail || this.detail.id !== msg.id) return;
+        const threads = (this.detail.threads || []).map((t) => (t.id === msg.threadId ? { ...t, resolved: !!msg.resolved } : t));
+        this.detail = { ...this.detail, threads };
+        return this.runMutation(msg.id, null, async () => {
+          await tasksGithub.setThreadResolved({ threadId: msg.threadId, resolved: !!msg.resolved });
+          const fresh = await tasksGithub.reviewThreads({ repo: item.repo, number: item.number }).catch(() => null);
+          if (fresh && this.detail && this.detail.id === msg.id) this.detail = { ...this.detail, threads: fresh };
+        });
+      }
+      case 'replyThread': {
+        const item = this.findItem(msg.id);
+        if (!item || !msg.body || !this.detail || this.detail.id !== msg.id) return;
+        return this.runMutation(msg.id, null, async () => {
+          const entry = await tasksGithub.replyToThread({ repo: item.repo, number: item.number, commentId: msg.commentId, body: msg.body });
+          if (this.detail && this.detail.id === msg.id) {
+            this.detail = { ...this.detail, threads: (this.detail.threads || []).map((t) => (t.comments.some((c) => c.id === String(msg.commentId)) ? { ...t, comments: [...t.comments, entry] } : t)) };
+          }
+          return entry;
+        });
+      }
       case 'tab': {
         if (!this.detail || this.detail.id !== msg.id) return;
         this.detail = { ...this.detail, tab: msg.tab === 'checks' ? 'checks' : 'conversation' };
@@ -1203,6 +1396,28 @@ class TasksViewProvider {
         return this.bringBack(msg.viewType);
       case 'viewMode':
         return this.setViewMode(msg.mode);
+      case 'sort': {
+        const cur = this.jira.sort;
+        const dir = cur && cur.field === msg.field ? (cur.dir === 'asc' ? 'desc' : 'asc') : msg.field === 'updated' || msg.field === 'priority' ? 'desc' : 'asc';
+        return this.setJira({ sort: { field: msg.field, dir } });
+      }
+      case 'statusChip': {
+        const on = this.jira.statuses.includes(msg.status);
+        return this.setJira({ statuses: on ? this.jira.statuses.filter((x) => x !== msg.status) : [...this.jira.statuses, msg.status] });
+      }
+      case 'sprint':
+        return this.setJira({ sprint: !!msg.on });
+      case 'favourite': {
+        const f = this.jira.favourites.find((x) => x.id === String(msg.id));
+        if (!f) return;
+        this.jira = { ...this.jira, statuses: [] };
+        return this.setQuery(`jql: ${f.jql}`);
+      }
+      case 'editJql': {
+        const jql = (this.result && this.result.jql) || '';
+        this.jira = { ...this.jira, statuses: [], sprint: false };
+        return this.setQuery(jql ? `jql: ${jql}` : '');
+      }
       case 'exitNode':
         return this.pickExitNode(false);
       case 'exitNodeOff':
@@ -1232,16 +1447,8 @@ class TasksViewProvider {
         await vscode.env.clipboard.writeText(msg.text || '');
         vscode.window.setStatusBarMessage(`${msg.label || 'Text'} copied`, 2000);
         return;
-      case 'start': {
-        const item = this.findItem(msg.id);
-        if (!item) return;
-        await vscode.env.clipboard.writeText(`Work on ${item.type === 'pr' ? 'PR' : 'issue'} #${item.number} "${item.title}" (${item.url})`);
-        const t = terminal();
-        t.sendText(`${cfg.binary} claude`);
-        t.show();
-        vscode.window.showInformationMessage('Task prompt copied — paste it into Claude.');
-        return;
-      }
+      case 'start':
+        return this.start(msg.id, { fresh: !!msg.fresh });
       case 'newIssue': {
         const repo = this.githubRepos.find((r) => r.selected);
         if (repo) await openExternalWeb(`https://github.com/${repo.label}/issues/new`);

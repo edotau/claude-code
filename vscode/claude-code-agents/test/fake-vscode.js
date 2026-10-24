@@ -19,6 +19,25 @@ function fakeWebview() {
 
 const state = { commands: [], panels: [], messages: [], config: {} };
 
+/** A fake integrated terminal: records sendText calls, tracked on `vscode.window.terminals`. */
+function fakeTerminal(options) {
+  const term = {
+    name: options && options.name,
+    cwd: options && options.cwd,
+    exitStatus: undefined,
+    sent: [],
+    sendText(text) {
+      term.sent.push(text);
+    },
+    show() {},
+    dispose() {
+      term.exitStatus = { code: 0 };
+    },
+  };
+  vscode.window.terminals.push(term);
+  return term;
+}
+
 function fakePanel(viewType, title) {
   const panel = {
     viewType,
@@ -43,7 +62,7 @@ function fakePanel(viewType, title) {
 const vscode = {
   ViewColumn: { Active: -1 },
   ConfigurationTarget: { Global: 1 },
-  Uri: { parse: (s) => ({ toString: () => s }) },
+  Uri: { parse: (s) => ({ toString: () => s }), file: (p) => ({ fsPath: p, toString: () => p }) },
   MarkdownString: class {
     constructor(v) {
       this.value = v;
@@ -55,12 +74,17 @@ const vscode = {
     createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {}, text: '', tooltip: '' }),
     showErrorMessage: (m) => state.messages.push(['error', m]),
     showWarningMessage: (m) => state.messages.push(['warn', m]),
-    showInformationMessage: (m) => state.messages.push(['info', m]),
+    showInformationMessage: (m, ...items) => {
+      state.messages.push(['info', m, ...items]);
+      return Promise.resolve(undefined);
+    },
     setStatusBarMessage: () => {},
     registerWebviewViewProvider: () => ({ dispose() {} }),
     createQuickPick: () => ({ show() {}, dispose() {}, onDidAccept: emitter(), onDidHide: emitter(), onDidChangeValue: emitter(), items: [] }),
     showQuickPick: async () => undefined,
     showInputBox: async () => undefined,
+    terminals: [],
+    createTerminal: (options) => fakeTerminal(options),
   },
   commands: {
     executeCommand: async (...args) => {
@@ -105,13 +129,21 @@ function fakeView(viewType, visible = true) {
 
 function fakeContext() {
   const store = new Map();
-  return { subscriptions: [], workspaceState: { get: (k) => store.get(k), update: async (k, v) => store.set(k, v) }, globalState: { get: (k) => store.get(k), update: async (k, v) => store.set(k, v) } };
+  const globalStorageUri = { fsPath: require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'claude-code-agents-test-')) };
+  return {
+    subscriptions: [],
+    globalStorageUri,
+    workspaceState: { get: (k) => store.get(k), update: async (k, v) => store.set(k, v) },
+    globalState: { get: (k) => store.get(k), update: async (k, v) => store.set(k, v) },
+  };
 }
 
 function reset() {
   state.commands.length = 0;
   state.panels.length = 0;
   state.messages.length = 0;
+  vscode.window.terminals.length = 0;
+  vscode.workspace.workspaceFolders = [];
   for (const k of Object.keys(state.config)) delete state.config[k];
 }
 

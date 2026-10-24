@@ -41,7 +41,47 @@ function freeTextClauses(freeText) {
   return clauses;
 }
 
-/** Builds JQL from the `parseTaskQuery` shape (lib/task-query.js); always ends `ORDER BY updated DESC`. */
+const SORT_FIELDS = { key: 'key', title: 'summary', status: 'status', priority: 'priority', assignee: 'assignee', updated: 'updated', created: 'created' };
+
+function orderBy(sort) {
+  const field = sort && SORT_FIELDS[sort.field] ? SORT_FIELDS[sort.field] : 'updated';
+  const dir = sort && String(sort.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  return `ORDER BY ${field} ${dir}`;
+}
+
+/** Quick-filter + sprint clauses shared by the query builder and raw JQL. */
+function extraClauses(opts) {
+  const out = [];
+  const statuses = (opts && opts.statuses) || [];
+  if (statuses.length) out.push(`status in (${statuses.map(quoteValue).join(', ')})`);
+  if (opts && opts.currentSprint) out.push('sprint in openSprints()');
+  return out;
+}
+
+/** Orca's mayBeJql: `jql:` prefix or operator shapes mean the text is JQL, not words to match. */
+function isRawJql(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (/^jql:/i.test(t)) return true;
+  return /( = | != | in \(| ~ | is empty| is null|\border by\b)/i.test(t);
+}
+
+/** Raw JQL as typed, with the quick filters AND-ed in and the sort applied (or `ORDER BY updated DESC` added). */
+function rawJql(text, opts) {
+  let body = String(text || '').trim().replace(/^jql:\s*/i, '');
+  const m = /\border by\b/i.exec(body);
+  let order = '';
+  if (m) {
+    order = body.slice(m.index).trim();
+    body = body.slice(0, m.index).trim();
+  }
+  const extras = extraClauses(opts);
+  if (extras.length) body = body ? `(${body}) AND ${extras.join(' AND ')}` : extras.join(' AND ');
+  const finalOrder = opts && opts.sort ? orderBy(opts.sort) : order || 'ORDER BY updated DESC';
+  return `${body ? `${body} ` : ''}${finalOrder}`;
+}
+
+/** Builds JQL from the `parseTaskQuery` shape (lib/task-query.js); the sort defaults to `ORDER BY updated DESC`. */
 function toJql(parsedQuery, opts) {
   const query = parsedQuery || {};
   const clauses = [];
@@ -55,7 +95,28 @@ function toJql(parsedQuery, opts) {
   clauses.push(...textClauses.map((c) => c.jql));
   const projects = (opts && opts.projects) || [];
   if (!hasProjectClause && projects.length) clauses.push(`project in (${projects.join(', ')})`);
-  return clauses.length ? `${clauses.join(' AND ')} ORDER BY updated DESC` : 'ORDER BY updated DESC';
+  clauses.push(...extraClauses(opts));
+  const order = orderBy(opts && opts.sort);
+  return clauses.length ? `${clauses.join(' AND ')} ${order}` : order;
+}
+
+const CATEGORY_RANK = { new: 0, indeterminate: 1, done: 2 };
+
+/** Statuses present in the loaded rows (Orca's "statuses come from loaded issues"), category order then name. */
+function statusCatalog(rows) {
+  const seen = new Map();
+  for (const r of rows || []) {
+    const st = r.status || {};
+    if (!st.name) continue;
+    const e = seen.get(st.name) || { name: st.name, category: st.category || '', count: 0 };
+    e.count += 1;
+    seen.set(st.name, e);
+  }
+  return [...seen.values()].sort((a, b) => (CATEGORY_RANK[a.category] ?? 9) - (CATEGORY_RANK[b.category] ?? 9) || a.name.localeCompare(b.name));
+}
+
+function groupByStatus(rows, order) {
+  return require('./tasks-board').jiraColumns(rows || [], order);
 }
 
 /** Jira issue (search/issue response) → row contract (`source: 'jira'`, `type: 'issue'`); tolerates missing nested fields. */
@@ -100,8 +161,9 @@ function mapIssue(issue, opts) {
 }
 
 /** One page of Jira rows for `query`: builds JQL, searches, shapes to the row contract. */
-async function list({ client, query, projects, page = 1, limit = 36, baseUrl }) {
-  const jql = toJql(query, { projects });
+async function list({ client, query, projects, page = 1, limit = 36, baseUrl, sort, statuses, currentSprint, rawQuery }) {
+  const opts = { projects, sort, statuses, currentSprint };
+  const jql = isRawJql(rawQuery) ? rawJql(rawQuery, opts) : toJql(query, opts);
   const result = await client.search(jql, { startAt: (page - 1) * limit, maxResults: limit });
   const total = result.total || 0;
   return {
@@ -110,6 +172,7 @@ async function list({ client, query, projects, page = 1, limit = 36, baseUrl }) 
     totalPages: Math.max(1, Math.ceil(total / limit)),
     failedRepos: 0,
     total,
+    jql,
   };
 }
 
@@ -203,4 +266,4 @@ function prompt(row) {
   return `Complete Jira issue ${row.key}: ${row.title}\n\n${row.url}${desc ? `\n\n${desc}` : ''}`;
 }
 
-module.exports = { toJql, mapIssue, list, classifyTransition, mapTransition, mapComment, mapDetail, branchName, prompt };
+module.exports = { toJql, isRawJql, rawJql, statusCatalog, groupByStatus, SORT_FIELDS, mapIssue, list, classifyTransition, mapTransition, mapComment, mapDetail, branchName, prompt };

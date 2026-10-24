@@ -209,3 +209,35 @@ test('renderTasksHtml includes the IntersectionObserver hydrate script posting {
   assert.ok(html.includes('IntersectionObserver'));
   assert.ok(html.includes("'hydrate'"));
 });
+
+// -- Start/Resume action button --
+
+test('actions cell: an item with no attached worktree shows an outline "Start" button', () => {
+  const item = openIssue();
+  const html = rowCells(item, baseModel(), 'issue').actions;
+  assert.match(html, /<button class="btn btn-outline" data-act="start" data-id="[^"]+"[^>]*>.*Start<\/button>/s);
+  assert.ok(!html.includes('Resume'));
+});
+
+test('actions cell: an attached item shows a solid "Resume" button naming the worktree path in its title', () => {
+  const item = { ...openIssue(), attached: { Path: '/worktrees/acme/issue-3', Branch: 'issue-3-report-bug', Exists: true } };
+  const html = rowCells(item, baseModel(), 'issue').actions;
+  assert.match(html, /<button class="btn btn-primary" data-act="start" data-id="[^"]+" title="[^"]*\/worktrees\/acme\/issue-3[^"]*"[^>]*>.*Resume<\/button>/s);
+});
+
+test('actions cell: the ⋮/chevron menu always has a startNew ("Start new workspace") item alongside Open in browser, attached or not', () => {
+  const plain = rowCells(openIssue(), baseModel(), 'issue').actions;
+  const attached = rowCells({ ...openIssue(), attached: { Path: '/wt/x', Branch: 'issue-3', Exists: true } }, baseModel(), 'issue').actions;
+  for (const html of [plain, attached]) {
+    assert.match(html, /data-act="startNew" data-id="[^"]+"[^>]*>.*Start new workspace/s);
+    assert.match(html, /data-act="open" data-url="[^"]*"[^>]*>.*Open in browser/s);
+  }
+});
+
+test('actions cell: a hydrated PR row keeps the same Start/Resume contract', () => {
+  const plain = rowCells(hydratedPr(), baseModel(), 'pr').actions;
+  assert.match(plain, /btn-outline" data-act="start"[^>]*>.*Start/s);
+  const attached = rowCells({ ...hydratedPr(), attached: { Path: '/wt/pr-2', Branch: 'pr-2-fix-thing', Exists: true } }, baseModel(), 'pr').actions;
+  assert.match(attached, /btn-primary" data-act="start"[^>]*>.*Resume/s);
+  assert.match(attached, /data-act="startNew"/);
+});
