@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // harvestTitlePrefix is the background-harvest system prompt, never a real user ask.
@@ -255,8 +256,7 @@ func scanSessionHead(path string) sessionHead {
 	return head
 }
 
-// userTurnText reads a user record's message.content, which is either a plain string or an array
-// of content blocks (the first text block wins; tool_result-only turns yield "").
+// userTurnText reads a user record's message.content: a plain string or an array of blocks (text parts concatenated).
 func userTurnText(raw json.RawMessage) string {
 	var msg struct {
 		Content json.RawMessage `json:"content"`
@@ -264,22 +264,7 @@ func userTurnText(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &msg) != nil {
 		return ""
 	}
-	var s string
-	if json.Unmarshal(msg.Content, &s) == nil {
-		return s
-	}
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(msg.Content, &blocks) == nil {
-		for _, b := range blocks {
-			if b.Type == "text" && b.Text != "" {
-				return b.Text
-			}
-		}
-	}
-	return ""
+	return transcript.ContentText(msg.Content)
 }
 
 // truncate renders s on one line, cut to n runes with an ellipsis when longer.

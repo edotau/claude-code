@@ -76,7 +76,7 @@ func SummarizeFile(path string) (*FileSummary, error) {
 	defer f.Close()
 	byID := map[string]int{}
 	var resps []response
-	eachLine(f, func(line []byte) {
+	EachLine(f, func(line []byte) {
 		var rec usageLine
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
 			return
