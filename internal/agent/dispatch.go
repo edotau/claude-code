@@ -170,6 +170,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)
 		}
 		last = fn(actx, attempt)
+		attemptErr := actx.Err()
 		cancel()
 		if last == nil {
 			return nil
@@ -177,6 +178,13 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		last.Attempts = attempt
 		if ctx.Err() != nil {
 			last.Kind = KindFatal // the caller cancelled: never retry
+			return last
+		}
+		// The attempt ran out its own AttemptTimeout (not the parent ctx): retrying would just
+		// burn another full timeout for the same stuck call, so make it terminal and say so.
+		if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
+			last.Kind = KindFatal
+			last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
 			return last
 		}
 		if !last.Retryable() || attempt == p.MaxAttempts {

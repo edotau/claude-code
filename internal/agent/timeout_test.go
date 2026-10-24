@@ -20,7 +20,8 @@ func (h *hangRunner) Run(ctx context.Context, _ Request, _ io.Writer) (Result, e
 	return Result{}, ctx.Err()
 }
 
-// A tools-on attempt that times out may have written files, so it runs once; tools-off still retries.
+// A tools-on attempt that times out may have written files, so it runs once; tools-off also runs once
+// now — any attempt that hits its OWN AttemptTimeout is terminal (Do never retries it), regardless of Tools.
 func TestTimedOutToolsRunIsNotRetried(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -31,8 +32,8 @@ func TestTimedOutToolsRunIsNotRetried(t *testing.T) {
 		t.Fatalf("tools on: calls=%d err=%v", h.calls, err)
 	}
 	h = &hangRunner{}
-	_, _ = Run(context.Background(), h, Request{Prompt: "p", Timeout: 20 * time.Millisecond}, io.Discard, nil)
-	if h.calls < 2 {
-		t.Errorf("tools off: a timeout is transient and should retry, calls=%d", h.calls)
+	_, err = Run(context.Background(), h, Request{Prompt: "p", Timeout: 20 * time.Millisecond}, io.Discard, nil)
+	if !errors.As(err, &e) || e.Kind != KindFatal || h.calls != 1 {
+		t.Errorf("tools off: attempt's own timeout must not retry either, calls=%d err=%v", h.calls, err)
 	}
 }

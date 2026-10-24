@@ -208,6 +208,27 @@ func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
 	}
 }
 
+// TestAPIRunnerPassthroughBadAttachStillDelegates proves attachInline moved to AFTER the passthrough
+// branch: a bad Attach path must not make api fail before delegating — the error, when one occurs, must
+// come from claudeRunner's own attachInline call, not from api short-circuiting on the bad path itself.
+func TestAPIRunnerPassthroughBadAttachStillDelegates(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	req := Request{Prompt: "x", Provider: "subscription", Attach: []string{filepath.Join(t.TempDir(), "does-not-exist")}}
+
+	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)
+	if directErr == nil {
+		t.Fatal("claudeRunner.Run must fail on a bad Attach path for this test to prove anything")
+	}
+
+	res, err := apiRunner{}.Run(context.Background(), req, io.Discard)
+	if res.Fallback != "api" {
+		t.Errorf("res.Fallback = %q, want %q: delegation must still happen despite the bad Attach path", res.Fallback, "api")
+	}
+	if err == nil || err.Error() != directErr.Error() {
+		t.Errorf("err = %v, want claude's own attachInline error verbatim: %v", err, directErr)
+	}
+}
+
 // Available is request-agnostic: a missing claude binary must not block an explicit keyed --provider.
 func TestAPIRunnerAvailableIgnoresClaudeBinary(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
