@@ -197,6 +197,19 @@ func bashLine(cmd string) string {
 	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":%q}}]}}`, cmd)
 }
 
+// quoteArg wraps s in double quotes, escaping backslashes and quotes so it survives one more
+// pass of commitShellTokens as a literal -c argument (mirrors real shell double-quote escaping).
+func quoteArg(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// bashCWrap wraps inner as the quoted argument of a fresh `bash -c` layer.
+func bashCWrap(inner string) string {
+	return "bash -c " + quoteArg(inner)
+}
+
 // editLine builds a single-tool_use assistant Edit record whose old_string is oldStr.
 func editLine(oldStr string) string {
 	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go","old_string":%q}}]}}`, oldStr)
@@ -264,6 +277,28 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"--super-prefix= form", bashLine("git --super-prefix=foo commit -m x"), true},
 		{"--config-env space form", bashLine("git --config-env foo commit -m x"), true},
 		{"--config-env= form", bashLine("git --config-env=foo commit -m x"), true},
+		// Backslash escapes and line continuations (R2): an escaped quote never closes early, and
+		// `\`+newline joins the next line into the same segment.
+		{"backslash-escaped quote keeps the segment open", bashLine(`echo "a \"; git commit"`), false},
+		{"backslash-newline continuation", bashLine("git \\\ncommit -m x"), true},
+		// `bash`/`sh`/`zsh -c "<script>"` (R2): the quoted script runs as a fresh shell command line,
+		// bounded by maxShellRecursionDepth so nesting it past the cap never counts and never hangs.
+		{"bash -c wraps a commit", bashLine(`bash -c "git commit -m x"`), true},
+		{"sh -c wraps a commit", bashLine(`sh -c "git commit -m x"`), true},
+		{"zsh -c wraps a commit", bashLine(`zsh -c "git commit -m x"`), true},
+		{"/bin/bash -c wraps a commit", bashLine(`/bin/bash -c "git commit -m x"`), true},
+		{"sh -c with only a quoted mention", bashLine(`sh -c "echo git commit"`), false},
+		{"nested bash -c two layers deep still counts", bashLine(bashCWrap(bashCWrap("git commit -m x"))), true},
+		{
+			"nested bash -c four layers deep exceeds the cap",
+			bashLine(bashCWrap(bashCWrap(bashCWrap(bashCWrap("git commit -m x"))))),
+			false,
+		},
+		// `git -c alias.<name>=commit <name>` (R2): the alias must resolve to exactly `commit`, and the
+		// invoked verb must match the alias name, not just any alias being present.
+		{"alias.ci=commit, invoked as ci", bashLine("git -c alias.ci=commit ci -m x"), true},
+		{"alias.ci=status, invoked as ci", bashLine("git -c alias.ci=status ci -m x"), false},
+		{"alias.ci=commit, invoked as status", bashLine("git -c alias.ci=commit status -m x"), false},
 		// Non-edit, non-commit lines must contribute 0 (no accidental decode-time double count).
 		{"Read line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.go"}}]}}`, false},
 		{"Grep line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"commit"}}]}}`, false},
