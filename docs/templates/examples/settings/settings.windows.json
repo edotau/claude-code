@@ -28,6 +28,12 @@
   },
   "permissions": {
     "defaultMode": "auto",
+    "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Read(*)",
+      "Write(*)"
+    ],
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
