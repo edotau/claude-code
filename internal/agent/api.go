@@ -32,15 +32,12 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	if err != nil {
 		return Result{}, err
 	}
-	prompt, err := attachInline(req.Prompt, req.Attach)
-	if err != nil {
-		return Result{}, err
-	}
 	p := t.Provider
 	res := Result{Provider: p.Name, Model: t.Model}
 	if p.Auth.Type == providers.AuthPassthrough {
 		// No API key to call the vendor directly: delegate to claude in tool-less one-shot mode, same
 		// prompt/model/effort, so dispatchers picking "api" off passthrough providers still get an answer.
+		// claude handles req.Attach itself; inlining it here would fail the call before delegation.
 		dres, derr := claudeRunner{}.Run(ctx, req, stream)
 		dres.Agent = claudeRunner{}.Name()
 		if dres.Provider == "" {
@@ -51,6 +48,10 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 		}
 		dres.Fallback, dres.FallbackReason = "api", fmt.Sprintf("provider %s uses passthrough (subscription) auth; ran via claude instead", p.Name)
 		return dres, derr
+	}
+	prompt, err := attachInline(req.Prompt, req.Attach)
+	if err != nil {
+		return Result{}, err
 	}
 	var answer strings.Builder
 	w := io.MultiWriter(stream, &answer)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -140,8 +141,10 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 		<-ctx.Done()
 		return Classify("x", ctx.Err(), false)
 	})
-	if calls != 3 || e.Kind != KindTransient {
-		t.Fatalf("per-attempt timeout should retry as transient: calls=%d err=%v", calls, e)
+	// An attempt that hits its OWN AttemptTimeout is terminal, not retried: retrying would just
+	// burn another full timeout on the same stuck call.
+	if calls != 1 || e.Kind != KindFatal || !strings.Contains(e.Error(), "timed out after") || !errors.Is(e, context.DeadlineExceeded) {
+		t.Fatalf("attempt-own timeout must not retry: calls=%d err=%v", calls, e)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	calls = 0
@@ -154,6 +157,28 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 		t.Fatalf("caller cancel must stop the loop: calls=%d err=%v", calls, e)
 	}
 }
+
+// TestDoAttemptTimeoutFastTransientStillRetried: AttemptTimeout bounds a stuck call, but an attempt
+// that fails FAST (a 429, well inside the budget) is still an ordinary retryable transient failure —
+// only hitting the attempt's own deadline is terminal.
+func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
+	p := fastPolicy()
+	p.AttemptTimeout = time.Minute
+	calls := 0
+	e := Do(context.Background(), p, func(context.Context, int) *Error {
+		calls++
+		return Classify("x", &httpishError{status: 429}, false)
+	})
+	if calls != 3 || e.Kind != KindRateLimit {
+		t.Fatalf("fast 429 must still retry up to MaxAttempts: calls=%d err=%v", calls, e)
+	}
+}
+
+// httpishError implements the StatusCode() seam Classify checks before falling back to text matching.
+type httpishError struct{ status int }
+
+func (e *httpishError) Error() string   { return fmt.Sprintf("HTTP %d", e.status) }
+func (e *httpishError) StatusCode() int { return e.status }
 
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
