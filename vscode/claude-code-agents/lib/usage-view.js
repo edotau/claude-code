@@ -120,7 +120,8 @@ function renderProvider(p, show, detailed) {
         : renderUngroupedGrid(p.windows, show)
       : `<div class="windows windows-compact">${p.windows.map((w) => renderWindow(w, show, false)).join('')}</div>`
     : `<div class="provider-note">${esc(p.note || 'no data')}</div>`;
-  return `<div class="provider">
+  const muted = p.windows.length ? '' : ' provider-card-muted';
+  return `<div class="provider-card${muted}">
     <div class="provider-head">
       ${GLYPHS[p.id] || '<span class="glyph">\u25CF</span>'}
       <span class="provider-name">${esc(p.name)}</span>
@@ -348,13 +349,12 @@ function renderUsageHtml(model, opts) {
   .segmented button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
   /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
   .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .quotas-list { display: flex; flex-direction: column; gap: 10px; }
-  .provider { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); }
-  .quotas-list .provider:first-child { border-top: none; }
+  .quotas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 0 12px; }
+  .provider-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
+  .provider-card-muted { opacity: 0.7; }
   .provider-head { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
   .provider-name { font-weight: 600; flex: none; white-space: nowrap; }
   .provider-resets { color: var(--vscode-descriptionForeground); font-size: 12px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chevron { margin-left: auto; flex: none; color: var(--vscode-descriptionForeground); font-size: 16px; line-height: 1; }
   .glyph { width: 16px; text-align: center; font-size: 13px; flex: none; }
   .glyph-claude { color: #d97757; }
   .glyph-agy { color: #4b8bff; }
@@ -368,7 +368,7 @@ function renderUsageHtml(model, opts) {
   .window-pct { width: 32px; text-align: right; }
   .windows-compact { flex-direction: row; flex-wrap: wrap; gap: 10px; }
   .grouped-grid, .ungrouped-grid { margin-top: 6px; display: grid; align-items: center; gap: 6px 6px; font-size: 12px; }
-  .ungrouped-grid { grid-template-columns: auto 36px 36px; }
+  .ungrouped-grid { grid-template-columns: minmax(0,1fr) 36px 36px; }
   .grid-group-name, .grid-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--vscode-descriptionForeground); }
   .grid-col-label { grid-column: span 2; text-align: right; color: var(--vscode-descriptionForeground); }
   .grid-bar { display: inline-block; width: 36px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
@@ -388,8 +388,6 @@ function renderUsageHtml(model, opts) {
   .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
   .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .agent-compact { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; padding: 2px 0; }
-  .more-list .footer-row:first-child { border-top: none; }
-  .footer-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); cursor: pointer; }
   .api-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 12px; width: calc(100% - 24px); }
   .api-table th, .api-table td { text-align: left; padding: 2px 6px 2px 0; }
   .api-table th { color: var(--vscode-descriptionForeground); font-weight: 400; }
@@ -440,23 +438,15 @@ function renderUsageHtml(model, opts) {
   ${overviewBody}
   <div class="section-header section-header-row"><span>QUOTAS</span>
     <span class="show-toggle" role="group" aria-label="Percentages">
-      <button id="show-used" class="${show === 'used' ? 'active' : ''}" title="Show percentage used">Used</button>
-      <button id="show-left" class="${show === 'left' ? 'active' : ''}" title="Show percentage remaining">Left</button>
+      <button id="show-used" class="${show === 'used' ? 'active' : ''}" title="Show percentage used">Usage</button>
+      <button id="show-left" class="${show === 'left' ? 'active' : ''}" title="Show percentage remaining">Remaining</button>
     </span></div>
-  <div class="quotas-list">${quotasBody}</div>
+  <div class="quotas-grid">${quotasBody}</div>
   <div class="section-header">${esc(agentsHeader)}</div>
   ${agentsBody}
-  <div class="section-header">MORE</div>
-  <div class="more-list">
-  <div class="footer-row" id="accounts">
-    <span>Manage Accounts&hellip;</span>
-    <span class="chevron">\u203A</span>
-  </div>
-  </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-    document.getElementById('accounts').addEventListener('click', () => vscode.postMessage({ type: 'accounts' }));
     for (const mode of ['used', 'left']) {
       const btn = document.getElementById('show-' + mode);
       if (btn) btn.addEventListener('click', () => vscode.postMessage({ type: 'show', show: mode }));

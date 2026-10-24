@@ -86,7 +86,6 @@ class UsageViewProvider {
   }
 
   async handleMessage(msg) {
-    const binary = config().get('binary') || 'claude-code';
     if (!msg) return;
     if (msg.type === 'refresh') return this.load();
     if (msg.type === 'toggle') {
@@ -98,12 +97,6 @@ class UsageViewProvider {
       // Persisted as the usageShow setting so the status bar and every window follow the same perspective.
       await config().update('usageShow', show, vscode.ConfigurationTarget.Global);
       return this.render();
-    }
-    if (msg.type === 'accounts') {
-      const terminal = dashboardTerminal();
-      terminal.sendText(`${binary} profile`);
-      terminal.show();
-      return;
     }
   }
 
