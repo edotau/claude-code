@@ -29,7 +29,7 @@ the output against the live `settings.json` as part of Gate 3.
 
 ## Gate Loop (max 5 iterations)
 
-Scripted form: `Workflow gate-loop` (only when the user asks for one;
+Scripted form: `Workflow green-keeper-loop` (only when the user asks for one;
 `../../subagent-workflows/references/saved-workflows.md`).
 
 Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing

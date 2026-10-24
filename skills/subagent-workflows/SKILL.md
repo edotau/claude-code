@@ -10,7 +10,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Shape | Tier | Do | Depth |
 |---|---|---|---|
 | One small or tightly coupled task | TRIVIAL/LOW | Work inline | — |
-| Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow implement-and-verify` |
+| Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
 | Ordered plan, review gate per task | MEDIUM | One implementer at a time, spec → simplify → quality | [subagent-driven-development.md](references/subagent-driven-development.md) |
 | Many leaf tasks across packages | HIGH/EPIC | One Claude lane orchestrator per lane, vendor leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
 | One objective, several phases and owners | HIGH/EPIC | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |

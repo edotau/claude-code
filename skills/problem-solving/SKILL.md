@@ -25,7 +25,7 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Done criteria, gate chain, claim discipline | `references/verify.md` |
 | Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
-| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `audit-fix-verify {fix: false}` |
+| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `code-analyzer {fix: false}` |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, detectors | `evaluate-code`, `simplify`, `security-reviewer` |
 | Task-brief vetting or the final gate run on another model family | `codex` (`claude-code codex ask`, `codex review`) |
