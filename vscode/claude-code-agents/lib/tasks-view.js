@@ -874,4 +874,37 @@ function renderTasksHtml(model, opts) {
 </html>`;
 }
 
-module.exports = { renderTasksHtml, detailView, boardView, rowCells, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };
+/** What a sidebar/Panel view shows while the editor tab or floating window owns the Tasks page. */
+function renderElsewhereHtml(opts) {
+  const { floating = false, viewType = '', nonce = '', cspSource = '' } = opts || {};
+  const where = floating ? 'a separate window' : 'an editor tab';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
+<style>
+  body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; text-align: center; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button { font: inherit; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 4px 10px; cursor: pointer; border: 1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); background: none; color: var(--vscode-foreground); }
+  button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+  svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+  <div class="box" role="status">
+    <div>Tasks is open in ${where}.</div>
+    <div class="row"><button class="primary" id="back">${ICONS.chevronLeft}Bring back here</button><button id="show">${ICONS.externalLink}Show it</button></div>
+  </div>
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    document.getElementById('back').addEventListener('click', () => vscode.postMessage({ type: 'bringBack', viewType: ${JSON.stringify(viewType)} }));
+    document.getElementById('show').addEventListener('click', () => vscode.postMessage({ type: 'revealElsewhere' }));
+  </script>
+</body>
+</html>`;
+}
+
+module.exports = { renderTasksHtml, renderElsewhereHtml, detailView, boardView, rowCells, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };

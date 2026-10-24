@@ -89,3 +89,21 @@ test('extension.js: settings writes keep every source — no handler hard-codes 
   assert.doesNotMatch(src, /\['github', 'bitbucket'\]\.filter/);
   assert.doesNotMatch(src, /msg\.source === 'github' \|\| msg\.source === 'bitbucket'/);
 });
+
+test('renderElsewhereHtml: a pointer page with Bring back here / Show it, scoped to the view that asked', () => {
+  const { renderElsewhereHtml } = require('../lib/tasks-view');
+  const floating = renderElsewhereHtml({ floating: true, viewType: 'claudeCodeTasks.panel', nonce: 'n' });
+  assert.match(floating, /open in a separate window/);
+  assert.match(floating, /"claudeCodeTasks\.panel"/);
+  assert.match(floating, /type: 'bringBack'/);
+  assert.match(floating, /type: 'revealElsewhere'/);
+  assert.match(renderElsewhereHtml({ floating: false }), /open in an editor tab/);
+  assert.doesNotMatch(floating, /class="row head"/); // never a second live list
+});
+
+test('extension.js: views render the pointer page while the editor tab owns Tasks, and the dispose handler re-focuses them', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(src, /this\.panel \? renderElsewhereHtml\(/);
+  assert.match(src, /executeCommand\(`\$\{viewType\}\.focus`\)/);
+  assert.match(src, /'workbench\.action\.closePanel'/);
+});
