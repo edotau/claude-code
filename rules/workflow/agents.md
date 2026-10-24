@@ -20,9 +20,9 @@ or a Makefile target.
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
 | Explore (built-in) | Fast codebase scanning | **First step** — before planning or coding |
-| Plan | Read-only planner; overrides the built-in, the single definition of plan writing, ends every plan with `## Tasks` | Plan mode, plan-only work, MEDIUM+ before code |
-| claude | Full-lifecycle coding: architect → plan → implement → simplify → review (incl. plan-only path) | Architectural decisions, MEDIUM+ changes, plan writing, post-write review |
-| code-worker | Sonnet-tier fan-out leaf: one well-scoped task in-context, effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
+| Plan | Read-only planner; owns design and the plan template (`problem-solving` Steps 0-3), ends every plan with `## Tasks` | Plan mode, plan-only work, MEDIUM+ before code |
+| claude | Builds and manages: implement → simplify → hand review to evaluate-code; top-level orchestration | MEDIUM+ changes, multi-task plans to execute, post-write simplify |
+| code-worker | Sonnet-tier leaf: one well-scoped task in-context (`problem-solving` Steps 4-6), effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
 | copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
 | gemini | Codebase scanning on agy (Google sign-in): `ask --agent gemini --tools` or `gemini bridge` for 1M-token sweeps | Architecture, refactor impact, cross-file surveys |

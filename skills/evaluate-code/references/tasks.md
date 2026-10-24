@@ -16,10 +16,10 @@ Output:
 
 Ship verdict criteria:
 
-- Ship it — no CRITICAL/HIGH, code is meaningfully simpler, comments
+- SHIP — no CRITICAL/HIGH, code is meaningfully simpler, comments
   are concise.
-- Ship after must-fixes — small residual complexity or comment noise.
-- Needs rework — structural complexity that requires design changes.
+- FIX REQUIRED — small residual complexity or comment noise.
+- BLOCK — structural complexity that requires design changes.
 
 ## Dispatch setup
 

@@ -36,7 +36,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 3. **Surgical changes.** Touch only what the request requires; match existing style; don't refactor
    adjacent code. Remove only orphans your change created; mention pre-existing dead code.
 4. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "reproduce it, fix,
-   re-run"). Loop until verified. → 1–4 in depth: `skills/evaluate-code/references/`.
+   re-run"). Loop until verified. → 1–4 in depth: `skills/problem-solving/references/principles.md`.
 5. **Terse comments.** 1 line max, ≤120 chars, per section → `rules/standards/communication.md`.
 6. **Live check first; scoped tests while developing; the full suite once, with the user's approval.** Every
    code dispatch carries the `copilot` test agent in the same message → `rules/standards/quality.md`.
@@ -76,7 +76,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` only at wrap-up, user-approved; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; the `subagent-workflows` skill's `orchestrate.md` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `external-agent` | `rules/workflow/master-workflow.md` → Saved Workflows |
-| Run the fable-method A/B eval | `Workflow({scriptPath: "~/.claude/skills/fable-method/scripts/code-evaluator.js", args})` | `skills/fable-method/references/eval.md` |
+| Run the problem-solving A/B eval | `Workflow({scriptPath: "~/.claude/skills/problem-solving/scripts/code-evaluator.js", args})` | `skills/problem-solving/references/eval.md` |
 | Review a diff; catalog tech debt | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code` (debt: `skills/evaluate-code/references/techdebt.md`), `skills/security-reviewer` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/SKILL.md` → Test-and-fix loop |
 | Capture a session's corrections into rules | `claude-code memory remember <fact>` then `memory promote <id> --to rules` (routing table: `claude-code memory promote` procedure) | `rules/workflow/memory-consolidation.md` |

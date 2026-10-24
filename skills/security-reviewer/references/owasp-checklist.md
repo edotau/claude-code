@@ -27,6 +27,6 @@ If security issue found:
 3. Fix CRITICAL issues before any other work
 4. Rotate any exposed secret — a committed secret is compromised even after removal; rotate, then scrub git
    history
-5. Review the codebase for similar patterns (the `TWINS:` sweep)
+5. Review the codebase for similar patterns (the problem-solving `ISSUE:` sweep)
 
 (Common false positives to rule out before flagging are listed in the parent `SKILL.md`.)

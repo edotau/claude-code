@@ -147,7 +147,7 @@ func TestWorkflowLintSavedUnpinnedBlocksAndNamesFile(t *testing.T) {
 // A scriptPath under skills/*/scripts/ is linted exactly like one under workflows/ — the hook's
 // path resolution does not care which directory the saved script lives in.
 func TestWorkflowLintSavedUnderSkillsScriptsBlocksAndNamesFile(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "skills", "fable-method", "scripts")
+	dir := filepath.Join(t.TempDir(), "skills", "problem-solving", "scripts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

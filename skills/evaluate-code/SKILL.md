@@ -1,26 +1,42 @@
 ---
 name: evaluate-code
-description: 'Use when reviewing code, a PR, or a diff for quality (harness variant of the built-in /code-review). Covers the four-principle discipline lens, a performance lens, and `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "check complexity", "am I overcomplicating this", "karpathy check", "review feedback", "is this slow", "check performance", "N+1". Security: security-reviewer skill.'
+description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the problem-solving loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "check complexity", "am I overcomplicating this", "is this slow", "N+1", "tech debt". Security: security-reviewer skill.'
 
 metadata:
-  version: 3.2.0
+  version: 4.0.0
 ---
 
-# Code Review
+# Evaluate Code
 
-Code **quality** review plus the discipline lens that catches how LLM-written code
-characteristically fails. **Security is a separate, parallel pass** — the `security-reviewer`
-skill owns it.
+**Investigating and auditing existing work** — code **quality** review plus the discipline lens
+that catches how LLM-written code characteristically fails. **Security is a separate, parallel
+pass** — the `security-reviewer` skill owns it. Doing the work, rather than checking it, is
+`problem-solving`'s job.
 
-Pick your path:
+## Pick your path
 
-- **Reviewing a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
-- **Reviewing by hand** → [Conduct a review](#conduct-a-review) (checklist + severity).
-- **Getting review feedback** → [Receive feedback](#receive-feedback) (verify-first, no gratitude).
-- **Reviewing a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
+- **Review a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
+- **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the problem-solving
+  loop against what actually happened).
+- **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
+- **Scan tech debt** → `references/techdebt.md`.
+- **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
   checklists `agents/codex.md` runs).
 
-## The four principles (discipline lens)
+## Audit a transcript
+
+Grade the most recent completed work against `../problem-solving/SKILL.md`'s loop: each step
+marked **followed**, **skipped**, or **faked** (claimed without observation).
+
+1. Run the detectors first (mechanical pass) — [Detectors](#detectors).
+2. For every skip or fake, name the concrete risk it created, via `references/failure-modes.md`
+   (symptom → which problem-solving step prevents it).
+3. Score the work on the 0–2 rubric in `references/judge.md`.
+4. Deliver a short table plus the single highest-value fix. Apply it only if asked.
+
+## Lenses
+
+### Discipline — the four principles
 
 The four characteristic LLM code failures. CLAUDE.md → Behavioral guidelines defines them; what
 is review-specific is how each shows up as a finding and its severity. Apply to any non-trivial
@@ -34,8 +50,30 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 
-Full treatment + attribution: `references/karpathy-principles.md`. Before/after examples per
+Full treatment + attribution: `../problem-solving/references/principles.md`. Before/after examples per
 detector: `references/anti-patterns.md`.
+
+### Performance
+
+When a change touches a query, a loop over data, or a hot path — or the review is *about*
+speed/memory — apply the performance lens: **measure before you optimize**, and rank findings
+by measured impact (a finding without a number is a hypothesis). The most common real target
+is the **N+1 query**. Detector tables (symptom→fix, algorithmic complexity, report format) +
+common mistakes: `references/performance.md`.
+
+### Cross-boundary
+
+When a change touches a seam (a function signature, argv/env builder, flag, file format, or an
+API another package calls) — read the producer and every consumer together and exercise each
+consumer path, not just the changed package; a seam is only verified on every caller.
+
+### PR / API contract
+
+For a PR/diff over ~200 lines, or one touching a shared module, an API serializer/schema, a DB
+migration, or a table other jobs read: run **blast-radius** (who consumes the changed file sets
+the bar) and **breaking-change** detection (adding is usually safe; removing/renaming/retyping/
+tightening usually isn't). Commands + the safe-vs-breaking table + the migration two-phase rule:
+`references/pr-and-api-review.md`.
 
 ## Detectors
 
@@ -44,20 +82,6 @@ hard gate). **Run the mechanical gate first** (`make fmt && make lint`) — that
 non-zero result is a must-fix before review proceeds. Full CLI reference: `references/detectors.md`.
 
 Verb selection: [Detector index](references/detectors.md#detector-index).
-
-## Performance lens
-
-When a change touches a query, a loop over data, or a hot path — or the review is *about*
-speed/memory — apply the performance lens: **measure before you optimize**, and rank findings
-by measured impact (a finding without a number is a hypothesis). The most common real target
-is the **N+1 query**. Detector tables (symptom→fix,
-algorithmic complexity, report format) + common mistakes: `references/performance.md`.
-
-## Cross-boundary lens
-
-When a change touches a seam (a function signature, argv/env builder, flag, file format, or an
-API another package calls) — read the producer and every consumer together and exercise each
-consumer path, not just the changed package; a seam is only verified on every caller.
 
 ## Dispatch a review
 
@@ -77,22 +101,6 @@ Scope and mechanical-gate commands: [Dispatch setup](references/tasks.md#dispatc
 3. Scope each agent to the diff range + changed files, NOT your session history — keeps them on
    the work product and preserves your context. A ready-to-paste dispatch prompt: `references/tasks.md`.
 
-For a PR/diff over ~200 lines, or one touching a shared module, an API serializer/schema, a DB
-migration, or a table other jobs read, also run **blast-radius** (who consumes the changed file
-sets the bar) and **breaking-change** detection (adding is usually safe; removing/renaming/
-retyping/tightening usually isn't). Commands + the safe-vs-breaking table + the migration
-two-phase rule: `references/pr-and-api-review.md`.
-
-### Synthesize the verdict
-
-| Verdict | Condition |
-|---|---|
-| **SHIP** | No CRITICAL or HIGH from either pass |
-| **FIX REQUIRED** | HIGH present, no CRITICAL |
-| **BLOCK** | Any CRITICAL |
-
-## Conduct a review
-
 Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping are canonical in
 `rules/standards/quality.md` (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no
 CRITICAL/HIGH, block on either.
@@ -100,19 +108,36 @@ CRITICAL/HIGH, block on either.
 **Escalate to the security pass** on the must-review triggers (`rules/standards/security.md` →
 Must-review) — `security-reviewer` territory, not a quality nit.
 
+## Verdicts
+
+The harness's one verdict registry. Shared discipline across every verdict-bearing mode: the
+verdict word comes first, alone, from a closed vocabulary; evidence follows. Unre-runnable claims
+are UNVERIFIABLE, never assumed. Never soften a failing verdict or inflate a caveat.
+
+This skill's own verdict, for "is the code good": **SHIP / FIX REQUIRED / BLOCK**.
+
+| Verdict | Condition |
+|---|---|
+| **SHIP** | No CRITICAL or HIGH from either pass |
+| **FIX REQUIRED** | HIGH present, no CRITICAL |
+| **BLOCK** | Any CRITICAL |
+
+A different question — **is the claim true** — gets a different vocabulary: `references/judge.md`'s
+VERIFIED / VERIFIED WITH CAVEATS / REFUTED.
+
+Per mode:
+
+| Mode | Vocabulary |
+|---|---|
+| review (this skill) | `SHIP \| FIX REQUIRED \| BLOCK` |
+| judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
+| gate loop (`../problem-solving/references/verify.md`) | `PASS \| FAIL` |
+| codex REVIEW | `READY \| NEEDS CLARIFICATION` |
+| codex diff review | `SHIP IT \| NEEDS WORK \| BLOCK` |
+
 ## Receive feedback
 
-Iron rules:
-
-1. **Verify before implementing** — reproduce the issue before changing code.
-2. **YAGNI** — does the suggestion solve a real problem or a hypothetical one?
-3. **Push back when justified** — if a change makes the code worse, say so with evidence
-   (file, line, pattern) and propose an alternative.
-4. **Order**: blocking issues (CRITICAL/HIGH) → simple fixes (typos, naming) → complex changes last.
-
-### Replying
-
-Reply wording and GitHub thread endpoint: [Replying](references/feedback.md#replying).
+Acting on a review is doing the work, not checking it: `../problem-solving/references/feedback.md`.
 
 ## Enforcement
 

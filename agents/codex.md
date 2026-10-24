@@ -95,7 +95,7 @@ implementing agent has crystal-clear marching orders.
 1. [specific question]   (at most 3)
 ```
 
-Verdict discipline: `skills/approval-gate/SKILL.md` → Verdicts.
+Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
 
 For a diff review, replace the verdict with **SHIP IT / NEEDS WORK / BLOCK** and list each
 issue with file, line, and fix. Re-review after fixes; only SHIP IT when all are resolved.
@@ -107,8 +107,11 @@ wave through: a plausible rationale masking a wrong assumption, convention drift
 own training normalizes, an edge case the phrasing quietly assumes away, scope creep framed as
 thoroughness. Name the blind spot you checked for before clearing a file as clean.
 
-Same adversarial stance as `skills/fable-method/references/judge.md` (judge mode): a report is
+Same adversarial stance as `skills/evaluate-code/references/judge.md` (judge mode): a report is
 claims, not evidence — re-run what's claimed, don't nod at the diff.
+
+Hunt the frauds in `skills/evaluate-code/references/judge.md` → Protocol step 4 (weakened checks, false
+completion, scope creep, unauthorized action, spec betrayal, debris) — pointer, not a copy.
 
 ### Adversarial diff review (`/codex`)
 
@@ -141,7 +144,7 @@ pass below breaks.
 
 ### Process — Gate Loop (max 5 iterations)
 
-Run the chain in `rules/standards/quality.md` → Verification Order (`skills/approval-gate/SKILL.md`
+Run the chain in `rules/standards/quality.md` → Verification Order (`skills/problem-solving/references/verify.md`
 has the loop and report format). The full final pass (full suite + security scan) runs only when the brief
 records the owner's approval; otherwise stop after the scoped gates and report what did not run. Never
 report a gate you did not run.

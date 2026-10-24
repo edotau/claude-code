@@ -2,11 +2,6 @@ package crossgen
 
 import "strings"
 
-// skipNames are Claude-Code-only sources never projected; adding a name here also prunes an already-synced copy.
-var skipNames = map[string]bool{
-	"approval-gate": true, // describes the CC gate chain; meaningless outside Claude Code
-}
-
 // Banner prefixes a generated file carries as its first body line; prune only ever deletes files that carry one.
 const (
 	agentBannerText        = "Synced from .claude/agents/"
@@ -21,9 +16,7 @@ var generatedBannerPrefixes = []string{agentSkillBannerPrefix, realSkillBannerPr
 func projectedSkillNames(skills []Source) map[string]bool {
 	out := make(map[string]bool, len(skills))
 	for _, s := range skills {
-		if !skipNames[s.dirName] {
-			out[s.Name()] = true
-		}
+		out[s.Name()] = true
 	}
 	return out
 }
