@@ -271,6 +271,12 @@ var gitShortCircuitOpts = map[string]bool{
 	"--html-path": true, "--man-path": true, "--info-path": true,
 }
 
+// maxShellRecursionDepth bounds `bash -c "..."` (and sh/zsh) recursion into the quoted argument.
+const maxShellRecursionDepth = 3
+
+// shellCNames are the interpreters whose `-c <script>` argument runs as a fresh shell command line.
+var shellCNames = map[string]bool{"bash": true, "sh": true, "zsh": true}
+
 // gitCommitCommand reports whether cmd actually RUNS `git … commit …` in some shell segment: split on
 // &&/||/;/|/newline, tokenize each segment (quotes collapse to one token, so quoted text never matches),
 // skip a leading env assignment or sudo/env, then require `git` (or a .../git path) followed by global
@@ -278,12 +284,16 @@ var gitShortCircuitOpts = map[string]bool{
 // guard — undercounting a piped heredoc body is acceptable); `$(...)`/backtick substitutions are scanned
 // too, since a captured `git commit` still runs.
 func gitCommitCommand(cmd string) bool {
+	return gitCommitCommandDepth(cmd, 0)
+}
+
+func gitCommitCommandDepth(cmd string, depth int) bool {
 	cmd = stripHeredocBodies(cmd)
-	if commitInText(cmd) {
+	if commitInText(cmd, depth) {
 		return true
 	}
 	for _, sub := range extractSubstitutions(cmd) {
-		if commitInText(stripHeredocBodies(sub)) {
+		if commitInText(stripHeredocBodies(sub), depth) {
 			return true
 		}
 	}
@@ -291,24 +301,35 @@ func gitCommitCommand(cmd string) bool {
 }
 
 // commitInText runs the segment/token git-commit check over one piece of shell text (a command, or a
-// `$(...)`/backtick substitution's inner text).
-func commitInText(text string) bool {
+// `$(...)`/backtick substitution's inner text); depth bounds `bash -c`-style recursion.
+func commitInText(text string, depth int) bool {
 	for _, seg := range commitShellSegments(text) {
 		toks := skipCommitWrappers(commitShellTokens(seg))
 		if len(toks) == 0 {
 			continue
+		}
+		if depth < maxShellRecursionDepth && shellCNames[shellBaseName(toks[0])] {
+			if inner, ok := findDashCArg(toks[1:]); ok && gitCommitCommandDepth(inner, depth+1) {
+				return true
+			}
 		}
 		if toks[0] != "git" && !strings.HasSuffix(toks[0], "/git") {
 			continue
 		}
 		i := 1
 		shortCircuit := false
+		aliasName := ""
 		for i < len(toks) && strings.HasPrefix(toks[i], "-") {
 			if gitShortCircuitOpts[toks[i]] {
 				shortCircuit = true
 				break
 			}
 			if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
+				if toks[i] == "-c" && i+1 < len(toks) {
+					if name, ok := commitAliasName(toks[i+1]); ok {
+						aliasName = name
+					}
+				}
 				i += 2
 				continue
 			}
@@ -317,11 +338,42 @@ func commitInText(text string) bool {
 		if shortCircuit {
 			continue
 		}
-		if i < len(toks) && toks[i] == "commit" {
+		if i < len(toks) && (toks[i] == "commit" || (aliasName != "" && toks[i] == aliasName)) {
 			return true
 		}
 	}
 	return false
+}
+
+// shellBaseName strips a leading directory from a `/bin/bash`-style interpreter path.
+func shellBaseName(tok string) string {
+	if idx := strings.LastIndexByte(tok, '/'); idx >= 0 {
+		return tok[idx+1:]
+	}
+	return tok
+}
+
+// findDashCArg returns the argument following a `-c` flag among a shell interpreter's own tokens.
+func findDashCArg(toks []string) (string, bool) {
+	for i, t := range toks {
+		if t == "-c" && i+1 < len(toks) {
+			return toks[i+1], true
+		}
+	}
+	return "", false
+}
+
+// commitAliasName reports the alias name when val is `alias.<name>=commit` (from `git -c <val>`).
+func commitAliasName(val string) (string, bool) {
+	name, v, ok := strings.Cut(val, "=")
+	if !ok || v != "commit" {
+		return "", false
+	}
+	const prefix = "alias."
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(name, prefix), true
 }
 
 // extractSubstitutions returns the inner text of every `$(...)` and backtick command substitution in
@@ -450,13 +502,32 @@ func skipCommitWrappers(toks []string) []string {
 }
 
 // commitShellSegments splits cmd on &&, ||, ;, |, newline — quoted delimiters stay inside their segment.
+// A backslash escapes the next char literally outside single quotes (so `\"` never closes a double
+// quote); a backslash-newline outside single quotes is a line continuation and vanishes entirely.
 func commitShellSegments(cmd string) []string {
 	var out []string
 	var b strings.Builder
 	var quote byte
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
-		if quote != 0 {
+		if quote == '\'' {
+			b.WriteByte(c)
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\\' && i+1 < len(cmd) {
+			if cmd[i+1] == '\n' {
+				i++
+				continue
+			}
+			b.WriteByte(c)
+			b.WriteByte(cmd[i+1])
+			i++
+			continue
+		}
+		if quote == '"' {
 			b.WriteByte(c)
 			if c == quote {
 				quote = 0
@@ -481,7 +552,8 @@ func commitShellSegments(cmd string) []string {
 }
 
 // commitShellTokens splits one segment into words on whitespace; a quoted run collapses to ONE token,
-// so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match.
+// so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match. A
+// backslash outside single quotes escapes the next char literally (so `\"` never closes a double quote).
 func commitShellTokens(seg string) []string {
 	var out []string
 	var b strings.Builder
@@ -489,7 +561,21 @@ func commitShellTokens(seg string) []string {
 	started := false
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
-		if quote != 0 {
+		if quote == '\'' {
+			if c == quote {
+				quote = 0
+			} else {
+				b.WriteByte(c)
+			}
+			continue
+		}
+		if c == '\\' && i+1 < len(seg) {
+			started = true
+			b.WriteByte(seg[i+1])
+			i++
+			continue
+		}
+		if quote == '"' {
 			if c == quote {
 				quote = 0
 			} else {
