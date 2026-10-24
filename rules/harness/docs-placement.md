@@ -69,7 +69,7 @@ a non-markdown path, a non-repo location, and anything it can't resolve (fail-op
 - The handler also checks `apply_patch` Add/Update/Move headers against the same placement rules.
 - Store writes (bank, handoffs, reports) land in `~/.claude/memory/`, outside any repo's `docs/` tree, so this gate
   never sees them. Plan mirrors and approval saves write directly to `~/.claude/plans/`.
-- Class: deny-one-call — not a Stop/SubagentStop gate, so it needs no fail-open counter. The model
+- Class: deny-one-call — not a Stop gate, so it needs no fail-open counter. The model
   re-issues the write at the named path and moves on.
 - A genuine repo doc the user asked for: `git add -N <file>` first (tracked wins over ignored), or
   disable the gate for the launch with `HARNESS_DOCS_PLACEMENT=0`.

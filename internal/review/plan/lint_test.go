@@ -131,6 +131,46 @@ func TestRunWorkflowLint(t *testing.T) {
 	}
 }
 
+// RunWorkflowLint treats a skills/<x>/scripts/<y>.js that opens with `export const meta` the same as
+// a workflows/*.js: clean passes, an unpinned agent() call is flagged on stderr and fails the run.
+func TestRunWorkflowLintSkillsScripts(t *testing.T) {
+	root := t.TempDir()
+	cleanDir := filepath.Join(root, "skills", "clean-skill", "scripts")
+	if err := os.MkdirAll(cleanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, cleanDir, "run.js", "export const meta = { name: 'run' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n")
+	var out, errb bytes.Buffer
+	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "1 script(s) clean") {
+		t.Fatalf("clean: rc=%d out=%q err=%q", rc, out.String(), errb.String())
+	}
+
+	badDir := filepath.Join(root, "skills", "bad-skill", "scripts")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, badDir, "run.js", "export const meta = { name: 'run' }\nawait agent('x', { label: 'l' })\n")
+	out.Reset()
+	errb.Reset()
+	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "run.js:2") != 2 {
+		t.Fatalf("flagged: rc=%d err=%q", rc, errb.String())
+	}
+}
+
+// isWorkflowScript excludes a plain helper script under scripts/ — even one with an unpinned agent()
+// call — and includes one whose first non-blank line is a // comment ahead of `export const meta`.
+func TestIsWorkflowScript(t *testing.T) {
+	dir := t.TempDir()
+	helper := writeScript(t, dir, "helper.js", "// just a utility\nfunction run(opts) {\n  return agent('x', { label: 'l' })\n}\n")
+	if isWorkflowScript(helper) {
+		t.Errorf("isWorkflowScript(helper) = true, want false — no export const meta opener")
+	}
+	commented := writeScript(t, dir, "commented.js", "// Setup before running: do the thing.\n\nexport const meta = { name: 'x' }\n")
+	if !isWorkflowScript(commented) {
+		t.Errorf("isWorkflowScript(commented) = false, want true — a leading comment before meta still counts")
+	}
+}
+
 // A root with no workflows/*.js is an error naming the searched path, not "0 script(s) clean".
 func TestRunWorkflowLintNoScripts(t *testing.T) {
 	root := t.TempDir()

@@ -1,18 +1,11 @@
 package launch
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/browser"
-	"github.com/edotau/claude-code/internal/clean"
-	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/history"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,14 +17,14 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/clean"
+	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tools"
@@ -46,194 +39,6 @@ var userBinDir = func() string {
 
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
-
-// Install copies the binary into BinDir, links the vendor CLIs, and merges the harness settings (backing up first).
-func Install(w io.Writer, dryRun bool) error {
-	snapshotPreInstall(w, dryRun)
-	target, err := installBinaryAndLinks(w, dryRun)
-	if err != nil {
-		return err
-	}
-	installCompletion(w, dryRun)
-	installClipboardProxy(w, dryRun)
-	seedTmuxConf(w, dryRun)
-	if err := linkOnPath(w, target, dryRun); err != nil {
-		return err
-	}
-	settingsErr := installSettings(w, dryRun)
-	if settingsErr != nil {
-		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
-	}
-	if werr := InstallWindowsSettings(w, dryRun); werr != nil {
-		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
-	}
-	syncVendors(w, dryRun)
-	installGitHooks(w, dryRun)
-	return settingsErr
-}
-
-// snapshotPreInstall records history before overwriting settings.json, so a vendor or hand edit
-// about to be overwritten stays recoverable via `history diff`.
-func snapshotPreInstall(w io.Writer, dryRun bool) {
-	if dryRun {
-		return
-	}
-	if r, err := history.SnapshotConfig("pre-install"); err != nil {
-		fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
-	} else if r.Commit != "" {
-		fmt.Fprintf(w, "history  %s (pre-install snapshot)\n", r.Commit)
-	}
-}
-
-// installBinaryAndLinks copies claude-code into BinDir and links each vendor CLI there, returning the target path.
-func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
-	self, err := selfBinary()
-	if err != nil {
-		return "", err
-	}
-	bin := paths.BinDir()
-	target := filepath.Join(bin, "claude-code")
-	if !sameFile(self, target) {
-		fmt.Fprintf(w, "copy     %s → %s\n", self, target)
-		if !dryRun {
-			if err := copyBinary(self, target); err != nil {
-				return "", err
-			}
-		}
-	}
-	tools.LinkVendors(w, nil, dryRun)
-	return target, nil
-}
-
-// installCompletion is best-effort — an unwritable completions dir (no bash-completion package,
-// read-only $HOME) must never fail the install that got the binary in place.
-func installCompletion(w io.Writer, dryRun bool) {
-	switch {
-	case dryRun:
-		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
-	default:
-		if path, err := completion.Install("claude-code"); err != nil {
-			fmt.Fprintf(w, "completion skip  %v\n", err)
-		} else {
-			fmt.Fprintf(w, "completion %s\n", path)
-		}
-	}
-}
-
-// installClipboardProxy ensures the WSL wl-paste proxy; a no-op off WSL, and best-effort like
-// completion — a write failure must never fail the install that got the binary in place.
-func installClipboardProxy(w io.Writer, dryRun bool) {
-	if err := clipboard.InstallProxy(w, dryRun); err != nil {
-		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
-	}
-}
-
-// installSettings merges the rendered harness settings into settings.json, backing up on a real write.
-func installSettings(w io.Writer, dryRun bool) error {
-	file := SettingsFile()
-	existing, err := os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		return err
-	}
-	merged, sum, err := settings.Merge(existing, rendered)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "settings %s\n  keep   %s\n  merge  %s\n  hooks  %d harness + %d foreign kept\n",
-		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
-	if len(sum.Retired) > 0 {
-		fmt.Fprintf(w, "  drop   %s (retired)\n", strings.Join(sum.Retired, ", "))
-	}
-	if string(merged) == string(existing) {
-		fmt.Fprintln(w, "  unchanged")
-		return nil
-	}
-	if dryRun {
-		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
-		return nil
-	}
-	backup, err := settings.WriteWithBackup(file, merged)
-	if backup != "" {
-		fmt.Fprintf(w, "  backup %s\n", backup)
-	}
-	return err
-}
-
-// installGitHooks points core.hooksPath at the repo's .githooks (pre-push runs the CI gate); best-effort.
-func installGitHooks(w io.Writer, dryRun bool) {
-	root := paths.ConfigDir()
-	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
-		return
-	}
-	cur, _ := exec.CommandContext(context.Background(), "git", "-C", root, "config", "--get", "core.hooksPath").Output()
-	if strings.TrimSpace(string(cur)) == ".githooks" {
-		return
-	}
-	fmt.Fprintln(w, "githooks core.hooksPath → .githooks (pre-push runs make audit)")
-	if dryRun {
-		return
-	}
-	if out, err := exec.CommandContext(context.Background(), "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
-		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
-	}
-}
-
-// syncVendors projects agents/, skills/ and the vendor instruction files into every vendor home so they track the
-// repo; best-effort, like completion.
-func syncVendors(w io.Writer, dryRun bool) {
-	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into vendor homes (claude-code agents sync)")
-	if rc := crossgen.Sync(crossgen.SyncOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
-		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
-	}
-}
-
-// linkOnPath points userBinDir/claude-code at the installed binary; a real file there is left alone.
-func linkOnPath(w io.Writer, target string, dryRun bool) error {
-	dir := userBinDir()
-	link := filepath.Join(dir, "claude-code")
-	if cur, err := os.Readlink(link); err == nil && cur == target {
-		return nil
-	}
-	if fi, err := os.Lstat(link); err == nil && fi.Mode()&fs.ModeSymlink == 0 {
-		fmt.Fprintf(w, "skip     %s (a real file is there)\n", link)
-		return nil
-	}
-	fmt.Fprintf(w, "link     %s → %s\n", link, target)
-	if !strings.Contains(string(os.PathListSeparator)+os.Getenv("PATH")+string(os.PathListSeparator),
-		string(os.PathListSeparator)+dir+string(os.PathListSeparator)) {
-		fmt.Fprintf(w, "warning  %s is not on PATH; add it in your shell profile\n", dir)
-	}
-	if dryRun {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	_ = os.Remove(link)
-	return os.Symlink(target, link)
-}
-
-// sameFile is true when target already is, or holds the same bytes as, self.
-func sameFile(self, target string) bool {
-	if real, _ := filepath.EvalSymlinks(target); real == self {
-		return true
-	}
-	a, err1 := os.ReadFile(self)
-	b, err2 := os.ReadFile(target)
-	return err1 == nil && err2 == nil && bytes.Equal(a, b)
-}
-
-func copyBinary(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return paths.AtomicWrite(dst, data, 0o755)
-}
 
 // Check is one doctor line: Hard failures make the run fail; soft ones only report.
 type Check struct {

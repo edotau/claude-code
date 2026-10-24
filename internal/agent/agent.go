@@ -148,11 +148,6 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 				req.Model, e.RetryAfter = next, 0
 			}
 		}
-		// A tools-on run that timed out may already have edited files: re-running it would be a second writer.
-		if e != nil && req.Tools && actx.Err() == context.DeadlineExceeded {
-			e.Kind = KindFatal
-			e.Err = fmt.Errorf("%w (tools were on, so the attempt is not retried: it may have changed files; inspect and re-run by hand)", e.Err)
-		}
 		return e
 	})
 	res.Duration = time.Since(start)
