@@ -11,8 +11,12 @@ const {
 } = require('./lib/argv');
 const { buildUsageModel, statusBarText, statusBarTooltip } = require('./lib/usage-model');
 const { renderUsageHtml } = require('./lib/usage-view');
-const tasksModel = require('./lib/tasks-model');
 const bitbucketClient = require('./lib/bitbucket-client');
+const taskQuery = require('./lib/task-query');
+const tasksGithub = require('./lib/tasks-github');
+const tasksBitbucket = require('./lib/tasks-bitbucket');
+const tasksState = require('./lib/tasks-state');
+const { renderTasksHtml } = require('./lib/tasks-view');
 
 const GITHUB_PR_EXTENSION_ID = 'github.vscode-pull-request-github';
 
@@ -233,77 +237,171 @@ function remoteHostFor(remoteUrl) {
   }
 }
 
-/** tasks-model node -> vscode.TreeItem; a `url` opens via claudeCodeTasks.open, `action: 'setupToken'` runs the setup command. */
-function toTasksTreeItem(node) {
-  const collapsible = node.children && node.children.length
-    ? vscode.TreeItemCollapsibleState.Collapsed
-    : vscode.TreeItemCollapsibleState.None;
-  const item = new vscode.TreeItem(node.label, collapsible);
-  if (node.description) item.description = node.description;
-  if (node.tooltip) {
-    const tooltip = new vscode.MarkdownString(node.tooltip);
-    tooltip.isTrusted = false;
-    item.tooltip = tooltip;
+/** `{owner, name, label, selected}` GitHub repos: the `tasksGitHubRepos` setting plus every workspace folder's origin. */
+async function discoverGitHubRepos(selectedLabels) {
+  const slugs = (config().get('tasksGitHubRepos', []) || []).map(tasksGithub.parseRepoSlug).filter(Boolean);
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    const repo = tasksGithub.repoFromRemote(await originRemoteUrl(folder.uri.fsPath));
+    if (repo && !slugs.some((s) => s.owner === repo.owner && s.name === repo.name)) slugs.push(repo);
   }
-  if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
-  if (node.action === 'setupToken') {
-    item.command = { command: 'claudeCodeTasks.setupToken', title: 'Set Bitbucket token' };
-  } else if (node.url) {
-    item.command = { command: 'claudeCodeTasks.open', title: 'Open', arguments: [node.url] };
-    item.contextValue = 'task';
-  }
-  return item;
+  return slugs.map((r) => {
+    const label = `${r.owner}/${r.name}`;
+    return { owner: r.owner, name: r.name, label, selected: !selectedLabels || selectedLabels.includes(label) };
+  });
 }
 
-/** Backs one Tasks tree view from a node list set by TasksController.load(). */
-class TasksTreeProvider {
-  constructor() {
-    this._onDidChangeTreeData = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    this.nodes = [];
+/** Data Center repo refs: the `tasksBitbucketRepos` setting (`PROJECT/repo`) plus workspace folders on the DC host. */
+async function discoverBitbucketRepos(host) {
+  const refs = [];
+  for (const entry of config().get('tasksBitbucketRepos', []) || []) {
+    const m = /^([^/]+)\/([^/]+)$/.exec(String(entry).trim());
+    if (m) refs.push({ host, project: m[1].toUpperCase(), repo: m[2] });
   }
-
-  setNodes(nodes) {
-    this.nodes = nodes;
-    this._onDidChangeTreeData.fire();
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    const ref = await bitbucketClient.repoRefFromDir(folder.uri.fsPath, host);
+    if (ref && !refs.some((r) => r.project === ref.project && r.repo === ref.repo)) refs.push(ref);
   }
-
-  getTreeItem(element) {
-    return toTasksTreeItem(element);
-  }
-
-  getChildren(element) {
-    return element ? element.children || [] : this.nodes;
-  }
+  return refs;
 }
 
-/** Loads the three Tasks trees + the branch status bar segment via the bundled Bitbucket Data Center client. */
-class TasksController {
-  constructor(statusBarItem) {
+/** Status bar text for the branch PR row (either source): `#N ✓ · approved/total`, or '' with no PR. */
+function branchStatusText(row) {
+  if (!row) return '';
+  const parts = [`#${row.number}`];
+  const c = row.checks;
+  if (c && c.state === 'success') parts.push('✓');
+  else if (c && c.state === 'failed') parts.push('✗');
+  else if (c && c.state === 'in_progress') parts.push('…');
+  const reviewers = row.reviewers || [];
+  if (reviewers.length) parts.push(`· ${reviewers.filter((r) => r.status === 'APPROVED').length}/${reviewers.length}`);
+  return `$(git-pull-request) ${parts.join(' ')}`;
+}
+
+/** Drives the Tasks webview (sidebar view + optional editor panel) and the branch-PR status bar segment. */
+class TasksViewProvider {
+  constructor(statusBarItem, context) {
     this.statusBarItem = statusBarItem;
-    this.branchProvider = new TasksTreeProvider();
-    this.mineProvider = new TasksTreeProvider();
-    this.reviewingProvider = new TasksTreeProvider();
-    this.branchPr = null;
+    this.context = context;
+    this.views = new Set(); // the sidebar and Panel webview views, whichever VS Code has resolved
+    this.panel = undefined;
+    this.source = null;
+    this.queries = {};
+    this.activePreset = {};
+    this.page = 1;
+    this.result = null;
+    this.initialLoad = true;
+    this.refreshing = false;
+    this.loadingPage = null;
+    this.hardError = null;
+    this.settingsExpanded = false;
+    this.status = { github: null, bitbucket: null };
+    this.githubRepos = [];
+    this.bitbucketRepos = [];
+    this.cache = new tasksState.PageCache({ ttlMs: Math.max(15, config().get('tasksRefreshSeconds', 120) || 120) * 1000 });
     this.tokenPromise = null;
+    this.loadNonce = 0;
   }
 
-  errorNode(message) {
-    if (looksLikeMissingToken(message)) {
-      return { label: message, description: '', tooltip: '', url: null, icon: 'warning', children: [], action: 'setupToken' };
+  cfg() {
+    const cfg = config();
+    const visible = (cfg.get('tasksVisibleSources', ['github', 'bitbucket']) || []).filter((s) => s === 'github' || s === 'bitbucket');
+    return {
+      binary: cfg.get('binary') || 'claude-code',
+      baseUrl: cfg.get('bitbucketUrl') || 'https://bitbucket.biscrum.com',
+      jiraBaseUrl: cfg.get('tasksJiraBaseUrl') || '',
+      visible: visible.length ? visible : ['github', 'bitbucket'],
+      defaultSource: cfg.get('tasksDefaultSource', 'github') || 'github',
+      defaultQuery: { github: cfg.get('tasksDefaultQuery.github') || tasksState.DEFAULT_QUERY.github, bitbucket: cfg.get('tasksDefaultQuery.bitbucket') || tasksState.DEFAULT_QUERY.bitbucket },
+      pageSize: Math.max(5, cfg.get('tasksPageSize', 36) || 36),
+    };
+  }
+
+  dcHost() {
+    try {
+      return new URL(this.cfg().baseUrl).hostname.toLowerCase();
+    } catch {
+      return '';
     }
-    return { label: message, description: '', tooltip: '', url: null, icon: 'error', children: [] };
   }
 
-  notDataCenterNode(host) {
-    return { label: `Not a Bitbucket Data Center repo: ${host}`, description: '', tooltip: '', url: null, icon: 'info', children: [] };
+  wireWebview(webview) {
+    webview.options = { enableScripts: true };
+    webview.onDidReceiveMessage((msg) => this.handleMessage(msg).catch((err) => vscode.window.showErrorMessage(`Claude Code Tasks: ${err.message}`)));
   }
 
-  /** Resolves BITBUCKET_TOKEN once per extension lifetime; `forceRefresh` re-resolves after a 401/403. */
-  getToken(binary, forceRefresh) {
+  resolveWebviewView(webviewView) {
+    this.views.add(webviewView);
+    webviewView.onDidDispose(() => this.views.delete(webviewView));
+    this.wireWebview(webviewView.webview);
+    this.render();
+  }
+
+  /** Opens (or reveals) the single Tasks editor-tab panel; same model and message handling as the sidebar view. */
+  openInEditor() {
+    if (this.panel) {
+      this.panel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel('claudeCodeTasks.editor', 'Tasks', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+    this.panel = panel;
+    this.wireWebview(panel.webview);
+    panel.onDidDispose(() => {
+      if (this.panel === panel) this.panel = undefined;
+    });
+    this.render();
+  }
+
+  visible() {
+    return [...this.views].some((v) => v.visible) || !!(this.panel && this.panel.visible);
+  }
+
+  /** Pops the page out: the editor tab, then VS Code's "move editor into new window" on it (a floating window). */
+  async popOut() {
+    this.openInEditor();
+    await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+  }
+
+  /** Focuses the surface `tasksOpenIn` names: the Panel view, the sidebar view, or the editor tab. */
+  async show() {
+    const where = config().get('tasksOpenIn', 'panel') || 'panel';
+    if (where === 'editor') return this.openInEditor();
+    if (where === 'sidebar') {
+      await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasks');
+      return vscode.commands.executeCommand('claudeCodeTasks.page.focus');
+    }
+    await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasksPanel');
+    return vscode.commands.executeCommand('claudeCodeTasks.panel.focus');
+  }
+
+  currentQuery() {
+    return this.queries[this.source] != null ? this.queries[this.source] : this.cfg().defaultQuery[this.source];
+  }
+
+  /** Repos, credentials and the first page; called once on activation and again from "Re-check connections". */
+  async init() {
+    const cfg = this.cfg();
+    const stored = this.context.workspaceState.get('tasks.githubRepos');
+    [this.githubRepos, this.bitbucketRepos] = await Promise.all([discoverGitHubRepos(stored), discoverBitbucketRepos(this.dcHost())]);
+    if (!this.source || !cfg.visible.includes(this.source)) this.source = cfg.visible.includes(cfg.defaultSource) ? cfg.defaultSource : cfg.visible[0];
+    await this.doctor();
+    await Promise.all([this.load({ force: true }), this.loadBranch()]);
+  }
+
+  async doctor() {
+    const cfg = this.cfg();
+    const [github, bitbucket] = await Promise.all([
+      tasksGithub.authStatus(),
+      this.withClient((client) => client.doctor()).catch((err) => ({ ok: false, message: looksLikeMissingToken(err.message) ? 'No token' : err.message })),
+    ]);
+    this.status = { github, bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : { ok: false, message: bitbucket.message || (bitbucket.reason === 'rejected' ? 'Token rejected' : 'Unreachable') } };
+    this.render();
+  }
+
+  /** Resolves BITBUCKET_TOKEN once; `forceRefresh` re-resolves after a 401/403 (same cache the trees used). */
+  getToken(forceRefresh) {
     if (forceRefresh) this.tokenPromise = null;
     if (!this.tokenPromise) {
-      this.tokenPromise = bitbucketClient.resolveToken({ binary }).catch((err) => {
+      this.tokenPromise = bitbucketClient.resolveToken({ binary: this.cfg().binary }).catch((err) => {
         this.tokenPromise = null;
         throw err;
       });
@@ -311,84 +409,270 @@ class TasksController {
     return this.tokenPromise;
   }
 
-  /** Runs `op(client)` and retries once with a freshly resolved token on a 401/403. */
-  async withClient(binary, baseUrl, op) {
-    const token = await this.getToken(binary);
+  async withClient(op) {
+    const { baseUrl } = this.cfg();
+    const token = await this.getToken();
     try {
       return await op(bitbucketClient.createClient({ baseUrl, token }));
     } catch (err) {
       if (err.status !== 401 && err.status !== 403) throw err;
-      const freshToken = await this.getToken(binary, true);
-      return op(bitbucketClient.createClient({ baseUrl, token: freshToken }));
+      return op(bitbucketClient.createClient({ baseUrl, token: await this.getToken(true) }));
     }
   }
 
-  async load() {
-    const cfg = config();
-    const binary = cfg.get('binary') || 'claude-code';
-    const baseUrl = cfg.get('bitbucketUrl') || 'https://bitbucket.biscrum.com';
-    const jiraBaseUrl = cfg.get('tasksJiraBaseUrl') || '';
+  fetchPage(source, query, page) {
+    const cfg = this.cfg();
+    const parsed = taskQuery.parseTaskQuery(taskQuery.stripRepoQualifiers(query));
+    if (source === 'github') {
+      const repos = this.githubRepos.filter((r) => r.selected);
+      if (!repos.length) return Promise.resolve({ items: [], errors: [], totalPages: 1, failedRepos: 0 });
+      return tasksGithub.listWorkItems({ repos, query: parsed, page, limit: cfg.pageSize });
+    }
+    return this.withClient((client) => tasksBitbucket.list({ client, query: parsed, repos: this.bitbucketRepos, page, limit: cfg.pageSize, jiraBaseUrl: cfg.jiraBaseUrl }));
+  }
+
+  /** Loads the current page through the cache; `force` bypasses it (manual refresh, timer) and keeps rows on screen. */
+  async load(opts) {
+    const { force = false, page = this.page } = opts || {};
+    const source = this.source;
+    const query = this.currentQuery();
+    const nonce = ++this.loadNonce;
+    const key = { source, repos: source === 'github' ? this.githubRepos.filter((r) => r.selected).map((r) => r.label) : this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), query, page };
+    const cached = force ? null : this.cache.get(key);
+    if (cached) {
+      this.page = page;
+      this.result = cached;
+      this.hardError = null;
+      this.initialLoad = false;
+      this.render();
+      return;
+    }
+    if (page !== this.page) this.loadingPage = page;
+    else this.refreshing = true;
+    this.render();
+    try {
+      const result = await this.cache.load(key, () => this.fetchPage(source, query, page), { force });
+      if (nonce !== this.loadNonce) return;
+      this.page = page;
+      this.result = result;
+      this.hardError = null;
+    } catch (err) {
+      if (nonce !== this.loadNonce) return;
+      this.hardError = source === 'github' ? tasksGithub.classifyGhError(err) : err.message;
+      if (!this.result) this.result = { items: [], errors: [], totalPages: 1, failedRepos: 0 };
+    } finally {
+      if (nonce === this.loadNonce) {
+        this.initialLoad = false;
+        this.refreshing = false;
+        this.loadingPage = null;
+        this.render();
+      }
+    }
+  }
+
+  /** The current branch's PR from whichever source the first workspace folder's remote belongs to → status bar. */
+  async loadBranch() {
     const dir = workspaceDir();
     const [branch, remoteUrl] = await Promise.all([currentBranch(dir), originRemoteUrl(dir)]);
-    await Promise.all([
-      this.loadBranch(binary, baseUrl, remoteUrl, branch, jiraBaseUrl),
-      this.loadList(binary, baseUrl, 'AUTHOR', this.mineProvider),
-      this.loadList(binary, baseUrl, 'REVIEWER', this.reviewingProvider),
-    ]);
-  }
-
-  async loadBranch(binary, baseUrl, remoteUrl, branch, jiraBaseUrl) {
-    let host;
+    let row = null;
     try {
-      host = new URL(baseUrl).hostname.toLowerCase();
+      const ref = remoteUrl ? bitbucketClient.parseRepoRef(remoteUrl, this.dcHost()) : null;
+      const gh = remoteUrl ? tasksGithub.repoFromRemote(remoteUrl) : null;
+      if (ref && branch) {
+        const pr = await this.withClient((client) => client.pullRequestForBranch(ref, branch));
+        row = pr ? tasksBitbucket.mapRow(pr, { jiraBaseUrl: this.cfg().jiraBaseUrl }) : null;
+      } else if (gh && branch) {
+        const parsed = taskQuery.parseTaskQuery(`is:pr head:${branch}`);
+        const res = await tasksGithub.listWorkItems({ repos: [gh], query: parsed, page: 1, limit: 5 });
+        row = res.items.find((i) => i.branch === branch && i.state !== 'closed') || res.items.find((i) => i.branch === branch) || null;
+      }
     } catch {
-      host = '';
+      row = null;
     }
-    const ref = remoteUrl ? bitbucketClient.parseRepoRef(remoteUrl, host) : null;
-    if (!ref) {
-      this.branchPr = null;
-      this.branchProvider.setNodes([this.notDataCenterNode(remoteUrl ? remoteHostFor(remoteUrl) : 'no git remote')]);
-      if (this.statusBarItem) this.statusBarItem.hide();
-      return;
-    }
-    try {
-      const pr = await this.withClient(binary, baseUrl, (client) => client.pullRequestForBranch(ref, branch));
-      const jiraKey = tasksModel.detectJiraIssueKey({ branch, title: pr && pr.title });
-      this.branchPr = pr;
-      this.branchProvider.setNodes(tasksModel.buildBranchNodes(pr ? [pr] : [], { branch, jiraKey, jiraBaseUrl }));
-      this.updateStatusBar({ pr, jiraKey });
-    } catch (err) {
-      this.branchPr = null;
-      this.branchProvider.setNodes([this.errorNode(err.message)]);
-      if (this.statusBarItem) this.statusBarItem.hide();
-    }
+    this.branchPr = row;
+    this.updateStatusBar();
   }
 
-  async loadList(binary, baseUrl, role, provider) {
-    try {
-      const rows = await this.withClient(binary, baseUrl, async (client) => {
-        const raw = await client.dashboard(role);
-        return client.listWithBuilds(raw);
-      });
-      provider.setNodes(tasksModel.buildPrListNodes(rows));
-    } catch (err) {
-      provider.setNodes([this.errorNode(err.message)]);
-    }
-  }
-
-  updateStatusBar(branchModel) {
+  updateStatusBar() {
     if (!this.statusBarItem) return;
-    if (!config().get('tasksStatusBar', true)) {
-      this.statusBarItem.hide();
-      return;
-    }
-    const text = tasksModel.statusBarText(branchModel);
+    const text = config().get('tasksStatusBar', true) ? branchStatusText(this.branchPr) : '';
     if (!text) {
       this.statusBarItem.hide();
       return;
     }
     this.statusBarItem.text = text;
+    this.statusBarItem.tooltip = this.branchPr.title;
     this.statusBarItem.show();
+  }
+
+  banner() {
+    const s = this.status[this.source];
+    if (!s || s.ok) return null;
+    if (this.source === 'github') return { kind: 'warn', text: `GitHub: ${s.message}`, action: { act: 'signIn', label: 'Sign in' } };
+    return { kind: 'warn', text: `Bitbucket: ${s.message}`, action: { act: 'signIn', label: 'Set token' } };
+  }
+
+  model() {
+    const cfg = this.cfg();
+    const query = this.currentQuery();
+    const parsed = taskQuery.parseTaskQuery(query);
+    const presets = tasksState.presetsFor(this.source);
+    const result = this.result || { items: [], errors: [], totalPages: 1, failedRepos: 0 };
+    const repos = this.source === 'github' ? this.githubRepos.map((r) => ({ label: r.label, selected: r.selected })) : this.bitbucketRepos.map((r) => ({ label: `${r.project}/${r.repo}`, selected: true }));
+    const defaultPreset = presets.find((p) => p.query === cfg.defaultQuery[this.source]);
+    const activePreset = presets.find((p) => p.query === query);
+    return {
+      sources: cfg.visible.map((id) => ({ id })),
+      source: this.source,
+      host: 'github.com',
+      query,
+      scope: parsed.scope,
+      state: parsed.state || 'all',
+      presets,
+      activePreset: activePreset ? activePreset.id : null,
+      defaultPreset: defaultPreset ? defaultPreset.id : null,
+      repos,
+      repoCount: repos.filter((r) => r.selected).length,
+      banner: this.banner(),
+      loading: this.initialLoad,
+      refreshing: this.refreshing,
+      loadingPage: this.loadingPage,
+      items: result.items,
+      errors: result.errors,
+      failedRepos: result.failedRepos,
+      hardError: this.hardError,
+      page: this.page,
+      totalPages: result.totalPages,
+      now: Date.now(),
+      settings: {
+        expanded: this.settingsExpanded,
+        defaultSource: cfg.defaultSource,
+        github: { status: this.status.github, visible: cfg.visible.includes('github'), repos: this.githubRepos.map((r) => r.label) },
+        bitbucket: { status: this.status.bitbucket, visible: cfg.visible.includes('bitbucket'), repos: this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), baseUrl: cfg.baseUrl },
+      },
+    };
+  }
+
+  render() {
+    const model = this.model();
+    for (const surface of [...this.views, this.panel]) {
+      if (!surface) continue;
+      surface.webview.html = renderTasksHtml(model, { nonce: nonce(), cspSource: surface.webview.cspSource });
+    }
+  }
+
+  setQuery(query) {
+    this.queries[this.source] = query;
+    return this.load({ page: 1 });
+  }
+
+  findItem(id) {
+    return ((this.result && this.result.items) || []).find((i) => i.id === id);
+  }
+
+  async handleMessage(msg) {
+    if (!msg || !msg.type) return;
+    const cfg = this.cfg();
+    const terminal = () => dashboardTerminal();
+    switch (msg.type) {
+      case 'refresh':
+        return Promise.all([this.load({ force: true }), this.loadBranch()]);
+      case 'source':
+        if (!cfg.visible.includes(msg.source)) return;
+        this.source = msg.source;
+        this.page = 1;
+        this.result = null;
+        this.hardError = null;
+        this.initialLoad = true;
+        return this.load({ page: 1 });
+      case 'query':
+        return this.setQuery(String(msg.query || '').trim());
+      case 'preset': {
+        const preset = tasksState.presetsFor(this.source).find((p) => p.id === msg.id);
+        return preset ? this.setQuery(preset.query) : undefined;
+      }
+      case 'setDefault': {
+        const preset = tasksState.presetsFor(this.source).find((p) => p.id === msg.id);
+        if (!preset) return;
+        await config().update(`tasksDefaultQuery.${this.source}`, preset.query, vscode.ConfigurationTarget.Global);
+        return this.render();
+      }
+      case 'filter': {
+        if (msg.key === 'state') return this.setQuery(taskQuery.withQualifier(this.currentQuery(), 'state', msg.value));
+        if (msg.key === 'scope') {
+          const parsed = taskQuery.parseTaskQuery(this.currentQuery());
+          parsed.scope = ['all', 'issue', 'pr'].includes(msg.value) ? msg.value : 'all';
+          if (parsed.scope !== 'pr') {
+            parsed.draft = false;
+            parsed.reviewRequested = null;
+            parsed.reviewedBy = null;
+            if (parsed.state === 'merged') parsed.state = 'open';
+          }
+          return this.setQuery(taskQuery.serializeTaskQuery(parsed));
+        }
+        return;
+      }
+      case 'page':
+        if (Number.isFinite(msg.page) && msg.page >= 1 && msg.page <= ((this.result && this.result.totalPages) || 1)) return this.load({ page: msg.page });
+        return;
+      case 'repos': {
+        const labels = Array.isArray(msg.repos) ? msg.repos : [];
+        this.githubRepos = this.githubRepos.map((r) => ({ ...r, selected: labels.includes(r.label) }));
+        await this.context.workspaceState.update('tasks.githubRepos', labels);
+        return this.load({ page: 1 });
+      }
+      case 'open':
+        if (msg.url) await vscode.env.openExternal(vscode.Uri.parse(msg.url));
+        return;
+      case 'detail': {
+        const item = this.findItem(msg.id);
+        if (item && item.url) await vscode.env.openExternal(vscode.Uri.parse(item.url));
+        return;
+      }
+      case 'start': {
+        const item = this.findItem(msg.id);
+        if (!item) return;
+        await vscode.env.clipboard.writeText(`Work on ${item.type === 'pr' ? 'PR' : 'issue'} #${item.number} "${item.title}" (${item.url})`);
+        const t = terminal();
+        t.sendText(`${cfg.binary} claude`);
+        t.show();
+        vscode.window.showInformationMessage('Task prompt copied — paste it into Claude.');
+        return;
+      }
+      case 'newIssue': {
+        const repo = this.githubRepos.find((r) => r.selected);
+        if (repo) await vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${repo.label}/issues/new`));
+        return;
+      }
+      case 'signIn': {
+        const t = terminal();
+        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} secrets set BITBUCKET_TOKEN` : 'gh auth login');
+        t.show();
+        this.tokenPromise = null;
+        return;
+      }
+      case 'doctor':
+        this.cache.invalidate();
+        return this.init();
+      case 'toggleSourceVisible': {
+        const next = cfg.visible.filter((s) => s !== msg.source);
+        if (msg.visible) next.push(msg.source);
+        if (!next.length) return this.render(); // the last visible source stays on
+        await config().update('tasksVisibleSources', ['github', 'bitbucket'].filter((s) => next.includes(s)), vscode.ConfigurationTarget.Global);
+        if (!next.includes(this.source)) return this.handleMessage({ type: 'source', source: next[0] });
+        return this.render();
+      }
+      case 'defaultSource':
+        if (msg.source === 'github' || msg.source === 'bitbucket') await config().update('tasksDefaultSource', msg.source, vscode.ConfigurationTarget.Global);
+        return this.render();
+      case 'settingsExpanded':
+        this.settingsExpanded = !!msg.expanded;
+        return;
+      case 'openSettings':
+        return vscode.commands.executeCommand('workbench.action.openSettings', 'claudeCodeAgents.tasks');
+      default:
+        return;
+    }
   }
 }
 
@@ -495,7 +779,7 @@ function activate(context) {
     const priority = (cfg.get('usageStatusBarPriority', 1000000) || 1000000) - 1;
     const item = vscode.window.createStatusBarItem(alignment, priority);
     item.name = 'Claude Code Tasks';
-    item.command = 'claudeCodeTasks.branch.focus';
+    item.command = 'claudeCodeTasks.show';
     return item;
   }
 
@@ -503,60 +787,52 @@ function activate(context) {
   let tasksStatusBarDisposable = { dispose: () => tasksStatusBarItem.dispose() };
   context.subscriptions.push(tasksStatusBarDisposable);
 
-  const tasksController = new TasksController(tasksStatusBarItem);
+  const tasksProvider = new TasksViewProvider(tasksStatusBarItem, context);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (
-        !e.affectsConfiguration('claudeCodeAgents.usageStatusBarAlignment') &&
-        !e.affectsConfiguration('claudeCodeAgents.usageStatusBarPriority')
-      ) {
+      if (e.affectsConfiguration('claudeCodeAgents.usageStatusBarAlignment') || e.affectsConfiguration('claudeCodeAgents.usageStatusBarPriority')) {
+        tasksStatusBarDisposable.dispose();
+        tasksStatusBarItem = createTasksStatusBarItem();
+        tasksStatusBarDisposable = { dispose: () => tasksStatusBarItem.dispose() };
+        context.subscriptions.push(tasksStatusBarDisposable);
+        tasksProvider.statusBarItem = tasksStatusBarItem;
+        tasksProvider.updateStatusBar();
         return;
       }
-      tasksStatusBarDisposable.dispose();
-      tasksStatusBarItem = createTasksStatusBarItem();
-      tasksStatusBarDisposable = { dispose: () => tasksStatusBarItem.dispose() };
-      context.subscriptions.push(tasksStatusBarDisposable);
-      tasksController.statusBarItem = tasksStatusBarItem;
-      tasksController.updateStatusBar({ pr: tasksController.branchPr, jiraKey: null });
+      if (e.affectsConfiguration('claudeCodeAgents.tasksGitHubRepos') || e.affectsConfiguration('claudeCodeAgents.tasksBitbucketRepos') || e.affectsConfiguration('claudeCodeAgents.bitbucketUrl')) {
+        tasksProvider.cache.invalidate();
+        tasksProvider.init();
+      } else if (e.affectsConfiguration('claudeCodeAgents.tasksStatusBar')) {
+        tasksProvider.updateStatusBar();
+      }
     })
   );
-
-  const branchView = vscode.window.createTreeView('claudeCodeTasks.branch', { treeDataProvider: tasksController.branchProvider });
-  const mineView = vscode.window.createTreeView('claudeCodeTasks.mine', { treeDataProvider: tasksController.mineProvider });
-  const reviewingView = vscode.window.createTreeView('claudeCodeTasks.reviewing', { treeDataProvider: tasksController.reviewingProvider });
-  context.subscriptions.push(branchView, mineView, reviewingView);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('claudeCodeTasks.page', tasksProvider, { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.window.registerWebviewViewProvider('claudeCodeTasks.panel', tasksProvider, { webviewOptions: { retainContextWhenHidden: true } })
+  );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('claudeCodeTasks.refresh', () => tasksController.load()),
+    vscode.commands.registerCommand('claudeCodeTasks.refresh', () => tasksProvider.handleMessage({ type: 'refresh' })),
+    vscode.commands.registerCommand('claudeCodeTasks.openInEditor', () => tasksProvider.openInEditor()),
+    vscode.commands.registerCommand('claudeCodeTasks.show', () => tasksProvider.show()),
+    vscode.commands.registerCommand('claudeCodeTasks.popOut', () => tasksProvider.popOut()),
     vscode.commands.registerCommand('claudeCodeTasks.open', (url) => {
       if (url) vscode.env.openExternal(vscode.Uri.parse(url));
     }),
-    vscode.commands.registerCommand('claudeCodeTasks.setupToken', () => {
-      const binary = config().get('binary') || 'claude-code';
-      const terminal = dashboardTerminal();
-      terminal.sendText(`${binary} secrets set BITBUCKET_TOKEN`);
-      terminal.show();
-    }),
-    vscode.commands.registerCommand('claudeCodeTasks.startAgent', async (node) => {
-      if (!node || !node.url) return;
-      await vscode.env.clipboard.writeText(`Work on ${node.label} (${node.url})`);
-      const binary = config().get('binary') || 'claude-code';
-      const terminal = dashboardTerminal();
-      terminal.sendText(`${binary} claude`);
-      terminal.show();
-      vscode.window.showInformationMessage('Task prompt copied — paste it into Claude.');
-    })
+    vscode.commands.registerCommand('claudeCodeTasks.setupToken', () => tasksProvider.handleMessage({ type: 'signIn', source: 'bitbucket' })),
+    vscode.commands.registerCommand('claudeCodeTasks.startAgent', (id) => tasksProvider.handleMessage({ type: 'start', id }))
   );
 
-  tasksController.load();
+  tasksProvider.init();
   const tasksSeconds = Math.max(15, config().get('tasksRefreshSeconds', 120) || 120);
   const tasksTimer = setInterval(() => {
-    if (branchView.visible || mineView.visible || reviewingView.visible) tasksController.load();
+    if (tasksProvider.visible()) tasksProvider.handleMessage({ type: 'refresh' });
   }, tasksSeconds * 1000);
   context.subscriptions.push({ dispose: () => clearInterval(tasksTimer) });
 }
 
 function deactivate() {}
 
-module.exports = { activate, deactivate, UsageViewProvider, TasksController, TasksTreeProvider };
+module.exports = { activate, deactivate, UsageViewProvider, TasksViewProvider, branchStatusText };
