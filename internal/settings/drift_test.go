@@ -88,7 +88,7 @@ func TestDiffCleanAfterMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, _, err := Merge([]byte(`{"verbose":true}`), rendered)
+	merged, _, err := Merge([]byte(`{"verbose":true}`), rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

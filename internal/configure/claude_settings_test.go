@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -435,5 +436,141 @@ func TestThemeCustomFlowStoresCustomPrefixedValue(t *testing.T) {
 	}
 	if string(ov["theme"]) != `"custom:mytheme"` {
 		t.Fatalf("overlay[theme] = %s, want \"custom:mytheme\"", ov["theme"])
+	}
+}
+
+// dropFixture isolates config dir and HOME, and writes a rendered settings.json plus one foreign key.
+func dropFixture(t *testing.T, foreign string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	rendered, err := settings.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(rendered, &m); err != nil {
+		t.Fatal(err)
+	}
+	m[foreign] = json.RawMessage("true")
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLiveSettings(t, raw)
+}
+
+// TestDropRefusesNonClaudeAgent: --agent codex with --drop exits 2 with the guard message and writes nothing.
+func TestDropRefusesNonClaudeAgent(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	rc := Run(Options{Vendor: "codex", Drop: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 2 || !strings.Contains(out.String(), "--drop/--keep apply to claude settings only") {
+		t.Fatalf("rc=%d out=%q; want 2 with the guard message", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); got != nil {
+		t.Errorf("vault touched: %v", got)
+	}
+}
+
+// TestDropAbsentKeyNotedAndSaved: a key not in settings.json is noted and still saved (exit 0).
+func TestDropAbsentKeyNotedAndSaved(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	rc := Run(Options{Drop: []string{"laterKey"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 0 || !strings.Contains(out.String(), "not in settings.json now, removed if it appears: laterKey") {
+		t.Fatalf("rc=%d out=%q; want 0 with the note", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); !slices.Equal(got, []string{"laterKey"}) {
+		t.Errorf("LoadDropped = %v, want [laterKey]", got)
+	}
+}
+
+// TestDropAbsentKeyDryRunWritesNothing: --dry-run with an absent key notes it and prints the list; no write.
+func TestDropAbsentKeyDryRunWritesNothing(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	rc := Run(Options{DryRun: true, Drop: []string{"laterKey"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 0 || !strings.Contains(out.String(), "removed if it appears: laterKey") ||
+		!strings.Contains(out.String(), "dropped keys: laterKey") {
+		t.Fatalf("rc=%d out=%q", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); got != nil {
+		t.Errorf("dry-run wrote the vault: %v", got)
+	}
+}
+
+// TestDropTemplateKeyRefused: a template-owned key present in settings.json is refused by SaveDropped.
+func TestDropTemplateKeyRefused(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	rc := Run(Options{Drop: []string{"theme"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 1 || !strings.Contains(out.String(), "theme is owned by the template") {
+		t.Fatalf("rc=%d out=%q; want 1 with the owned-by-template error", rc, out.String())
+	}
+}
+
+// TestDropDryRunWritesNothing: --dry-run --drop prints the would-be list; vault and settings.json are unchanged.
+func TestDropDryRunWritesNothing(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	before, _ := os.ReadFile(launch.SettingsFile())
+	var out bytes.Buffer
+	rc := Run(Options{DryRun: true, Drop: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 0 || !strings.Contains(out.String(), "dropped keys: zzForeign") {
+		t.Fatalf("rc=%d out=%q; want 0 and the would-be list", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); got != nil {
+		t.Errorf("dry-run wrote the vault: %v", got)
+	}
+	after, _ := os.ReadFile(launch.SettingsFile())
+	if string(after) != string(before) {
+		t.Error("dry-run changed settings.json")
+	}
+}
+
+// TestDropThenKeep: --drop saves and re-renders (key gone from settings.json); --keep of an unlisted key exits 1.
+func TestDropThenKeep(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	if rc := Run(Options{Drop: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, ""); rc != 0 {
+		t.Fatalf("drop rc=%d out=%s", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); !slices.Equal(got, []string{"zzForeign"}) {
+		t.Fatalf("LoadDropped = %v", got)
+	}
+	live, _ := os.ReadFile(launch.SettingsFile())
+	if strings.Contains(string(live), "zzForeign") {
+		t.Error("key still in settings.json after the re-render")
+	}
+	out.Reset()
+	if rc := Run(Options{Keep: []string{"neverDropped"}, In: strings.NewReader(""), Out: &out}, ""); rc != 1 ||
+		!strings.Contains(out.String(), "not dropped: neverDropped") {
+		t.Fatalf("keep rc=%d out=%q", rc, out.String())
+	}
+	out.Reset()
+	if rc := Run(Options{Keep: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, ""); rc != 0 {
+		t.Fatalf("keep rc=%d out=%s", rc, out.String())
+	}
+	if got, _ := settings.LoadDropped(); got != nil {
+		t.Errorf("after --keep LoadDropped = %v, want nil", got)
+	}
+}
+
+// TestReportPrintsDroppedKeysOnlyWhenNonEmpty: the claude report page adds `dropped keys:` only with a list.
+func TestReportPrintsDroppedKeysOnlyWhenNonEmpty(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "claude")
+	if strings.Contains(out.String(), "dropped keys:") {
+		t.Fatalf("empty list printed a dropped line:\n%s", out.String())
+	}
+	if err := settings.SaveDropped([]string{"zzForeign"}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "claude")
+	if !strings.Contains(out.String(), "dropped keys: zzForeign") {
+		t.Fatalf("report lacks the dropped line:\n%s", out.String())
 	}
 }
