@@ -62,5 +62,15 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 - For TRIVIAL tasks (typos, one-liners), return a one-line brief and mark READY.
 - Always check CLAUDE.md constraints — the most common source of implementation mistakes.
 
+## Plan review
+
+After a plan is written, before executing it.
+
+Check: completeness (no TODOs, placeholders, missing steps); spec coverage without scope creep; clear task boundaries
+and actionable steps; could an engineer follow it without getting stuck?
+Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues.
+
+Output: verdict READY | NEEDS CLARIFICATION; issues as `[Task X, Step Y]: issue — why it matters`.
+
 Diff review after implementation is a different pass: `agents/codex.md` → Review
 (`claude-code codex review [--adversarial]`).
