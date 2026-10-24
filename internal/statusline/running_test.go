@@ -33,8 +33,8 @@ func TestRunningSegmentAlwaysShownAtFloor(t *testing.T) {
 	hermetic(t)
 	for _, style := range []string{"gradient", "powerline", "capsule", "minimal"} {
 		got := plain(Render([]byte(runningPayload), style))
-		if !strings.Contains(got, "◉ 1 ") {
-			t.Errorf("%s: want floor '◉ 1', got %q", style, got)
+		if !strings.Contains(got, " 1 ◉") {
+			t.Errorf("%s: want floor '1 ◉', got %q", style, got)
 		}
 		if strings.Contains(got, "1 agents") {
 			t.Errorf("%s: singular floor must not pluralize: %q", style, got)
@@ -48,8 +48,8 @@ func TestRunningSegmentCountsOwnLeg(t *testing.T) {
 	owner := inflight.SessionOwner()
 	writeRunningDispatch(t, "20261024T000001.000-codex", os.Getpid(), owner)
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if !strings.Contains(got, "◉ 2 ") {
-		t.Errorf("want '◉ 2', got %q", got)
+	if !strings.Contains(got, " 2 ◉") {
+		t.Errorf("want '2 ◉', got %q", got)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestRunningSegmentIgnoresDeadLegs(t *testing.T) {
 	owner := inflight.SessionOwner()
 	writeRunningDispatch(t, "20261024T000001.000-codex", 1<<22+12345, owner) // beyond pid_max: never alive
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if !strings.Contains(got, "◉ 1 ") {
+	if !strings.Contains(got, " 1 ◉") {
 		t.Errorf("dead leg counted: %q", got)
 	}
 }
@@ -74,7 +74,7 @@ func TestRunningSegmentFiltersByOwner(t *testing.T) {
 	writeRunningDispatch(t, "20261024T000001.000-other-owner", os.Getpid(), owner+999999)
 	writeRunningDispatch(t, "20261024T000002.000-no-owner", os.Getpid(), 0)
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if !strings.Contains(got, "◉ 1 ") {
+	if !strings.Contains(got, " 1 ◉") {
 		t.Errorf("a foreign-owner or ownerless leg was counted: %q", got)
 	}
 }

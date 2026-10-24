@@ -11,8 +11,8 @@
     "agents",
     "provider",
     "router",
-    "context",
     "limits",
+    "context",
     "tokens",
     "duration",
     "session"
@@ -45,7 +45,7 @@
   },
   "separators": {
     "minor": " · ",
-    "major": " ",
+    "major": " · ",
     "git": " │ "
   },
   "dashboard": {
