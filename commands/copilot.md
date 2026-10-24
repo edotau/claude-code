@@ -1,5 +1,5 @@
 ---
-description: "Dispatch the copilot agent: `test` (default) repairs and writes tests, `commit`/`pr` do the last mile"
+description: "Dispatch the copilot agent: `test` (default) repairs and writes tests, `commit`/`pr` do the last mile; any other `claude-code copilot <verb>` (`ask`, `review`, `resume`, `status`, …) passes straight through"
 argument-hint: "[test|commit|pr|ask|resume|review|transfer|status|result|cancel|setup|models] <args>"
 allowed-tools: Agent, Bash
 ---

@@ -1,5 +1,5 @@
 ---
-description: "Invoke the in-process Gemini bridge for long-context code exploration, analysis, and documentation generation; `review` mode is a whole-module second opinion"
+description: "Gemini via `claude-code gemini <verb>`: a bare task runs the 1M-context bridge, `review` is the whole-module second opinion (opus tier), `ask|resume|transfer|status|result|cancel|setup|models` pass straight through"
 allowed-tools: Bash, Glob, Read
 argument-hint: "review|ask|resume|transfer|status|result|cancel|setup|models <args> | [--dirs d] [--files f] <task>"
 ---
