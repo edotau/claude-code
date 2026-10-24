@@ -42,7 +42,7 @@ test('package.json: tasksOpenIn is a panel|sidebar|editor enum defaulting to pan
   assert.deepEqual(prop.enum, ['panel', 'sidebar', 'editor']);
   assert.equal(prop.default, 'panel');
   assert.ok(findCommand('claudeCodeTasks.show'), 'claudeCodeTasks.show command missing');
-  assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(multiple-windows)');
+  assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(link-external)');
 });
 
 test('package.json: the three tree views are gone', () => {
@@ -57,11 +57,11 @@ test('package.json: refresh/openInEditor/open/startAgent/setupToken commands exi
   }
 });
 
-test('package.json: refresh and openInEditor sit in view/title for both the sidebar and Panel views', () => {
+test('package.json: Open in New Window is the only Tasks view-title button (drag the tab to the editor instead; refresh is in the page)', () => {
   const entries = (pkg.contributes.menus['view/title'] || []).filter((m) => m.command.startsWith('claudeCodeTasks.'));
   for (const view of ['claudeCodeTasks.page', 'claudeCodeTasks.panel']) {
     const cmds = entries.filter((m) => m.when === `view == ${view}`).map((m) => m.command).sort();
-    assert.deepEqual(cmds, ['claudeCodeTasks.openInEditor', 'claudeCodeTasks.popOut', 'claudeCodeTasks.refresh'], `view/title entries for ${view}`);
+    assert.deepEqual(cmds, ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
   }
 });
 
