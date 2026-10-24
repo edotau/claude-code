@@ -911,8 +911,7 @@ function renderLauncherHtml(model, opts) {
   .btn.primary { background: var(--primary); color: var(--vscode-button-foreground); border-color: transparent; }
   .btn:hover { filter: brightness(1.1); }
   .row { display: flex; gap: 6px; }
-  .net { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-  .net .spacer { flex: 1; }
+  .src:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
 <body>
@@ -922,7 +921,7 @@ function renderLauncherHtml(model, opts) {
   <button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button>
   ${where ? `<div class="muted">Tasks is open in ${esc(where)}.</div>` : ''}
   <div class="section">Network</div>
-  <div class="net">${ICONS.globe}<span class="muted">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="spacer"></span><button class="mini" data-act="exitNode"${net && net.ok ? '' : ' disabled'}>Change</button></div>
+  <button class="src" data-act="exitNode"${net && net.ok ? '' : ' disabled'} title="Change exit node"><span class="src-icon">${ICONS.globe}</span><span class="src-name">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="dot dot-${!net ? 'muted' : !net.ok ? 'danger' : net.exitNode ? 'emerald' : 'muted'}"></span></button>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.addEventListener('click', (e) => {
