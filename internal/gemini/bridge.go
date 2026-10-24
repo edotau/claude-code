@@ -109,7 +109,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 
 		start := time.Now()
 		cw := &countingWriter{w: stream}
-		ctx = agent.WithLog(ctx, sink) // agy's raw events and stderr reach the log through the ctx carrier
+		ctx = agent.WithLog(ctx, sink) // agy's formatted events and raw stderr reach the log through the ctx carrier
 		var res agent.Result
 		aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
 			cw.n = 0
