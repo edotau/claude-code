@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// The default segment order is model, agents, then the rate limits ahead of the context bar.
+// The default segment order is model, then the rate limits ahead of the context bar; agents sit in the git section.
 func TestDefaultConfigOrder(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()
-	want := []string{"model", "agents", "provider", "router", "limits", "context", "tokens", "duration", "session"}
+	want := []string{"model", "provider", "router", "limits", "context", "tokens", "duration", "session"}
 	if !reflect.DeepEqual(cfg.Order, want) {
 		t.Errorf("Order = %v, want %v", cfg.Order, want)
 	}
