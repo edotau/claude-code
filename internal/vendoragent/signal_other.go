@@ -1,0 +1,10 @@
+//go:build !unix
+
+package vendoragent
+
+import "fmt"
+
+// interrupt is unsupported on this platform.
+func interrupt(pid int) error {
+	return fmt.Errorf("cancelling a job by pid is unsupported on this platform")
+}

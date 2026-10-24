@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 func cmdAsk(args []string) int {
@@ -50,17 +51,35 @@ func cmdAsk(args []string) int {
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
+	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
+	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return fail("ask: %v", err)
 	}
+	if *background && *job != "" {
+		return fail("ask: --background and --job are mutually exclusive")
+	}
 	if *showLog {
 		return printDispatchLog(*format)
 	}
 	prompt := strings.Join(fs.Args(), " ")
-	if *retry != "" {
+	var jobRec *agent.Record
+	if *job != "" {
+		rec, err := agent.LoadRecord(*job)
+		if err != nil {
+			return fail("ask: %v", err)
+		}
+		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
+		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
+		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
+		keepEnv = keepEnvFlag(rec.Request.KeepEnv)
+		prompt, *rubric = rec.Request.Prompt, ""
+		rec.PID = os.Getpid()
+		jobRec = &rec
+	} else if *retry != "" {
 		rec, err := agent.LoadRecord(*retry)
 		if err != nil {
 			return fail("ask: %v", err)
@@ -108,7 +127,7 @@ func cmdAsk(args []string) int {
 	if *format == "json" {
 		stream = io.Discard
 	}
-	if *retry == "" && *tools && !timeoutExplicit(fs) {
+	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
 	if *enableMemory && *name != "copilot" {
@@ -118,7 +137,24 @@ func cmdAsk(args []string) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory}
 	rec := agent.NewRecord(r.Name(), req, time.Now())
+	if jobRec != nil {
+		rec = *jobRec // same id: a job run continues the record it was spawned from
+	} else {
+		cwd := *workdir
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		rec.Repo = vendoragent.RepoRoot(ctx, cwd)
+		rec.Log = filepath.Join(agent.DispatchDir(), rec.ID+".log")
+	}
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	if *background {
+		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
+			return fail("ask: %v", err)
+		}
+		reportBackgroundStart(*format, rec)
+		return 0
+	}
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
 	res, err := agent.RunWithFallback(ctx, r, chain, req, stream, notify)
@@ -217,6 +253,36 @@ func resolveAskAgent(name, provider, fallback string, native bool) (agent.Runner
 		return nil, nil, err
 	}
 	return agent.NewHubLeg(name, start, reg), agent.HubChain(reg, name, start, fallback), nil
+}
+
+// backgroundExtraFlags carries explicitly-set --fallback/--native over to the spawned --job child;
+// unset flags fall back to the child's own defaults instead of being re-pinned.
+func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []string {
+	var extra []string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "fallback":
+			extra = append(extra, "--fallback", fallback)
+		case "native":
+			if native {
+				extra = append(extra, "--native")
+			}
+		}
+	})
+	return extra
+}
+
+// reportBackgroundStart tells the caller how to track a detached job.
+func reportBackgroundStart(format string, rec agent.Record) {
+	if format == "json" {
+		body, _ := json.Marshal(struct {
+			ID  string `json:"id"`
+			Log string `json:"log"`
+		}{rec.ID, rec.Log})
+		fmt.Println(string(body))
+		return
+	}
+	fmt.Printf("job %s started — claude-code %s status|result|cancel\n", rec.ID, rec.Agent)
 }
 
 func reportAskResult(format string, res agent.Result, err error) {
