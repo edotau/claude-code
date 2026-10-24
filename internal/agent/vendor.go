@@ -149,11 +149,11 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
-	cmd.Stderr = io.MultiWriter(tail, &banner)
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
 	}
-	cmd.Stdout = io.MultiWriter(stream, &answer)
+	cmd.Stdout = teeWriter(ctx, io.MultiWriter(stream, &answer))
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())
 	if id := sessionFromBanner(banner.String()); id != "" {
@@ -211,8 +211,9 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
-	out, perr := parse(stdout, stream)
-	_, _ = io.Copy(io.Discard, stdout)
+	src := teeReader(ctx, stdout) // raw event lines reach the dispatch log before the parser sees them
+	out, perr := parse(src, stream)
+	_, _ = io.Copy(io.Discard, src)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID = out.Answer, out.Usage, out.SessionID
 	if werr != nil || ctx.Err() != nil {

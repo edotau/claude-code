@@ -55,8 +55,9 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err := cmd.Start(); err != nil {
 		return Result{}, err
 	}
-	res, perr := parseClaudeStream(stdout, stream)
-	_, _ = io.Copy(io.Discard, stdout)
+	src := teeReader(ctx, stdout)
+	res, perr := parseClaudeStream(src, stream)
+	_, _ = io.Copy(io.Discard, src)
 	werr := cmd.Wait()
 	res.Provider = plan.Set[providers.PinProvider]
 	if werr != nil || ctx.Err() != nil {
