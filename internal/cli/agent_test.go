@@ -10,7 +10,32 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// TestOnPassthroughProvider pins the api-row helper's two outcomes: the default target's provider
+// forwards the caller's own auth (passthrough) vs. calls the vendor directly (api key).
+func TestOnPassthroughProvider(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_PROVIDER", "") // a session's own pin must not leak into this test
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"fakepass","providers":{
+	  "fakepass":{"kind":"anthropic","base_url":"https://example.invalid","auth":{"type":"passthrough"},"models":{"opus":"x"}}}}`)
+	if !onPassthroughProvider() {
+		t.Error("onPassthroughProvider() = false, want true for a passthrough default provider")
+	}
+}
+
+func TestOnPassthroughProviderFalseForAPIKeyProvider(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_PROVIDER", "") // a session's own pin must not leak into this test
+	t.Setenv("TEST_FAKE_KEY", "k")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"fakekey","providers":{
+	  "fakekey":{"kind":"anthropic","base_url":"https://example.invalid","auth":{"type":"x-api-key","env":"TEST_FAKE_KEY"},"models":{"opus":"x"}}}}`)
+	if onPassthroughProvider() {
+		t.Error("onPassthroughProvider() = true, want false for an api-key default provider")
+	}
+}
 
 // writeFixtureFile creates path (with parents) holding content.
 func writeFixtureFile(t *testing.T, path, content string) {

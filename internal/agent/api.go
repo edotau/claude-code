@@ -38,7 +38,11 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	p := t.Provider
 	res := Result{Provider: p.Name, Model: t.Model}
 	if p.Auth.Type == providers.AuthPassthrough {
-		return res, &Error{Kind: KindFatal, Agent: "api", Err: fmt.Errorf("provider %s uses passthrough (subscription) auth; the api runner needs a key (try --agent claude)", p.Name)}
+		// No API key to call the vendor directly: delegate to claude in tool-less one-shot mode, same
+		// prompt/model/effort, so dispatchers picking "api" off passthrough providers still get an answer.
+		dres, derr := claudeRunner{}.Run(ctx, req, stream)
+		dres.Fallback, dres.FallbackReason = "api", fmt.Sprintf("provider %s uses passthrough (subscription) auth; ran via claude instead", p.Name)
+		return dres, derr
 	}
 	var answer strings.Builder
 	w := io.MultiWriter(stream, &answer)

@@ -282,11 +282,24 @@ func cmdAgentsSync(args []string) int {
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
+// onPassthroughProvider reports whether the default target's provider forwards the caller's own
+// auth (a Claude subscription), the case api.go delegates to claude instead of calling a vendor API.
+func onPassthroughProvider() bool {
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	sel, err := providers.Select(reg, "")
+	return err == nil && sel.Provider != nil && sel.Provider.Auth.Type == providers.AuthPassthrough
+}
+
 func listRunners() int {
 	for _, r := range agent.Runners() {
 		mark, reason := "✓", ""
 		if err := r.Available(); err != nil {
 			mark, reason = "✗", err.Error()
+		} else if r.Name() == "api" && onPassthroughProvider() {
+			reason = "runs via claude on passthrough providers (no key to call the vendor directly)"
 		}
 		c := r.Caps()
 		var caps []string
