@@ -375,7 +375,53 @@ function transitionForm() {
   return `<form class="card transition-form hidden" id="transition-form"><div class="card-head"><span class="card-title" id="transition-title">Transition</span></div><label class="field hidden" id="resolution-field"><span>Resolution</span><select class="select" id="resolution"></select></label><label class="field" id="transition-comment-field"><span id="transition-comment-label">Comment</span><textarea id="transition-comment" rows="2" placeholder="Optional comment"></textarea></label><div class="card-row"><button type="submit" class="btn btn-primary">Apply</button><button type="button" class="btn btn-outline" id="transition-cancel">Cancel</button></div></form>`;
 }
 
-/** Full-source detail for Jira; GitHub/Bitbucket get the header + browser link until their slice lands. */
+function reviewTone(state) {
+  return state === 'APPROVED' ? 'emerald' : state === 'CHANGES_REQUESTED' ? 'danger' : 'muted';
+}
+
+function activityEntry(e, now) {
+  if (e.kind === 'event') {
+    const text = e.url ? `<a data-url="${esc(e.url)}">${esc(e.text)}</a>` : esc(e.text);
+    return `<div class="timeline-row"><span class="avatar ring-muted">${esc(initials(e.actor || '?'))}</span><span><b>${esc(e.actor || '')}</b> ${text}</span><span class="muted" title="${esc(e.createdAt)}">${esc(formatRelativeTime(e.createdAt, now))}</span></div>`;
+  }
+  const badge = e.kind === 'review' ? pill(reviewTone(e.state), String(e.state || '').toLowerCase().replace('_', ' ')) : '';
+  return `<div class="bubble"><div class="bubble-head"><span class="avatar ring-${e.kind === 'review' ? reviewTone(e.state) : 'muted'}">${esc(initials(e.actor || '?'))}</span><span class="bubble-author">${esc(e.actor || '')}</span>${badge}<span class="muted" title="${esc(e.createdAt)}">${esc(formatRelativeTime(e.createdAt, now))}</span>${e.url ? `<span class="spacer"></span><button class="icon-btn" data-url="${esc(e.url)}" title="Open on GitHub">${ICONS.externalLink}</button>` : ''}</div>${e.bodyHtml ? `<div class="prose">${e.bodyHtml}</div>` : ''}</div>`;
+}
+
+function checksTab(d) {
+  const c = d.checks;
+  if (!c) return `<section class="card"><div class="card-head"><span class="card-title">Checks</span><span class="spin">${ICONS.loaderCircle}</span></div></section>`;
+  const rows = (c.runs || []).map((r) => {
+    const tone = r.state === 'success' ? 'emerald' : r.state === 'failed' ? 'danger' : r.state === 'in_progress' ? 'amber' : 'muted';
+    const icon = r.state === 'success' ? ICONS.checkCircle2 : r.state === 'failed' ? ICONS.alertCircle : r.state === 'in_progress' ? ICONS.clock3 : ICONS.minus;
+    return `<div class="check-row"><span class="cell-text tone-${tone}">${icon}${esc(r.name)}</span><span class="muted">${esc(r.app)}</span>${pill(tone, r.conclusion || r.status)}<span class="spacer"></span>${r.url ? `<button class="icon-btn" data-url="${esc(r.url)}" title="Open run">${ICONS.externalLink}</button>` : ''}</div>`;
+  });
+  return `<section class="card"><div class="card-head"><span class="card-title">Checks</span><span class="count">${c.total || 0}</span></div>${rows.join('') || '<div class="muted">No checks</div>'}</section>`;
+}
+
+/** GitHub detail (Orca github-item-dialog): header, status/assignee controls, PR tabs, body, activity, composer, rail. */
+function githubDetail(model, d, data, head, title, err, now) {
+  const isPr = data.type === 'pr';
+  const conv = d.conversation || null;
+  const controls = isPr
+    ? `${reviewersCellFor(data)}${checksCell(data)}${mergeCell(data, model)}`
+    : `${statusCell(data)}${assigneesCell(data)}`;
+  const metaBar = `<div class="meta-bar">${controls}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${isPr && data.branch ? `<span class="muted cell-text">${ICONS.gitBranch}${esc(data.baseBranch || '')} ← ${esc(data.branch)}</span>` : ''}${deltaText(data) ? `<span class="muted cell-text">${ICONS.files}${esc(deltaText(data))}</span>` : ''}</div>`;
+  const tab = d.tab || 'conversation';
+  const tabs = isPr ? `<div class="tabs" role="tablist"><button class="tab${tab === 'conversation' ? ' active' : ''}" role="tab" data-tab="conversation">Conversation${conv ? ` <span class="count">${conv.commentCount}</span>` : ''}</button><button class="tab${tab === 'checks' ? ' active' : ''}" role="tab" data-tab="checks">Checks${data.checks && data.checks.counts ? ` <span class="count">${(data.checks.counts.success || 0) + (data.checks.counts.failed || 0) + (data.checks.counts.pending || 0)}</span>` : ''}</button><button class="tab" role="tab" data-tab="files" data-url="${esc(data.url)}/files">Files${data.changedFiles != null ? ` <span class="count">${data.changedFiles}</span>` : ''} ${ICONS.externalLink}</button></div>` : '';
+  let main;
+  if (tab === 'checks' && isPr) main = checksTab(d);
+  else if (!conv) main = `<section class="card"><div class="card-head"><span class="spin">${ICONS.loaderCircle}</span><span class="muted">Loading conversation…</span></div></section>`;
+  else {
+    const body = `<section class="card"><div class="card-head"><span class="card-title">${esc(conv.author || data.author || '')}</span><span class="muted" title="${esc(conv.createdAt)}">opened ${esc(formatRelativeTime(conv.createdAt, now))}</span></div>${conv.bodyHtml ? `<div class="prose">${conv.bodyHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
+    const activity = `<section class="card"><div class="card-head"><span class="card-title">Activity</span><span class="count">${conv.entries.length}</span></div>${conv.entries.map((e) => activityEntry(e, now)).join('') || '<div class="muted">No activity yet.</div>'}<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Leave a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Comment</button><span class="muted">Markdown · ⌘/Ctrl+Enter</span></div></form></section>`;
+    main = body + activity;
+  }
+  const rail = `<aside class="rail"><button class="btn btn-outline" data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button>${isPr && data.branch ? `<button class="btn btn-outline" data-act="copy" data-text="${esc(data.branch)}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button>` : ''}<button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
+}
+
+/** Full-source detail for Jira; GitHub gets the conversation view; Bitbucket the header + browser link. */
 function detailView(model, now) {
   const d = model.detail || {};
   const data = d.data || {};
@@ -386,9 +432,10 @@ function detailView(model, now) {
   const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}<button class="btn btn-outline" data-act="start" data-id="${esc(data.id)}">${ICONS.play}Start</button><button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
   const title = `<h2 class="detail-title">${esc(data.title)}</h2>`;
   const err = d.mutationError ? `<div class="banner banner-error" role="alert">${ICONS.alertCircle}<span class="truncate" title="${esc(d.mutationError)}">${esc(d.mutationError)}</span><button class="btn btn-outline" data-act="retry" data-id="${esc(data.id)}">Retry</button><button class="icon-btn" data-act="clearError" data-id="${esc(data.id)}" aria-label="Dismiss">${ICONS.x}</button></div>` : '';
-  if (data.source !== 'jira') {
-    return `<div class="detail">${head}${title}<div class="meta">${statusCell(data)}<span>${esc(data.author || '')}</span></div>${err}<div class="card"><div class="muted">Conversation, checks and files for ${esc(data.source === 'github' ? 'GitHub' : 'Bitbucket')} items open in the browser for now.</div><div class="card-row"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in browser</button></div></div></div>`;
+  if (data.source === 'bitbucket') {
+    return `<div class="detail">${head}${title}<div class="meta-bar">${reviewersCell(data)}${checksCell(data)}${mergeCell(data, model)}</div>${err}<div class="card"><div class="muted">Comments and approvals for Bitbucket pull requests open in the browser for now.</div><div class="card-row"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in Bitbucket</button></div></div></div>`;
   }
+  if (data.source === 'github') return githubDetail(model, d, data, head, title, err, now);
   const metaBar = `<div class="meta-bar">${transitionMenu({ ...data, transitions: d.transitions })}${priorityMenu({ ...data, priorities: d.priorities })}${assigneeButton(data)}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${data.issueType ? `<span class="muted cell-text">${remoteIcon(data.issueType, 'type-icon')}${esc(data.issueType.name)}</span>` : ''}</div>`;
   const description = `<section class="card"><div class="card-head"><span class="card-title">Description</span><span class="muted">${esc(data.author || '')}</span></div>${data.descriptionHtml ? `<div class="prose">${data.descriptionHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
   const comments = d.comments || [];
@@ -574,6 +621,15 @@ const CSS = `
   .prose table { border-collapse: collapse; } .prose th, .prose td { border: 1px solid var(--border); padding: 3px 6px; font-size: 12px; }
   .prose img { max-width: 100%; }
   .prose a { color: var(--vscode-textLink-foreground); }
+  .tabs { display: flex; gap: 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 6px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 4px; }
+  .tab.active { color: var(--vscode-foreground); border-bottom-color: var(--vscode-foreground); }
+  .tab:hover { color: var(--vscode-foreground); }
+  .timeline-row { display: flex; align-items: center; gap: 8px; padding: 4px 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+  .timeline-row b { font-weight: 600; color: var(--vscode-foreground); }
+  .timeline-row a { color: var(--vscode-textLink-foreground); cursor: pointer; }
+  .check-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent); font-size: 12px; }
+  .check-row:last-child { border-bottom: none; }
   .bubble { border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--track) 20%, transparent); margin-bottom: 8px; }
   .bubble-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 6px 10px; font-size: 12px; }
   .bubble-author { font-weight: 600; }
@@ -740,6 +796,7 @@ const SCRIPT = `
         post({ type: 'comment', id, body: text });
       });
     }
+    detail.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); if (b.dataset.url) return post({ type: 'open', url: b.dataset.url }); post({ type: 'tab', id, tab: b.dataset.tab }); }));
     detail.querySelectorAll('[data-priority]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'priority', id, priorityId: b.dataset.priority }); }));
     const form = $('#transition-form');
     let chosen = null;

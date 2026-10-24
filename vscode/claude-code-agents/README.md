@@ -135,7 +135,15 @@ quoted phrases and unknown tokens pass through as free text.
   description (Jira's rendered HTML, sanitised), the comments with a composer (Cmd/Ctrl+Enter sends; the draft
   survives re-renders), and a rail: Open in Jira, Copy URL / key / branch name / prompt. Every write is optimistic
   through `lib/tasks-mutations.js` (patch now, writes serialised per issue, refetch after, rollback + an inline
-  Retry banner on failure). GitHub and Bitbucket rows open a header-only detail with "Open in browser" for now.
+  Retry banner on failure). Bitbucket rows open a header-only detail with "Open in Bitbucket" for now.
+- **GitHub detail** (Orca's github-item-dialog): the row click swaps in the conversation — header, the same Status /
+  Assignees (issues) or Reviewers / Checks / Merge (PRs) controls as the list, labels, base ← head and `+N −M`; PRs add
+  a Conversation · Checks · Files tab strip (Files opens `<pr>/files` in the browser). The body and every comment come
+  from GitHub already rendered (`Accept: application/vnd.github.html+json`, then sanitised — no markdown library);
+  the activity is the issue timeline (comments, reviews with an approved / changes-requested pill, assigned, labeled,
+  closed, merged, renamed, cross-referenced, review requested…; noise events dropped). The composer posts with
+  ⌘/Ctrl+Enter through `gh api -X POST …/comments --input -` (the body on stdin, never argv) and appends GitHub's
+  returned comment. The Checks tab lists `…/commits/<sha>/check-runs` (failed first) with run links.
 - **GitHub cells are live.** The PR list asks `gh` only for cheap fields; Checks, Merge and Reviewers hydrate per row
   through `gh pr view` when the row scrolls near (160 px) or is hovered, four at a time, and the cells are patched in
   place (no page re-render). Status (issues) is a menu: Open · Close as completed · not planned · duplicate… (asks for

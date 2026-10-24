@@ -1,0 +1,29 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 119532680924,
+      "name": "go (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/edotau/claude-code/actions/runs/39689740993/job/119532680924",
+      "started_at": "2026-10-21T22:53:48Z",
+      "completed_at": "2026-10-21T22:58:08Z",
+      "app": {
+        "slug": "github-actions"
+      }
+    },
+    {
+      "id": 119532680621,
+      "name": "go (macos-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/edotau/claude-code/actions/runs/39689740993/job/119532680621",
+      "started_at": "2026-10-21T22:53:49Z",
+      "completed_at": "2026-10-21T23:00:35Z",
+      "app": {
+        "slug": "github-actions"
+      }
+    }
+  ]
+}
