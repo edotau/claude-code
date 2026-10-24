@@ -251,6 +251,7 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 }
 
 func TestSlugKeyExtendsOnHashCollision(t *testing.T) {
+	t.Parallel()
 	taken := func(key string) (Origin, bool) {
 		switch {
 		case key == "x":

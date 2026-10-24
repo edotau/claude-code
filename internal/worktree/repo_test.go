@@ -8,36 +8,14 @@ import (
 	"testing"
 )
 
-func scrubGitEnv(t *testing.T) {
-	t.Helper()
-	for _, key := range []string{
-		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
-	} {
-		value, ok := os.LookupEnv(key)
-		if !ok {
-			continue
-		}
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatalf("unset %s: %v", key, err)
-		}
-		t.Cleanup(func() {
-			if err := os.Setenv(key, value); err != nil {
-				t.Errorf("restore %s: %v", key, err)
-			}
-		})
-	}
-}
-
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	scrubGitEnv(t)
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gitEnv(
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -51,6 +29,27 @@ func gitRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// testRepo builds an isolated Repo with its own worktree root without mutating HOME.
+func testRepo(t *testing.T) *Repo {
+	t.Helper()
+	main := gitRepo(t)
+	root, err := canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Repo{Main: main, Root: filepath.Join(root, "worktrees", filepath.Base(main))}
+}
+
+func testDetachedRepo(t *testing.T) *Repo {
+	t.Helper()
+	main := detachedHead(t)
+	root, err := canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Repo{Main: main, Root: filepath.Join(root, "worktrees", filepath.Base(main))}
 }
 
 func TestResolveRepoFromMainSubdirAndLinkedWorktree(t *testing.T) {
@@ -91,7 +90,6 @@ func TestResolveRepoFromMainSubdirAndLinkedWorktree(t *testing.T) {
 }
 
 func TestResolveRepoNonGitDir(t *testing.T) {
-	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	notRepo := t.TempDir()
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(notRepo))
@@ -101,12 +99,8 @@ func TestResolveRepoNonGitDir(t *testing.T) {
 }
 
 func TestResolveWorktreeRejectsTraversalAndBadNames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	for _, name := range []string{"", ".", "..", "a/b", "a\\b", "../escape"} {
 		if _, err := ResolveWorktree(repo, name); err == nil {
 			t.Errorf("name %q: want error, got nil", name)
@@ -115,12 +109,8 @@ func TestResolveWorktreeRejectsTraversalAndBadNames(t *testing.T) {
 }
 
 func TestResolveWorktreeAcceptsUnusualButSafeNames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	for _, name := range []string{"has space", "dots.and.more", "unicode-éé", "UPPER-case_123"} {
 		dest, err := ResolveWorktree(repo, name)
 		if err != nil {
@@ -134,12 +124,8 @@ func TestResolveWorktreeAcceptsUnusualButSafeNames(t *testing.T) {
 }
 
 func TestResolveWorktreeForeignBasenameCollision(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	// A directory already occupying the destination that is not a worktree of this repo at all.
 	foreign := filepath.Join(repo.Root, "taken")
 	if err := os.MkdirAll(foreign, 0o755); err != nil {
@@ -151,12 +137,8 @@ func TestResolveWorktreeForeignBasenameCollision(t *testing.T) {
 }
 
 func TestResolveWorktreeForeignRepoCollision(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	// A directory occupying the destination that IS a git repo, but not a worktree of repo.Main.
 	other := gitRepo(t)
 	dest := filepath.Join(repo.Root, "other")
@@ -172,12 +154,8 @@ func TestResolveWorktreeForeignRepoCollision(t *testing.T) {
 }
 
 func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +170,8 @@ func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
 }
 
 func TestResolveWorktreeResumesExisting(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "resume", "")
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +186,6 @@ func TestResolveWorktreeResumesExisting(t *testing.T) {
 }
 
 func TestResolveRepoMissingPath(t *testing.T) {
-	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	if _, err := ResolveRepo(missing); err == nil {
@@ -245,11 +218,15 @@ func TestWorktreeRootUnderHome(t *testing.T) {
 func detachedHead(t *testing.T) string {
 	t.Helper()
 	dir := gitRepo(t)
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	revCmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
+	revCmd.Env = gitEnv()
+	out, err := revCmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out2, err := exec.Command("git", "-C", dir, "checkout", "-q", strings.TrimSpace(string(out))).CombinedOutput(); err != nil {
+	coCmd := exec.Command("git", "-C", dir, "checkout", "-q", strings.TrimSpace(string(out)))
+	coCmd.Env = gitEnv()
+	if out2, err := coCmd.CombinedOutput(); err != nil {
 		t.Fatalf("checkout detached: %v: %s", err, out2)
 	}
 	return dir
@@ -262,7 +239,7 @@ func detachedHead(t *testing.T) string {
 // a worktree of that repo — common-dir equality alone is satisfied (it IS the same repo), but it is the
 // live checkout's own source tree, not a worktree.
 func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 	main := gitRepo(t)
 	// repo.Root pointed directly at the main checkout — the symlinked-root scenario, reproduced
 	// without needing a real symlink: Root(main) == main is exactly what that symlink collapses to.
@@ -288,7 +265,7 @@ func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T
 // checkout — ownsWorktree's EXISTING-destination check (the sibling regression test above) cannot
 // catch this, since os.Lstat on a nonexistent path has nothing to compare against.
 func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 	main := gitRepo(t)
 	repo := &Repo{Main: main, Root: main} // the symlinked-root scenario, collapsed: Root(main) == main
 
@@ -305,7 +282,7 @@ func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
 // refuse outright rather than running `git worktree add` straight into the live checkout, even for a
 // name that has never existed before.
 func TestCreateRefusesWhenWorktreeRootIsLiveCheckout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
 	main := gitRepo(t)
 	repo := &Repo{Main: main, Root: main}
 

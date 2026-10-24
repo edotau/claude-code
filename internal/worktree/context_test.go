@@ -14,7 +14,8 @@ import (
 )
 
 func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
-	repo, _, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, _, wt := preflightFixtureSetup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -33,7 +34,8 @@ func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 // already cancelled when Promote is entered must return immediately without acquiring the merge lock
 // or touching repo.Main at all — not even a failed fast-forward attempt.
 func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
 
@@ -96,7 +98,8 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 // error from the git call itself — never silently read as git's own "clean" exit code (0) by a caller
 // like isAncestor/unrelatedHistories that distinguishes exit-code 1 from "everything else".
 func TestRunGitCancelledContextReturnsErrorNeverFalseClean(t *testing.T) {
-	_, main, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	_, main, _ := preflightFixtureSetup(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

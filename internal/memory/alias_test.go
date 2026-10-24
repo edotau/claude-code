@@ -20,10 +20,6 @@ type aliasEnv struct {
 // newAliasEnv builds an isolated config (itself a decoy git repo), a cut-over store and two repo stores.
 func newAliasEnv(t *testing.T) aliasEnv {
 	t.Helper()
-	for _, k := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"} {
-		t.Setenv(k, "")
-		os.Unsetenv(k)
-	}
 	cfg, _ := migrateConfig(t)
 	fixtureGit(t, cfg, "init", "-q", "-b", "main")
 	fixtureGit(t, cfg, "commit", "-q", "--allow-empty", "-m", "decoy")

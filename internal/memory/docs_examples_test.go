@@ -83,9 +83,9 @@ func TestDocsTemplateExamplesCatalog(t *testing.T) {
 // TestDocsTemplateExamplesBankRegion renders docs/templates/examples/memory/MEMORY.md: a fresh bank
 // region (all six typed files present) with one decision and one session-history entry each.
 func TestDocsTemplateExamplesBankRegion(t *testing.T) {
-	migrateConfig1(t)
+	t.Parallel()
 	now := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
-	dir := filepath.Join(StoreDir(), "example-repo")
+	dir := filepath.Join(t.TempDir(), "example-repo")
 
 	write(t, filepath.Join(dir, "projectContext.md"), "# Project Context\n\nexample-repo: a sample service used in the docs.\n")
 	write(t, filepath.Join(dir, "activeContext.md"), activeContextExample)
@@ -102,14 +102,17 @@ func TestDocsTemplateExamplesBankRegion(t *testing.T) {
 // template (internal/memory/templates/*.md) plus one hand-written fixture entry — /reflection:update's actual
 // append is model-driven, so the fixture entry is kept in this test, not generated through that path.
 func TestDocsTemplateExamplesSessionHistory(t *testing.T) {
+	t.Parallel()
 	checkExample(t, "sessionHistory.md", sessionHistoryExample)
 }
 
 func TestDocsTemplateExamplesDecisionLog(t *testing.T) {
+	t.Parallel()
 	checkExample(t, "decisionLog.md", decisionLogExample)
 }
 
 func TestDocsTemplateExamplesActiveContext(t *testing.T) {
+	t.Parallel()
 	checkExample(t, "activeContext.md", activeContextExample)
 }
 

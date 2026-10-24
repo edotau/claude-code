@@ -9,6 +9,7 @@ import (
 
 // The Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
 func TestSessionSurfaceDropsParked(t *testing.T) {
+	t.Parallel()
 	ac := "# Active Context\n\n## Current Focus\n\n- shipping the router\n\n## Parked\n\n- home network gateway firmware\n- interview prep notes\n\n## Blockers\n\n- none\n"
 	got := dropParked(ac)
 	for _, want := range []string{"shipping the router", "## Blockers", "2 parked item(s) omitted"} {
@@ -97,6 +98,7 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 // TestSectionBodyEdgeCases: case-insensitive heading match, an absent heading, an empty section, and the
 // last section in the file all resolve correctly.
 func TestSectionBodyEdgeCases(t *testing.T) {
+	t.Parallel()
 	text := "# Active\n\n## Current Focus\n\n- a\n- b\n\n## Blockers\n\n- none\n"
 	if got := sectionBody(text, "Current Focus"); got != "- a\n- b" {
 		t.Errorf("sectionBody = %q", got)
@@ -118,6 +120,7 @@ func TestSectionBodyEdgeCases(t *testing.T) {
 // Correctness fix (mdsmith AST headings, md-spec.md): a "## " line inside a fenced code block is no
 // longer mistaken for the next heading, so the fence's full contents stay inside the section.
 func TestSectionBodyRespectsFence(t *testing.T) {
+	t.Parallel()
 	text := "# Active\n\n## Current Focus\n\n```\n## not a heading\n```\n- a\n\n## Blockers\n\n- none\n"
 	want := "```\n## not a heading\n```\n- a"
 	if got := sectionBody(text, "Current Focus"); got != want {
@@ -127,6 +130,7 @@ func TestSectionBodyRespectsFence(t *testing.T) {
 
 // dropParked works line-by-line with TrimSpace, so CRLF endings still match "## Parked" and the bullet count.
 func TestDropParkedCRLF(t *testing.T) {
+	t.Parallel()
 	ac := "# Active\r\n\r\n## Current Focus\r\n\r\n- a\r\n\r\n## Parked\r\n\r\n- p1\r\n\r\n## Blockers\r\n\r\n- none\r\n"
 	got := dropParked(ac)
 	for _, want := range []string{"## Current Focus", "## Blockers", "1 parked item(s) omitted"} {
@@ -141,6 +145,7 @@ func TestDropParkedCRLF(t *testing.T) {
 
 // Parked as the last section (no following heading) still drops cleanly and reports its item count.
 func TestDropParkedLastSection(t *testing.T) {
+	t.Parallel()
 	ac := "# Active\n\n## Current Focus\n\n- a\n\n## Parked\n\n- p1\n- p2\n"
 	got := dropParked(ac)
 	if strings.Contains(got, "## Parked") || strings.Contains(got, "p1") || strings.Contains(got, "p2") {

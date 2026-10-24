@@ -29,7 +29,7 @@ func canonTemp(t *testing.T, p string) string {
 func rawGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.Env = append(gitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
@@ -1082,6 +1082,7 @@ func TestLegacyArchiveMdGoesUnderGlobalStoreArchive(t *testing.T) {
 
 // TestMergeAppendOnlyAccessLogs: a grown or diverged access log merges instead of blocking the migration.
 func TestMergeAppendOnlyAccessLogs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ dst, src, want string }{
 		{"", "a\nb\n", "a\nb\n"},
 		{"a\n", "a\nb\nc\n", "a\nb\nc\n"},

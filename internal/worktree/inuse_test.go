@@ -89,6 +89,7 @@ func TestInUseByExcludesCallerAndAncestors(t *testing.T) {
 // TestWithinPrefixNotConfused is the regression test for a naive strings.HasPrefix: /a/foo must not
 // match a process whose cwd is /a/foobar.
 func TestWithinPrefixNotConfused(t *testing.T) {
+	t.Parallel()
 	if within("/a/foobar", "/a/foo") {
 		t.Fatal("within(/a/foobar, /a/foo) = true, want false — foobar is a sibling, not a child")
 	}

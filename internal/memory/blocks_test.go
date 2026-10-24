@@ -13,6 +13,7 @@ import (
 // an unclosed fence runs to EOF; CRLF line endings keep their "\r"; a missing trailing newline still
 // yields the last block; duplicate headings are kept as separate blocks, nothing dedupes on text.
 func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		in         string
@@ -71,6 +72,7 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 
 // rejoin(splitOn(x)) == x for a well-formed, trailing-newline-terminated file (fences included).
 func TestRejoinSplitHeadingBlocksRoundTrip(t *testing.T) {
+	t.Parallel()
 	in := "header\n\n## real\nbody\n```\n## fake\n```\nmore\n\n## real2\nbody2\n"
 	header, blocks := splitHeadingBlocks(in)
 	if got := rejoin(header, blocks); got != in {
@@ -80,6 +82,7 @@ func TestRejoinSplitHeadingBlocksRoundTrip(t *testing.T) {
 
 // fenceToggle fires on an indented ``` fence (with a language tag) and on a bare ~~~ fence.
 func TestFenceToggleVariants(t *testing.T) {
+	t.Parallel()
 	if !fenceToggle("   ```go") {
 		t.Error("an indented ``` fence with a language tag must toggle")
 	}
@@ -94,6 +97,7 @@ func TestFenceToggleVariants(t *testing.T) {
 // NewestHeadingBlocks: n below the count truncates to the newest n, n above returns everything, a file
 // with no trailing newline still yields its last block, and a missing file returns nil (not empty).
 func TestNewestHeadingBlocksEdgeCases(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "decisionLog.md")
 	body := "h\n\n## one\nfirst\n```\n## two fake\n```\n\n## two\nsecond\n\n## three\nthird\n"
@@ -124,6 +128,7 @@ func TestNewestHeadingBlocksEdgeCases(t *testing.T) {
 }
 
 func TestAppendBlocksPreservesBytes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		existing string

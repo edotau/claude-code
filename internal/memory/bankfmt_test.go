@@ -24,6 +24,7 @@ func repeatWords(n int) []string {
 // item's content column — plus every "never touch" surface (fence, table, heading, front matter,
 // comment-only line, RULES region) and every "never split" span (code, link, HTML-comment marker).
 func TestFormatBankMarkdownWrapTable(t *testing.T) {
+	t.Parallel()
 	words := repeatWords(15)
 	all := strings.Join(words, " ")
 
@@ -104,6 +105,7 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 // comment marker stay byte-identical, contiguous substrings of the output even when the line around
 // them is wrapped, and even when the span itself is wider than the wrap cap (kept whole, over-width).
 func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
+	t.Parallel()
 	longCode := "`" + strings.Join(repeatWords(13), " ") + "`" // spaces inside: 13*10+12 = 142 runes, >120
 	line := "see " + longCode + " for details"
 	out := FormatBankMarkdown(line)
@@ -136,6 +138,7 @@ func utf8RuneCount(s string) int { return len([]rune(s)) }
 // TestFormatBankMarkdownUnsplittableTokenStaysOverWidth: a single token with no space (a long URL-shaped
 // run) is wider than the cap but is kept whole on its own line rather than cut mid-word.
 func TestFormatBankMarkdownUnsplittableTokenStaysOverWidth(t *testing.T) {
+	t.Parallel()
 	token := strings.Repeat("y", 150)
 	out := FormatBankMarkdown("- " + token)
 	lines := strings.Split(out, "\n")
@@ -177,6 +180,7 @@ run ` + "`claude-code memory fmt --check`" + ` before committing. <!-- id:deadbe
 // the ordered sequence of words in the document is identical before and after (assert word-equality,
 // not byte-equality, per the documented contract).
 func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
+	t.Parallel()
 	out := FormatBankMarkdown(bankFmtFixture)
 	before := strings.Fields(bankFmtFixture)
 	after := strings.Fields(out)
@@ -193,6 +197,7 @@ func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
 // TestFormatBankMarkdownIdempotent: a second pass over already-wrapped text is a no-op, for the fixture
 // and for the specific plain-paragraph-with-leading-indent case the implementer's fix targets.
 func TestFormatBankMarkdownIdempotent(t *testing.T) {
+	t.Parallel()
 	once := FormatBankMarkdown(bankFmtFixture)
 	twice := FormatBankMarkdown(once)
 	if once != twice {

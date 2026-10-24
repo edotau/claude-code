@@ -12,7 +12,7 @@ import (
 // TestBuildBankRegionCapsAndPresentPointersOnly: the region never exceeds its line/byte reserve, points
 // only at typed files that actually exist, and overflow entries get a "… N more" marker.
 func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
-	migrateConfig1(t)
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n")
 	write(t, filepath.Join(dir, "progress.md"), "# Progress\n")
@@ -52,7 +52,7 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 // TestWriteBankRegionInsertsReplacesAndRefuses: absent -> inserted at top; present -> replaced in place
 // with bytes outside the region untouched; a malformed region (two begin markers) refuses the write.
 func TestWriteBankRegionInsertsReplacesAndRefuses(t *testing.T) {
-	migrateConfig1(t)
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -96,6 +96,7 @@ func TestWriteBankRegionInsertsReplacesAndRefuses(t *testing.T) {
 // stripFrontmatter only treats a line-start "---" as the closing fence, so an indented "---" line inside
 // a YAML block scalar (e.g. a literal "|" value) is left alone and the real closing fence still wins.
 func TestStripFrontmatterBlockScalarDashes(t *testing.T) {
+	t.Parallel()
 	in := "---\ntitle: x\nbody: |\n  line1\n  ---\n  line3\n---\nrest\n"
 	if got := stripFrontmatter(in); got != "rest\n" {
 		t.Errorf("stripFrontmatter(block scalar with --- line) = %q, want %q", got, "rest\n")
@@ -104,6 +105,7 @@ func TestStripFrontmatterBlockScalarDashes(t *testing.T) {
 
 // A body with no leading "---\n" fence passes through unchanged.
 func TestStripFrontmatterNoFrontmatter(t *testing.T) {
+	t.Parallel()
 	in := "# Just a heading\nbody\n"
 	if got := stripFrontmatter(in); got != in {
 		t.Errorf("stripFrontmatter(no frontmatter) = %q, want unchanged %q", got, in)

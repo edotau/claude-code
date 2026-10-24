@@ -10,6 +10,7 @@ import (
 
 // TestRepoKeyFromRemote pins the basename extraction rule (spec: store re-layout §1) across URL shapes.
 func TestRepoKeyFromRemote(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ url, want string }{
 		{"ssh://git@ssh.github.com:443/edotau/claude-code.git", "claude-code"},
 		{"git@github.com:edotau/claude-dbx.git", "claude-dbx"},

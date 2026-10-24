@@ -9,66 +9,58 @@ import (
 )
 
 func TestCreateDefaultBranchNaming(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "feature", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("git", "-C", dest, "branch", "--show-current").Output()
+	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "worktree-feature" {
 		t.Fatalf("branch = %q, err %v, want worktree-feature", out, err)
 	}
 }
 
 func TestCreateCustomBranchName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "feature", "wt/custom-name")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("git", "-C", dest, "branch", "--show-current").Output()
+	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "wt/custom-name" {
 		t.Fatalf("branch = %q, err %v, want wt/custom-name", out, err)
 	}
 }
 
 func TestCreateReusesExistingBranch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("git", "-C", main, "branch", "wt/preexisting").CombinedOutput(); err != nil {
+	t.Parallel()
+	repo := testRepo(t)
+	brCmd := exec.Command("git", "-C", repo.Main, "branch", "wt/preexisting")
+	brCmd.Env = gitEnv()
+	if out, err := brCmd.CombinedOutput(); err != nil {
 		t.Fatalf("branch: %v: %s", err, out)
 	}
 	dest, err := Create(repo, "reuse", "wt/preexisting")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("git", "-C", dest, "branch", "--show-current").Output()
+	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "wt/preexisting" {
 		t.Fatalf("branch = %q, err %v, want wt/preexisting", out, err)
 	}
 }
 
 func TestCreateIdempotentResume(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest1, err := Create(repo, "dup", "")
 	if err != nil {
 		t.Fatal(err)
@@ -83,24 +75,16 @@ func TestCreateIdempotentResume(t *testing.T) {
 }
 
 func TestCreateRejectsTraversalName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if _, err := Create(repo, "../escape", ""); err == nil {
 		t.Fatal("want error for a traversal name")
 	}
 }
 
 func TestCreateUnusualFilenames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	for _, name := range []string{"dots.v2", "under_score-123", "unicode-éé"} {
 		dest, err := Create(repo, name, "")
 		if err != nil {
@@ -118,13 +102,9 @@ func TestCreateUnusualFilenames(t *testing.T) {
 // not a valid git ref when name contains a space, so Create fails with git's raw stderr instead of a
 // clear error or a sanitized branch name. See internal/worktree/lifecycle.go:24.
 func TestCreateSpaceInNameDerivesInvalidBranchRef(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = Create(repo, "has space", "")
+	t.Parallel()
+	repo := testRepo(t)
+	_, err := Create(repo, "has space", "")
 	if err == nil {
 		t.Fatal("BUG regression: Create used to fail on a derived branch name containing a space; it now succeeds — if Create was fixed to sanitize the default branch name, update this test to assert success instead")
 	}
@@ -342,7 +322,9 @@ func TestCleanAllPreviewThenApply(t *testing.T) {
 // test that needs to drop an operation marker directly into it.
 func gitDirOfForTest(t *testing.T, dest string) string {
 	t.Helper()
-	out, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	cmd := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir")
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,15 +377,11 @@ func TestCleanRefusesPendingAutostash(t *testing.T) {
 // unlocked on inspection errors"): a stat failure that is NOT "file doesn't exist" (here, permission
 // denied on the containing directory) must propagate as an error, never be read as "unlocked".
 func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks don't apply when running as root")
 	}
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	repo := testRepo(t)
 	dest, err := Create(repo, "permcheck", "")
 	if err != nil {
 		t.Fatal(err)
@@ -507,12 +485,8 @@ func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
 }
 
 func TestCleanAllSkipsOrphanedEntries(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if err := os.MkdirAll(filepath.Join(repo.Root, "stray"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,8 @@ import (
 // repo's common git dir) that always fails, so `git merge` inside the worktree aborts mid-merge; the
 // worktree is left with MERGE_HEAD, and main must never be touched since Promote is never reached.
 func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 	mainBefore := headOf(main)

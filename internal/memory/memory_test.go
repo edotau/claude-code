@@ -72,6 +72,7 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 }
 
 func TestSplitBlocksFenceAware(t *testing.T) {
+	t.Parallel()
 	body := "# Conventions\n> note\n\n- first rule\n  - sub\n```\n- not a block\n## nor this\n```\n- second rule\n## Heading\ntext"
 	header, blocks := entryBlocks("conventions.md", body)
 	if header != "# Conventions\n> note" || len(blocks) != 3 || !strings.Contains(blocks[0], "- not a block") {

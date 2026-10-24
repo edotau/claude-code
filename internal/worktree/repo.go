@@ -33,11 +33,18 @@ func Root(main string) string {
 	return filepath.Join(WorktreeRoot(), filepath.Base(filepath.Clean(main)))
 }
 
+// gitCmd builds a git command with per-repo GIT_* environment variables scrubbed.
+func gitCmd(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = gitEnv()
+	return cmd
+}
+
 // ResolveRepo resolves cwd (a main checkout, a linked worktree, or any subdirectory of either) to its
 // canonical git identity. --git-common-dir is absolute and identical from anywhere inside the repo, so
 // this is the one call that makes worktree/subdir/main all agree without reading .git pointer files.
 func ResolveRepo(cwd string) (*Repo, error) {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := gitCmd(context.Background(), "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
 	}
@@ -152,7 +159,7 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
 
-	topOut, err := exec.CommandContext(ctx, "git", "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
+	topOut, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err()
@@ -167,7 +174,7 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 		return false, nil // dest is a subdirectory of some checkout's worktree root, not a worktree root itself
 	}
 
-	out, err := exec.CommandContext(ctx, "git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err()

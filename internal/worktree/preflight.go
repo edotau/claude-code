@@ -47,14 +47,26 @@ type MergePlan struct {
 	Issues          []Issue
 }
 
+// gitEnv returns os.Environ() with per-repo GIT_* overrides stripped, plus extra.
+func gitEnv(extra ...string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		switch k {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX":
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, extra...)
+}
+
 // runGit is the one seam over external git invocation in this file and merge.go: a test fakes a
 // capability failure or an unsupported exit code through it, without a specially built git binary.
 // extraEnv is appended to the subprocess environment; nil for the common case.
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	cmd.Env = gitEnv(extraEnv...)
 	return cmd.Output()
 }
 
