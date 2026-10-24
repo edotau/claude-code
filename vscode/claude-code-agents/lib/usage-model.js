@@ -1,6 +1,7 @@
 'use strict';
 // Pure usage-popover model builder — no vscode dependency, so node:test can exercise it directly.
 const { formatCount } = require('./format');
+const { priceFor } = require('./pricing');
 
 const PROVIDER_META = {
   anthropic: { name: 'Claude', icon: 'sparkle' },
@@ -96,6 +97,17 @@ function buildAgentModelRow(row) {
   };
 }
 
+/** `row.mix` (snake_case, optional) -> camelCase {input,output,cacheRead,cacheWrite}, or null when absent. */
+function buildAgentMix(mix) {
+  if (!mix) return null;
+  return {
+    input: mix.input || 0,
+    output: mix.output || 0,
+    cacheRead: mix.cache_read || 0,
+    cacheWrite: mix.cache_write || 0,
+  };
+}
+
 /** One `agents[]` entry (older `usage` output lacks the key entirely; callers must treat it as absent). */
 function buildAgent(row) {
   const id = row.agent;
@@ -111,13 +123,98 @@ function buildAgent(row) {
     topModel: top ? `${top.provider}/${top.model}` : null,
     models,
     note: row.note || null,
+    mix: buildAgentMix(row.mix),
+    daily: Array.isArray(row.daily)
+      ? row.daily.filter((d) => d && d.date).map((d) => ({ date: d.date, tokens: d.tokens || 0, turns: d.turns || 0 }))
+      : [],
+    activeDays: row.active_days || 0,
   };
+}
+
+/** USD estimate for one agent's token mix: its own `costUsd` (e.g. OpenCode), else priced from `topModel`'s
+ * Anthropic tier applied to `mix`. `priced: false` means tokens exist but no rate could be found. */
+function estimateAgentCost(agent) {
+  if (agent.costUsd != null) return { cost: agent.costUsd, priced: true };
+  if (!agent.tokens) return { cost: 0, priced: true };
+  const top = agent.models && agent.models[0];
+  const price = top ? priceFor(top.provider, top.model) : null;
+  if (!price || !agent.mix) return { cost: null, priced: false };
+  const m = agent.mix;
+  const cost =
+    (m.input / 1e6) * price.input +
+    (m.output / 1e6) * price.output +
+    (m.cacheRead / 1e6) * price.cacheRead +
+    (m.cacheWrite / 1e6) * price.cacheWrite;
+  return { cost, priced: true };
+}
+
+/** Sums each agent's `mix` into one camelCase totals object; missing mixes read as 0. */
+function sumMix(agents) {
+  const mix = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  for (const a of agents) {
+    const m = a.mix;
+    if (!m) continue;
+    mix.input += m.input;
+    mix.output += m.output;
+    mix.cacheRead += m.cacheRead;
+    mix.cacheWrite += m.cacheWrite;
+  }
+  return mix;
+}
+
+/** Per-day token totals across every agent: `windowDays` present -> every day in the window (ascending,
+ * zero-filled); absent (older binary) -> just the union of whatever `daily` entries exist, sorted ascending. */
+function buildDailyUnion(agents, windowDays, nowMs) {
+  const byDate = new Map();
+  for (const a of agents) {
+    for (const d of a.daily || []) byDate.set(d.date, (byDate.get(d.date) || 0) + d.tokens);
+  }
+  if (typeof windowDays === 'number' && windowDays > 0) {
+    const days = [];
+    for (let i = windowDays - 1; i >= 0; i--) {
+      const iso = new Date(nowMs - i * 86400000).toISOString().slice(0, 10);
+      days.push({ date: iso, tokens: byDate.get(iso) || 0 });
+    }
+    return days;
+  }
+  return Array.from(byDate.entries())
+    .map(([date, tokens]) => ({ date, tokens }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Aggregates stats across `agents` for the dashboard's stats layer; `null` fields mean the data genuinely isn't known. */
+function buildStats(usageJson, agents, nowMs) {
+  const windowDays = typeof (usageJson && usageJson.window_days) === 'number' ? usageJson.window_days : null;
+  const totalTokens = agents.reduce((sum, a) => sum + a.tokens, 0);
+  const sessions = agents.reduce((sum, a) => sum + a.sessions, 0);
+  const turns = agents.reduce((sum, a) => sum + a.turns, 0);
+  const mix = sumMix(agents);
+  const mixTotal = mix.input + mix.output + mix.cacheRead + mix.cacheWrite;
+  const cacheShare = mixTotal > 0 ? mix.cacheRead / mixTotal : 0;
+  const daily = buildDailyUnion(agents, windowDays, nowMs);
+  const activeDays = daily.filter((d) => d.tokens > 0).length;
+  let bestDay = null;
+  for (const d of daily) {
+    if (!bestDay || d.tokens > bestDay.tokens) bestDay = d;
+  }
+  let costUsd = agents.length ? 0 : null;
+  let costPartial = false;
+  for (const a of agents) {
+    if (!a.tokens) continue;
+    const { cost, priced } = estimateAgentCost(a);
+    if (!priced) {
+      costPartial = true;
+      continue;
+    }
+    costUsd += cost;
+  }
+  return { windowDays, totalTokens, sessions, turns, activeDays, costUsd, costPartial, mix, cacheShare, daily, bestDay };
 }
 
 /** Flat `usage --format json` + `profile --format json` → the grouped model the status bar/webview render. */
 function buildUsageModel(usageJson, profileJson, nowMs) {
   void profileJson; // reserved for future model-slot-name lookups; not needed by the current fields
-  void nowMs; // reset labels are computed at render time (see statusBarText/Tooltip) so they tick live
+  const now = typeof nowMs === 'number' ? nowMs : Date.now(); // reset labels still render at call time, not from this
   const billing = (usageJson && usageJson.billing) || {};
   const mode = billing.mode === 'api' ? 'api' : 'subscription';
   const billingProvider = billing.provider || null;
@@ -143,7 +240,8 @@ function buildUsageModel(usageJson, profileJson, nowMs) {
     allTime: r.all_time || 0,
   }));
   const agents = Array.isArray(usageJson && usageJson.agents) ? usageJson.agents.map(buildAgent) : [];
-  return { mode, billingProvider, providers, api, agents };
+  const stats = buildStats(usageJson, agents, now);
+  return { mode, billingProvider, providers, api, agents, stats };
 }
 
 /** 10-cell ascii bar, filled proportionally to pct (0-100). */
@@ -234,4 +332,5 @@ module.exports = {
   agentsStatusText,
   statusBarText,
   statusBarTooltip,
+  buildStats,
 };

@@ -131,18 +131,26 @@ function renderProvider(p, show, detailed) {
   </div>`;
 }
 
-/** One agent row: bold name, muted provider/model (or note), then a "tokens · sessions · turns · $cost" line. */
-function renderAgentDetailed(a) {
-  const label = a.topModel || a.note || '';
+/** One agent card: bold name, muted provider/model, a "tokens · sessions · turns · $cost" line, and a share bar
+ * of this agent's tokens against `totalTokens`. A note-only agent (no sessions in window) renders muted, no bar. */
+function renderAgentCard(a, totalTokens) {
+  if (!a.tokens && !a.sessions) {
+    return `<div class="agent-card agent-card-muted">
+      <div class="agent-name muted">${esc(a.name)}</div>
+      <div class="agent-note muted">${esc(a.note || 'no sessions in window')}</div>
+    </div>`;
+  }
   const parts = [];
   if (a.tokens) parts.push(`${formatCount(a.tokens)} tokens`);
   if (a.sessions) parts.push(sessionsLabel(a.sessions));
   if (a.turns) parts.push(`${a.turns} turns`);
   if (a.costUsd != null) parts.push(`$${a.costUsd.toFixed(2)}`);
-  return `<div class="agent">
+  const share = totalTokens > 0 ? Math.min(100, (a.tokens / totalTokens) * 100) : 0;
+  return `<div class="agent-card">
     <div class="agent-name">${esc(a.name)}</div>
-    ${label ? `<div class="agent-model muted">${esc(label)}</div>` : ''}
-    ${parts.length ? `<div class="agent-stats muted">${esc(parts.join(' · '))}</div>` : ''}
+    ${a.topModel ? `<div class="agent-model muted">${esc(a.topModel)}</div>` : ''}
+    <div class="agent-stats muted">${esc(parts.join(' · '))}</div>
+    <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
   </div>`;
 }
 
@@ -161,8 +169,9 @@ function renderAgentsSection(model, detailed, days) {
   const agents = model.agents || [];
   if (!agents.length) return '';
   const windowLabel = `last ${days} day${days === 1 ? '' : 's'}`;
+  const totalTokens = agents.reduce((sum, a) => sum + (a.tokens || 0), 0);
   const body = detailed
-    ? agents.map(renderAgentDetailed).join('')
+    ? `<div class="agents-grid">${agents.map((a) => renderAgentCard(a, totalTokens)).join('')}</div>`
     : agents.map(renderAgentCompact).join('');
   return `<div class="agents-section">
     <div class="agents-head">
@@ -191,9 +200,125 @@ function renderApiTable(model) {
   </table>`;
 }
 
+/** "Oct 22" from a "YYYY-MM-DD" date string, parsed as UTC midnight so the local timezone can't shift it a day. */
+function formatDayLabel(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/** 0 (no tokens) .. 4 (top quartile of `max`) — same 5-step scale the heatmap cells and the legend use. */
+function heatLevel(tokens, max) {
+  if (!tokens || max <= 0) return 0;
+  const ratio = tokens / max;
+  if (ratio > 0.75) return 4;
+  if (ratio > 0.5) return 3;
+  if (ratio > 0.25) return 2;
+  return 1;
+}
+
+const HEAT_OPACITY = [0.08, 0.3, 0.5, 0.75, 1];
+
+/** One tile: a muted label over a bold value; `opts.html` lets the value carry inline markup (the cost partial suffix). */
+function renderStatTile(label, value, opts) {
+  const html = (opts && opts.html) || esc(value);
+  return `<div class="stat-tile"><div class="stat-tile-label muted">${esc(label)}</div><div class="stat-tile-value">${html}</div></div>`;
+}
+
+/** Total tokens / Est. cost / Sessions / Active days, in a `repeat(auto-fit, minmax(140px, 1fr))` tile row. */
+function renderStatsTiles(stats) {
+  const costValue =
+    stats.costUsd == null
+      ? 'n/a'
+      : `$${stats.costUsd.toFixed(2)}${stats.costPartial ? ' <span class="muted">(partial)</span>' : ''}`;
+  const tiles = [
+    renderStatTile('Total tokens', formatCount(stats.totalTokens)),
+    renderStatTile('Est. cost', null, { html: costValue }),
+    renderStatTile('Sessions', String(stats.sessions)),
+    renderStatTile('Active days', String(stats.activeDays)),
+  ];
+  return `<div class="stats-tiles">${tiles.join('')}</div>`;
+}
+
+/** GitHub-style heatmap: one 10px square per day in `stats.daily`, 7 rows (Sun..Sat) × N week columns. */
+function renderHeatmap(stats) {
+  const days = stats.daily || [];
+  if (!days.length) return '<div class="muted">No activity yet</div>';
+  const firstDow = new Date(`${days[0].date}T00:00:00Z`).getUTCDay();
+  const max = Math.max(1, ...days.map((d) => d.tokens));
+  const cells = [];
+  let col = 0;
+  let row = firstDow;
+  for (const d of days) {
+    const level = heatLevel(d.tokens, max);
+    cells.push(
+      `<span class="heat-cell" style="grid-column:${col + 1};grid-row:${row + 1};opacity:${HEAT_OPACITY[level]}" title="${esc(
+        formatDayLabel(d.date)
+      )}: ${esc(formatCount(d.tokens))} tokens"></span>`
+    );
+    row++;
+    if (row > 6) {
+      row = 0;
+      col++;
+    }
+  }
+  const columns = col + 1;
+  return `<div class="heatmap" style="grid-template-columns:repeat(${columns},10px);grid-template-rows:repeat(7,10px)">${cells.join('')}</div>`;
+}
+
+/** "Less [□▢▦▩■] More" legend, same 5-step opacity scale as the heatmap cells. */
+function renderHeatLegend() {
+  const squares = HEAT_OPACITY.map((o) => `<span class="heat-cell heat-legend-cell" style="opacity:${o}"></span>`).join('');
+  return `<div class="heat-legend muted">Less ${squares} More</div>`;
+}
+
+const MIX_SEGMENTS = [
+  { key: 'input', label: 'Input', color: 'var(--vscode-charts-blue)' },
+  { key: 'output', label: 'Output', color: 'var(--vscode-charts-green)' },
+  { key: 'cacheRead', label: 'Cache read', color: 'var(--vscode-charts-yellow)' },
+  { key: 'cacheWrite', label: 'Cache write', color: 'var(--vscode-charts-orange)' },
+];
+
+/** One stacked bar of input/output/cache-read/cache-write token counts, with a swatch legend below it. */
+function renderTokenMix(stats) {
+  const mix = stats.mix || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const total = mix.input + mix.output + mix.cacheRead + mix.cacheWrite;
+  const bar =
+    total > 0
+      ? MIX_SEGMENTS.map((s) => `<span class="mix-seg" style="width:${(mix[s.key] / total) * 100}%;background:${s.color}"></span>`).join('')
+      : '';
+  const legend = MIX_SEGMENTS.map(
+    (s) => `<span class="mix-legend-item"><span class="mix-swatch" style="background:${s.color}"></span>${esc(s.label)} ${esc(formatCount(mix[s.key]))}</span>`
+  ).join('');
+  return `<div class="token-mix">
+    <div class="mix-bar">${bar || '<span class="muted">No token data yet</span>'}</div>
+    <div class="mix-legend">${legend}</div>
+  </div>`;
+}
+
+/** Stats layer: tile row, then a two-column (one on narrow) row of the daily-intensity heatmap and token mix. */
+function renderStatsSection(stats) {
+  if (!stats) return '';
+  const bestDay = stats.bestDay && stats.bestDay.tokens > 0 ? formatDayLabel(stats.bestDay.date) : null;
+  return `<div class="stats-section">
+    ${renderStatsTiles(stats)}
+    <div class="stats-cols">
+      <div class="stats-col">
+        <div class="stats-col-head"><span class="stats-col-title">Daily intensity</span>${bestDay ? `<span class="muted">Best: ${esc(bestDay)}</span>` : ''}</div>
+        ${renderHeatmap(stats)}
+        ${renderHeatLegend()}
+      </div>
+      <div class="stats-col">
+        <div class="stats-col-head"><span class="stats-col-title">Token mix</span></div>
+        ${renderTokenMix(stats)}
+      </div>
+    </div>
+  </div>`;
+}
+
 /** Full webview HTML string for the Usage view; `opts.detailed` picks Detailed vs Compact, `opts.show` used|left. */
 function renderUsageHtml(model, opts) {
   const { detailed = true, show = 'used', nonce = '', cspSource = '', days = 1 } = opts || {};
+  const statsSection = detailed ? renderStatsSection(model.stats) : '';
   const agentsSection = renderAgentsSection(model, detailed, days);
   const body =
     model.mode === 'api'
@@ -245,19 +370,46 @@ function renderUsageHtml(model, opts) {
   .agents-section { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); }
   .agents-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   .agents-title { font-weight: 600; }
-  .agent { margin-bottom: 8px; }
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+  .agent-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; }
+  .agent-card-muted { opacity: 0.7; }
   .agent-name { font-weight: 600; }
-  .agent-model, .agent-stats { font-size: 12px; }
+  .agent-model, .agent-stats, .agent-note { font-size: 12px; }
+  .agent-stats { margin-top: 2px; }
+  .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--vscode-widget-border); overflow: hidden; }
+  .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .agent-compact { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 2px 0; }
   .footer-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); cursor: pointer; }
   .api-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 12px; width: calc(100% - 24px); }
   .api-table th, .api-table td { text-align: left; padding: 2px 6px 2px 0; }
   .api-table th { color: var(--vscode-descriptionForeground); font-weight: 400; }
+  .stats-section { padding: 8px 12px; }
+  .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .stat-tile { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; }
+  .stat-tile-label { font-size: 12px; margin-bottom: 2px; }
+  .stat-tile-value { font-size: 16px; font-weight: 600; }
+  .stats-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stats-col { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
+  .stats-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .stats-col-title { font-weight: 600; font-size: 12px; }
+  .heatmap { display: grid; gap: 2px; }
+  .heat-cell { width: 10px; height: 10px; border-radius: 2px; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
+  .heat-legend { display: flex; align-items: center; gap: 3px; margin-top: 6px; font-size: 11px; }
+  .heat-legend-cell { display: inline-block; }
+  .token-mix { display: flex; flex-direction: column; gap: 8px; }
+  .mix-bar { display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: var(--vscode-widget-border); }
+  .mix-seg { display: block; height: 100%; }
+  .mix-legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+  .mix-legend-item { display: inline-flex; align-items: center; gap: 4px; color: var(--vscode-descriptionForeground); }
+  .mix-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  @media (max-width: 480px) {
+    .stats-cols { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
   <div class="header">
-    <h1>Agent Dashboard</h1>
+    <h1>Agents Dashboard</h1>
     <div class="header-right">
       <span class="muted">all agents</span>
       <button class="icon-btn" id="refresh" title="Refresh">\u21BB</button>
@@ -271,6 +423,7 @@ function renderUsageHtml(model, opts) {
     <button id="compact" class="${!detailed ? 'active' : ''}">Compact</button>
   </div>`
   }
+  ${statsSection}
   ${body}
   <div class="footer-row" id="details">
     <span>Usage details &amp; history</span>

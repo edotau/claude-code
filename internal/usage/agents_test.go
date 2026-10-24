@@ -91,15 +91,22 @@ func writeCopilotStore(t *testing.T) {
 // token_count lines (2), the model comes from turn_context, and the malformed line is skipped silently.
 func TestParseCodexSessionFixture(t *testing.T) {
 	path := filepath.Join("testdata", "codex-session-fixture.jsonl")
-	model, tokens, turns := parseCodexSession(path)
-	if model != "gpt-6-astra" {
-		t.Errorf("model = %q, want gpt-6-astra", model)
+	got := parseCodexSession(path)
+	if got.Model != "gpt-6-astra" {
+		t.Errorf("model = %q, want gpt-6-astra", got.Model)
 	}
-	if tokens != 2500 {
-		t.Errorf("tokens = %d, want 2500 (the LAST token_count, not the sum of 1000+2500)", tokens)
+	if got.Tokens != 2500 {
+		t.Errorf("tokens = %d, want 2500 (the LAST token_count, not the sum of 1000+2500)", got.Tokens)
 	}
-	if turns != 2 {
-		t.Errorf("turns = %d, want 2", turns)
+	if got.Turns != 2 {
+		t.Errorf("turns = %d, want 2", got.Turns)
+	}
+	wantMix := tokenMix{Input: 2000, Output: 200, CacheRead: 300}
+	if got.Mix != wantMix {
+		t.Errorf("mix = %+v, want %+v (the LAST token_count's breakdown)", got.Mix, wantMix)
+	}
+	if got.Day != "2026-10-23" {
+		t.Errorf("day = %q, want 2026-10-23 (the LAST token_count's timestamp, local)", got.Day)
 	}
 }
 
@@ -308,7 +315,7 @@ func TestClaudeAgentUsageFoldsAggregate(t *testing.T) {
 	agg.Models["sonnet"] = &transcript.ModelUsage{InputTokens: 100}
 	agg.Models["haiku"] = &transcript.ModelUsage{InputTokens: 900}
 
-	got := claudeAgentUsage(agg, 3)
+	got := claudeAgentUsage(agg, 3, nil)
 	if got.Agent != "claude" {
 		t.Fatalf("agent = %q, want claude", got.Agent)
 	}
@@ -325,11 +332,11 @@ func TestClaudeAgentUsageFoldsAggregate(t *testing.T) {
 
 // TestClaudeAgentUsageEmptyAggregate: nil or model-less aggregate reports "no sessions in window".
 func TestClaudeAgentUsageEmptyAggregate(t *testing.T) {
-	got := claudeAgentUsage(nil, 0)
+	got := claudeAgentUsage(nil, 0, nil)
 	if got.Note != "no sessions in window" {
 		t.Errorf("nil aggregate note = %q, want %q", got.Note, "no sessions in window")
 	}
-	got = claudeAgentUsage(transcript.NewUsageAggregate(), 0)
+	got = claudeAgentUsage(transcript.NewUsageAggregate(), 0, nil)
 	if got.Note != "no sessions in window" {
 		t.Errorf("empty aggregate note = %q, want %q", got.Note, "no sessions in window")
 	}
@@ -345,7 +352,7 @@ func TestBuildAgentsUsageAlwaysReturnsFour(t *testing.T) {
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	stubLookPathSqlite3(t, func() error { return nil })
 
-	got := buildAgentsUsage(transcript.NewUsageAggregate(), 0, 1)
+	got := buildAgentsUsage(transcript.NewUsageAggregate(), 0, 1, nil)
 	if len(got) != 4 {
 		t.Fatalf("len = %d, want 4", len(got))
 	}

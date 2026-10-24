@@ -142,5 +142,7 @@ test('renderUsageHtml: no agents array produces no Agents section and never thro
   const model = buildUsageModel(json, {}, Date.now());
   assert.doesNotThrow(() => renderUsageHtml(model, { detailed: true, show: 'used' }));
   const html = renderUsageHtml(model, { detailed: true, show: 'used' });
-  assert.ok(!html.includes('Agents'));
+  // the page header itself now reads "Agents Dashboard" unconditionally; what must be absent is the
+  // agents SECTION (the per-agent cards block), not the literal substring "Agents" anywhere on the page.
+  assert.ok(!html.includes('class="agents-section"'));
 });

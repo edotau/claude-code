@@ -1,21 +1,14 @@
 'use strict';
 const vscode = require('vscode');
-const { execFile, spawn } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const {
   AGENTS,
-  treeArgv,
-  dispatchListArgv,
   dispatchStartArgv,
-  viewArgv,
-  viewFollowArgv,
   usageArgv,
   profileArgv,
   vscodeServeArgv,
-  attachShellArgs,
   attachCommandLine,
 } = require('./lib/argv');
-const { buildAgentRootNodes, countRunning, buildDispatchNodes, parseTreeOutput } = require('./lib/tree-model');
-const { formatSnapshotText } = require('./lib/format');
 const { buildUsageModel, statusBarText, statusBarTooltip } = require('./lib/usage-model');
 const { renderUsageHtml } = require('./lib/usage-view');
 
@@ -33,96 +26,6 @@ function runBinary(binary, argv, cwd) {
       resolve(stdout);
     });
   });
-}
-
-/** Converts a plain model node (lib/tree-model.js) into a vscode.TreeItem. */
-function toTreeItem(node) {
-  const collapsibleState =
-    node.children && node.children.length
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None;
-  const item = new vscode.TreeItem(node.label, collapsibleState);
-  item.id = node.id;
-  item.description = node.description || undefined;
-  item.tooltip = node.tooltip || node.label;
-  item.contextValue = node.kind;
-  if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
-  if (node.kind === 'subagent') {
-    item.command = { command: 'claudeCodeAgents.viewAgent', title: 'View Agent', arguments: [node] };
-  }
-  return item;
-}
-
-class AgentsTreeProvider {
-  constructor() {
-    this._onDidChangeTreeData = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-    this.showAll = false;
-    this.rootNodes = [];
-    this.running = 0;
-  }
-
-  refresh() {
-    this._onDidChangeTreeData.fire(undefined);
-    return this.load();
-  }
-
-  async load() {
-    const cfg = config();
-    const binary = cfg.get('binary') || 'claude-code';
-    const days = cfg.get('days', 1);
-    const hosts = cfg.get('hosts', []) || [];
-    const nodes = [];
-    try {
-      const argv = treeArgv(binary, { days, all: this.showAll });
-      const stdout = await runBinary(binary, argv);
-      const parsed = parseTreeOutput(stdout);
-      if (parsed.error) throw new Error(parsed.error);
-      nodes.push(...buildAgentRootNodes(parsed));
-      this.running = countRunning(parsed);
-    } catch (err) {
-      nodes.push(errorNode('claude-code-agents:tree-error', err.message));
-      vscode.window.showErrorMessage(`Claude Code Agents: ${err.message}`);
-      this.running = 0;
-    }
-    if (hosts.length) {
-      const hostResults = await Promise.all(
-        hosts.map(async (host) => {
-          try {
-            const argv = dispatchListArgv(binary, host);
-            const stdout = await runBinary(binary, argv);
-            return { host, sessions: JSON.parse(stdout) };
-          } catch (err) {
-            return { host, error: err.message };
-          }
-        })
-      );
-      nodes.push({
-        kind: 'dispatches-root',
-        id: 'claude-code-agents:dispatches',
-        label: 'Dispatches',
-        description: '',
-        tooltip: undefined,
-        icon: 'server',
-        children: buildDispatchNodes(hostResults),
-      });
-    }
-    this.rootNodes = nodes;
-    this._onDidChangeTreeData.fire(undefined);
-  }
-
-  getTreeItem(node) {
-    return toTreeItem(node);
-  }
-
-  getChildren(node) {
-    if (!node) return this.rootNodes;
-    return node.children || [];
-  }
-}
-
-function errorNode(id, message) {
-  return { kind: 'error', id, label: message, description: '', tooltip: message, icon: 'error', children: [] };
 }
 
 /** 32-char alnum string for the webview CSP script nonce. */
@@ -163,7 +66,7 @@ class UsageViewProvider {
       this.panel.reveal(vscode.ViewColumn.Active);
       return;
     }
-    const panel = vscode.window.createWebviewPanel('claudeCodeAgents.usageEditor', 'Agent Dashboard', vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel('claudeCodeAgents.usageEditor', 'Agents Dashboard', vscode.ViewColumn.Active, {
       enableScripts: true,
       retainContextWhenHidden: true,
     });
@@ -184,7 +87,7 @@ class UsageViewProvider {
       return this.render();
     }
     if (msg.type === 'details') {
-      const terminal = vscode.window.createTerminal({ name: 'Agent Dashboard' });
+      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
       terminal.sendText(`${binary} usage`);
       terminal.show();
       return;
@@ -200,7 +103,7 @@ class UsageViewProvider {
   async load() {
     const cfg = config();
     const binary = cfg.get('binary') || 'claude-code';
-    const days = cfg.get('usageDays', 1) || 1;
+    const days = cfg.get('usageDays', 30) || 30;
     try {
       const [usageOut, profileOut] = await Promise.all([
         runBinary(binary, usageArgv(binary, { days })),
@@ -232,7 +135,7 @@ class UsageViewProvider {
     if (!this.usageJson) return;
     const cfg = config();
     const show = cfg.get('usageShow', 'used') || 'used';
-    const days = cfg.get('usageDays', 1) || 1;
+    const days = cfg.get('usageDays', 30) || 30;
     const showAgents = cfg.get('usageStatusBarAgents', true);
     const model = buildUsageModel(this.usageJson, this.profileJson, Date.now());
     this.statusBarItem.text = statusBarText(model, show, { agents: showAgents });
@@ -252,17 +155,8 @@ class UsageViewProvider {
   }
 }
 
-function attachTerminal(host, session) {
-  const terminal = vscode.window.createTerminal({
-    name: `${host}: ${session}`,
-    shellPath: 'ssh',
-    shellArgs: attachShellArgs(host, session),
-    location: vscode.TerminalLocation.Editor,
-  });
-  terminal.show();
-}
-
-async function runDispatch(context, provider) {
+/** Prompts for host/agent/dir/task, starts the dispatch, and offers to copy the attach command. */
+async function runDispatch() {
   const cfg = config();
   const binary = cfg.get('binary') || 'claude-code';
   const configuredHosts = cfg.get('hosts', []) || [];
@@ -284,92 +178,17 @@ async function runDispatch(context, provider) {
     const argv = dispatchStartArgv(binary, { host, agent, dir: dir || undefined, task });
     await runBinary(binary, argv);
     const line = attachCommandLine(host, `cc-${agent}-*`);
-    const choice = await vscode.window.showInformationMessage(`Dispatched on ${host}. ${line}`, 'Attach', 'Copy Command');
+    const choice = await vscode.window.showInformationMessage(`Dispatched on ${host}. ${line}`, 'Copy Command');
     if (choice === 'Copy Command') {
       await vscode.env.clipboard.writeText(line);
-    } else if (choice === 'Attach') {
-      provider.refresh();
     }
   } catch (err) {
     vscode.window.showErrorMessage(`Claude Code Agents dispatch failed: ${err.message}`);
   }
 }
 
-// followChild is the one live `web view --follow` child process backing the output channel, killed
-// whenever a new agent is viewed or the extension deactivates — never more than one at a time.
-let followChild = null;
-
-function stopFollow() {
-  if (followChild) {
-    followChild.kill();
-    followChild = null;
-  }
-}
-
-/** Streams `web view <id> --session S --follow`'s text/plain lines into outputChannel until the agent finishes. */
-function startFollow(binary, agentId, sessionId, outputChannel) {
-  const argv = viewFollowArgv(binary, agentId, sessionId);
-  const child = spawn(binary, argv.slice(1));
-  followChild = child;
-  child.stdout.on('data', (chunk) => outputChannel.append(chunk.toString()));
-  child.on('error', () => { followChild = null; });
-  child.on('close', () => { followChild = null; });
-}
-
-/** The click-through detail pane: a `web view --format json` snapshot, then (if running) its live follow stream. */
-async function viewAgent(binary, node, outputChannel) {
-  if (!node || node.kind !== 'subagent') return;
-  stopFollow();
-  try {
-    const argv = viewArgv(binary, node.agentId, node.sessionId);
-    const stdout = await runBinary(binary, argv);
-    const snap = JSON.parse(stdout);
-    outputChannel.clear();
-    outputChannel.appendLine(formatSnapshotText(snap));
-    outputChannel.show(true);
-    if (snap.status === 'running') startFollow(binary, node.agentId, node.sessionId, outputChannel);
-  } catch (err) {
-    vscode.window.showErrorMessage(`Claude Code Agents view failed: ${err.message}`);
-  }
-}
-
 function activate(context) {
-  const provider = new AgentsTreeProvider();
-  const view = vscode.window.createTreeView('claudeCodeAgents.tree', { treeDataProvider: provider });
-  context.subscriptions.push(view);
-  const detailChannel = vscode.window.createOutputChannel('Claude Code Agent');
-  context.subscriptions.push(detailChannel);
-
-  const updateBadge = () => {
-    view.badge = provider.running > 0 ? { value: provider.running, tooltip: `${provider.running} running` } : undefined;
-  };
-  provider.onDidChangeTreeData(updateBadge);
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('claudeCodeAgents.refresh', () => provider.refresh()),
-    vscode.commands.registerCommand('claudeCodeAgents.toggleShowAll', () => {
-      provider.showAll = !provider.showAll;
-      vscode.window.showInformationMessage(`Claude Code Agents: show all ${provider.showAll ? 'on' : 'off'}`);
-      provider.refresh();
-    }),
-    vscode.commands.registerCommand('claudeCodeAgents.dispatch', () => runDispatch(context, provider)),
-    vscode.commands.registerCommand('claudeCodeAgents.viewAgent', (node) =>
-      viewAgent(config().get('binary') || 'claude-code', node, detailChannel)
-    ),
-    vscode.commands.registerCommand('claudeCodeAgents.attach', (node) => {
-      if (!node || node.kind !== 'dispatch-session') return;
-      attachTerminal(node.host, node.session);
-    }),
-    vscode.commands.registerCommand('claudeCodeAgents.copyAttachCommand', (node) => {
-      if (!node || node.kind !== 'dispatch-session') return;
-      vscode.env.clipboard.writeText(attachCommandLine(node.host, node.session));
-    })
-  );
-
-  provider.load();
-  const seconds = config().get('refreshSeconds', 5) || 5;
-  const timer = setInterval(() => provider.load(), Math.max(1, seconds) * 1000);
-  context.subscriptions.push({ dispose: () => clearInterval(timer) });
+  context.subscriptions.push(vscode.commands.registerCommand('claudeCodeAgents.dispatch', () => runDispatch()));
 
   function createUsageStatusBarItem() {
     const cfg = config();
@@ -379,7 +198,7 @@ function activate(context) {
         : vscode.StatusBarAlignment.Left;
     const priority = cfg.get('usageStatusBarPriority', 1000000) || 1000000;
     const item = vscode.window.createStatusBarItem(alignment, priority);
-    item.name = 'Agent Dashboard';
+    item.name = 'Agents Dashboard';
     item.command = 'claudeCodeAgents.showUsage';
     item.text = '$(sparkle) usage';
     item.show();
@@ -430,13 +249,13 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeCodeAgents.servePhone', () => {
       const binary = config().get('binary') || 'claude-code';
-      const terminal = vscode.window.createTerminal({ name: 'Agent Dashboard' });
+      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
       terminal.sendText(vscodeServeArgv(binary, {}).join(' '));
       terminal.show();
     }),
     vscode.commands.registerCommand('claudeCodeAgents.servePhoneStop', () => {
       const binary = config().get('binary') || 'claude-code';
-      const terminal = vscode.window.createTerminal({ name: 'Agent Dashboard' });
+      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
       terminal.sendText(vscodeServeArgv(binary, { stop: true }).join(' '));
       terminal.show();
     })
@@ -450,8 +269,6 @@ function activate(context) {
   context.subscriptions.push({ dispose: () => clearInterval(usageTickTimer) });
 }
 
-function deactivate() {
-  stopFollow();
-}
+function deactivate() {}
 
-module.exports = { activate, deactivate, AgentsTreeProvider, toTreeItem, UsageViewProvider };
+module.exports = { activate, deactivate, UsageViewProvider };
