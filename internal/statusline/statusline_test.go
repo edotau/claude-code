@@ -60,7 +60,7 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | Opus 5 [1m] · openrouter · router:18765 ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
+		"gradient":  "tester:~/proj | Opus 5 [1m] · openrouter · router:18765 · ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
 		"powerline": "tester:~/proj |  Opus 5 [1m]  openrouter  router:18765  42%  ~1.2M tok  12m   main  +10 -3",
 		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( openrouter ) ( router:18765 ) ( 42% ) ( ~1.2M tok ) ( 12m ) (  main ) +10 -3",
 		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  openrouter  ·  router:18765  ·  42%  ·  ~1.2M tok  ·  12m  ·   main  +10 -3",
@@ -133,7 +133,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] █…" {
+	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -310,7 +310,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  ◉ 1  ·  0%") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  1 ◉  ·  0%") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -324,7 +324,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( Opus 5 ) ( ◉ 1 ) ( " + registryDefault(t) + " ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"
+	want := "tester:/nowhere/proj | ( Opus 5 ) ( 1 ◉ ) ( " + registryDefault(t) + " ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
