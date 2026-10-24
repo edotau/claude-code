@@ -22,3 +22,9 @@ reliable documentation source, an effective search query.
 Candidate content, durable facts only: a fixture whose contract is easy to misread, a suite whose
 failure output is misleading, a repo whose merge order is non-obvious, a gate that only fails
 post-merge. Skip anything the diff or git history already records.
+
+## Gemini
+
+Candidate content, durable facts only: an agy sign-in or model-id quirk (a 404 on an id `models --live` no
+longer lists), a `--dirs`/`--max-files` budget that fit a repo in one bridge call, a web query shape that returned
+citable URLs, a `file:line` the spot-check refuted. Skip anything the bridge's own error table already covers.
