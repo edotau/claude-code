@@ -186,6 +186,10 @@ claude-code tailscale status|machines|connect|key [--save]|exit-node
 `status`/`machines`/`connect` use the installed CLI. `key` and `exit-node --approve` need
 `TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` (preferred) or `TAILSCALE_API_KEY` in the vault. `make tailscale-cli` installs it.
 
+`claude-code vscode serve [--port N] [--stop] [--status] [--no-tailscale] [--funnel]` runs
+`code serve-web` as a detached daemon and maps it onto the tailnet (or the public internet with
+`--funnel`), printing a token-gated URL and a terminal QR code for your phone.
+
 ## Worktrees and agent views
 
 ```bash
@@ -323,6 +327,7 @@ Rows `CLAUDE.md` points here for.
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Tailnet | `claude-code tailscale status\|machines\|connect\|key\|exit-node` |
+| VS Code on your phone | `claude-code vscode serve [--stop\|--status] [--funnel]` |
 
 ## Development
 

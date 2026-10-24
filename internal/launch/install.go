@@ -29,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/vscodeserve"
 )
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
@@ -81,6 +82,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
+	check(true, false, "vscode serve", vscodeServeDoctorDetail())
 	has, err := settingsHasHooks(SettingsFile())
 	nested := clean.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
@@ -384,6 +386,16 @@ func routerStatus() string {
 	}
 	_ = resp.Body.Close()
 	return fmt.Sprintf("port %d %s", st.Port, resp.Status)
+}
+
+// vscodeServeDoctorDetail reports the vscode-serve daemon and its tailscale mapping, token redacted.
+func vscodeServeDoctorDetail() string {
+	st, running := vscodeserve.Running()
+	if !running {
+		return "stopped"
+	}
+	url, _, _ := strings.Cut(st.URL, "?")
+	return fmt.Sprintf("running on :%d -> %s", st.Port, url)
 }
 
 func settingsHasHooks(file string) (bool, error) {
