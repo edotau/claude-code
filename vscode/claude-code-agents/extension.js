@@ -25,6 +25,13 @@ const { renderTasksHtml, renderElsewhereHtml, renderLauncherHtml, rowCells, grid
 
 // Source order for the source bar and the settings writes; every handler reads this one list.
 const TASK_SOURCES = ['jira', 'github', 'bitbucket'];
+
+/** Opens only web/mail links; the command is callable by other extensions, so file:// and custom schemes are refused. */
+function openExternalWeb(url) {
+  const u = String(url || '');
+  if (!/^(https?:\/\/|mailto:)/i.test(u)) return Promise.resolve(false);
+  return openExternalWeb(u);
+}
 const GITHUB_PR_EXTENSION_ID = 'github.vscode-pull-request-github';
 
 // dashboardTerminal reuses one "Agents Dashboard" terminal for every command the dashboard launches.
@@ -315,6 +322,10 @@ class TasksViewProvider {
     this.view = 'list';
     this.detail = null; // { id, key, loading, error, data, comments, transitions, priorities, branchName, prompt }
     this.priorities = null;
+    this.activatedAt = Date.now();
+    this.sidebar = undefined; // the left-nav launcher view
+    this.restoreTo = []; // view types to re-focus when the editor tab / window closes
+    this.launcherHtml = ''; // last launcher markup, so hydration/mutation renders don't reload the launcher document
     this.viewModes = (context && context.workspaceState.get('tasks.viewModes')) || {}; // source → list|board
     this.mergeMethods = {}; // repo label → {merge, squash, rebase}
     this.assignable = {}; // repo label → logins
@@ -481,7 +492,8 @@ class TasksViewProvider {
         } finally {
           this.hydrating.delete(item.id);
         }
-        this.postRows([item.id]);
+        if (this.viewMode() === 'board' || this.view === 'detail') this.render();
+        else this.postRows([item.id]);
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
@@ -720,10 +732,10 @@ class TasksViewProvider {
       });
       this.wireWebview(webviewView.webview);
       webviewView.onDidChangeVisibility(() => {
-        if (webviewView.visible) this.openFromSidebar();
+        if (webviewView.visible) this.openFromSidebar({ auto: true }).catch(() => {});
       });
       this.render();
-      this.openFromSidebar();
+      this.openFromSidebar({ auto: true }).catch(() => {});
       return;
     }
     this.views.add(webviewView);
@@ -732,17 +744,25 @@ class TasksViewProvider {
     this.render();
   }
 
-  /** Left-nav click: reveal Tasks where it already lives, else pop it out into a new window. */
-  openFromSidebar(source) {
-    if (source && TASK_SOURCES.includes(source) && source !== this.source) this.handleMessage({ type: 'source', source });
-    if (this.panel) return this.panel.reveal();
-    if ([...this.views].some((v) => v.visible)) return;
+  panelViewVisible() {
+    return [...this.views].some((v) => v.visible);
+  }
+
+  /** Left-nav: `auto` (the view appeared) pops out only when Tasks is open nowhere; a button/source click always opens a window. */
+  async openFromSidebar(opts) {
+    const { source, auto = false } = opts || {};
+    if (source && TASK_SOURCES.includes(source) && source !== this.source) await this.handleMessage({ type: 'source', source });
+    if (auto) {
+      if (this.panel || this.panelViewVisible()) return;
+      // Why: VS Code restores the last sidebar view on launch; that is not a click, so no window should appear.
+      if (Date.now() - this.activatedAt < 5000) return;
+    }
     return this.popOut();
   }
 
   openWhere() {
     if (this.panel) return this.panelFloating ? 'window' : 'editor';
-    if ([...this.views].some((v) => v.visible)) return 'panel';
+    if (this.panelViewVisible()) return 'panel';
     return null;
   }
 
@@ -752,7 +772,7 @@ class TasksViewProvider {
       this.panel.reveal(vscode.ViewColumn.Active);
       return;
     }
-    // One place at a time: the views that were showing Tasks close, and come back when this tab/window closes.
+    // One place at a time: a visible Panel view switches to the pointer page and is re-focused when this tab/window closes.
     this.restoreTo = [...this.views].filter((v) => v.visible).map((v) => v.viewType);
     const panel = vscode.window.createWebviewPanel('claudeCodeTasks.editor', 'Tasks', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
     this.panel = panel;
@@ -761,26 +781,23 @@ class TasksViewProvider {
       if (this.panel !== panel) return;
       this.panel = undefined;
       this.panelFloating = false;
-      const back = this.restoreTo || [];
+      const back = this.restoreTo;
       this.restoreTo = [];
       this.render();
       for (const viewType of back) vscode.commands.executeCommand(`${viewType}.focus`);
     });
     this.render();
-    for (const viewType of this.restoreTo) {
-      vscode.commands.executeCommand(viewType === 'claudeCodeTasks.panel' ? 'workbench.action.closePanel' : 'workbench.action.closeSidebar');
-    }
   }
 
   /** "Bring back here": closes the editor tab / floating window; its dispose handler re-focuses the view. */
   bringBack(viewType) {
     if (!this.panel) return;
-    if (viewType && !(this.restoreTo || []).includes(viewType)) this.restoreTo = [...(this.restoreTo || []), viewType];
+    if (viewType && !this.restoreTo.includes(viewType)) this.restoreTo = [...this.restoreTo, viewType];
     this.panel.dispose();
   }
 
   visible() {
-    return [...this.views].some((v) => v.visible) || !!(this.panel && this.panel.visible);
+    return this.panelViewVisible() || !!(this.panel && this.panel.visible);
   }
 
   /** Pops the page out: the editor tab, then VS Code's "move editor into new window" once that tab is the active editor. */
@@ -807,14 +824,11 @@ class TasksViewProvider {
     this.render();
   }
 
-  /** Focuses the surface `tasksOpenIn` names: the Panel view, the sidebar view, or the editor tab. */
+  /** Focuses the surface `tasksOpenIn` names: the Panel view, an editor tab, or a new window. */
   async show() {
     const where = config().get('tasksOpenIn', 'panel') || 'panel';
     if (where === 'editor') return this.openInEditor();
-    if (where === 'sidebar') {
-      await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasks');
-      return vscode.commands.executeCommand('claudeCodeTasks.page.focus');
-    }
+    if (where === 'window') return this.popOut();
     await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasksPanel');
     return vscode.commands.executeCommand('claudeCodeTasks.panel.focus');
   }
@@ -1054,7 +1068,13 @@ class TasksViewProvider {
   render() {
     const model = this.model();
     if (this.panel) this.panel.webview.html = renderTasksHtml(model, { nonce: nonce(), cspSource: this.panel.webview.cspSource });
-    if (this.sidebar) this.sidebar.webview.html = renderLauncherHtml({ ...model, openWhere: this.openWhere() }, { nonce: nonce(), cspSource: this.sidebar.webview.cspSource });
+    if (this.sidebar) {
+      const html = renderLauncherHtml({ ...model, openWhere: this.openWhere() }, { nonce: 'launcher', cspSource: this.sidebar.webview.cspSource });
+      if (html !== this.launcherHtml) {
+        this.launcherHtml = html;
+        this.sidebar.webview.html = html.replace(/launcher/g, nonce());
+      }
+    }
     for (const view of this.views) {
       // While the editor tab / window owns the page, views show a pointer to it instead of a second live copy.
       view.webview.html = this.panel ? renderElsewhereHtml({ floating: !!this.panelFloating, viewType: view.viewType, nonce: nonce(), cspSource: view.webview.cspSource }) : renderTasksHtml(model, { nonce: nonce(), cspSource: view.webview.cspSource });
@@ -1122,7 +1142,7 @@ class TasksViewProvider {
         return this.load({ page: 1 });
       }
       case 'open':
-        if (msg.url) await vscode.env.openExternal(vscode.Uri.parse(msg.url));
+        if (msg.url) await openExternalWeb(msg.url);
         return;
       case 'detail':
         return this.openDetail(msg.id);
@@ -1171,8 +1191,9 @@ class TasksViewProvider {
       case 'hydrate':
         return this.hydrate(msg.ids || []);
       case 'openWindow':
-        return this.openFromSidebar(msg.source);
+        return this.openFromSidebar({ source: msg.source });
       case 'openPanel':
+        if (this.panel) return this.bringBack('claudeCodeTasks.panel'); // its dispose handler focuses the Panel view
         await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasksPanel');
         return vscode.commands.executeCommand('claudeCodeTasks.panel.focus');
       case 'revealElsewhere':
@@ -1223,7 +1244,7 @@ class TasksViewProvider {
       }
       case 'newIssue': {
         const repo = this.githubRepos.find((r) => r.selected);
-        if (repo) await vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${repo.label}/issues/new`));
+        if (repo) await openExternalWeb(`https://github.com/${repo.label}/issues/new`);
         return;
       }
       case 'signIn': {
@@ -1403,7 +1424,7 @@ function activate(context) {
     vscode.commands.registerCommand('claudeCodeTasks.popOut', () => tasksProvider.popOut()),
     vscode.commands.registerCommand('claudeCodeTasks.recheck', () => tasksProvider.handleMessage({ type: 'doctor' })),
     vscode.commands.registerCommand('claudeCodeTasks.open', (url) => {
-      if (url) vscode.env.openExternal(vscode.Uri.parse(url));
+      if (url) openExternalWeb(url);
     }),
     vscode.commands.registerCommand('claudeCodeTasks.setupToken', () => tasksProvider.handleMessage({ type: 'signIn', source: 'bitbucket' })),
     vscode.commands.registerCommand('claudeCodeTasks.startAgent', (id) => tasksProvider.handleMessage({ type: 'start', id }))

@@ -358,11 +358,11 @@
           "type": "string",
           "enum": [
             "panel",
-            "sidebar",
-            "editor"
+            "editor",
+            "window"
           ],
           "default": "panel",
-          "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, the activity-bar sidebar, or an editor tab. Both the Panel and sidebar views exist; hide the one you don’t use (right-click its icon)."
+          "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, an editor tab, or a new window. The activity-bar view is a launcher that always opens a window."
         },
         "claudeCodeAgents.tailscaleBinary": {
           "type": "string",

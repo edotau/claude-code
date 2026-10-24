@@ -874,7 +874,7 @@ function renderTasksHtml(model, opts) {
 </html>`;
 }
 
-/** The left-nav view: a compact launcher (source icons, per-source status, open buttons) — the page itself lives in a window/Panel. */
+/** Left-nav launcher: source rows with status dots and open buttons; the page itself lives in a window or the Panel. */
 function renderLauncherHtml(model, opts) {
   const { nonce = '', cspSource = '' } = opts || {};
   const s = model.settings || {};
@@ -882,7 +882,7 @@ function renderLauncherHtml(model, opts) {
   const statusDot = (st) => (!st ? 'muted' : st.ok ? 'emerald' : 'danger');
   const sources = (model.sources || []).map((src) => {
     const c = s[src.id] || {};
-    return `<button class="src${src.id === model.source ? ' active' : ''}" data-open-source="${esc(src.id)}" title="Open Tasks on ${esc(SOURCE_LABELS[src.id] || src.id)} in a new window"><span class="src-icon">${ICONS[src.id] || ''}</span><span class="src-name">${esc(SOURCE_LABELS[src.id] || src.id)}</span><span class="dot dot-${statusDot(c.status)}" title="${esc(c.status ? (c.status.ok ? `Connected${c.status.login ? ` as ${c.status.login}` : ''}` : c.status.message || 'Disconnected') : 'Checking…')}"></span>${c.status && !c.status.ok ? `<button class="mini" data-act="signIn" data-source="${esc(src.id)}">${src.id === 'github' ? 'Sign in' : 'Token'}</button>` : ''}</button>`;
+    return `<button class="src${src.id === model.source ? ' active' : ''}" data-open-source="${esc(src.id)}" title="Open Tasks on ${esc(SOURCE_LABELS[src.id] || src.id)} in a new window"><span class="src-icon">${ICONS[src.id] || ''}</span><span class="src-name">${esc(SOURCE_LABELS[src.id] || src.id)}</span><span class="dot dot-${statusDot(c.status)}" title="${esc(c.status ? (c.status.ok ? `Connected${c.status.login ? ` as ${c.status.login}` : ''}` : c.status.message || 'Disconnected') : 'Checking…')}"></span>${c.status && !c.status.ok ? `<span class="mini" role="button" tabindex="0" data-act="signIn" data-source="${esc(src.id)}">${src.id === 'github' ? 'Sign in' : 'Token'}</span>` : ''}</button>`;
   });
   const where = model.openWhere === 'window' ? 'a separate window' : model.openWhere === 'editor' ? 'an editor tab' : model.openWhere === 'panel' ? 'the Panel' : null;
   return `<!DOCTYPE html>
@@ -910,15 +910,14 @@ function renderLauncherHtml(model, opts) {
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border-radius: 6px; padding: 5px 10px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--vscode-foreground); font: inherit; }
   .btn.primary { background: var(--primary); color: var(--vscode-button-foreground); border-color: transparent; }
   .btn:hover { filter: brightness(1.1); }
-  .row { display: flex; gap: 6px; }
   .src:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
 <body>
   <div class="section">Sources</div>
   <div>${sources.join('')}</div>
-  <button class="btn primary" data-act="openWindow">${ICONS.externalLink}Open Tasks in new window</button>
-  <button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button>
+  <button class="btn primary" data-act="openWindow">${ICONS.externalLink}New Window</button>
+  <button class="btn" data-act="openPanel">${ICONS.layout}Panel</button>
   ${where ? `<div class="muted">Tasks is open in ${esc(where)}.</div>` : ''}
   <div class="section">Network</div>
   <button class="src" data-act="exitNode"${net && net.ok ? '' : ' disabled'} title="Change exit node"><span class="src-icon">${ICONS.globe}</span><span class="src-name">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="dot dot-${!net ? 'muted' : !net.ok ? 'danger' : net.exitNode ? 'emerald' : 'muted'}"></span></button>
