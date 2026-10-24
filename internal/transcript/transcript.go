@@ -318,7 +318,7 @@ func commitInText(text string, depth int) bool {
 		}
 		i := 1
 		shortCircuit := false
-		aliasName := ""
+		aliases := map[string]string{}
 		for i < len(toks) && strings.HasPrefix(toks[i], "-") {
 			if gitShortCircuitOpts[toks[i]] {
 				shortCircuit = true
@@ -326,8 +326,8 @@ func commitInText(text string, depth int) bool {
 			}
 			if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
 				if toks[i] == "-c" && i+1 < len(toks) {
-					if name, ok := commitAliasName(toks[i+1]); ok {
-						aliasName = name
+					if name, val, ok := splitAliasAssign(toks[i+1]); ok && !gitBuiltinVerbs[name] {
+						aliases[name] = val // last -c alias.<name>=<val> for a given name wins
 					}
 				}
 				i += 2
@@ -338,7 +338,7 @@ func commitInText(text string, depth int) bool {
 		if shortCircuit {
 			continue
 		}
-		if i < len(toks) && (toks[i] == "commit" || (aliasName != "" && toks[i] == aliasName)) {
+		if i < len(toks) && (toks[i] == "commit" || aliasIsCommit(aliases[toks[i]], depth)) {
 			return true
 		}
 	}
@@ -353,27 +353,85 @@ func shellBaseName(tok string) string {
 	return tok
 }
 
-// findDashCArg returns the argument following a `-c` flag among a shell interpreter's own tokens.
+// shellLeadingFlags are bash/sh/zsh flags with no attached value, skippable before -c.
+var shellLeadingFlags = map[string]bool{"-e": true, "-x": true, "-l": true, "--norc": true, "--noprofile": true}
+
+// findDashCArg returns the argument following a `-c` flag among a shell interpreter's leading flags —
+// combined short opts ending in `c` (`-xc`, `-ec`, `-exc`) count as `-c`; an `-n`/no-exec flag anywhere
+// in a combined form (including `-nc`) means the script never runs, so it reports no match at all.
 func findDashCArg(toks []string) (string, bool) {
-	for i, t := range toks {
-		if t == "-c" && i+1 < len(toks) {
-			return toks[i+1], true
+	i := 0
+	for i < len(toks) {
+		t := toks[i]
+		if !strings.HasPrefix(t, "-") {
+			return "", false
 		}
+		if t == "-c" {
+			if i+1 < len(toks) {
+				return toks[i+1], true
+			}
+			return "", false
+		}
+		if t == "-o" {
+			i += 2
+			continue
+		}
+		if !strings.HasPrefix(t, "--") {
+			body := t[1:]
+			if strings.ContainsRune(body, 'n') {
+				return "", false // -n (noexec) blocks execution even combined with a trailing c
+			}
+			if strings.HasSuffix(body, "c") {
+				if i+1 < len(toks) {
+					return toks[i+1], true
+				}
+				return "", false
+			}
+		}
+		if shellLeadingFlags[t] {
+			i++
+			continue
+		}
+		return "", false
 	}
 	return "", false
 }
 
-// commitAliasName reports the alias name when val is `alias.<name>=commit` (from `git -c <val>`).
-func commitAliasName(val string) (string, bool) {
-	name, v, ok := strings.Cut(val, "=")
-	if !ok || v != "commit" {
-		return "", false
+// gitBuiltinVerbs are git's own command names — git ignores a user alias defined under one of these
+// names, so `-c alias.<builtin>=…` never registers (the builtin behavior still runs unaltered).
+var gitBuiltinVerbs = map[string]bool{
+	"status": true, "add": true, "log": true, "diff": true, "push": true, "pull": true, "fetch": true,
+	"checkout": true, "switch": true, "branch": true, "merge": true, "rebase": true, "reset": true,
+	"show": true, "tag": true, "stash": true, "clone": true, "init": true, "rm": true, "mv": true,
+	"restore": true, "commit": true,
+}
+
+// splitAliasAssign splits `alias.<name>=<value>` (from `git -c <val>`) into name and raw value.
+func splitAliasAssign(val string) (name, value string, ok bool) {
+	n, v, hasEq := strings.Cut(val, "=")
+	if !hasEq {
+		return "", "", false
 	}
 	const prefix = "alias."
-	if !strings.HasPrefix(name, prefix) {
-		return "", false
+	if !strings.HasPrefix(n, prefix) {
+		return "", "", false
 	}
-	return strings.TrimPrefix(name, prefix), true
+	return strings.TrimPrefix(n, prefix), v, true
+}
+
+// aliasIsCommit reports whether an alias's raw value runs a commit: either directly (`commit`) or as a
+// shell alias (`!git commit …`, recursed depth-limited); val == "" means no alias was registered.
+func aliasIsCommit(val string, depth int) bool {
+	if val == "" {
+		return false
+	}
+	if val == "commit" {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(val, "!"); ok {
+		return depth < maxShellRecursionDepth && gitCommitCommandDepth(rest, depth+1)
+	}
+	return false
 }
 
 // extractSubstitutions returns the inner text of every `$(...)` and backtick command substitution in
@@ -473,8 +531,13 @@ var commitShellKeywords = map[string]bool{"then": true, "do": true, "else": true
 // sudoValueFlags are sudo flags whose value is the next token (`sudo -u user …`, `sudo -g group …`).
 var sudoValueFlags = map[string]bool{"-u": true, "--user": true, "-g": true, "--group": true}
 
+// envValueFlags are env flags whose value is the next token (`env -u NAME …`); `--` also ends env's
+// own flags (env's next token is the command even if it starts with `-`).
+var envValueFlags = map[string]bool{"-u": true, "--unset": true}
+
 // skipCommitWrappers drops leading `NAME=value` env assignments, a leading `!`/shell keyword, and
-// wrapper commands (`sudo`, `env`, `time`, `command`, `exec`, `nohup` — plus sudo's own flags) before `git`.
+// wrapper commands (`sudo`, `env`, `time`, `command`, `exec`, `nohup` — plus sudo's/env's own flags)
+// before `git` (`env -i PATH=/x git commit` must still reach `git`).
 func skipCommitWrappers(toks []string) []string {
 	for len(toks) > 0 {
 		if toks[0] == "!" || commitShellKeywords[toks[0]] {
@@ -486,6 +549,16 @@ func skipCommitWrappers(toks []string) []string {
 			toks = toks[1:]
 			for wrapper == "sudo" && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
 				if sudoValueFlags[toks[0]] {
+					toks = toks[1:]
+				}
+				toks = toks[1:]
+			}
+			for wrapper == "env" && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
+				if toks[0] == "--" {
+					toks = toks[1:]
+					break
+				}
+				if envValueFlags[toks[0]] {
 					toks = toks[1:]
 				}
 				toks = toks[1:]
@@ -551,9 +624,13 @@ func commitShellSegments(cmd string) []string {
 	return append(out, b.String())
 }
 
+// dqEscapable are the chars a backslash actually escapes inside double quotes (bash rule); before any
+// other char the backslash stays a literal character of the token (`"comm\it"` keeps its backslash).
+const dqEscapable = "$`\"\\\n"
+
 // commitShellTokens splits one segment into words on whitespace; a quoted run collapses to ONE token,
-// so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match. A
-// backslash outside single quotes escapes the next char literally (so `\"` never closes a double quote).
+// so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match. Outside
+// quotes a backslash escapes the next char literally; inside double quotes only dqEscapable collapses.
 func commitShellTokens(seg string) []string {
 	var out []string
 	var b strings.Builder
@@ -569,7 +646,7 @@ func commitShellTokens(seg string) []string {
 			}
 			continue
 		}
-		if c == '\\' && i+1 < len(seg) {
+		if c == '\\' && i+1 < len(seg) && (quote != '"' || strings.IndexByte(dqEscapable, seg[i+1]) >= 0) {
 			started = true
 			b.WriteByte(seg[i+1])
 			i++
