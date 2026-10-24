@@ -146,9 +146,8 @@ func TestAgentInflightBlocksPastCapAndRetires(t *testing.T) {
 	}
 }
 
-// TTL pruning is owner-aware: a stale marker whose owner is a LIVE process must survive (a dispatch
-// that legitimately runs long must not be pruned out from under it), while a marker with no
-// resolvable owner (pid 0) is pruned once stale — the untrusted-probe/pid-0 backstop.
+// TTL pruning is owner-aware: a stale TAGGED marker of a LIVE owner survives (a long background agent), while a
+// stale untagged one (a spawn refused after PreToolUse never gets tagged) and a pid-0 marker are pruned.
 func TestAgentInflightTTLPruningIsOwnerAware(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := inflightDir()
@@ -169,14 +168,18 @@ func TestAgentInflightTTLPruningIsOwnerAware(t *testing.T) {
 		}
 		return p
 	}
-	alive := touch("agent-" + strconv.Itoa(os.Getpid()) + "-alive")
+	alive := touch("agent-" + strconv.Itoa(os.Getpid()) + "-alive" + markerAgentSep + "a1")
+	untagged := touch("agent-" + strconv.Itoa(os.Getpid()) + "-refused")
 	zero := touch("agent-0-zero")
 
 	if n := pruneAndCountMarkers(dir, os.Getpid(), "", time.Now()); n != 1 {
-		t.Fatalf("pruneAndCountMarkers = %d, want 1 (only the alive-owner marker survives)", n)
+		t.Fatalf("pruneAndCountMarkers = %d, want 1 (only the tagged alive-owner marker survives)", n)
 	}
 	if _, err := os.Stat(alive); err != nil {
-		t.Error("a stale marker owned by a LIVE process must not be pruned by TTL alone")
+		t.Error("a stale TAGGED marker owned by a LIVE process must not be pruned by TTL alone")
+	}
+	if _, err := os.Stat(untagged); !os.IsNotExist(err) {
+		t.Error("a stale UNTAGGED marker must be pruned by TTL even when its owner is alive")
 	}
 	if _, err := os.Stat(zero); !os.IsNotExist(err) {
 		t.Error("a stale marker with owner pid 0 (unresolvable owner) must be pruned")

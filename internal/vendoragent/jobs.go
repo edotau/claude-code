@@ -30,7 +30,7 @@ func Spawn(rec *agent.Record, extra []string) error {
 		return err
 	}
 	logPath := rec.LogPath()
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0o600) // append: the job's sink writes too
 	if err != nil {
 		return err
 	}
