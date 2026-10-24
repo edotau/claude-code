@@ -574,3 +574,35 @@ func TestReportPrintsDroppedKeysOnlyWhenNonEmpty(t *testing.T) {
 		t.Fatalf("report lacks the dropped line:\n%s", out.String())
 	}
 }
+
+// TestDropKeepRefusesSectionOrProvider: --drop/--keep with a section word or --provider exits 2, vault untouched.
+func TestDropKeepRefusesSectionOrProvider(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	for name, run := range map[string]func(*bytes.Buffer) int{
+		"section": func(o *bytes.Buffer) int {
+			return Run(Options{Drop: []string{"x"}, In: strings.NewReader(""), Out: o}, "agents")
+		},
+		"provider": func(o *bytes.Buffer) int {
+			return Run(Options{Provider: "p", Drop: []string{"x"}, In: strings.NewReader(""), Out: o}, "")
+		},
+	} {
+		var out bytes.Buffer
+		rc := run(&out)
+		if rc != 2 || !strings.Contains(out.String(), "configure: --drop/--keep take no section or --provider") {
+			t.Errorf("%s: rc=%d out=%q; want 2 with the new message", name, rc, out.String())
+		}
+	}
+	if got, _ := settings.LoadDropped(); got != nil {
+		t.Errorf("vault touched: %v", got)
+	}
+}
+
+// TestKeepTwoUnlistedKeysListsBoth: --keep a --keep b with neither dropped exits 1 naming both.
+func TestKeepTwoUnlistedKeysListsBoth(t *testing.T) {
+	dropFixture(t, "zzForeign")
+	var out bytes.Buffer
+	rc := Run(Options{Keep: []string{"aKey", "bKey"}, In: strings.NewReader(""), Out: &out}, "")
+	if rc != 1 || !strings.Contains(out.String(), "not dropped: aKey, bKey") {
+		t.Fatalf("rc=%d out=%q; want 1 and \"not dropped: aKey, bKey\"", rc, out.String())
+	}
+}

@@ -307,3 +307,38 @@ func TestCheckSettingsDriftDroppedKey(t *testing.T) {
 		t.Errorf("after the merge-rendered file nothing should print: %v", d.Lines())
 	}
 }
+
+// breakVault corrupts the vault file so settings.LoadDropped fails.
+func breakVault(t *testing.T, dir string) {
+	t.Helper()
+	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state", "vault.db"), []byte("not a bolt db, garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A drop-list load error is an informational Note: drift detection continues and Drifted() ignores it.
+func TestCheckSettingsDriftDropListErrorIsNote(t *testing.T) {
+	dir := freshConfigDir(t)
+	rendered, err := settings.RenderLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SettingsFile(), rendered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	breakVault(t, dir)
+	d, err := CheckSettingsDriftWith(rendered)
+	if err != nil {
+		t.Fatalf("CheckSettingsDriftWith = %v, want it to continue", err)
+	}
+	if d.Drifted() {
+		t.Errorf("a drop-list error must not count as drift: %+v", d)
+	}
+	lines := d.Lines()
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "settings: drop list unavailable:") {
+		t.Errorf("Lines = %q, want one informational drop-list line", lines)
+	}
+}

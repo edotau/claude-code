@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/theme"
 )
 
 func ctrl(r rune) Key { return Key{Kind: KeyCtrl, Rune: r} }
@@ -338,5 +341,36 @@ func needSh(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh")
+	}
+}
+
+func sectionedListState() listState {
+	return newListState(ListSpec{Title: "T", Rows: []ListRow{{Label: "a", Section: "Alpha"}, {Label: "b", Section: "Beta"}}}, 0)
+}
+
+func sectionHead(ls []line) (string, bool) {
+	for _, l := range ls {
+		if strings.Contains(l.plain, "== Alpha ==") {
+			return l.styled, true
+		}
+	}
+	return "", false
+}
+
+// TestListSectionHeadUsesAccent: the "== Section ==" head is painted by Accent: fallback cyan, then palette truecolor.
+func TestListSectionHeadUsesAccent(t *testing.T) {
+	setPalette(t, theme.Palette{}, false)
+	setTerm(t, "truecolor", "xterm-256color")
+	got, ok := sectionHead(listLines(sectionedListState(), true, 80, 30))
+	if !ok {
+		t.Fatal("no section head line")
+	}
+	if want := ansi.Style(true, ansi.Bold+ansi.Cyan, "== Alpha =="); got != want {
+		t.Errorf("fallback head = %q, want %q", got, want)
+	}
+	setPalette(t, theme.Palette{Accent: ansi.RGB{71, 150, 228}}, true)
+	got, _ = sectionHead(listLines(sectionedListState(), true, 80, 30))
+	if !strings.Contains(got, "38;2;71;150;228") {
+		t.Errorf("themed head = %q, want truecolor accent 38;2;71;150;228", got)
 	}
 }
