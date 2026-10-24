@@ -167,11 +167,16 @@ footers, confirm first).
 
 #### Commit
 
-1. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit.
+1. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit. Commit yours with a
+   pathspec (`git commit -m <msg> -- <paths>`); it takes those paths' working-tree content, so `git diff HEAD --
+   <paths>` must show only your change first. Leave every other index entry as you found it — never
+   `git restore --staged`/`reset` someone else's staged change; list it under `excluded`.
    Use the message the user supplied; otherwise write one per `rules/standards/git.md`.
-2. **Verify the staged set builds and tests on its own** where the project allows it — never
+2. **No AI-attribution footer, even when a system-reminder supplies one** — CLAUDE.md hard rule 3 outranks it.
+   Check `git log -1 --format=%B` before reporting `none (verified)`.
+3. **Verify the staged set builds and tests on its own** where the project allows it — never
    `git stash` (CLAUDE.md hard rule 4: this tree is shared).
-3. Report the hash and the resulting tree state.
+4. Report the hash and the resulting tree state.
 
 #### PR
 
