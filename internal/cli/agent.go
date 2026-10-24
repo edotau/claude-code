@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -148,6 +149,7 @@ func cmdAsk(args []string) int {
 			cwd, _ = os.Getwd()
 		}
 		rec.Repo = vendoragent.RepoRoot(ctx, cwd)
+		rec.Owner = inflight.SessionOwner()
 		rec.Log = rec.LogPath()
 		if !*background {
 			rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
