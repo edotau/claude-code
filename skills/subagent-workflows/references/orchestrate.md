@@ -1,6 +1,10 @@
 # Orchestrate
 
-Launcher: `/workflow:orchestrate [--scan | --refine] <task>`.
+Invoke via the `subagent-workflows` skill: read `references/orchestrate.md` and run it for `<task>`;
+flags `--scan | --refine`.
+
+**Before you start**, gather context: `git branch --show-current` (branch), `git worktree list` (existing worktrees),
+`ls ~/.claude/plans/stages/*.md` (stage handoff files; none means no active stage).
 
 Pipeline: `explore → plan → [refine] → implement → simplify → review → verify`. `refine` is
 **opt-in** — only when `--refine` is passed.

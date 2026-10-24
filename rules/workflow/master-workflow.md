@@ -1,6 +1,6 @@
 ---
 paths:
-  - "commands/workflow/*.md"
+  - "skills/subagent-workflows/**"
   - "commands/copilot.md"
   - "commands/code-workers.md"
   - "agents/*.md"
@@ -25,9 +25,9 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | 2. Codebase Intel | 3 parallel `Explore` subagents | Codebase Context Brief | Structure, conventions, deps covered |
 | 3. Research | `gh` search, WebFetch, WebSearch | Prior art links + library refs | At least 1 relevant reference |
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
-| 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on `/workflow:orchestrate`** |
-| 6. Dispatch | `/workflow:orchestrate`, `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
-| 7. Merge + simplify | `/workflow:worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
+| 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
+| 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
+| 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
 | 8. Verify | the `testing-guidelines` test-and-fix loop + the `approval-gate` skill | All gates green | format + lint + test + security pass |
 | 9. Commit | `/copilot commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
 
@@ -117,7 +117,7 @@ implement). `agents/Plan.md` holds the plan template and phase rules.
 
 ## Phase 5: Prompt Refinement *(opt-in)*
 
-**Trigger**: only when `--refine` is passed to `/workflow:orchestrate`. Default flows go plan →
+**Trigger**: only when `--refine` is passed to orchestrate. Default flows go plan →
 dispatch; use the refiner when sub-tasks go to fresh agents that need self-contained context.
 
 Each refined brief carries: **Objective**, **Context** (files with paths and line numbers),
@@ -141,11 +141,11 @@ handoff alone."
 
 **Trigger**: 2+ parallel-safe sub-tasks.
 
-- `/workflow:orchestrate` or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
+- orchestrate (`subagent-workflows`) or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
   (ideally new) files in the shared tree; `copilot` in the SAME message (`standards/quality.md`).
 - A second model family for one lane: `claude-code ask --agent <leg> "<brief>"` from Bash
   (`--format json` for a machine-readable envelope).
-- Manual worktrees: `/workflow:worktree create|list|merge|clean`.
+- Manual worktrees: `claude-code worktree create|list|merge|clean`.
 
 Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context agents ≤8 (`agents.md`; the
 `inflight` hook enforces it) — the input-tokens/min limit is the binding cap.
@@ -154,7 +154,7 @@ Concurrency: lean leaves (`code-worker`, Sonnet) ~8–10 in flight; deep-context
 
 ---
 
-## Phase 7: Merge Back (`/workflow:worktree merge`)
+## Phase 7: Merge Back (`claude-code worktree merge`)
 
 Merge and clean per `skills/using-git-worktrees` (its `references/merge-and-clean.md` holds the one
 merge rule, the verify gate and conflict handling); never `stash`/`checkout`/`reset` the live tree
@@ -192,7 +192,7 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 |----------|----------|
 | Simple bug fix (LOW) | fix code -> the `testing-guidelines` test-and-fix loop -> `/copilot commit` |
 | Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/copilot commit` |
-| Cross-module feature (HIGH) | review -> `/workflow:orchestrate [--refine]` (simplify stage included) -> verify -> `/copilot commit` |
+| Cross-module feature (HIGH) | review -> orchestrate `[--refine]` (simplify stage included) -> verify -> `/copilot commit` |
 | Fix failing tests | the `testing-guidelines` test-and-fix loop |
 | Clean up tech debt | `skills/evaluate-code/references/techdebt.md` (scan, then fix) |
 | Review current changes | `/code-review` (quality) ‖ `/security-reviewer` |
