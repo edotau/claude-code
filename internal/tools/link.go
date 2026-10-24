@@ -12,24 +12,41 @@ import (
 
 // LinkVendors points BinDir/<bin> at each vendor's PATH copy (names empty = all); never fatal, errors print.
 func LinkVendors(w io.Writer, names []string, dryRun bool) {
+	for _, r := range LinkResults(names, dryRun) {
+		fmt.Fprintf(w, "  %-8s %s\n", r.Status, r.Detail)
+	}
+}
+
+// LinkResult is one vendor's bin/ link outcome: Status is the %-8s verb LinkVendors prints
+// ("ok", "link", "keep", "skip", "remove", "missing", "error"); Bin is the BinDir/<bin> name.
+type LinkResult struct {
+	Bin, Status, Detail string
+}
+
+// LinkResults computes LinkVendors' per-vendor outcomes (applying the side effects on a real run),
+// for callers that render a compact summary instead of one line per vendor.
+func LinkResults(names []string, dryRun bool) []LinkResult {
+	var out []LinkResult
 	for _, t := range Tools {
 		bin, ok := paths.VendorName(t.Name)
 		if !ok || (len(names) > 0 && !slices.Contains(names, t.Name)) {
 			continue
 		}
-		linkOne(w, t, bin, dryRun)
+		status, detail := linkOne(t, bin, dryRun)
+		out = append(out, LinkResult{Bin: bin, Status: status, Detail: detail})
 	}
+	return out
 }
 
-// linkOne applies the bin/ rule to one vendor: keep a regular file, else link the PATH entry, else drop the link.
-func linkOne(w io.Writer, t Tool, bin string, dryRun bool) {
+// linkOne applies the bin/ rule to one vendor: keep a regular file, else link the PATH entry, else
+// drop the link; returns the %-8s status verb and its detail text.
+func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 	dst := filepath.Join(paths.BinDir(), bin)
 	c := linkCandidate(t)
 	missing := fmt.Sprintf("%s not installed (claude-code install --tools=%s)", bin, t.Name)
 	fi, err := os.Lstat(dst)
 	if err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(w, "  %-8s %v\n", "error", err)
-		return
+		return "error", err.Error()
 	}
 	isLink := err == nil && fi.Mode()&os.ModeSymlink != 0
 	switch {
@@ -38,49 +55,46 @@ func linkOne(w io.Writer, t Tool, bin string, dryRun bool) {
 		if c != "" {
 			line += " · also on PATH: " + c
 		}
-		fmt.Fprintf(w, "  %-8s %s\n", "keep", line)
+		return "keep", line
 	case err == nil && !isLink:
-		fmt.Fprintf(w, "  %-8s %s (not a file or link)\n", "skip", dst)
+		return "skip", dst + " (not a file or link)"
 	case isLink && c != "" && readlink(dst) == c:
-		fmt.Fprintf(w, "  %-8s %s → %s\n", "ok", dst, c)
+		return "ok", dst + " → " + c
 	case c != "":
 		suffix := ""
 		if npmPrefixFromBinary(c) != "" {
 			suffix = " (npm-global)"
 		}
 		if dryRun {
-			fmt.Fprintf(w, "  %-8s %s → %s%s\n", "link", dst, c, suffix)
-			return
+			return "link", dst + " → " + c + suffix
 		}
 		switch kept, err := replaceLink(dst, c); {
 		case err != nil:
-			fmt.Fprintf(w, "  %-8s %v\n", "error", err)
+			return "error", err.Error()
 		case kept:
 			// dst became a regular file between the check above and the rename: keep it, not the link.
-			fmt.Fprintf(w, "  %-8s %s (installed here)\n", "keep", dst)
+			return "keep", dst + " (installed here)"
 		default:
-			fmt.Fprintf(w, "  %-8s %s → %s%s\n", "link", dst, c, suffix)
+			return "link", dst + " → " + c + suffix
 		}
 	case isLink:
 		// no PATH/local-bin candidate: a symlink to a real, executable, non-shim target is the
 		// user's own working link — keep it; only a dangling or shim-pointing link is removed.
 		if _, err := paths.VendorBin(t.Name); err == nil {
-			fmt.Fprintf(w, "  %-8s %s → %s (existing link)\n", "keep", dst, readlink(dst))
-			return
+			return "keep", dst + " → " + readlink(dst) + " (existing link)"
 		}
-		fmt.Fprintf(w, "  %-8s %s; %s\n", "remove", dst, missing)
 		if !dryRun {
 			// re-check: dst may have become a regular file since the classification above.
 			if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
-				fmt.Fprintf(w, "  %-8s %s (installed here)\n", "keep", dst)
-				return
+				return "keep", dst + " (installed here)"
 			}
 			if err := os.Remove(dst); err != nil {
-				fmt.Fprintf(w, "  %-8s %v\n", "error", err)
+				return "error", err.Error()
 			}
 		}
+		return "remove", dst + "; " + missing
 	default:
-		fmt.Fprintf(w, "  %-8s %s\n", "missing", missing)
+		return "missing", missing
 	}
 }
 
