@@ -83,6 +83,24 @@ func TestAgyArgvAutonomous(t *testing.T) {
 	}
 }
 
+// AgyRequest.SessionID rides as "--conversation <id>"; an empty SessionID must never emit the flag
+// (agy has no bare --conversation value to resume against).
+func TestAgyArgvConversation(t *testing.T) {
+	cases := []struct{ name, session string }{{"unset", ""}, {"set", "conv-123"}}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			argv := agyArgv(AgyRequest{Model: "m", SessionID: c.session})
+			idx := slices.Index(argv, "--conversation")
+			if has := idx >= 0; has != (c.session != "") {
+				t.Fatalf("argv = %q, --conversation present = %v, want %v", argv, has, c.session != "")
+			}
+			if c.session != "" && argv[idx+1] != c.session {
+				t.Errorf("argv = %q, --conversation value = %q, want %q", argv, argv[idx+1], c.session)
+			}
+		})
+	}
+}
+
 type failingStreamWriter struct{}
 
 func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }

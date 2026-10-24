@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -97,5 +98,117 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 
 	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
 		t.Fatalf("pruned record's log must be removed, stat err = %v", err)
+	}
+}
+
+// An active background job (Status running, Log set, PID alive) survives the prune past dispatchKeep
+// while older finished records are removed; a background job with a dead PID is pruned; a foreground
+// running record (Log=="") is pruned even though it is still "running".
+func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	old := dispatchKeep
+	dispatchKeep = 2
+	defer func() { dispatchKeep = old }()
+
+	// a live process to stand in for the active job's PID.
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sleeper: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	// active sits 2nd-oldest so the prune walk reaches it before excess is exhausted; if the active
+	// guard were missing, the walk would remove it here instead of skipping on to trigger1.
+	finished := NewRecord("codex", Request{Prompt: "old"}, base)
+	finished.Status = "ok"
+	if err := finished.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	active := NewRecord("codex", Request{Prompt: "bg"}, base.Add(time.Minute))
+	active.Log = filepath.Join(DispatchDir(), active.ID+".log")
+	active.PID = cmd.Process.Pid
+	if err := active.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	trigger1 := NewRecord("codex", Request{Prompt: "newer"}, base.Add(2*time.Minute))
+	trigger1.Status = "ok"
+	if err := trigger1.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4th record with dispatchKeep=2 sets excess=2: without the guard, the walk would consume that
+	// excess on `finished` then `active` and leave `trigger1` alone; proving teeth: it does not.
+	trigger2 := NewRecord("codex", Request{Prompt: "newest"}, base.Add(3*time.Minute))
+	trigger2.Status = "ok"
+	if err := trigger2.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(DispatchDir(), finished.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("finished record must be pruned, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), active.ID+".json")); err != nil {
+		t.Fatalf("active background record must survive the prune: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("trigger1 must be pruned in active's place, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger2.ID+".json")); err != nil {
+		t.Fatalf("newest record must survive the prune: %v", err)
+	}
+}
+
+// A background running record whose PID is no longer alive is not "active" and gets pruned.
+func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	old := dispatchKeep
+	dispatchKeep = 1
+	defer func() { dispatchKeep = old }()
+
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("spawn a short-lived process: %v", err)
+	}
+
+	dead := NewRecord("codex", Request{Prompt: "bg"}, base)
+	dead.Log = filepath.Join(DispatchDir(), dead.ID+".log")
+	dead.PID = cmd.Process.Pid // reaped, no longer alive
+	if err := dead.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewRecord("codex", Request{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(DispatchDir(), dead.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("background record with a dead PID must be pruned, stat err = %v", err)
+	}
+}
+
+// A foreground running record (Log=="") is pruned even while Status=="running": only a background
+// job (Log set) is ever treated as active.
+func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	old := dispatchKeep
+	dispatchKeep = 1
+	defer func() { dispatchKeep = old }()
+
+	fg := NewRecord("codex", Request{Prompt: "fg"}, base) // Status "running", Log left empty
+	if err := fg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewRecord("codex", Request{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(DispatchDir(), fg.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("foreground running record (no Log) must be pruned, stat err = %v", err)
 	}
 }

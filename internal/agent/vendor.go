@@ -129,7 +129,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
 			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-			Env: env, KeepEnv: req.KeepEnv,
+			Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID,
 		}, stream)
 		res.Answer, res.Usage = out.Answer, out.Usage
 		if out.SessionID != "" {

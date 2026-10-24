@@ -16,9 +16,9 @@ import (
 // AgyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
 // Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
 type AgyRequest struct {
-	Prompt, Model, Effort, Cwd string
-	Tools, Autonomous          bool
-	Env, KeepEnv               []string
+	Prompt, Model, Effort, Cwd, SessionID string
+	Tools, Autonomous                     bool
+	Env, KeepEnv                          []string
 }
 
 // agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
@@ -35,6 +35,9 @@ func agyArgv(r AgyRequest) []string {
 	argv := []string{"--model", r.Model}
 	if e := agyEffort[r.Effort]; e != "" {
 		argv = append(argv, "--effort", e)
+	}
+	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh
+		argv = append(argv, "--conversation", r.SessionID)
 	}
 	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json")
 	if r.Tools {
