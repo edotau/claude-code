@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
@@ -140,7 +141,7 @@ func storeHook(e RepoEntry) string {
 			if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(") {
 				continue
 			}
-			return truncate(l, 100)
+			return textutil.Truncate(l, 100)
 		}
 	}
 	if e.Origin.Origin != "" {
@@ -154,13 +155,6 @@ func storeHook(e RepoEntry) string {
 func stripFrontmatter(s string) string {
 	_, content := markdown.StripFrontMatter([]byte(s))
 	return string(content)
-}
-
-func truncate(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n-1]) + "…"
-	}
-	return s
 }
 
 // settleUnified is SettleBank after the cutover: rotate + archive in scope, regenerate region and catalog, commit.
@@ -295,7 +289,7 @@ func storeHookFile(path string) string {
 	}
 	for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			return truncate(l, 100)
+			return textutil.Truncate(l, 100)
 		}
 	}
 	return filepath.Base(path)

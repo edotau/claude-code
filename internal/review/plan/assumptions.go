@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Finding is one assumption-linter hit; field order matches the Python dict literal for JSON parity.
@@ -164,7 +166,7 @@ func lintText(text string) []Finding {
 					Category: sig.category,
 					Matched:  matched,
 					Message:  sig.message,
-					Context:  truncateRunes(stripped, 120),
+					Context:  textutil.TruncateRunes(stripped, 120),
 				})
 			}
 		}
@@ -179,9 +181,9 @@ func lintText(text string) []Finding {
 		findings = append(findings, Finding{
 			Line:     0,
 			Category: "missing-verification",
-			Matched:  truncateRunes(trimmed, 80),
+			Matched:  textutil.TruncateRunes(trimmed, 80),
 			Message:  "Plan block has no verification step. Add a 'verify:' check to each step.",
-			Context:  truncateRunes(trimmed, 120),
+			Context:  textutil.TruncateRunes(trimmed, 120),
 		})
 	}
 	return findings
@@ -270,7 +272,7 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 				ref = fmt.Sprintf("L%d: ", item.Line)
 			}
 			fmt.Fprintf(stdout, "    %s%s\n", ref, item.Message)
-			fmt.Fprintf(stdout, "      -> \"%s\" in: %s\n", item.Matched, truncateRunes(item.Context, 80))
+			fmt.Fprintf(stdout, "      -> \"%s\" in: %s\n", item.Matched, textutil.TruncateRunes(item.Context, 80))
 		}
 		if len(g.items) > 5 {
 			fmt.Fprintf(stdout, "    ... and %d more\n", len(g.items)-5)

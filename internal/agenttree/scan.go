@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // harvestTitlePrefix is the background-harvest system prompt, never a real user ask.
@@ -284,11 +285,10 @@ func userTurnText(raw json.RawMessage) string {
 // truncate renders s on one line, cut to n runes with an ellipsis when longer.
 func truncate(s string, n int) string {
 	s = oneLine(s)
-	r := []rune(s)
-	if len(r) <= n {
+	if len([]rune(s)) <= n {
 		return s
 	}
-	return string(r[:n]) + "…"
+	return textutil.TruncateRunes(s, n) + "…"
 }
 
 // oneLine collapses embedded newlines/tabs and repeated spaces so a multi-line prompt renders as

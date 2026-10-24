@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -20,7 +21,7 @@ var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustC
 func gateStagedFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := execCommand(ctx, "git", "-C", repo, "diff", "--cached", "--name-only")
+	out, err := gitexec.RunGit(ctx, repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return nil
 	}
@@ -36,7 +37,7 @@ func gateStagedFiles(repo string) []string {
 func gateComplexityFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := execCommand(ctx, "git", "-C", repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+	out, err := gitexec.RunGit(ctx, repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}

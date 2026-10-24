@@ -1,18 +1,9 @@
 package diff
 
 import (
-	"context"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
-
-// execCommand runs a command with list args (never a shell string); stdout only, matching subprocess.run.
-func execCommand(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.Output()
-	return string(out), err
-}
 
 func absPath(p string) (string, error) {
 	return filepath.Abs(p)

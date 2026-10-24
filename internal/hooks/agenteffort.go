@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/frontmatter"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -139,7 +139,7 @@ func agentPinsModel(name string) bool {
 	if err != nil {
 		return false // not a harness agent (built-in like Explore/Plan) — classifier may apply
 	}
-	fm, _ := crossgen.ParseFrontmatter(string(raw))
+	fm, _ := frontmatter.Parse(string(raw))
 	model, _ := fm["model"].(string)
 	return model != ""
 }
