@@ -3,16 +3,15 @@ package vendors
 import (
 	"encoding/base64"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
 // CodexPlan is the ChatGPT plan codex is signed in on ("plus", "pro", "team"…), read offline from the id_token
-// claim in $CODEX_HOME/auth.json; "" when absent or unreadable. The token is decoded, never verified or printed.
+// claim in codex's auth.json (file or keyring); "" when absent or unreadable. The token is decoded, never
+// verified or printed.
 func CodexPlan() string {
-	b, err := os.ReadFile(filepath.Join(codexHome(), "auth.json"))
-	if err != nil {
+	b, _, _ := codexAuthJSON()
+	if b == nil {
 		return ""
 	}
 	var auth struct {
@@ -42,11 +41,13 @@ func CodexPlan() string {
 	return claims.Auth.Plan
 }
 
-// CodexAccessToken is codex's ChatGPT access token and account id from $CODEX_HOME/auth.json; "" when absent.
-func CodexAccessToken() (token, accountID string) {
-	b, err := os.ReadFile(filepath.Join(codexHome(), "auth.json"))
-	if err != nil {
-		return "", ""
+// CodexAccessToken is codex's ChatGPT access token and account id from its auth.json (file or keyring);
+// "" when absent. keyringNote is "" normally, or the reason a keyring lookup failed for something other
+// than "nothing stored", for callers that want to say why no token was found.
+func CodexAccessToken() (token, accountID, keyringNote string) {
+	b, _, note := codexAuthJSON()
+	if b == nil {
+		return "", "", note
 	}
 	var auth struct {
 		Tokens struct {
@@ -55,9 +56,9 @@ func CodexAccessToken() (token, accountID string) {
 		} `json:"tokens"`
 	}
 	if json.Unmarshal(b, &auth) != nil {
-		return "", ""
+		return "", "", ""
 	}
-	return auth.Tokens.Access, auth.Tokens.Account
+	return auth.Tokens.Access, auth.Tokens.Account, ""
 }
 
 // copilotPlans maps GitHub's copilot_plan values to the plan names GitHub sells.

@@ -421,18 +421,19 @@ func codexChatGPTLogin() error {
 			}
 		}
 	}
-	file := filepath.Join(codexHome(), "auth.json")
+	b, _, keyringNote := codexAuthJSON()
 	var auth struct {
 		Tokens json.RawMessage `json:"tokens"`
 	}
-	b, err := os.ReadFile(file)
-	if err == nil {
-		err = json.Unmarshal(b, &auth)
+	if b != nil && json.Unmarshal(b, &auth) == nil && len(auth.Tokens) > 0 && string(auth.Tokens) != "null" {
+		return nil
 	}
-	if err != nil || len(auth.Tokens) == 0 || string(auth.Tokens) == "null" {
-		return fmt.Errorf("codex: no ChatGPT sign-in in %s; run `codex login` and choose \"Sign in with ChatGPT\"", file)
+	file := filepath.Join(codexHome(), "auth.json")
+	msg := fmt.Sprintf("codex: no ChatGPT sign-in in %s; run `codex login` and choose \"Sign in with ChatGPT\"", file)
+	if keyringNote != "" {
+		msg += fmt.Sprintf(" (keyring: %s)", keyringNote)
 	}
-	return nil
+	return errors.New(msg)
 }
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.

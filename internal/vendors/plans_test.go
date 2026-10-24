@@ -1,6 +1,7 @@
 package vendors
 
 import (
+	"context"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -45,6 +46,11 @@ func TestCodexPlan(t *testing.T) {
 func TestCodexPlanMissingOrMalformedFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
+	// Stub the keyring fallback absent: without this, a real "Codex Auth" keychain item on the
+	// machine running the test (e.g. a signed-in developer box) would leak through codexAuthJSON.
+	orig := codexKeychainCmd
+	codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error) { return nil, nil }
+	defer func() { codexKeychainCmd = orig }()
 	if got := CodexPlan(); got != "" {
 		t.Errorf("missing auth.json: CodexPlan = %q", got)
 	}
