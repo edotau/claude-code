@@ -136,8 +136,27 @@ quoted phrases and unknown tokens pass through as free text.
   survives re-renders), and a rail: Open in Jira, Copy URL / key / branch name / prompt. Every write is optimistic
   through `lib/tasks-mutations.js` (patch now, writes serialised per issue, refetch after, rollback + an inline
   Retry banner on failure). GitHub and Bitbucket rows open a header-only detail with "Open in browser" for now.
+- **GitHub cells are live.** The PR list asks `gh` only for cheap fields; Checks, Merge and Reviewers hydrate per row
+  through `gh pr view` when the row scrolls near (160 px) or is hovered, four at a time, and the cells are patched in
+  place (no page re-render). Status (issues) is a menu: Open · Close as completed · not planned · duplicate… (asks for
+  the number); Assignees and Reviewers open a multi-select QuickPick over the repo's assignable users (reviewers capped
+  at 15); Merge is a menu with Enable/Disable auto-merge, one item per method the repo allows, and "Open GitHub merge
+  box" — merging asks "<Method> PR #N?" first. Writes run `gh issue close|reopen|edit`, `gh pr edit|merge|ready|close`
+  through the same optimistic queue; a failure shows under the row's title with Retry. `gh` runs with
+  `GH_PROMPT_DISABLED=1`, a 30 s timeout, two retries on 5xx / reset / 429-without-Retry-After, and a per-bucket
+  breaker after "API rate limit exceeded" (search 70 s, core 5 min).
+- **Board view.** The `List | Board` toggle (per source, remembered in the workspace; `claudeCodeAgents.tasksViewMode`
+  sets the start) groups the same page of rows into 272 px columns: Jira by status (To Do · In Progress · Done order,
+  "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open · Closed,
+  Bitbucket Open · Needs work · Approved · Merged · Declined. Dropping a card (native drag and drop, or "Move to…" in the
+  card's ⋮ menu) performs the matching action: Jira runs the transition that lands in that column (one → apply, several
+  → pick, required resolution/comment → asked first, none → an inline note and the card stays), GitHub issues
+  reopen/close, PRs ready/draft/close/reopen/merge (with the confirm); review columns and Bitbucket refuse with a note.
 
-The **Task sources** section at the bottom of the page shows one card per source — a Connected / Disconnected
+The **Task sources** section at the bottom of the page shows one card per source, plus a **Tailscale** card (exit-node
+pill; "Exit node…" lists the tailnet's exit nodes from `<binary> tailscale status --format json` in a QuickPick and
+switches with `tailscale set --exit-node=<ip> --exit-node-allow-lan-access=true`; "Direct" clears it — VPN-style
+routing without any API key; `claudeCodeAgents.tailscaleBinary` names the CLI). It shows one card per source — a Connected / Disconnected
 pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the last visible source cannot be hidden), the default
 source, the repo list — with "Edit repos and defaults in Settings" and "Re-check connections".
 Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`, `tasksDefaultQuery.jira` /

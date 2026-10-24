@@ -18,8 +18,10 @@ const tasksBitbucket = require('./lib/tasks-bitbucket');
 const jiraClient = require('./lib/jira-client');
 const tasksJira = require('./lib/tasks-jira');
 const { MutationQueue } = require('./lib/tasks-mutations');
+const tasksBoard = require('./lib/tasks-board');
+const tailscale = require('./lib/tailscale');
 const tasksState = require('./lib/tasks-state');
-const { renderTasksHtml } = require('./lib/tasks-view');
+const { renderTasksHtml, rowCells, gridKind } = require('./lib/tasks-view');
 
 const GITHUB_PR_EXTENSION_ID = 'github.vscode-pull-request-github';
 
@@ -300,7 +302,7 @@ class TasksViewProvider {
     this.loadingPage = null;
     this.hardError = null;
     this.settingsExpanded = false;
-    this.status = { github: null, bitbucket: null, jira: null };
+    this.status = { github: null, bitbucket: null, jira: null, tailscale: null };
     this.githubRepos = [];
     this.bitbucketRepos = [];
     this.jiraProjects = [];
@@ -311,6 +313,10 @@ class TasksViewProvider {
     this.view = 'list';
     this.detail = null; // { id, key, loading, error, data, comments, transitions, priorities, branchName, prompt }
     this.priorities = null;
+    this.viewModes = (context && context.workspaceState.get('tasks.viewModes')) || {}; // source → list|board
+    this.mergeMethods = {}; // repo label → {merge, squash, rebase}
+    this.assignable = {}; // repo label → logins
+    this.hydrating = new Set();
     this.mutations = new MutationQueue({
       getItem: (id) => this.findItem(id),
       setItem: (id, row) => this.patchItem(id, row),
@@ -325,10 +331,15 @@ class TasksViewProvider {
     if (this.detail && this.detail.id === id && this.detail.data) this.detail = { ...this.detail, data: { ...this.detail.data, ...row } };
   }
 
-  /** Fresh row after a write: Jira re-reads the issue (and comments/transitions when its detail is open). */
+  /** Fresh row after a write: Jira re-reads the issue (and comments/transitions when its detail is open); GitHub `gh … view`. */
   async refetchItem(id) {
     const item = this.findItem(id);
-    if (!item || item.source !== 'jira') return null;
+    if (!item) return null;
+    if (item.source === 'github') {
+      this.cache.invalidate();
+      return item.type === 'pr' ? tasksGithub.prDetail({ repo: item.repo, number: item.number }) : tasksGithub.issueDetail({ repo: item.repo, number: item.number });
+    }
+    if (item.source !== 'jira') return null;
     const cfg = this.cfg();
     const open = this.detail && this.detail.id === id;
     const data = await this.withJiraClient(async (client) => {
@@ -401,13 +412,225 @@ class TasksViewProvider {
     qp.dispose();
     if (!picked || picked.name === undefined) return;
     const assignee = picked.name ? { name: picked.name, displayName: picked.displayName || picked.name, avatarUrl: null } : null;
-    await this.runMutation(id, { assignee, assignees: assignee ? [assignee.displayName] : [] }, (client) => client.assign(item.key, picked.name));
+    await this.runMutation(id, { assignee, assignees: assignee ? [assignee.displayName] : [] }, () => this.withJiraClient((client) => client.assign(item.key, picked.name)));
+  }
+
+  /** Posts patched cells for `ids` to every surface instead of re-rendering the page (keeps menus, selection, scroll). */
+  postRows(ids) {
+    const model = this.model();
+    const kind = gridKind(model);
+    const rows = ids.map((id) => this.findItem(id)).filter(Boolean).map((item) => ({ id: item.id, hydrated: item.hydrated !== false, cells: rowCells(item, model, kind) }));
+    for (const surface of [...this.views, this.panel]) {
+      if (surface) surface.webview.postMessage({ type: 'rows', rows });
+    }
+  }
+
+  /** Lazy per-row `gh pr view` for checks / merge / reviews (≤ 4 in flight), plus the repo's merge methods once. */
+  async hydrate(ids) {
+    const todo = ids.map((id) => this.findItem(id)).filter((i) => i && i.source === 'github' && i.type === 'pr' && i.hydrated === false && !this.hydrating.has(i.id));
+    const queue = [...todo];
+    const worker = async () => {
+      for (let item = queue.shift(); item; item = queue.shift()) {
+        this.hydrating.add(item.id);
+        try {
+          const [detail] = await Promise.all([tasksGithub.prDetail({ repo: item.repo, number: item.number }), this.ensureMergeMethods(item.repo)]);
+          this.patchItem(item.id, detail);
+        } catch (err) {
+          this.patchItem(item.id, { hydrated: true, checks: { state: 'none', label: 'Unavailable' }, merge: { state: 'unknown', label: 'Unknown' } });
+          this.mutations.errors.set(item.id, { message: tasksGithub.classifyGhError(err), retry: () => { this.patchItem(item.id, { hydrated: false }); return this.hydrate([item.id]); } });
+        } finally {
+          this.hydrating.delete(item.id);
+        }
+        this.postRows([item.id]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+  }
+
+  async ensureMergeMethods(repo) {
+    if (this.mergeMethods[repo.label]) return this.mergeMethods[repo.label];
+    this.mergeMethods[repo.label] = await tasksGithub.mergeMethods({ repo }).catch(() => ({ merge: true, squash: true, rebase: true }));
+    return this.mergeMethods[repo.label];
+  }
+
+  async ensureAssignable(repo) {
+    if (!this.assignable[repo.label]) this.assignable[repo.label] = await tasksGithub.listAssignable({ repo });
+    return this.assignable[repo.label];
+  }
+
+  /** Multi-select QuickPick over the repo's assignable users; `current` pre-checked; returns `{add, remove}` or null. */
+  async pickLogins(item, current, placeholder) {
+    let logins;
+    try {
+      logins = await this.ensureAssignable(item.repo);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Claude Code Tasks: ${tasksGithub.classifyGhError(err)}`);
+      return null;
+    }
+    const all = [...new Set([...current, ...logins])];
+    const items = all.map((login) => ({ label: login, picked: current.includes(login) }));
+    const picked = await vscode.window.showQuickPick(items, { canPickMany: true, placeHolder: placeholder, matchOnDescription: true });
+    if (!picked) return null;
+    const next = picked.map((p) => p.label);
+    return { add: next.filter((l) => !current.includes(l)), remove: current.filter((l) => !next.includes(l)), next };
+  }
+
+  async changeAssignees(id) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'github') return;
+    const r = await this.pickLogins(item, item.assignees || [], `Assignees for #${item.number}`);
+    if (!r || (!r.add.length && !r.remove.length)) return;
+    return this.runMutation(id, { assignees: r.next }, () => tasksGithub.editIssue({ repo: item.repo, number: item.number, addAssignees: r.add, removeAssignees: r.remove }));
+  }
+
+  async changeReviewers(id) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    const current = (item.reviewers || []).filter((x) => x.status === 'PENDING').map((x) => x.name);
+    const r = await this.pickLogins(item, current, `Request reviewers for #${item.number} (up to 15)`);
+    if (!r || (!r.add.length && !r.remove.length)) return;
+    if (r.next.length > 15) return vscode.window.showWarningMessage('You can request up to 15 reviewers');
+    const reviewers = [...(item.reviewers || []).filter((x) => x.status !== 'PENDING' || r.next.includes(x.name)), ...r.add.map((name) => ({ name, status: 'PENDING' }))];
+    return this.runMutation(id, { reviewers }, () => tasksGithub.editPrReviewers({ repo: item.repo, number: item.number, add: r.add, remove: r.remove }));
+  }
+
+  async setIssueState(id, state, reason) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'github' || item.type !== 'issue') return;
+    if (state === 'open') return this.runMutation(id, { state: 'open', stateReason: null }, () => tasksGithub.reopenIssue({ repo: item.repo, number: item.number }));
+    let duplicateOf;
+    if (reason === 'duplicate') {
+      const raw = await vscode.window.showInputBox({ prompt: `Close #${item.number} as a duplicate of…`, placeHolder: 'Issue number', validateInput: (v) => (/^#?\d+$/.test(v.trim()) ? null : 'Enter an issue number') });
+      if (!raw) return;
+      duplicateOf = raw.trim().replace(/^#/, '');
+    }
+    return this.runMutation(id, { state: 'closed', stateReason: duplicateOf ? 'duplicate' : reason }, () => tasksGithub.closeIssue({ repo: item.repo, number: item.number, reason, duplicateOf }));
+  }
+
+  /** Orca's MergeCell confirm: "<Method> PR #N?" / "This will update the pull request on GitHub." */
+  async mergePullRequest(id, method) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    const labels = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+    const label = labels[method] || 'Merge';
+    const ok = await vscode.window.showWarningMessage(`${label} PR #${item.number}?`, { modal: true, detail: 'This will update the pull request on GitHub.' }, label);
+    if (ok !== label) return;
+    return this.runMutation(id, { state: 'merged', merge: { state: 'merged', label: 'Merged' } }, () => tasksGithub.mergePr({ repo: item.repo, number: item.number, method }));
+  }
+
+  async setAutoMerge(id, enable) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    const allowed = await this.ensureMergeMethods(item.repo);
+    const method = ['squash', 'merge', 'rebase'].find((m) => allowed[m]) || 'squash';
+    return this.runMutation(id, { autoMergeEnabled: !!enable }, () => tasksGithub.setAutoMerge({ repo: item.repo, number: item.number, method, enable: !!enable }));
+  }
+
+  /** Exit node QuickPick over the harness's peer list; "Direct" clears it. The switch is `tailscale set --exit-node=`. */
+  async pickExitNode(clear) {
+    const cfg = this.cfg();
+    const net = this.status.tailscale;
+    let target = '';
+    if (!clear) {
+      if (!net || !net.ok) return;
+      const items = [
+        { label: '$(circle-slash) Direct (no exit node)', description: net.exitNode ? '' : 'current', ip: '' },
+        ...net.options.map((o) => ({ label: `$(globe) ${o.hostName}`, description: `${o.ip}${o.os ? ` · ${o.os}` : ''}${o.online ? '' : ' · offline'}${o.selected ? ' · current' : ''}`, ip: o.ip })),
+      ];
+      const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Route this machine through an exit node' });
+      if (!picked) return;
+      target = picked.ip;
+    }
+    try {
+      await tailscale.setExitNode(target, { tailscaleBinary: cfg.tailscaleBinary });
+      vscode.window.setStatusBarMessage(target ? `Exit node set` : 'Exit node cleared', 3000);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Tailscale: ${(err.stderr && String(err.stderr).trim().split('\n')[0]) || err.message}`);
+    }
+    this.status = { ...this.status, tailscale: await tailscale.status({ binary: cfg.binary, tailscaleBinary: cfg.tailscaleBinary }) };
+    this.render();
+  }
+
+  viewMode() {
+    return this.viewModes[this.source] || config().get('tasksViewMode', 'list') || 'list';
+  }
+
+  setViewMode(mode) {
+    this.viewModes = { ...this.viewModes, [this.source]: mode === 'board' ? 'board' : 'list' };
+    this.context.workspaceState.update('tasks.viewModes', this.viewModes);
+    this.render();
+  }
+
+  rowError(id, message) {
+    this.mutations.errors.set(id, { message, retry: () => Promise.resolve() });
+    this.render();
+  }
+
+  /** A board drop = the matching in-panel action; unmapped drops are refused with an inline note (Orca's rule). */
+  async moveRow(id, toKey) {
+    const item = this.findItem(id);
+    const col = (this.model().board || []).find((c) => c.key === toKey);
+    if (!item || !col) return;
+    if (item.source === 'jira') return this.moveJira(item, col);
+    if (item.source === 'github' && item.type === 'issue') {
+      if (col.key.endsWith('open')) return this.setIssueState(id, 'open');
+      const reason = await vscode.window.showQuickPick([{ label: 'Close as completed', reason: 'completed' }, { label: 'Close as not planned', reason: 'not_planned' }, { label: 'Close as duplicate…', reason: 'duplicate' }], { placeHolder: `Close #${item.number}` });
+      return reason ? this.setIssueState(id, 'closed', reason.reason) : undefined;
+    }
+    if (item.source === 'github') {
+      const target = col.key.replace(/^pr:/, '');
+      if (target === 'merged') {
+        const allowed = await this.ensureMergeMethods(item.repo);
+        const method = await vscode.window.showQuickPick(['squash', 'merge', 'rebase'].filter((m) => allowed[m]).map((m) => ({ label: m, method: m })), { placeHolder: `Merge method for #${item.number}` });
+        return method ? this.mergePullRequest(id, method.method) : undefined;
+      }
+      if (target === 'closed') return this.runMutation(id, { state: 'closed', merge: { state: 'closed', label: 'Closed' } }, () => tasksGithub.setPrState({ repo: item.repo, number: item.number, state: 'closed' }));
+      if (target === 'open' && item.state === 'closed') return this.runMutation(id, { state: 'open' }, () => tasksGithub.setPrState({ repo: item.repo, number: item.number, state: 'open' }));
+      if (target === 'open' && item.state === 'draft') return this.runMutation(id, { state: 'open' }, () => tasksGithub.setPrReady({ repo: item.repo, number: item.number }));
+      if (target === 'draft' && item.state === 'open') return this.runMutation(id, { state: 'draft' }, () => tasksGithub.setPrReady({ repo: item.repo, number: item.number, undo: true }));
+      return this.rowError(id, `No action for "${col.label}" — submit a review from the PR page`);
+    }
+    return this.rowError(id, 'Bitbucket is read-only in this panel');
+  }
+
+  /** Jira drop: the transition(s) landing in the column — 0 refuses, 1 applies, many ask; required fields collected first. */
+  async moveJira(item, col) {
+    let transitions;
+    try {
+      transitions = (await this.withJiraClient((client) => client.transitions(item.key))).map(tasksJira.mapTransition);
+    } catch (err) {
+      return this.rowError(item.id, err.message);
+    }
+    let matches = tasksBoard.jiraTransitionsTo(transitions, col);
+    if (!matches.length && col.category) matches = transitions.filter((t) => t.to.category === col.category);
+    if (!matches.length) return this.rowError(item.id, `No transition to "${col.label}" from ${item.status ? item.status.name : 'this status'}`);
+    let t = matches[0];
+    if (matches.length > 1) {
+      const pick = await vscode.window.showQuickPick(matches.map((m) => ({ label: m.name, description: `→ ${m.to.name}`, t: m })), { placeHolder: `Transition ${item.key} to ${col.label}` });
+      if (!pick) return;
+      t = pick.t;
+    }
+    const req = t.requirement || { kind: 'none' };
+    if (req.kind === 'unsupported') return this.rowError(item.id, `"${t.name}" needs ${req.fields.map((f) => f.name || f.key).join(', ')} — open in Jira`);
+    let fields;
+    let comment = '';
+    if (req.kind === 'form') {
+      if (req.resolution) {
+        const r = await vscode.window.showQuickPick((req.resolution.allowedValues || []).map((v) => ({ label: v.name || v.value || v.id, id: v.id || v.value || v.name })), { placeHolder: 'Resolution' });
+        if (!r) return;
+        fields = { resolution: { id: String(r.id) } };
+      }
+      comment = (await vscode.window.showInputBox({ prompt: req.commentRequired ? 'Comment (required)' : 'Comment (optional)', ignoreFocusOut: true })) || '';
+      if (req.commentRequired && !comment.trim()) return;
+    }
+    if (this.detail && this.detail.id === item.id) this.detail = { ...this.detail, transitions };
+    return this.runMutation(item.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, () => this.withJiraClient((client) => client.transition(item.key, t.id, comment, fields)));
   }
 
   /** Optimistic write through the queue; the error lands on the detail banner / row instead of a toast. */
-  async runMutation(id, patch, op) {
+  async runMutation(id, patch, write) {
     try {
-      await this.mutations.enqueue({ id, patch, write: () => this.withJiraClient(op) });
+      await this.mutations.enqueue({ id, patch, write });
       if (this.detail && this.detail.id === id) this.detail = { ...this.detail, mutationError: null };
     } catch (err) {
       if (this.detail && this.detail.id === id) this.detail = { ...this.detail, mutationError: err.message };
@@ -429,6 +652,7 @@ class TasksViewProvider {
         bitbucket: cfg.get('tasksDefaultQuery.bitbucket') || tasksState.DEFAULT_QUERY.bitbucket,
         jira: cfg.get('tasksDefaultQuery.jira') || tasksState.DEFAULT_QUERY.jira,
       },
+      tailscaleBinary: cfg.get('tailscaleBinary') || 'tailscale',
       jiraProjects: (cfg.get('tasksJiraProjects', []) || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean),
       pageSize: Math.max(5, cfg.get('tasksPageSize', 36) || 36),
     };
@@ -529,16 +753,18 @@ class TasksViewProvider {
   async doctor() {
     const cfg = this.cfg();
     const noToken = (err) => ({ ok: false, message: looksLikeMissingToken(err.message) ? 'No token' : err.message });
-    const [github, bitbucket, jira] = await Promise.all([
+    const [github, bitbucket, jira, net] = await Promise.all([
       tasksGithub.authStatus(),
       this.withClient((client) => client.doctor()).catch(noToken),
       cfg.jiraBaseUrl ? this.withJiraClient((client) => client.myself()).catch(noToken) : Promise.resolve({ ok: false, message: 'No Jira URL' }),
+      tailscale.status({ binary: cfg.binary, tailscaleBinary: cfg.tailscaleBinary }),
     ]);
     const failed = (r) => ({ ok: false, message: r.message || (r.reason === 'rejected' ? 'Token rejected' : 'Unreachable') });
     this.status = {
       github,
       bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : failed(bitbucket),
       jira: jira.ok ? { ok: true, login: jira.user.displayName || jira.user.name, name: jira.user.name } : failed(jira),
+      tailscale: net,
     };
     this.render();
   }
@@ -724,6 +950,11 @@ class TasksViewProvider {
       totalPages: result.totalPages,
       now: Date.now(),
       view: this.view,
+      rowErrors: Object.fromEntries([...this.mutations.errors].map(([id, e]) => [id, e.message])),
+      viewMode: this.viewMode(),
+      board: this.viewMode() === 'board' ? tasksBoard.groupRows(result.items, this.source, parsed.scope, { ensure: this.source === 'jira' ? [{ label: 'Done', category: 'done' }] : [] }) : null,
+      pendingIds: result.items.filter((i) => this.mutations.isPending(i.id)).map((i) => i.id),
+      mergeMethods: this.mergeMethods,
       detail: this.detail ? { ...this.detail, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
       settings: {
         expanded: this.settingsExpanded,
@@ -731,6 +962,7 @@ class TasksViewProvider {
         github: { status: this.status.github, visible: cfg.visible.includes('github'), repos: this.githubRepos.map((r) => r.label) },
         bitbucket: { status: this.status.bitbucket, visible: cfg.visible.includes('bitbucket'), repos: this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), baseUrl: cfg.baseUrl },
         jira: { status: this.status.jira, visible: cfg.visible.includes('jira'), repos: this.jiraProjects, baseUrl: cfg.jiraBaseUrl },
+        tailscale: { status: this.status.tailscale },
       },
     };
   }
@@ -815,23 +1047,43 @@ class TasksViewProvider {
       case 'comment': {
         const item = this.findItem(msg.id);
         if (!item || item.source !== 'jira' || !msg.body) return;
-        return this.runMutation(msg.id, null, (client) => client.addComment(item.key, msg.body));
+        return this.runMutation(msg.id, null, () => this.withJiraClient((client) => client.addComment(item.key, msg.body)));
       }
       case 'transition': {
         const item = this.findItem(msg.id);
         const t = (this.detail && this.detail.transitions || []).find((x) => x.id === String(msg.transitionId));
         if (!item || !t) return;
         const fields = msg.resolutionId ? { resolution: { id: String(msg.resolutionId) } } : undefined;
-        return this.runMutation(msg.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, (client) => client.transition(item.key, t.id, msg.comment || '', fields));
+        return this.runMutation(msg.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, () => this.withJiraClient((client) => client.transition(item.key, t.id, msg.comment || '', fields)));
       }
       case 'priority': {
         const item = this.findItem(msg.id);
         const p = (this.priorities || []).find((x) => x.id === String(msg.priorityId));
         if (!item || !p) return;
-        return this.runMutation(msg.id, { priority: { name: p.name, iconUrl: p.iconUrl } }, (client) => client.update(item.key, { fields: { priority: { id: p.id } } }));
+        return this.runMutation(msg.id, { priority: { name: p.name, iconUrl: p.iconUrl } }, () => this.withJiraClient((client) => client.update(item.key, { fields: { priority: { id: p.id } } })));
       }
       case 'assign':
         return this.pickAssignee(msg.id);
+      case 'hydrate':
+        return this.hydrate(msg.ids || []);
+      case 'viewMode':
+        return this.setViewMode(msg.mode);
+      case 'exitNode':
+        return this.pickExitNode(false);
+      case 'exitNodeOff':
+        return this.pickExitNode(true);
+      case 'move':
+        return this.moveRow(msg.id, msg.to);
+      case 'assignees':
+        return this.changeAssignees(msg.id);
+      case 'reviewers':
+        return this.changeReviewers(msg.id);
+      case 'issueState':
+        return this.setIssueState(msg.id, msg.state, msg.reason);
+      case 'merge':
+        return this.mergePullRequest(msg.id, msg.method);
+      case 'autoMerge':
+        return this.setAutoMerge(msg.id, msg.enable);
       case 'retry': {
         const e = this.mutations.errorFor(msg.id);
         if (e) e.retry().catch(() => {});
