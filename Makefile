@@ -159,9 +159,8 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install DEV_TOOLS=1)"; fi
 	@$(MAKE) --no-print-directory lint-yaml
-	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)"; rc=$$?; \
-		if [ $$rc -ne 0 ]; then echo "$$out"; exit $$rc; fi
-	@t=$$(mktemp) && $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg; rc=$$?; rm -f $$t; \
+	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
+	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke + generated docs; vuln + yaml when installed)"
 
