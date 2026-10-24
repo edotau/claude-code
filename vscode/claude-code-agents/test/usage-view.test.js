@@ -166,3 +166,16 @@ test('renderUsageHtml (detailed): no <h1> text other than "Agents Dashboard"', (
   assert.ok(h1s.length > 0, 'expected at least one <h1>');
   for (const text of h1s) assert.equal(text, 'Agents Dashboard');
 });
+
+test('renderUsageHtml: the QUOTAS header carries a Used/Left toggle reflecting opts.show', () => {
+  const usage = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'usage-subscription.fixture.json'), 'utf8'));
+  const model = buildUsageModel(usage, {}, Date.now());
+  const used = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  const left = renderUsageHtml(model, { detailed: true, show: 'left', nonce: 'n', cspSource: 'c' });
+  assert.match(used, /id="show-used" class="active"/);
+  assert.match(used, /id="show-left" class=""/);
+  assert.match(left, /id="show-left" class="active"/);
+  assert.ok(left.includes("postMessage({ type: 'show', show: mode })"));
+  // Claude 5h: 24% used in the fixture, so Left renders 76%.
+  assert.ok(used.includes('>24%<') && left.includes('>76%<'));
+});

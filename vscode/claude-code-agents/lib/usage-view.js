@@ -338,6 +338,11 @@ function renderUsageHtml(model, opts) {
   .header h1 { font-size: 13px; font-weight: 600; margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-right { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
   .muted { color: var(--vscode-descriptionForeground); }
+  .section-header-row { display: flex; align-items: center; justify-content: space-between; }
+  .show-toggle { display: inline-flex; border: 1px solid var(--vscode-widget-border); border-radius: 4px; overflow: hidden; text-transform: none; letter-spacing: 0; }
+  .show-toggle button { background: none; border: none; color: var(--vscode-descriptionForeground); padding: 1px 8px; cursor: pointer; font-size: 11px; }
+  .show-toggle button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+
   .icon-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 2px; }
   .segmented { display: flex; margin: 0 12px 8px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; overflow: hidden; }
   .segmented button { flex: 1; background: none; border: none; color: var(--vscode-foreground); padding: 4px 0; cursor: pointer; font-size: 12px; }
@@ -434,7 +439,11 @@ function renderUsageHtml(model, opts) {
   }
   <div class="section-header">OVERVIEW</div>
   ${overviewBody}
-  <div class="section-header">QUOTAS</div>
+  <div class="section-header section-header-row"><span>QUOTAS</span>
+    <span class="show-toggle" role="group" aria-label="Percentages">
+      <button id="show-used" class="${show === 'used' ? 'active' : ''}" title="Show percentage used">Used</button>
+      <button id="show-left" class="${show === 'left' ? 'active' : ''}" title="Show percentage remaining">Left</button>
+    </span></div>
   <div class="quotas-list">${quotasBody}</div>
   <div class="section-header">${esc(agentsHeader)}</div>
   ${agentsBody}
@@ -454,6 +463,10 @@ function renderUsageHtml(model, opts) {
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
     document.getElementById('accounts').addEventListener('click', () => vscode.postMessage({ type: 'accounts' }));
+    for (const mode of ['used', 'left']) {
+      const btn = document.getElementById('show-' + mode);
+      if (btn) btn.addEventListener('click', () => vscode.postMessage({ type: 'show', show: mode }));
+    }
     const detailedBtn = document.getElementById('detailed');
     const compactBtn = document.getElementById('compact');
     if (detailedBtn) detailedBtn.addEventListener('click', () => vscode.postMessage({ type: 'toggle', detailed: true }));
