@@ -148,7 +148,7 @@ func cmdAsk(args []string) int {
 			cwd, _ = os.Getwd()
 		}
 		rec.Repo = vendoragent.RepoRoot(ctx, cwd)
-		rec.Log = filepath.Join(agent.DispatchDir(), rec.ID+".log")
+		rec.Log = rec.LogPath()
 		if !*background {
 			rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
 		}
@@ -163,7 +163,14 @@ func cmdAsk(args []string) int {
 	}
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	res, err := agent.RunWithFallback(ctx, r, chain, req, stream, notify)
+	// A --job child's stdout+stderr already is the log (Spawn), so only a foreground run tees.
+	sink := agent.NewLogSink(rec.LogPath())
+	runCtx := ctx
+	if jobRec == nil {
+		runCtx = agent.WithLog(ctx, sink)
+	}
+	res, err := agent.RunWithFallback(runCtx, r, chain, req, stream, notify)
+	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	reportAskResult(*format, res, err)

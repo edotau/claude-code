@@ -29,10 +29,7 @@ func Spawn(rec *agent.Record, extra []string) error {
 	if err != nil {
 		return err
 	}
-	logPath := rec.Log
-	if logPath == "" {
-		logPath = agent.DispatchDir() + "/" + rec.ID + ".log"
-	}
+	logPath := rec.LogPath()
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err

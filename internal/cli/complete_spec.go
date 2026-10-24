@@ -195,6 +195,7 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"explore":  {flags: []flagInfo{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {flags: []flagInfo{flag("source"), boolFlag("wait")}},
 		"status":   {flags: []flagInfo{boolFlag("all"), formatFlag()}},
+		"tail":     {flags: []flagInfo{boolFlag("f")}},
 		"result":   {flags: []flagInfo{formatFlag()}},
 		"cancel":   {},
 		"setup":    {flags: []flagInfo{formatFlag()}},

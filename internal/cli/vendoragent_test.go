@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -51,7 +52,7 @@ func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
 // cmdVendorSub handlers, proven by the handler-specific "<v> <verb>: ..." error prefix that only
 // appears once vendoragent's own unknown-vendor error is wrapped by that handler.
 func TestVendorVerbRoutesStatusResultCancelToCmdVendorSub(t *testing.T) {
-	for _, sub := range []string{"status", "result", "cancel"} {
+	for _, sub := range []string{"status", "result", "cancel", "tail"} {
 		_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{sub}) })
 		want := notAVendor + " " + sub + ":"
 		if !strings.Contains(stderr, want) {
@@ -115,7 +116,7 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 // a later addition (e.g. explore) doesn't need a second hand-copied list kept in lockstep with
 // TestSpecTreeSubwordsMatchDispatch's own derivation off the same map.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"resume", "status", "result", "cancel", "setup", "models", "review", "transfer"} {
+	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "models", "review", "transfer"} {
 		if !vendorSubverbs[w] {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
@@ -217,5 +218,58 @@ func TestVendorResultOKRecordExits0(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int { return cmdVendorResult("codex", []string{rec.ID}) })
 	if code != 0 || strings.Contains(stderr, "error:") {
 		t.Errorf("exit %d stderr %q, want 0 and no error line", code, stderr)
+	}
+}
+
+// seedTailJob saves a finished codex record whose log holds body and returns its id.
+func seedTailJob(t *testing.T, status, body string) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	logPath := filepath.Join(cwd, "job.log")
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "tail me"}, time.Now())
+	rec.Repo, rec.Status, rec.Log = cwd, status, logPath
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return rec.ID
+}
+
+// TestVendorTailPrintsFinishedLog: tail <id> on a finished ok job prints its log and exits 0.
+func TestVendorTailPrintsFinishedLog(t *testing.T) {
+	id := seedTailJob(t, "ok", "line one\nline two\n")
+	code, stdout, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", id}) })
+	if code != 0 || stdout != "line one\nline two\n" {
+		t.Errorf("tail ok job = exit %d stdout %q stderr %q, want exit 0 with the log verbatim", code, stdout, stderr)
+	}
+}
+
+// TestVendorTailErrorJobExitsOne: a job that ended in error still prints its log but exits 1.
+func TestVendorTailErrorJobExitsOne(t *testing.T) {
+	id := seedTailJob(t, "error", "boom\n")
+	code, stdout, _ := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", id}) })
+	if code != 1 || !strings.Contains(stdout, "boom") {
+		t.Errorf("tail error job = exit %d stdout %q, want exit 1 with the log", code, stdout)
+	}
+}
+
+// TestVendorTailUnknownIDFails: an id matching no job errors with the "<v> tail:" prefix, exit 1.
+func TestVendorTailUnknownIDFails(t *testing.T) {
+	seedTailJob(t, "ok", "x\n")
+	code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", "zzzzzzzz"}) })
+	if code != 1 || !strings.Contains(stderr, "codex tail:") {
+		t.Errorf("tail unknown id = exit %d stderr %q, want exit 1 and the \"codex tail:\" prefix", code, stderr)
+	}
+}
+
+// TestVendorUsageNamesTail: every vendor's help block carries a tail row.
+func TestVendorUsageNamesTail(t *testing.T) {
+	for _, vendor := range vendorNames() {
+		if !strings.Contains(vendorUsage(vendor), "tail") {
+			t.Errorf("vendorUsage(%q) has no tail row", vendor)
+		}
 	}
 }
