@@ -83,10 +83,13 @@ Terminal/Problems) and an activity-bar container "Tasks" (`claudeCodeTasks.page`
 `claudeCodeAgents.tasksOpenIn` names (`panel`, default; `editor`; `window`). "Claude Code Tasks: Open Tasks in Editor"
 (palette only — or drag the Tasks tab from the Panel into the editor area) opens the page as an editor tab, and "Open
 Tasks in New Window" (the one view-title button, `$(link-external)`) pops it out into a floating VS Code window (the
-editor tab moved with "Move Editor into New Window"). The activity-bar view is a **launcher** (source rows with status dots, "New Window", "Panel", the exit-node row): clicking the Tasks icon pops the page out into a window, or reveals it where it already
+editor tab moved with "Move Editor into New Window"). The activity-bar view is a **launcher** (source rows with status
+dots, "New Window", "Panel", the exit-node row): clicking the Tasks icon pops the page out into a window, or reveals
+it where it already
 lives. VS Code decides the floating window's size and remembers the last size you gave it; the page fills whatever it
 gets (board columns stretch to the width). Tasks is live in one place at a time: the Panel/sidebar copy
-closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the harness only supplies the Bitbucket and Jira
+closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the
+harness only supplies the Bitbucket and Jira
 credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
 `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session and re-resolved once on a
 401/403.
@@ -135,7 +138,8 @@ quoted phrases and unknown tokens pass through as free text.
   under collapsible status sections (in the project's board column order when exactly one board exists), status
   quick-filter chips come from the loaded issues (with "Edit as JQL" to promote the filter into the search box),
   a Favourites menu lists your saved Jira filters, "Current sprint" adds `sprint in openSprints()`, and the search
-  box accepts raw JQL (`jql:` prefix or operator shapes like `project = X`). Clicking a Jira row swaps the list for an **inline detail view**
+  box accepts raw JQL (`jql:` prefix or operator shapes like `project = X`). Clicking a Jira row swaps the list for an
+  **inline detail view**
   (Back returns, scroll position kept): key · project · updated, title, a status pill that opens the transition menu
   (transitions needing a resolution or comment show a small form; ones needing other fields say so and defer to
   Jira), a priority menu, an assignee button (QuickPick: Unassigned · Assign to me · live search), labels, the
