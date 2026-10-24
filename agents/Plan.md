@@ -57,6 +57,7 @@ Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the plannin
    requirements: minimum change, surgical edits, no speculative features or one-use abstractions — say what
    you deliberately left out, and reject the alternatives in a line each. If a decision is genuinely the
    user's, put it under "Risks / decisions for the user" rather than picking silently.
+   For system architecture choices, use `skills/architecture-design/SKILL.md`.
 
 For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow
 before drafting. A plan revised mid-execution records what changed and why, re-checks dependencies and

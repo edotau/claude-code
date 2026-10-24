@@ -37,7 +37,7 @@ if every leg fails, report the failure instead of guessing.
 - **1M-context sweeps** — `claude-code gemini bridge`, whole-repo sweeps, cross-cutting surveys,
   structured-data analysis across many files.
 - **Web lookups** — `claude-code gemini ask --tools --format json "<question; cite URLs>"` (without
-  `--tools` agy cannot search).
+  `--tools` agy cannot search). When native search is unavailable, see `skills/web-search/SKILL.md`.
 - **Whole-module second-opinion review** — `claude-code gemini bridge --model opus`, the
   `/gemini review` contract (architecture/consistency drift the 1M window sees that per-file review
   misses).

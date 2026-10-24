@@ -37,7 +37,7 @@ justify the underscore after typing it.
 ## Immutability
 
 Prefer immutable data structures (`@dataclass(frozen=True)`, `typing.NamedTuple`). See skill:
-`python-patterns`.
+`skills/python-patterns/SKILL.md`.
 
 ## Formatting
 
