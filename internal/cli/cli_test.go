@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -48,12 +49,12 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	}
 }
 
-// Every menu row fits an 80-column terminal, every group is present, and every alias resolves.
+// Every group is present, every group is present, and every alias resolves.
 func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 	want := map[string]bool{groupAnthropic: false, groupVendors: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	for _, c := range commands() {
-		if n := utf8.RuneCountInString(c.summary); n > summaryMax {
-			t.Errorf("%s: summary is %d chars (max %d): %q", c.name, n, summaryMax, c.summary)
+		if strings.TrimSpace(c.summary) == "" {
+			t.Errorf("%s: empty summary", c.name)
 		}
 		if !c.hidden {
 			if _, ok := want[c.group]; !ok {
@@ -75,6 +76,28 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 	for _, name := range []string{"token", "providers", "use", "settings"} {
 		if lookup(name) == nil {
 			t.Errorf("legacy name %s no longer dispatches", name)
+		}
+	}
+}
+
+// Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
+func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
+	_, out, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
+	col := 2 + nameWidth
+	for _, line := range strings.Split(out, "\n") {
+		if utf8.RuneCountInString(line) > menuWidth && len(strings.Fields(line)) > 2 {
+			t.Errorf("line over %d cols: %q", menuWidth, line)
+		}
+		if ind := len(line) - len(strings.TrimLeft(line, " ")); ind > 10 && ind != col {
+			t.Errorf("continuation indent %d, want %d: %q", ind, col, line)
+		}
+	}
+	for _, c := range commands() {
+		if c.hidden {
+			continue
+		}
+		if !regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(c.name) + ` +\S`).MatchString(out) {
+			t.Errorf("row for %s missing or misaligned", c.name)
 		}
 	}
 }
