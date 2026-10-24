@@ -235,7 +235,8 @@ func TestPrintRedactsQuotedSecrets(t *testing.T) {
 }
 
 // redactQuoted must mask a credential-shaped quoted value, including one with an escaped quote inside
-// it, and must leave an empty quoted string and a ${ENV}-style reference untouched.
+// it, must catch a token embedded after other text, and must leave an empty quoted string, a
+// ${ENV}-style reference, and ordinary non-secret text untouched.
 func TestRedactQuotedTable(t *testing.T) {
 	for _, tc := range []struct {
 		name, in, want string
@@ -243,6 +244,9 @@ func TestRedactQuotedTable(t *testing.T) {
 		{"credential with escaped quote", `"sk-ab\"cdefghijklmnopqrstuvwxyz0123456789"`, `"<redacted>"`},
 		{"empty quoted string untouched", `""`, `""`},
 		{"env reference untouched", `"$HOME"`, `"$HOME"`},
+		{"embedded token after key=", `"token=sk-abcdefghijklmnopqrstuvwxyz0123"`, `"<redacted>"`},
+		{"embedded token after scheme", `"Basic sk-abcdefghijklmnopqrstuvwxyz0123"`, `"<redacted>"`},
+		{"non-secret quoted string untouched", `"model=gpt-4o-mini"`, `"model=gpt-4o-mini"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := redactQuoted(tc.in); got != tc.want {
