@@ -116,11 +116,11 @@ test('package.json: usageEditorTitleButton setting is a boolean defaulting to tr
 
 // Pending restyle (section headers, title attrs, nowrap/ellipsis): see vscode/claude-code-agents/lib/usage-view.js.
 
-test('renderUsageHtml (detailed): shows OVERVIEW, QUOTAS, AGENTS, MORE section headers in document order', (t) => {
+test('renderUsageHtml (detailed): shows OVERVIEW, QUOTAS, AGENTS section headers in document order', (t) => {
   const model = buildFrozenModel(t);
   const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
 
-  const headers = ['OVERVIEW', 'QUOTAS', 'AGENTS', 'MORE'];
+  const headers = ['OVERVIEW', 'QUOTAS', 'AGENTS'];
   const indices = headers.map((h) => html.indexOf(h));
   indices.forEach((idx, i) => assert.ok(idx !== -1, `expected header "${headers[i]}" in detailed html`));
   for (let i = 1; i < indices.length; i++) {
@@ -135,11 +135,11 @@ test('renderUsageHtml (detailed): AGENTS header carries "· last 7 days" from st
   assert.ok(html.includes('AGENTS · last 7 days'), 'expected "AGENTS · last 7 days" in the html');
 });
 
-test('renderUsageHtml (compact): still shows all four section headers but no stat-tile class', (t) => {
+test('renderUsageHtml (compact): still shows all three section headers but no stat-tile class', (t) => {
   const model = buildFrozenModel(t);
   const html = renderUsageHtml(model, { detailed: false, show: 'used', nonce: 'n', cspSource: 'c' });
 
-  for (const h of ['OVERVIEW', 'QUOTAS', 'AGENTS', 'MORE']) {
+  for (const h of ['OVERVIEW', 'QUOTAS', 'AGENTS']) {
     assert.ok(html.includes(h), `expected header "${h}" in compact html`);
   }
   assert.ok(!html.includes('class="stat-tile"'), 'compact mode must not render stat-tile elements');
@@ -167,13 +167,91 @@ test('renderUsageHtml (detailed): no <h1> text other than "Agents Dashboard"', (
   for (const text of h1s) assert.equal(text, 'Agents Dashboard');
 });
 
+// Splits the html into one slice per top-level .provider-card sibling inside .quotas-grid, in document order.
+function providerCardSlices(html) {
+  const gridOpen = html.indexOf('<div class="quotas-grid">');
+  const gridBodyStart = gridOpen + '<div class="quotas-grid">'.length;
+  const nextHeader = html.indexOf('<div class="section-header">', gridBodyStart);
+  const grid = html.slice(gridBodyStart, nextHeader);
+  const opens = [...grid.matchAll(/<div class="provider-card[^"]*">/g)];
+  return opens.map((m, i) => grid.slice(m.index, i + 1 < opens.length ? opens[i + 1].index : grid.length));
+}
+
+test('renderUsageHtml (detailed): exactly one .provider-card per provider, all inside .quotas-grid', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  assert.ok(html.includes('<div class="quotas-grid">'), 'expected a .quotas-grid container');
+  const cards = providerCardSlices(html);
+  assert.equal(cards.length, model.providers.length, 'expected one .provider-card per provider in the model');
+});
+
+test('renderUsageHtml (detailed): the Claude card shows its 5h/wk/Fable window labels; no card shows "›"', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const cards = providerCardSlices(html);
+  const claudeCard = cards.find((c) => c.includes('>Claude<'));
+  assert.ok(claudeCard, 'expected a Claude provider card');
+  assert.ok(claudeCard.includes('5h'), 'expected a 5h label in the Claude card');
+  assert.ok(claudeCard.includes('wk'), 'expected a wk label in the Claude card');
+  assert.ok(claudeCard.includes('Fable'), 'expected a Fable label in the Claude card');
+
+  for (const card of cards) {
+    assert.ok(!card.includes('›'), 'no provider-card may contain the "›" chevron');
+  }
+});
+
+test('renderUsageHtml (detailed): the Antigravity card contains its group names', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const cards = providerCardSlices(html);
+  const antigravityCard = cards.find((c) => c.includes('>Antigravity<'));
+  assert.ok(antigravityCard, 'expected an Antigravity provider card');
+  for (const group of ['Gemini Models', 'Claude and GPT models', 'Gemini 4 Argon']) {
+    assert.ok(antigravityCard.includes(group), `expected group "${group}" inside the Antigravity card`);
+  }
+});
+
+test('renderUsageHtml (compact): provider cards still render but use .chip, never .window-row', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: false, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const cards = providerCardSlices(html);
+  assert.equal(cards.length, model.providers.length, 'expected one .provider-card per provider in compact mode');
+  for (const card of cards) {
+    if (card.includes('provider-card-muted')) continue; // note-only card has neither chip nor window-row
+    assert.ok(card.includes('class="chip'), 'expected .chip elements inside a compact provider card');
+  }
+  assert.ok(!html.includes('class="window-row'), 'compact mode must not render .window-row elements');
+});
+
+test('renderUsageHtml (detailed): no MORE section, no #accounts row', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  assert.ok(!html.includes('MORE'), 'the MORE section must be removed');
+  assert.ok(!html.includes('id="accounts"'), 'the #accounts row must be removed');
+});
+
+test('renderUsageHtml: the QUOTAS toggle reads "Usage"/"Remaining", never "Used"/"Left"', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  assert.ok(html.includes('>Usage<'), 'expected the toggle label "Usage"');
+  assert.ok(html.includes('>Remaining<'), 'expected the toggle label "Remaining"');
+  assert.ok(!html.includes('>Used<'), 'the old "Used" label must be gone');
+  assert.ok(!html.includes('>Left<'), 'the old "Left" label must be gone');
+});
+
 test('renderUsageHtml: the QUOTAS header carries a Used/Left toggle reflecting opts.show', () => {
   const usage = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'usage-subscription.fixture.json'), 'utf8'));
   const model = buildUsageModel(usage, {}, Date.now());
   const used = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
   const left = renderUsageHtml(model, { detailed: true, show: 'left', nonce: 'n', cspSource: 'c' });
-  assert.match(used, /id="show-used" class="active"/);
-  assert.match(used, /id="show-left" class=""/);
+  assert.ok(used.includes('id="show-used" class="active"') && used.includes('>Usage<'));
+  assert.ok(used.includes('id="show-left" class=""') && used.includes('>Remaining<'));
   assert.match(left, /id="show-left" class="active"/);
   assert.ok(left.includes("postMessage({ type: 'show', show: mode })"));
   // Claude 5h: 24% used in the fixture, so Left renders 76%.
