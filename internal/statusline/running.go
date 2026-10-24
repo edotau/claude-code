@@ -17,8 +17,8 @@ import (
 // runningTTL caps the marker + dispatch sweep at one per 3s across renders.
 const runningTTL = 3 * time.Second
 
-// runningSegment is "⚙ N running (A agents · L legs)": A = this session's live subagent markers, L = live
-// dispatch jobs machine-wide. Empty when nothing runs.
+// runningSegment is "◉ N": N = the main thread + this session's live subagent markers + this
+// session's live dispatch legs. Always shown while the "agents" segment is enabled.
 func runningSegment(in Input) string {
 	stamp := stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath)
 	var agents, legs int
@@ -30,20 +30,18 @@ func runningSegment(in Input) string {
 		legs = liveDispatches()
 		writeTimedStamp(stamp, strconv.Itoa(agents), strconv.Itoa(legs))
 	}
-	if agents+legs == 0 {
-		return ""
-	}
-	return fmt.Sprintf("⚙ %d running (%d agents · %d legs)", agents+legs, agents, legs)
+	return fmt.Sprintf("◉ %d", 1+agents+legs)
 }
 
-// liveDispatches counts dispatch records whose job is alive; it mirrors agent.Record.Alive because agent
-// imports hooks, which imports this package.
+// liveDispatches counts this session's dispatch records whose job is alive; it mirrors agent.Record.Alive
+// because agent imports hooks, which imports this package.
 func liveDispatches() int {
 	dir := filepath.Join(paths.StateDir(), "dispatch")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
+	owner := inflight.SessionOwner()
 	n := 0
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
@@ -57,8 +55,9 @@ func liveDispatches() int {
 			Status string    `json:"status"`
 			PID    int       `json:"pid"`
 			Time   time.Time `json:"time"`
+			Owner  int       `json:"owner"`
 		}
-		if json.Unmarshal(b, &r) != nil || r.Status != "running" {
+		if json.Unmarshal(b, &r) != nil || r.Status != "running" || r.Owner != owner {
 			continue
 		}
 		if (r.PID > 0 && proc.Alive(r.PID)) || (r.PID <= 0 && time.Since(r.Time) < time.Minute) {

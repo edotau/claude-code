@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -103,6 +104,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		rec := agent.NewRecord(bridgeDispatchLabel, agent.Request{
 			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
 		}, time.Now())
+		rec.Owner = inflight.SessionOwner()
 		rec.Log = rec.LogPath()
 		sink := agent.NewLogSink(rec.LogPath())
 		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run

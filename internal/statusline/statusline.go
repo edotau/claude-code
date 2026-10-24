@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/models"
@@ -48,6 +49,16 @@ type Input struct {
 		TotalOutput    int      `json:"total_output_tokens"`
 		UsedPercentage *float64 `json:"used_percentage"`
 	} `json:"context_window"`
+	RateLimits *struct {
+		FiveHour *rateWindow `json:"five_hour"`
+		SevenDay *rateWindow `json:"seven_day"`
+	} `json:"rate_limits"`
+}
+
+// rateWindow is one rate-limit window from the statusline payload's rate_limits object.
+type rateWindow struct {
+	UsedPercentage *float64 `json:"used_percentage"`
+	ResetsAt       int64    `json:"resets_at"`
 }
 
 // values holds the resolved per-segment strings the renderers paint.
@@ -62,6 +73,7 @@ type values struct {
 	duration   string
 	session    string
 	agents     string
+	limits     string
 	contextPct int
 	adds       int
 	dels       int
@@ -86,6 +98,8 @@ func (v values) text(key string) string {
 		return v.session
 	case "agents":
 		return v.agents
+	case "limits":
+		return v.limits
 	}
 	return ""
 }
@@ -161,7 +175,7 @@ func collect(in Input, cfg Config) values {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	v := values{userHost: promptUser(), path: shortenDir(cwd)}
+	v := values{userHost: promptUser(), path: collapsePath(shortenDir(cwd), cwd, cfg.PathMax)}
 	var provider string
 	var routed bool
 	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) {
@@ -181,6 +195,9 @@ func collect(in Input, cfg Config) values {
 	}
 	if cfg.seg("agents", true) {
 		v.agents = runningSegment(in)
+	}
+	if cfg.seg("limits", true) {
+		v.limits = limitsSegment(in)
 	}
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)
@@ -365,6 +382,14 @@ func formatDuration(ms int64) string {
 		return strconv.Itoa(int(d.Minutes())) + "m"
 	}
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// collapsePath drops short to its base name when it exceeds max runes (0 disables the cap).
+func collapsePath(short, cwd string, max int) string {
+	if max > 0 && utf8.RuneCountInString(short) > max {
+		return filepath.Base(cwd)
+	}
+	return short
 }
 
 // shortenDir collapses $HOME to "~" (a sibling like /home/userx is left alone).

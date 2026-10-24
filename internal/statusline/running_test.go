@@ -8,17 +8,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func writeRunningDispatch(t *testing.T, id string, pid int) {
+func writeRunningDispatch(t *testing.T, id string, pid, owner int) {
 	t.Helper()
 	dir := filepath.Join(paths.StateDir(), "dispatch")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(map[string]any{"id": id, "time": time.Now().UTC().Format(time.RFC3339Nano),
-		"agent": "codex", "request": map[string]any{}, "status": "running", "pid": pid})
+		"agent": "codex", "request": map[string]any{}, "status": "running", "pid": pid, "owner": owner})
 	if err := os.WriteFile(filepath.Join(dir, id+".json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -26,30 +27,54 @@ func writeRunningDispatch(t *testing.T, id string, pid int) {
 
 const runningPayload = `{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"}}`
 
-// The counter stays hidden at N == 0 in every style, so the existing goldens are unaffected.
-func TestRunningSegmentHiddenWhenNothingRuns(t *testing.T) {
+// The segment is always shown, at the floor of just the main thread, when nothing else runs.
+// dashboard is excluded: its own columns list (not cfg.Order) omits "agents" by default.
+func TestRunningSegmentAlwaysShownAtFloor(t *testing.T) {
 	hermetic(t)
-	for _, style := range []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} {
-		if got := plain(Render([]byte(runningPayload), style)); strings.Contains(got, "running") {
-			t.Errorf("%s: segment shown with nothing running: %q", style, got)
+	for _, style := range []string{"gradient", "powerline", "capsule", "minimal"} {
+		got := plain(Render([]byte(runningPayload), style))
+		if !strings.Contains(got, "◉ 1 ") {
+			t.Errorf("%s: want floor '◉ 1', got %q", style, got)
+		}
+		if strings.Contains(got, "1 agents") {
+			t.Errorf("%s: singular floor must not pluralize: %q", style, got)
 		}
 	}
 }
 
-// A live dispatch shows as "1 running (0 agents · 1 legs)"; a dead one is not counted.
-func TestRunningSegmentCountsLiveLegsOnly(t *testing.T) {
+// A single live, same-owner leg tips the count from 1 to 2, crossing the plural boundary.
+func TestRunningSegmentCountsOwnLeg(t *testing.T) {
 	hermetic(t)
-	writeRunningDispatch(t, "20261024T000001.000-codex", os.Getpid())
+	owner := inflight.SessionOwner()
+	writeRunningDispatch(t, "20261024T000001.000-codex", os.Getpid(), owner)
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if !strings.Contains(got, "1 running") || !strings.Contains(got, "0 agents") || !strings.Contains(got, "1 legs") {
-		t.Errorf("want '1 running (0 agents · 1 legs)', got %q", got)
+	if !strings.Contains(got, "◉ 2 ") {
+		t.Errorf("want '◉ 2', got %q", got)
 	}
 }
 
+// A dead leg (unreachable pid) never lifts the count off the floor.
 func TestRunningSegmentIgnoresDeadLegs(t *testing.T) {
 	hermetic(t)
-	writeRunningDispatch(t, "20261024T000001.000-codex", 1<<22+12345) // beyond pid_max: never alive
-	if got := plain(Render([]byte(runningPayload), "gradient")); strings.Contains(got, "running") {
-		t.Errorf("dead dispatch counted: %q", got)
+	owner := inflight.SessionOwner()
+	writeRunningDispatch(t, "20261024T000001.000-codex", 1<<22+12345, owner) // beyond pid_max: never alive
+	got := plain(Render([]byte(runningPayload), "gradient"))
+	if !strings.Contains(got, "◉ 1 ") {
+		t.Errorf("dead leg counted: %q", got)
+	}
+}
+
+// A live leg owned by a different session, or carrying no owner at all, is not this session's to count.
+func TestRunningSegmentFiltersByOwner(t *testing.T) {
+	hermetic(t)
+	owner := inflight.SessionOwner()
+	if owner == 0 {
+		t.Skip("inflight.SessionOwner() resolved to 0 in this test environment; owner filtering is untestable here")
+	}
+	writeRunningDispatch(t, "20261024T000001.000-other-owner", os.Getpid(), owner+999999)
+	writeRunningDispatch(t, "20261024T000002.000-no-owner", os.Getpid(), 0)
+	got := plain(Render([]byte(runningPayload), "gradient"))
+	if !strings.Contains(got, "◉ 1 ") {
+		t.Errorf("a foreign-owner or ownerless leg was counted: %q", got)
 	}
 }

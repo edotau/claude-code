@@ -8,15 +8,17 @@
   "velocityMode": "code",
   "order": [
     "model",
+    "agents",
     "provider",
     "router",
     "context",
+    "limits",
     "tokens",
     "duration",
-    "session",
-    "agents"
+    "session"
   ],
   "branchMax": 18,
+  "pathMax": 24,
   "width": 0,
   "segments": {
     "path": true,
@@ -24,6 +26,7 @@
     "provider": false,
     "router": false,
     "context": true,
+    "limits": true,
     "tokens": false,
     "duration": false,
     "session": false,
