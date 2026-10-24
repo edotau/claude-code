@@ -75,18 +75,18 @@ is `true` (default); the same button sits in the Agents Dashboard view's own tit
 
 ## Tasks
 
-The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for three
-sources: **Jira Data Center** (the default — "Assigned to me"), **GitHub** and **Bitbucket Data Center**. It is contributed in two places backed by the same
-provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to Terminal/Problems) and an
-activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use (right-click its
-icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
-`claudeCodeAgents.tasksOpenIn` names (`panel`, default; `sidebar`; `editor`). "Claude Code Tasks: Open Tasks
-in Editor" (also a view-title button) always opens the page as an editor tab, and "Open Tasks in New Window"
-(the `$(multiple-windows)` view-title button on the left-nav and Panel views) pops it out into a floating
-VS Code window (the editor tab moved with "Move Editor into New Window"). No Go: the harness only supplies the
-Bitbucket and Jira credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the
-`BITBUCKET_TOKEN` / `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session
-and re-resolved once on a 401/403.
+The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for three sources:
+**Jira Data Center** (the default — "Assigned to me"), **GitHub** and **Bitbucket Data Center**. It is contributed in
+two places backed by the same provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to
+Terminal/Problems) and an activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use
+(right-click its icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
+`claudeCodeAgents.tasksOpenIn` names (`panel`, default; `sidebar`; `editor`). "Claude Code Tasks: Open Tasks in Editor"
+(also a view-title button) always opens the page as an editor tab, and "Open Tasks in New Window" (the
+`$(multiple-windows)` view-title button on the left-nav and Panel views) pops it out into a floating VS Code window (the
+editor tab moved with "Move Editor into New Window"). No Go: the harness only supplies the Bitbucket and Jira
+credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
+`JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session and re-resolved once on a
+401/403.
 
 Chrome, top to bottom: a source bar (one square button per visible source), an availability banner
 (not signed in / no token, with a Sign in / Set token action that runs `gh auth login` or
@@ -155,21 +155,23 @@ quoted phrases and unknown tokens pass through as free text.
   breaker after "API rate limit exceeded" (search 70 s, core 5 min).
 - **Board view.** The `List | Board` toggle (per source, remembered in the workspace; `claudeCodeAgents.tasksViewMode`
   sets the start) groups the same page of rows into 272 px columns: Jira by status (To Do · In Progress · Done order,
-  "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open · Closed,
-  Bitbucket Open · Needs work · Approved · Merged · Declined. Dropping a card (native drag and drop, or "Move to…" in the
-  card's ⋮ menu) performs the matching action: Jira runs the transition that lands in that column (one → apply, several
-  → pick, required resolution/comment → asked first, none → an inline note and the card stays), GitHub issues
-  reopen/close, PRs ready/draft/close/reopen/merge (with the confirm); review columns and Bitbucket refuse with a note.
+  "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open ·
+  Closed, Bitbucket Open · Needs work · Approved · Merged · Declined. Dropping a card (native drag and drop, or "Move
+  to…" in the card's ⋮ menu) performs the matching action: Jira runs the transition that lands in that column (one →
+  apply, several → pick, required resolution/comment → asked first, none → an inline note and the card stays), GitHub
+  issues reopen/close, PRs ready/draft/close/reopen/merge (with the confirm); review columns and Bitbucket refuse with a
+  note.
 
 The **Task sources** section at the bottom of the page shows one card per source, plus a **Tailscale** card (exit-node
 pill; "Exit node…" lists the tailnet's exit nodes from `<binary> tailscale status --format json` in a QuickPick and
-switches with `tailscale set --exit-node=<ip> --exit-node-allow-lan-access=true`; "Direct" clears it — VPN-style
-routing without any API key; `claudeCodeAgents.tailscaleBinary` names the CLI). It shows one card per source — a Connected / Disconnected
-pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the last visible source cannot be hidden), the default
-source, the repo list — with "Edit repos and defaults in Settings" and "Re-check connections".
-Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`, `tasksDefaultQuery.jira` /
-`.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`, `tasksPageSize`,
-`bitbucketUrl` (default `https://bitbucket.biscrum.com`), `tasksJiraBaseUrl` (default `https://jira.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
+switches with `tailscale set --exit-node=<ip> --exit-node-allow-lan-access=true`; "Direct" clears it — VPN-style routing
+without any API key; `claudeCodeAgents.tailscaleBinary` names the CLI). It shows one card per source — a Connected /
+Disconnected pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the
+last visible source cannot be hidden), the default source, the repo list — with "Edit repos and defaults in Settings"
+and "Re-check connections". Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`,
+`tasksDefaultQuery.jira` / `.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`,
+`tasksPageSize`, `bitbucketUrl` (default `https://bitbucket.biscrum.com`), `tasksJiraBaseUrl` (default
+`https://jira.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
 
 On activation, the extension installs the "GitHub Pull Requests and Issues" extension
 (`github.vscode-pull-request-github`, also listed as an `extensionPack` dependency for a

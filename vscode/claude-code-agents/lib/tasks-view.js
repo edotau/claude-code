@@ -491,6 +491,15 @@ const CSS = `
   .repo-menu .menu-items { left: 0; right: auto; max-height: 240px; overflow: auto; }
   .menu-items button, .menu-check { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: none; background: none; text-align: left; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
   .menu-items button:hover, .menu-check:hover { background: var(--hover); }
+  .menu-check input { appearance: none; -webkit-appearance: none; flex: none; width: 14px; height: 14px; margin: 0; display: inline-grid; place-content: center; border: 1px solid var(--vscode-checkbox-border, var(--border)); background: var(--vscode-checkbox-background, transparent); cursor: pointer; }
+  .menu-check input[type="checkbox"] { border-radius: 3px; }
+  .menu-check input[type="radio"] { border-radius: 50%; }
+  .menu-check input:checked { background: var(--primary); border-color: var(--primary); }
+  .menu-check input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; margin-top: -2px; border: solid var(--vscode-button-foreground, #fff); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .menu-check input[type="radio"]:checked::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-button-foreground, #fff); }
+  .menu-check input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+  .menu-check input:disabled { opacity: .5; cursor: default; }
+  .card .menu-check { padding: 2px 4px; }
   .menu-group { padding: 4px 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
   .list { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
   .grid { min-width: max-content; }
