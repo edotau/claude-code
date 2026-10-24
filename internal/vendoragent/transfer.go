@@ -9,9 +9,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -88,7 +88,7 @@ func readTurns(source string) ([]string, error) {
 		if role != "user" && role != "assistant" {
 			return
 		}
-		text := clipTurn(agent.Redact(strings.TrimSpace(transcript.ContentText(line.Message.Content))))
+		text := clipTurn(shapes.Redact(strings.TrimSpace(transcript.ContentText(line.Message.Content))))
 		if text == "" {
 			return
 		}
