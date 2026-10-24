@@ -23,6 +23,45 @@ func stubWatcher(t *testing.T, ok bool) *[][]string {
 	return &calls
 }
 
+// TestNewestActivityNoSubagentsDirReturnsMainMtime: with no subagents dir at all, the main transcript's
+// own mtime is the newest activity — there's nothing else to compare it against.
+func TestNewestActivityNoSubagentsDirReturnsMainMtime(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(tr, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mainMtime := time.Now().Add(-time.Hour)
+	if got := newestActivity(tr, mainMtime); !got.Equal(mainMtime) {
+		t.Fatalf("newestActivity with no subagents dir = %v, want the main mtime %v", got, mainMtime)
+	}
+}
+
+// TestNewestActivityNewerSubagentFileWins: a subagent transcript that mtimed AFTER the main transcript
+// must make the watcher re-evaluate — the session isn't idle just because the parent stopped appending.
+func TestNewestActivityNewerSubagentFileWins(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(tr, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := filepath.Join(subDir, "agent-a.jsonl")
+	if err := os.WriteFile(agent, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mainMtime := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	if err := os.Chtimes(agent, newer, newer); err != nil {
+		t.Fatal(err)
+	}
+	got := newestActivity(tr, mainMtime)
+	if !got.After(mainMtime) {
+		t.Fatalf("newestActivity = %v, want it to pick up the newer subagent file's mtime (after %v)", got, mainMtime)
+	}
+}
+
 // A quiet transcript with uncovered work dispatches once; covered work stays quiet.
 func TestIdleHarvestOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -232,12 +232,36 @@ func eachCommitLine(line []byte, fn func()) {
 // gitValueOpts are git global options whose value is the next token when not spelled with `=`.
 var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true}
 
+// gitShortCircuitOpts are git global options that print something and exit before any verb runs —
+// `--exec-path` only short-circuits bare (an `=`-valued form supplies a path, not a request to print one).
+var gitShortCircuitOpts = map[string]bool{
+	"--version": true, "--help": true, "-h": true, "--exec-path": true,
+	"--html-path": true, "--man-path": true, "--info-path": true,
+}
+
 // gitCommitCommand reports whether cmd actually RUNS `git … commit …` in some shell segment: split on
 // &&/||/;/|/newline, tokenize each segment (quotes collapse to one token, so quoted text never matches),
 // skip a leading env assignment or sudo/env, then require `git` (or a .../git path) followed by global
-// options up to the verb `commit`.
+// options up to the verb `commit`. Heredoc bodies are skipped first (this is a counter, not the safety
+// guard — undercounting a piped heredoc body is acceptable); `$(...)`/backtick substitutions are scanned
+// too, since a captured `git commit` still runs.
 func gitCommitCommand(cmd string) bool {
-	for _, seg := range commitShellSegments(cmd) {
+	cmd = stripHeredocBodies(cmd)
+	if commitInText(cmd) {
+		return true
+	}
+	for _, sub := range extractSubstitutions(cmd) {
+		if commitInText(stripHeredocBodies(sub)) {
+			return true
+		}
+	}
+	return false
+}
+
+// commitInText runs the segment/token git-commit check over one piece of shell text (a command, or a
+// `$(...)`/backtick substitution's inner text).
+func commitInText(text string) bool {
+	for _, seg := range commitShellSegments(text) {
 		toks := skipCommitWrappers(commitShellTokens(seg))
 		if len(toks) == 0 {
 			continue
@@ -246,18 +270,111 @@ func gitCommitCommand(cmd string) bool {
 			continue
 		}
 		i := 1
+		shortCircuit := false
 		for i < len(toks) && strings.HasPrefix(toks[i], "-") {
+			if gitShortCircuitOpts[toks[i]] {
+				shortCircuit = true
+				break
+			}
 			if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
 				i += 2
 				continue
 			}
 			i++
 		}
+		if shortCircuit {
+			continue
+		}
 		if i < len(toks) && toks[i] == "commit" {
 			return true
 		}
 	}
 	return false
+}
+
+// extractSubstitutions returns the inner text of every `$(...)` and backtick command substitution in
+// cmd, recursively — quoting around the substitution is irrelevant to whether its inner command runs.
+func extractSubstitutions(cmd string) []string {
+	var out []string
+	for i := 0; i < len(cmd); i++ {
+		switch {
+		case cmd[i] == '`':
+			j := strings.IndexByte(cmd[i+1:], '`')
+			if j < 0 {
+				return out
+			}
+			inner := cmd[i+1 : i+1+j]
+			out = append(out, inner)
+			out = append(out, extractSubstitutions(inner)...)
+			i += 1 + j
+		case cmd[i] == '$' && i+1 < len(cmd) && cmd[i+1] == '(' && (i+2 >= len(cmd) || cmd[i+2] != '('):
+			depth, k := 1, i+2
+			for k < len(cmd) && depth > 0 {
+				switch cmd[k] {
+				case '(':
+					depth++
+				case ')':
+					depth--
+				}
+				k++
+			}
+			inner := cmd[i+2 : k-1]
+			out = append(out, inner)
+			out = append(out, extractSubstitutions(inner)...)
+			i = k - 1
+		}
+	}
+	return out
+}
+
+// stripHeredocBodies removes the body lines of every `<<WORD`/`<<'WORD'`/`<<-WORD` heredoc (and its
+// terminator line) from cmd, so a commit mentioned only inside a heredoc body never counts as run.
+func stripHeredocBodies(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	lines := strings.Split(cmd, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+		word, ok := heredocWord(lines[i])
+		if !ok {
+			continue
+		}
+		i++
+		for i < len(lines) && strings.TrimSpace(lines[i]) != word {
+			i++
+		}
+		// i now sits on the terminator line (or past EOF); either way it is dropped, not re-appended.
+	}
+	return strings.Join(out, "\n")
+}
+
+// heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line, false for a
+// here-string (`<<<`) or a line with no heredoc redirect at all.
+func heredocWord(line string) (string, bool) {
+	idx := strings.Index(line, "<<")
+	if idx < 0 || (idx+2 < len(line) && line[idx+2] == '<') {
+		return "", false
+	}
+	rest := strings.TrimLeft(strings.TrimPrefix(line[idx+2:], "-"), " \t")
+	if rest == "" {
+		return "", false
+	}
+	if rest[0] == '\'' || rest[0] == '"' {
+		q := rest[0]
+		end := strings.IndexByte(rest[1:], q)
+		if end < 0 {
+			return "", false
+		}
+		return rest[1 : 1+end], rest[1:1+end] != ""
+	}
+	end := strings.IndexAny(rest, " \t")
+	if end < 0 {
+		end = len(rest)
+	}
+	word := rest[:end]
+	return word, word != ""
 }
 
 // skipCommitWrappers drops leading `NAME=value` env assignments and `sudo`/`env` tokens before `git`.

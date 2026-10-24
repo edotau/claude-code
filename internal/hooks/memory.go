@@ -384,7 +384,12 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) != 2 && len(parts) != 3 {
+	if len(parts) == 2 {
+		// Pre-upgrade "edits|offset" format: its offset sits past commit lines the old binary never
+		// weighted (CommitEditWeight). Force a full rescan from 0; countEdits writes the 3-field form.
+		return countState{}, true
+	}
+	if len(parts) != 3 {
 		return countState{}, false
 	}
 	edits, err1 := strconv.Atoi(parts[0])
@@ -393,15 +398,13 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	cs := countState{edits: edits, offset: offset}
-	if len(parts) == 3 {
-		subEditsStr, subBytesStr, ok := strings.Cut(parts[2], ":")
-		subEdits, err3 := strconv.Atoi(subEditsStr)
-		subBytes, err4 := strconv.ParseInt(subBytesStr, 10, 64)
-		if !ok || err3 != nil || err4 != nil || subEdits < 0 || subBytes < 0 {
-			return countState{}, false
-		}
-		cs.subEdits, cs.subBytes = subEdits, subBytes
+	subEditsStr, subBytesStr, ok := strings.Cut(parts[2], ":")
+	subEdits, err3 := strconv.Atoi(subEditsStr)
+	subBytes, err4 := strconv.ParseInt(subBytesStr, 10, 64)
+	if !ok || err3 != nil || err4 != nil || subEdits < 0 || subBytes < 0 {
+		return countState{}, false
 	}
+	cs.subEdits, cs.subBytes = subEdits, subBytes
 	return cs, true
 }
 
