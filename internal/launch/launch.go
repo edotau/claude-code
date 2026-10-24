@@ -530,7 +530,8 @@ var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 // redactQuoted masks every credential-shaped quoted string in s.
 func redactQuoted(s string) string {
 	return quotedRE.ReplaceAllStringFunc(s, func(q string) string {
-		if shapes.Looks(q[1 : len(q)-1]) {
+		inner := q[1 : len(q)-1]
+		if shapes.Looks(inner) || shapes.Redact(inner) != inner {
 			return `"<redacted>"`
 		}
 		return q
