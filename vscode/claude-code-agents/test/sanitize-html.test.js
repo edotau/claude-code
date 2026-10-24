@@ -169,3 +169,9 @@ test('TEETH: onclick and javascript: never survive sanitizeHtml on a hostile pay
   assert.equal(/<script/i.test(out), false);
   assert.equal(/alert\(/.test(out), false);
 });
+
+test('safeUrl: protocol-relative //host URLs are dropped from href and src (teeth for the tracking-pixel case)', () => {
+  const out = sanitizeHtml('<a href="//evil.example/x">a</a><img src="//evil.example/p.gif"><a href="/local">b</a>');
+  assert.doesNotMatch(out, /evil\.example/);
+  assert.match(out, /href="\/local"/);
+});

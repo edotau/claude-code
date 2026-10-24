@@ -342,12 +342,12 @@ function renderUsageHtml(model, opts) {
   .muted { color: var(--vscode-descriptionForeground); }
   .section-header-row { display: flex; align-items: center; justify-content: space-between; }
   .show-toggle { display: inline-flex; border: 1px solid var(--vscode-widget-border); border-radius: 4px; overflow: hidden; text-transform: none; letter-spacing: 0; }
-  .show-toggle button { background: none; border: none; color: var(--vscode-descriptionForeground); padding: 1px 8px; cursor: pointer; font-size: 11px; }
+  .show-toggle button { background: none; border: none; color: var(--vscode-descriptionForeground); padding: 4px 8px; min-height: 24px; cursor: pointer; font-size: 11px; }
   .show-toggle button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 
-  .icon-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 2px; }
+  .icon-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 2px; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; }
   .segmented { display: flex; margin: 0 12px 8px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; overflow: hidden; }
-  .segmented button { flex: 1; background: none; border: none; color: var(--vscode-foreground); padding: 4px 0; cursor: pointer; font-size: 12px; }
+  .segmented button { flex: 1; background: none; border: none; color: var(--vscode-foreground); padding: 5px 0; min-height: 24px; cursor: pointer; font-size: 12px; }
   .segmented button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
   /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
   .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -417,6 +417,11 @@ function renderUsageHtml(model, opts) {
   .mix-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
   @media (max-width: 480px) {
     .stats-cols { grid-template-columns: 1fr; }
+  }
+  /* Short Panel: the heatmap/token-mix columns hide so the sections below the overview stay above the fold. */
+  @media (max-height: 420px) {
+    .stats-cols { display: none; }
+    .stats-section { padding: 0 8px; }
     body { --heat-cell: 8px; }
   }
 </style>

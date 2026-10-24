@@ -137,6 +137,12 @@
         "title": "Open Tasks in New Window",
         "icon": "$(link-external)",
         "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.recheck",
+        "title": "Re-check connections",
+        "icon": "$(refresh)",
+        "category": "Claude Code Tasks"
       }
     ],
     "menus": {
@@ -154,12 +160,17 @@
         {
           "command": "claudeCodeTasks.popOut",
           "when": "view == claudeCodeTasks.page",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "claudeCodeTasks.popOut",
           "when": "view == claudeCodeTasks.panel",
           "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.recheck",
+          "when": "view == claudeCodeTasks.page",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [
@@ -347,16 +358,35 @@
           "type": "string",
           "enum": [
             "panel",
-            "sidebar",
-            "editor"
+            "editor",
+            "window"
           ],
           "default": "panel",
-          "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, the activity-bar sidebar, or an editor tab. Both the Panel and sidebar views exist; hide the one you don’t use (right-click its icon)."
+          "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, an editor tab, or a new window. The activity-bar view is a launcher that always opens a window."
         },
         "claudeCodeAgents.tailscaleBinary": {
           "type": "string",
           "default": "tailscale",
           "description": "Path or name of the tailscale CLI used to switch exit nodes (the peer list comes from `claude-code tailscale status`)."
+        },
+        "claudeCodeAgents.tasksStartDefault": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "here",
+            "worktree"
+          ],
+          "default": "ask",
+          "description": "What Start does: ask each time, open Claude in the workspace folder, or create a worktree (`claude-code worktree create <key-slug>`) and open Claude there. Resume always reopens the attached worktree."
+        },
+        "claudeCodeAgents.tasksWriteScope": {
+          "type": "string",
+          "enum": [
+            "mine",
+            "all"
+          ],
+          "default": "mine",
+          "description": "Which items the Tasks page may write to (comment, transition, assign, merge, board moves, Start): only your own (assigned to you or authored by you), or all. Teammates’ items are read-only by default even where the server would allow a write."
         }
       }
     }
