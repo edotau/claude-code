@@ -282,24 +282,32 @@ func cmdAgentsSync(args []string) int {
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
-// onPassthroughProvider reports whether the default target's provider forwards the caller's own
-// auth (a Claude subscription), the case api.go delegates to claude instead of calling a vendor API.
-func onPassthroughProvider() bool {
-	reg, err := providers.Load()
-	if err != nil {
-		return false
-	}
+// onPassthroughProvider reports whether reg's default target forwards the caller's own auth (a
+// Claude subscription), the case api.go delegates to claude instead of calling a vendor API.
+func onPassthroughProvider(reg *providers.Registry) bool {
 	sel, err := providers.Select(reg, "")
 	return err == nil && sel.Provider != nil && sel.Provider.Auth.Type == providers.AuthPassthrough
 }
 
 func listRunners() int {
+	// Loaded once and reused below: apiRunner.Available() would otherwise reopen the vault a second
+	// time in the same iteration just to re-derive the same passthrough fact for the reason text.
+	reg, regErr := providers.Load()
 	for _, r := range agent.Runners() {
 		mark, reason := "✓", ""
-		if err := r.Available(); err != nil {
+		if r.Name() == "api" {
+			switch {
+			case regErr != nil:
+				mark, reason = "✗", regErr.Error()
+			case onPassthroughProvider(reg):
+				if claude, err := agent.Lookup("claude"); err != nil || claude.Available() != nil {
+					mark, reason = "✗", "runs via claude on passthrough providers, but claude is unavailable"
+				} else {
+					reason = "runs via claude on passthrough providers (no key to call the vendor directly)"
+				}
+			}
+		} else if err := r.Available(); err != nil {
 			mark, reason = "✗", err.Error()
-		} else if r.Name() == "api" && onPassthroughProvider() {
-			reason = "runs via claude on passthrough providers (no key to call the vendor directly)"
 		}
 		c := r.Caps()
 		var caps []string
