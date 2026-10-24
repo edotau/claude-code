@@ -93,7 +93,8 @@ Local to this skill:
 - `references/docstring-style.md` — the ≤120-char / 2-line rule, rationale, before/after.
 - `references/simplification-patterns.md` — recurring wins: inline, consolidate, de-nest.
 - `references/extract-method.md` — reduce a method's cognitive complexity by extracting focused helpers.
-- `references/leaf-brief.md` — the brief a dispatched leaf (no `Skill` tool) gets to run this skill as a file.
+
+A leaf without the `Skill` tool is briefed with `skills/subagent-workflows/references/prompts.md#simplifier`.
 
 Shared with `evaluate-code` (canonical owner — read from `skills/evaluate-code/references/`):
 

@@ -163,7 +163,8 @@ merge rule, the verify gate and conflict handling); never `stash`/`checkout`/`re
 (CLAUDE.md hard rule 4).
 
 **Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
-other's helpers and only the merged diff shows it. A leaf gets `skills/simplify/references/leaf-brief.md`.
+other's helpers and only the merged diff shows it. A leaf gets
+`skills/subagent-workflows/references/prompts.md#simplifier`.
 
 ---
 
