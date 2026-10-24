@@ -62,6 +62,10 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 			bad++
 		}
 	}
+	for _, hit := range workflowDocDrift(root) {
+		fmt.Fprintln(stderr, hit)
+		bad++
+	}
 	if bad > 0 {
 		return 1
 	}
