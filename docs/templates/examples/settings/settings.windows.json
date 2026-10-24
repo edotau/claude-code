@@ -33,7 +33,9 @@
       "Bash(*)",
       "Edit(*)",
       "Read(*)",
-      "Write(*)"
+      "Write(*)",
+      "Agent",
+      "WebFetch(*)"
     ],
     "deny": [
       "Bash(rm -rf /)",
