@@ -202,7 +202,7 @@ var taskHeadingWord = sync.OnceValue(func() *regexp.Regexp {
 var planCloseout = []string{
 	"Live check on the real surface",
 	"Scoped tests for the touched packages",
-	"Review (`claude-code ask --agent codex --fallback vendors`)",
+	"Review (`claude-code codex review --adversarial --base <branch>`)",
 	"Full suite once",
 	"Commit + push",
 	"Handoff / `claude-code memory update`",

@@ -175,7 +175,8 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 // carries a checklist is left exactly as approved.
 func TestWithTasks(t *testing.T) {
 	got := string(withTasks([]byte("# Plan: X\n\n### Phase 1 — parse\n\n## Step 2: render\n\n## Context\n")))
-	for _, want := range []string{"- [ ] Phase 1 — parse\n", "- [ ] Step 2: render\n", "- [ ] Full suite once\n"} {
+	for _, want := range []string{"- [ ] Phase 1 — parse\n", "- [ ] Step 2: render\n", "- [ ] Full suite once\n",
+		"- [ ] Review (`claude-code codex review --adversarial --base <branch>`)\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
