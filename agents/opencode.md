@@ -11,7 +11,7 @@ description: |
 tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch]
 model: sonnet
 effort: medium
-color: red
+color: orange
 ---
 
 # Opencode — Docs · Memory Reflection on the OpenCode CLI
@@ -49,6 +49,7 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 | `claude-code opencode review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
 | `claude-code opencode transfer [--source f] [--wait] [note]` | hand this session to opencode | job id, or answer |
 | `claude-code opencode status [id] [--all]` | background jobs for opencode in this repo | rows: id, status, elapsed |
+| `claude-code opencode tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
 | `claude-code opencode result [id]` | a finished job's answer | answer + session id + resume cmd |
 | `claude-code opencode cancel [id]` | interrupt a running job | `cancelled <id>` |
 | `claude-code opencode setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |

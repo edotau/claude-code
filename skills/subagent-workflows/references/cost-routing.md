@@ -38,6 +38,16 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
 Independent read-only legs run in parallel (one backgrounded Bash call each); a writer then its reviewer run in
 sequence. Legs on one provider share its rate limit — reduce concurrency on persistent `429`s.
 
+**Default runner per task class**
+
+| Task class | Runner |
+| --- | --- |
+| sweep / research | `gemini` |
+| mechanical edits | `copilot` |
+| standard edits, docs | `opencode` |
+| review / vet | `codex` |
+| reasoning / integration | `claude` (in-context) |
+
 ## Verify and compare
 
 `--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` when another runner

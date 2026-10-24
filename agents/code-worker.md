@@ -67,10 +67,11 @@ before starting — progressive disclosure here is a file read.
 
 ### Runner: cost routing
 
-The handoff names a `runner:` (`claude`, `copilot`, `codex` or `opencode`); the manager spreads leaves
-evenly across them per `skills/subagent-workflows/references/cost-routing.md`. `claude` or no runner:
+The handoff names a `runner:` (`claude`, `copilot`, `codex`, `gemini` or `opencode`); the manager spreads
+leaves evenly across them per `skills/subagent-workflows/references/cost-routing.md`. `claude` or no runner:
 do the task in-context. Any other runner is binding: always attempt the `claude-code ask` leg first —
-size and "mechanical" are the manager's call, never yours — e.g.:
+size and "mechanical" are the manager's call, never yours. Gemini legs are for read-heavy sweeps and research,
+and their brief must say "open the files and cite file:line" (a gemini leg once answered from memory). E.g.:
 
 ```bash
 claude-code ask --agent copilot --tools --workdir <repo> --model claude-sonnet-5.5 \

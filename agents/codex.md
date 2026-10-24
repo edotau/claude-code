@@ -50,6 +50,7 @@ and say so plainly in the report.
 | `claude-code codex review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
 | `claude-code codex transfer [--source f] [--wait] [note]` | hand this Claude session to codex | job id, or answer |
 | `claude-code codex status [id] [--all]` | background jobs for codex in this repo | rows: id, status, elapsed |
+| `claude-code codex tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
 | `claude-code codex result [id]` | a finished job's answer | answer + session id + resume cmd |
 | `claude-code codex cancel [id]` | interrupt a running job | `cancelled <id>` |
 | `claude-code codex setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |

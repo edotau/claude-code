@@ -57,6 +57,7 @@ if every leg fails, report the failure instead of guessing.
 | `claude-code gemini review [scope] [--adversarial] [--background]` | diff review, gemini family | verdict, findings |
 | `claude-code gemini transfer [--source f] [--wait] [note]` | hand this Claude session to agy | job id, or answer |
 | `claude-code gemini status [id] [--all]` | background jobs for gemini in this repo | rows: id, status, elapsed |
+| `claude-code gemini tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
 | `claude-code gemini result [id]` | a finished job's answer | answer + session id + resume cmd |
 | `claude-code gemini cancel [id]` | interrupt a running job | `cancelled <id>` |
 | `claude-code gemini setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |

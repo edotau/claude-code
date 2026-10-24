@@ -51,6 +51,7 @@ features or fixes product bugs.
 | `claude-code copilot review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
 | `claude-code copilot transfer [--source f] [--wait] [note]` | hand this session to copilot | job id, or answer |
 | `claude-code copilot status [job] [--all]` | background jobs for copilot in this repo | rows: id, status, elapsed |
+| `claude-code copilot tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
 | `claude-code copilot result [job]` | a finished job's answer | answer + session id + resume cmd |
 | `claude-code copilot cancel [job]` | interrupt a running job | `cancelled <id>` |
 | `claude-code copilot setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
