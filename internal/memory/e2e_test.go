@@ -244,11 +244,61 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	})
 
 	t.Run("update-procedure", func(t *testing.T) {
-		// --transcript would spawn a live model; the bare form only prints the procedure, so harvest is not covered
 		if out := e.mustRun(t, "", "memory", "update"); strings.TrimSpace(out) == "" {
 			t.Error("memory update printed no procedure")
 		}
-		t.Log("harvest path (memory update --transcript) not exercised: needs a live model")
+	})
+
+	t.Run("update-transcript", func(t *testing.T) {
+		// copilot and the other vendor legs are absent from <cfg>/bin, so the chain lands on the fake claude there
+		const marker = "e2e-harvest-marker-7731"
+		const session = "e2e-harvest-session"
+		argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
+		script := "#!/bin/sh\n" +
+			"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
+			"while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done > '" + stdinLog + "'\n" + // PATH has no cat
+			"printf '\\n- " + marker + "\\n' >> '" + filepath.Join(bankDir, "sessionHistory.md") + "'\n" +
+			"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"harvested\"}]}}'\n" +
+			"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"harvested\"}'\n"
+		write(t, filepath.Join(cfg, "bin", "claude"), script)
+		if err := os.Chmod(filepath.Join(cfg, "bin", "claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		transcript := filepath.Join(t.TempDir(), "session.jsonl")
+		write(t, transcript, `{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}`+"\n"+
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"DECISION: ship the zebrafish gearbox"}]}}`+"\n")
+		before := dirHashes(t, cfg)
+
+		out := e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", repo, "--session", session)
+		if !strings.Contains(out, "memory update: ran on") {
+			t.Errorf("update reported no runner:\n%s", out)
+		}
+		prompt, _ := os.ReadFile(stdinLog)
+		for _, want := range []string{transcript, "Background harvest", "DECISION: ship the zebrafish gearbox"} {
+			if !strings.Contains(string(prompt), want) {
+				t.Errorf("fake claude prompt lacks %q:\n%s", want, prompt)
+			}
+		}
+		if argv, _ := os.ReadFile(argvLog); !strings.Contains(string(argv), "--print") {
+			t.Errorf("fake claude was not run headless: %q", argv)
+		}
+		if hist, _ := os.ReadFile(filepath.Join(bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
+			t.Error("the fake reply's sessionHistory write is missing from the bank")
+		}
+		res, ok := ReadHarvestResult(session)
+		if !ok || res.Status != HarvestOK || !res.BankUpdated {
+			t.Errorf("harvest result = %+v ok=%v, want status ok with bank_updated", res, ok)
+		}
+		store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
+		for p := range dirHashes(t, cfg) {
+			if _, existed := before[p]; existed {
+				continue
+			}
+			if r, _ := filepath.EvalSymlinks(p); !strings.HasPrefix(r, store+string(filepath.Separator)) &&
+				!strings.HasPrefix(p, filepath.Join(cfg, "state")+string(filepath.Separator)) {
+				t.Errorf("update created %s outside the store and state/", p)
+			}
+		}
 	})
 
 	t.Run("index-and-fmt", func(t *testing.T) {
