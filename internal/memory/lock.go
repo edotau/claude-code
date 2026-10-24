@@ -13,7 +13,7 @@ import (
 const BankLockFile = "bank.lock"
 
 // BankLockWait bounds how long a worker waits for the bank before giving up with ErrBankBusy.
-const BankLockWait = 5 * time.Second
+var BankLockWait = 5 * time.Second
 
 // ErrBankBusy is returned when the bank lock is not granted within the wait.
 var ErrBankBusy = errors.New("memory store busy: another harness worker holds the bank lock")

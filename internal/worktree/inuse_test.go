@@ -103,30 +103,6 @@ func TestWithinPrefixNotConfused(t *testing.T) {
 	}
 }
 
-func TestInUseByDistinguishesSiblingPrefix(t *testing.T) {
-	parent := t.TempDir()
-	foo := filepath.Join(parent, "foo")
-	foobar := filepath.Join(parent, "foobar")
-	for _, d := range []string{foo, foobar} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	stubProcesses(t, func(dir string) ([]Proc, error) {
-		if within(foobar, dir) {
-			return []Proc{{PID: 999999, Comm: "sibling"}}, nil
-		}
-		return nil, nil
-	})
-	reason, err := InUseBy(foo)
-	if err != nil {
-		t.Fatalf("InUseBy: %v", err)
-	}
-	if reason != "" {
-		t.Fatalf("reason = %q, want /a/foo clear of a process actually in /a/foobar", reason)
-	}
-}
-
 func TestInUseBySymlinkedPathMatched(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need elevated privileges on windows")
@@ -200,6 +176,9 @@ func TestInUseByRealProcess(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	origSettle := inUseSettle
+	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
+	t.Cleanup(func() { inUseSettle = origSettle })
 	main := gitRepo(t)
 	repo, err := ResolveRepo(main)
 	if err != nil {

@@ -154,3 +154,11 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 		t.Fatalf("caller cancel must stop the loop: calls=%d err=%v", calls, e)
 	}
 }
+
+// fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
+func fastDefaultBackoff(t *testing.T) {
+	t.Helper()
+	b, m := DefaultBaseDelay, DefaultMaxDelay
+	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
+}

@@ -40,6 +40,9 @@ func TestWinRoot(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
+	saved := winRootTimeout
+	winRootTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { winRootTimeout = saved })
 	path := filepath.Join(dir, "wslpath")
 	for _, tc := range []struct {
 		name, script, want string

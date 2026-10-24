@@ -55,13 +55,16 @@ func writeFollowLines(t *testing.T, path string, n int) {
 // to 0 instead of indexing all[seen:] with seen > len(all), which panics (slice bounds out of range).
 func TestFollowResetsSeenWhenEventCountShrinks(t *testing.T) {
 	opts, transcript := followFixture(t, 3)
+	saved := followPollInterval
+	followPollInterval = 100 * time.Millisecond
+	t.Cleanup(func() { followPollInterval = saved })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 260*time.Millisecond)
 	defer cancel()
 
 	shrunk := make(chan struct{})
 	go func() {
-		time.Sleep(650 * time.Millisecond) // after Follow's first poll (t=0) and first tick (t=500ms)
+		time.Sleep(150 * time.Millisecond) // after Follow's first poll (t=0) and first tick (t=100ms)
 		writeFollowLines(t, transcript, 1)
 		close(shrunk)
 	}()
@@ -83,7 +86,7 @@ func TestFollowResetsSeenWhenEventCountShrinks(t *testing.T) {
 	if r := <-panicked; r != nil {
 		t.Fatalf("Follow panicked on a shrinking event count: %v", r)
 	}
-	// The second poll (t=1000ms) sees all=1 < seen=3, resets to 0, and re-prints the one event the
+	// The second poll (t=200ms) sees all=1 < seen=3, resets to 0, and re-prints the one event the
 	// third line now holds, rather than panicking or printing nothing.
 	if !strings.Contains(buf.String(), `"linea"`) {
 		t.Errorf("output = %q, want it to contain the re-seen event after the reset", buf.String())

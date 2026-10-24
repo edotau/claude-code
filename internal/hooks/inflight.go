@@ -31,7 +31,7 @@ const inflightIdle = 10 * time.Minute
 const inflightGrace = 2 * time.Minute
 
 // inflightLockWait bounds the wait for the marker-dir lock; the hook itself is killed at 5 s.
-const inflightLockWait = 2 * time.Second
+var inflightLockWait = 2 * time.Second
 
 const markerPrefix = "agent-"
 

@@ -22,6 +22,7 @@ func (h *hangRunner) Run(ctx context.Context, _ Request, _ io.Writer) (Result, e
 
 // A tools-on attempt that times out may have written files, so it runs once; tools-off still retries.
 func TestTimedOutToolsRunIsNotRetried(t *testing.T) {
+	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	h := &hangRunner{}
 	_, err := Run(context.Background(), h, Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)

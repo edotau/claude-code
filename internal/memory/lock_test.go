@@ -211,3 +211,11 @@ func TestStorePathsAndInsideStore(t *testing.T) {
 		t.Error("InsideStore accepted a symlink escaping the store")
 	}
 }
+
+// shortBankWait shrinks BankLockWait so a contended-lock test fails fast instead of waiting the 5s default.
+func shortBankWait(t *testing.T) {
+	t.Helper()
+	old := BankLockWait
+	BankLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { BankLockWait = old })
+}

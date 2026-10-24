@@ -44,11 +44,17 @@ const schemaVersion = 2
 // instead of reopening the database; this is an architectural contract Go cannot enforce at
 // compile time, not a runtime-detected guarantee (no process-wide or goroutine-keyed guard is
 // maintained here — see the retired runtime.Stack-based one in git history).
+// Lock-wait bounds for bbolt opens; vars so tests can shorten them.
+var (
+	readLockTimeout  = 2 * time.Second
+	writeLockTimeout = 5 * time.Second
+)
+
 func Path() string                  { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {
-	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: readLockTimeout})
 	if errors.Is(err, os.ErrNotExist) {
 		return fn(&Tx{})
 	}
@@ -134,7 +140,7 @@ func Update(fn func(*Tx) error) error {
 	if err := create(path); err != nil {
 		return err
 	}
-	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: 5 * time.Second})
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout})
 	if err != nil {
 		return err
 	}

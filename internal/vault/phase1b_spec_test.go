@@ -498,6 +498,10 @@ func TestReadSecretRereadsAfterExternalRotation(t *testing.T) {
 // and a clear error, not a silent deadlock or data race.
 func TestNestedOpenErrors(t *testing.T) {
 	phase1bRing(t)
+	const shortTimeout = 150 * time.Millisecond
+	oldRead, oldWrite := readLockTimeout, writeLockTimeout
+	readLockTimeout, writeLockTimeout = shortTimeout, shortTimeout
+	t.Cleanup(func() { readLockTimeout, writeLockTimeout = oldRead, oldWrite })
 	for _, operation := range []string{"View", "Update", "MasterKey"} {
 		t.Run(operation, func(t *testing.T) {
 			var nested error
@@ -523,10 +527,10 @@ func TestNestedOpenErrors(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-time.After(8 * time.Second):
+			case <-time.After(5 * time.Second):
 				t.Fatal("nested open hung well beyond bbolt's own timeout")
 			}
-			if !errors.Is(nested, bbolt.ErrTimeout) || elapsed < time.Second || elapsed >= 7*time.Second {
+			if !errors.Is(nested, bbolt.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
 				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
 			}
 		})
@@ -819,9 +823,13 @@ func TestVaultReaderHelper(t *testing.T) {
 	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	stop := os.Getenv("PHASE1B_READER_STOP")
+	deadline := time.Now().Add(10 * time.Second)
 	reads := 0
 	for time.Now().Before(deadline) {
+		if _, err := os.Stat(stop); err == nil {
+			break
+		}
 		if err := View(func(tx *Tx) error {
 			_, _ = tx.Get(Pins, "progress")
 			return nil
@@ -851,12 +859,13 @@ func TestMultiProcessProgress(t *testing.T) {
 		ready  string
 	}
 	children := make([]*child, 4)
+	stop := filepath.Join(t.TempDir(), "stop")
 	for i := range children {
 		c := &child{
 			cmd:   exec.Command(executable, "-test.run=^TestVaultReaderHelper$", "-test.timeout=15s"),
 			ready: filepath.Join(t.TempDir(), "ready"),
 		}
-		c.cmd.Env = append(os.Environ(), "PHASE1B_READER_HELPER=1", "PHASE1B_READER_READY="+c.ready)
+		c.cmd.Env = append(os.Environ(), "PHASE1B_READER_HELPER=1", "PHASE1B_READER_READY="+c.ready, "PHASE1B_READER_STOP="+stop)
 		c.cmd.Stdout, c.cmd.Stderr = &c.output, &c.output
 		if err := c.cmd.Start(); err != nil {
 			t.Fatal(err)
@@ -886,6 +895,9 @@ func TestMultiProcessProgress(t *testing.T) {
 			t.Errorf("writer %d: %v", i, err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if err := os.WriteFile(stop, nil, 0600); err != nil {
+		t.Fatal(err)
 	}
 	for _, c := range children {
 		if err := c.cmd.Wait(); err != nil {

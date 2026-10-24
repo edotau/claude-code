@@ -406,6 +406,7 @@ func TestChangedFilesVsHEADErrorsOutsideRepo(t *testing.T) {
 // TestBridgeRunUpstream502IsTransient: an upstream 5xx classifies as agent.KindTransient (retried,
 // eventually surfaced) rather than fatal.
 func TestBridgeRunUpstream502IsTransient(t *testing.T) {
+	fastBackoff(t)
 	var hits []gotRequest
 	srv := newServer(&hits, http.StatusBadGateway)
 	defer srv.Close()
@@ -635,16 +636,16 @@ func TestBridgeRunAgyTimeoutWithinDeadline(t *testing.T) {
 	}
 	pathstest.FakeVendor(t, "agy", "cat > /dev/null\nexec "+sleep+" 5\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err = Run(ctx, Options{Cwd: t.TempDir(), Task: "t", Timeout: 100 * time.Millisecond}, io.Discard, io.Discard)
+	_, err = Run(ctx, Options{Cwd: t.TempDir(), Task: "t", Timeout: 50 * time.Millisecond}, io.Discard, io.Discard)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("want a timeout error, got nil")
 	}
 	if elapsed > 2*time.Second {
-		t.Fatalf("elapsed = %s, want well inside the 400ms outer deadline (plus one 100ms attempt)", elapsed)
+		t.Fatalf("elapsed = %s, want well inside the 150ms outer deadline (plus one 50ms attempt)", elapsed)
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want it to mention the deadline", err)
@@ -654,6 +655,7 @@ func TestBridgeRunAgyTimeoutWithinDeadline(t *testing.T) {
 // TestBridgeRunAgyRetries503ThenSucceeds: a stub agy that fails its first invocation with a 503-shaped
 // stderr line and succeeds on the second must be retried (not surfaced as a fatal error on attempt 1).
 func TestBridgeRunAgyRetries503ThenSucceeds(t *testing.T) {
+	fastBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", loginHome(t, true))
 
@@ -793,4 +795,12 @@ func TestBridgeRunAgyDispatchRecordIsCompact(t *testing.T) {
 	if strings.Contains(prompt, sentinel) {
 		t.Errorf("record prompt leaked the inlined file's sentinel: %q", prompt)
 	}
+}
+
+// fastBackoff shrinks the shared retry backoff for the test and restores it on cleanup.
+func fastBackoff(t *testing.T) {
+	t.Helper()
+	b, m := agent.DefaultBaseDelay, agent.DefaultMaxDelay
+	agent.DefaultBaseDelay, agent.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { agent.DefaultBaseDelay, agent.DefaultMaxDelay = b, m })
 }

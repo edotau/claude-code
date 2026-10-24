@@ -781,6 +781,7 @@ func TestApplyRefusesWhileNotQuiesced(t *testing.T) {
 // Case 8: the bank lock held by another worker refuses the apply with ErrBankBusy, and the maintenance
 // marker it briefly raised is cleared again.
 func TestApplyRefusesWhenBankLockBusy(t *testing.T) {
+	shortBankWait(t)
 	migrateConfig(t)
 	_, manifestPath := minimalManifest(t, "activeContext.md")
 

@@ -98,6 +98,9 @@ func TestMemoryMigrateApplyRefusesWhileBankLockBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifestPath := manifestPathFromDryRun(t)
+	origWait := memory.BankLockWait
+	t.Cleanup(func() { memory.BankLockWait = origWait })
+	memory.BankLockWait = 100 * time.Millisecond // busy path in 0.1 s, not the 5 s default
 
 	held := make(chan struct{})
 	release := make(chan struct{})

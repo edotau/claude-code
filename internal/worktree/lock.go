@@ -16,6 +16,9 @@ const MergeLockFile = "worktree-merge.lock"
 // MergeLockWait bounds how long Acquire waits for the lock before giving up with ErrMergeBusy.
 const MergeLockWait = 5 * time.Second
 
+// mergeLockWait is the wait<=0 default; a var so tests need not sit out the full MergeLockWait.
+var mergeLockWait = MergeLockWait
+
 // ErrMergeBusy is returned when the merge lock is not granted within the wait.
 var ErrMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
 
@@ -30,7 +33,7 @@ func Acquire(wait time.Duration, fn func() error) error {
 		return err
 	}
 	if wait <= 0 {
-		wait = MergeLockWait
+		wait = mergeLockWait
 	}
 	ran, err := paths.TryFileLock(MergeLockPath(), wait, fn)
 	if err == nil && !ran {

@@ -568,6 +568,9 @@ func TestAgentInflightSubagentStopUsesTranscriptPathFallback(t *testing.T) {
 // returns ran=false — the exact burst condition AgentMaxInflight exists to catch. The fix must still
 // enforce the cap on this path (write-then-count) instead of waving every contending dispatch through.
 func TestAgentInflightEnforcesCapUnderLockContention(t *testing.T) {
+	saved := inflightLockWait
+	inflightLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { inflightLockWait = saved })
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := inflightDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {

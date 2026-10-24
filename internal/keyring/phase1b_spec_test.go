@@ -21,12 +21,13 @@ func TestLookupToolFailureIsUnavailable(t *testing.T) {
 		name, script string
 		value        string
 		want         error
+		timeout      time.Duration
 	}{
-		{"found", "printf '%s\\n' representative-key", "representative-key", nil},
-		{"absent", "exit " + missCode, "", nil},
-		{"stderr_failure", "echo 'fake keyring unavailable' >&2\nexit 1", "", ErrUnavailable},
-		{"other_exit", "exit 2", "", ErrUnavailable},
-		{"hanging", "exec /bin/sleep 2", "", ErrNoAnswer},
+		{"found", "printf '%s\\n' representative-key", "representative-key", nil, 0},
+		{"absent", "exit " + missCode, "", nil, 0},
+		{"stderr_failure", "echo 'fake keyring unavailable' >&2\nexit 1", "", ErrUnavailable, 0},
+		{"other_exit", "exit 2", "", ErrUnavailable, 0},
+		{"hanging", "exec /bin/sleep 2", "", ErrNoAnswer, 100 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hermetic(t)
@@ -41,6 +42,9 @@ func TestLookupToolFailureIsUnavailable(t *testing.T) {
 			// ("found"/"absent"/etc.) with a false ErrNoAnswer; "hanging" (sleep 2) still times
 			// out well inside that budget, so what this asserts is unchanged.
 			timeout = time.Second
+			if tc.timeout > 0 {
+				timeout = tc.timeout
+			}
 			t.Cleanup(func() { timeout = saved })
 
 			value, found, err := Lookup("PHASE1B")
