@@ -15,6 +15,9 @@ pass** — the `security-reviewer` skill owns it. Doing the work, rather than ch
 
 ## Pick your path
 
+- **Audit a change set end to end (find → refute → fix → gate)** → `Workflow audit-fix-verify` (only when the
+  user asks; lenses live in the script;
+  `../subagent-workflows/references/saved-workflows.md`).
 - **Review a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
 - **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the problem-solving
   loop against what actually happened).
