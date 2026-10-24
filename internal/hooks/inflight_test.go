@@ -44,14 +44,8 @@ func TestSubagentStopCoresUseDecodedInput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	AgentInflight("pre", strings.NewReader(agentPayload("decoded")), &bytes.Buffer{})
 	AgentInflight("tag", strings.NewReader(tagPayload("decoded", "decoded-agent")), &bytes.Buffer{})
-	tr := writeTranscript(t, t.TempDir(), editToolUseLine(t, "decoded-agent", "Edit", "/r/a.go"))
-	in := ParseInput(strings.NewReader(buildSubagentStopPayload(t, subagentStopFields{
-		agentID: "decoded-agent", agentType: "code-worker", agentTranscriptPath: tr,
-	})))
+	in := ParseInput(strings.NewReader(subagentStopPayload("decoded-agent")))
 	in.Raw = nil
-	if code := simplifyAfterEdits(in, &bytes.Buffer{}); code != ExitBlock {
-		t.Fatalf("decoded source edit must block, got %d", code)
-	}
 	if code := agentInflight("post", in, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("decoded stop must proceed, got %d", code)
 	}
@@ -620,25 +614,16 @@ func TestAgentInflightMarkerNameCarriesToolUseID(t *testing.T) {
 	}
 }
 
-// A SubagentStop the simplify gate blocks still retires the slot: an agent that then ends through
-// SubagentHandback never stops again, and a held slot blocked every dispatch until the idle prune.
-func TestSubagentStopRetiresSlotEvenWhenSimplifyBlocks(t *testing.T) {
+// A SubagentStop retires the slot on its first stop: an agent that then ends through SubagentHandback
+// never stops again, and a held slot blocked every dispatch until the idle prune.
+func TestSubagentStopRetiresSlot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	AgentInflight("pre", strings.NewReader(agentPayload("t1")), &bytes.Buffer{})
 	AgentInflight("tag", strings.NewReader(tagPayload("t1", "a1")), &bytes.Buffer{})
-	tr := writeTranscript(t, t.TempDir(), editToolUseLine(t, "a1", "Edit", "/r/a.go"))
-	stop := func(active bool) int {
-		return SubagentStop(strings.NewReader(buildSubagentStopPayload(t, subagentStopFields{
-			agentID: "a1", agentType: "code-worker", stopHookActive: active, agentTranscriptPath: tr,
-		})), &bytes.Buffer{})
-	}
-	if code := stop(false); code != ExitBlock {
-		t.Fatalf("first stop after a source edit must block, got %d", code)
+	if code := SubagentStop(strings.NewReader(subagentStopPayload("a1")), &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("stop must proceed, got %d", code)
 	}
 	if n := len(markerNames(t)); n != 0 {
-		t.Fatalf("a blocked first stop must still retire the slot, %d markers left", n)
-	}
-	if code := stop(true); code != ExitProceed {
-		t.Fatalf("second stop must proceed, got %d", code)
+		t.Fatalf("a stop must retire the slot, %d markers left", n)
 	}
 }

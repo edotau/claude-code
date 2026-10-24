@@ -87,9 +87,6 @@ Output fields: [Report format](references/review-process.md#report-format).
 End with a fixed/skipped summary. If a fix would change behavior or its blast radius is unverifiable,
 **flag it, don't apply it** — leave that call to the human.
 
-Run as the SubagentStop gate pass inside another task: skip this format and the summary — a code change
-gets one line in that task's changes list, nothing otherwise.
-
 ## References
 
 Local to this skill:

@@ -67,8 +67,7 @@ var Registry = []Spec{
 	{Name: "agent-inflight", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Timeout: 5},
 	{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task", Timeout: 5},
-	// One SubagentStop hook, run in order: an editing subagent's first stop is sent back for one simplify
-	// pass, and its inflight slot retires only on the stop that actually ends it.
+	// Retires the stopping subagent's inflight slot on the stop that actually ends it.
 	{Name: "subagent-stop", Event: EventSubagentStop, Timeout: 15},
 	// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 	{Name: "plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Timeout: 10},

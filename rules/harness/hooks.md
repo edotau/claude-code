@@ -25,7 +25,7 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 | `agent-inflight` | PreToolUse (Agent\|Task) | Prunes stale markers, blocks at 8 machine-wide dispatches, and records a new marker; infra errors fail open |
 | `agent-inflight-tag` | PostToolUse (Agent\|Task) | Binds a dispatch marker to the returned agent id, or retires a completed foreground spawn |
 | `agent-inflight-post` | PostToolUseFailure (Agent\|Task) | Retires the failed spawn's marker |
-| `subagent-stop` | SubagentStop | Sends a source-editing agent back for one simplify pass and tells it to re-send its task report as the final message, then retires its inflight slot even if that stop was blocked |
+| `subagent-stop` | SubagentStop | Retires the stopping subagent's inflight slot on the stop that actually ends it |
 | `plan-mirror` | PostToolUse (Write\|Edit) | Mirrors native undated drafts into dated, repo-tagged files from the first write, named from the plan's `Suggested slug:` line (else its H1); edits keep the same destination and date |
 | `save-plan` | PostToolUse (ExitPlanMode) | On approval, reuses the mirror destination (or files a response-only plan), adds a checklist if absent, verifies the save, then removes the undated draft |
 | `context-checkpoint` | Stop | Once per session at ≥85% context, blocks Stop so the model can write a handoff (`claude-code memory update`) before compaction |
