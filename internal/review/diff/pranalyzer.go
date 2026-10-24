@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/helptext"
 )
 
@@ -123,12 +124,13 @@ type PRReport struct {
 func runGit(repo string, args ...string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	full := append([]string{"-C", repo}, args...)
-	out, err := execCommand(ctx, "git", full...)
+	// None of this file's git output starts a line with whitespace, so TrimRight (gitexec's trim) reads
+	// identically to the TrimSpace this replaced.
+	out, err := gitexec.RunGit(ctx, repo, args...)
 	if err != nil {
 		return "", false
 	}
-	return strings.TrimSpace(out), true
+	return out, true
 }
 
 func changedFiles(repo, base, head string) []PRFileAnalysis {

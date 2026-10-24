@@ -18,7 +18,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/helptext"
 	"io"
 	"os"
@@ -30,6 +29,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -275,7 +275,7 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 
 // Test seams for the sessions [y/N] prompt.
 var (
-	stdinIsTTY           = func() bool { return ansi.IsTerminal(os.Stdin) }
+	stdinIsTTY           = tui.StdinIsTerminal
 	promptIn   io.Reader = os.Stdin
 )
 

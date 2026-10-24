@@ -184,24 +184,6 @@ func TestCheckSettingsDriftLocalDupNotDrift(t *testing.T) {
 	}
 }
 
-// TestTruncate80 pins truncate80's own contract: short strings pass through untouched, and a
-// string over 80 runes is cut to exactly 80 runes (79 kept + the trailing ellipsis rune).
-func TestTruncate80(t *testing.T) {
-	short := "effortLevel"
-	if got := truncate80(short); got != short {
-		t.Errorf("truncate80(%q) = %q, want unchanged", short, got)
-	}
-	long := strings.Repeat("x", 200)
-	got := truncate80(long)
-	gotRunes := []rune(got)
-	if len(gotRunes) != 80 {
-		t.Fatalf("truncate80(200-char key) = %d runes, want 80", len(gotRunes))
-	}
-	if !strings.HasPrefix(got, strings.Repeat("x", 79)) || gotRunes[79] != '…' {
-		t.Errorf("truncate80(long) = %q, want 79 kept runes + ellipsis", got)
-	}
-}
-
 // TestCheckSettingsDriftLinesTruncatesLongForeignKey: a foreign key far longer than 80 runes must
 // still render with a <=80-rune embedded key — truncated, not reported at full length (the verb
 // text around it is not truncated and the whole line can still exceed 80 columns; that is known

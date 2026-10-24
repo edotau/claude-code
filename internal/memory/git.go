@@ -2,10 +2,9 @@ package memory
 
 // Bounded, sanitized git for the nested local memory repo at StoreDir() (plan C.3). Explicit --git-dir and
 // --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
-// never call bare `git -C StoreDir()` here. Mirrors internal/history/gitenv.go by copy — history imports memory.
+// never call bare `git -C StoreDir()` here. Shares internal/gitexec's sanitized env with internal/history.
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/gitexec"
 )
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
@@ -303,31 +304,13 @@ func gitOut(dir string, args ...string) (string, error) {
 	return runGit(append([]string{"-C", dir}, args...))
 }
 
-// runGit is the one exec seam: env minus every GIT_* (an inherited GIT_DIR overrides --git-dir), bounded, and
-// trimming ONLY trailing newlines because porcelain output carries meaning in column 0.
+// runGit is the one exec seam, via internal/gitexec: env minus every GIT_* (an inherited GIT_DIR
+// overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
+// full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
 func runGit(full []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", full...)
-	cmd.Env = gitEnv()
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(full, " "), err, strings.TrimSpace(errb.String()))
-	}
-	return strings.TrimRight(out.String(), "\n"), nil
-}
-
-// gitEnv is os.Environ() with every GIT_* key removed.
-func gitEnv() []string {
-	env := os.Environ()
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_") {
-			out = append(out, kv)
-		}
-	}
-	return out
+	return gitexec.RunGit(ctx, "", full...)
 }
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.

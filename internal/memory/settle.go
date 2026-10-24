@@ -84,12 +84,6 @@ type BankSettlement struct {
 	Indexed  bool // the routing index was rewritten
 }
 
-// Moved is the promote+archive total.
-func (s BankSettlement) Moved() int { return s.Promoted + s.Archived }
-
-// Any reports whether the pass changed anything at all.
-func (s BankSettlement) Any() bool { return s.Moved() > 0 || s.Rotated > 0 }
-
 // SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
 // local (and home) index — all under the bank lock. Deletes nothing.
 func SettleBank(root string, now time.Time) (BankSettlement, error) {

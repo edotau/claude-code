@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // StepResult mirrors the Python step-result dict field order.
@@ -155,7 +157,7 @@ func findOversizedTasks(text string) []OversizedTask {
 		if len(reasons) == 0 {
 			continue
 		}
-		out = append(out, OversizedTask{Title: truncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
+		out = append(out, OversizedTask{Title: textutil.TruncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
 	}
 	return out
 }
@@ -262,7 +264,7 @@ func analyze(text, source string) analysis {
 	for _, step := range steps {
 		pts, level := scoreStep(step)
 		total += pts
-		results = append(results, StepResult{Title: truncateRunes(firstLine(step), 120), Score: pts, Level: level})
+		results = append(results, StepResult{Title: textutil.TruncateRunes(firstLine(step), 120), Score: pts, Level: level})
 	}
 
 	maxScore := len(steps) * 3
@@ -356,7 +358,7 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Verdict: %s\n\n", a.verdict)
 	icons := map[string]string{"concrete": "+", "reasonable": "~", "vague": "?", "none": "!"}
 	for _, sr := range a.stepResults {
-		fmt.Fprintf(stdout, "  [%s] %s  (%s, %d/3)\n", icons[sr.Level], truncateRunes(sr.Title, 100), sr.Level, sr.Score)
+		fmt.Fprintf(stdout, "  [%s] %s  (%s, %d/3)\n", icons[sr.Level], textutil.TruncateRunes(sr.Title, 100), sr.Level, sr.Score)
 	}
 	fmt.Fprintln(stdout)
 	for _, rec := range a.recommendations {
@@ -366,7 +368,7 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "Oversized tasks:")
 		for _, t := range a.oversizedTasks {
-			fmt.Fprintf(stdout, "  ! %s  (%s)\n", truncateRunes(t.Title, 100), t.Reason)
+			fmt.Fprintf(stdout, "  ! %s  (%s)\n", textutil.TruncateRunes(t.Title, 100), t.Reason)
 		}
 	}
 	return 0

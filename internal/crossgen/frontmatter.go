@@ -11,109 +11,14 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// fmRes lazily compiles the package regexes: every claude-code process links crossgen via the cli table.
-var fmRes = sync.OnceValue(func() (r struct {
-	list, kv, example, ws *regexp.Regexp
+// descRes lazily compiles the package regexes: every claude-code process links crossgen via the cli table.
+var descRes = sync.OnceValue(func() (r struct {
+	example, ws *regexp.Regexp
 }) {
-	r.list = regexp.MustCompile(`^\s+-\s+(.+)$`)
-	r.kv = regexp.MustCompile(`^(\w[\w-]*):\s*(.*)$`)
 	r.example = regexp.MustCompile(`(?s)<example>.*?</example>`)
 	r.ws = regexp.MustCompile(`\s+`)
 	return
 })
-
-// ParseFrontmatter parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
-func ParseFrontmatter(content string) (map[string]any, string) {
-	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
-	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
-	prefix, rest := markdown.StripFrontMatter([]byte(content))
-	if prefix == nil {
-		return map[string]any{}, content
-	}
-	yaml := strings.TrimSuffix(strings.TrimPrefix(string(prefix), "---\n"), "---\n")
-	body := strings.TrimSpace(string(rest))
-
-	fm := map[string]any{}
-	currentKey := ""
-	var currentList []string
-	haveList := false
-
-	for line := range strings.SplitSeq(yaml, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if currentKey != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
-			if haveList {
-				if lm := fmRes().list.FindStringSubmatch(line); lm != nil {
-					currentList = append(currentList, stripQuotes(strings.TrimSpace(lm[1])))
-					fm[currentKey] = currentList
-				}
-				continue
-			}
-			existing, _ := fm[currentKey].(string)
-			fm[currentKey] = strings.TrimSpace(existing + " " + strings.TrimSpace(line))
-			continue
-		}
-
-		kv := fmRes().kv.FindStringSubmatch(line)
-		if kv == nil {
-			currentKey, currentList, haveList = "", nil, false
-			continue
-		}
-		key, value := kv[1], strings.TrimSpace(kv[2])
-		currentKey, currentList, haveList = key, nil, false
-		fm[key] = parseScalar(value)
-		if value == "" {
-			currentList, haveList = []string{}, true
-			fm[key] = currentList
-		}
-	}
-	return fm, body
-}
-
-// parseScalar converts one frontmatter value: block-scalar marker → "", inline list, bool, int, else string.
-func parseScalar(value string) any {
-	switch value {
-	case "", "|", "|-", ">", ">-":
-		return ""
-	}
-	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
-		items := []string{}
-		for part := range strings.SplitSeq(value[1:len(value)-1], ",") {
-			if part = strings.TrimSpace(part); part != "" {
-				items = append(items, stripQuotes(part))
-			}
-		}
-		return items
-	}
-	switch strings.ToLower(value) {
-	case "true", "yes":
-		return true
-	case "false", "no":
-		return false
-	}
-	if isDigits(value) {
-		n, _ := strconv.Atoi(value)
-		return n
-	}
-	return stripQuotes(value)
-}
-
-// isDigits mirrors Python str.isdigit(): non-empty and all ASCII digits.
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-// stripQuotes trims leading/trailing quote characters (both kinds, repeated).
-func stripQuotes(s string) string { return strings.Trim(s, "\"'") }
 
 // firstSentence collapses a multi-line description to its first sentence.
 func firstSentence(description string) string {
@@ -126,8 +31,8 @@ func firstSentence(description string) string {
 
 // cleanDescription strips <example>...</example> blocks and collapses whitespace.
 func cleanDescription(raw string) string {
-	withoutExamples := fmRes().example.ReplaceAllString(raw, "")
-	return strings.TrimSpace(fmRes().ws.ReplaceAllString(withoutExamples, " "))
+	withoutExamples := descRes().example.ReplaceAllString(raw, "")
+	return strings.TrimSpace(descRes().ws.ReplaceAllString(withoutExamples, " "))
 }
 
 // stripMemorySection removes the first "## Memory" section (up to the next level-2 heading or EOF), via the AST

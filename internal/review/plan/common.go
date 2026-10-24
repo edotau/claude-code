@@ -25,15 +25,6 @@ func splitLines(text string) []string {
 	return lineSplitRe().Split(text, -1)
 }
 
-// truncateRunes matches Python's s[:n] slicing, which counts code points, not bytes.
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s
-}
-
 // readInput mirrors the shared "-" (stdin) or path.exists() gate in both scripts, exit 0 on miss.
 func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source string, ok bool) {
 	if input == "-" {

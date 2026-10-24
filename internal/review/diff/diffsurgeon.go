@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/helptext"
 )
 
@@ -67,14 +68,13 @@ func runGitDiff(diffRange string, stderr io.Writer) (string, bool) {
 	if diffRange != "" {
 		args = []string{"diff", diffRange}
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	out, err := cmd.Output()
+	out, err := gitexec.RunGit(ctx, "", args...)
 	// Like Python's check=False: git's own non-zero exit (not a repo, bad range) is silent; only a missing git or timeout errors.
 	if err != nil && (ctx.Err() != nil || !errors.As(err, new(*exec.ExitError))) {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false
 	}
-	return string(out), true
+	return out, true
 }
 
 // getDiff returns (text, exitCode); exitCode is 0 on success, 1 if --file doesn't exist (a real

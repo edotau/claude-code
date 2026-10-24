@@ -1,4 +1,4 @@
-// The prompt complexity classifier behind EffortTier: read by the agent-effort hook (fills an unset
+// The prompt complexity classifier behind EffortTierSignal: read by the agent-effort hook (fills an unset
 // dispatch model). Advisory and O(len(prompt)) — never a gate.
 package hooks
 
@@ -84,20 +84,14 @@ func classifyPromptSignal(prompt string) (complexity, string) {
 	return complexityNeutral, "neutral"
 }
 
-// Effort tiers EffortTier returns; they match the Claude Code effort vocabulary (low|medium|high).
+// Effort tiers EffortTierSignal returns; they match the Claude Code effort vocabulary (low|medium|high).
 const (
 	TierLow    = "low"
 	TierMedium = "medium"
 	TierHigh   = "high"
 )
 
-// EffortTier is the exported seam onto classifyPromptSignal. Neutral maps to medium.
-func EffortTier(prompt string) string {
-	tier, _ := EffortTierSignal(prompt)
-	return tier
-}
-
-// EffortTierSignal is EffortTier plus the short rule name that fired (e.g. "keyword:refactor",
+// EffortTierSignal is the exported seam onto classifyPromptSignal plus the short rule name that fired (e.g. "keyword:refactor",
 // "paths>=2", "open-search"), for a hook that wants to say WHY it picked a tier.
 func EffortTierSignal(prompt string) (tier, signal string) {
 	c, signal := classifyPromptSignal(prompt)

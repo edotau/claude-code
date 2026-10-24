@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -287,7 +288,7 @@ func headBytes(repo Repo, rel string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
 		"cat-file", "blob", "HEAD:"+rel)
-	cmd.Env = gitEnv()
+	cmd.Env = gitexec.Env()
 	return cmd.Output()
 }
 

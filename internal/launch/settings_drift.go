@@ -9,6 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // SettingsDrift holds every way the live settings.json (and its neighbors) can have drifted.
@@ -37,34 +38,25 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 	case s.Invalid != nil:
 		lines = append(lines, label+": "+s.Invalid.Error())
 	case len(s.Differs) == 1 && s.Differs[0] == "(missing)":
-		lines = append(lines, label+": "+truncate80(s.File)+" is missing (run claude-code install)")
+		lines = append(lines, label+": "+textutil.Truncate(s.File, 80)+" is missing (run claude-code install)")
 	default:
 		for _, k := range s.Differs {
-			lines = append(lines, label+": "+truncate80(k)+" differs from the template")
+			lines = append(lines, label+": "+textutil.Truncate(k, 80)+" differs from the template")
 		}
 	}
 	for _, k := range s.Foreign {
-		lines = append(lines, label+": "+truncate80(k)+" is a foreign key not in the template")
+		lines = append(lines, label+": "+textutil.Truncate(k, 80)+" is a foreign key not in the template")
 	}
 	for _, k := range s.Kept {
-		lines = append(lines, label+": "+truncate80(k)+" is kept (not in the template)")
+		lines = append(lines, label+": "+textutil.Truncate(k, 80)+" is kept (not in the template)")
 	}
 	for _, l := range s.LocalDup {
 		lines = append(lines, label+": "+l)
 	}
 	if s.Nested != "" {
-		lines = append(lines, label+": nested config: "+truncate80(s.Nested))
+		lines = append(lines, label+": nested config: "+textutil.Truncate(s.Nested, 80))
 	}
 	return lines
-}
-
-// truncate80 shortens a path or key to 80 runes with a trailing "…", so the enclosing line stays <=80 cols.
-func truncate80(s string) string {
-	r := []rune(s)
-	if len(r) <= 80 {
-		return s
-	}
-	return string(r[:79]) + "…"
 }
 
 // CheckSettingsDrift renders the live settings and delegates to CheckSettingsDriftWith.
