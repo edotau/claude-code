@@ -175,7 +175,8 @@ func collect(in Input, cfg Config) values {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	v := values{userHost: promptUser(), path: collapsePath(shortenDir(cwd), cwd, cfg.PathMax)}
+	root, worktree := checkoutOf(cwd) // the path names the repo, so it holds still across worktrees and subdirs
+	v := values{userHost: promptUser(), path: collapsePath(shortenDir(root), root, cfg.PathMax)}
 	var provider string
 	var routed bool
 	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) {
@@ -190,7 +191,9 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("router", true) {
 		v.router = routerSegment(routed)
 	}
-	if cfg.seg("git", true) {
+	if cfg.seg("git", true) && worktree != "" {
+		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
+	} else if cfg.seg("git", true) {
 		v.branch = gitBranch(cwd)
 	}
 	if cfg.seg("agents", true) {
