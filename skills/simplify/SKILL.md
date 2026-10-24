@@ -15,7 +15,7 @@ Bug-hunting is `evaluate-code`'s job; security is `security-reviewer`'s.
 ## Simplicity First (#2) and Surgical Changes (#3)
 
 The two principles this skill applies the fix for. Definitions, attribution, and the
-review-time framing are canonical in `skills/problem-solving/references/principles.md`
+review-time framing are canonical in `skills/evaluate-code/references/principles.md`
 (#2, #3); CLAUDE.md → Behavioral guidelines states the base rule. This skill's job is
 narrower: *apply* the fix, not just flag it.
 
@@ -28,8 +28,7 @@ constant that already exists, consolidating at the source removes duplication th
 created — that traces to the task. Say so explicitly (name the out-of-diff file + blast
 radius). When the blast radius is large or unverifiable, flag it instead of reaching for it.
 
-Worked before/after examples: `references/simplification-patterns.md` and the `evaluate-code`
-skill's `references/anti-patterns.md`.
+Worked before/after examples: `references/simplification-patterns.md` (the one home for #2 fixes).
 
 ## Surface the assumption before you cut
 
@@ -98,6 +97,5 @@ Local to this skill:
 
 Shared with `evaluate-code` (canonical owner — read from `skills/evaluate-code/references/`):
 
-- `anti-patterns.md` — over-abstraction gallery across Python, TS, shell.
-- `../problem-solving/references/principles.md` — source attribution + when to relax each principle.
+- `principles.md` — the four principles, attribution, and the #1/#3/#4 worked examples.
 - `detectors.md` — full CLI reference for all detectors (incl. `claude-code review complexity`).

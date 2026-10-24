@@ -1,13 +1,15 @@
 # Simplification patterns
 
 The recurring wins when reducing complexity. Each is behavior-preserving — you change how
-the code reads, not what it does. For the fuller over-abstraction gallery (TypeScript,
-shell, speculative features), see `skills/evaluate-code/references/anti-patterns.md`.
+the code reads, not what it does.
+Detector tags and review severity: `skills/evaluate-code/references/principles.md` (#2).
 
 ## Inline single-use abstractions
 
 A class that wraps one method, or a helper called from one place, is indirection without
 payoff. Inline it; add the abstraction back when a second caller actually appears.
+
+`review complexity` → `premature-abstraction`, `class-density` — a factory for one product is the same case: call it.
 
 **Bad — Strategy/ABC scaffolding for one discount type (150 lines):**
 
@@ -64,7 +66,7 @@ except (FileNotFoundError, PermissionError):
 ## Collapse conditional chains with early returns
 
 Deep nesting (>4 levels) hides the happy path. Return early on the guard cases; the main
-logic drops a level each time.
+logic drops a level each time. A whole method → `extract-method.md`.
 
 **Bad:**
 
@@ -93,6 +95,8 @@ def process(user):
 
 ## Delete speculative flexibility
 
+`review complexity` → `import-count` (often drags in a config lib).
+
 Configuration, hooks, and "modes" that nothing requests are cost without value. Remove the
 unused knob; the call site gets shorter and the reader stops wondering when the branch fires.
 
@@ -100,6 +104,25 @@ unused knob; the call site gets shorter and the reader stops wondering when the 
 every caller passes the defaults.
 
 **Good:** `save_preferences(prefs)` — add a parameter the day a caller needs it.
+
+## Drop handling for impossible states
+
+`review complexity` → `cyclomatic-complexity`. Name why the state can't occur before cutting (`../SKILL.md`).
+
+```python
+# BEFORE — enum has two members; the else is dead
+if status == Status.OK:
+    ...
+elif status == Status.FAIL:
+    ...
+else:
+    raise RuntimeError("unreachable")  # speculative
+
+# AFTER — exhaustive match, no dead branch
+match status:
+    case Status.OK: ...
+    case Status.FAIL: ...
+```
 
 ## Tighten over-long docstrings
 
