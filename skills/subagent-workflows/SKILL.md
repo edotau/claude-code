@@ -37,7 +37,7 @@ A fresh agent must be able to act from the brief alone.
 - Every code dispatch includes `copilot` in the **same** message (`rules/standards/quality.md`); it waits for the
   manager's "landed" message, never a poll.
 - **Simplify before review, every time code changed**: `Skill(simplify)` over the diff, or a leaf briefed with
-  [simplify/references/leaf-brief.md](../simplify/references/leaf-brief.md). Never an ad hoc "clean this up" brief.
+  [prompts.md#simplifier](references/prompts.md#simplifier). Never an ad hoc "clean this up" brief.
 - The manager owns decisions, integration and final verification. Leaves never dispatch, commit or run the suite.
 
 ## Shared tree (`~/.claude` and any checkout several agents use)
