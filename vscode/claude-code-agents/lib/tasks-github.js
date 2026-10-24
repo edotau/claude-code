@@ -275,13 +275,14 @@ function isPrimaryRateLimit(stderr) {
 function execOnce(execFileImpl, args, options) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, GH_PROMPT_DISABLED: '1', ...((options && options.env) || {}) };
-    execFileImpl('gh', args, { maxBuffer: 32 * 1024 * 1024, timeout: GH_TIMEOUT_MS, ...(options || {}), env }, (err, stdout, stderr) => {
+    const child = execFileImpl('gh', args, { maxBuffer: 32 * 1024 * 1024, timeout: GH_TIMEOUT_MS, ...(options || {}), env }, (err, stdout, stderr) => {
       if (err) {
         err.stderr = stderr;
         return reject(err);
       }
       resolve(String(stdout || ''));
     });
+    if (options && options.input != null && child && child.stdin) child.stdin.end(options.input);
   });
 }
 
@@ -462,6 +463,139 @@ async function mergeMethods({ repo, execFileImpl }) {
   return { merge: !!parsed.merge, squash: !!parsed.squash, rebase: !!parsed.rebase };
 }
 
+// --- conversation (Orca github-item-dialog): GitHub renders the markdown via the html media type; we only sanitise ---
+const { sanitizeHtml } = require('./sanitize-html');
+const HTML_ACCEPT = 'Accept: application/vnd.github.html+json';
+
+function conversationArgs({ repo, number }) {
+  return ['api', `repos/${slug(repo)}/issues/${number}`, '-H', HTML_ACCEPT];
+}
+
+function timelineArgs({ repo, number }) {
+  return ['api', '--paginate', `repos/${slug(repo)}/issues/${number}/timeline?per_page=100`, '-H', HTML_ACCEPT];
+}
+
+function checkRunsArgs({ repo, sha }) {
+  return ['api', `repos/${slug(repo)}/commits/${sha}/check-runs?per_page=100`];
+}
+
+/** The comment body travels on stdin (`--input -`), never as an argv element. */
+function addCommentArgs({ repo, number }) {
+  return ['api', '-X', 'POST', `repos/${slug(repo)}/issues/${number}/comments`, '-H', HTML_ACCEPT, '--input', '-'];
+}
+
+const DROPPED_EVENTS = new Set(['mentioned', 'subscribed', 'unsubscribed', 'referenced', 'connected', 'disconnected', 'locked', 'unlocked', 'pinned', 'unpinned', 'automatic_base_change_succeeded', 'base_ref_changed', 'convert_to_draft', 'ready_for_review', 'added_to_project', 'removed_from_project', 'moved_columns_in_project', 'comment_deleted', 'transferred', 'marked_as_duplicate', 'unmarked_as_duplicate', 'deployed', 'deployment_environment_changed', 'head_ref_force_pushed', 'head_ref_restored', 'review_dismissed', 'auto_merge_enabled', 'auto_merge_disabled', 'auto_squash_enabled', 'auto_rebase_enabled']);
+
+function eventText(e) {
+  switch (e.event) {
+    case 'assigned':
+      return `assigned ${loginOf(e.assignee)}`;
+    case 'unassigned':
+      return `unassigned ${loginOf(e.assignee)}`;
+    case 'labeled':
+      return `added label ${(e.label && e.label.name) || ''}`;
+    case 'unlabeled':
+      return `removed label ${(e.label && e.label.name) || ''}`;
+    case 'closed':
+      return `closed this${e.state_reason ? ` as ${String(e.state_reason).replace('_', ' ')}` : ''}`;
+    case 'reopened':
+      return 'reopened this';
+    case 'merged':
+      return 'merged this';
+    case 'committed':
+      return String(e.message || '').split('\n')[0];
+    case 'cross-referenced':
+      return e.source && e.source.issue ? `referenced this from #${e.source.issue.number} ${e.source.issue.title || ''}`.trim() : 'referenced this';
+    case 'renamed':
+      return e.rename ? `renamed from "${e.rename.from}" to "${e.rename.to}"` : 'renamed this';
+    case 'review_requested':
+      return `requested a review from ${loginOf(e.requested_reviewer) || (e.requested_team && e.requested_team.name) || ''}`.trim();
+    case 'review_request_removed':
+      return `removed the review request for ${loginOf(e.requested_reviewer)}`;
+    case 'head_ref_deleted':
+      return 'deleted the head branch';
+    case 'milestoned':
+      return `added to milestone ${(e.milestone && e.milestone.title) || ''}`;
+    case 'demilestoned':
+      return `removed from milestone ${(e.milestone && e.milestone.title) || ''}`;
+    default:
+      return String(e.event || '').replace(/_/g, ' ');
+  }
+}
+
+/** Timeline events → entries (comment / review / event) oldest first; noise events dropped. */
+function mapTimeline(events) {
+  const out = [];
+  for (const e of Array.isArray(events) ? events : []) {
+    if (!e || DROPPED_EVENTS.has(e.event)) continue;
+    const actor = loginOf(e.actor) || loginOf(e.user) || (e.author && e.author.name) || (e.committer && e.committer.name) || '';
+    const avatarUrl = (e.user && e.user.avatar_url) || (e.actor && e.actor.avatar_url) || null;
+    const createdAt = e.created_at || e.submitted_at || (e.author && e.author.date) || '';
+    if (e.event === 'commented') {
+      out.push({ kind: 'comment', id: String(e.id || ''), event: e.event, actor, avatarUrl, createdAt, bodyHtml: sanitizeHtml(e.body_html || ''), url: e.html_url || null });
+      continue;
+    }
+    if (e.event === 'reviewed') {
+      const state = String(e.state || 'COMMENTED').toUpperCase();
+      const bodyHtml = sanitizeHtml(e.body_html || '');
+      if (!bodyHtml && state === 'COMMENTED') continue;
+      out.push({ kind: 'review', id: String(e.id || ''), event: e.event, actor, avatarUrl, createdAt, state, bodyHtml, url: e.html_url || null });
+      continue;
+    }
+    out.push({ kind: 'event', id: String(e.id || e.sha || ''), event: e.event, actor, avatarUrl, createdAt, text: eventText(e), url: e.html_url || (e.source && e.source.issue && e.source.issue.html_url) || null });
+  }
+  return out.sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+}
+
+function mapConversation(issue, timeline) {
+  const entries = mapTimeline(timeline);
+  return {
+    bodyHtml: sanitizeHtml((issue && issue.body_html) || ''),
+    author: loginOf(issue && issue.user) || null,
+    avatarUrl: (issue && issue.user && issue.user.avatar_url) || null,
+    createdAt: (issue && issue.created_at) || '',
+    entries,
+    commentCount: entries.filter((e) => e.kind === 'comment').length,
+  };
+}
+
+function checkRunState(run) {
+  if (String(run.status || '').toLowerCase() !== 'completed') return 'in_progress';
+  const c = String(run.conclusion || '').toLowerCase();
+  if (c === 'success' || c === 'neutral') return 'success';
+  if (c === 'skipped') return 'skipped';
+  if (['failure', 'error', 'timed_out', 'cancelled', 'action_required', 'startup_failure'].includes(c)) return 'failed';
+  return 'success';
+}
+
+const CHECK_ORDER = { failed: 0, in_progress: 1, success: 2, skipped: 3 };
+
+function mapCheckRuns(json) {
+  const data = typeof json === 'string' ? JSON.parse(json || '{}') : json || {};
+  const runs = (data.check_runs || []).map((r) => ({ name: r.name || '', status: String(r.status || '').toLowerCase(), conclusion: r.conclusion ? String(r.conclusion).toLowerCase() : null, url: r.html_url || null, app: (r.app && r.app.slug) || '', state: checkRunState(r) }));
+  runs.sort((a, b) => CHECK_ORDER[a.state] - CHECK_ORDER[b.state] || a.name.localeCompare(b.name));
+  return { total: typeof data.total_count === 'number' ? data.total_count : runs.length, runs };
+}
+
+async function conversation({ repo, number, execFileImpl }) {
+  const run = runner(execFileImpl);
+  const [issueText, timelineText] = await Promise.all([ghExec(run, conversationArgs({ repo, number })), ghExec(run, timelineArgs({ repo, number }))]);
+  const issue = JSON.parse(issueText || '{}');
+  // Why: `--paginate` concatenates one JSON array per page; join them before parsing.
+  const pages = timelineText.trim() ? JSON.parse(`[${timelineText.trim().replace(/\]\s*\[/g, '],[')}]`) : [];
+  return mapConversation(issue, pages.flat());
+}
+
+async function checkRuns({ repo, sha, execFileImpl }) {
+  return mapCheckRuns(await ghExec(runner(execFileImpl), checkRunsArgs({ repo, sha })));
+}
+
+async function addComment({ repo, number, body, execFileImpl }) {
+  const text = await ghExec(runner(execFileImpl), addCommentArgs({ repo, number }), { input: JSON.stringify({ body }) });
+  const c = JSON.parse(text || '{}');
+  return { kind: 'comment', id: String(c.id || ''), event: 'commented', actor: loginOf(c.user), avatarUrl: (c.user && c.user.avatar_url) || null, createdAt: c.created_at || new Date().toISOString(), bodyHtml: sanitizeHtml(c.body_html || ''), url: c.html_url || null };
+}
+
 /** `{ok, login}` from `gh api user`; `{ok:false, message}` when gh is missing or signed out. */
 async function authStatus(execFileImpl) {
   const run = execFileImpl || require('node:child_process').execFile;
@@ -515,6 +649,16 @@ module.exports = {
   setPrState,
   listAssignable,
   mergeMethods,
+  conversationArgs,
+  timelineArgs,
+  checkRunsArgs,
+  addCommentArgs,
+  mapTimeline,
+  mapConversation,
+  mapCheckRuns,
+  conversation,
+  checkRuns,
+  addComment,
   setRetryDelays,
   _resetBreaker,
 };

@@ -1,0 +1,340 @@
+[
+  {
+    "id": 34085747784,
+    "event": "closed",
+    "created_at": "2026-10-23T19:39:11Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34040059340,
+    "event": "closed",
+    "created_at": "2026-10-23T10:09:37Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 6372019048,
+    "event": "commented",
+    "created_at": "2026-10-23T18:32:16Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": {
+      "login": "someone",
+      "avatar_url": "https://example.invalid/a.png"
+    },
+    "body_html": "<p>Comment text (fixture)</p><script>alert(1)</script>",
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 5406574736,
+    "event": "commented",
+    "created_at": "2026-08-25T06:44:35Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": {
+      "login": "someone",
+      "avatar_url": "https://example.invalid/a.png"
+    },
+    "body_html": "<p>Comment text (fixture)</p><script>alert(1)</script>",
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": null,
+    "event": "cross-referenced",
+    "created_at": "2026-10-23T19:51:18Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": {
+      "type": "issue",
+      "issue": {
+        "number": 14805,
+        "title": "Linked item (fixture)",
+        "html_url": "https://github.com/example/repo/issues/1"
+      }
+    },
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": null,
+    "event": "cross-referenced",
+    "created_at": "2026-10-23T21:07:13Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": {
+      "type": "issue",
+      "issue": {
+        "number": 376,
+        "title": "Linked item (fixture)",
+        "html_url": "https://github.com/example/repo/issues/1"
+      }
+    },
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34079438707,
+    "event": "labeled",
+    "created_at": "2026-10-23T18:14:17Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": {
+      "name": "external"
+    },
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34079438796,
+    "event": "labeled",
+    "created_at": "2026-10-23T18:14:17Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": {
+      "name": "needs-triage"
+    },
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 30116251185,
+    "event": "mentioned",
+    "created_at": "2026-08-27T16:13:04Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 30159421530,
+    "event": "mentioned",
+    "created_at": "2026-08-28T10:27:40Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34089262781,
+    "event": "renamed",
+    "created_at": "2026-10-23T20:28:40Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": {
+      "from": "old title",
+      "to": "new title"
+    },
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34036748342,
+    "event": "renamed",
+    "created_at": "2026-10-23T09:24:42Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": {
+      "from": "old title",
+      "to": "new title"
+    },
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 34079416835,
+    "event": "review_requested",
+    "created_at": "2026-10-23T18:14:00Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": {
+      "login": "someone"
+    },
+    "assignee": null
+  },
+  {
+    "id": 34080815239,
+    "event": "review_requested",
+    "created_at": "2026-10-23T18:31:59Z",
+    "submitted_at": null,
+    "actor": {
+      "login": "someone"
+    },
+    "user": null,
+    "body_html": null,
+    "state": null,
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 5632655130,
+    "event": "reviewed",
+    "created_at": null,
+    "submitted_at": "2026-10-23T18:16:40Z",
+    "actor": null,
+    "user": {
+      "login": "someone",
+      "avatar_url": "https://example.invalid/a.png"
+    },
+    "body_html": "<p>Comment text (fixture)</p><script>alert(1)</script>",
+    "state": "commented",
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  },
+  {
+    "id": 5632961408,
+    "event": "reviewed",
+    "created_at": null,
+    "submitted_at": "2026-10-23T18:45:20Z",
+    "actor": null,
+    "user": {
+      "login": "someone",
+      "avatar_url": "https://example.invalid/a.png"
+    },
+    "body_html": "<p>Comment text (fixture)</p><script>alert(1)</script>",
+    "state": "commented",
+    "state_reason": null,
+    "label": null,
+    "html_url": "https://github.com/example/repo/pull/1#c",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "assignee": null
+  }
+]

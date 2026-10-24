@@ -337,7 +337,13 @@ class TasksViewProvider {
     if (!item) return null;
     if (item.source === 'github') {
       this.cache.invalidate();
-      return item.type === 'pr' ? tasksGithub.prDetail({ repo: item.repo, number: item.number }) : tasksGithub.issueDetail({ repo: item.repo, number: item.number });
+      const open = this.detail && this.detail.id === id;
+      const [row, conv] = await Promise.all([
+        item.type === 'pr' ? tasksGithub.prDetail({ repo: item.repo, number: item.number }) : tasksGithub.issueDetail({ repo: item.repo, number: item.number }),
+        open ? tasksGithub.conversation({ repo: item.repo, number: item.number }).catch(() => null) : null,
+      ]);
+      if (open && conv) this.detail = { ...this.detail, conversation: conv };
+      return row;
     }
     if (item.source !== 'jira') return null;
     const cfg = this.cfg();
@@ -356,6 +362,7 @@ class TasksViewProvider {
     const item = this.findItem(id);
     if (!item) return;
     this.view = 'detail';
+    if (item.source === 'github') return this.openGitHubDetail(item);
     if (item.source !== 'jira') {
       this.detail = { id, key: item.number, data: item };
       return this.render();
@@ -374,6 +381,37 @@ class TasksViewProvider {
       this.patchItem(id, data);
     } catch (err) {
       if (this.detail && this.detail.id === id) this.detail = { id, key: item.key, error: err.message };
+    }
+    this.render();
+  }
+
+  /** GitHub detail: the row shows at once, the conversation (html media type) loads, PR cells hydrate if still light. */
+  async openGitHubDetail(item) {
+    const id = item.id;
+    const prompt = `Work on ${item.type === 'pr' ? 'PR' : 'issue'} #${item.number} "${item.title}" (${item.url})`;
+    this.detail = { id, key: item.number, data: item, tab: 'conversation', prompt };
+    this.render();
+    try {
+      const [conv] = await Promise.all([
+        tasksGithub.conversation({ repo: item.repo, number: item.number }),
+        item.type === 'pr' && item.hydrated === false ? this.hydrate([id]) : null,
+      ]);
+      if (!this.detail || this.detail.id !== id) return;
+      this.detail = { ...this.detail, data: this.findItem(id) || item, conversation: conv };
+    } catch (err) {
+      if (this.detail && this.detail.id === id) this.detail = { ...this.detail, error: tasksGithub.classifyGhError(err) };
+    }
+    this.render();
+  }
+
+  async loadChecks(id) {
+    const item = this.findItem(id);
+    if (!item || !item.headSha || (this.detail && this.detail.checks)) return;
+    try {
+      const checks = await tasksGithub.checkRuns({ repo: item.repo, sha: item.headSha });
+      if (this.detail && this.detail.id === id) this.detail = { ...this.detail, checks };
+    } catch (err) {
+      if (this.detail && this.detail.id === id) this.detail = { ...this.detail, checks: { total: 0, runs: [] }, mutationError: tasksGithub.classifyGhError(err) };
     }
     this.render();
   }
@@ -1046,8 +1084,26 @@ class TasksViewProvider {
         return this.render();
       case 'comment': {
         const item = this.findItem(msg.id);
-        if (!item || item.source !== 'jira' || !msg.body) return;
+        if (!item || !msg.body) return;
+        if (item.source === 'github') {
+          return this.runMutation(msg.id, null, async () => {
+            const entry = await tasksGithub.addComment({ repo: item.repo, number: item.number, body: msg.body });
+            if (this.detail && this.detail.id === msg.id && this.detail.conversation) {
+              const conv = this.detail.conversation;
+              this.detail = { ...this.detail, conversation: { ...conv, entries: [...conv.entries, entry], commentCount: conv.commentCount + 1 } };
+            }
+            return entry;
+          });
+        }
+        if (item.source !== 'jira') return;
         return this.runMutation(msg.id, null, () => this.withJiraClient((client) => client.addComment(item.key, msg.body)));
+      }
+      case 'tab': {
+        if (!this.detail || this.detail.id !== msg.id) return;
+        this.detail = { ...this.detail, tab: msg.tab === 'checks' ? 'checks' : 'conversation' };
+        this.render();
+        if (msg.tab === 'checks') return this.loadChecks(msg.id);
+        return;
       }
       case 'transition': {
         const item = this.findItem(msg.id);
