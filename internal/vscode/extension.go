@@ -3,6 +3,7 @@ package vscode
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // extensionDirName is the installed-extension folder name VS Code expects: <publisher>.<name>-<version>.
@@ -36,6 +37,9 @@ func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResul
 	target := filepath.Join(extensionsDir, extensionDirName)
 
 	if current, err := os.Readlink(target); err == nil && current == source {
+		if !check {
+			bumpManifestScan(source)
+		}
 		return ExtensionResult{Changed: false, Target: target}, nil
 	}
 	if check {
@@ -52,5 +56,13 @@ func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResul
 	if err := os.Symlink(source, target); err != nil {
 		return ExtensionResult{}, err
 	}
+	bumpManifestScan(source)
 	return ExtensionResult{Changed: true, Target: target}, nil
+}
+
+// bumpManifestScan touches the extension dir: VS Code caches scanned manifests by the directory's mtime, which an
+// in-place package.json edit through the symlink never changes, so titles and commands would stay stale.
+func bumpManifestScan(dir string) {
+	now := time.Now()
+	_ = os.Chtimes(dir, now, now)
 }

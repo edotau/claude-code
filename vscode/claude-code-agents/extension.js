@@ -12,6 +12,24 @@ const {
 const { buildUsageModel, statusBarText, statusBarTooltip } = require('./lib/usage-model');
 const { renderUsageHtml } = require('./lib/usage-view');
 
+// dashboardTerminal reuses one "Agents Dashboard" terminal for every command the dashboard launches.
+function dashboardTerminal() {
+  const name = 'Agents Dashboard';
+  const existing = vscode.window.terminals.find((t) => t.name === name && t.exitStatus === undefined);
+  return existing || vscode.window.createTerminal({ name });
+}
+
+// detailsChannel shows `claude-code usage` text output read-only, without spawning a shell.
+let detailsChannel = null;
+function showUsageDetails(binary, days) {
+  if (!detailsChannel) detailsChannel = vscode.window.createOutputChannel('Agents Dashboard');
+  execFile(binary, ['usage', '--days', String(days)], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    detailsChannel.clear();
+    detailsChannel.appendLine(err ? `${binary} usage failed: ${stderr || err.message}` : stdout);
+    detailsChannel.show(true);
+  });
+}
+
 function config() {
   return vscode.workspace.getConfiguration('claudeCodeAgents');
 }
@@ -87,15 +105,14 @@ class UsageViewProvider {
       return this.render();
     }
     if (msg.type === 'details') {
-      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
-      terminal.sendText(`${binary} usage`);
-      terminal.show();
+      showUsageDetails(binary, config().get('usageDays', 30) || 30);
       return;
     }
     if (msg.type === 'accounts') {
-      const terminal = vscode.window.createTerminal({ name: 'Claude Code Profile' });
+      const terminal = dashboardTerminal();
       terminal.sendText(`${binary} profile`);
       terminal.show();
+      return;
     }
     // 'provider' clicks are reserved for a future per-provider drill-down; no-op today
   }
@@ -249,13 +266,13 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeCodeAgents.servePhone', () => {
       const binary = config().get('binary') || 'claude-code';
-      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
+      const terminal = dashboardTerminal();
       terminal.sendText(vscodeServeArgv(binary, {}).join(' '));
       terminal.show();
     }),
     vscode.commands.registerCommand('claudeCodeAgents.servePhoneStop', () => {
       const binary = config().get('binary') || 'claude-code';
-      const terminal = vscode.window.createTerminal({ name: 'Agents Dashboard' });
+      const terminal = dashboardTerminal();
       terminal.sendText(vscodeServeArgv(binary, { stop: true }).join(' '));
       terminal.show();
     })

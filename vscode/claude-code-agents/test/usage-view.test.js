@@ -113,3 +113,56 @@ test('package.json: usageEditorTitleButton setting is a boolean defaulting to tr
   assert.equal(prop.type, 'boolean');
   assert.equal(prop.default, true);
 });
+
+// Pending restyle (section headers, title attrs, nowrap/ellipsis): see vscode/claude-code-agents/lib/usage-view.js.
+
+test('renderUsageHtml (detailed): shows OVERVIEW, QUOTAS, AGENTS, MORE section headers in document order', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const headers = ['OVERVIEW', 'QUOTAS', 'AGENTS', 'MORE'];
+  const indices = headers.map((h) => html.indexOf(h));
+  indices.forEach((idx, i) => assert.ok(idx !== -1, `expected header "${headers[i]}" in detailed html`));
+  for (let i = 1; i < indices.length; i++) {
+    assert.ok(indices[i] > indices[i - 1], `expected "${headers[i]}" to follow "${headers[i - 1]}" in document order`);
+  }
+});
+
+test('renderUsageHtml (detailed): AGENTS header carries "· last 7 days" from stats.windowDays (fixture window_days: 7)', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  assert.ok(html.includes('AGENTS · last 7 days'), 'expected "AGENTS · last 7 days" in the html');
+});
+
+test('renderUsageHtml (compact): still shows all four section headers but no stat-tile class', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: false, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  for (const h of ['OVERVIEW', 'QUOTAS', 'AGENTS', 'MORE']) {
+    assert.ok(html.includes(h), `expected header "${h}" in compact html`);
+  }
+  assert.ok(!html.includes('class="stat-tile"'), 'compact mode must not render stat-tile elements');
+});
+
+test('renderUsageHtml (detailed): every .agent-stats element carries a title attribute equal to its visible text', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const re = /<div class="agent-stats[^"]*" title="([^"]*)">([^<]*)<\/div>/g;
+  const matches = [...html.matchAll(re)];
+  assert.ok(matches.length > 0, 'expected at least one .agent-stats element with a title attribute');
+  for (const m of matches) {
+    const [, title, text] = m;
+    assert.equal(title, text, 'title attribute must equal the visible text');
+  }
+});
+
+test('renderUsageHtml (detailed): no <h1> text other than "Agents Dashboard"', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+
+  const h1s = [...html.matchAll(/<h1[^>]*>([^<]*)<\/h1>/g)].map((m) => m[1]);
+  assert.ok(h1s.length > 0, 'expected at least one <h1>');
+  for (const text of h1s) assert.equal(text, 'Agents Dashboard');
+});
