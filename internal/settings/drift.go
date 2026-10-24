@@ -15,7 +15,7 @@ func Diff(existing, rendered []byte) (differs, foreign []string, err error) {
 	if !json.Valid(existing) {
 		return nil, nil, fmt.Errorf("existing settings: %w", ErrInvalidJSON)
 	}
-	merged, sum, err := Merge(existing, rendered)
+	merged, sum, err := Merge(existing, rendered, nil)
 	if err != nil {
 		return nil, nil, err
 	}

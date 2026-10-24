@@ -1,5 +1,5 @@
 // Package settings renders the harness settings.json and merges it into an existing one without
-// dropping foreign keys or foreign hooks.
+// dropping foreign keys (bar the vault drop list) or foreign hooks.
 package settings
 
 import (
@@ -130,6 +130,7 @@ func Render() ([]byte, error) {
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
 	Retired      []string // existing keys the harness removes (retiredKeys)
+	Dropped      []string // existing keys removed by the vault drop list
 	Owned        []string // template keys written (env/permissions unioned, others replaced)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
@@ -145,8 +146,8 @@ const retiredEnvPrefix = "CLAUDE_CODE_DBX_"
 var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
-// lists unioned, harness hooks replaced, foreign hooks kept after them.
-func Merge(existing, rendered []byte) ([]byte, Summary, error) {
+// lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
+func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error) {
 	var sum Summary
 	if len(bytes.TrimSpace(existing)) == 0 {
 		existing = []byte("{}")
@@ -165,6 +166,9 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 		switch {
 		case slices.Contains(retiredKeys, k):
 			sum.Retired = append(sum.Retired, k)
+			continue
+		case !owned && slices.Contains(dropped, k): // a template key is never dropped: its existing value still merges
+			sum.Dropped = append(sum.Dropped, k)
 			continue
 		case !owned:
 			sum.Kept = append(sum.Kept, k)

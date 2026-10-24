@@ -100,7 +100,7 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	merged, sum, err := settings.Merge(existing, winRendered)
+	merged, sum, err := settings.Merge(existing, winRendered, nil)
 	if err != nil {
 		return err
 	}
