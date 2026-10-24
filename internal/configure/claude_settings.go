@@ -211,33 +211,25 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 	return true
 }
 
-// runDropKeep applies --drop/--keep to the dropped-key list (next = (list + drop) - keep); the caller re-renders.
-func runDropKeep(d *dialog) int {
-	cur, err := settings.LoadDropped()
-	if err != nil {
-		d.printf("claude code: %v\n", err)
-		return 1
-	}
-	if d.o.Check { // exit 1 while a --drop key is not yet listed or a --keep key still is
-		d.println("dropped keys: " + strings.Join(cur, ", "))
-		for _, k := range d.o.Drop {
-			if !slices.Contains(cur, k) {
-				return 1
-			}
+// dropKeepCheck is the --check branch: exit 1 while a --drop key is not yet listed or a --keep key still is.
+func dropKeepCheck(d *dialog, cur []string) int {
+	d.println("dropped keys: " + strings.Join(cur, ", "))
+	for _, k := range d.o.Drop {
+		if !slices.Contains(cur, k) {
+			return 1
 		}
-		for _, k := range d.o.Keep {
-			if slices.Contains(cur, k) {
-				return 1
-			}
+	}
+	for _, k := range d.o.Keep {
+		if slices.Contains(cur, k) {
+			return 1
 		}
-		return 0
 	}
-	live, err := readLiveSettings()
-	if err != nil && !os.IsNotExist(err) {
-		d.printf("claude code: %v\n", err)
-		return 1
-	}
-	var absent []string // a key Claude Code has not written (yet) is still worth dropping: it goes on arrival
+	return 0
+}
+
+// validateDropKeep notes --drop keys absent from settings.json (still worth dropping) and errors on unlisted --keep keys.
+func validateDropKeep(d *dialog, cur []string, live map[string]json.RawMessage) error {
+	var absent []string
 	for _, k := range d.o.Drop {
 		if _, ok := live[k]; !ok && !slices.Contains(cur, k) {
 			absent = append(absent, k)
@@ -253,18 +245,45 @@ func runDropKeep(d *dialog) int {
 		}
 	}
 	if len(notDropped) > 0 {
-		d.printf("claude code: not dropped: %s\n", strings.Join(notDropped, ", "))
-		return 1
+		return fmt.Errorf("not dropped: %s", strings.Join(notDropped, ", "))
 	}
+	return nil
+}
+
+// applyDropKeep writes (or, on --dry-run, only validates) next = (list + drop) - keep and returns it.
+func applyDropKeep(d *dialog, cur []string) ([]string, error) {
 	apply := func(cur []string) []string {
 		return slices.DeleteFunc(slices.Concat(cur, d.o.Drop), func(k string) bool { return slices.Contains(d.o.Keep, k) })
 	}
 	next := apply(cur)
 	if d.o.DryRun {
-		err = settings.CheckDroppable(next)
-	} else if err = settings.UpdateDropped(apply); err == nil { // read-apply-write in one vault transaction
-		d.changed = true
+		return next, settings.CheckDroppable(next)
 	}
+	err := settings.UpdateDropped(apply) // read-apply-write in one vault transaction
+	d.changed = err == nil
+	return next, err
+}
+
+// runDropKeep applies --drop/--keep to the dropped-key list (next = (list + drop) - keep); the caller re-renders.
+func runDropKeep(d *dialog) int {
+	cur, err := settings.LoadDropped()
+	if err != nil {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	if d.o.Check {
+		return dropKeepCheck(d, cur)
+	}
+	live, err := readLiveSettings()
+	if err != nil && !os.IsNotExist(err) {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	if err := validateDropKeep(d, cur, live); err != nil {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	next, err := applyDropKeep(d, cur)
 	if err != nil {
 		d.printf("claude code: %v\n", err)
 		return 1

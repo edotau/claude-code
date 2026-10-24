@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // decodeObj decodes a JSON object into key->raw, for presence/absence and value assertions.
@@ -428,5 +429,35 @@ func TestCheckWindowsSettingsDrift_BOMIsNotInvalid(t *testing.T) {
 	if drift.Invalid != nil || drift.Drifted() {
 		t.Errorf("after install of a BOM file: Invalid=%v Drifted=%v lines=%v", drift.Invalid, drift.Drifted(),
 			drift.LinesLabeled("settings (windows)"))
+	}
+}
+
+// A drop-listed foreign key is removed from the Windows file by the render's Merge.
+func TestInstallWindowsSettings_DropsListedForeignKey(t *testing.T) {
+	profile := winHermetic(t)
+	file := winSettingsPath(profile)
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"remote":{"a":1},"verbose":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := InstallWindowsSettings(&out, false); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := decodeObj(t, b)
+	if _, ok := m["verbose"]; ok {
+		t.Error("listed foreign key verbose survived the Windows render")
+	}
+	if _, ok := m["remote"]; !ok {
+		t.Error("unlisted foreign key remote was dropped")
 	}
 }
