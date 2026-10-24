@@ -107,3 +107,22 @@ test('extension.js: views render the pointer page while the editor tab owns Task
   assert.match(src, /executeCommand\(`\$\{viewType\}\.focus`\)/);
   assert.match(src, /'workbench\.action\.closePanel'/);
 });
+
+test('renderLauncherHtml: the left-nav view lists sources with status dots and opens Tasks in a window, never the page', () => {
+  const { renderLauncherHtml } = require('../lib/tasks-view');
+  const html = renderLauncherHtml({ sources: [{ id: 'jira' }, { id: 'github' }], source: 'jira', openWhere: 'window', settings: { jira: { status: { ok: true, login: 'e' } }, github: { status: { ok: false, message: 'No token' } }, tailscale: { status: { ok: true, exitNode: { hostName: 'wks' } } } } }, { nonce: 'n' });
+  assert.match(html, /data-open-source="jira"/);
+  assert.match(html, /dot-emerald/);
+  assert.match(html, /dot-danger/);
+  assert.match(html, /data-act="openWindow"/);
+  assert.match(html, /Exit node: wks/);
+  assert.match(html, /open in a separate window/);
+  assert.doesNotMatch(html, /class="row head"|id="query"/);
+});
+
+test('extension.js: the left-nav view resolves to the launcher and pops Tasks out; the Panel view keeps the page', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(src, /viewType === 'claudeCodeTasks\.page'/);
+  assert.match(src, /renderLauncherHtml\(/);
+  assert.match(src, /openFromSidebar\(\)/);
+});
