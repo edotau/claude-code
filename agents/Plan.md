@@ -84,7 +84,9 @@ Why this change, what it must achieve, what is out of scope.
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit — functions, signatures, data flow; code for anything non-obvious.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Runner / parallel:** `runner: <claude|codex|copilot|…>`; parallel-safe with Phase N, or depends on Phase M.
+**Runner / parallel:** `runner: <claude|codex|copilot|Workflow <name>|…>`; parallel-safe with Phase N, or depends on Phase M.
+A phase that is itself a pipeline (implement+verify, audit a range, loop a gate) names the saved Workflow as its runner
+(`rules/workflow/master-workflow.md` → Saved Workflows); the manager runs it only with the user's opt-in.
 
 ### Phase 2 — <verb> <object>
 
