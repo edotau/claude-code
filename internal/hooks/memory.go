@@ -496,11 +496,12 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 		return cachedEdits, totalBytes
 	}
 	sidecar := sidecarPath(dir)
-	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so
-	// neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
-	ran, _ := paths.TryFileLock(sidecar+".lock", 2*time.Second, func() error {
+	// recount rescans each file past its cached offset and sums the edits; write controls whether the
+	// sidecar is persisted, so an unlocked fallback (read-only subagents dir) never writes a stale state.
+	recount := func(write bool) int {
 		prevState := readSidecar(sidecar)
 		next := make(map[string]subFileState, len(matches))
+		sum := 0
 		for _, m := range matches {
 			st := prevState[m] // nil map read: zero value, no rescan skipped
 			if sizes[m] < st.Offset {
@@ -511,14 +512,29 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 				st.Edits += delta
 				st.Offset = off
 			}
-			edits += st.Edits
+			sum += st.Edits
 			next[m] = st
 		}
-		writeSidecar(sidecar, next)
+		if write {
+			writeSidecar(sidecar, next)
+		}
+		return sum
+	}
+	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so
+	// neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
+	ran, lockErr := paths.TryFileLock(sidecar+".lock", 2*time.Second, func() error {
+		edits = recount(true)
 		return nil
 	})
-	if !ran {
-		return cachedEdits, totalBytes
+	if ran {
+		return edits, totalBytes
 	}
-	return edits, totalBytes
+	if lockErr != nil {
+		// Lock file couldn't even be opened (e.g. read-only subagents dir): compute unlocked, skip the
+		// sidecar write rather than freezing the count forever.
+		return recount(false), totalBytes
+	}
+	// Timeout from contention: retry on the next call rather than caching the new totalBytes against
+	// stale edits, which would make the next call's fast-path skip the recount permanently.
+	return cachedEdits, cachedBytes
 }
