@@ -243,6 +243,31 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"dangling heredoc marker", bashLine("cat <<"), false},
 		{"dangling quoted heredoc marker", bashLine("cat <<'"), false},
 		{"complete substitution still runs commit", bashLine("echo $(git commit -m x)"), true},
+		// New wrappers (R1): sudo flags, time/command/exec/nohup, `!`, and keyword-started segments.
+		{"sudo dash-u user", bashLine("sudo -u deploy git commit -m x"), true},
+		{"sudo dash-E", bashLine("sudo -E git commit -m x"), true},
+		{"time wrapper", bashLine("time git commit -m x"), true},
+		{"command wrapper", bashLine("command git commit -m x"), true},
+		{"exec wrapper", bashLine("exec git commit -m x"), true},
+		{"nohup wrapper", bashLine("nohup git commit -m x"), true},
+		{"bang negation wrapper", bashLine("! git commit -m x"), true},
+		{"then starts a fresh segment", bashLine("if true; then git commit -m x; fi"), true},
+		{"do starts a fresh segment", bashLine("for x in 1; do git commit -m x; done"), true},
+		{"else starts a fresh segment", bashLine("if false; then echo no; else git commit -m x; fi"), true},
+		{"elif starts a fresh segment", bashLine("if false; then echo no; elif true; then git commit -m x; fi"), true},
+		{"combined: sudo + time + then", bashLine("if true; then sudo time git commit -m x; fi"), true},
+		{"combined: nohup + sudo dash-g", bashLine("nohup sudo -g admin git commit -m x"), true},
+		// New value-options (R1): --namespace/--super-prefix/--config-env, both = and space forms.
+		{"--namespace space form", bashLine("git --namespace foo commit -m x"), true},
+		{"--namespace= form", bashLine("git --namespace=foo commit -m x"), true},
+		{"--super-prefix space form", bashLine("git --super-prefix foo commit -m x"), true},
+		{"--super-prefix= form", bashLine("git --super-prefix=foo commit -m x"), true},
+		{"--config-env space form", bashLine("git --config-env foo commit -m x"), true},
+		{"--config-env= form", bashLine("git --config-env=foo commit -m x"), true},
+		// Non-edit, non-commit lines must contribute 0 (no accidental decode-time double count).
+		{"Read line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.go"}}]}}`, false},
+		{"Grep line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"commit"}}]}}`, false},
+		{"Bash without commit", bashLine("echo hello"), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -261,6 +286,69 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 				t.Errorf("CountEdits(%q) = %d, want %d", tc.line, got, want)
 			}
 		})
+	}
+}
+
+// TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce: a single assistant record whose content
+// array holds both an Edit tool_use and a Bash `git commit` tool_use must count each exactly once —
+// countLineEdits decodes the line once and walks every content item, so neither is missed or doubled.
+func TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}},` +
+		`{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}` +
+		`]}}`
+	path := filepath.Join(t.TempDir(), "both.jsonl")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := 1 + CommitEditWeight
+	if got := CountEdits(path); got != want {
+		t.Errorf("CountEdits(Edit+commit in one record) = %d, want %d", got, want)
+	}
+}
+
+// TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit: a Bash tool_use with a dangling `$(`
+// never actually panics (extractSubstitutions returns what it found so far; see
+// TestExtractSubstitutionsDanglingOpen), so a sibling Edit tool_use in the same content array must still
+// count and the malformed command itself must not count as a commit. countLineEdits's whole-line recover
+// is therefore never exercised by this input — this test pins that no-panic path, not the recover itself.
+func TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[` +
+		`{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}},` +
+		`{"type":"tool_use","name":"Bash","input":{"command":"echo commit # $("}}` +
+		`]}}`
+	path := filepath.Join(t.TempDir(), "malformed-with-edit.jsonl")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CountEdits(path); got != 1 {
+		t.Errorf("CountEdits(malformed $( alongside an Edit) = %d, want 1 (the Edit counts; the dangling $( never counts as a commit)", got)
+	}
+}
+
+// TestCountEditsFromSequentialCallsIndependentWithPool: the pooled bufio.Reader must not leak state
+// (a stale long-line buffer, a wrong read position) across independent CountEditsFrom calls on different
+// files, even when run back-to-back so the pool is likely to hand back the same *bufio.Reader.
+func TestCountEditsFromSequentialCallsIndependentWithPool(t *testing.T) {
+	dir := t.TempDir()
+	editLn := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
+	for round := range 20 {
+		pathA := filepath.Join(dir, fmt.Sprintf("a-%d.jsonl", round))
+		pathB := filepath.Join(dir, fmt.Sprintf("b-%d.jsonl", round))
+		if err := os.WriteFile(pathA, []byte(strings.Repeat(editLn, 3)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(pathB, []byte(strings.Repeat(editLn, 5)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		editsA, nextA := CountEditsFrom(pathA, 0)
+		editsB, nextB := CountEditsFrom(pathB, 0)
+		if editsA != 3 || nextA != int64(3*len(editLn)) {
+			t.Fatalf("round %d: file A = (%d,%d), want (3,%d)", round, editsA, nextA, 3*len(editLn))
+		}
+		if editsB != 5 || nextB != int64(5*len(editLn)) {
+			t.Fatalf("round %d: file B = (%d,%d), want (5,%d)", round, editsB, nextB, 5*len(editLn))
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/models"
 )
@@ -106,6 +107,22 @@ func Window(model string, used int) int {
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
 var toolUseKey = []byte(`"tool_use"`)
 var commitKey = []byte("commit") // cheap prefilter; the real check is gitCommitCommand (segment/token aware)
+var bashNameKey = []byte(`"name":"Bash"`)
+
+// editNameKeys are the literal `"name":"<Tool>"` byte patterns for editTools — cheap enough to rule a
+// line out before paying for json.Unmarshal, since every other tool_use (Read/Grep/Bash…) fails all four.
+var editNameKeys = [][]byte{
+	[]byte(`"name":"Edit"`), []byte(`"name":"Write"`), []byte(`"name":"MultiEdit"`), []byte(`"name":"NotebookEdit"`),
+}
+
+func hasEditToolName(line []byte) bool {
+	for _, k := range editNameKeys {
+		if bytes.Contains(line, k) {
+			return true
+		}
+	}
+	return false
+}
 
 // CommitEditWeight is how many edits a Bash `git commit` call counts for: one commit alone is
 // substantive work; hooks.harvestMinEdits is defined from this so the two stay in lockstep.
@@ -156,13 +173,50 @@ func CountEditsFrom(path string, offset int64) (edits int, next int64) {
 	}
 	n := 0
 	read := scanLines(f, true, func(line []byte) {
-		eachEditLine(line, func(string) { n++ })
-		func() {
-			defer func() { recover() }() // malformed command text must not crash the hook; treat line as not-a-commit
-			eachCommitLine(line, func() { n += CommitEditWeight })
-		}()
+		n += countLineEdits(line)
 	})
 	return n, offset + read
+}
+
+// countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted
+// git commits — eachEditLine and eachCommitLine used to each re-unmarshal the same line.
+func countLineEdits(line []byte) (n int) {
+	defer func() { recover() }() // malformed command text must not crash the hook; keep edits counted so far
+	if !bytes.Contains(line, toolUseKey) {
+		return 0
+	}
+	isEdit := hasEditToolName(line)
+	isBash := bytes.Contains(line, bashNameKey) && bytes.Contains(line, commitKey)
+	if !isEdit && !isBash {
+		return 0
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type  string `json:"type"`
+				Name  string `json:"name"`
+				Input struct {
+					Command string `json:"command"`
+				} `json:"input"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" {
+		return 0
+	}
+	for _, c := range rec.Message.Content {
+		if c.Type != "tool_use" {
+			continue
+		}
+		switch {
+		case editTools[c.Name]:
+			n++
+		case c.Name == "Bash" && gitCommitCommand(c.Input.Command):
+			n += CommitEditWeight
+		}
+	}
+	return n
 }
 
 // eachEdit calls fn with the target path of each editor tool_use in an assistant record.
@@ -178,7 +232,7 @@ func eachEdit(path string, fn func(filePath string)) {
 }
 
 func eachEditLine(line []byte, fn func(filePath string)) {
-	if !bytes.Contains(line, toolUseKey) {
+	if !bytes.Contains(line, toolUseKey) || !hasEditToolName(line) {
 		return
 	}
 	var rec struct {
@@ -204,36 +258,11 @@ func eachEditLine(line []byte, fn func(filePath string)) {
 	}
 }
 
-// eachCommitLine calls fn once per Bash tool_use that actually RUNS `git commit` — not sed/heredoc writes,
-// and not `grep 'git commit'`/`echo "git commit"`, where the phrase is quoted text, never executed.
-func eachCommitLine(line []byte, fn func()) {
-	if !bytes.Contains(line, toolUseKey) || !bytes.Contains(line, commitKey) {
-		return
-	}
-	var rec struct {
-		Type    string `json:"type"`
-		Message struct {
-			Content []struct {
-				Type  string `json:"type"`
-				Name  string `json:"name"`
-				Input struct {
-					Command string `json:"command"`
-				} `json:"input"`
-			} `json:"content"`
-		} `json:"message"`
-	}
-	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" {
-		return
-	}
-	for _, c := range rec.Message.Content {
-		if c.Type == "tool_use" && c.Name == "Bash" && gitCommitCommand(c.Input.Command) {
-			fn()
-		}
-	}
-}
-
 // gitValueOpts are git global options whose value is the next token when not spelled with `=`.
-var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true}
+var gitValueOpts = map[string]bool{
+	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
+	"--namespace": true, "--super-prefix": true, "--config-env": true,
+}
 
 // gitShortCircuitOpts are git global options that print something and exit before any verb runs —
 // `--exec-path` only short-circuits bare (an `=`-valued form supplies a path, not a request to print one).
@@ -383,11 +412,32 @@ func heredocWord(line string) (string, bool) {
 	return word, word != ""
 }
 
-// skipCommitWrappers drops leading `NAME=value` env assignments and `sudo`/`env` tokens before `git`.
+// commitWrapperCmds pass their argument list through to run as the real command, not git themselves.
+var commitWrapperCmds = map[string]bool{"sudo": true, "env": true, "time": true, "command": true, "exec": true, "nohup": true}
+
+// commitShellKeywords start a fresh command after a shell control-flow keyword (if/while/for bodies).
+var commitShellKeywords = map[string]bool{"then": true, "do": true, "else": true, "elif": true}
+
+// sudoValueFlags are sudo flags whose value is the next token (`sudo -u user …`, `sudo -g group …`).
+var sudoValueFlags = map[string]bool{"-u": true, "--user": true, "-g": true, "--group": true}
+
+// skipCommitWrappers drops leading `NAME=value` env assignments, a leading `!`/shell keyword, and
+// wrapper commands (`sudo`, `env`, `time`, `command`, `exec`, `nohup` — plus sudo's own flags) before `git`.
 func skipCommitWrappers(toks []string) []string {
 	for len(toks) > 0 {
-		if toks[0] == "sudo" || toks[0] == "env" {
+		if toks[0] == "!" || commitShellKeywords[toks[0]] {
 			toks = toks[1:]
+			continue
+		}
+		if commitWrapperCmds[toks[0]] {
+			wrapper := toks[0]
+			toks = toks[1:]
+			for wrapper == "sudo" && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
+				if sudoValueFlags[toks[0]] {
+					toks = toks[1:]
+				}
+				toks = toks[1:]
+			}
 			continue
 		}
 		if name, _, ok := strings.Cut(toks[0], "="); ok && name != "" && !strings.ContainsAny(name, " \t") {
@@ -473,9 +523,15 @@ func eachLine(r io.Reader, fn func([]byte)) {
 	scanLines(r, false, fn)
 }
 
+// readerPool reuses the 1MB bufio.Reader across calls — this runs on every Stop hook, so a fresh
+// 1<<20 allocation per scan is wasted churn.
+var readerPool = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 1<<20) }}
+
 // scanLines avoids common-case copies and joins oversized lines without stopping the scan.
 func scanLines(r io.Reader, completeOnly bool, fn func([]byte)) int64 {
-	br := bufio.NewReaderSize(r, 1<<20)
+	br := readerPool.Get().(*bufio.Reader)
+	br.Reset(r)
+	defer readerPool.Put(br)
 	var long []byte
 	var read int64
 	for {
