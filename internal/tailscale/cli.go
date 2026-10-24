@@ -29,12 +29,14 @@ const defaultExecTimeout = 5 * time.Second
 
 // Peer is one other tailnet node from `tailscale status --json`.
 type Peer struct {
-	DNSName  string
-	IPs      []string
-	OS       string
-	Online   bool
-	ExitNode bool
-	LastSeen time.Time
+	DNSName string
+	IPs     []string
+	OS      string
+	Online  bool
+	// ExitNode is true while this peer is the exit node in use; ExitNodeOption while it advertises one.
+	ExitNode       bool
+	ExitNodeOption bool
+	LastSeen       time.Time
 }
 
 // Local is this node's status.
@@ -117,7 +119,7 @@ func Status(ctx context.Context) (Local, error) {
 	for _, p := range raw.Peer {
 		local.Peers = append(local.Peers, Peer{
 			DNSName: p.DNSName, IPs: p.TailscaleIPs, OS: p.OS, Online: p.Online,
-			ExitNode: p.ExitNode, LastSeen: p.LastSeen,
+			ExitNode: p.ExitNode, ExitNodeOption: p.ExitNodeOption, LastSeen: p.LastSeen,
 		})
 	}
 	if raw.BackendState != "Running" {
@@ -236,7 +238,7 @@ func Machines(ctx context.Context) ([]Machine, error) {
 		m := Machine{Name: d.Name, Addresses: d.Addresses, OS: d.OS, LastSeen: d.LastSeen, Tags: d.Tags, Source: "api"}
 		for _, a := range d.Addresses {
 			if p, ok := byAddr[a]; ok {
-				m.Online, m.ExitNodeAdvertised = p.Online, p.ExitNode
+				m.Online, m.ExitNodeAdvertised = p.Online, p.ExitNodeOption || p.ExitNode
 				break
 			}
 		}
@@ -253,7 +255,7 @@ func machinesFromStatus(ctx context.Context) ([]Machine, error) {
 	}
 	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running", ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
 	for _, p := range st.Peers {
-		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen, ExitNodeAdvertised: p.ExitNode, Source: "cli"})
+		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen, ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"})
 	}
 	return out, nil
 }

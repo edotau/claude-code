@@ -20,12 +20,12 @@ function dnsLabel(dnsName) {
   return String(dnsName || '').replace(/\.$/, '');
 }
 
-/** Harness status JSON → `{self, backendState, options}`; options are peers the harness flags as exit nodes. */
+/** Harness status JSON → `{self, backendState, options}`; options = peers advertising an exit node (`ExitNodeOption`) or in use. */
 function parseHarnessStatus(json) {
   const data = typeof json === 'string' ? JSON.parse(json || '{}') : json || {};
   const options = (data.Peers || [])
-    .filter((p) => p.ExitNode)
-    .map((p) => ({ dnsName: dnsLabel(p.DNSName), hostName: dnsLabel(p.DNSName).split('.')[0], ip: (p.IPs || [])[0] || '', os: p.OS || '', online: !!p.Online, selected: false }))
+    .filter((p) => p.ExitNodeOption || p.ExitNode)
+    .map((p) => ({ dnsName: dnsLabel(p.DNSName), hostName: dnsLabel(p.DNSName).split('.')[0], ip: (p.IPs || [])[0] || '', os: p.OS || '', online: !!p.Online, selected: !!p.ExitNode }))
     .sort((a, b) => Number(b.online) - Number(a.online) || a.hostName.localeCompare(b.hostName));
   return { self: dnsLabel(data.DNSName), backendState: data.BackendState || '', options };
 }
@@ -73,7 +73,7 @@ async function status({ binary = 'claude-code', tailscaleBinary = 'tailscale', e
   const base = harness || { self: '', backendState: 'Running', options: [] };
   const byIp = new Map(base.options.map((o) => [o.ip, o]));
   for (const p of (cli && cli.advertised) || []) if (p.ip && !byIp.has(p.ip)) byIp.set(p.ip, p); // peers the harness list lacks
-  const options = [...byIp.values()].map((o) => ({ ...o, selected: !!cli && !!cli.activeIp && o.ip === cli.activeIp }));
+  const options = [...byIp.values()].map((o) => ({ ...o, selected: cli && cli.activeIp ? o.ip === cli.activeIp : !!o.selected }));
   options.sort((a, b) => Number(b.selected) - Number(a.selected) || Number(b.online) - Number(a.online) || a.hostName.localeCompare(b.hostName));
   if (base.backendState && base.backendState !== 'Running') return { ok: false, message: `Tailscale is ${base.backendState.toLowerCase()}`, self: base.self, options, exitNode: null };
   return { ok: true, self: base.self, options, exitNode: options.find((o) => o.selected) || null };
