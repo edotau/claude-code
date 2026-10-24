@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -447,24 +448,69 @@ func countEdits(transcriptPath, countFile string) int {
 	return cs.edits + subEdits
 }
 
+// subFileState is one subagent file's offset + edits already counted past that offset, cached in the
+// count file's sidecar so a size bump only rescans the bytes appended since the last Stop.
+type subFileState struct {
+	Offset int64 `json:"offset"`
+	Edits  int   `json:"edits"`
+}
+
+func sidecarPath(subDir string) string { return filepath.Join(subDir, ".offsets.json") }
+
+func readSidecar(path string) map[string]subFileState {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var m map[string]subFileState
+	if json.Unmarshal(b, &m) != nil {
+		return nil
+	}
+	return m
+}
+
+func writeSidecar(path string, m map[string]subFileState) {
+	if b, err := json.Marshal(m); err == nil {
+		_ = paths.AtomicWrite(path, b, 0o600)
+	}
+}
+
 // countSubagentEdits sums agent-*.jsonl sizes under the session's subagents dir and only recounts their
-// edits when that sum moved since the cached value — background agents may still be growing those files.
+// edits when that sum moved since the cached value — then only the per-file bytes appended since each
+// file's own cached offset (sidecar ".offsets.json" inside the subagents dir), never the whole file from
+// byte 0.
 func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int) (edits int, totalBytes int64) {
 	dir := subagentDir(transcriptPath)
 	if dir == "" {
 		return 0, 0
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
+	sizes := make(map[string]int64, len(matches))
 	for _, m := range matches {
 		if fi, err := os.Stat(m); err == nil {
+			sizes[m] = fi.Size()
 			totalBytes += fi.Size()
 		}
 	}
 	if totalBytes == cachedBytes {
 		return cachedEdits, totalBytes
 	}
+	sidecar := sidecarPath(dir)
+	prevState := readSidecar(sidecar)
+	next := make(map[string]subFileState, len(matches))
 	for _, m := range matches {
-		edits += transcript.CountEdits(m)
+		st := prevState[m] // nil map read: zero value, no rescan skipped
+		if sizes[m] < st.Offset {
+			st = subFileState{} // shrank or rotated: rescan from 0
+		}
+		if sizes[m] != st.Offset {
+			delta, off := transcript.CountEditsFrom(m, st.Offset)
+			st.Edits += delta
+			st.Offset = off
+		}
+		edits += st.Edits
+		next[m] = st
 	}
+	writeSidecar(sidecar, next)
 	return edits, totalBytes
 }

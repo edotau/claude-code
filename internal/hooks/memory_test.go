@@ -775,6 +775,141 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	}
 }
 
+// subagentFixture returns a fresh session transcript path + its subagents dir, created on disk.
+func subagentFixture(t *testing.T) (tr, subDir string) {
+	t.Helper()
+	dir := t.TempDir()
+	tr = filepath.Join(dir, "t.jsonl")
+	subDir = filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return tr, subDir
+}
+
+// TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry: with 3 sibling files, growing one must
+// only rescan (and advance the sidecar offset of) that file — the other two entries come back unchanged.
+func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	b := filepath.Join(subDir, "agent-b.jsonl")
+	c := filepath.Join(subDir, "agent-c.jsonl")
+	writeEdits(t, a, 1)
+	writeEdits(t, b, 2)
+	writeEdits(t, c, 3)
+
+	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	if want := 1 + 2 + 3; edits != want {
+		t.Fatalf("initial scan edits = %d, want %d", edits, want)
+	}
+	sidecar := sidecarPath(subDir)
+	before := readSidecar(sidecar)
+	if before[a].Edits != 1 || before[b].Edits != 2 || before[c].Edits != 3 {
+		t.Fatalf("sidecar after initial scan = %+v, want 1/2/3 edits", before)
+	}
+
+	writeEdits(t, a, 4) // only a grows (overwritten with more lines, same identical-line trick as above)
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edits2, totalBytes2 := countSubagentEdits(tr, totalBytes, edits)
+	if totalBytes2 == totalBytes {
+		t.Fatal("test setup: total size did not move")
+	}
+	if want := 4 + 2 + 3; edits2 != want {
+		t.Fatalf("after growing a: edits = %d, want %d", edits2, want)
+	}
+	after := readSidecar(sidecar)
+	if after[a].Edits != 4 || after[a].Offset != fi.Size() {
+		t.Fatalf("grown file a's sidecar entry = %+v, want 4 edits at offset %d", after[a], fi.Size())
+	}
+	if after[b] != before[b] || after[c] != before[c] {
+		t.Fatalf("sibling sidecar entries moved: b=%+v (was %+v), c=%+v (was %+v)", after[b], before[b], after[c], before[c])
+	}
+}
+
+// TestCountSubagentEditsOffsetPastFileSizeRescansFromZero: a sidecar offset larger than the file's
+// current size (truncation/rotation) must rescan that file from 0, not skip it or go negative.
+func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, a, 3)
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSidecar(sidecarPath(subDir), map[string]subFileState{a: {Offset: fi.Size() + 1_000, Edits: 999}})
+
+	edits, totalBytes := countSubagentEdits(tr, 0, 0) // cachedBytes=0 forces the rescan path
+	if edits != 3 || totalBytes != fi.Size() {
+		t.Fatalf("stale-offset rescan = (%d,%d), want (3,%d)", edits, totalBytes, fi.Size())
+	}
+	got := readSidecar(sidecarPath(subDir))
+	if got[a].Edits != 3 || got[a].Offset != fi.Size() {
+		t.Fatalf("sidecar after stale-offset rescan = %+v, want 3 edits at offset %d", got[a], fi.Size())
+	}
+}
+
+// TestCountSubagentEditsGarbageSidecarTreatedAsEmpty: unparsable sidecar JSON must not panic and must
+// behave as if no cache existed — every file rescanned from 0.
+func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, a, 2)
+	if err := os.WriteFile(sidecarPath(subDir), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edits != 2 || totalBytes != fi.Size() {
+		t.Fatalf("garbage-sidecar scan = (%d,%d), want (2,%d)", edits, totalBytes, fi.Size())
+	}
+	got := readSidecar(sidecarPath(subDir))
+	if got[a].Edits != 2 {
+		t.Fatalf("sidecar rewritten after garbage input = %+v, want 2 edits for a", got[a])
+	}
+}
+
+// TestCountSubagentEditsDeletedFileDropsFromSidecar: a subagent file removed between Stops must not
+// survive in the rewritten sidecar (it would otherwise leak a stale entry forever).
+func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	b := filepath.Join(subDir, "agent-b.jsonl")
+	writeEdits(t, a, 1)
+	writeEdits(t, b, 2)
+
+	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	if edits != 3 {
+		t.Fatalf("initial scan edits = %d, want 3", edits)
+	}
+	if err := os.Remove(a); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, b, 5) // move the total size so the cache is invalidated and a rescan actually runs
+
+	edits2, totalBytes2 := countSubagentEdits(tr, totalBytes, edits)
+	if totalBytes2 == totalBytes {
+		t.Fatal("test setup: total size did not move")
+	}
+	if edits2 != 5 {
+		t.Fatalf("after deleting a: edits = %d, want 5 (b only)", edits2)
+	}
+	got := readSidecar(sidecarPath(subDir))
+	if _, present := got[a]; present {
+		t.Fatalf("deleted file a still present in rewritten sidecar: %+v", got)
+	}
+	if _, present := got[b]; !present {
+		t.Fatalf("surviving file b missing from rewritten sidecar: %+v", got)
+	}
+}
+
 // TestReadStampCatchupStateDoesNotBreakParsing: a "catchup" stamp still parses through the same 3-field
 // format the Stop gate reads, with blocks defaulting to 0 (not crashing on a non-numeric second field).
 func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
