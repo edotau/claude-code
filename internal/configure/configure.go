@@ -119,6 +119,10 @@ func Run(o Options, section string) int {
 		fmt.Fprintln(out, "configure: --drop/--keep apply to claude settings only")
 		return 2
 	}
+	if len(o.Drop)+len(o.Keep) > 0 && (section != "" || o.Provider != "") {
+		fmt.Fprintln(out, "configure: --drop/--keep take no section or --provider")
+		return 2
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)

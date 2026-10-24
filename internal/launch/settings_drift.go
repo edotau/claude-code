@@ -23,6 +23,7 @@ type SettingsDrift struct {
 	Kept     []string // foreign keys reported but not counted as drift (the Windows file)
 	LocalDup []string
 	Nested   string
+	Note     string // informational (e.g. drop list unavailable); not drift
 }
 
 // Drifted is true when settings.json is invalid, missing, differs, holds a foreign key, or a nested config exists.
@@ -58,6 +59,9 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 	if s.Nested != "" {
 		lines = append(lines, label+": nested config: "+textutil.Truncate(s.Nested, 80))
 	}
+	if s.Note != "" {
+		lines = append(lines, label+": "+s.Note)
+	}
 	return lines
 }
 
@@ -79,8 +83,8 @@ func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 		return d, err
 	}
 	dropped, derr := settings.LoadDropped()
-	if derr != nil {
-		return d, derr
+	if derr != nil { // match install: warn and continue with an empty list
+		d.Note = "drop list unavailable: " + derr.Error()
 	}
 	d.applyDropped(dropped, rendered)
 	if nested := clean.NestedConfig(); nested.Dir != "" && !nested.OnlyWorktrees() {

@@ -48,6 +48,7 @@ orchestration layer — leaves are terminal and never fan out further.
 | New test coverage | `copilot` TEST mode, dispatched in the SAME message as you, after the live check |
 | One leaf task | `code-worker` |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
+| A whole pipeline — implement+verify, audit a range, loop a gate, a vendor leg as a stage | a saved `Workflow` (`implement-and-verify`, `audit-fix-verify`, `gate-loop`, `external-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look
 for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a

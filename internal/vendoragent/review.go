@@ -1,6 +1,7 @@
 package vendoragent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,11 @@ type Scope struct{ Kind, Ref string }
 
 // ParseScope validates that at most one scope flag was set; none selects uncommitted.
 func ParseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
+	for _, ref := range []string{base, commit} {
+		if strings.HasPrefix(ref, "-") {
+			return Scope{}, fmt.Errorf("review: --base/--commit ref %q must not start with -", ref)
+		}
+	}
 	n := 0
 	for _, set := range []bool{uncommitted, base != "", commit != "", pr} {
 		if set {
@@ -43,15 +49,21 @@ func ParseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
 // untrackedCap caps how much of one untracked file's content Diff inlines.
 const untrackedCap = 64 * 1024
 
+// untrackedTotalCap caps all untracked content Diff inlines together.
+const untrackedTotalCap = 512 * 1024
+
+// binarySniff is how many leading bytes are checked for a NUL (binary) marker.
+const binarySniff = 8 * 1024
+
 // Diff materializes s's diff in cwd via gitexec. Empty content is an error, not an empty slice.
 func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	var out string
 	var err error
 	switch s.Kind {
 	case "base":
-		out, err = gitexec.RunGit(ctx, cwd, "diff", s.Ref+"...HEAD")
+		out, err = gitexec.RunGit(ctx, cwd, "diff", "--end-of-options", s.Ref+"...HEAD")
 	case "commit":
-		out, err = gitexec.RunGit(ctx, cwd, "show", "--no-color", "--format=", s.Ref)
+		out, err = gitexec.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--end-of-options", s.Ref)
 	case "pr":
 		var base string
 		base, err = gitexec.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
@@ -79,23 +91,49 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	return []byte(out), nil
 }
 
-// untrackedBlock renders every untracked file (git ls-files --others --exclude-standard) as a
-// "new file: <path>" header plus its content, capped at untrackedCap bytes each.
+// untrackedBlock renders every untracked regular text file as a "new file: <path>" header plus content,
+// capped at untrackedCap per file and untrackedTotalCap overall; non-regular and binary files get a marker.
 func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	listing, err := gitexec.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
+	total, skipped := 0, 0
 	for _, rel := range strings.Split(listing, "\n") {
 		if rel == "" {
 			continue
 		}
-		data, rerr := readCapped(filepath.Join(cwd, rel))
-		if rerr != nil {
-			continue // vanished between listing and read; skip rather than fail the whole diff
+		if total >= untrackedTotalCap {
+			skipped++
+			continue
 		}
+		path := filepath.Join(cwd, rel)
+		info, lerr := os.Lstat(path)
+		if lerr != nil {
+			continue // vanished between listing and read
+		}
+		if !info.Mode().IsRegular() {
+			kind := "special file"
+			if info.Mode()&os.ModeSymlink != 0 {
+				kind = "symlink"
+			}
+			fmt.Fprintf(&b, "new file: %s (%s, skipped)\n", rel, kind)
+			continue
+		}
+		data, rerr := readCapped(path)
+		if rerr != nil {
+			continue // skip rather than fail the whole diff
+		}
+		if bytes.IndexByte(data[:min(len(data), binarySniff)], 0) >= 0 {
+			fmt.Fprintf(&b, "new file: %s (binary, skipped)\n", rel)
+			continue
+		}
+		total += len(data)
 		fmt.Fprintf(&b, "new file: %s\n%s\n", rel, data)
+	}
+	if skipped > 0 {
+		fmt.Fprintf(&b, "… %d more untracked files not inlined\n", skipped)
 	}
 	return b.String(), nil
 }
@@ -141,11 +179,15 @@ func ReviewPrompt(adversarial bool, focus string) string {
 	return p
 }
 
-// ReviewArgs builds the `ask` argv for a review: the diff lands in a temp file attached via --attach.
-// cleanup removes the temp file in foreground mode; in background mode the detached child reads it, so
-// cleanup is a no-op. rubric, when set, emits --rubric <f> before the trailing prompt argument.
+// ReviewArgs builds the `ask` argv for a review: the diff lands in state/harness/dispatch/review-*.diff attached
+// via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
+// `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
 func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
-	f, err := os.CreateTemp("", "claude-code-review-*.diff")
+	dir := agent.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.CreateTemp(dir, "review-*.diff")
 	if err != nil {
 		return nil, nil, err
 	}

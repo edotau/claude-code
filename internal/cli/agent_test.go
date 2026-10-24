@@ -309,3 +309,17 @@ func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 		t.Error("expected a \"no sessions in scope\" message on stdout")
 	}
 }
+
+// --job on a record that already finished is refused: only a fresh running, pid-less record may be run.
+func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.Status = "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := captureOutput(t, func() int { return cmdAsk([]string{"--job", rec.ID}) })
+	if code != 2 || !strings.Contains(stderr, "not a fresh background job") {
+		t.Fatalf("exit %d stderr %q, want 2 and the not-a-fresh-job message", code, stderr)
+	}
+}

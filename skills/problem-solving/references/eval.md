@@ -48,5 +48,18 @@ Measured 2026-10-24 on the v2.0.0 split (method only, Haiku, n=2): the forced-li
 SKILL.md took s2 from 1,2 to 2,2 and s13 from 0,0 to 2,2; s9 1,1 → 1,2; s14 stays 1,1. The same lines inline
 at Step 4/6 alone regressed s2 to 0,0 — keep the box at the top.
 
+Known confound (2026-10-24), procedural: the Workflow tool prepends the triggering user message verbatim to every
+agent prompt (`[Workflow harness — user request] … this request wins`), so executors and judges see whatever the
+manager typed that turn — in the round-1 run 10/16 judges docked report_quality for executors mentioning it. Trigger
+the eval from a turn whose only text is the eval request, or headless from a scratch cwd:
+`claude-code ask --agent claude --tools --timeout 20m "Run Workflow({scriptPath: …, args: {…}}) and print the result
+JSON verbatim."` — the relayed request is then the eval itself. Run it from a cwd OUTSIDE this repo: with cwd under
+`~/.claude` the executors load the harness's CLAUDE.md and rules, so the "control" cell is no control at all.
+
+Measured 2026-10-24 (Step 0 gained "a question is for a decision, never for a reversible edit"; Haiku, n=2, headless,
+scratch cwd): control → method correct_action s2 0,0 → 1,1; s9 1,1 → 1,2; s13 0,0 → null,2 (one judge returned no
+score — reported, not dropped); s14 1,1 → 1,1. The same morning's in-repo run had read control s2 1,1 / s13 2,2 — the
+inflation the cwd confound explains.
+
 This is a smoke grade: n=2 per cell is a smoke test, not a benchmark; say which scenarios ran.
 Upstream's own numbers live in upstream's eval/RESULTS.md, not here.

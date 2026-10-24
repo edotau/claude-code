@@ -171,6 +171,7 @@ Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
 - Touch migrations or generated files.
 - `git stash` / `checkout` / `reset` / `restore` / commit / push.
 - Invent a verb — the table above is the whole surface; `claude-code codex -h` lists it.
+- Hand back before the verb's output is read — one batch, one report: the answer first, then the hand-back.
 
 Memory proposals:
 [shared discipline and codex candidates](../skills/subagent-workflows/references/memory-updates.md#codex).
