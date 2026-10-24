@@ -205,6 +205,9 @@ composing atomic commits, not just the files you intend to add.
 
 ## Report contract
 
+Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
+Handoff contract; this agent's body:
+
 ```markdown
 ## copilot (TEST)
 
