@@ -128,7 +128,7 @@ func buildSpecTree() map[string]*compNode {
 			"create": {flags: []flagInfo{flag("branch")}},
 			"merge": {args: []func() []string{worktreeNames}, flags: []flagInfo{boolFlag("dry-run"), flag("target"),
 				boolFlag("no-clean"), valuedFlag("resolve-agent", worktreeResolveAgents), boolFlag("resume"), flag("verify"), boolFlag("no-verify")}},
-			"clean":     {args: []func() []string{worktreeNames}, flags: []flagInfo{boolFlag("dry-run")}},
+			"clean":     {args: []func() []string{worktreeNames}, flags: []flagInfo{boolFlag("dry-run"), boolFlag("force")}},
 			"clean-all": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("yes")}},
 		}},
 		"memory": {sub: map[string]*compNode{
