@@ -22,7 +22,8 @@ make install                  # build, link vendor CLIs into bin/, render settin
 claude-code doctor            # check binaries, providers, credentials, router
 ```
 
-- `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`.
+- `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
+  (`CHECK=1` runs `configure --check` instead; `TAILSCALE=1` adds tailscale).
 - `claude-code install --dry-run` previews; foreign hooks in `settings.json` are kept, with a timestamped backup.
 - A missing vendor CLI is reported, never downloaded; `install --tools=<name>` installs it.
 - `bin/<vendor>` is the real, unrouted CLI. Routed launches go through `claude-code <vendor>`.

@@ -94,7 +94,7 @@ examples: help-svg  ## Regenerate docs/templates examples + menu image
 	@echo -e "$(C_OK)examples regenerated; review git diff docs/"
 
 .PHONY: bootstrap
-bootstrap:  ## Fresh box: Go, install, configure (CHECK=1 TAILSCALE=1)
+bootstrap:  ## Set up a fresh box (TAILSCALE=1 adds tailscale)
 	@$(MAKE) go-toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
@@ -170,7 +170,7 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## vet, gofmt, shell, yml, width, settings, md+memory (CHECK=1)
+lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## Lint and auto-fix everything (CHECK=1: report only)
 	@echo -e "$(C_OK)lint passed"
 
 .PHONY: lint-go
