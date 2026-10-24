@@ -1,82 +1,51 @@
-# Cost Routing — Spread Steps Evenly Across Runners
+# Cost Routing and Cross-Model Legs
 
-Claude Code stays the manager. Steps are spread evenly across the available runners — Claude in-context
-is one of them — so usage is shared between accounts and the results can be compared per runner. A
-delegated step runs through `claude-code ask` and bills to that runner's account; Claude spends only the
-brief and the check.
+Claude stays the manager. A step delegated through `claude-code ask` bills to that runner's account; Claude
+spends only the brief and the check. Use another family when it is cheaper for the step, or when a second model
+adds real coverage (independent review, broad-context sweep). Stay inline for small, coupled work.
 
-## Classify the ask
+## Classify, then route
 
-Before picking a runner, classify the task (or honor an explicit `--kind`) into one of five kinds —
-`sweep`, `review`, `mechanical`, `standard`, `reasoning`. Runner mapping for each is in the step-kind
-table below: `sweep` → the sweep row's `gemini bridge`, `review` → the review row's `codex`, `mechanical`
-→ the implementation row sized down to Copilot's `claude-haiku-5.5`, `standard` → in-session or a
-`code-worker` fan-out leaf (the classified default — nothing buys Opus by silence), `reasoning` →
-Claude at `opus`, explicit-only.
+| Kind | Signal | Runner | Call |
+|---|---|---|---|
+| `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
+| `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"` |
+| `mechanical` | one-liner, lookup, mechanical edit | `copilot` `--model claude-haiku-5.5` | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
+| `standard` | everything else (the default) | rotate `claude` · `copilot` (`claude-sonnet-5.5`) · `codex` · `opencode` | as above, `--agent <runner>` |
+| `reasoning` | explicitly flagged hard reasoning | Claude `opus` | stays in session; never by default |
 
-Classify by the shape of the ask:
+Docs drafting goes to `opencode`. Architecture, judgement, integration and final verification never leave Claude.
+`--kind` from a caller is a hint: route by judgement and say so when you disagree.
 
-- Many files / whole-repo context needed → `sweep`
-- A diff or a request wants an adversarial second opinion → `review`
-- A one-liner, a lookup, a mechanical edit → `mechanical`
-- Everything else → `standard` (handle it yourself, or fan out via `code-worker`)
-- Explicitly hard reasoning the caller flags with `--kind reasoning` → `reasoning`
+Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. `gemini-4-argon` is its
+`opus` tier (second-opinion review, hard sweeps); `flash-high` is the default.
 
-Pass `--dirs`/`--files` through to `claude-code gemini bridge` when the chosen leg is `sweep`, so it
-has file context for the 1M-context pass. A caller's `--kind` is a hint, not a gate: when your own
-judgment disagrees, say so and route by judgment instead.
+## Run the leg
 
-## Decide per step
+1. `claude-code agents` lists available runners (✓ = binary + credential). Availability is not a working
+   credential: smoke-test once with `claude-code ask --agent <r> "Reply READY only."`.
+2. Assign runners round-robin across implementation steps and name it in the brief as `runner: <name>`; keep the
+   split even across the session. Assign `runner: claude` when the brief would cost more than the work, the step
+   needs context only this session holds, or the runner failed its smoke test.
+3. Size the model: Copilot `claude-haiku-5.5` mechanical, `claude-sonnet-5.5` default, `claude-opus-5.5` only for an
+   unusually complex step (premium multipliers scale). `claude-code models --live --provider github-copilot` lists
+   what the seat serves.
+4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude. Alternatives, by hand:
+   codex limited → `copilot --model gpt-6-astra`; copilot down → opencode; agy down → copilot; Claude last.
+5. A vendor leg in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
+   `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
 
-1. `claude-code agents` — which runners are available on this box (✓ = binary + credential found).
-2. Each row lists the runners suited to that step kind:
+Independent read-only legs run in parallel (one backgrounded Bash call each); a writer then its reviewer run in
+sequence. Legs on one provider share its rate limit — reduce concurrency on persistent `429`s.
 
-| Step kind | Runners (bills to) | Call |
-|---|---|---|
-| Scoped implementation, mechanical edits, test repair | rotate: `claude` (in-context) · `copilot` (premium requests) · `codex` (ChatGPT plan) · `opencode` (Copilot `claude-opus-5.5`, medium, via its ladder) | `claude-code ask --agent <runner> --tools --workdir <repo> --fallback none --format json "<brief>"` (copilot: `--model claude-sonnet-5.5`) |
-| Adversarial diff review | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"` |
-| Read-only sweep, cross-file map, local lookup, web search | `gemini` (Google sign-in via agy) | `claude-code ask --agent gemini --tools "<brief>"` (web too: keep `--tools`, ask for URLs) · 1M context: `claude-code gemini bridge` |
-| Doc drafting | `opencode` | `claude-code ask --agent opencode --tools "<brief>"` |
-| Architecture, judgement, integration, final verification | Claude (this session) | stays here — never delegated |
+## Verify and compare
 
-3. **Distribute evenly.** The manager assigns runners round-robin across the suitable, available ones
-   for implementation steps (e.g. 4 leaves → claude, copilot, codex, opencode), names it in each handoff as
-   `runner: <name>`, and keeps the split even across a session rather than per batch. Judgement and
-   integration stay with Claude regardless.
-4. Size the model to the step: Copilot's `claude-haiku-5.5` for mechanical edits, `claude-sonnet-5.5`
-   by default, `claude-opus-5.5` only for an unusually complex step (premium multipliers scale with the
-   model). `claude-code models --live --provider github-copilot` lists what the seat serves.
-5. The manager (not the leaf) assigns `runner: claude` when the step is tiny (the brief costs more
-   than the work), tightly coupled to context only this session holds, or the runner failed its
-   smoke test (`ask --agent <r> "Reply READY only."`).
+`--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` when another runner
+stood in — a non-empty `fallback` means the saving did not happen; report it. Treat the answer as a claim: check
+`git diff --stat` for the expected files and run the verification yourself. Each leaf reports runner, model, fallback,
+first-try pass/fail and hand fixes; tally per runner (`claude-code ask --log`) and shift the split only on that
+evidence. A leaf assigned a runner that did the work itself is a skipped leg, not a success.
 
-## Alternative when a runner is unavailable
-
-`internal/agent.FallbackChain` already orders this (codex/gemini → copilot → opencode → claude;
-copilot/opencode → the other vendors → claude last). In a lane, re-dispatch on the alternative
-explicitly instead of relying on it (`--fallback none`, per above): codex quota → `copilot --model
-gpt-6-astra`; copilot down → opencode; gemini (agy) down → copilot; Claude only when nothing else answers.
-
-## Verify the leg actually ran
-
-`--format json` returns the envelope: `agent`, `provider`, `model`, `usage`, and `fallback` /
-`fallback_reason` when another runner stood in. A non-empty `fallback` means the saving did not happen —
-report it. `--fallback none` makes a failed leg exit non-zero instead of silently running on Claude, so the
-caller decides (do the step in-context, or retry later).
-
-## Compare results
-
-Every leaf reports `runner`, `model`, `fallback` (if any), verification pass/fail on first try, and how
-much it had to fix by hand. The manager tallies these per runner in its final report; `claude-code ask
---log` lists the vendor dispatches. Shift the split only on evidence from that tally.
-
-Treat the answer as a claim: inspect `git diff --stat` for the files it should have touched and run the
-step's verification command yourself.
-
-A leaf that was assigned a runner but did the work itself counts as a skipped leg, not a success - report why.
-
-## Brief
-
-Same contract as any dispatch ([SKILL.md](../SKILL.md)): one objective, the files it may touch, the
-verification command, expected output. In `~/.claude` add: never `git stash`/`checkout`/`reset`/`restore`.
-The vendor CLI starts cold — paste the facts it needs; it cannot see this session.
+The vendor CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
+As a `Workflow` stage (only when the user asks for one): `external-agent {leg, cwd, task}`, or
+`audit-fix-verify {refuters: ["codex"]}`. Interactive vendor session: `claude-code run codex|gemini|opencode|copilot`.

@@ -1,56 +1,36 @@
 # Subagent-Driven Development
 
-Use this workflow for an ordered implementation plan that should stay in the current session. It
-is sequential: run one implementation task and its reviews before starting the next.
-
-Use [dispatching-parallel-agents.md](dispatching-parallel-agents.md) instead when tasks are
-genuinely independent and safe to run concurrently.
+An ordered plan executed in this session, one task at a time with its reviews. Use
+[dispatching-parallel-agents.md](dispatching-parallel-agents.md) when the tasks are truly independent.
 
 ## Setup
 
-1. Confirm the plan, task order, dependencies, and acceptance criteria.
-2. Record the base revision and working directory.
-3. Prepare an isolated branch/worktree when the repository workflow requires it.
+Confirm the plan, order, dependencies and acceptance criteria (review a written plan first with
+[prompts.md#plan-reviewer](prompts.md#plan-reviewer)); record the base revision.
 
-## Per-task loop
+## Per task
 
-1. Dispatch one implementer using [prompts.md#implementer](prompts.md#implementer) and a `copilot` test agent
-   in the SAME message (`rules/standards/quality.md`).
-2. Inspect its status, changes, and test evidence.
-3. Dispatch an independent spec reviewer using [prompts.md#spec-reviewer](prompts.md#spec-reviewer).
-4. Send spec gaps back to the implementer; repeat until compliant.
-5. Simplify the task diff with the `simplify` skill: `Skill(simplify)` in place, or a leaf briefed
-   with [simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md). Its behavior
-   gate is the task's verification command.
-6. Only then dispatch a quality reviewer using [prompts.md#code-quality-reviewer](prompts.md#code-quality-reviewer),
-   passing the simplify report.
-7. Fix and re-review quality findings until approved.
-8. Run the task verification and mark the task complete.
+1. Implementer ([prompts.md#implementer](prompts.md#implementer)) ‖ `copilot`, same message.
+2. Spec review ([prompts.md#spec-reviewer](prompts.md#spec-reviewer)); send gaps back until `SPEC_COMPLIANT`.
+3. Simplify the task diff (`Skill(simplify)`; its behavior gate is the task's verification command).
+4. Quality review ([prompts.md#code-quality-reviewer](prompts.md#code-quality-reviewer)) with the simplify report;
+   fix until `APPROVED`.
+5. Run the task's verification yourself; mark it done.
 
-Stop and ask the user when a step's assumptions are wrong (missing file, changed API), scope grows, a
-dependency is blocked, or a decision falls outside the plan. Review a written plan before executing it with
-[prompts.md#plan-reviewer](prompts.md#plan-reviewer).
-
-Never overlap implementers in this workflow. Gate order is always spec → simplify → quality: simplifying
-non-compliant code polishes the wrong thing, and reviewing before simplifying reviews code about to change.
-
-## Status handling
+Order is always spec → simplify → quality: simplifying non-compliant code polishes the wrong thing, and reviewing
+before simplifying reviews code about to change. Never overlap implementers.
 
 | Status | Action |
 |---|---|
-| `DONE` | Start spec review |
-| `DONE_WITH_CONCERNS` | Resolve correctness or scope concerns before review |
-| `NEEDS_CONTEXT` | Add the missing context and re-dispatch |
-| `BLOCKED` | Change something: clarify, split the task, raise model capability, or revisit the plan |
+| `DONE` | Spec review |
+| `DONE_WITH_CONCERNS` | Resolve correctness or scope concerns first |
+| `NEEDS_CONTEXT` | Add the context, re-dispatch |
+| `BLOCKED` | Change something — clarify, split, raise capability, or revisit the plan; never resend unchanged |
 
-Do not retry an unchanged prompt after a blocker.
+Stop and ask the user when an assumption breaks (missing file, changed API), scope grows, or a decision falls
+outside the plan.
 
 ## Finish
 
-After all tasks:
-
-1. Run `Skill(simplify)` over the integrated diff — cross-task duplication only shows here — then review it
-   against the full plan.
-2. Run repository-level format, lint, test, and security checks that apply.
-3. Resolve every blocking finding and re-run failed checks.
-4. Hand off only with fresh verification evidence.
+`Skill(simplify)` over the integrated diff (cross-task duplication only shows here), review it against the whole plan,
+then the repo's gates (`rules/standards/quality.md` → Verification Order). Hand off only with fresh evidence.

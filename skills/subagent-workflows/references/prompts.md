@@ -1,145 +1,63 @@
 # Dispatch Prompts
 
-Shared preamble for every role below: inspect the artifact (code, tests, plan) directly — never
-trust the report or summary describing it. Return findings as file:line plus a concrete fix. Do
-not edit files unless you are the implementer. A fresh agent must be able to act from the brief
-alone; restate what the role needs, do not make it reconstruct context.
+Every reviewer inspects the artifact itself (code, tests, plan), never the report describing it, returns findings as
+file:line plus a concrete fix, and edits nothing. Paste the context each role needs; never make it reconstruct the plan.
 
 ## Implementer
 
-Use with a scoped implementation agent. Paste the task text; do not make the agent reconstruct the plan.
-
 ```markdown
-Objective: Implement Task <N>: <name>.
+Objective: implement Task <N>: <name>.
+Task: <complete requirements>
+Context: <working directory, files, dependencies, prior decisions>
+Owns: <files>. Do NOT edit others — agents are in this package concurrently.
+Acceptance: <testable outcomes>
+Verify: `<scoped command>`
 
-Task:
-<complete requirements>
+Report NEEDS_CONTEXT before editing if anything is unclear. Implement only this task, minimally, following existing
+patterns; stop rather than guess at a new design decision or scope growth. Test files belong to `copilot`: list the
+behaviors that need coverage. Shared tree: never git stash/checkout/reset/restore; confirm each write with
+`git diff --stat -- <file>`.
 
-Context and artifacts:
-<working directory, relevant files, dependencies, prior decisions>
-
-Constraints:
-<scope limits, repository rules, ownership boundaries>
-
-Acceptance criteria:
-- <testable outcome>
-
-Verification:
-`<exact command>`
-
-Before editing, report `NEEDS_CONTEXT` if a requirement or dependency is unclear.
-Implement only this task with the minimum code that meets it, following existing patterns; run verification and inspect your diff. Do not make unrequested architectural changes.
-Test files belong to the `copilot` agent running alongside you: do not edit them; list the behaviors that need coverage.
-Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`.
-
-Stop rather than guess if the task requires a new design decision, exceeds its scope, or conflicts with the plan.
-
-Return:
-- Status: `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`
-- Summary and files changed
-- Verification command and result
-- Remaining concerns or blocker
+Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; files changed; verification output; concerns.
 ```
 
 ## Spec Reviewer
 
-Use after implementation and before quality review.
+After implementation, before simplify and quality review.
 
 ```markdown
-Review the implementation against the task specification.
+Review the implementation against the specification.
+Specification: <requirements and acceptance criteria>
+Implementation report: <implementer report>
+Scope: <base..head or changed files>
 
-Specification:
-<complete task requirements and acceptance criteria>
-
-Implementation report:
-<implementer report>
-
-Scope:
-<base/head revisions or changed files>
-
-Identify:
-- missing or incorrectly interpreted requirements;
-- unrequested behavior or scope;
-- unsupported claims about completion or tests.
-
-Return one verdict:
-- `SPEC_COMPLIANT`, with brief evidence; or
-- `SPEC_ISSUES`, with actionable findings and file:line references.
-
-Do not perform a general style review.
+Find: missing or misread requirements; unrequested behavior or scope; unsupported claims about completion or tests.
+No style review.
+Return SPEC_COMPLIANT with brief evidence, or SPEC_ISSUES with file:line findings.
 ```
 
 ## Code Quality Reviewer
 
-Use only after the spec reviewer returns `SPEC_COMPLIANT` and the simplify pass
-([simplify/references/leaf-brief.md](../../simplify/references/leaf-brief.md)) has run.
+Only after `SPEC_COMPLIANT` and the simplify pass.
 
 ```markdown
-Review the implementation for correctness, maintainability, tests, security, and repository conventions.
+Review for correctness, edge cases, error handling, test quality, interface clarity, security and repo conventions.
+Task: <summary>
+Scope: base <rev>, head <rev>, files <list>
+Simplify report (applied; flagged items left on purpose): <report>
 
-Task:
-<task summary and requirements>
-
-Scope:
-Base: <base revision>
-Head: <head revision>
-Files: <changed files>
-
-Simplify report (already applied; flagged items were left on purpose):
-<simplify report>
-
-Check behavior, edge cases, error handling, test quality, interface clarity, and regressions. Complexity is
-the simplify pass's lane: raise it only where a flagged item hides a bug. Focus on issues introduced by this change.
-
-Return:
-- Strengths
-- Findings ordered as Critical, Important, Minor; include file:line and a concrete fix
-- Verdict: `APPROVED` or `CHANGES_REQUIRED`
+Complexity is the simplify pass's lane — raise it only where a flagged item hides a bug. Only issues this change introduced.
+Return: findings ordered Critical / Important / Minor with file:line and a fix; verdict APPROVED or CHANGES_REQUIRED.
 ```
 
 ## Plan Reviewer
 
-**Purpose:** Verify the plan is complete, matches the spec, and has proper task decomposition.
-**Dispatch after:** The complete plan is written.
+After a plan is written, before executing it.
 
-```text
-Agent tool (general-purpose):
-  description: "Review plan document"
-  prompt: |
-    You are a plan document reviewer. Verify this plan is complete and ready for implementation.
-
-    **Plan to review:** [PLAN_FILE_PATH]
-    **Spec for reference:** [SPEC_FILE_PATH]
-
-    ## What to Check
-
-    | Category | What to Look For |
-    |----------|------------------|
-    | Completeness | TODOs, placeholders, incomplete tasks, missing steps |
-    | Spec Alignment | Plan covers spec requirements, no major scope creep |
-    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
-    | Buildability | Could an engineer follow this plan without getting stuck? |
-
-    ## Calibration
-
-    **Only flag issues that would cause real problems during implementation.**
-    An implementer building the wrong thing or getting stuck is an issue.
-    Minor wording, stylistic preferences, and "nice to have" suggestions are not.
-
-    Approve unless there are serious gaps — missing requirements from the spec,
-    contradictory steps, placeholder content, or tasks so vague they can't be acted on.
-
-    ## Output Format
-
-    ## Plan Review
-
-    **Status:** Approved | Issues Found
-
-    **Issues (if any):**
-    - [Task X, Step Y]: [specific issue] - [why it matters for implementation]
-
-    **Recommendations (advisory, do not block approval):**
-    - [suggestions for improvement]
+```markdown
+Review plan <PLAN_PATH> against spec <SPEC_PATH> for readiness.
+Check: completeness (no TODOs, placeholders, missing steps); spec coverage without scope creep; clear task boundaries
+and actionable steps; could an engineer follow it without getting stuck?
+Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues.
+Return: Status Approved | Issues Found; issues as "[Task X, Step Y]: issue — why it matters"; optional recommendations.
 ```
-
-**Reviewer returns:** Status, Issues (if any), Recommendations.

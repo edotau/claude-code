@@ -62,7 +62,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`router serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
-| Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cross-model-agent-teams.md` |
+| Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cost-routing.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini.md`, `agents/gemini.md` |
 | Launch codex/gemini/opencode/copilot on a provider | `claude-code run codex --provider <p> --model <m>`; `--print-env` shows the wiring | `README.md` → Agents |
 | Project agents + this file into every vendor CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → Root anchors |
