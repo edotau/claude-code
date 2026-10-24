@@ -18,7 +18,7 @@ Open questions. Stop once two more lookups wouldn't change the brief.
 Question: `
 
 // ExplorePrompt builds the Codebase Context Brief prompt for question; web adds the web-research leg.
-func ExplorePrompt(question, cwd string, web bool) string {
+func ExplorePrompt(question string, web bool) string {
 	p := explorePromptBase
 	if web {
 		p += explorePromptWeb
@@ -35,5 +35,5 @@ func ExploreArgs(vendor, cwd, question string, web, background bool) []string {
 	if background {
 		args = append(args, "--background")
 	}
-	return append(args, ExplorePrompt(question, cwd, web))
+	return append(args, ExplorePrompt(question, web))
 }

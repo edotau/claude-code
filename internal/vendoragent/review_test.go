@@ -319,3 +319,77 @@ func TestDiffInlinesUntrackedFileCapped(t *testing.T) {
 		t.Errorf("inlined %d bytes of the untracked file, want %d", c, untrackedCap)
 	}
 }
+
+func TestParseScopeRejectsDashRef(t *testing.T) {
+	for _, c := range []struct{ base, commit string }{{"-x", ""}, {"", "--output=f"}} {
+		_, err := ParseScope(false, c.base, c.commit, false)
+		if err == nil || !strings.Contains(err.Error(), "must not start with -") {
+			t.Errorf("ParseScope(base=%q, commit=%q) err = %v, want the dash-ref error", c.base, c.commit, err)
+		}
+	}
+}
+
+// Diff given an option-shaped ref directly must treat it as a revision (--end-of-options), not a flag.
+func TestDiffOptionShapedRefIsNotAFlag(t *testing.T) {
+	dir := initRepo(t)
+	out := filepath.Join(t.TempDir(), "pwned")
+	for _, kind := range []string{"base", "commit"} {
+		ref := "--output=" + out // base form becomes --output=<out>...HEAD: a flag without --end-of-options
+		if _, err := Diff(context.Background(), dir, Scope{Kind: kind, Ref: ref}); err == nil {
+			t.Errorf("%s: Diff with option-shaped ref succeeded, want a bad-revision error", kind)
+		}
+		if m, _ := filepath.Glob(out + "*"); len(m) > 0 {
+			t.Fatalf("%s: git honored --output as a flag: %v", kind, m)
+		}
+	}
+}
+
+func TestUntrackedBlockMarkers(t *testing.T) {
+	dir := initRepo(t)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("TOPSECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plain.txt"), []byte("plain body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin.dat"), []byte("ab\x00cd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := untrackedBlock(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"new file: plain.txt\nplain body", "new file: link.txt (symlink, skipped)", "new file: bin.dat (binary, skipped)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("block missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "TOPSECRET") {
+		t.Error("symlink target content was inlined")
+	}
+}
+
+func TestUntrackedBlockTotalCap(t *testing.T) {
+	dir := initRepo(t)
+	chunk := bytes.Repeat([]byte("a"), untrackedCap)
+	n := untrackedTotalCap/untrackedCap + 3
+	for i := 0; i < n; i++ {
+		if err := os.WriteFile(filepath.Join(dir, "f"+string(rune('a'+i))+".txt"), chunk, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := untrackedBlock(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "… 3 more untracked files not inlined") {
+		t.Errorf("want the 3-file overflow line, got tail:\n%s", got[max(0, len(got)-120):])
+	}
+	if len(got) > untrackedTotalCap+2*untrackedCap {
+		t.Errorf("block is %d bytes, exceeds the total cap", len(got))
+	}
+}

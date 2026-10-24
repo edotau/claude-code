@@ -71,6 +71,10 @@ func cmdAsk(args []string) int {
 		if err != nil {
 			return fail("ask: %v", err)
 		}
+		if rec.Status != "running" || rec.PID != 0 {
+			fail("ask --job %s: record is %s (pid %d), not a fresh background job", *job, rec.Status, rec.PID)
+			return 2
+		}
 		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory

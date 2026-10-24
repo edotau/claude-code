@@ -100,7 +100,11 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	merged, sum, err := settings.Merge(existing, winRendered, nil)
+	dropped, derr := settings.LoadDropped()
+	if derr != nil {
+		fmt.Fprintln(w, "settings: drop list unavailable: "+derr.Error())
+	}
+	merged, sum, err := settings.Merge(existing, winRendered, dropped)
 	if err != nil {
 		return err
 	}
@@ -161,6 +165,11 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 		return SettingsDrift{File: file}, true, err
 	}
 	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered)
+	if dropped, derr := settings.LoadDropped(); derr != nil {
+		d.Note = "drop list unavailable: " + derr.Error()
+	} else {
+		d.applyDropped(dropped, winRendered) // a listed key still present is drift here too; install removes it
+	}
 	// Windows-side writers (Orca hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
 	d.Kept, d.Foreign = d.Foreign, nil
 	return d, true, err

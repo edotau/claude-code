@@ -293,4 +293,4 @@ need to know which engine answered.
 - Invent a verb — the table above is the whole surface; `claude-code gemini -h` lists it.
 
 Memory proposals:
-[shared discipline](../skills/subagent-workflows/references/memory-updates.md).
+[shared discipline and gemini candidates](../skills/subagent-workflows/references/memory-updates.md#gemini).

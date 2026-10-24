@@ -87,7 +87,9 @@ unsure between task and plan-first → plan-first.
 
 **Ambiguous scope test:** can you imagine two materially different deliverables the user might
 mean? If Step 2 can settle it, let it. If only the user can, ask exactly one pointed question
-that states your recommended interpretation, then wait. Never ask what evidence can answer.
+that states your recommended interpretation, then wait. Never ask what evidence can answer. A question
+is for a decision, never for a reversible edit: when the spec settles it, make the change under the
+stated assumption and report it; wait only before an irreversible or outward-facing act (Step 3).
 
 Also extract stated constraints and decisions already made. Never re-litigate a settled decision
 or re-derive an established fact.

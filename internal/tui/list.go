@@ -215,7 +215,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 			sec = r.Section
 			if hasSec && sec != "" {
 				t := "== " + sec + " =="
-				body = append(body, line{t, ansi.Style(color, ansi.Bold+ansi.Cyan, t)})
+				body = append(body, line{t, Accent(color, t)})
 			}
 		}
 		status := r.Status
