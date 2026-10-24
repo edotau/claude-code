@@ -88,7 +88,6 @@ coverage.*
 !/skills/browser-automation
 !/skills/evaluate-code
 !/skills/fable-method
-!/skills/find-skills
 !/skills/python-patterns
 !/skills/reflection
 !/skills/reverse-engineer

@@ -30,28 +30,10 @@ or a Makefile target.
 
 ## Codebase Intelligence Protocol
 
-**Recommended first step** for any non-trivial task. Run orchestrate `--scan` (`subagent-workflows`) or launch
-the scan manually before engaging any planning or implementation agent.
-
-The protocol launches **2-3 parallel agents** in a **single message**, scoped to the area the
-task touches:
-
-| Agent | Model | Focus | Output |
-|-------|-------|-------|--------|
-| Structure | Sonnet (Explore) | Directory layout, entry points, pipeline stages | Package map + architecture overview |
-| Conventions | Sonnet (Explore) | Naming, error handling, logging, test patterns | Style rules + code references |
-| Dependencies / wide sweep | Gemini (`claude-code gemini bridge`) | Manifest deps, env vars, CLI tools, policies — when the area is large | Integration map + constraints |
-
-Results are merged into a **Codebase Context Brief** — a structured summary passed as context to
-every downstream agent so they operate with full codebase awareness.
-
-**When to skip**: Single-line fixes, typo corrections, or tasks where context is already warm
-from a recent scan in the same session. **Scope the fan-out** to the directories the task
-touches — a repo-wide Explore sweep on every task is the single biggest avoidable input-token
-cost of this protocol.
-
-> For the full step-by-step workflow, see `skills/subagent-workflows/references/orchestrate.md` (`--scan` mode runs
-> just this protocol).
+Trigger, agent table and skip condition: `rules/workflow/master-workflow.md` → Phase 2 (also runnable
+as orchestrate `--scan`, `subagent-workflows`). Model assignment this doc adds: Structure/Conventions
+run on Sonnet (`Explore`); when the area is large, the Dependencies row runs on Gemini
+(`claude-code gemini bridge`) instead — its 1M-token window covers a wide sweep in one call.
 
 ## Immediate Agent Usage
 

@@ -56,6 +56,9 @@ The ≤120-char / ≤2-line cap is canonical in `rules/standards/communication.m
 docstring is over-engineering in prose, so it's in this lane. Say what the caller can't read
 from the signature. Before/after pairs + the public-API exception: `references/docstring-style.md`.
 
+Same lane for comments: remove section banners/ASCII dividers, TODOs that duplicate git
+history, and restate-the-code comments; keep only why-comments; prefer a clear name over a comment.
+
 ## Automated first pass
 
 Run the detectors first. `claude-code review complexity` is the #2 Simplicity detector;

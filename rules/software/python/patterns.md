@@ -9,13 +9,7 @@ paths:
 
 ## Protocol (Duck Typing)
 
-```python
-from typing import Protocol
-
-class Repository(Protocol):
-    def find_by_id(self, id: str) -> dict | None: ...
-    def save(self, entity: dict) -> dict: ...
-```
+Prefer `typing.Protocol` for duck-typed interfaces over ABC inheritance. See skill: `python-patterns`.
 
 ## Dataclasses as DTOs
 

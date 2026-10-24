@@ -2,7 +2,8 @@
 
 All detectors are `claude-code review <sub>` verbs — same flags as the scripts they replaced.
 All are **advisory** and **exit 0** (never a hard gate) except where noted. All structured
-output is `--json`.
+output is `--json`, except `gate` (`references/enforcement-patterns.md`) — the aggregate
+wrapper that runs them on staged files and prints findings; it takes no `--json` of its own.
 
 ## Detector index
 
