@@ -78,24 +78,27 @@ func TestInterruptOnExitedPIDReturnsNil(t *testing.T) {
 	}
 }
 
-// interrupt(1) (and any pid<=1) must never attempt Kill(-pid, SIGINT): for pid<=1 that resolves to -1 or
-// 0, which broadcasts SIGINT to every process the caller has permission to signal (-1) or the caller's
-// own process group (0) — unrelated to the job being cancelled. Exercising that live, even against the
-// current, correctly-guarded implementation, turns any future regression of the pid>1 guard into an
-// unattended SIGINT storm across every process this user owns the moment `go test ./...` runs (CI, a
-// pre-push hook, …) — an unacceptable blast radius for a shared, always-on harness checkout to carry by
-// default. This test is opt-in only and documents the guard instead of exercising its failure mode for
-// everyone.
-func TestInterruptGuardsAgainstGroupSignalForPIDLEQ1(t *testing.T) {
-	if os.Getenv("VENDORAGENT_UNSAFE_PID1_TEST") == "" {
-		t.Skip("opt-in only (VENDORAGENT_UNSAFE_PID1_TEST=1): see comment above — a regressed guard would broadcast SIGINT to every process this user owns")
+// pid<=1 must never reach Kill(-pid, ...): -1 broadcasts SIGINT/SIGKILL to every process the user owns.
+func TestSignalGuardsAgainstGroupSignalForPIDLEQ1(t *testing.T) {
+	var got []int
+	orig := sysKill
+	sysKill = func(pid int, sig syscall.Signal) error {
+		got = append(got, pid)
+		return syscall.EPERM
 	}
-	if os.Geteuid() == 0 {
-		t.Skip("never exercise this as root: Kill(-1, SIGINT) would reach every signalable process on the host")
-	}
-	// pid 1 belongs to root on this host; a non-root caller gets a permission error on the final direct
-	// Kill(1, ...), and because the pid>1 guard skips Kill(-1, ...) entirely, no broadcast is attempted.
-	if err := interrupt(1); err == nil {
-		t.Fatal("interrupt(1) = nil, want a permission error signalling pid 1 (unexpected: are we root?)")
+	t.Cleanup(func() { sysKill = orig })
+
+	for _, fn := range []func(int) error{interrupt, kill} {
+		got = nil
+		_ = fn(1)
+		if len(got) != 1 || got[0] != 1 {
+			t.Fatalf("fn(1) signalled %v, want [1] (never -1)", got)
+		}
+
+		got = nil
+		_ = fn(2)
+		if len(got) != 2 || got[0] != -2 || got[1] != 2 {
+			t.Fatalf("fn(2) signalled %v, want [-2 2]", got)
+		}
 	}
 }
