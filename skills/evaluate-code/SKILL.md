@@ -143,7 +143,8 @@ Per mode:
 | review (this skill) | `SHIP \| FIX REQUIRED \| BLOCK` |
 | judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
 | gate loop (`../problem-solving/references/verify.md`) | `PASS \| FAIL` |
-| task-brief review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
+| task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
+| spec review (`../subagent-workflows/references/prompts.md#spec-reviewer`) | `SPEC_COMPLIANT \| SPEC_ISSUES` |
 | vendor diff review (`claude-code <v> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
 
 ## Receive feedback

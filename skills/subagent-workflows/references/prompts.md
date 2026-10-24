@@ -82,9 +82,6 @@ Return: verdict SHIP | FIX REQUIRED | BLOCK first; findings CRITICAL / HIGH / ME
 After a plan is written, before executing it.
 
 ```markdown
-Review plan <PLAN_PATH> against spec <SPEC_PATH> for readiness.
-Check: completeness (no TODOs, placeholders, missing steps); spec coverage without scope creep; clear task boundaries
-and actionable steps; could an engineer follow it without getting stuck?
-Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues.
-Return: Status Approved | Issues Found; issues as "[Task X, Step Y]: issue — why it matters"; optional recommendations.
+Review plan <PLAN_PATH> against spec <SPEC_PATH> by
+`~/.claude/skills/evaluate-code/references/task-review.md` → Plan review. Return its verdict first.
 ```

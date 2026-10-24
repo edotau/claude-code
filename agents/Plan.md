@@ -34,7 +34,8 @@ returns a plan in this file's template; it never edits files, commits, or runs a
 - **`claude` / `code-worker` leaves** — implementation of the approved plan's phases; dispatched by the
   manager, not by Plan itself.
 - **`codex`** (`claude-code codex ask` + `skills/evaluate-code/references/task-review.md`) —
-  adversarial review of the drafted plan, dispatched by the caller, not Plan:
+  adversarial review of the drafted plan, dispatched by the caller, not Plan: the plan checklist is
+  `skills/evaluate-code/references/task-review.md#plan-review`; the dispatch wrapper is
   `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / `gemini`** — wide research before drafting (codebase structure, conventions, a 1M-context
   sweep) when the area is large or unfamiliar.
