@@ -248,7 +248,7 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	tail := &TailBuffer{}
-	cmd.Stderr = tail
+	cmd.Stderr = teeWriter(ctx, tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
 	return cmd, tail
 }
 

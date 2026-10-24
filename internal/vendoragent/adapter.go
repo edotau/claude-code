@@ -6,7 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// Adapter is the per-vendor data behind the `claude-code <v> status|result|cancel|setup|models` verbs.
+// Adapter is the per-vendor data behind the `claude-code <v> status|tail|result|cancel|setup|models` verbs.
 type Adapter struct {
 	Name           string                 // runner name == verb name: codex, gemini, copilot, opencode
 	Binary         string                 // vendor binary on PATH (gemini -> agy)
