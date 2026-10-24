@@ -165,14 +165,17 @@ func cmdAsk(args []string) int {
 	}
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	// A --job child's stdout already is the log (Spawn), so it tees only vendor stderr; foreground tees both.
 	sink := agent.NewLogSink(rec.LogPath())
 	runCtx := agent.WithLog(ctx, sink)
 	if jobRec != nil {
-		runCtx = agent.WithLogStderr(ctx, sink)
+		// A --job child's stdout is the log (Spawn): event lines stream live, the full answer lands once at the end.
+		runCtx, stream = agent.WithLogEvents(ctx, sink), io.Discard
 	}
 	res, err := agent.RunWithFallback(runCtx, r, chain, req, stream, notify)
 	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
+	if jobRec != nil && res.Answer != "" && *format != "json" {
+		fmt.Print(res.Answer) // `<vendor> result` reads the log; ▸ lines are capped, so the answer goes in whole
+	}
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
 	reportAskResult(*format, res, err)

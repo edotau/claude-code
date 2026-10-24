@@ -189,10 +189,10 @@ func NewLogSink(path string) *LogSink { return &LogSink{path: path} }
 
 type logSinkKey struct{}
 
-// logCarrier is the ctx value: the sink plus whether stdout tees are suppressed (stderr-only).
+// logCarrier is the ctx value: the sink plus whether raw stdout tees are suppressed (job runs).
 type logCarrier struct {
-	sink       *LogSink
-	stderrOnly bool
+	sink  *LogSink
+	noTee bool
 }
 
 // WithLog carries sink in ctx so every vendor child started under it tees into the log.
@@ -200,20 +200,21 @@ func WithLog(ctx context.Context, sink *LogSink) context.Context {
 	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink})
 }
 
-// WithLogStderr is WithLog for a run whose stdout already reaches the log; only child stderr is teed.
-func WithLogStderr(ctx context.Context, sink *LogSink) context.Context {
-	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink, stderrOnly: true})
+// WithLogEvents is WithLog for a job run, whose caller writes the final answer itself: event lines and child
+// stderr reach the log, raw child stdout never does.
+func WithLogEvents(ctx context.Context, sink *LogSink) context.Context {
+	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink, noTee: true})
 }
 
-// logFrom is the sink for stdout tees; nil when absent or stderr-only.
+// logFrom is the sink for raw stdout tees; nil when absent or a job carrier.
 func logFrom(ctx context.Context) *LogSink {
-	if c, _ := ctx.Value(logSinkKey{}).(logCarrier); !c.stderrOnly {
+	if c, _ := ctx.Value(logSinkKey{}).(logCarrier); !c.noTee {
 		return c.sink
 	}
 	return nil
 }
 
-// stderrLogFrom is the sink for child-stderr tees, stderr-only carriers included.
+// stderrLogFrom is the sink for child-stderr tees and event lines, job carriers included.
 func stderrLogFrom(ctx context.Context) *LogSink {
 	c, _ := ctx.Value(logSinkKey{}).(logCarrier)
 	return c.sink
@@ -233,9 +234,9 @@ type eventLog func(kind, text string)
 // eventTextCap bounds the text of one `▸ kind: text` log line, in runes.
 const eventTextCap = 300
 
-// eventLogFor binds ctx's stdout-side sink; nil when the dispatch has none or stdout already reaches the log.
+// eventLogFor binds ctx's sink; nil when the dispatch has none.
 func eventLogFor(ctx context.Context) eventLog {
-	if logFrom(ctx) == nil {
+	if stderrLogFrom(ctx) == nil {
 		return nil
 	}
 	return func(kind, text string) { logEvent(ctx, kind, text) }
@@ -257,9 +258,9 @@ func pickLog(ls []eventLog) eventLog {
 	return nil
 }
 
-// logEvent writes `▸ kind: text` (one redacted, capped line) to ctx's log; a no-op without a stdout sink.
+// logEvent writes `▸ kind: text` (one redacted, capped line) to ctx's log; a no-op without a sink.
 func logEvent(ctx context.Context, kind, text string) {
-	if s := logFrom(ctx); s != nil {
+	if s := stderrLogFrom(ctx); s != nil {
 		s.writeEvent(kind, text)
 	}
 }

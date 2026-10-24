@@ -72,4 +72,11 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 			t.Errorf("log line %q appears %d times, want exactly once:\n%s", line, n, got)
 		}
 	}
+	// Job mode now also streams the formatted event lines live, and never the raw NDJSON.
+	if !strings.Contains(got, "▸ assistant: answer-alpha") || !strings.Contains(got, "▸ result: answer-alpha") {
+		t.Errorf("log lacks the ▸ event lines:\n%s", got)
+	}
+	if strings.Contains(got, `{"event"`) {
+		t.Errorf("log holds raw NDJSON:\n%s", got)
+	}
 }
