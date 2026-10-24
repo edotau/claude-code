@@ -229,6 +229,5 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `external-agent` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
 
-The problem-solving A/B eval lives under its skill, not here:
-`skills/problem-solving/scripts/code-evaluator.js` (run via `scriptPath`, never by name) —
-`skills/problem-solving/references/eval.md`.
+The skill A/B eval lives under evaluate-code: `skills/evaluate-code/scripts/code-evaluator.js`
+(run via `scriptPath`, never by name) — `skills/evaluate-code/references/eval.md`.
