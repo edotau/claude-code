@@ -81,9 +81,13 @@ two places backed by the same provider: a bottom **Panel** tab "Tasks" (`claudeC
 Terminal/Problems) and an activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use
 (right-click its icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
 `claudeCodeAgents.tasksOpenIn` names (`panel`, default; `sidebar`; `editor`). "Claude Code Tasks: Open Tasks in Editor"
-(also a view-title button) always opens the page as an editor tab, and "Open Tasks in New Window" (the
-`$(multiple-windows)` view-title button on the left-nav and Panel views) pops it out into a floating VS Code window (the
-editor tab moved with "Move Editor into New Window"). No Go: the harness only supplies the Bitbucket and Jira
+(palette only — or drag the Tasks tab from the Panel into the editor area) opens the page as an editor tab, and "Open
+Tasks in New Window" (the one view-title button, `$(link-external)`) pops it out into a floating VS Code window (the
+editor tab moved with "Move Editor into New Window"). The activity-bar view is a **launcher** (source list with status dots, "Open Tasks in new window",
+"Open in Panel", the exit node): clicking the Tasks icon pops the page out into a window, or reveals it where it already
+lives. VS Code decides the floating window's size and remembers the last size you gave it; the page fills whatever it
+gets (board columns stretch to the width). Tasks is live in one place at a time: the Panel/sidebar copy
+closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the harness only supplies the Bitbucket and Jira
 credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
 `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session and re-resolved once on a
 401/403.
