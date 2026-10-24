@@ -33,8 +33,8 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Assumption/goal detectors over a plan | `claude-code review goals\|assumptions` |
 
 References: `references/notes.md` (the four forced notes — read before any report),
-`../evaluate-code/references/failure-modes.md` (19 symptoms → step), `references/eval.md` (the trap-suite
-fixture a rule change must pass).
+`../evaluate-code/references/failure-modes.md` (19 symptoms → step), `../evaluate-code/references/eval.md`
+(the trap-suite fixture a rule change must pass).
 
 The steps structure your work, never your output. **Never put step numbers or step names in
 anything the user reads.** The only method artifacts allowed in a report are `TASK:`, `AUTH:`,

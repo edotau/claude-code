@@ -4,8 +4,9 @@ Derived from [Sahir619/fable-method](https://github.com/Sahir619/fable-method) (
 lesson: a forced line at the action point (`TASK:`, `ISSUE:`) transfers to weak tiers; prose and
 absence-noticing rules (`PENDING:`) do not.
 
-Prime directive: a rule change to this skill must bring the fixture where the old wording failed the
-trap and the new wording passes it. A run that produces no score (a null) gets reported, not dropped.
+Prime directive: a rule change to `problem-solving` (`../../problem-solving/SKILL.md`) must bring the fixture
+where the old wording failed the trap and the new wording passes it. A run that produces no score (a null) gets
+reported, not dropped.
 
 ## Runbook
 
@@ -23,10 +24,10 @@ done
 ```
 
 Invoke the Workflow tool via `scriptPath` (never by name):
-`Workflow({scriptPath: "~/.claude/skills/problem-solving/scripts/code-evaluator.js", args: {base: "<BASE>",
+`Workflow({scriptPath: "~/.claude/skills/evaluate-code/scripts/code-evaluator.js", args: {base: "<BASE>",
 skill: "<SKILL.md or brief under test>", scenarios: ["s2","s9","s13","s14"], seeds: 2, model: "haiku"}})`.
 `args.skill` must point at a `SKILL.md` inside a **full copy** of the skill directory — the relative
-`references/` links in this skill resolve from the SKILL.md's own directory, and a bare copy of just
+`references/` links in problem-solving resolve from the SKILL.md's own directory, and a bare copy of just
 the SKILL.md file breaks every one of them.
 
 ## Scenarios

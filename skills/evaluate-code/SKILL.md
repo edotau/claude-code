@@ -1,6 +1,6 @@
 ---
 name: evaluate-code
-description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the problem-solving loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "check complexity", "am I overcomplicating this", "is this slow", "N+1", "tech debt". Security: security-reviewer skill.'
+description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the problem-solving loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt". Doing the work: problem-solving; cleanup: simplify; security: security-reviewer.'
 
 metadata:
   version: 4.0.0
@@ -22,6 +22,7 @@ pass** — the `security-reviewer` skill owns it. Doing the work, rather than ch
 - **Scan tech debt** → `references/techdebt.md`.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
   checklists `agents/codex.md` runs via `claude-code codex ask`).
+- **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `scripts/code-evaluator.js`).
 - **Vet a task brief before implementation** → `references/task-review.md` (verdict `READY | NEEDS
   CLARIFICATION`; on another model family via `claude-code codex ask`).
 
