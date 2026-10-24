@@ -1,6 +1,6 @@
 ---
 description: "Fan out code-worker subagents to finish a series of tasks — parallel (independent), sequential (plan with review gate per task), or auto. The multi-leaf counterpart to a single Agent dispatch."
-argument-hint: "[parallel | sequential | auto] <task1 | task2 | ...>  (tasks '|'-separated; blank reads the approved plan)"
+argument-hint: "[parallel | sequential | auto | team] <task1 | task2 | ...>  (tasks '|'-separated; blank reads the approved plan)"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
@@ -8,7 +8,7 @@ Launcher only. The dispatch shape, gates, and report format live in
 `skills/subagent-workflows/SKILL.md` (`references/dispatching-parallel-agents.md` for parallel,
 `references/subagent-driven-development.md` for sequential).
 
-Strip an optional leading mode word (`parallel`/`sequential`/`auto`) from `$ARGUMENTS`; split the
+Strip an optional leading mode word (`parallel`/`sequential`/`auto`/`team`) from `$ARGUMENTS`; split the
 rest on `|` into the task list. Blank task list: read the most recent
 `~/.claude/plans/<repo>/*.md` (or `~/.claude/plans/*.md` for this repo) and use its task
 breakdown. `auto` or no mode: infer parallel for independent tasks, sequential for
@@ -18,3 +18,11 @@ Dispatch each task as a `code-worker` leaf per the skill's process, with a `copi
 the SAME message every time (`rules/standards/quality.md`). Run the spec → simplify → quality
 gates from the skill before moving to the next task (sequential) or over the integrated diff
 (parallel). Relay one consolidated report: per-task status, files, verification, overall verdict.
+
+Default runners: when the plan or task names no runner, set each leaf's `Runner:` from the "Default runner per
+task class" table in `skills/subagent-workflows/references/cost-routing.md` instead of running it in-context.
+
+`team` mode (`/code-workers team <goal>`): one `gemini` leaf scans (read-only, cites file:line) → one `codex`
+leaf reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval → approved
+items go to `opencode` leaves (edits in a worktree) ‖ a `copilot` test agent when code changes. Watch each leg
+with `claude-code <vendor> tail -f`.
