@@ -73,6 +73,49 @@ Agents Dashboard in Editor" always opens that tab regardless of the setting, and
 a `$(pulse)` button in every editor's title bar (top-right) when `claudeCodeAgents.usageEditorTitleButton`
 is `true` (default); the same button sits in the Agents Dashboard view's own title bar next to Refresh.
 
+## Tasks
+
+A second activity-bar container, "Tasks", backed by `lib/bitbucket-client.js`, a dependency-free
+Bitbucket Data Center REST client built into the extension itself (`fetch`, no shell). The harness
+only supplies the credential: the extension runs `<binary> secrets get BITBUCKET_TOKEN` via
+`execFile` (falling back to the `BITBUCKET_TOKEN` env var), caches it for the session, and
+re-resolves once on a 401/403. Three tree views:
+
+- **This branch** — the pull request for the checked-out workspace folder's git branch (the first
+  workspace folder's `origin` remote resolves the Bitbucket project/repo; reviewers, build status, a
+  linked Jira key when one is detected), or a "No pull request for `<branch>`" placeholder. When the
+  remote isn't a Data Center repo on `claudeCodeAgents.bitbucketUrl`'s host (e.g. GitHub), this view
+  shows a plain "Not a Bitbucket Data Center repo: `<host>`" row instead of an error.
+- **My pull requests** — open PRs you authored, across every project, newest-updated first.
+- **Review requests** — open PRs where you're a requested reviewer, newest-updated first.
+
+My pull requests and Review requests work from the dashboard endpoint and don't need the workspace
+to be a Data Center repo. Each PR row opens its URL in the browser (click, or right-click → "Open");
+"Copy task prompt & open Claude" copies `Work on <title> (<url>)` to the clipboard and opens the
+shared "Agents Dashboard" terminal running `<binary> claude` so you can paste it in. "Refresh" (view
+title bar) re-fetches a view on demand; otherwise every visible view polls every
+`claudeCodeAgents.tasksRefreshSeconds` (default `120`). With no token configured, every tree shows
+one row with that message that runs `claude-code secrets set BITBUCKET_TOKEN` in a terminal.
+`claudeCodeAgents.bitbucketUrl` (default `https://bitbucket.biscrum.com`) points the client at your
+Data Center server.
+
+The Jira key shown on a branch/PR row is detected locally (branch name first, then the PR title;
+same regex + denylist as the Orca app) — no Jira API call. Set
+`claudeCodeAgents.tasksJiraBaseUrl` (e.g. `https://jira.example.com`) to turn a detected key into a
+link to `<base>/browse/<KEY>`; left empty (default), the key still shows but isn't clickable.
+
+On activation, the extension installs the "GitHub Pull Requests and Issues" extension
+(`github.vscode-pull-request-github`, also listed as an `extensionPack` dependency for a
+marketplace install) if it isn't already present, for GitHub-hosted PR support alongside these
+Bitbucket Data Center views; `claudeCodeAgents.tasksInstallGitHubExtension` (default `true`) turns
+that off. A failed install (offline, marketplace unreachable) is silent — the Tasks views work
+without it.
+
+A status bar segment (same side/priority pattern as the usage segment, one slot to its right) shows
+the current branch's PR as `#123 ✓ · 1/2` (build status · reviewers approved/total), `no PR` when
+the branch has a detected Jira key but no PR, or hides itself entirely when there's neither;
+`claudeCodeAgents.tasksStatusBar` (default `true`) turns it off. Clicking it focuses "This branch".
+
 ## Phone access
 
 "Claude Code Agents: Serve for Phone (Tailscale)" runs `claude-code vscode serve` in a terminal

@@ -1,0 +1,15 @@
+{
+  "size": 1,
+  "limit": 25,
+  "isLastPage": true,
+  "values": [
+    {
+      "state": "SUCCESSFUL",
+      "key": "0fbb34a3",
+      "name": "0fbb34a3",
+      "url": "https://jenkins.example.com/job/digitalbtd-cd/job/digitalbtd-cd-portal-frontend-10051/1/",
+      "dateAdded": 1792622483015
+    }
+  ],
+  "start": 0
+}

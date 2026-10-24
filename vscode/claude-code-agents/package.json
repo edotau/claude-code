@@ -15,6 +15,9 @@
     "onView:claudeCodeAgents.usage",
     "onStartupFinished"
   ],
+  "extensionPack": [
+    "github.vscode-pull-request-github"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -22,6 +25,11 @@
           "id": "claudeCodeAgents",
           "title": "Agents Dashboard",
           "icon": "media/hubot.svg"
+        },
+        {
+          "id": "claudeCodeTasks",
+          "title": "Tasks",
+          "icon": "media/tasks.svg"
         }
       ]
     },
@@ -31,6 +39,20 @@
           "id": "claudeCodeAgents.usage",
           "name": "Agents Dashboard",
           "type": "webview"
+        }
+      ],
+      "claudeCodeTasks": [
+        {
+          "id": "claudeCodeTasks.branch",
+          "name": "This branch"
+        },
+        {
+          "id": "claudeCodeTasks.mine",
+          "name": "My pull requests"
+        },
+        {
+          "id": "claudeCodeTasks.reviewing",
+          "name": "Review requests"
         }
       ]
     },
@@ -68,6 +90,22 @@
         "command": "claudeCodeAgents.servePhoneStop",
         "title": "Stop Serving for Phone",
         "category": "Claude Code Agents"
+      },
+      {
+        "command": "claudeCodeTasks.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.open",
+        "title": "Open",
+        "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.startAgent",
+        "title": "Copy task prompt & open Claude",
+        "category": "Claude Code Tasks"
       }
     ],
     "menus": {
@@ -81,6 +119,21 @@
           "command": "claudeCodeAgents.openUsageEditor",
           "when": "view == claudeCodeAgents.usage",
           "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.refresh",
+          "when": "view == claudeCodeTasks.branch",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.refresh",
+          "when": "view == claudeCodeTasks.mine",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.refresh",
+          "when": "view == claudeCodeTasks.reviewing",
+          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -88,6 +141,13 @@
           "command": "claudeCodeAgents.openUsageEditor",
           "when": "config.claudeCodeAgents.usageEditorTitleButton",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeCodeTasks.startAgent",
+          "when": "viewItem == task",
+          "group": "inline"
         }
       ]
     },
@@ -158,6 +218,31 @@
           "type": "boolean",
           "default": true,
           "description": "Show an Open Agents Dashboard in Editor button in every editor's title bar."
+        },
+        "claudeCodeAgents.tasksRefreshSeconds": {
+          "type": "number",
+          "default": 120,
+          "description": "Tasks panel auto-refresh interval, in seconds, while a Tasks view is visible."
+        },
+        "claudeCodeAgents.tasksJiraBaseUrl": {
+          "type": "string",
+          "default": "https://jira.biscrum.com",
+          "description": "Jira base URL used to link detected issue keys, e.g. https://jira.example.com"
+        },
+        "claudeCodeAgents.tasksStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the current branch's pull request as a status bar segment."
+        },
+        "claudeCodeAgents.bitbucketUrl": {
+          "type": "string",
+          "default": "https://bitbucket.biscrum.com",
+          "description": "Bitbucket Data Center server URL the Tasks views query directly."
+        },
+        "claudeCodeAgents.tasksInstallGitHubExtension": {
+          "type": "boolean",
+          "default": true,
+          "description": "On activation, install the GitHub Pull Requests and Issues extension if it's missing."
         }
       }
     }

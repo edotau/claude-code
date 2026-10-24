@@ -1,0 +1,209 @@
+{
+  "id": 1654,
+  "version": 8,
+  "title": "Feature/DIGITALBTD-9679 mmseqs pathogen mimicry ai summary feature frontend eau",
+  "description": "Description.",
+  "state": "MERGED",
+  "open": false,
+  "closed": true,
+  "draft": false,
+  "createdDate": 1792169218104,
+  "updatedDate": 1792629427671,
+  "closedDate": 1792629427671,
+  "fromRef": {
+    "id": "refs/heads/feature/DIGITALBTD-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
+    "displayId": "feature/DIGITALBTD-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
+    "latestCommit": "8b60f37cfd97c6d34342e1b9bca67014e4ad907b",
+    "type": "BRANCH",
+    "repository": {
+      "slug": "digitalbtd-portal-frontend",
+      "id": 34822,
+      "name": "digitalbtd-portal-frontend",
+      "hierarchyId": "cf987aa7fc728a104222",
+      "scmId": "git",
+      "state": "AVAILABLE",
+      "statusMessage": "Available",
+      "forkable": true,
+      "project": {
+        "key": "DIGITALBTD",
+        "id": 5838,
+        "name": "DIGITAL BTD PORTAL",
+        "description": "Description.",
+        "public": false,
+        "type": "NORMAL",
+        "links": {
+          "self": [
+            {
+              "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD"
+            }
+          ]
+        }
+      },
+      "public": false,
+      "archived": false,
+      "links": {
+        "clone": [
+          {
+            "href": "https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git",
+            "name": "http"
+          },
+          {
+            "href": "ssh://git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git",
+            "name": "ssh"
+          }
+        ],
+        "self": [
+          {
+            "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/browse"
+          }
+        ]
+      }
+    }
+  },
+  "toRef": {
+    "id": "refs/heads/master",
+    "displayId": "master",
+    "latestCommit": "fe1ddb0a26fdc7121445665256f2532d0fed6dd7",
+    "type": "BRANCH",
+    "repository": {
+      "slug": "digitalbtd-portal-frontend",
+      "id": 34822,
+      "name": "digitalbtd-portal-frontend",
+      "hierarchyId": "cf987aa7fc728a104222",
+      "scmId": "git",
+      "state": "AVAILABLE",
+      "statusMessage": "Available",
+      "forkable": true,
+      "project": {
+        "key": "DIGITALBTD",
+        "id": 5838,
+        "name": "DIGITAL BTD PORTAL",
+        "description": "Description.",
+        "public": false,
+        "type": "NORMAL",
+        "links": {
+          "self": [
+            {
+              "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD"
+            }
+          ]
+        }
+      },
+      "public": false,
+      "archived": false,
+      "links": {
+        "clone": [
+          {
+            "href": "https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git",
+            "name": "http"
+          },
+          {
+            "href": "ssh://git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git",
+            "name": "ssh"
+          }
+        ],
+        "self": [
+          {
+            "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/browse"
+          }
+        ]
+      }
+    }
+  },
+  "locked": false,
+  "author": {
+    "user": {
+      "name": "dev1@example.com",
+      "emailAddress": "dev1@example.com",
+      "active": true,
+      "displayName": "Dev 1",
+      "id": 50780,
+      "slug": "dev1_example.com",
+      "type": "NORMAL",
+      "links": {
+        "self": [
+          {
+            "href": "https://bitbucket.biscrum.com/users/dev1_example.com"
+          }
+        ]
+      }
+    },
+    "role": "AUTHOR",
+    "approved": false,
+    "status": "UNAPPROVED"
+  },
+  "reviewers": [
+    {
+      "user": {
+        "name": "dev2@example.com",
+        "emailAddress": "dev2@example.com",
+        "active": true,
+        "displayName": "Dev 2",
+        "id": 58853,
+        "slug": "dev2_example.com",
+        "type": "NORMAL",
+        "links": {
+          "self": [
+            {
+              "href": "https://bitbucket.biscrum.com/users/dev2_example.com"
+            }
+          ]
+        }
+      },
+      "lastReviewedCommit": "1e1cb5cbd9267b93770804903a2dae9b5a714dfc",
+      "role": "REVIEWER",
+      "approved": true,
+      "status": "APPROVED"
+    },
+    {
+      "user": {
+        "name": "dev3@example.com",
+        "emailAddress": "dev3@example.com",
+        "active": true,
+        "displayName": "Dev 3",
+        "id": 50472,
+        "slug": "dev3_example.com",
+        "type": "NORMAL",
+        "links": {
+          "self": [
+            {
+              "href": "https://bitbucket.biscrum.com/users/dev3_example.com"
+            }
+          ]
+        }
+      },
+      "role": "REVIEWER",
+      "approved": false,
+      "status": "UNAPPROVED"
+    },
+    {
+      "user": {
+        "name": "dev4@example.com",
+        "emailAddress": "dev4@example.com",
+        "active": true,
+        "displayName": "Dev 4",
+        "id": 60398,
+        "slug": "dev4_example.com",
+        "type": "NORMAL",
+        "links": {
+          "self": [
+            {
+              "href": "https://bitbucket.biscrum.com/users/dev4_example.com"
+            }
+          ]
+        }
+      },
+      "role": "REVIEWER",
+      "approved": false,
+      "status": "UNAPPROVED"
+    }
+  ],
+  "participants": [],
+  "links": {
+    "self": [
+      {
+        "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests/1654"
+      }
+    ]
+  }
+}
