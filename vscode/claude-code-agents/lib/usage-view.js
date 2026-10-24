@@ -145,11 +145,12 @@ function renderAgentCard(a, totalTokens) {
   if (a.sessions) parts.push(sessionsLabel(a.sessions));
   if (a.turns) parts.push(`${a.turns} turns`);
   if (a.costUsd != null) parts.push(`$${a.costUsd.toFixed(2)}`);
+  const statsText = parts.join(' · ');
   const share = totalTokens > 0 ? Math.min(100, (a.tokens / totalTokens) * 100) : 0;
   return `<div class="agent-card">
     <div class="agent-name">${esc(a.name)}</div>
     ${a.topModel ? `<div class="agent-model muted">${esc(a.topModel)}</div>` : ''}
-    <div class="agent-stats muted">${esc(parts.join(' · '))}</div>
+    <div class="agent-stats muted" title="${esc(statsText)}">${esc(statsText)}</div>
     <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
   </div>`;
 }
@@ -165,21 +166,22 @@ function renderAgentCompact(a) {
   </div>`;
 }
 
-function renderAgentsSection(model, detailed, days) {
+/** "last N days" fragment for the AGENTS section header; `stats.windowDays` (the query window) wins over the
+ * webview's own `days` option when both are known. */
+function agentsWindowLabel(model, days) {
+  const n = model.stats && model.stats.windowDays != null ? model.stats.windowDays : days;
+  return `last ${n} day${n === 1 ? '' : 's'}`;
+}
+
+/** Agent cards/rows only — no head; the AGENTS section header carries the title + window label. */
+function renderAgentsBody(model, detailed) {
   const agents = model.agents || [];
   if (!agents.length) return '';
-  const windowLabel = `last ${days} day${days === 1 ? '' : 's'}`;
   const totalTokens = agents.reduce((sum, a) => sum + (a.tokens || 0), 0);
   const body = detailed
     ? `<div class="agents-grid">${agents.map((a) => renderAgentCard(a, totalTokens)).join('')}</div>`
     : agents.map(renderAgentCompact).join('');
-  return `<div class="agents-section">
-    <div class="agents-head">
-      <span class="agents-title">Agents</span>
-      <span class="muted">${esc(windowLabel)}</span>
-    </div>
-    ${body}
-  </div>`;
+  return `<div class="agents-section">${body}</div>`;
 }
 
 function renderApiTable(model) {
@@ -262,7 +264,7 @@ function renderHeatmap(stats) {
     }
   }
   const columns = col + 1;
-  return `<div class="heatmap" style="grid-template-columns:repeat(${columns},10px);grid-template-rows:repeat(7,10px)">${cells.join('')}</div>`;
+  return `<div class="heatmap-wrap"><div class="heatmap" style="grid-template-columns:repeat(${columns},var(--heat-cell,10px));grid-template-rows:repeat(7,var(--heat-cell,10px))">${cells.join('')}</div></div>`;
 }
 
 /** "Less [□▢▦▩■] More" legend, same 5-step opacity scale as the heatmap cells. */
@@ -318,37 +320,42 @@ function renderStatsSection(stats) {
 /** Full webview HTML string for the Usage view; `opts.detailed` picks Detailed vs Compact, `opts.show` used|left. */
 function renderUsageHtml(model, opts) {
   const { detailed = true, show = 'used', nonce = '', cspSource = '', days = 1 } = opts || {};
-  const statsSection = detailed ? renderStatsSection(model.stats) : '';
-  const agentsSection = renderAgentsSection(model, detailed, days);
-  const body =
+  const overviewBody = detailed ? renderStatsSection(model.stats) : '';
+  const quotasBody =
     model.mode === 'api'
-      ? agentsSection + renderApiTable(model)
-      : model.providers.map((p) => renderProvider(p, show, detailed)).join('') + agentsSection;
+      ? renderApiTable(model)
+      : model.providers.map((p) => renderProvider(p, show, detailed)).join('');
+  const agentsBody = renderAgentsBody(model, detailed);
+  const agentsHeader = `AGENTS · ${agentsWindowLabel(model, days)}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
 <style>
-  body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
-  .header h1 { font-size: 13px; font-weight: 600; margin: 0; }
-  .header-right { display: flex; align-items: center; gap: 8px; }
+  body { --heat-cell: 10px; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
+  .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; flex-wrap: nowrap; }
+  .header h1 { font-size: 13px; font-weight: 600; margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-right { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
   .muted { color: var(--vscode-descriptionForeground); }
   .icon-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 2px; }
   .segmented { display: flex; margin: 0 12px 8px; border: 1px solid var(--vscode-widget-border); border-radius: 4px; overflow: hidden; }
   .segmented button { flex: 1; background: none; border: none; color: var(--vscode-foreground); padding: 4px 0; cursor: pointer; font-size: 12px; }
   .segmented button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
+  .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quotas-list { display: flex; flex-direction: column; gap: 10px; }
   .provider { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); cursor: pointer; }
-  .provider-head { display: flex; align-items: center; gap: 6px; }
-  .provider-name { font-weight: 600; }
-  .provider-resets { color: var(--vscode-descriptionForeground); font-size: 12px; }
-  .chevron { margin-left: auto; color: var(--vscode-descriptionForeground); font-size: 16px; line-height: 1; }
-  .glyph { width: 16px; text-align: center; font-size: 13px; }
+  .quotas-list .provider:first-child { border-top: none; }
+  .provider-head { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
+  .provider-name { font-weight: 600; flex: none; white-space: nowrap; }
+  .provider-resets { color: var(--vscode-descriptionForeground); font-size: 12px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chevron { margin-left: auto; flex: none; color: var(--vscode-descriptionForeground); font-size: 16px; line-height: 1; }
+  .glyph { width: 16px; text-align: center; font-size: 13px; flex: none; }
   .glyph-claude { color: #d97757; }
   .glyph-agy { color: #4b8bff; }
   .icon-btn { font-size: 14px; line-height: 1; }
-  .windows { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .windows { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
   .window-row { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
   .window-label { min-width: 32px; color: var(--vscode-descriptionForeground); }
   .window-bar { flex: none; }
@@ -356,7 +363,7 @@ function renderUsageHtml(model, opts) {
   .window-fill { display: block; height: 100%; }
   .window-pct { width: 32px; text-align: right; }
   .windows-compact { flex-direction: row; flex-wrap: wrap; gap: 10px; }
-  .grouped-grid, .ungrouped-grid { margin-top: 6px; display: grid; align-items: center; gap: 4px 6px; font-size: 12px; }
+  .grouped-grid, .ungrouped-grid { margin-top: 6px; display: grid; align-items: center; gap: 6px 6px; font-size: 12px; }
   .ungrouped-grid { grid-template-columns: auto 36px 36px; }
   .grid-group-name, .grid-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--vscode-descriptionForeground); }
   .grid-col-label { grid-column: span 2; text-align: right; color: var(--vscode-descriptionForeground); }
@@ -367,33 +374,34 @@ function renderUsageHtml(model, opts) {
   .chip-bar { width: 24px; height: 6px; border-radius: 3px; background: var(--vscode-widget-border); overflow: hidden; }
   .chip-fill { display: block; height: 100%; }
   .provider-note { margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 12px; }
-  .agents-section { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); }
-  .agents-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-  .agents-title { font-weight: 600; }
-  .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-  .agent-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; }
+  .agents-section { padding: 0 12px; }
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .agent-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
   .agent-card-muted { opacity: 0.7; }
   .agent-name { font-weight: 600; }
   .agent-model, .agent-stats, .agent-note { font-size: 12px; }
-  .agent-stats { margin-top: 2px; }
+  .agent-stats { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--vscode-widget-border); overflow: hidden; }
   .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
-  .agent-compact { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+  .agent-compact { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; padding: 2px 0; }
+  .more-list .footer-row:first-child { border-top: none; }
   .footer-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); cursor: pointer; }
   .api-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 12px; width: calc(100% - 24px); }
   .api-table th, .api-table td { text-align: left; padding: 2px 6px 2px 0; }
   .api-table th { color: var(--vscode-descriptionForeground); font-weight: 400; }
-  .stats-section { padding: 8px 12px; }
-  .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
-  .stat-tile { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; }
-  .stat-tile-label { font-size: 12px; margin-bottom: 2px; }
-  .stat-tile-value { font-size: 16px; font-weight: 600; }
+  .stats-section { padding: 0 12px; }
+  .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .stat-tile { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
+  .stat-tile-label { font-size: 12px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-tile-value { font-size: clamp(13px, 4vw, 16px); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stats-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .stats-col { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
-  .stats-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-  .stats-col-title { font-weight: 600; font-size: 12px; }
+  .stats-col-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+  .stats-col-title { font-weight: 600; font-size: 12px; min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-col-head .muted { flex: none; white-space: nowrap; }
+  .heatmap-wrap { overflow-x: auto; }
   .heatmap { display: grid; gap: 2px; }
-  .heat-cell { width: 10px; height: 10px; border-radius: 2px; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
+  .heat-cell { width: var(--heat-cell); height: var(--heat-cell); border-radius: 2px; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .heat-legend { display: flex; align-items: center; gap: 3px; margin-top: 6px; font-size: 11px; }
   .heat-legend-cell { display: inline-block; }
   .token-mix { display: flex; flex-direction: column; gap: 8px; }
@@ -404,6 +412,7 @@ function renderUsageHtml(model, opts) {
   .mix-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
   @media (max-width: 480px) {
     .stats-cols { grid-template-columns: 1fr; }
+    body { --heat-cell: 8px; }
   }
 </style>
 </head>
@@ -423,8 +432,14 @@ function renderUsageHtml(model, opts) {
     <button id="compact" class="${!detailed ? 'active' : ''}">Compact</button>
   </div>`
   }
-  ${statsSection}
-  ${body}
+  <div class="section-header">OVERVIEW</div>
+  ${overviewBody}
+  <div class="section-header">QUOTAS</div>
+  <div class="quotas-list">${quotasBody}</div>
+  <div class="section-header">${esc(agentsHeader)}</div>
+  ${agentsBody}
+  <div class="section-header">MORE</div>
+  <div class="more-list">
   <div class="footer-row" id="details">
     <span>Usage details &amp; history</span>
     <span class="chevron">\u203A</span>
@@ -432,6 +447,7 @@ function renderUsageHtml(model, opts) {
   <div class="footer-row" id="accounts">
     <span>Manage Accounts&hellip;</span>
     <span class="chevron">\u203A</span>
+  </div>
   </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
