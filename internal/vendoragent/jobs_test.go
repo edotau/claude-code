@@ -2,11 +2,13 @@ package vendoragent
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // sleeperScript writes a shell script under t.TempDir() that ignores its args and sleeps 30s.
@@ -146,5 +148,124 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	}
 	if saved.Status != "error" {
 		t.Fatalf("saved record status = %q, want error", saved.Status)
+	}
+}
+
+// A fast child that saves its own "ok" record immediately must not have that outcome overwritten:
+// Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
+func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	recordPath := filepath.Join(agent.DispatchDir(), rec.ID+".json")
+
+	// the fast child stands in for `claude-code ask --job <id>`: it saves its own finished record
+	// (by writing the record file directly) and exits almost immediately.
+	script := filepath.Join(t.TempDir(), "fast.sh")
+	body := "#!/bin/sh\ncat > \"" + recordPath + "\" <<'EOF'\n" +
+		`{"id":"` + rec.ID + `","status":"ok","agent":"codex"}` + "\nEOF\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := executable
+	executable = func() (string, error) { return script, nil }
+	defer func() { executable = old }()
+
+	if err := Spawn(&rec, nil); err != nil {
+		t.Fatalf("Spawn() = %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err := agent.LoadRecord(rec.ID); err == nil && got.Status == "ok" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got, err := agent.LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "ok" {
+		t.Fatalf("record on disk after fast child finished = %q, want %q (Spawn must not overwrite it)", got.Status, "ok")
+	}
+}
+
+// Cancel must verify the PID still belongs to the job it was spawned as; a reused PID (here, a live
+// unrelated process the test itself starts) must not be signalled, and the record is marked an error.
+func TestCancelDetectsPIDReuse(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	unrelated := exec.Command("sleep", "30")
+	if err := unrelated.Start(); err != nil {
+		t.Fatalf("start unrelated process: %v", err)
+	}
+	t.Cleanup(func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() })
+
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.PID = unrelated.Process.Pid // pretend the dispatch's old PID was reused by `sleep`
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Cancel(&rec); err != nil {
+		t.Fatalf("Cancel() = %v, want nil (pid-reuse is reported via the record, not an error)", err)
+	}
+	if rec.Status != "error" || rec.Error != "process gone (pid reused)" {
+		t.Fatalf("after Cancel on reused pid: status=%q error=%q, want error/%q", rec.Status, rec.Error, "process gone (pid reused)")
+	}
+	if !proc.Alive(unrelated.Process.Pid) {
+		t.Fatal("the unrelated live process must not have been signalled")
+	}
+}
+
+// A child that traps and ignores SIGINT must still be ended by Cancel's SIGKILL escalation.
+// t.Parallel (this test takes ~5s waiting out the SIGINT grace period) rules out t.Setenv, which
+// panics when mixed with parallel subtests; CLAUDE_CONFIG_DIR is saved/restored by hand instead.
+func TestCancelEscalatesToSIGKILL(t *testing.T) {
+	t.Parallel()
+	prevConfigDir, hadConfigDir := os.LookupEnv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	defer func() {
+		if hadConfigDir {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", prevConfigDir)
+		} else {
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+	}()
+	script := filepath.Join(t.TempDir(), "trap.sh")
+	// `sleep 30 &` + `wait` (not a tail-call `sleep 30`) keeps this shell's own pid alive and
+	// trapping SIGINT instead of POSIX sh exec-optimizing the last command away.
+	body := "#!/bin/sh\ntrap '' INT\nsleep 30 &\nwait\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := executable
+	executable = func() (string, error) { return script, nil }
+	defer func() { executable = old }()
+
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Spawn(&rec, nil); err != nil {
+		t.Fatalf("Spawn() = %v", err)
+	}
+	if !Alive(rec) {
+		t.Fatal("Alive(rec) = false right after Spawn, want true")
+	}
+	// give the shell time to run `trap '' INT` before signalling it, else SIGINT can race the
+	// trap installation and kill it on the default disposition instead of exercising escalation.
+	time.Sleep(200 * time.Millisecond)
+
+	if err := Cancel(&rec); err != nil {
+		t.Fatalf("Cancel() = %v, want nil (SIGKILL escalation must end a SIGINT-trapping child)", err)
+	}
+	if rec.Status != "error" || rec.Error == "" {
+		t.Fatalf("after Cancel: status=%q error=%q, want error/cancelled", rec.Status, rec.Error)
+	}
+	if Alive(rec) {
+		t.Error("Alive(rec) = true after Cancel, want false (SIGKILL must have ended the trapping child)")
 	}
 }

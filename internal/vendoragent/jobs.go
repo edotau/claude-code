@@ -2,10 +2,12 @@
 package vendoragent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +21,9 @@ import (
 var executable = os.Executable
 
 // Spawn re-execs claude-code detached to run the saved record: argv ["ask","--job",rec.ID] + extra;
-// stdout+stderr -> rec.Log (0600); sets rec.PID and saves.
+// stdout+stderr -> rec.Log (0600); sets rec.PID in memory for the caller's print, but never saves —
+// the caller already saved rec as "running" before calling Spawn, and the --job child saves its own
+// PID once it starts, so a post-Start save here could overwrite a fast child's finished status.
 func Spawn(rec *agent.Record, extra []string) error {
 	exe, err := executable()
 	if err != nil {
@@ -45,7 +49,7 @@ func Spawn(rec *agent.Record, extra []string) error {
 
 	rec.PID, rec.Log = cmd.Process.Pid, logPath
 	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
-	return rec.Save()
+	return nil
 }
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
@@ -106,18 +110,42 @@ func Alive(rec agent.Record) bool {
 	return rec.Status == "running" && proc.Alive(rec.PID)
 }
 
-// Cancel interrupts rec.PID (SIGINT), waits up to 5s for exit, and if the record still says running
-// marks it Status "error", Error "cancelled by claude-code <agent> cancel", saved.
+// procCmdline returns pid's command line (NUL-joined argv rendered with spaces) via /proc on Linux,
+// falling back to `ps -o command=` elsewhere (darwin has no /proc).
+func procCmdline(pid int) (string, error) {
+	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		return string(bytes.ReplaceAll(raw, []byte{0}, []byte{' '})), nil
+	}
+	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// Cancel verifies rec.PID is still the job it was spawned as (guards against pid reuse), interrupts it
+// (SIGINT), waits up to 5s, escalates to SIGKILL and waits up to 2s more, and only once the process is
+// gone marks a still-"running" record Status "error", Error "cancelled by claude-code <agent> cancel".
 func Cancel(rec *agent.Record) error {
 	if rec.PID <= 0 {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
+	cmdline, err := procCmdline(rec.PID)
+	if err != nil || !strings.Contains(cmdline, "ask") || !strings.Contains(cmdline, "--job") || !strings.Contains(cmdline, rec.ID) {
+		rec.Status, rec.Error = "error", "process gone (pid reused)"
+		_ = rec.Save()
+		return nil
+	}
 	if err := interrupt(rec.PID); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && proc.Alive(rec.PID) {
-		time.Sleep(100 * time.Millisecond)
+	if !waitGone(rec.PID, 5*time.Second) {
+		if err := kill(rec.PID); err != nil {
+			return err
+		}
+		if !waitGone(rec.PID, 2*time.Second) {
+			return fmt.Errorf("dispatch %q still running after SIGKILL", rec.ID)
+		}
 	}
 	if latest, err := agent.LoadRecord(rec.ID); err == nil {
 		*rec = latest
@@ -127,4 +155,16 @@ func Cancel(rec *agent.Record) error {
 		return rec.Save()
 	}
 	return nil
+}
+
+// waitGone polls up to d for pid to stop being alive.
+func waitGone(pid int, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if !proc.Alive(pid) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return !proc.Alive(pid)
 }
