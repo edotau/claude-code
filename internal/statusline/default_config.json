@@ -8,7 +8,6 @@
   "velocityMode": "code",
   "order": [
     "model",
-    "agents",
     "provider",
     "router",
     "limits",
