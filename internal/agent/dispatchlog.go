@@ -187,14 +187,34 @@ func NewLogSink(path string) *LogSink { return &LogSink{path: path} }
 
 type logSinkKey struct{}
 
-// WithLog carries sink in ctx so every vendor child started under it tees into the log.
-func WithLog(ctx context.Context, sink *LogSink) context.Context {
-	return context.WithValue(ctx, logSinkKey{}, sink)
+// logCarrier is the ctx value: the sink plus whether stdout tees are suppressed (stderr-only).
+type logCarrier struct {
+	sink       *LogSink
+	stderrOnly bool
 }
 
+// WithLog carries sink in ctx so every vendor child started under it tees into the log.
+func WithLog(ctx context.Context, sink *LogSink) context.Context {
+	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink})
+}
+
+// WithLogStderr is WithLog for a run whose stdout already reaches the log; only child stderr is teed.
+func WithLogStderr(ctx context.Context, sink *LogSink) context.Context {
+	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink, stderrOnly: true})
+}
+
+// logFrom is the sink for stdout tees; nil when absent or stderr-only.
 func logFrom(ctx context.Context) *LogSink {
-	s, _ := ctx.Value(logSinkKey{}).(*LogSink)
-	return s
+	if c, _ := ctx.Value(logSinkKey{}).(logCarrier); !c.stderrOnly {
+		return c.sink
+	}
+	return nil
+}
+
+// stderrLogFrom is the sink for child-stderr tees, stderr-only carriers included.
+func stderrLogFrom(ctx context.Context) *LogSink {
+	c, _ := ctx.Value(logSinkKey{}).(logCarrier)
+	return c.sink
 }
 
 // teeWriter returns w that also feeds ctx's log, or w itself when the dispatch has none.
