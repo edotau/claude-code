@@ -82,7 +82,6 @@ func commands() []command {
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected provider", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
-		{name: "run", hidden: true, summary: "launch a vendor CLI (codex|gemini|opencode|copilot)", run: cmdRun},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
 		{name: "agents", hidden: true, summary: "list runners; sync roster + instructions into vendor homes", run: cmdAgents},
 		{name: "models", hidden: true, summary: "tier→model slots; --pin slot=[provider:]model, --live", run: cmdModels},
@@ -99,15 +98,20 @@ func commands() []command {
 	}
 }
 
-// vendorVerb is the top-level spelling of a vendor agent: bare = launch (`run <v>`), `ask` = `ask --agent <v>`.
+// vendorVerb is the top-level spelling of a vendor agent: bare = launch, `--` = forced passthrough,
+// `ask` = `ask --agent <v>`, a word in vendorSubverbs = cmdVendorSub, else launch with args forwarded.
 func vendorVerb(vendor string, args []string) int {
+	if len(args) > 0 && args[0] == "--" {
+		return launchVendor(vendor, args[1:])
+	}
 	if len(args) > 0 && args[0] == "ask" {
 		return cmdAsk(append([]string{"--agent", vendor}, args[1:]...))
 	}
+	if len(args) > 0 && vendorSubverbs[args[0]] {
+		return cmdVendorSub(vendor, args)
+	}
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		helptext.Fprint(os.Stderr, fmt.Sprintf("claude-code %s — launch the vendor CLI on the registry\n\n"+
-			"USAGE\n  claude-code %[1]s [vendor args…]  launch the vendor CLI\n"+
-			"  claude-code %[1]s ask …           run ask --agent %[1]s\n", vendor))
+		helptext.Fprint(os.Stderr, vendorUsage(vendor))
 		return 2
 	}
 	return launchVendor(vendor, args)

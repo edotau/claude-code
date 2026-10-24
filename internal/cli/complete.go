@@ -1,6 +1,6 @@
 // Bash tab-completion. Every verb/subverb/flag/positional lives in one spec tree (buildSpecTree in
 // complete_spec.go; domain functions in complete_domains.go), keyed from commands() so every verb is
-// represented — a launcher verb (opus/sonnet/haiku/fable/codex/copilot/opencode/gemini/run/science, see
+// represented — a launcher verb (opus/sonnet/haiku/fable/codex/copilot/opencode/gemini/science, see
 // noComplete) still offers nothing beyond its own subwords, since nothing here ever calls a run func.
 package cli
 
@@ -39,7 +39,7 @@ type compNode struct {
 // noComplete only gates flag lookups at depth 1 (see flagLookup/remainingFlags).
 var noComplete = map[string]bool{
 	"opus": true, "sonnet": true, "haiku": true, "fable": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,
-	"run": true, "science": true, "claude": true,
+	"science": true, "claude": true,
 }
 
 // knownPath splits words into the known node path (canonical verb name, plus any resolved subwords)

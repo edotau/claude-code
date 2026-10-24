@@ -50,10 +50,17 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"agents":    {"sync", "tree"},
 		"workflow":  {"skeleton", "lint"},
 		"theme":     {"apply"},
-		"gemini":    {"ask", "bridge"},
 		"tailscale": {"status", "machines", "connect", "key", "exit-node"},
 		"worktree":  {"list", "create", "merge", "clean", "clean-all"},
 	}
+	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
+	// vendor subverb plus its one extra, bridge — derived from vendorSubverbs, not hand-copied, so a
+	// future subverb (e.g. explore) never drifts this test silently.
+	geminiWant := []string{"ask", "bridge"}
+	for sub := range vendorSubverbs {
+		geminiWant = append(geminiWant, sub)
+	}
+	cases["gemini"] = geminiWant
 	tree := specTree()
 	for verb, want := range cases {
 		node := tree[verb]
@@ -325,7 +332,8 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 
 // TestAskFlagsMatchItsOwnFlagSet pins ask's completable flags against the literal flag.NewFlagSet
 // calls in cmdAsk (internal/cli/agent.go) — askFlags had silently fallen behind by five flags
-// (fallback, attach, keep-env, autonomous, enable-memory) before this test existed.
+// (fallback, attach, keep-env, autonomous, enable-memory) before this test existed; background and
+// job joined later (job dispatch control: --background detaches, --job replays a saved record).
 func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	node := specTree()["ask"]
 	if node == nil {
@@ -337,8 +345,9 @@ func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	}
 	slices.Sort(got)
 	want := []string{
-		"agent", "attach", "autonomous", "effort", "enable-memory", "fallback", "format", "keep-env",
-		"log", "model", "native", "provider", "retry", "rubric", "session", "timeout", "tools", "workdir",
+		"agent", "attach", "autonomous", "background", "effort", "enable-memory", "fallback", "format",
+		"job", "keep-env", "log", "model", "native", "provider", "retry", "rubric", "session", "timeout",
+		"tools", "workdir",
 	}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
