@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1662,
+    "title": "add excel for gdb mart dl",
+    "state": "OPEN",
+    "url": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests/1662",
+    "reviewers": [
+      {
+        "name": "Dev 2",
+        "status": "APPROVED"
+      },
+      {
+        "name": "Dev 3",
+        "status": "UNAPPROVED"
+      },
+      {
+        "name": "Dev 4",
+        "status": "UNAPPROVED"
+      }
+    ],
+    "updated": "2026-10-24T12:00:00Z",
+    "build": {
+      "url": "https://jenkins.example.com/job/digitalbtd-cd/job/digitalbtd-cd-portal-frontend-10051/1/",
+      "state": "success"
+    },
+    "from_branch": "DIGITALBTD-10051/frontend",
+    "to_branch": "master",
+    "author": "dev-1"
+  }
+]
