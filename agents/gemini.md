@@ -245,6 +245,9 @@ them and potentially hanging.
 
 ## Report contract
 
+Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
+Handoff contract; this agent's body:
+
 ```markdown
 Ran on: <gemini (model) via ask|bridge | sonnet in-process — why> · job <id|—> · session <id|—> · fallback <none|who>
 
