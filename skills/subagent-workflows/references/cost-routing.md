@@ -9,7 +9,7 @@ adds real coverage (independent review, broad-context sweep). Stay inline for sm
 | Kind | Signal | Runner | Call |
 |---|---|---|---|
 | `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
-| `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"` |
+| `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"`; a diff: `claude-code codex review --adversarial [--base <b>]` |
 | `mechanical` | one-liner, lookup, mechanical edit | `copilot` `--model claude-haiku-5.5` | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
 | `standard` | everything else (the default) | rotate `claude` · `copilot` (`claude-sonnet-5.5`) · `codex` · `opencode` | as above, `--agent <runner>` |
 | `reasoning` | explicitly flagged hard reasoning | Claude `opus` | stays in session; never by default |
@@ -48,4 +48,5 @@ evidence. A leaf assigned a runner that did the work itself is a skipped leg, no
 
 The vendor CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
 As a `Workflow` stage (only when the user asks for one): `external-agent {leg, cwd, task}`, or
-`audit-fix-verify {refuters: ["codex"]}`. Interactive vendor session: `claude-code run codex|gemini|opencode|copilot`.
+`audit-fix-verify {refuters: ["codex"]}`. Interactive vendor session: `claude-code codex|gemini|opencode|copilot
+[args]` (`--` forces passthrough).

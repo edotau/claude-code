@@ -1,20 +1,23 @@
 ---
 description: "Invoke the in-process Gemini bridge for long-context code exploration, analysis, and documentation generation; `review` mode is a whole-module second opinion"
 allowed-tools: Bash, Glob, Read
-argument-hint: "[review] [--model name] [--dirs path,...] [--files pattern,...] [--index] [--diff] [--rubric file] [--format text|json] <task>"
+argument-hint: "review|ask|resume|transfer|status|result|cancel|setup|models <args> | [--dirs d] [--files f] <task>"
 ---
 
-# /gemini — Gemini Bridge (native Go)
+# /gemini — Gemini Agent (native Go)
 
-Launcher only. Flags, defaults, the review-mode contract, error handling and prompt scaffolds live
-in `agents/gemini.md`; full flag reference: `claude-code gemini bridge --help`.
+Launcher only. Backends, verbs and the report contract live in `agents/gemini.md`; `claude-code
+gemini -h` lists the surface.
 
-Parse `$ARGUMENTS`: a leading `review` word selects review mode (whole-module second opinion,
-pinned to the opus tier, per `agents/gemini.md`); otherwise run the bridge directly:
+Parse the first token of `$ARGUMENTS`:
 
-```bash
-claude-code gemini bridge [flags parsed from $ARGUMENTS] -- "<task>"
-```
+- `review` — whole-module second opinion pinned to the opus tier (unchanged): run the bridge
+  directly per `agents/gemini.md` → Review mode. Diff review on the gemini family instead is
+  `claude-code gemini review` run directly — say so in one line if that's what's meant.
+- `ask|resume|transfer|status|result|cancel|setup|models` — run `claude-code gemini <verb> <rest>`
+  straight through.
+- anything else — run the bridge as today: `claude-code gemini bridge [flags parsed from
+  $ARGUMENTS] -- "<task>"`.
 
-Relay the bridge's output. For `review` mode, relay findings under a `## Gemini second opinion`
-heading plus your own one-paragraph assessment, per `agents/gemini.md`.
+Relay the output. For `review` mode, relay findings under a `## Gemini second opinion` heading plus
+your own one-paragraph assessment, per `agents/gemini.md`.

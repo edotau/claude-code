@@ -27,7 +27,7 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `audit-fix-verify {fix: false}` |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, detectors | `evaluate-code`, `simplify`, `security-reviewer` |
-| Pre-review / post-build gating agent | `codex` (REVIEW / VERIFY modes) |
+| Task-brief vetting or the final gate run on another model family | `codex` (`claude-code codex ask`, `codex review`) |
 | A recurring missing procedure | `claude-code memory promote --to skill` |
 | Assumption/goal detectors over a plan | `claude-code review goals\|assumptions` |
 
