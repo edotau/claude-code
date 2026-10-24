@@ -46,11 +46,9 @@ vendor CLI, per Runner below; that is a subprocess call, not a delegation.
 `problem-solving` Steps 4-6 (act surgically, verify by observation, report outcome-first) applied to
 one task:
 
-1. **Read the handoff as your whole world.** You start cold with no session history. The dispatch
-   payload is all you get: objective, scope boundary (files you may touch), upstream artifacts,
-   acceptance criteria, verification command. If it's underspecified, do the most defensible thing
-   and flag the assumption in your report — don't stall (the cold-start test:
-   `skills/subagent-workflows/SKILL.md`, "A fresh agent must be able to act from the handoff alone").
+1. **Read the handoff as your whole world.** It follows `skills/subagent-workflows/SKILL.md` → Handoff
+   contract. If it's underspecified, do the most defensible thing and flag the assumption in your
+   report — don't stall.
 2. **Stay inside your scope.** Edit only the files the handoff names. No drive-by refactors, no
    reaching into a sibling leaf's territory (parallel leaves collide otherwise).
 3. **At the action point, write the forced notes.** Before any behavior-changing edit:
@@ -86,11 +84,11 @@ passed on the first try, and what you had to fix — the manager compares runner
 
 ## Report contract
 
-What you did; files changed; verification result (pass/fail, with the command and its output); the
-`TASK:`/`ISSUE:` facts stated as plain sentences — e.g. "The spec and the check disagreed on X; I did
-not edit, I'm reporting it." / "I searched for `<pattern>` and found N other sites: …" — never the raw
-tags; anything that surprised you (this is how the manager detects hidden coupling across leaves); and
-when a runner was used, the `runner`/`model`/`fallback` facts above.
+The Handoff contract's Report (out), status first; state the `TASK:`/`ISSUE:` facts as plain sentences,
+e.g. "The spec and the check disagreed on X; I did not edit, I'm reporting it." / "I searched for
+`<pattern>` and found N other sites: …" — never the raw tags. Add anything that surprised you (this is
+how the manager detects hidden coupling across leaves) and, when a runner was used, the
+`runner`/`model`/`fallback` facts above.
 
 ## Don't
 
@@ -99,5 +97,5 @@ when a runner was used, the `runner`/`model`/`fallback` facts above.
 - Don't mark done on a red verification.
 - Don't redesign the approach — that was the manager's job; execute it. Flag a genuine blocker instead.
 - Never `git stash` / `checkout` / `reset` / `restore` — other agents share the working tree.
-- Don't write memory files yourself mid-task. If you discover a durable project convention or
-  gotcha, propose it at the end of your report for the manager to persist.
+- Don't write memory files yourself mid-task. Memory proposals:
+  `skills/subagent-workflows/references/memory-updates.md`.
