@@ -128,7 +128,7 @@ func TestSummarizeFileDedupesByMessageID(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileOversizedLineDoesNotAbortScan: transcript's eachLine has no per-line cap (an
+// TestSummarizeFileOversizedLineDoesNotAbortScan: transcript's EachLine has no per-line cap (an
 // overflow buffer joins arbitrarily long lines), so a >16 MB line — legal JSON, just huge — must not
 // truncate or abort the scan of the valid lines before and after it.
 func TestSummarizeFileOversizedLineDoesNotAbortScan(t *testing.T) {

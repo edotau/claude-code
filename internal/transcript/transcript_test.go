@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -459,5 +460,38 @@ func TestCountEditsFromRealTranscript(t *testing.T) {
 	}
 	if total != 1 {
 		t.Fatalf("real fixture counted %d edits, want 1", total)
+	}
+}
+
+func TestContentText(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"bare string", `"hello"`, "hello"},
+		{"text and tool_use", `[{"type":"text","text":"a"},{"type":"tool_use","name":"X"},{"type":"text","text":"b"}]`, "ab"},
+		{"empty array", `[]`, ""},
+		{"invalid json", `{not json`, ""},
+		{"empty input", ``, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ContentText(json.RawMessage(c.in)); got != c.want {
+				t.Errorf("ContentText(%s) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestEachLineExportedHandlesHugeAndUnterminated(t *testing.T) {
+	// Given a 5 MiB line and an unterminated tail; When iterated; Then every line arrives whole
+	giant := strings.Repeat("x", 5<<20) + "\n"
+	var got []string
+	EachLine(strings.NewReader("a\n"+giant+"tail"), func(l []byte) { got = append(got, string(l)) })
+	want := []string{"a\n", giant, "tail"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d lines, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: len %d, want %d", i, len(got[i]), len(want[i]))
+		}
 	}
 }

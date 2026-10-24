@@ -220,3 +220,46 @@ func TestProjectSessionsDirUsesPaths(t *testing.T) {
 		t.Skip("memory layout changed; DefaultSource test fixtures may need updating")
 	}
 }
+
+func TestHandoffKeepsLast40InOrderSkippingToolResults(t *testing.T) {
+	// Given 45 turns with tool_result-only turns mixed in; When handed off; Then the last 40 appear oldest first
+	var lines []string
+	for i := 0; i < 45; i++ {
+		lines = append(lines, userLine("turn-"+strconv.Itoa(i)+"-end"))
+		lines = append(lines, `{"type":"user","message":{"content":[{"type":"tool_result","content":"RESULT-NOISE"}]}}`)
+	}
+	source := filepath.Join(t.TempDir(), "s.jsonl")
+	writeJSONL(t, source, strings.Join(lines, "\n")+"\n")
+	got, err := Handoff(source, "/w", "note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "RESULT-NOISE") {
+		t.Error("tool_result-only turn leaked into the handoff")
+	}
+	prev := -1
+	for i := 5; i < 45; i++ {
+		idx := strings.Index(got, "turn-"+strconv.Itoa(i)+"-end")
+		if idx < 0 || idx <= prev {
+			t.Fatalf("turn %d missing or out of order (idx %d, prev %d)", i, idx, prev)
+		}
+		prev = idx
+	}
+	if strings.Contains(got, "turn-4-end") {
+		t.Error("turn 4 should have been trimmed")
+	}
+}
+
+func TestReadTurnsAcceptsLineOver4MiB(t *testing.T) {
+	// Given one JSONL line above 4 MiB (the old scanner cap); When read; Then it arrives whole, no error
+	big := strings.Repeat("y", 5<<20)
+	source := filepath.Join(t.TempDir(), "s.jsonl")
+	writeJSONL(t, source, userLine("first")+"\n"+userLine(big)+"\n"+userLine("last")+"\n")
+	turns, err := readTurns(source)
+	if err != nil {
+		t.Fatalf("readTurns: %v", err)
+	}
+	if len(turns) != 3 || len(turns[1]) != len("USER: ")+len(big) {
+		t.Fatalf("got %d turns (middle len %d), want 3 with the big one intact", len(turns), len(turns[1]))
+	}
+}

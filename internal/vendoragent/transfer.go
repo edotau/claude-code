@@ -1,7 +1,6 @@
 package vendoragent
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +10,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/transcript"
 )
-
-// transferScanBuf is the bufio.Scanner buffer cap; a long transcript line must not truncate silently.
-const transferScanBuf = 4 * 1024 * 1024
 
 // maxTurns is the number of trailing user/assistant turns Handoff keeps before trimming for size.
 const maxTurns = 40
@@ -51,38 +48,12 @@ func DefaultSource(cwd string) (string, error) {
 	return filepath.Join(dir, newest), nil
 }
 
-// contentPart is one element of a message.content array; only {type:"text"} parts carry transcript text.
-type contentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
 // turnLine is the subset of a transcript JSONL line Handoff reads.
 type turnLine struct {
 	Type    string `json:"type"`
 	Message struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
-}
-
-// turnText extracts the plain text of one line's message.content, which is either a bare string or
-// an array of parts (only "text" parts kept; tool_use/tool_result/thinking parts are skipped).
-func turnText(raw json.RawMessage) string {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var parts []contentPart
-	if err := json.Unmarshal(raw, &parts); err != nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, p := range parts {
-		if p.Type == "text" {
-			b.WriteString(p.Text)
-		}
-	}
-	return b.String()
 }
 
 // readTurns reads source's JSONL, keeping user/assistant lines with non-empty text.
@@ -92,26 +63,36 @@ func readTurns(source string) ([]string, error) {
 		return nil, err
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), transferScanBuf)
-	var turns []string
-	for sc.Scan() {
+	ring := make([]string, maxTurns) // ring buffer of the last maxTurns qualifying turns
+	n, next := 0, 0
+	transcript.EachLine(f, func(raw []byte) {
 		var line turnLine
-		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
-			continue
+		if err := json.Unmarshal(raw, &line); err != nil {
+			return
 		}
 		role := line.Type
 		if role != "user" && role != "assistant" {
-			continue
+			return
 		}
-		text := strings.TrimSpace(turnText(line.Message.Content))
+		text := strings.TrimSpace(transcript.ContentText(line.Message.Content))
 		if text == "" {
-			continue
+			return
 		}
-		turns = append(turns, strings.ToUpper(role)+": "+text)
+		ring[next] = strings.ToUpper(role) + ": " + text
+		next = (next + 1) % maxTurns
+		n++
+	})
+	if n == 0 {
+		return nil, nil
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
+	kept := min(n, maxTurns)
+	turns := make([]string, kept)
+	start := next % maxTurns
+	if n <= maxTurns {
+		start = 0
+	}
+	for i := 0; i < kept; i++ {
+		turns[i] = ring[(start+i)%maxTurns]
 	}
 	return turns, nil
 }
