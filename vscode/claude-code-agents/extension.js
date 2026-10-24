@@ -104,6 +104,12 @@ class UsageViewProvider {
       this.detailed = !!msg.detailed;
       return this.render();
     }
+    if (msg.type === 'show') {
+      const show = msg.show === 'left' ? 'left' : 'used';
+      // Persisted as the usageShow setting so the status bar and every window follow the same perspective.
+      await config().update('usageShow', show, vscode.ConfigurationTarget.Global);
+      return this.render();
+    }
     if (msg.type === 'details') {
       showUsageDetails(binary, config().get('usageDays', 30) || 30);
       return;
