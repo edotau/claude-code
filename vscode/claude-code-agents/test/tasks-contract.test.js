@@ -37,9 +37,9 @@ test('package.json: a Panel container claudeCodeTasksPanel hosts the claudeCodeT
   assert.ok(pkg.activationEvents.includes('onView:claudeCodeTasks.panel'));
 });
 
-test('package.json: tasksOpenIn is a panel|sidebar|editor enum defaulting to panel, and Show Tasks exists', () => {
+test('package.json: tasksOpenIn is a panel|editor|window enum defaulting to panel, and Show Tasks exists', () => {
   const prop = findSetting('claudeCodeAgents.tasksOpenIn');
-  assert.deepEqual(prop.enum, ['panel', 'sidebar', 'editor']);
+  assert.deepEqual(prop.enum, ['panel', 'editor', 'window']);
   assert.equal(prop.default, 'panel');
   assert.ok(findCommand('claudeCodeTasks.show'), 'claudeCodeTasks.show command missing');
   assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(link-external)');
@@ -101,12 +101,6 @@ test('renderElsewhereHtml: a pointer page with Bring back here / Show it, scoped
   assert.doesNotMatch(floating, /class="row head"/); // never a second live list
 });
 
-test('extension.js: views render the pointer page while the editor tab owns Tasks, and the dispose handler re-focuses them', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(src, /this\.panel \? renderElsewhereHtml\(/);
-  assert.match(src, /executeCommand\(`\$\{viewType\}\.focus`\)/);
-  assert.match(src, /'workbench\.action\.closePanel'/);
-});
 
 test('renderLauncherHtml: the left-nav view lists sources with status dots and opens Tasks in a window, never the page', () => {
   const { renderLauncherHtml } = require('../lib/tasks-view');
@@ -121,9 +115,9 @@ test('renderLauncherHtml: the left-nav view lists sources with status dots and o
   assert.doesNotMatch(html, /data-act="doctor"/); // Re-check is the view-title refresh icon
 });
 
-test('extension.js: the left-nav view resolves to the launcher and pops Tasks out; the Panel view keeps the page', () => {
+
+test('extension.js: every external open goes through the http(s)/mailto allowlist', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(src, /viewType === 'claudeCodeTasks\.page'/);
-  assert.match(src, /renderLauncherHtml\(/);
-  assert.match(src, /openFromSidebar\(\)/);
+  assert.doesNotMatch(src.replace(/function openExternalWeb[\s\S]*?\n}\n/, ''), /vscode\.env\.openExternal\(/);
+  assert.match(src, /if \(!\/\^\(https\?:\\\/\\\/\|mailto:\)\/i\.test\(u\)\) return/);
 });
