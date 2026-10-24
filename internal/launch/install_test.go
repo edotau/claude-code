@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -294,7 +295,14 @@ func compactStepPrefix(t *testing.T, line string) string {
 // path built under it stays representative of a real ~/.claude install for an 80-column check.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ciq")
+	base := ""
+	if runtime.GOOS == "darwin" {
+		base = "/private/tmp" // macOS $TMPDIR is /var/folders/…/T, itself too long for the 80-column check
+	}
+	dir, err := os.MkdirTemp(base, "ciq")
+	if err != nil && base != "" {
+		dir, err = os.MkdirTemp("", "ciq")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
