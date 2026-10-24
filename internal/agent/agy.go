@@ -104,9 +104,15 @@ type agyEvent struct {
 }
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
+// An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
+func parseAgyStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
 	var res Result
-	var answer strings.Builder
+	lg := pickLog(logs)
+	var answer, pending strings.Builder
+	flush := func() {
+		lg.emit("assistant", pending.String())
+		pending.Reset()
+	}
 	var response string
 	var sawResult bool
 	dec := json.NewDecoder(r)
@@ -115,6 +121,8 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
+			flush()
+			lg.emit("error", "decode agy stream-json: "+err.Error())
 			return res, fmt.Errorf("decode agy stream-json: %w", err)
 		}
 		switch ev.Event {
@@ -128,15 +136,20 @@ func parseAgyStream(r io.Reader, w io.Writer) (Result, error) {
 				return res, err
 			}
 			answer.WriteString(ev.StepUpdate.TextDelta)
+			pending.WriteString(ev.StepUpdate.TextDelta)
 		case "result":
 			sawResult = true
 			response = ev.Result.Response
+			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
+				lg.emit("error", err.Error())
 				res.Answer = strings.TrimSpace(answer.String())
 				return res, err
 			}
+			lg.emit("result", cmp.Or(response, answer.String()))
 		}
 	}
+	flush()
 	// A run whose text arrived only in result.response (no agent_response deltas) still answers.
 	if answer.Len() == 0 && response != "" {
 		if _, err := io.WriteString(w, response); err != nil {

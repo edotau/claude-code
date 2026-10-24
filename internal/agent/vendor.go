@@ -190,7 +190,7 @@ func emptyAnswer(name string) error {
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
-	parse func(io.Reader, io.Writer) (Result, error)) (Result, error) {
+	parse func(io.Reader, io.Writer, ...eventLog) (Result, error)) (Result, error) {
 	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse)
 	res.Answer, res.Usage = out.Answer, out.Usage
 	if out.SessionID != "" {
@@ -202,7 +202,7 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 // runEventStream runs cmd to completion, decoding its stdout via parse while streaming text live;
 // shared by vendorRunner.runStream (opencode) and RunAgy (agy's own exec, no vendors.Configure argv).
 func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, stream io.Writer,
-	parse func(io.Reader, io.Writer) (Result, error)) (Result, error) {
+	parse func(io.Reader, io.Writer, ...eventLog) (Result, error)) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -211,9 +211,8 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
-	src := teeReader(ctx, stdout) // raw event lines reach the dispatch log before the parser sees them
-	out, perr := parse(src, stream)
-	_, _ = io.Copy(io.Discard, src)
+	out, perr := parse(stdout, stream, eventLogFor(ctx)) // the parser writes formatted event lines to the dispatch log
+	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID = out.Answer, out.Usage, out.SessionID
 	if werr != nil || ctx.Err() != nil {
@@ -244,8 +243,10 @@ type openCodeEvent struct {
 }
 
 // parseOpenCodeStream streams the root session's text parts (opencode filters subagents); error events go to stdout.
-func parseOpenCodeStream(r io.Reader, w io.Writer) (Result, error) {
+// An optional eventLog gets one line per text part, step_finish usage and error.
+func parseOpenCodeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
 	var res Result
+	lg := pickLog(logs)
 	var texts, errs []string
 	dec := json.NewDecoder(r)
 	for {
@@ -272,15 +273,18 @@ func parseOpenCodeStream(r io.Reader, w io.Writer) (Result, error) {
 				return res, err
 			}
 			texts = append(texts, ev.Part.Text)
+			lg.emit("assistant", ev.Part.Text)
 		case "step_finish":
 			t := ev.Part.Tokens
 			res.Usage.InputTokens += t.Input
 			res.Usage.CacheReadTokens += t.Cache.Read
 			res.Usage.CacheCreationTokens += t.Cache.Write
 			res.Usage.OutputTokens += t.Output + t.Reasoning
+			lg.emit("result", fmt.Sprintf("step finished, tokens in=%d out=%d", t.Input, t.Output+t.Reasoning))
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)
+			lg.emit("error", msg)
 		}
 	}
 	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
@@ -371,9 +375,12 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
 	out, err := copilotsdk.Ask(ctx, opts, copilotPrompt)
+	lg := eventLogFor(ctx)
 	if err != nil {
+		lg.emit("error", err.Error())
 		return res, err
 	}
+	lg.emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
 	if out.Model != "" {
 		res.Model = out.Model
 	}

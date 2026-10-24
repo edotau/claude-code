@@ -55,9 +55,8 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err := cmd.Start(); err != nil {
 		return Result{}, err
 	}
-	src := teeReader(ctx, stdout)
-	res, perr := parseClaudeStream(src, stream)
-	_, _ = io.Copy(io.Discard, src)
+	res, perr := parseClaudeStream(stdout, stream, eventLogFor(ctx))
+	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Provider = plan.Set[providers.PinProvider]
 	if werr != nil || ctx.Err() != nil {
@@ -93,6 +92,7 @@ type claudeMessage struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
+		Name string `json:"name"` // tool_use blocks
 	} `json:"content"`
 }
 
@@ -118,8 +118,10 @@ func (ev claudeEvent) text() string {
 
 // parseClaudeStream streams top-level assistant text to w and returns the result event's envelope.
 // A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
-func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
+// An optional eventLog gets one formatted line per assistant text, tool call, result and error.
+func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
 	var res Result
+	lg := pickLog(logs)
 	sawResult, wrote := false, false
 	dec := json.NewDecoder(r)
 	for {
@@ -145,6 +147,7 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 			if msg.Model != "" {
 				res.Model = msg.Model
 			}
+			logClaudeAssistant(lg, msg)
 			var err error
 			wrote, err = writeClaudeAssistant(w, msg, wrote)
 			if err != nil {
@@ -153,10 +156,13 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
+				lg.emit("error", err.Error())
 				return res, err
 			}
+			lg.emit("result", ev.Result)
 		case "error":
 			if t := ev.text(); t != "" {
+				lg.emit("error", t)
 				return res, fmt.Errorf("claude: %s", t)
 			}
 		}
@@ -165,6 +171,17 @@ func parseClaudeStream(r io.Reader, w io.Writer) (Result, error) {
 		return res, errors.New("claude: stream ended without a result event")
 	}
 	return res, nil
+}
+
+func logClaudeAssistant(lg eventLog, msg claudeMessage) {
+	for _, b := range msg.Content {
+		switch b.Type {
+		case "text":
+			lg.emit("assistant", b.Text)
+		case "tool_use":
+			lg.emit("tool", b.Name)
+		}
+	}
 }
 
 func writeClaudeAssistant(w io.Writer, msg claudeMessage, wrote bool) (bool, error) {

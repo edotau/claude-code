@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
@@ -225,18 +226,67 @@ func teeWriter(ctx context.Context, w io.Writer) io.Writer {
 	return w
 }
 
-// teeReader returns r that also feeds ctx's log as it is read, or r itself when the dispatch has none.
-func teeReader(ctx context.Context, r io.Reader) io.Reader {
-	if s := logFrom(ctx); s != nil {
-		return io.TeeReader(r, s.Stream())
+// eventLog writes one formatted event line to the dispatch log; a nil eventLog is a no-op.
+type eventLog func(kind, text string)
+
+// eventTextCap bounds the text of one `▸ kind: text` log line, in runes.
+const eventTextCap = 300
+
+// eventLogFor binds ctx's stdout-side sink; nil when the dispatch has none or stdout already reaches the log.
+func eventLogFor(ctx context.Context) eventLog {
+	if logFrom(ctx) == nil {
+		return nil
 	}
-	return r
+	return func(kind, text string) { logEvent(ctx, kind, text) }
+}
+
+func (l eventLog) emit(kind, text string) {
+	if l != nil {
+		l(kind, text)
+	}
+}
+
+// pickLog is the first non-nil optional eventLog argument, so parsers called without one stay silent.
+func pickLog(ls []eventLog) eventLog {
+	for _, l := range ls {
+		if l != nil {
+			return l
+		}
+	}
+	return nil
+}
+
+// logEvent writes `▸ kind: text` (one redacted, capped line) to ctx's log; a no-op without a stdout sink.
+func logEvent(ctx context.Context, kind, text string) {
+	if s := logFrom(ctx); s != nil {
+		s.writeEvent(kind, text)
+	}
+}
+
+func (s *LogSink) writeEvent(kind, text string) {
+	// Redact before collapsing (multi-line secrets) and before capping (a cut secret would no longer match).
+	text = strings.Join(strings.Fields(shapes.Redact(text)), " ")
+	if text == "" {
+		return
+	}
+	line := "▸ " + kind + ": " + textutil.Truncate(text, eventTextCap)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openLocked()
+	s.writeLocked([]byte(line))
 }
 
 // Stream opens the log (first call) and returns a line-buffering writer for one child stream.
 func (s *LogSink) Stream() io.Writer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.openLocked()
+	w := &logLineWriter{sink: s}
+	s.streams = append(s.streams, w)
+	return w
+}
+
+func (s *LogSink) openLocked() {
 	if s.f == nil && !s.failed {
 		f, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
@@ -244,9 +294,6 @@ func (s *LogSink) Stream() io.Writer {
 		}
 		s.f = f
 	}
-	w := &logLineWriter{sink: s}
-	s.streams = append(s.streams, w)
-	return w
 }
 
 // Close flushes every stream's partial last line and closes the file.

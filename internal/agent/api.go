@@ -64,6 +64,7 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 			res.Model = out.Model
 		}
 		res.Answer, res.Usage = answer.String(), Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
+		logAPIRun(ctx, res, err)
 		return res, err
 	}
 	base, ok := p.Route(providers.DialectOpenAI)
@@ -75,7 +76,21 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 		res.Model = model
 	}
 	res.Answer, res.Usage = answer.String(), usage
+	logAPIRun(ctx, res, err)
 	return res, err
+}
+
+// logAPIRun writes the one-shot's answer, usage or error to the dispatch log (the stream has no event boundaries).
+func logAPIRun(ctx context.Context, res Result, err error) {
+	lg := eventLogFor(ctx)
+	if res.Answer != "" {
+		lg.emit("assistant", res.Answer)
+	}
+	if err != nil {
+		lg.emit("error", err.Error())
+		return
+	}
+	lg.emit("result", fmt.Sprintf("tokens in=%d out=%d", res.Usage.InputTokens, res.Usage.OutputTokens))
 }
 
 // httpError carries an upstream status and Retry-After into Classify.
