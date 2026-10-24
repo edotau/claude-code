@@ -25,7 +25,8 @@ func assertLinkedTo(t *testing.T, link, target string) {
 // TestEnsureLinkStates drives every branch of ensureLink: absent, a correct link, a wrong link, an empty
 // real dir, and a non-empty real dir.
 func TestEnsureLinkStates(t *testing.T) {
-	cfg := migrateConfig1(t)
+	t.Parallel()
+	cfg := canonTemp(t, t.TempDir())
 	target := filepath.Join(cfg, "memory", "target")
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)

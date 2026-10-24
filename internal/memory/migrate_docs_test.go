@@ -174,6 +174,7 @@ func TestApplyDocsWalkersLandAndRetire(t *testing.T) {
 }
 
 func TestMergeIndexLinesIdempotent(t *testing.T) {
+	t.Parallel()
 	dst := "# Idx\n\n- [A](a.md) — a\n\n<!-- bank:begin k -->\nB\n<!-- bank:end -->\n"
 	src := "# Idx\n\n- [A](a.md) — a\n- [C](c.md) — c\n\n<!-- bank:begin k -->\nOTHER\n<!-- bank:end -->\n"
 	once := mergeIndexLines(dst, src)

@@ -98,13 +98,14 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 }
 
 func TestEnsureRefusesPointerFileAndRemotes(t *testing.T) {
-	store, _ := storeFixture(t)
+	t.Parallel()
+	store := filepath.Join(t.TempDir(), "memory")
+	r := Repo{Dir: store}
 	write(t, filepath.Join(store, ".git"), "gitdir: /elsewhere\n")
-	if err := StoreRepo().Ensure(); err == nil {
+	if err := r.Ensure(); err == nil {
 		t.Fatal("Ensure accepted a gitdir pointer file")
 	}
 	os.Remove(filepath.Join(store, ".git"))
-	r := StoreRepo()
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,8 @@ func TestCommitRejectsBadPathsAndSecretsByNameOnly(t *testing.T) {
 // foreign-worktree check never fires) whose "commondir" file redirects refs/objects to another repo
 // must still be rejected before the store receives a byte.
 func TestCheckRootRejectsSharedCommondir(t *testing.T) {
-	store, _ := storeFixture(t)
+	t.Parallel()
+	store := filepath.Join(t.TempDir(), "memory")
 	other := filepath.Join(t.TempDir(), "other")
 	if err := (Repo{Dir: other}).Ensure(); err != nil {
 		t.Fatal(err)
@@ -218,8 +220,9 @@ func TestCheckRootRejectsSharedCommondir(t *testing.T) {
 }
 
 func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
-	store, _ := storeFixture(t)
-	r := StoreRepo()
+	t.Parallel()
+	store := filepath.Join(t.TempDir(), "memory")
+	r := Repo{Dir: store}
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -265,6 +268,7 @@ func TestGitOutSanitizesEnv(t *testing.T) {
 }
 
 func TestExitCodeDistinguishesDiff(t *testing.T) {
+	t.Parallel()
 	if exitCode(errors.New("plain")) != -1 {
 		t.Fatal("non-exit error must be -1")
 	}

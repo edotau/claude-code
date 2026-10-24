@@ -41,6 +41,17 @@ func nativeStore(t *testing.T) string {
 	return dir
 }
 
+// plainNativeStore seeds an isolated native auto-memory dir without touching CLAUDE_CONFIG_DIR.
+func plainNativeStore(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "memory")
+	write(t, filepath.Join(dir, NativeIndexFile), testIndex)
+	for _, n := range []string{"keep-me.md", "stale-fact.md", "also-keep.md"} {
+		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
+	}
+	return dir
+}
+
 // TestArchiveNativeMovesFileAndStrikesIndexLine is the core contract: the topic file leaves the
 // injected surface for the archive, and its MEMORY.md line goes with it.
 func TestArchiveNativeMovesFileAndStrikesIndexLine(t *testing.T) {
@@ -76,7 +87,8 @@ func TestArchiveNativeMovesFileAndStrikesIndexLine(t *testing.T) {
 
 // TestArchiveNativeDryRunWritesNothing: the default invocation reports and writes nothing.
 func TestArchiveNativeDryRunWritesNothing(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	before := readFile(t, filepath.Join(dir, NativeIndexFile))
 	res, err := ArchiveNative(dir, []string{"stale-fact"}, false)
 	if err != nil {
@@ -149,7 +161,8 @@ func TestRestoreNativeRoundTrip(t *testing.T) {
 
 // TestNativeStatsCountsOnlyTopicFiles: MEMORY.md itself must not inflate the reported topic count.
 func TestNativeStatsCountsOnlyTopicFiles(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	st, err := NativeStats(dir)
 	if err != nil {
 		t.Fatalf("NativeStats: %v", err)
@@ -164,7 +177,8 @@ func TestNativeStatsCountsOnlyTopicFiles(t *testing.T) {
 
 // TestNativeStatsFindsOrphansAndDangling: a topic no pointer names, and a pointer naming no topic.
 func TestNativeStatsFindsOrphansAndDangling(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, NativeIndexFile), "# Index\n\n- [Gone](gone.md) — dangling\n")
 	write(t, filepath.Join(dir, "orphan.md"), "---\nname: orphan\n---\nbody\n")
 	st, err := NativeStats(dir)
@@ -241,7 +255,8 @@ func TestReconcileSkipsFrontmatterlessTopics(t *testing.T) {
 // TestReconcileDoesNotRunOnDryRun: ArchiveNative's plan-only path must not reconcile, so an
 // unindexed topic file present in the store must NOT gain a pointer on a dry run.
 func TestReconcileDoesNotRunOnDryRun(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, "lost-one.md"), "---\nname: lost-one\ndescription: a crashed restore\n---\n\nbody\n")
 	before := readFile(t, filepath.Join(dir, NativeIndexFile))
 
@@ -378,8 +393,8 @@ func TestSplitNativeIndexNoopUnderCap(t *testing.T) {
 // TestNativeDupesFindsOverlappingBodies: two topic files with near-identical bodies cluster, and
 // the longer body survives as Keep.
 func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
-	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	t.Parallel()
+	dir := t.TempDir()
 	shared := "the deploy pipeline retries three times before paging oncall about the failure"
 	write(t, filepath.Join(dir, "short.md"), "---\nname: short\n---\n\n"+shared+"\n")
 	write(t, filepath.Join(dir, "long.md"), "---\nname: long\n---\n\n"+shared+" and then escalates to the secondary rotation\n")
@@ -446,7 +461,8 @@ func TestArchiveNativeRefusesSymlinkAndSkipsNonTopics(t *testing.T) {
 // TestBankRegionPointerToAbsentFileIsNotDangling: region pointers are never parsed, so one naming an
 // absent typed file is neither counted nor reported dangling, and only real topics are orphans.
 func TestBankRegionPointerToAbsentFileIsNotDangling(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, NativeIndexFile), "# Memory Index\n\n"+bankRegion+"\n"+
 		"- [Keep me](keep-me.md) — a live preference\n- [Stale fact](stale-fact.md) — a closed incident\n")
 	st, err := NativeStats(dir)
@@ -578,7 +594,8 @@ func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
 // TestTopicPathsExcludeMetadataBankAndSymlink: a harness_kind:bank topic and a symlinked .md are
 // not topics — topicPaths, NativeStats.TopicFiles and NativeDupes must all exclude them.
 func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, "typed-notes.md"), "---\nname: typed-notes\nharness_kind: bank\n---\n\n"+
 		"the deploy pipeline retries three times before paging oncall\n")
 	write(t, filepath.Join(dir, "real.md"), "---\nname: real\n---\n\n"+
@@ -675,7 +692,8 @@ func assertRegionUnchanged(t *testing.T, path, want, op string) {
 // is actually present must not be flagged Dangling (the file exists) nor can that file be an
 // Orphan (typed files are never topics, so they are outside the orphan check entirely).
 func TestBankPointerToPresentTypedFileIsNotDanglingOrOrphan(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, "activeContext.md"), "focus\n")
 	before := readFile(t, filepath.Join(dir, NativeIndexFile))
 	write(t, filepath.Join(dir, NativeIndexFile), before+"- [Active](activeContext.md) — focus\n")
@@ -765,7 +783,8 @@ func archivedVersions(t *testing.T, archiveDir, stem string) []string {
 // TestRestoreNativeRefusesReservedNameEvenIfArchived: a reserved name sitting in the archive
 // (e.g. hand-placed) still cannot be restored — the name check runs before the archive lookup.
 func TestRestoreNativeRefusesReservedNameEvenIfArchived(t *testing.T) {
-	dir := nativeStore(t)
+	t.Parallel()
+	dir := plainNativeStore(t)
 	archiveDir := NativeArchiveDir(dir)
 	write(t, filepath.Join(archiveDir, "activeContext.md"), "focus\n")
 	if _, err := RestoreNative(dir, []string{"activeContext.md"}, true); err == nil {

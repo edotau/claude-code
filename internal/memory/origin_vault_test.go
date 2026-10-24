@@ -246,6 +246,7 @@ func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 // TestStripCatalogOriginsMatchesVisibleRow: the injected catalog surface strips exactly the origin
 // comment, never more and never less of the visible row text.
 func TestStripCatalogOriginsMatchesVisibleRow(t *testing.T) {
+	t.Parallel()
 	o := Origin{Version: OriginVersion, Key: "k", Origin: "/src/k"}
 	visible := "- k — hook · last 2024-01-01 → k/MEMORY.md"
 	full := visible + catalogOriginComment(o) + "\nnext line\n"
@@ -297,6 +298,7 @@ func TestBuildCatalogRebuildsIdenticalRowsAfterVaultLoss(t *testing.T) {
 // a second call made promptly after does not pay that wait again (the 30s read-skip backoff).
 func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
 	resetVaultRetry(t)
+	t.Cleanup(vault.SetReadLockTimeoutForTest(100 * time.Millisecond))
 	cfg := tempConfig(t)
 	dir := filepath.Join(cfg, "memory", "locked")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

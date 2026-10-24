@@ -31,6 +31,7 @@ func jsonQuote(s string) string {
 }
 
 func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
+	t.Parallel()
 	transcript := strings.Join([]string{
 		assistantLine("DECISION: use bbolt — rejected sqlite because no cgo\nBUG: harvest hangs → missing timeout\nNEXT: add retry\nNOTE: vault key lives in keyring"),
 	}, "\n")
@@ -50,6 +51,7 @@ func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
 }
 
 func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
+	t.Parallel()
 	transcript := strings.Join([]string{
 		userLine("DECISION: this came from the user and must not be filed"),
 		toolResultLine("DECISION: this came from a tool result and must not be filed"),
@@ -65,6 +67,7 @@ func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
 }
 
 func TestExtractTags_OptionalBulletPrefix(t *testing.T) {
+	t.Parallel()
 	transcript := assistantLine("- DECISION: bulleted tag still counts")
 	tags, err := ExtractTags(strings.NewReader(transcript))
 	if err != nil {
@@ -76,6 +79,7 @@ func TestExtractTags_OptionalBulletPrefix(t *testing.T) {
 }
 
 func TestExtractTags_ExactRepeatsDeduped(t *testing.T) {
+	t.Parallel()
 	transcript := strings.Join([]string{
 		assistantLine("NOTE: same fact twice"),
 		assistantLine("NOTE: same fact twice"),
@@ -90,6 +94,7 @@ func TestExtractTags_ExactRepeatsDeduped(t *testing.T) {
 }
 
 func TestExtractTags_OverLongCapped(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 500)
 	transcript := assistantLine("NOTE: " + long)
 	tags, err := ExtractTags(strings.NewReader(transcript))
@@ -105,6 +110,7 @@ func TestExtractTags_OverLongCapped(t *testing.T) {
 }
 
 func TestExtractTags_OverCountKeepsNewest(t *testing.T) {
+	t.Parallel()
 	var lines []string
 	for i := range tagMaxCount + 5 {
 		lines = append(lines, assistantLine("NOTE: fact "+string(rune('a'+i))))
@@ -124,6 +130,7 @@ func TestExtractTags_OverCountKeepsNewest(t *testing.T) {
 }
 
 func TestExtractTags_MalformedLineSkipped(t *testing.T) {
+	t.Parallel()
 	transcript := strings.Join([]string{
 		"{not valid json",
 		assistantLine("NOTE: survives the bad line before it"),
@@ -138,6 +145,7 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 }
 
 func TestExtractTags_EmptyTranscript(t *testing.T) {
+	t.Parallel()
 	tags, err := ExtractTags(strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("ExtractTags: %v", err)

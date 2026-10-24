@@ -38,12 +38,31 @@ func mergeFixtureRemove(t *testing.T, dir, file, msg string) {
 func mergeFixtureRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = gitEnv(
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
+}
+
+// preflightFixtureSetup makes an isolated main repo with a base file commit plus a "feature" worktree
+// without mutating process env, so read-only/worktree-local tests can run in parallel.
+func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
+	t.Helper()
+	r := testRepo(t)
+	main = r.Main
+	// Local (not just per-exec env) identity: IntegrateTarget's `git merge` runs through the code
+	// under test's own runGit, which does not set GIT_AUTHOR/COMMITTER — it relies on repo config,
+	// same as a real user's checkout would.
+	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
+	mergeFixtureRun(t, main, "config", "user.name", "t")
+	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+	dest, err := Create(r, "feature", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	return r, main, dest
 }
 
 // mergeFixtureSetup makes a fresh main repo with a base file commit, plus a worktree named "feature"
@@ -52,22 +71,7 @@ func mergeFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	main = gitRepo(t)
-	// Local (not just per-exec env) identity: IntegrateTarget's `git merge` runs through the code
-	// under test's own runGit, which does not set GIT_AUTHOR/COMMITTER — it relies on repo config,
-	// same as a real user's checkout would.
-	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
-	mergeFixtureRun(t, main, "config", "user.name", "t")
-	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
-	r, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dest, err := Create(r, "feature", "")
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	return r, main, dest
+	return preflightFixtureSetup(t)
 }
 
 // mergeFixtureHooksVia checks that the main checkout's HEAD/index are untouched and no MERGE_HEAD
@@ -77,7 +81,9 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	if got := headOf(main); got != wantHEAD {
 		t.Fatalf("main HEAD = %s, want %s (main must stay untouched before promotion)", got, wantHEAD)
 	}
-	out, err := exec.Command("git", "-C", main, "status", "--porcelain").Output()
+	stCmd := exec.Command("git", "-C", main, "status", "--porcelain")
+	stCmd.Env = gitEnv()
+	out, err := stCmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +100,8 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 }
 
 func TestPreflightFastForward(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -113,7 +120,8 @@ func TestPreflightFastForward(t *testing.T) {
 }
 
 func TestPreflightDivergentCleanMerge(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 
@@ -127,7 +135,8 @@ func TestPreflightDivergentCleanMerge(t *testing.T) {
 }
 
 func TestPreflightTextConflict(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
 	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	mainHEAD := headOf(main)
@@ -146,7 +155,8 @@ func TestPreflightTextConflict(t *testing.T) {
 }
 
 func TestPreflightBinaryConflict(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "\x00\x01binA", "feature binary")
 	mergeFixtureWrite(t, main, "f.txt", "\x00\x01binB", "main binary")
 
@@ -163,7 +173,8 @@ func TestPreflightBinaryConflict(t *testing.T) {
 }
 
 func TestPreflightDeleteConflict(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "feature modify\n", "feature modifies f")
 	mergeFixtureRemove(t, main, "f.txt", "main deletes f")
 
@@ -180,7 +191,8 @@ func TestPreflightDeleteConflict(t *testing.T) {
 }
 
 func TestPreflightRenameConflict(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	// Rename/rename: same original file renamed to two different names on each side — merge-tree's
 	// rename-aware three-way merge cannot pick one without a decision, unlike a rename plus a
 	// non-conflicting edit (which it resolves silently).
@@ -200,7 +212,8 @@ func TestPreflightRenameConflict(t *testing.T) {
 }
 
 func TestPreflightDirtyTarget(t *testing.T) {
-	repo, main, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, _ := preflightFixtureSetup(t)
 	if err := os.WriteFile(filepath.Join(main, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +235,8 @@ func TestPreflightDirtyTarget(t *testing.T) {
 // status.showUntrackedFiles=no must not let an untracked file hide a dirty worktree from Preflight —
 // isDirty must explicitly request untracked files regardless of that config.
 func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
-	repo, _, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureRun(t, wt, "config", "status.showUntrackedFiles", "no")
 	if err := os.WriteFile(filepath.Join(wt, "untracked.txt"), []byte("new file"), 0o644); err != nil {
 		t.Fatal(err)
@@ -238,7 +252,8 @@ func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 }
 
 func TestPreflightDirtyWorktree(t *testing.T) {
-	repo, _, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, _, wt := preflightFixtureSetup(t)
 	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +268,8 @@ func TestPreflightDirtyWorktree(t *testing.T) {
 }
 
 func TestPreflightDetachedTarget(t *testing.T) {
-	repo, main, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, _ := preflightFixtureSetup(t)
 	head := headOf(main)
 	mergeFixtureRun(t, main, "checkout", "-q", head)
 
@@ -267,7 +283,8 @@ func TestPreflightDetachedTarget(t *testing.T) {
 }
 
 func TestPreflightTargetMismatch(t *testing.T) {
-	repo, _, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, _, _ := preflightFixtureSetup(t)
 
 	plan, err := Preflight(context.Background(), repo, "feature", "some-other-branch")
 	if err != nil {
@@ -279,7 +296,8 @@ func TestPreflightTargetMismatch(t *testing.T) {
 }
 
 func TestPreflightInProgressOperation(t *testing.T) {
-	repo, main, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, _ := preflightFixtureSetup(t)
 	gitDir, err := gitDirOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +316,8 @@ func TestPreflightInProgressOperation(t *testing.T) {
 }
 
 func TestPreflightUnrelatedHistories(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureRun(t, wt, "checkout", "-q", "--orphan", "orphan-base")
 	mergeFixtureRun(t, wt, "commit", "-q", "--allow-empty", "-m", "orphan root")
 	_ = main
@@ -317,10 +336,11 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 // "file doesn't exist" (permission denied on the git-dir) must propagate as an error, never be
 // silently read as "no operation in progress".
 func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks don't apply when running as root")
 	}
-	_, _, wt := mergeFixtureSetup(t)
+	_, _, wt := preflightFixtureSetup(t)
 	gitDir, err := gitDirOf(context.Background(), wt)
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +356,8 @@ func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 }
 
 func TestPreflightMissingWorktree(t *testing.T) {
-	repo, _, _ := mergeFixtureSetup(t)
+	t.Parallel()
+	repo, _, _ := preflightFixtureSetup(t)
 	if _, err := Preflight(context.Background(), repo, "does-not-exist", ""); err == nil {
 		t.Fatal("want error for a nonexistent worktree")
 	}

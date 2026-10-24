@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,7 +23,7 @@ func Create(repo *Repo, name, branch string) (string, error) {
 	if branch == "" {
 		branch = "worktree-" + name
 	}
-	if exec.CommandContext(context.Background(), "git", "check-ref-format", "--branch", branch).Run() != nil {
+	if gitCmd(context.Background(), "check-ref-format", "--branch", branch).Run() != nil {
 		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
 	}
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
@@ -36,14 +35,14 @@ func Create(repo *Repo, name, branch string) (string, error) {
 	} else {
 		args = append(args, "-b", branch, "HEAD")
 	}
-	if out, err := exec.CommandContext(context.Background(), "git", args...).CombinedOutput(); err != nil {
+	if out, err := gitCmd(context.Background(), args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return dest, nil
 }
 
 func branchExists(main, branch string) bool {
-	return exec.CommandContext(context.Background(), "git", "-C", main, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+	return gitCmd(context.Background(), "-C", main, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
 }
 
 // CleanResult reports what Clean did, or would do under dryRun, to one worktree.
@@ -129,12 +128,12 @@ func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 		result.Removed = true // preview: every recheck above passed, so this one is eligible
 		return result, nil
 	}
-	if out, err := exec.CommandContext(context.Background(), "git", "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
+	if out, err := gitCmd(context.Background(), "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove: %v: %s", err, strings.TrimSpace(string(out)))
 		return result, nil
 	}
 	result.Removed = true
-	if branch != "" && exec.CommandContext(context.Background(), "git", "-C", repo.Main, "branch", "-d", branch).Run() == nil {
+	if branch != "" && gitCmd(context.Background(), "-C", repo.Main, "branch", "-d", branch).Run() == nil {
 		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
 	}
 	return result, nil
@@ -163,7 +162,7 @@ func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 }
 
 func currentWorktreeBranch(dest string) (string, error) {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", dest, "branch", "--show-current").Output()
+	out, err := gitCmd(context.Background(), "-C", dest, "branch", "--show-current").Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -173,7 +172,7 @@ func headOf(dest string) string {
 }
 
 func headOfContext(ctx context.Context, dest string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", "-C", dest, "rev-parse", "HEAD").Output()
+	out, err := gitCmd(ctx, "-C", dest, "rev-parse", "HEAD").Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -187,7 +186,7 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
 func isLocked(dest string) (bool, error) {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	out, err := gitCmd(context.Background(), "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
 	if err != nil {
 		return false, err
 	}

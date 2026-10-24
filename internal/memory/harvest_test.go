@@ -18,6 +18,7 @@ func writeTranscript(t *testing.T, lines ...string) string {
 }
 
 func TestTagBlock_EmptyTranscriptNoBlock(t *testing.T) {
+	t.Parallel()
 	path := writeTranscript(t, "")
 	if got := tagBlock(path); got != "" {
 		t.Fatalf("tagBlock on an empty transcript = %q, want empty", got)
@@ -25,12 +26,14 @@ func TestTagBlock_EmptyTranscriptNoBlock(t *testing.T) {
 }
 
 func TestTagBlock_MissingTranscriptNoBlock(t *testing.T) {
+	t.Parallel()
 	if got := tagBlock(filepath.Join(t.TempDir(), "does-not-exist.jsonl")); got != "" {
 		t.Fatalf("tagBlock on a missing transcript = %q, want empty", got)
 	}
 }
 
 func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
+	t.Parallel()
 	path := writeTranscript(t, assistantLine("DECISION: pick bbolt — rejected sqlite because no cgo"))
 	got := tagBlock(path)
 	if got == "" {

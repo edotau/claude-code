@@ -52,6 +52,7 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 
 // TestAssignIDsSecondPassLeavesExistingIDsByteIdentical: a stamped block must never be re-stamped, even byte-wise.
 func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "decisionLog.md")
 	write(t, path, "## First\nbody one\n\n## Second\nbody two\n")
@@ -71,6 +72,7 @@ func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
 
 // TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs: three byte-identical block headers must get three distinct IDs.
 func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "decisionLog.md")
 	write(t, path, "## Fix the bug\nbody one\n\n## Fix the bug\nbody two\n\n## Fix the bug\nbody three\n")
@@ -95,6 +97,7 @@ func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
 
 // TestAssignIDsSameTextDifferentFilesGetDistinctIDs: the same block text stamped in two different typed files must not collide.
 func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "decisionLog.md"), "## Fix the bug\nbody\n")
 	write(t, filepath.Join(dir, "sessionHistory.md"), "## Fix the bug\nbody\n")
@@ -168,7 +171,7 @@ func TestContentRefStableAcrossRunsAndResolvesViaShow(t *testing.T) {
 
 // TestDigestInputIsRawArchiveOnly: the digest reads every raw archive file but never its own output, and refuses past the cap.
 func TestDigestInputIsRawArchiveOnly(t *testing.T) {
-	migrateConfig(t)
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "store")
 	write(t, filepath.Join(ArchiveDir(dir), "decisionLog-2026-09.md"), "## 2026-09-01 — old\nraw body\n")
 	write(t, filepath.Join(ArchiveDir(dir), DigestFile), "# Archive digest\n- previous summary\n")

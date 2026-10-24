@@ -13,7 +13,7 @@ func commitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = gitEnv(
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -22,12 +22,8 @@ func commitIn(t *testing.T, dir string, args ...string) {
 }
 
 func TestListEmptyRepo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	entries, err := List(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -38,12 +34,8 @@ func TestListEmptyRepo(t *testing.T) {
 }
 
 func TestListCleanMergedWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "clean", "")
 	if err != nil {
 		t.Fatal(err)
@@ -81,12 +73,8 @@ func TestListCleanMergedWorktree(t *testing.T) {
 }
 
 func TestListDirtyWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "dirty", "")
 	if err != nil {
 		t.Fatal(err)
@@ -104,12 +92,8 @@ func TestListDirtyWorktree(t *testing.T) {
 }
 
 func TestListUnmergedWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "ahead", "")
 	if err != nil {
 		t.Fatal(err)
@@ -131,12 +115,8 @@ func TestListUnmergedWorktree(t *testing.T) {
 }
 
 func TestListOrphanedDirectory(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	// A directory under Root that git never registered as a worktree.
 	if err := os.MkdirAll(filepath.Join(repo.Root, "stray"), 0o755); err != nil {
 		t.Fatal(err)
@@ -162,16 +142,14 @@ func TestListOrphanedDirectory(t *testing.T) {
 }
 
 func TestListLockedWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if _, err := Create(repo, "locked", ""); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", main, "worktree", "lock", filepath.Join(repo.Root, "locked")).CombinedOutput(); err != nil {
+	lockCmd := exec.Command("git", "-C", repo.Main, "worktree", "lock", filepath.Join(repo.Root, "locked"))
+	lockCmd.Env = gitEnv()
+	if out, err := lockCmd.CombinedOutput(); err != nil {
 		t.Fatalf("worktree lock: %v: %s", err, out)
 	}
 	entries, err := List(repo)
@@ -184,17 +162,15 @@ func TestListLockedWorktree(t *testing.T) {
 }
 
 func TestListStaleByReflogAge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "old", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	gitDirOut, err := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	gdCmd := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir")
+	gdCmd.Env = gitEnv()
+	gitDirOut, err := gdCmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,12 +195,8 @@ func TestListStaleByReflogAge(t *testing.T) {
 }
 
 func TestListDetachedHEADMain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := detachedHead(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testDetachedRepo(t)
 	if _, err := Create(repo, "fromdetached", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -243,12 +215,8 @@ func TestListDetachedHEADMain(t *testing.T) {
 }
 
 func TestListUnionsFilesystemAndRegistration(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if _, err := Create(repo, "registered", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -277,12 +245,8 @@ func TestListUnionsFilesystemAndRegistration(t *testing.T) {
 }
 
 func TestListPropagatesFilesystemReadError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if err := os.MkdirAll(filepath.Dir(repo.Root), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -50,6 +50,13 @@ var (
 	writeLockTimeout = 5 * time.Second
 )
 
+// SetReadLockTimeoutForTest overrides the bbolt read-lock timeout and returns a restore func; test-only.
+func SetReadLockTimeoutForTest(d time.Duration) (restore func()) {
+	saved := readLockTimeout
+	readLockTimeout = d
+	return func() { readLockTimeout = saved }
+}
+
 func Path() string                  { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
