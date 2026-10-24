@@ -253,8 +253,8 @@ function filters(model) {
 
 function statusPill(status) {
   if (!status) return pill('muted', 'Checking…');
-  if (status.ok) return pill('emerald', `Connected as ${status.login || status.user || 'user'}`);
-  return pill('danger', status.message || status.reason || 'Not connected', status.message);
+  if (status.ok) return pill('emerald', 'Connected', status.login || status.user ? `Connected as ${status.login || status.user}` : 'Connected');
+  return pill('danger', 'Disconnected', status.message || status.reason || 'Not connected');
 }
 
 /** Task sources cards: status pill, Show-in-Tasks toggle (locked on the last visible one), default radio, repo list. */
@@ -271,6 +271,66 @@ function settingsSection(model) {
       <div class="card-row repos">${repos}</div>${c.baseUrl ? `<div class="card-row muted truncate">${esc(c.baseUrl)}</div>` : ''}</div>`;
   };
   return `<details class="settings" id="settings"${s.expanded ? ' open' : ''}><summary class="section-header">TASK SOURCES</summary><div class="cards">${card('jira', s.jira)}${card('github', s.github)}${card('bitbucket', s.bitbucket)}</div><div class="card-row"><button class="btn btn-outline" data-act="openSettings">${ICONS.settings}Edit repos and defaults in Settings</button><button class="btn btn-outline" data-act="doctor">${ICONS.refreshCw}Re-check connections</button></div></details>`;
+}
+
+// --- inline detail view (Orca swaps the list for the item; Back returns) ---
+function jiraStatusTone(category) {
+  return category === 'done' ? 'emerald' : category === 'indeterminate' ? 'sky' : 'muted';
+}
+
+function transitionMenu(d) {
+  const items = (d.transitions || [])
+    .map((t) => {
+      const req = t.requirement || { kind: 'none' };
+      const form = req.kind === 'form' ? attr({ id: t.id, name: t.name, resolution: req.resolution ? { name: req.resolution.name, options: (req.resolution.allowedValues || []).map((v) => ({ id: v.id || v.value || v.name, label: v.name || v.value || v.id })) } : null, commentRequired: !!req.commentRequired }) : '';
+      const note = req.kind === 'unsupported' ? ` <span class="muted">(needs ${esc((req.fields || []).map((f) => f.name || f.key).join(', '))} — open in Jira)</span>` : '';
+      return `<button data-transition="${esc(t.id)}" data-req="${esc(req.kind)}"${form ? ` data-form="${form}"` : ''}${req.kind === 'unsupported' ? ' disabled' : ''}>${ICONS.arrowRight}${esc(t.name)}${t.to.name && t.to.name.toLowerCase() !== t.name.toLowerCase() ? `<span class="muted"> → ${esc(t.to.name)}</span>` : ''}${note}</button>`;
+    })
+    .join('');
+  const st = d.status || { name: 'Open', category: 'new' };
+  return `<details class="menu"><summary class="pill pill-${jiraStatusTone(st.category)} pill-btn" title="Change status">${esc(st.name)}${ICONS.chevronDown}</summary><div class="menu-items">${items || '<span class="menu-note muted">No transitions available</span>'}</div></details>`;
+}
+
+function priorityMenu(d) {
+  const current = d.priority ? `${remoteIcon(d.priority, 'type-icon')}${esc(d.priority.name)}` : '<span class="muted">No priority</span>';
+  const items = (d.priorities || []).map((p) => `<button data-priority="${esc(p.id)}"${d.priority && d.priority.name === p.name ? ' class="active"' : ''}>${remoteIcon(p, 'type-icon')}${esc(p.name)}</button>`).join('');
+  return `<details class="menu"><summary class="btn btn-outline" title="Change priority">${current}${ICONS.chevronDown}</summary><div class="menu-items">${items || '<span class="menu-note muted">Loading…</span>'}</div></details>`;
+}
+
+function assigneeButton(d) {
+  const a = d.assignee;
+  const face = a ? `<span class="avatar ring-muted">${esc(initials(a.displayName))}</span>${esc(a.displayName)}` : '<span class="muted">Unassigned</span>';
+  return `<button class="btn btn-outline" data-act="assign" data-id="${esc(d.id)}" title="Change assignee">${face}${ICONS.chevronDown}</button>`;
+}
+
+function commentBubble(c, now) {
+  return `<div class="bubble"><div class="bubble-head"><span class="avatar ring-muted">${esc(initials(c.author))}</span><span class="bubble-author">${esc(c.author)}</span><span class="muted" title="${esc(c.created)}">${esc(formatRelativeTime(c.created, now))}</span></div><div class="prose">${c.bodyHtml || ''}</div></div>`;
+}
+
+function transitionForm() {
+  return `<form class="card transition-form hidden" id="transition-form"><div class="card-head"><span class="card-title" id="transition-title">Transition</span></div><label class="field hidden" id="resolution-field"><span>Resolution</span><select class="select" id="resolution"></select></label><label class="field" id="transition-comment-field"><span id="transition-comment-label">Comment</span><textarea id="transition-comment" rows="2" placeholder="Optional comment"></textarea></label><div class="card-row"><button type="submit" class="btn btn-primary">Apply</button><button type="button" class="btn btn-outline" id="transition-cancel">Cancel</button></div></form>`;
+}
+
+/** Full-source detail for Jira; GitHub/Bitbucket get the header + browser link until their slice lands. */
+function detailView(model, now) {
+  const d = model.detail || {};
+  const data = d.data || {};
+  const back = `<button class="btn btn-outline" data-act="back">${ICONS.chevronLeft}Back</button>`;
+  if (d.loading) return `<div class="detail"><div class="detail-head">${back}<span class="spin">${ICONS.loaderCircle}</span><span class="muted">Loading ${esc(d.key || '')}…</span></div></div>`;
+  if (d.error) return `<div class="detail"><div class="detail-head">${back}</div><div class="banner banner-error" role="alert">${ICONS.alertCircle}<span>${esc(d.error)}</span><button class="btn btn-outline" data-act="detail" data-id="${esc(d.id)}">Retry</button></div></div>`;
+  const key = data.source === 'jira' ? data.key : `#${data.number}`;
+  const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}<button class="btn btn-outline" data-act="start" data-id="${esc(data.id)}">${ICONS.play}Start</button><button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
+  const title = `<h2 class="detail-title">${esc(data.title)}</h2>`;
+  const err = d.mutationError ? `<div class="banner banner-error" role="alert">${ICONS.alertCircle}<span class="truncate" title="${esc(d.mutationError)}">${esc(d.mutationError)}</span><button class="btn btn-outline" data-act="retry" data-id="${esc(data.id)}">Retry</button><button class="icon-btn" data-act="clearError" data-id="${esc(data.id)}" aria-label="Dismiss">${ICONS.x}</button></div>` : '';
+  if (data.source !== 'jira') {
+    return `<div class="detail">${head}${title}<div class="meta">${statusCell(data)}<span>${esc(data.author || '')}</span></div>${err}<div class="card"><div class="muted">Conversation, checks and files for ${esc(data.source === 'github' ? 'GitHub' : 'Bitbucket')} items open in the browser for now.</div><div class="card-row"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in browser</button></div></div></div>`;
+  }
+  const metaBar = `<div class="meta-bar">${transitionMenu({ ...data, transitions: d.transitions })}${priorityMenu({ ...data, priorities: d.priorities })}${assigneeButton(data)}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${data.issueType ? `<span class="muted cell-text">${remoteIcon(data.issueType, 'type-icon')}${esc(data.issueType.name)}</span>` : ''}</div>`;
+  const description = `<section class="card"><div class="card-head"><span class="card-title">Description</span><span class="muted">${esc(data.author || '')}</span></div>${data.descriptionHtml ? `<div class="prose">${data.descriptionHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
+  const comments = d.comments || [];
+  const commentsCard = `<section class="card"><div class="card-head"><span class="card-title">Comments</span><span class="count">${comments.length}</span></div>${comments.map((c) => commentBubble(c, now)).join('') || '<div class="muted">No comments yet.</div>'}<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Add a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Send</button><span class="muted">Plain text or Jira wiki markup</span></div></form></section>`;
+  const rail = `<aside class="rail"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in Jira</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.key)}" data-label="Key">${ICONS.copy}Copy key</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.branchName || '')}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${err}${transitionForm()}<div class="detail-body"><div class="detail-main">${description}${commentsCard}</div>${rail}</div></div>`;
 }
 
 const CSS = `
@@ -316,7 +376,7 @@ const CSS = `
   .menu { position: relative; display: inline-flex; }
   .menu > summary { list-style: none; }
   .menu > summary::-webkit-details-marker { display: none; }
-  .menu-items { position: absolute; top: calc(100% + 4px); right: 0; z-index: 50; min-width: 180px; background: var(--vscode-menu-background, var(--vscode-dropdown-background)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.3); display: flex; flex-direction: column; }
+  .menu-items { position: absolute; top: calc(100% + 4px); right: 0; z-index: 50; min-width: 180px; background: var(--vscode-menu-background, var(--vscode-dropdown-background, var(--bg))); color: var(--vscode-menu-foreground, var(--vscode-foreground)); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.3); display: flex; flex-direction: column; }
   .repo-menu .menu-items { left: 0; right: auto; max-height: 240px; overflow: auto; }
   .menu-items button, .menu-check { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: none; background: none; text-align: left; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
   .menu-items button:hover, .menu-check:hover { background: var(--hover); }
@@ -396,6 +456,39 @@ const CSS = `
   .card-title { font-weight: 600; }
   .card-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
   .card-row.repos { gap: 4px; }
+  .pill-sky { border-color: color-mix(in srgb, var(--vscode-charts-blue, #60a5fa) 40%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #60a5fa) 10%, transparent); color: var(--vscode-charts-blue, #60a5fa); }
+  .btn-primary { background: var(--primary); color: var(--vscode-button-foreground); border-color: transparent; }
+  .btn-primary:disabled { opacity: .5; cursor: default; }
+  .detail { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+  .detail-key { font-size: 12px; }
+  .detail-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; color: var(--vscode-foreground); }
+  .meta-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .meta-bar .menu-items { left: 0; right: auto; min-width: 220px; max-height: 280px; overflow: auto; }
+  .meta-bar .menu-items button.active { font-weight: 600; }
+  .menu-note { display: block; padding: 6px 8px; font-size: 12px; }
+  .detail-body { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 12px; align-items: start; }
+  .detail-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .rail { display: flex; flex-direction: column; gap: 6px; }
+  .rail .btn { justify-content: flex-start; }
+  .count { border-radius: 999px; background: var(--track); padding: 0 7px; font-size: 11px; }
+  .prose { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+  .prose p { margin: 0 0 8px; } .prose p:last-child { margin-bottom: 0; }
+  .prose pre, .prose code { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+  .prose pre { background: color-mix(in srgb, var(--track) 40%, transparent); padding: 8px; border-radius: 6px; overflow: auto; }
+  .prose blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--vscode-descriptionForeground); }
+  .prose table { border-collapse: collapse; } .prose th, .prose td { border: 1px solid var(--border); padding: 3px 6px; font-size: 12px; }
+  .prose img { max-width: 100%; }
+  .prose a { color: var(--vscode-textLink-foreground); }
+  .bubble { border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--track) 20%, transparent); margin-bottom: 8px; }
+  .bubble-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 6px 10px; font-size: 12px; }
+  .bubble-author { font-weight: 600; }
+  .bubble .prose { padding: 8px 10px; }
+  .composer, .transition-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .composer textarea, .transition-form textarea, .field select { width: 100%; box-sizing: border-box; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--border)); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+  .composer textarea:focus, .transition-form textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  @media (max-width: 720px) { .detail-body { grid-template-columns: 1fr; } .rail { flex-direction: row; flex-wrap: wrap; } }
   @media (max-width: 480px) { .chrome { padding: 8px; } .row { padding: 10px 8px; } .c-title { left: calc(var(--title-left, 84px) - 4px); } .page-btn { min-width: 0; } }
 `;
 
@@ -410,6 +503,12 @@ const SCRIPT = `
     if (t.dataset.act) {
       e.stopPropagation();
       if (t.dataset.act === 'start') return post({ type: 'start', id: t.dataset.id });
+      if (t.dataset.act === 'back') return post({ type: 'back' });
+      if (t.dataset.act === 'detail') return post({ type: 'detail', id: t.dataset.id });
+      if (t.dataset.act === 'assign') return post({ type: 'assign', id: t.dataset.id });
+      if (t.dataset.act === 'retry') return post({ type: 'retry', id: t.dataset.id });
+      if (t.dataset.act === 'clearError') return post({ type: 'clearError', id: t.dataset.id });
+      if (t.dataset.act === 'copy') return post({ type: 'copy', text: t.dataset.text, label: t.dataset.label });
       if (t.dataset.act === 'open') return post({ type: 'open', url: t.dataset.url });
       if (t.dataset.act === 'toggleSettings') { const d = $('#settings'); d.open = !d.open; post({ type: 'settingsExpanded', expanded: d.open }); return; }
       return post({ type: t.dataset.act, source: t.dataset.source });
@@ -450,7 +549,59 @@ const SCRIPT = `
   document.querySelectorAll('input[data-visible]').forEach((cb) => cb.addEventListener('change', () => post({ type: 'toggleSourceVisible', source: cb.dataset.visible, visible: cb.checked })));
   document.querySelectorAll('input[data-default]').forEach((r) => r.addEventListener('change', () => post({ type: 'defaultSource', source: r.dataset.default })));
   const list = $('.list');
-  if (list && window.__scroll) list.scrollTop = window.__scroll;
+  const state = vscode.getState() || {};
+  if (list && state.scroll) { list.scrollTop = state.scroll; }
+  if (list) list.addEventListener('scroll', () => vscode.setState({ ...(vscode.getState() || {}), scroll: list.scrollTop }));
+  const detail = $('.detail[data-detail-id]');
+  if (detail) {
+    const id = detail.dataset.detailId;
+    const body = $('#comment-body');
+    const send = $('#comment-send');
+    if (body) {
+      body.value = (state.drafts || {})[id] || '';
+      send.disabled = !body.value.trim();
+      body.addEventListener('input', () => { send.disabled = !body.value.trim(); vscode.setState({ ...(vscode.getState() || {}), drafts: { ...((vscode.getState() || {}).drafts || {}), [id]: body.value } }); });
+      body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('#composer').requestSubmit(); } });
+      $('#composer').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = body.value.trim();
+        if (!text) return;
+        vscode.setState({ ...(vscode.getState() || {}), drafts: { ...((vscode.getState() || {}).drafts || {}), [id]: '' } });
+        send.disabled = true;
+        post({ type: 'comment', id, body: text });
+      });
+    }
+    detail.querySelectorAll('[data-priority]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'priority', id, priorityId: b.dataset.priority }); }));
+    const form = $('#transition-form');
+    let chosen = null;
+    detail.querySelectorAll('[data-transition]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; });
+      if (b.dataset.req === 'none') return post({ type: 'transition', id, transitionId: b.dataset.transition });
+      if (b.dataset.req !== 'form') return;
+      chosen = JSON.parse(b.dataset.form);
+      $('#transition-title').textContent = chosen.name;
+      const res = $('#resolution');
+      res.innerHTML = '';
+      if (chosen.resolution) {
+        chosen.resolution.options.forEach((o) => { const opt = document.createElement('option'); opt.value = o.id; opt.textContent = o.label; res.appendChild(opt); });
+      }
+      $('#resolution-field').classList.toggle('hidden', !chosen.resolution);
+      $('#transition-comment-label').textContent = chosen.commentRequired ? 'Comment (required)' : 'Comment';
+      $('#transition-comment').required = !!chosen.commentRequired;
+      form.classList.remove('hidden');
+      ($('#resolution-field').classList.contains('hidden') ? $('#transition-comment') : res).focus();
+    }));
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!chosen) return;
+        post({ type: 'transition', id, transitionId: chosen.id, resolutionId: chosen.resolution ? $('#resolution').value : null, comment: $('#transition-comment').value.trim() });
+        form.classList.add('hidden');
+      });
+      $('#transition-cancel').addEventListener('click', () => { form.classList.add('hidden'); chosen = null; });
+    }
+  }
 `;
 
 /** Full webview HTML for the Tasks page. `model` is built by the extension's TasksViewProvider. */
@@ -479,12 +630,12 @@ function renderTasksHtml(model, opts) {
     ${modeControls(model)}
     ${filters(model)}
   </div>
-  <div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind)}${body}</div></div>
-  ${pagination(model)}
+  ${model.view === 'detail' ? detailView(model, model.now) : `<div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind)}${body}</div></div>
+  ${pagination(model)}`}
   ${settingsSection(model)}
   <script nonce="${nonce}">${SCRIPT}</script>
 </body>
 </html>`;
 }
 
-module.exports = { renderTasksHtml, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };
+module.exports = { renderTasksHtml, detailView, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };

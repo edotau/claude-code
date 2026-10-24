@@ -17,6 +17,7 @@ const tasksGithub = require('./lib/tasks-github');
 const tasksBitbucket = require('./lib/tasks-bitbucket');
 const jiraClient = require('./lib/jira-client');
 const tasksJira = require('./lib/tasks-jira');
+const { MutationQueue } = require('./lib/tasks-mutations');
 const tasksState = require('./lib/tasks-state');
 const { renderTasksHtml } = require('./lib/tasks-view');
 
@@ -90,7 +91,10 @@ class UsageViewProvider {
     this.panel = panel;
     this.wireWebview(panel.webview);
     panel.onDidDispose(() => {
-      if (this.panel === panel) this.panel = undefined;
+      if (this.panel === panel) {
+        this.panel = undefined;
+        this.panelFloating = false;
+      }
     });
     this.render();
   }
@@ -304,6 +308,111 @@ class TasksViewProvider {
     this.tokenPromise = null;
     this.jiraTokenPromise = null;
     this.loadNonce = 0;
+    this.view = 'list';
+    this.detail = null; // { id, key, loading, error, data, comments, transitions, priorities, branchName, prompt }
+    this.priorities = null;
+    this.mutations = new MutationQueue({
+      getItem: (id) => this.findItem(id),
+      setItem: (id, row) => this.patchItem(id, row),
+      refetch: (id) => this.refetchItem(id),
+      onChange: () => this.render(),
+    });
+  }
+
+  /** Replaces the row in the list (and the open detail) with `row`; keeps detail-only fields the row lacks. */
+  patchItem(id, row) {
+    if (this.result && this.result.items) this.result = { ...this.result, items: this.result.items.map((i) => (i.id === id ? { ...i, ...row } : i)) };
+    if (this.detail && this.detail.id === id && this.detail.data) this.detail = { ...this.detail, data: { ...this.detail.data, ...row } };
+  }
+
+  /** Fresh row after a write: Jira re-reads the issue (and comments/transitions when its detail is open). */
+  async refetchItem(id) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'jira') return null;
+    const cfg = this.cfg();
+    const open = this.detail && this.detail.id === id;
+    const data = await this.withJiraClient(async (client) => {
+      const [issue, comments, transitions] = await Promise.all([client.issue(item.key), open ? client.comments(item.key) : null, open ? client.transitions(item.key) : null]);
+      return tasksJira.mapDetail({ issue, comments: comments || [], transitions: transitions || [] }, { baseUrl: cfg.jiraBaseUrl });
+    });
+    if (open) this.detail = { ...this.detail, comments: data.comments, transitions: data.transitions, branchName: tasksJira.branchName(data), prompt: tasksJira.prompt(data) };
+    this.cache.invalidate();
+    return data;
+  }
+
+  /** Opens the inline detail: Jira loads issue + comments + transitions (+ priorities once); other sources show the row. */
+  async openDetail(id) {
+    const item = this.findItem(id);
+    if (!item) return;
+    this.view = 'detail';
+    if (item.source !== 'jira') {
+      this.detail = { id, key: item.number, data: item };
+      return this.render();
+    }
+    this.detail = { id, key: item.key, loading: true };
+    this.render();
+    try {
+      const cfg = this.cfg();
+      const data = await this.withJiraClient(async (client) => {
+        const [issue, comments, transitions, priorities] = await Promise.all([client.issue(item.key), client.comments(item.key), client.transitions(item.key), this.priorities ? null : client.priorities().catch(() => [])]);
+        if (priorities) this.priorities = priorities.map((p) => ({ id: String(p.id), name: p.name, iconUrl: p.iconUrl || null }));
+        return tasksJira.mapDetail({ issue, comments, transitions }, { baseUrl: cfg.jiraBaseUrl });
+      });
+      if (!this.detail || this.detail.id !== id) return;
+      this.detail = { id, key: item.key, data, comments: data.comments, transitions: data.transitions, branchName: tasksJira.branchName(data), prompt: tasksJira.prompt(data) };
+      this.patchItem(id, data);
+    } catch (err) {
+      if (this.detail && this.detail.id === id) this.detail = { id, key: item.key, error: err.message };
+    }
+    this.render();
+  }
+
+  /** Assignee QuickPick: Unassigned · Assign to me · live search over `/user/assignable/search`. */
+  async pickAssignee(id) {
+    const item = this.findItem(id);
+    if (!item || item.source !== 'jira') return;
+    const me = this.status.jira && this.status.jira.ok ? this.status.jira : null;
+    const fixed = [{ label: '$(circle-slash) Unassigned', name: null, displayName: '' }, ...(me && me.name ? [{ label: `$(account) Assign to me (${me.login})`, name: me.name, displayName: me.login }] : [])];
+    const qp = vscode.window.createQuickPick();
+    qp.placeholder = `Assign ${item.key} to…`;
+    qp.matchOnDescription = true;
+    qp.items = fixed;
+    let timer;
+    qp.onDidChangeValue((value) => {
+      clearTimeout(timer);
+      if (!value.trim()) return (qp.items = fixed);
+      timer = setTimeout(async () => {
+        qp.busy = true;
+        try {
+          const users = await this.withJiraClient((client) => client.assignable(item.key, value.trim()));
+          qp.items = [...fixed, ...users.map((u) => ({ label: u.displayName, description: u.name, name: u.name, displayName: u.displayName }))];
+        } catch (err) {
+          qp.items = [...fixed, { label: `$(error) ${err.message}`, name: undefined }];
+        } finally {
+          qp.busy = false;
+        }
+      }, 250);
+    });
+    const picked = await new Promise((resolve) => {
+      qp.onDidAccept(() => resolve(qp.selectedItems[0]));
+      qp.onDidHide(() => resolve(undefined));
+      qp.show();
+    });
+    qp.dispose();
+    if (!picked || picked.name === undefined) return;
+    const assignee = picked.name ? { name: picked.name, displayName: picked.displayName || picked.name, avatarUrl: null } : null;
+    await this.runMutation(id, { assignee, assignees: assignee ? [assignee.displayName] : [] }, (client) => client.assign(item.key, picked.name));
+  }
+
+  /** Optimistic write through the queue; the error lands on the detail banner / row instead of a toast. */
+  async runMutation(id, patch, op) {
+    try {
+      await this.mutations.enqueue({ id, patch, write: () => this.withJiraClient(op) });
+      if (this.detail && this.detail.id === id) this.detail = { ...this.detail, mutationError: null };
+    } catch (err) {
+      if (this.detail && this.detail.id === id) this.detail = { ...this.detail, mutationError: err.message };
+    }
+    this.render();
   }
 
   cfg() {
@@ -355,7 +464,10 @@ class TasksViewProvider {
     this.panel = panel;
     this.wireWebview(panel.webview);
     panel.onDidDispose(() => {
-      if (this.panel === panel) this.panel = undefined;
+      if (this.panel === panel) {
+        this.panel = undefined;
+        this.panelFloating = false;
+      }
     });
     this.render();
   }
@@ -364,10 +476,27 @@ class TasksViewProvider {
     return [...this.views].some((v) => v.visible) || !!(this.panel && this.panel.visible);
   }
 
-  /** Pops the page out: the editor tab, then VS Code's "move editor into new window" on it (a floating window). */
+  /** Pops the page out: the editor tab, then VS Code's "move editor into new window" once that tab is the active editor. */
   async popOut() {
+    if (this.panel && this.panelFloating) return this.panel.reveal(); // already in its own window: don't move an empty group
     this.openInEditor();
+    const panel = this.panel;
+    if (!panel.active) {
+      await new Promise((resolve) => {
+        const sub = panel.onDidChangeViewState((e) => {
+          if (!e.webviewPanel.active) return;
+          sub.dispose();
+          resolve();
+        });
+        setTimeout(() => {
+          sub.dispose();
+          resolve();
+        }, 1500);
+      });
+    }
+    if (!panel.active) return; // never move whatever else is active
     await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+    this.panelFloating = true;
   }
 
   /** Focuses the surface `tasksOpenIn` names: the Panel view, the sidebar view, or the editor tab. */
@@ -409,7 +538,7 @@ class TasksViewProvider {
     this.status = {
       github,
       bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : failed(bitbucket),
-      jira: jira.ok ? { ok: true, login: jira.user.displayName || jira.user.name } : failed(jira),
+      jira: jira.ok ? { ok: true, login: jira.user.displayName || jira.user.name, name: jira.user.name } : failed(jira),
     };
     this.render();
   }
@@ -594,6 +723,8 @@ class TasksViewProvider {
       page: this.page,
       totalPages: result.totalPages,
       now: Date.now(),
+      view: this.view,
+      detail: this.detail ? { ...this.detail, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
       settings: {
         expanded: this.settingsExpanded,
         defaultSource: cfg.defaultSource,
@@ -675,11 +806,45 @@ class TasksViewProvider {
       case 'open':
         if (msg.url) await vscode.env.openExternal(vscode.Uri.parse(msg.url));
         return;
-      case 'detail': {
+      case 'detail':
+        return this.openDetail(msg.id);
+      case 'back':
+        this.view = 'list';
+        this.detail = null;
+        return this.render();
+      case 'comment': {
         const item = this.findItem(msg.id);
-        if (item && item.url) await vscode.env.openExternal(vscode.Uri.parse(item.url));
+        if (!item || item.source !== 'jira' || !msg.body) return;
+        return this.runMutation(msg.id, null, (client) => client.addComment(item.key, msg.body));
+      }
+      case 'transition': {
+        const item = this.findItem(msg.id);
+        const t = (this.detail && this.detail.transitions || []).find((x) => x.id === String(msg.transitionId));
+        if (!item || !t) return;
+        const fields = msg.resolutionId ? { resolution: { id: String(msg.resolutionId) } } : undefined;
+        return this.runMutation(msg.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, (client) => client.transition(item.key, t.id, msg.comment || '', fields));
+      }
+      case 'priority': {
+        const item = this.findItem(msg.id);
+        const p = (this.priorities || []).find((x) => x.id === String(msg.priorityId));
+        if (!item || !p) return;
+        return this.runMutation(msg.id, { priority: { name: p.name, iconUrl: p.iconUrl } }, (client) => client.update(item.key, { fields: { priority: { id: p.id } } }));
+      }
+      case 'assign':
+        return this.pickAssignee(msg.id);
+      case 'retry': {
+        const e = this.mutations.errorFor(msg.id);
+        if (e) e.retry().catch(() => {});
         return;
       }
+      case 'clearError':
+        this.mutations.clearError(msg.id);
+        if (this.detail && this.detail.id === msg.id) this.detail = { ...this.detail, mutationError: null };
+        return this.render();
+      case 'copy':
+        await vscode.env.clipboard.writeText(msg.text || '');
+        vscode.window.setStatusBarMessage(`${msg.label || 'Text'} copied`, 2000);
+        return;
       case 'start': {
         const item = this.findItem(msg.id);
         if (!item) return;

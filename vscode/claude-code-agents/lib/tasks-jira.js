@@ -113,4 +113,94 @@ async function list({ client, query, projects, page = 1, limit = 36, baseUrl }) 
   };
 }
 
-module.exports = { toJql, mapIssue, list };
+// --- detail view (Orca JiraIssueWorkspace) ---
+const { sanitizeHtml, textOf } = require('./sanitize-html');
+
+function escapeText(text) {
+  return String(text == null ? '' : text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** DC transition `fields` is an object keyed by field key; normalise to Orca's `JiraCreateField[]` shape. */
+function transitionFields(transition) {
+  const raw = transition.fields || {};
+  if (Array.isArray(raw)) return raw;
+  return Object.entries(raw).map(([key, f]) => ({
+    key,
+    name: (f && f.name) || key,
+    required: !!(f && f.required),
+    schema: (f && f.schema) || {},
+    allowedValues: (f && f.allowedValues) || [],
+  }));
+}
+
+function allowedValueKey(v) {
+  return (v.id && String(v.id).trim()) || (v.value && String(v.value).trim()) || (v.name && String(v.name).trim()) || '';
+}
+
+/** Orca's classifyTransitionRequirements: none · form (resolution select / required comment) · unsupported fields. */
+function classifyTransition(transition) {
+  const required = transitionFields(transition).filter((f) => f.required);
+  if (!required.length) return { kind: 'none' };
+  let resolution = null;
+  let commentRequired = false;
+  const unsupported = [];
+  for (const field of required) {
+    const custom = field.schema && field.schema.custom;
+    if (required.filter((o) => o.key === field.key).length > 1) unsupported.push(field);
+    else if (field.key === 'resolution' && !custom && (field.allowedValues || []).some(allowedValueKey)) resolution = field;
+    else if (field.key === 'comment' && !custom) commentRequired = true;
+    else unsupported.push(field);
+  }
+  if (unsupported.length) return { kind: 'unsupported', fields: unsupported };
+  return { kind: 'form', resolution, commentRequired };
+}
+
+function mapTransition(t) {
+  const to = t.to || {};
+  const cat = (to.statusCategory && to.statusCategory.key) || '';
+  return { id: String(t.id), name: t.name || '', to: { name: to.name || '', category: cat }, requirement: classifyTransition(t) };
+}
+
+/** Comment → `{id, author, avatarUrl, created, bodyHtml}`; `renderedBody` (DC HTML) sanitised, raw `body` escaped as fallback. */
+function mapComment(c, opts) {
+  const { baseUrl } = opts || {};
+  const author = c.author || {};
+  const bodyHtml = c.renderedBody ? sanitizeHtml(c.renderedBody, { baseUrl }) : `<p>${escapeText(c.body || '').replace(/\n/g, '<br>')}</p>`;
+  return {
+    id: String(c.id || ''),
+    author: author.displayName || author.name || 'unknown',
+    avatarUrl: (author.avatarUrls && author.avatarUrls['24x24']) || null,
+    created: c.created || '',
+    bodyHtml,
+  };
+}
+
+/** Row + description/comments/transitions for the inline detail view. */
+function mapDetail({ issue, comments, transitions }, opts) {
+  const { baseUrl } = opts || {};
+  const row = mapIssue(issue, { baseUrl });
+  const rendered = (issue.renderedFields && issue.renderedFields.description) || '';
+  const raw = (issue.fields && issue.fields.description) || '';
+  const descriptionHtml = rendered ? sanitizeHtml(rendered, { baseUrl }) : raw ? `<p>${escapeText(raw).replace(/\n/g, '<br>')}</p>` : '';
+  return {
+    ...row,
+    descriptionHtml,
+    descriptionText: textOf(descriptionHtml, 2000),
+    comments: ((comments && comments.comments) || comments || []).map((c) => mapComment(c, { baseUrl })),
+    transitions: (transitions || []).map(mapTransition),
+  };
+}
+
+/** Orca's buildJiraBranchName: lower-case key + slug of the title (≤ 52 chars). */
+function branchName(row) {
+  const slug = String(row.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 52);
+  return `${String(row.key).toLowerCase()}${slug ? `-${slug}` : ''}`;
+}
+
+/** Orca's buildJiraIssuePrompt. */
+function prompt(row) {
+  const desc = String(row.descriptionText || '').trim();
+  return `Complete Jira issue ${row.key}: ${row.title}\n\n${row.url}${desc ? `\n\n${desc}` : ''}`;
+}
+
+module.exports = { toJql, mapIssue, list, classifyTransition, mapTransition, mapComment, mapDetail, branchName, prompt };

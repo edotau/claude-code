@@ -127,6 +127,6 @@ test('renderTasksHtml: CSP uses the nonce and cspSource, and the settings sectio
   assert.ok(html.includes("script-src 'nonce-abc123'"));
   assert.ok(html.includes("style-src 'unsafe-inline' vscode-resource:"));
   assert.ok(html.includes('<script nonce="abc123">'));
-  assert.ok(html.includes('Connected as dev1'));
+  assert.ok(html.includes('>Connected<') && html.includes('Connected as dev1'));
   assert.ok(html.includes('data-visible="bitbucket"'));
 });

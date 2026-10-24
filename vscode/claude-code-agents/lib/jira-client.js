@@ -67,14 +67,26 @@ function createClient(opts) {
     return request(`/rest/api/2/issue/${encodeURIComponent(key)}/comment`, { method: 'POST', body: { body: text } });
   }
 
+  /** Transitions with their screen fields (`expand=transitions.fields`) so required resolution/comment can be collected. */
   function transitions(key) {
-    return request(`/rest/api/2/issue/${encodeURIComponent(key)}/transitions`).then((body) => body.transitions);
+    return request(`/rest/api/2/issue/${encodeURIComponent(key)}/transitions?expand=transitions.fields`).then((body) => body.transitions || []);
   }
 
-  function transition(key, transitionId, comment) {
+  /** `fields` (e.g. `{resolution: {id}}`) ride in the transition body; a comment goes through `update.comment`. */
+  function transition(key, transitionId, comment, fields) {
     const body = { transition: { id: String(transitionId) } };
+    if (fields && Object.keys(fields).length) body.fields = fields;
     if (typeof comment === 'string' && comment) body.update = { comment: [{ add: { body: comment } }] };
     return request(`/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, { method: 'POST', body });
+  }
+
+  /** `PUT /issue/{key}` with a raw `{fields, update}` body (summary, labels, priority…). */
+  function update(key, body) {
+    return request(`/rest/api/2/issue/${encodeURIComponent(key)}`, { method: 'PUT', body });
+  }
+
+  function priorities() {
+    return request('/rest/api/2/priority');
   }
 
   function assign(key, name) {
@@ -107,7 +119,7 @@ function createClient(opts) {
     }
   }
 
-  return { search, issue, comments, addComment, transitions, transition, assign, assignable, myself };
+  return { search, issue, comments, addComment, transitions, transition, update, priorities, assign, assignable, myself };
 }
 
 /** First non-empty token file among the skill's conventional locations ($JIRA_TOKEN_FILE, ~/.ssh/atlassian-ci-pat, ~/.ssh/jira-ci-pat). */
