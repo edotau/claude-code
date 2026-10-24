@@ -269,3 +269,22 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 		t.Error("Alive(rec) = true after Cancel, want false (SIGKILL must have ended the trapping child)")
 	}
 }
+
+func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.PID = cmd.Process.Pid
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cancel(&rec); err != nil {
+		t.Fatalf("Cancel on a dead pid = %v, want nil", err)
+	}
+	if rec.Status != "error" {
+		t.Errorf("status = %q, want error", rec.Status)
+	}
+}

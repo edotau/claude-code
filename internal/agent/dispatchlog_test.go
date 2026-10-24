@@ -212,3 +212,100 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 		t.Fatalf("foreground running record (no Log) must be pruned, stat err = %v", err)
 	}
 }
+
+// Record.Alive table test: status gates everything; PID>0 defers to proc.Alive; PID==0 falls back
+// to a one-minute grace window on Time. Each case's assertion fails if the matching guard reverts
+// (e.g. dropping the `r.Status != "running"` check breaks the "done" case; dropping the PID==0 time
+// fallback breaks the "2 min ago" case).
+func TestRecordAlive(t *testing.T) {
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("spawn+wait a short-lived process: %v", err)
+	}
+	deadPID := cmd.Process.Pid
+
+	cases := []struct {
+		name string
+		r    Record
+		want bool
+	}{
+		{"running, pid of this process", Record{Status: "running", PID: os.Getpid()}, true},
+		{"running, dead pid", Record{Status: "running", PID: deadPID}, false},
+		{"running, pid 0, time now", Record{Status: "running", PID: 0, Time: time.Now()}, true},
+		{"running, pid 0, time 2 min ago", Record{Status: "running", PID: 0, Time: time.Now().Add(-2 * time.Minute)}, false},
+		{"status done", Record{Status: "done", PID: os.Getpid()}, false},
+		{"status ok, pid 0, time now", Record{Status: "ok", PID: 0, Time: time.Now()}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.r.Alive(); got != c.want {
+				t.Errorf("Alive() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// Prune keeps a record alive by the PID==0/recent-Time path (no PID at all) and drops a non-alive
+// "running" record with PID==0 whose Time is stale — proving activeRecord routes through Alive()
+// rather than only checking Log!="" or PID>0.
+func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	old := dispatchKeep
+	dispatchKeep = 2
+	defer func() { dispatchKeep = old }()
+
+	stale := NewRecord("codex", Request{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
+	if err := stale.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// alive's ID sorts as 2nd-oldest (so the prune walk reaches it before excess is exhausted), but
+	// its on-disk Time is overridden to "just now" so Alive() reports it live despite Status "running".
+	alive := NewRecord("codex", Request{Prompt: "alive"}, base.Add(30*time.Second))
+	alive.Time = time.Now().Add(-5 * time.Second)
+	if err := alive.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	trigger1 := NewRecord("codex", Request{Prompt: "trigger1"}, base.Add(time.Minute))
+	trigger1.Status = "ok"
+	if err := trigger1.Save(); err != nil {
+		t.Fatal(err)
+	}
+	trigger2 := NewRecord("codex", Request{Prompt: "trigger2"}, base.Add(2*time.Minute))
+	trigger2.Status = "ok"
+	if err := trigger2.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(DispatchDir(), stale.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("stale PID==0 record must be pruned, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), alive.ID+".json")); err != nil {
+		t.Fatalf("recent PID==0 record must survive the prune: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("trigger1 must be pruned in alive's place, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger2.ID+".json")); err != nil {
+		t.Fatalf("newest record must survive the prune: %v", err)
+	}
+}
+
+// A fresh --background record (running, Log set, live PID) reads back as running and Alive, not lost.
+func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec.PID, rec.Log = os.Getpid(), "job.log"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "running" || !got.Alive() {
+		t.Errorf("read back status=%q alive=%v, want running/true", got.Status, got.Alive())
+	}
+}
