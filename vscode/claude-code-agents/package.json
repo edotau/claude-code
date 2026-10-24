@@ -13,6 +13,8 @@
   "main": "./extension.js",
   "activationEvents": [
     "onView:claudeCodeAgents.usage",
+    "onView:claudeCodeTasks.page",
+    "onView:claudeCodeTasks.panel",
     "onStartupFinished"
   ],
   "extensionPack": [
@@ -31,6 +33,13 @@
           "title": "Tasks",
           "icon": "media/tasks.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "claudeCodeTasksPanel",
+          "title": "Tasks",
+          "icon": "media/tasks.svg"
+        }
       ]
     },
     "views": {
@@ -43,16 +52,16 @@
       ],
       "claudeCodeTasks": [
         {
-          "id": "claudeCodeTasks.branch",
-          "name": "This branch"
-        },
+          "id": "claudeCodeTasks.page",
+          "name": "Tasks",
+          "type": "webview"
+        }
+      ],
+      "claudeCodeTasksPanel": [
         {
-          "id": "claudeCodeTasks.mine",
-          "name": "My pull requests"
-        },
-        {
-          "id": "claudeCodeTasks.reviewing",
-          "name": "Review requests"
+          "id": "claudeCodeTasks.panel",
+          "name": "Tasks",
+          "type": "webview"
         }
       ]
     },
@@ -103,8 +112,31 @@
         "category": "Claude Code Tasks"
       },
       {
+        "command": "claudeCodeTasks.openInEditor",
+        "title": "Open Tasks in Editor",
+        "icon": "$(link-external)",
+        "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.setupToken",
+        "title": "Set Bitbucket token",
+        "category": "Claude Code Tasks"
+      },
+      {
         "command": "claudeCodeTasks.startAgent",
         "title": "Copy task prompt & open Claude",
+        "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.show",
+        "title": "Show Tasks",
+        "icon": "$(tasklist)",
+        "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.popOut",
+        "title": "Open Tasks in New Window",
+        "icon": "$(multiple-windows)",
         "category": "Claude Code Tasks"
       }
     ],
@@ -122,17 +154,32 @@
         },
         {
           "command": "claudeCodeTasks.refresh",
-          "when": "view == claudeCodeTasks.branch",
+          "when": "view == claudeCodeTasks.page",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.openInEditor",
+          "when": "view == claudeCodeTasks.page",
           "group": "navigation"
         },
         {
           "command": "claudeCodeTasks.refresh",
-          "when": "view == claudeCodeTasks.mine",
+          "when": "view == claudeCodeTasks.panel",
           "group": "navigation"
         },
         {
-          "command": "claudeCodeTasks.refresh",
-          "when": "view == claudeCodeTasks.reviewing",
+          "command": "claudeCodeTasks.openInEditor",
+          "when": "view == claudeCodeTasks.panel",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.popOut",
+          "when": "view == claudeCodeTasks.page",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.popOut",
+          "when": "view == claudeCodeTasks.panel",
           "group": "navigation"
         }
       ],
@@ -141,13 +188,6 @@
           "command": "claudeCodeAgents.openUsageEditor",
           "when": "config.claudeCodeAgents.usageEditorTitleButton",
           "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "claudeCodeTasks.startAgent",
-          "when": "viewItem == task",
-          "group": "inline"
         }
       ]
     },
@@ -222,7 +262,7 @@
         "claudeCodeAgents.tasksRefreshSeconds": {
           "type": "number",
           "default": 120,
-          "description": "Tasks panel auto-refresh interval, in seconds, while a Tasks view is visible."
+          "description": "Tasks page auto-refresh interval, in seconds, while it is visible (minimum 15)."
         },
         "claudeCodeAgents.tasksJiraBaseUrl": {
           "type": "string",
@@ -237,12 +277,77 @@
         "claudeCodeAgents.bitbucketUrl": {
           "type": "string",
           "default": "https://bitbucket.biscrum.com",
-          "description": "Bitbucket Data Center server URL the Tasks views query directly."
+          "description": "Bitbucket Data Center server URL the Tasks page queries directly."
         },
         "claudeCodeAgents.tasksInstallGitHubExtension": {
           "type": "boolean",
           "default": true,
-          "description": "On activation, install the GitHub Pull Requests and Issues extension if it's missing."
+          "description": "On activation, install the GitHub Pull Requests and Issues extension if it's missing (the Tasks page deep-links into it)."
+        },
+        "claudeCodeAgents.tasksDefaultSource": {
+          "type": "string",
+          "enum": [
+            "github",
+            "bitbucket"
+          ],
+          "default": "github",
+          "description": "Source the Tasks page opens on."
+        },
+        "claudeCodeAgents.tasksVisibleSources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "github",
+              "bitbucket"
+            ]
+          },
+          "default": [
+            "github",
+            "bitbucket"
+          ],
+          "description": "Sources shown in the Tasks page source bar (the last one cannot be hidden)."
+        },
+        "claudeCodeAgents.tasksGitHubRepos": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "GitHub repos (owner/name) listed in the Tasks page, in addition to the workspace folders’ github.com remotes."
+        },
+        "claudeCodeAgents.tasksBitbucketRepos": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Bitbucket Data Center repos (PROJECT/repo) listed under the \"This repo\" preset, in addition to the workspace folders’ remotes."
+        },
+        "claudeCodeAgents.tasksDefaultQuery.github": {
+          "type": "string",
+          "default": "is:open",
+          "description": "Query the GitHub source starts with; right-click a preset chip to set it."
+        },
+        "claudeCodeAgents.tasksDefaultQuery.bitbucket": {
+          "type": "string",
+          "default": "is:pr is:open review-requested:@me",
+          "description": "Query the Bitbucket source starts with; right-click a preset chip to set it."
+        },
+        "claudeCodeAgents.tasksPageSize": {
+          "type": "number",
+          "default": 36,
+          "description": "Rows fetched per repo per page in the Tasks page."
+        },
+        "claudeCodeAgents.tasksOpenIn": {
+          "type": "string",
+          "enum": [
+            "panel",
+            "sidebar",
+            "editor"
+          ],
+          "default": "panel",
+          "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, the activity-bar sidebar, or an editor tab. Both the Panel and sidebar views exist; hide the one you don’t use (right-click its icon)."
         }
       }
     }

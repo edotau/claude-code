@@ -122,12 +122,12 @@ function renderProvider(p, show, detailed) {
     : `<div class="provider-note">${esc(p.note || 'no data')}</div>`;
   const muted = p.windows.length ? '' : ' provider-card-muted';
   return `<div class="provider-card${muted}">
-    <div class="provider-head">
+    <div class="provider-head card-head">
       ${GLYPHS[p.id] || '<span class="glyph">\u25CF</span>'}
       <span class="provider-name">${esc(p.name)}</span>
       <span class="provider-resets">${esc(resets)}</span>
     </div>
-    ${body}
+    <div class="card-body">${body}</div>
   </div>`;
 }
 
@@ -136,8 +136,8 @@ function renderProvider(p, show, detailed) {
 function renderAgentCard(a, totalTokens) {
   if (!a.tokens && !a.sessions) {
     return `<div class="agent-card agent-card-muted">
-      <div class="agent-name muted">${esc(a.name)}</div>
-      <div class="agent-note muted">${esc(a.note || 'no sessions in window')}</div>
+      <div class="agent-name card-head muted">${esc(a.name)}</div>
+      <div class="card-body"><div class="agent-note muted">${esc(a.note || 'no sessions in window')}</div></div>
     </div>`;
   }
   const parts = [];
@@ -148,10 +148,12 @@ function renderAgentCard(a, totalTokens) {
   const statsText = parts.join(' · ');
   const share = totalTokens > 0 ? Math.min(100, (a.tokens / totalTokens) * 100) : 0;
   return `<div class="agent-card">
-    <div class="agent-name">${esc(a.name)}</div>
+    <div class="agent-name card-head">${esc(a.name)}</div>
+    <div class="card-body">
     ${a.topModel ? `<div class="agent-model muted">${esc(a.topModel)}</div>` : ''}
     <div class="agent-stats muted" title="${esc(statsText)}">${esc(statsText)}</div>
     <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
+    </div>
   </div>`;
 }
 
@@ -333,7 +335,7 @@ function renderUsageHtml(model, opts) {
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
 <style>
-  body { --track: color-mix(in srgb, var(--vscode-foreground) 14%, transparent); --heat-cell: 10px; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
+  body { --track: color-mix(in srgb, var(--vscode-foreground) 14%, transparent); --card-border: color-mix(in srgb, var(--vscode-foreground) 12%, transparent); --card-tint: color-mix(in srgb, var(--vscode-foreground) 3%, transparent); --card-head-tint: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); --heat-cell: 10px; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
   .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; flex-wrap: nowrap; }
   .header h1 { font-size: 13px; font-weight: 600; margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-right { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
@@ -350,7 +352,9 @@ function renderUsageHtml(model, opts) {
   /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
   .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quotas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 0 12px; }
-  .provider-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
+  .provider-card, .agent-card { border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-tint); padding: 0; min-width: 0; overflow: hidden; }
+  .card-head { padding: 8px 10px; background: var(--card-head-tint); border-bottom: 1px solid var(--card-border); }
+  .card-body { padding: 8px 10px; }
   .provider-card-muted { opacity: 0.7; }
   .provider-head { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
   .provider-name { font-weight: 600; flex: none; white-space: nowrap; }
@@ -359,7 +363,7 @@ function renderUsageHtml(model, opts) {
   .glyph-claude { color: #d97757; }
   .glyph-agy { color: #4b8bff; }
   .icon-btn { font-size: 14px; line-height: 1; }
-  .windows { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .windows { margin-top: 0; display: flex; flex-direction: column; gap: 6px; }
   .window-row { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
   .window-label { min-width: 32px; color: var(--vscode-descriptionForeground); }
   .window-bar { flex: none; }
@@ -367,7 +371,7 @@ function renderUsageHtml(model, opts) {
   .window-fill { display: block; height: 100%; }
   .window-pct { width: 32px; text-align: right; }
   .windows-compact { flex-direction: row; flex-wrap: wrap; gap: 10px; }
-  .grouped-grid, .ungrouped-grid { margin-top: 6px; display: grid; align-items: center; gap: 6px 6px; font-size: 12px; }
+  .grouped-grid, .ungrouped-grid { margin-top: 0; display: grid; align-items: center; gap: 6px 6px; font-size: 12px; }
   .ungrouped-grid { grid-template-columns: minmax(0,1fr) 36px 36px; }
   .grid-group-name, .grid-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--vscode-descriptionForeground); }
   .grid-col-label { grid-column: span 2; text-align: right; color: var(--vscode-descriptionForeground); }
@@ -377,10 +381,9 @@ function renderUsageHtml(model, opts) {
   .chip-label { color: var(--vscode-descriptionForeground); }
   .chip-bar { width: 24px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
   .chip-fill { display: block; height: 100%; }
-  .provider-note { margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .provider-note { margin-top: 0; color: var(--vscode-descriptionForeground); font-size: 12px; }
   .agents-section { padding: 0 12px; }
   .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-  .agent-card { border: 1px solid var(--vscode-widget-border); border-radius: 4px; padding: 8px; min-width: 0; }
   .agent-card-muted { opacity: 0.7; }
   .agent-name { font-weight: 600; }
   .agent-model, .agent-stats, .agent-note { font-size: 12px; }

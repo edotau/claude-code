@@ -186,12 +186,18 @@ function createClient(opts) {
   }
 
   /** Raw (unmapped) dashboard PRs — pass through `listWithBuilds` to get row-contract shapes with builds. */
-  async function dashboard(role) {
+  async function dashboard(role, state) {
     const page = await requestJson('/rest/api/1.0/dashboard/pull-requests', {
       role,
-      state: 'OPEN',
+      state: state || 'OPEN',
       limit: '50',
     });
+    return (page && page.values) || [];
+  }
+
+  /** Raw (unmapped) PRs of one repo, newest first; `state` is OPEN|MERGED|DECLINED|ALL (default OPEN). */
+  async function pullRequests(ref, state) {
+    const page = await requestJson(`${repoApiPath(ref)}/pull-requests`, { state: state || 'OPEN', limit: '50' });
     return (page && page.values) || [];
   }
 
@@ -221,7 +227,7 @@ function createClient(opts) {
     return username ? { ok: true, user: { username } } : { ok: false, reason: 'rejected' };
   }
 
-  return { pullRequestForBranch, dashboard, buildStatus, listWithBuilds, doctor };
+  return { pullRequestForBranch, dashboard, pullRequests, buildStatus, listWithBuilds, doctor };
 }
 
 /** First non-empty token file among the skill's conventional locations ($BITBUCKET_TOKEN_FILE, ~/.ssh/bitbucket-ci-pat). */
