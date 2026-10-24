@@ -133,10 +133,17 @@ func TestSimplifyAfterEditsBlocksOnSourceEditThenProceedsOnce(t *testing.T) {
 		t.Fatalf("first stop after a source edit must block, got %d: %s", code, stderr.String())
 	}
 	out := stderr.String()
-	for _, want := range []string{"skills/simplify/SKILL.md", "claude-code review quality", "re-send your complete task report", "/r/a.go"} {
+	for _, want := range []string{
+		"skills/simplify/SKILL.md", "claude-code review quality", "re-send your complete task report", "/r/a.go",
+		"never a summary or placeholder instead of it", "never a separate section or checklist",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("block message must name %q: %s", want, out)
 		}
+	}
+	// The final message is the task report alone: no "simplify notes" section/checklist appended.
+	if strings.Contains(out, "simplify notes after it") {
+		t.Errorf("block message must not instruct a separate simplify notes section: %s", out)
 	}
 	// Second stop for the same subagent: the flag written by the first block makes it proceed.
 	var stderr2 bytes.Buffer

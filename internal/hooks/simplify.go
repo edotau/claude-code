@@ -44,7 +44,9 @@ func simplifyAfterEdits(in *Input, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "You modified source code. Before finishing, run the simplify pass on it: read "+
 		"%s and apply its checklist (reuse, needless abstraction, duplicate logic, dead code), and run "+
 		"`claude-code review quality <file>` on each (Go, Python, JS/TS). Make behavior-preserving fixes only, then "+
-		"re-send your complete task report as your final message (simplify notes after it, never instead of it). Files:\n%s\n",
+		"re-send your complete task report as your final message, never a summary or placeholder instead of it. "+
+		"Report the simplify pass only if it changed code: one line added to the report's files/changes list, "+
+		"never a separate section or checklist. Files:\n%s\n",
 		filepath.Join(paths.ConfigDir(), "skills", "simplify", "SKILL.md"), strings.Join(files, "\n"))
 	return ExitBlock
 }
