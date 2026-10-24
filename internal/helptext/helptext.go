@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/statusline"
@@ -72,4 +73,27 @@ func isRow(l string) bool {
 func isHead(l string) bool {
 	t := strings.TrimSuffix(strings.TrimSpace(l), ":")
 	return t != "" && l[0] != ' ' && strings.ToUpper(t) == t && strings.ContainsFunc(t, func(r rune) bool { return r >= 'A' && r <= 'Z' })
+}
+
+// WrapRow lays out `label` padded to labelWidth plus desc, wrapping desc at word boundaries within width columns;
+// continuation lines are indented to the description column. A word longer than the space overflows its line.
+func WrapRow(label, desc string, labelWidth, width int) []string {
+	pad := max(labelWidth-utf8.RuneCountInString(label), 0)
+	first := label + strings.Repeat(" ", pad)
+	col := utf8.RuneCountInString(first)
+	var lines []string
+	cur := first
+	empty := true
+	for _, w := range strings.Fields(desc) {
+		if !empty && utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width {
+			lines = append(lines, cur)
+			cur, empty = strings.Repeat(" ", col), true
+		}
+		if !empty {
+			cur += " "
+		}
+		cur += w
+		empty = false
+	}
+	return append(lines, cur)
 }

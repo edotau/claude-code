@@ -189,9 +189,10 @@ lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.ym
 	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
 
 .PHONY: lint-help
-lint-help:  # (folded into `lint`) every `make help` row fits 80 columns, label included
-	@out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk 'length>80')"; \
-		if [ -n "$$out" ]; then echo "help rows over 80 columns:"; echo "$$out"; exit 1; fi
+lint-help:  # (folded into `lint`) `make help` rows fit 80 columns or wrap with a hanging indent at the description column
+	@out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
+		'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
+		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi
 
 .PHONY: lint-yaml
 lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
@@ -252,5 +253,9 @@ help:  ## Show this help
 			printf "%d\t%s\t%s\t%s\n", o[sec], sec, t, d}' $(MAKEFILE_LIST) \
 		| sort -t "$$(printf '\t')" -k1,1n -k3,3 \
 		| awk -F"\t" '{if($$2!=cur){cur=$$2; printf "\n\033[1m%s\033[0m\n", $$2} \
-			printf "  \033[36m%-16s\033[0m %s\n", $$3, $$4}'
+			n=split($$4,w," "); line=""; lab=sprintf("  \033[36m%-16s\033[0m ",$$3); \
+			for(i=1;i<=n;i++){ if(line!="" && 19+length(line)+1+length(w[i])>80){ \
+				print lab line; lab=sprintf("%19s",""); line=w[i]} \
+				else line=(line==""?w[i]:line" "w[i]) } \
+			print lab line}'
 	@printf "\n"

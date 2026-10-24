@@ -18,7 +18,7 @@ import (
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
 type command struct {
 	name    string
-	summary string // ≤ summaryMax chars so a menu row never wraps at 80 columns
+	summary string // aim for ≤ summaryMax chars; longer wraps with a hanging indent
 	group   string
 	hidden  bool
 	aliases []string // alternate spellings that dispatch here; never listed
@@ -35,8 +35,9 @@ const (
 	groupSettings    = "SETTINGS"
 )
 
-// summaryMax caps a row summary so indent + nameWidth + summary stays inside 80 columns.
+// summaryMax is a soft target: longer summaries wrap with a hanging indent (helptext.WrapRow); one line is preferred.
 const (
+	menuWidth  = 80
 	summaryMax = 60
 	nameWidth  = 16
 )
@@ -44,7 +45,7 @@ const (
 func commands() []command {
 	return []command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "hardest reasoning: architecture, deep debugging · $$$", run: tierVerb(models.Opus)},
+		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: tierVerb(models.Opus)},
 		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: tierVerb(models.Sonnet)},
 		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
@@ -215,7 +216,11 @@ func usage(w *os.File) {
 		case r.head != "":
 			fmt.Fprintln(w, paintHead(r.head))
 		case r.name != "":
-			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), r.summary)
+			lines := helptext.WrapRow("  "+r.name, r.summary, 2+nameWidth, menuWidth)
+			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), lines[0][2+nameWidth:])
+			for _, l := range lines[1:] {
+				fmt.Fprintln(w, l)
+			}
 		default:
 			fmt.Fprintln(w)
 		}
