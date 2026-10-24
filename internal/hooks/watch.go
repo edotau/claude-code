@@ -91,9 +91,12 @@ func IdleHarvestWatch(args []string, stderr io.Writer) int {
 		if err != nil {
 			return 0 // transcript gone: nothing left to harvest
 		}
+		if time.Since(fi.ModTime()) < *idle {
+			continue // main transcript alone is still active: skip the subagent globs entirely
+		}
 		latest := newestActivity(*tr, fi.ModTime())
 		if time.Since(latest) < *idle || !latest.After(seen) {
-			continue // still active (main or a subagent), or already evaluated at this mtime
+			continue // a subagent is still active, or already evaluated at this mtime
 		}
 		seen = latest
 		if idleHarvestOnce(*tr, *cwd, *session, stderr) {

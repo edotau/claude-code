@@ -215,6 +215,40 @@ func TestIdleHarvestWatchHarvestsQuietTranscript(t *testing.T) {
 	}
 }
 
+// TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh: while the main transcript's own mtime is
+// within the idle window, the loop must not even reach newestActivity's subagent glob or dispatch —
+// a subagent transcript with plenty of uncovered edits must not trigger a harvest during that window.
+func TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 6) // sets the main transcript's mtime to "now" as a side effect of the write
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, agent, 9)
+	prev := harvestWatchPoll
+	harvestWatchPoll = 5 * time.Millisecond
+	t.Cleanup(func() { harvestWatchPoll = prev })
+	calls := stubSpawn(t, true)
+	done := make(chan int, 1)
+	go func() {
+		done <- IdleHarvestWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),
+			"--idle", "200ms"}, io.Discard)
+	}()
+	time.Sleep(60 * time.Millisecond) // several polls, well inside the 200ms idle window
+	if n := calls.Load(); n != 0 {
+		t.Errorf("dispatch fired while the main transcript was still fresh: calls=%d", n)
+	}
+	_ = os.Remove(tr)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher did not exit after the transcript vanished")
+	}
+}
+
 func TestIdleHarvestWatchRefusesBadFlags(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 6)
