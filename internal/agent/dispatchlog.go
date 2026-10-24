@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
@@ -75,12 +76,34 @@ func (r *Record) Finish(res Result, err error, took time.Duration) {
 
 func pruneDispatches(dir string) {
 	names := recordNames(dir)
-	for len(names) > dispatchKeep {
-		_ = os.Remove(filepath.Join(dir, names[0]))
-		logName := strings.TrimSuffix(names[0], ".json") + ".log"
-		_ = os.Remove(filepath.Join(dir, logName)) // ignore not-exist
-		names = names[1:]
+	excess := len(names) - dispatchKeep
+	for _, name := range names {
+		if excess <= 0 {
+			return
+		}
+		if activeRecord(filepath.Join(dir, name)) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
+		excess--
 	}
+}
+
+// activeRecord keeps a live background job (Log set; pid alive, or not yet recorded within a minute) out of the prune.
+func activeRecord(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var r Record
+	if json.Unmarshal(b, &r) != nil || r.Status != "running" || r.Log == "" {
+		return false
+	}
+	if r.PID == 0 {
+		return time.Since(r.Time) < time.Minute
+	}
+	return proc.Alive(r.PID)
 }
 
 // recordNames lists record files oldest first (ids sort by time).
