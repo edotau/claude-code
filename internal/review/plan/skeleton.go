@@ -14,7 +14,7 @@ const skeletonUsage = "usage: workflow_skeleton.py [-h] [--name NAME]\n" +
 const noteText = "\n// ── Fill in before running ──\n" +
 	"//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).\n" +
 	"//  • Every agent() payload needs a self-contained handoff (objective + constraints + artifacts\n" +
-	"//    + acceptance + verify command) — see references/choosing-a-pattern.md. Cold-start test:\n" +
+	"//    + acceptance + verify command) — see skills/subagent-workflows/SKILL.md. Cold-start test:\n" +
 	"//    a fresh agent with zero context can execute it.\n" +
 	"//  • Pipeline is the default (no barrier). Use parallel() only when a step needs ALL prior results.\n" +
 	"//  • 'router' isn't a Workflow shape — it's an inline branch on the input, then dispatch. No skeleton.\n"

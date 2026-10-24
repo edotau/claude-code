@@ -118,7 +118,7 @@ a Workflow. If you cannot dispatch, fall back to sequential self-contained imple
 
 Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are `skills/subagent-workflows/`'s job, not
 restated here: `references/subagent-driven-development.md` (sequential plan execution),
-`references/dispatching-parallel-agents.md` (independent tasks), `references/choosing-a-pattern.md` (pick the shape),
+`references/dispatching-parallel-agents.md` (independent tasks), `SKILL.md` (pick the shape),
 `references/lane-orchestrator.md` (handed a lane plan). Saved Workflows (`implement-and-verify`, `audit-fix-verify`,
 `gate-loop`) run only when the user asks. Concurrency tiers and effort/model escalation: `rules/workflow/agents.md`.
 

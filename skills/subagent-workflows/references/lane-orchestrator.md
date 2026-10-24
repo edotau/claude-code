@@ -1,119 +1,85 @@
 # Lane Orchestrator
 
-Many leaf-sized tasks across disjoint packages: the manager splits them into lanes, one Claude subagent per
-lane fans out vendor leaves through `claude-code ask`, verifies each leaf, and commits it.
-
-## Roles
+Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
+fans out vendor leaves through `claude-code ask` (which does not count against the 8-agent inflight cap), verifies
+each leaf in an isolated copy, and commits it.
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Manager | main session | splits work into lanes by disjoint packages/files; dispatches one Claude subagent (`claude` or `code-worker`) per lane; merges, runs the full suite once | edits a lane's files |
-| Lane orchestrator | that subagent | writes the lane plan, dispatches each leaf, verifies it, commits named files, ticks the box with the commit id; reports when every box is ticked | edits outside its lane |
-| Leaf | `copilot`, `codex`, `gemini`, `opencode` or `claude` via `claude-code ask` | one checklist item, owned files only | commits, dispatches; shared-tree rules: [dispatching-parallel-agents.md](dispatching-parallel-agents.md) |
+| Manager | main session | splits lanes by disjoint packages, dispatches one `claude`/`code-worker` per lane, merges, runs the suite once | edits a lane's files |
+| Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
+| Leaf | `copilot`, `codex`, `gemini`, `opencode` or `claude` via `claude-code ask` | one checklist line, owned files only | commits or dispatches |
 
 ## Lane plan
 
-`plans/<date>-<slug>/lanes/<lane>.md`, beside the parent plan, holds ONLY a checklist:
+`plans/<date>-<slug>/lanes/<lane>.md`, holding only a checklist:
 
 ```markdown
-## Tasks
-
 - [ ] <verb> <object> — runner: <copilot|codex|gemini|opencode|claude> — owns: <files>
 - [x] <verb> <object> — runner: copilot — owns: internal/foo/bar.go — a1b2c3d
 ```
 
-**Leaf size:** one package (≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf, names its
-runner and owned files. Split anything bigger before dispatching: legs of 25–40 findings timed out, 5–10 finished.
-Spread runners per [cost-routing.md](cost-routing.md).
+Leaf size: one package (≤3 tightly coupled files), ≤10 edits, one 45-minute run; split anything bigger (25–40-item
+legs timed out, 5–10 finished). Runners per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-**Step 0, bug fixes only:** capture RED before dispatch, with no copy: write `git show HEAD:<file>` to scratch, map
-it over the live file with `go test -overlay <overlay.json>`, and reproduce the failure there.
-
-The verify copies below use the skill's own script:
-`iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"`.
-
-Run each leaf in the background (Bash `run_in_background`). Orchestrator files live in `/tmp/claude-1000/<lane>/`;
-the leaf's own scratch is a separate `/tmp/claude-1000/<leaf>/` it may delete:
+Bug fixes first capture RED with no copy: `git show HEAD:<file>` to scratch, mapped over the live file with
+`go test -overlay <overlay.json>`. Then run each leaf in the background:
 
 ```bash
+iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"
 mkdir -p /tmp/claude-1000/<lane>; s=$(date +%s)
 claude-code ask --agent <runner> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
   --workdir <worktree> "<brief>" > /tmp/claude-1000/<lane>/<leaf>.out 2>&1
 echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/status
 ```
 
-- `--fallback none`: the default `all` silently re-runs a failed leaf on claude, hiding which runner did the work.
-- Wait in one foreground Bash call (≤10m, repeat as needed):
-  `until n=$(grep -c exit= <status> 2>/dev/null); [ "${n:-0}" -ge N ]; do timeout 5 tail -f /dev/null; done`.
-- Codex rate-limited: substitute `--agent copilot --model gpt-6-astra`.
-- Never start a test-repair leaf before its implementer's exit line lands.
-- Leaves that own disjoint files run concurrently; a leaf whose files overlap another's waits for it.
-- One-line tasks finish in under a minute; a small leaf still running at ~10m needs a look, not more waiting.
+Wait in one foreground call (≤10 min, repeat):
+`until n=$(grep -c exit= <status> 2>/dev/null); [ "${n:-0}" -ge N ]; do timeout 5 tail -f /dev/null; done`.
+Disjoint leaves run concurrently; overlapping ones wait; a test-repair leaf starts only after its implementer's exit
+line. A small leaf still running at ~10 min needs a look, not more waiting.
 
-Brief template (the attached lane plan carries the context, so the brief does not restate it):
+Brief (the attached lane plan carries the context):
 
 ```text
 You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/restore.
-Task: <the checklist line, verbatim>. Do only this line of the attached lane plan.
-Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
-Done when: <scoped test command> exits 0 and <live check> shows <expected>.
-Before a behavior change: open the spec, write INTENT: code does X; check expects Y; spec says Z (Y vs Z
-disagree = stop and report). After a defect fix: search the whole project, write TWINS: searched P, found N.
-Report: files changed, each command with its exit code and the env it ran under (cwd, CLAUDE_CONFIG_DIR),
-the INTENT:/TWINS: lines you owed, anything you found or needed outside your files.
+Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
+Done when: <scoped test> exits 0 and <live check> shows <expected>.
+Before a behavior change write INTENT: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
+After a defect fix write TWINS: searched P, found N.
+Report: files changed, each command with exit code and env (cwd, CLAUDE_CONFIG_DIR), INTENT/TWINS, anything outside your files.
 ```
 
-A leaf's report is advisory (Copilot often returns prose with no exit codes); only your isolated check counts.
-A finding outside the leaf's files becomes a new task line in this lane if it is the lane's package, else a note to
-the manager.
+A finding outside the leaf's files becomes a new line in this lane (same package) or a note to the manager.
 
 ## Verify each leaf
 
-1. From the worktree: `"$iso" /tmp/claude-1000/<leaf>/copy <owned paths>` — a `git worktree add` at
-   HEAD with only this leaf's owned-path changes applied on top ([isolate.sh](../scripts/isolate.sh)).
-2. In the copy (it has its own `.git`, a real worktree): build, vet, scoped tests
-   (`go build ./... && go vet <pkgs> && go test <pkgs>`). Commit only on exit 0; gate on the exit code itself,
-   never on a piped `| tail`.
-3. The leaf's live check: the verb or flow it changed, on real input.
-4. Changed a seam (a function signature, argv/env builder, flag, file format, API another package
-   uses)? Read producer and every consumer together and exercise each consumer path, not just the
-   leaf's own package — on 2026-10-20 `--attach`/`--workdir` worked on the vendor runner but not the
-   opencode hub path, and a provider-only commit broke a secrets package it didn't own. `go build ./...`
-   (whole repo, already step 2) is the floor; a seam change still needs the consumer's own test run.
-5. Read the diff: no weakened or deleted assertions, no edits outside `owns:`, no leftover references to removed
-   names (`grep -rn <old name>`).
-6. In the worktree: `git add <new files>; git commit -m "<msg>" -- <files>`, named files only (never a directory).
-   A pathspec commit is `--only`, so other lanes' staged files never ride along; 1–2 line conventional message,
-   no AI footer.
-7. Tick the box with the short commit id; remove the copy (`"$iso" --remove <copy>`) and the leaf
-   scratch (`chmod -R u+w <d> && find <d> -delete`).
+1. `"$iso" /tmp/claude-1000/<leaf>/copy <owned paths>` — a worktree at HEAD plus only this leaf's changes.
+2. In the copy: `go build ./... && go vet <pkgs> && go test <pkgs>`; gate on the exit code, never a piped `| tail`.
+3. The leaf's live check on real input.
+4. A changed seam (signature, argv/env builder, flag, file format): read producer and every consumer and run each
+   consumer's tests — `go build ./...` alone has missed a broken consumer package.
+5. Read the diff: no weakened or deleted assertions, nothing outside `owns:`, no leftover old names.
+6. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
+   along); tick the box with the short id; `"$iso" --remove <copy>`; delete the leaf scratch.
 
-Red at any step: re-dispatch the leaf once with the failure output, or fix a small gap in-lane; still red, report
-the item to the manager unticked.
+Red at any step: re-dispatch once with the failure output, or fix a small gap in-lane; still red → report it unticked.
 
-## Lessons from the 2026-10-20 run
+## Failure buckets (2026-10-20 run)
 
-Classify a failed leaf into one bucket before changing its brief or runner; each line is symptom → the check.
-Buckets from [agent-trace-triage](https://github.com/WasayAbid/agent-trace-triage) (WasayAbid), MIT.
+Classify a failed leaf before changing its brief or runner. Buckets from
+[agent-trace-triage](https://github.com/WasayAbid/agent-trace-triage) (WasayAbid), MIT.
 
-- **recovery_policy** — loops, caps, timeouts; the leaf never finishes cleanly:
-  - 10m ask timeout killed 6 legs → `--timeout 45m` on every `--tools` leaf; ≤10 findings per leaf.
-  - 60-turn cap hit with no report → leaf ≤10 edits; a silent exit gets `git status` in its worktree, not a retry.
-  - `--fallback all` hid which runner did the work → `--fallback none`, so a red leaf stays red on its own runner.
-- **tool_execution** — the runner or its environment errors out:
-  - Copilot sessions die while polling → start a test-repair leaf only after its implementer's exit line lands.
-  - `/tmp` (16 GB tmpfs) filled and broke a test → scratch in `/tmp/claude-1000/<leaf>`, deleted when done.
-- **tool_selection** — the wrong tool or leaf shape for the job:
-  - One whole-branch review leaf → narrow review leaves, one area each.
-  - Agent-tool inflight cap (8, machine-wide) → lanes fan out via `claude-code ask`, which doesn't count against it.
-  - Safety-guard change judged by reading the diff → execute the payloads against main's binary and the new one.
-- **tool_arguments** — right tool, wrong flags, env or paths:
-  - `generate` with a non-default config dir wrote live vendor configs → read `--vendors` and `--dry-run` first.
-  - A test wrote the real `~/.claude/skills` → `HOME` and `CLAUDE_CONFIG_DIR` set to `t.TempDir()` in the test.
-  - `isolate.sh` tested with copy dir `/tmp/claude-1000` wiped every session's scratch → a fresh `mktemp -d` root.
-- **state_orchestration** — every step succeeds, but the result lands in the wrong place or is lost:
-  - opencode ignored `--workdir` and wrote the live tree → `git -C ~/.claude status --short` same before and after.
-  - A provider-only commit broke another package's build → `go build ./...` plus each consumer's tests (step 4).
-  - Copilot reports omit exit codes → rerun every command in the isolated copy; gate on its exit code.
+- **recovery_policy** — 10 min timeout killed legs → `--timeout 45m` on every `--tools` leaf; a turn cap hit with no
+  report → ≤10 edits per leaf, and `git status` in its worktree rather than a retry.
+- **tool_execution** — Copilot sessions died while polling → test-repair leaves start after the implementer's exit;
+  `/tmp` (tmpfs) filled → per-leaf scratch, deleted when done.
+- **tool_selection** — one whole-branch review leaf → narrow review leaves; a safety-guard change judged by reading
+  the diff → execute the payloads against the old and new binaries.
+- **tool_arguments** — `generate` with a non-default config dir wrote live vendor configs → read `--vendors` and
+  `--dry-run` first; a test wrote the real `~/.claude/skills` → `HOME`/`CLAUDE_CONFIG_DIR` = `t.TempDir()`;
+  `isolate.sh` given `/tmp/claude-1000` as the copy dir wiped every session's scratch → a fresh `mktemp -d` root.
+- **state_orchestration** — opencode ignored `--workdir` and wrote the live tree → compare
+  `git -C ~/.claude status --short` before and after; Copilot reports omit exit codes → rerun every command in the
+  copy and gate on its exit code.

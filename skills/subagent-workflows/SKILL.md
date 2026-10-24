@@ -1,60 +1,54 @@
 ---
 name: subagent-workflows
-description: Choose and run concise multi-agent workflows for independent parallel tasks, sequential plan execution with simplify and review gates, structured orchestration, competition tournaments, or cross-model teams via `claude-code ask`.
+description: Choose and run multi-agent work — parallel fan-out on disjoint files, sequential plans with spec → simplify → quality gates, lane orchestrators, competition tournaments, multi-stage orchestration, and cheaper vendor legs via `claude-code ask`.
 ---
 
 # Subagent Workflows
 
-Use the smallest workflow that matches the task:
+Use the smallest shape that fits; add orchestration only when the dependency shape needs it.
 
-| Work shape | Action |
-|---|---|
-| One small task | Work inline |
-| Independent tasks | Read [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md) |
-| Ordered plan with simplify + review gates | Read [subagent-driven-development.md](references/subagent-driven-development.md) |
-| Pipeline, router, evaluator, or dynamic orchestration | Read [choosing-a-pattern.md](references/choosing-a-pattern.md) |
-| Spend less Anthropic usage: send a step to Copilot/Codex/Gemini/OpenCode via `claude-code ask` | Read [cost-routing.md](references/cost-routing.md) |
-| A second model family adds useful coverage | Read [cross-model-agent-teams.md](references/cross-model-agent-teams.md) |
-| Many leaf-sized tasks on disjoint packages: Claude lane orchestrators fan out vendor leaves via `claude-code ask` | Read [lane-orchestrator.md](references/lane-orchestrator.md) |
-| Several agents should attempt the same measurable task and the best result wins | Read [competition-tournament.md](references/competition-tournament.md) |
-| One objective spans several phases with different owners and skills | Read [orchestrate.md](references/orchestrate.md) (flags `--scan` explore only, `--refine` adds the refine stage) |
+| Shape | Do | Depth |
+|---|---|---|
+| One small or tightly coupled task | Work inline | — |
+| Independent tasks, disjoint files | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md) |
+| Ordered plan, review gate per task | One implementer at a time, spec → simplify → quality | [subagent-driven-development.md](references/subagent-driven-development.md) |
+| Many leaf tasks across packages | One Claude lane orchestrator per lane, vendor leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
+| One objective, several phases and owners | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |
+| Same measurable task, several approaches | N isolated attempts, re-measure, merge one | [competition-tournament.md](references/competition-tournament.md) |
+| Cheaper or second-family leg (Copilot, Codex, Gemini, OpenCode) | `claude-code ask --agent <runner>` | [cost-routing.md](references/cost-routing.md) |
+| Repeatable pipeline, evaluator or bounded loop | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | `rules/workflow/master-workflow.md` → Saved Workflows |
 
-Model tiers: `claude-code models` shows what each slot (opus/sonnet/haiku) resolves to. Lean leaves
-(Sonnet) ~8–10 in flight; deep-context agents ≤8 (`rules/workflow/agents.md`).
+Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
+Concurrency: lean leaves ~8–10 in flight, deep-context agents ≤8 (`rules/workflow/agents.md`).
 
 ## Dispatch contract
 
-Give every agent:
-
-- one objective and bounded scope;
-- relevant constraints and artifacts;
-- acceptance criteria and an exact verification command — scoped to the packages/dirs the change touches, never
-  the full suite (`make test`, `go test ./...`, bare `pytest`), which runs only at wrap-up with the user's approval;
-- expected output;
-- model/effort sized to the task (Sonnet leaf by default; raise effort before model).
-
-A fresh agent must be able to act from the handoff alone.
+Every brief carries: one objective; the exact files it owns (and "do NOT edit `<others>` — agents are in this package
+concurrently"); constraints and artifacts; acceptance criteria; a verification command scoped to the touched
+packages — never the full suite (`make test`, `go test ./...`, bare `pytest`), which runs once at wrap-up with the
+user's approval; the expected report. Size the model to the task (Sonnet leaf by default; raise effort before model).
+A fresh agent must be able to act from the brief alone.
 
 ## Rules
 
-- Parallelize only independent work. Sequence dependencies and shared writes.
-- Give each mutating agent exclusive file ownership. Same PACKAGE parallelizes when each agent owns a
-  new file and the manager alone does the integration edit — see dispatching-parallel-agents.md.
-- Prefer new-file ownership over `isolation: "worktree"` when the tree allows it; worktrees add
-  setup cost and can vanish mid-run.
-- Keep the manager responsible for decisions, integration, and final verification.
-- Treat agent reports as claims: inspect outputs and run the integrated checks yourself. A test that
-  has never been watched to fail is not yet a guard.
-- Dispatch `copilot` in the SAME message as the implementers (`rules/standards/quality.md`).
-- **Simplify before review, every time code changed.** The `simplify` skill (`skills/simplify/SKILL.md`)
-  is the only simplify procedure: the manager runs `Skill(simplify)` over the diff, or hands a leaf
-  [simplify/references/leaf-brief.md](../simplify/references/leaf-brief.md) (leaves read the skill as a file). Never an
-  ad hoc "clean this up" brief; reviewers then judge the simplified diff.
-- Use `claude-code workflow skeleton` only for repeatable `Workflow` structures.
+- Parallelize only independent work; one writer per file, always. Same package parallelizes when each agent owns a
+  new file and the manager alone makes the integration edit.
+- Every code dispatch includes `copilot` in the **same** message (`rules/standards/quality.md`); it waits for the
+  manager's "landed" message, never a poll.
+- **Simplify before review, every time code changed**: `Skill(simplify)` over the diff, or a leaf briefed with
+  [simplify/references/leaf-brief.md](../simplify/references/leaf-brief.md). Never an ad hoc "clean this up" brief.
+- The manager owns decisions, integration and final verification. Leaves never dispatch, commit or run the suite.
 
-## In this repo
+## Shared tree (`~/.claude` and any checkout several agents use)
 
-`~/.claude` is ONE tree shared by subagents, other live sessions, and harness jobs. Every brief must
-carry: never `git stash`/`checkout`/`reset`/`restore` (CLAUDE.md hard rules), gate on a SCOPED
-target, and confirm each write survived with `git diff --stat`. Details in
-[dispatching-parallel-agents.md](references/dispatching-parallel-agents.md).
+Put in every brief: never `git stash` / `checkout` / `reset` / `restore` (CLAUDE.md hard rule 4); gate on a scoped
+target (a repo-wide failure mid-fan-out is usually a sibling's half-finished edit — diff your own files, never stash
+to check); confirm each write with `git diff --stat -- <file>` right after writing and again before reporting; stage
+named files only. Prefer new-file ownership to `isolation: "worktree"` — worktrees add setup cost and have vanished
+mid-run.
+
+## Fan-in
+
+Treat every report as a claim. Inspect the integrated diff for edits outside each agent's files; confirm a new guard
+test can fail (break what it protects, re-run); re-run the scoped checks yourself (`-race` for concurrent code);
+rebuild before trusting a binary; simplify the integrated diff (lanes duplicate helpers); report only verified results.
