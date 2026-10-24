@@ -152,7 +152,7 @@ func Sync(opts SyncOptions) int {
 
 func syncVendorAssets(out io.Writer, vendor, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
 	fmt.Fprintf(out, "== %s ==\n", vendor)
-	res, pruned := syncVendor(out, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
+	res, pruned := syncVendor(out, vendor, targets[vendor], agents, ProjectionDir(root, vendor), targets[vendor].home(home), dryRun, prune)
 	if vendor == "gemini" {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		geminiSkills := GeminiSkillsDir(home)
@@ -174,11 +174,14 @@ func syncVendorAssets(out io.Writer, vendor, root, home, skillsDir string, agent
 
 // syncVendor renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes
 // generated files in both that the roster no longer produces.
-func syncVendor(out io.Writer, t vendorTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
+func syncVendor(out io.Writer, vendor string, t vendorTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
 	var res syncResult
 	rendered := make(map[string]bool, len(agents))
 	for _, agent := range agents {
 		name := agent.Name()
+		if name == vendor {
+			continue // never project a vendor's own agent into its own CLI home (nesting hazard)
+		}
 		if !safeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe agent name %q (must be a plain path component)\n", name)
 			res.errored++
