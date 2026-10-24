@@ -77,6 +77,7 @@ type Leg struct {
 	Fallback       string `json:"fallback,omitempty"`
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
+	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
 }
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
@@ -114,7 +115,8 @@ type Session struct {
 // title, updated, status, tokens, subagents:[{id, type, description, status, depth, tokens,
 // lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]}.
 type Tree struct {
-	Sessions []Session `json:"sessions"`
+	Sessions   []Session `json:"sessions"`
+	Dispatches []Leg     `json:"dispatches,omitempty"` // --running only: live dispatch jobs machine-wide
 }
 
 // Options scopes a Build: Days bounds by session-dir mtime (ignored when Session is set), Session

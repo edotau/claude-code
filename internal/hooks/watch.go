@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -111,7 +112,7 @@ func IdleHarvestWatch(args []string, stderr io.Writer) int {
 // let the watcher treat the session as quiet.
 func newestActivity(tr string, mainMtime time.Time) time.Time {
 	latest := mainMtime
-	dir := subagentDir(tr)
+	dir := inflight.SubagentDir(tr)
 	if dir == "" {
 		return latest
 	}

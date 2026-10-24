@@ -100,6 +100,7 @@ func buildSpecTree() map[string]*compNode {
 			"sync": {flags: []flagInfo{valuedFlag("vendor", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("running"), boolFlag("all"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
+			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
 		}},
 		"tailscale": {sub: map[string]*compNode{
 			"status":   {flags: []flagInfo{formatFlag()}},

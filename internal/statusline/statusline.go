@@ -61,6 +61,7 @@ type values struct {
 	tokens     string
 	duration   string
 	session    string
+	agents     string
 	contextPct int
 	adds       int
 	dels       int
@@ -83,6 +84,8 @@ func (v values) text(key string) string {
 		return v.duration
 	case "session":
 		return v.session
+	case "agents":
+		return v.agents
 	}
 	return ""
 }
@@ -175,6 +178,9 @@ func collect(in Input, cfg Config) values {
 	}
 	if cfg.seg("git", true) {
 		v.branch = gitBranch(cwd)
+	}
+	if cfg.seg("agents", true) {
+		v.agents = runningSegment(in)
 	}
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -22,26 +23,18 @@ const AgentMaxInflight = 8
 
 // inflightTTL is the backstop for a marker whose owner cannot be probed (or parsed): a dispatch that
 // never reported stops counting after this long. Where the probe works, a dead owner retires it at once.
-const inflightTTL = 30 * time.Minute
-
-// inflightIdle: a tagged marker whose agent transcript is untouched this long stopped without a SubagentStop.
-const inflightIdle = 10 * time.Minute
-
-// inflightGrace: how long a tagged marker may wait for its agent transcript to appear before it is abandoned.
-const inflightGrace = 2 * time.Minute
+const inflightTTL = inflight.TTL
 
 // inflightLockWait bounds the wait for the marker-dir lock; the hook itself is killed at 5 s.
 var inflightLockWait = 2 * time.Second
 
-const markerPrefix = "agent-"
+const markerPrefix = inflight.Prefix
 
 // markerAgentSep joins a marker to the spawned agent's id; safeMarkerID strips it from both halves,
 // so a model-supplied tool_use_id can never forge a second one.
-const markerAgentSep = "@"
+const markerAgentSep = inflight.AgentSep
 
-func inflightDir() string {
-	return filepath.Join(paths.StateDir(), "agents-inflight")
-}
+func inflightDir() string { return inflight.Dir() }
 
 // AgentInflight gates Agent dispatches. mode "pre" prunes dead and stale markers, blocks past the cap,
 // and records the new dispatch; mode "tag" binds the marker to the spawned agent's id (or retires it
@@ -84,7 +77,7 @@ func agentInflight(mode string, in *Input, stderr io.Writer) int {
 		// Without a shared dispatch ID, later events cannot match this marker; only pruning can retire it.
 		id = strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
-	transcriptDir := subagentDir(in.TranscriptPath)
+	transcriptDir := inflight.SubagentDir(in.TranscriptPath)
 	code := ExitProceed
 	// TryFileLock, not WithFileLock: the latter is fail-open, and counting markers unlocked races a
 	// sibling's write into a wrong total. Under contention: write first, then count (see below).
@@ -207,28 +200,12 @@ func writeMarker(dir string, owner int, id string) {
 
 // markerOwner parses the owning pid out of a marker name; ok=false means the entry is not a marker
 // (the lock file, a stray), which is NOT the same as a marker whose pid parsed as 0.
-func markerOwner(name string) (int, bool) {
-	rest, ok := strings.CutPrefix(name, markerPrefix)
-	if !ok {
-		return 0, false
-	}
-	pidText, _, _ := strings.Cut(rest, "-")
-	pid, _ := strconv.Atoi(pidText)
-	return pid, true
-}
+func markerOwner(name string) (int, bool) { return inflight.Owner(name) }
 
 // ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
 // treating every pid as dead there would silently disable both this and the idle-harvest watcher.
 func ownerDead(pid int) bool {
 	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
-}
-
-// subagentDir is where Claude Code writes this session's agent-<id>.jsonl: <project>/<session>/subagents.
-func subagentDir(parentTranscript string) string {
-	if parentTranscript == "" {
-		return ""
-	}
-	return filepath.Join(strings.TrimSuffix(parentTranscript, ".jsonl"), "subagents")
 }
 
 // pruneAndCountMarkers removes markers whose owner is PROVABLY gone — or, when the owner cannot be
@@ -240,35 +217,19 @@ func pruneAndCountMarkers(dir string, self int, transcriptDir string, now time.T
 	if err != nil {
 		return 0
 	}
-	// One probe of our own pid says whether Alive answers here (off unix it never does): only a trusted
-	// probe may read a silent owner as dead, otherwise the TTL is the sole backstop — and a live 40-min
-	// dispatch must not be pruned out from under a sibling's SubagentStop.
-	probeTrusted := proc.Alive(os.Getpid())
+	probeTrusted := inflight.ProbeTrusted()
 	n := 0
 	for _, e := range entries {
-		owner, ok := markerOwner(e.Name())
-		if !ok {
+		if _, ok := markerOwner(e.Name()); !ok {
 			continue
 		}
 		fi, err := e.Info()
 		if err != nil {
 			continue
 		}
-		trusted := probeTrusted && owner > 0
-		stale := now.Sub(fi.ModTime()) > inflightTTL
-		if (trusted && !proc.Alive(owner)) || (!trusted && stale) {
+		if !inflight.Live(e.Name(), fi.ModTime(), now, self, transcriptDir, probeTrusted) {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 			continue
-		}
-		// Only self's markers: a sibling session's transcripts live elsewhere and would read as "missing".
-		if _, agentID, tagged := strings.Cut(e.Name(), markerAgentSep); tagged && agentID != "" && owner == self && transcriptDir != "" {
-			transcript, err := os.Stat(filepath.Join(transcriptDir, "agent-"+agentID+".jsonl"))
-			missing := os.IsNotExist(err) && now.Sub(fi.ModTime()) > inflightGrace
-			idle := err == nil && now.Sub(transcript.ModTime()) > inflightIdle
-			if missing || idle {
-				_ = os.Remove(filepath.Join(dir, e.Name()))
-				continue
-			}
 		}
 		n++
 	}

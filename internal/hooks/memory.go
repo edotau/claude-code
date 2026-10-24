@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -480,7 +481,7 @@ func writeSidecar(path string, m map[string]subFileState) {
 // file's own cached offset (sidecar ".offsets.json" inside the subagents dir), never the whole file from
 // byte 0.
 func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int) (edits int, totalBytes int64) {
-	dir := subagentDir(transcriptPath)
+	dir := inflight.SubagentDir(transcriptPath)
 	if dir == "" {
 		return 0, 0
 	}

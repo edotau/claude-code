@@ -24,7 +24,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs.SetOutput(errw)
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	running := fs.Bool("running", false, "keep only sessions with an active session or a running subagent")
+	running := fs.Bool("running", false, "keep running sessions, subagents and dispatches (all repos)")
 	all := fs.Bool("all", false, "show every session in scope, idle ones included")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
@@ -68,12 +68,15 @@ func renderOnce(claudeDir string, opts Options, format string, showAll bool, out
 	if !showAll {
 		tree.Sessions = filterIdleSessions(tree.Sessions)
 	}
-	if format == outfmt.JSON {
-		return boolToExit(outfmt.Write(out, tree) == nil)
-	}
 	now := time.Now()
 	if opts.Now != nil {
 		now = opts.Now()
+	}
+	if opts.Running {
+		tree.Dispatches = RunningDispatches(now)
+	}
+	if format == outfmt.JSON {
+		return boolToExit(outfmt.Write(out, tree) == nil)
 	}
 	RenderText(out, tree, now)
 	return 0

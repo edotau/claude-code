@@ -13,7 +13,8 @@
     "context",
     "tokens",
     "duration",
-    "session"
+    "session",
+    "agents"
   ],
   "branchMax": 18,
   "width": 0,
@@ -26,6 +27,7 @@
     "tokens": false,
     "duration": false,
     "session": false,
+    "agents": true,
     "git": true,
     "velocity": true
   },
