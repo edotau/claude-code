@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 func sleeperScript(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sleeper.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 30\n"), 0o700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 30 &\nwait\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -204,16 +205,18 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 	t.Cleanup(func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() })
 
 	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
-	rec.PID = unrelated.Process.Pid // pretend the dispatch's old PID was reused by `sleep`
+	rec.PID = unrelated.Process.Pid                 // pretend the dispatch's old PID was reused by `sleep`
+	rec.Log = filepath.Join(t.TempDir(), "job.log") // a background record: Log is set
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := Cancel(&rec); err != nil {
-		t.Fatalf("Cancel() = %v, want nil (pid-reuse is reported via the record, not an error)", err)
+	err := Cancel(&rec)
+	if err == nil || !strings.Contains(err.Error(), "different program (pid reused)") {
+		t.Fatalf("Cancel() = %v, want the different-program error", err)
 	}
-	if rec.Status != "error" || rec.Error != "process gone (pid reused)" {
-		t.Fatalf("after Cancel on reused pid: status=%q error=%q, want error/%q", rec.Status, rec.Error, "process gone (pid reused)")
+	if rec.Status != "running" {
+		t.Fatalf("status = %q: a reused pid must not rewrite the record", rec.Status)
 	}
 	if !proc.Alive(unrelated.Process.Pid) {
 		t.Fatal("the unrelated live process must not have been signalled")
@@ -286,5 +289,102 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 	}
 	if rec.Status != "error" {
 		t.Errorf("status = %q, want error", rec.Status)
+	}
+}
+
+// A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
+func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.PID = os.Getpid() // the test process: alive, not a job
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(agent.DispatchDir(), rec.ID+".json"))
+	err := Cancel(&rec)
+	if err == nil || !strings.Contains(err.Error(), "foreground run") {
+		t.Fatalf("Cancel() = %v, want the foreground-run error", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(agent.DispatchDir(), rec.ID+".json"))
+	if string(before) != string(after) {
+		t.Errorf("record rewritten:\n%s\n->\n%s", before, after)
+	}
+	loaded, _ := agent.LoadRecord(rec.ID)
+	if loaded.Status != "running" || loaded.Error != "" {
+		t.Errorf("loaded = %q/%q, want untouched running", loaded.Status, loaded.Error)
+	}
+}
+
+// A dead pid whose record already finished is left untouched; a still-running one is marked once.
+func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.PID, rec.Status = cmd.Process.Pid, "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	stale := rec
+	stale.Status = "running" // caller's copy is stale; disk says ok
+	if err := Cancel(&stale); err != nil {
+		t.Fatalf("Cancel = %v", err)
+	}
+	loaded, _ := agent.LoadRecord(rec.ID)
+	if loaded.Status != "ok" || loaded.Error != "" {
+		t.Errorf("finished record changed to %q/%q", loaded.Status, loaded.Error)
+	}
+}
+
+func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.PID = cmd.Process.Pid
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cancel(&rec); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := agent.LoadRecord(rec.ID)
+	if loaded.Status != "error" || loaded.Error != "process gone (pid reused)" {
+		t.Fatalf("loaded = %q/%q", loaded.Status, loaded.Error)
+	}
+	loaded.Error = "sentinel"
+	if err := loaded.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cancel(&rec); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := agent.LoadRecord(rec.ID)
+	if again.Error != "sentinel" {
+		t.Errorf("second Cancel rewrote the record: %q", again.Error)
+	}
+}
+
+func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
+	id := "20261024T000000.000-codex"
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"exact", []string{"/bin/claude-code", "ask", "--job", id}, true},
+		{"id substring only", []string{"claude-code", "ask", "--job", id + "-x"}, false},
+		{"joined arg", []string{"claude-code", "ask --job " + id}, false},
+		{"missing job flag", []string{"claude-code", "ask", id}, false},
+		{"empty", nil, false},
+	}
+	for _, c := range cases {
+		if got := isJobArgv(c.argv, id); got != c.want {
+			t.Errorf("%s: isJobArgv = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

@@ -16,14 +16,14 @@ func assertContainsAll(t *testing.T, got string, substrs ...string) {
 
 // ExplorePrompt must name all five required sections, cite file:line, and carry the question verbatim.
 func TestExplorePromptHasFiveSections(t *testing.T) {
-	got := ExplorePrompt("how does X work?", "/work", false)
+	got := ExplorePrompt("how does X work?", false)
 	assertContainsAll(t, got, "Structure", "Conventions", "Dependencies", "Prior art", "Open questions",
 		"file:line", "how does X work?")
 }
 
 // web=false must omit the web-research leg entirely (no URL-citation instruction).
 func TestExplorePromptOmitsWebWhenDisabled(t *testing.T) {
-	got := ExplorePrompt("q", "/work", false)
+	got := ExplorePrompt("q", false)
 	if strings.Contains(got, "URL") || strings.Contains(got, "web") {
 		t.Errorf("web=false prompt must not mention web research:\n%s", got)
 	}
@@ -31,7 +31,7 @@ func TestExplorePromptOmitsWebWhenDisabled(t *testing.T) {
 
 // web=true appends the web-research leg, which cites claims by URL.
 func TestExplorePromptIncludesWebWhenEnabled(t *testing.T) {
-	got := ExplorePrompt("q", "/work", true)
+	got := ExplorePrompt("q", true)
 	assertContainsAll(t, got, "web", "URL")
 }
 
@@ -77,7 +77,7 @@ func TestExploreArgsShape(t *testing.T) {
 		t.Errorf("ExploreArgs must include --workdir: %v", args)
 	}
 	last := args[len(args)-1]
-	if last != ExplorePrompt("q", "/work", false) {
+	if last != ExplorePrompt("q", false) {
 		t.Errorf("ExploreArgs must end with the built prompt, got %q", last)
 	}
 }
