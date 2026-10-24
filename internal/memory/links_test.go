@@ -118,9 +118,9 @@ func TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases(t *testing.T) {
 	if len(out) != 3 {
 		t.Fatalf("results = %+v, want 3 (home, repo, alias)", out)
 	}
-	assertLinkedTo(t, projectsMemory(projectSlug(home)), HomeBankDir())
-	assertLinkedTo(t, projectsMemory(projectSlug(repo)), dir)
-	assertLinkedTo(t, projectsMemory(projectSlug(alias)), dir)
+	assertLinkedTo(t, projectsMemory(ProjectSlug(home)), HomeBankDir())
+	assertLinkedTo(t, projectsMemory(ProjectSlug(repo)), dir)
+	assertLinkedTo(t, projectsMemory(ProjectSlug(alias)), dir)
 
 	// idempotent re-run: every result is already "ok"
 	out2, err := EnsureNativeLinks()
@@ -156,7 +156,7 @@ func TestLinkNativeForUsesMainCheckoutAndTypedPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantLink := projectsMemory(projectSlug(repo))
+	wantLink := projectsMemory(ProjectSlug(repo))
 	for _, cwd := range []string{repo, sub, wt, wtSub} {
 		res, ok := LinkNativeFor(cwd)
 		if !ok {
@@ -177,7 +177,7 @@ func TestLinkNativeForUsesMainCheckoutAndTypedPath(t *testing.T) {
 	if !ok {
 		t.Fatal("a non-git cwd must still resolve (to the global tier)")
 	}
-	if res.Link != projectsMemory(projectSlug(nonGit)) || res.Target != HomeBankDir() {
+	if res.Link != projectsMemory(ProjectSlug(nonGit)) || res.Target != HomeBankDir() {
 		t.Errorf("non-git LinkNativeFor = %+v, want its own typed path pointed at the global tier", res)
 	}
 }
