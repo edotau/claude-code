@@ -6,7 +6,7 @@ description: 'Use when designing or assessing system architecture — "design th
 # Architecture Design
 
 Make and document architecture decisions, and assess what already exists. This is the
-**design-altitude** companion to the `claude` agent's Architect phase — `claude`
+**design-altitude** companion to the `claude` agent's Design phase — `claude`
 drives it when a coding task carries real design choices; use the skill directly when the
 question is purely architectural (which datastore, which pattern, how to migrate).
 

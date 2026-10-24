@@ -107,11 +107,10 @@ class Repository(Protocol):
     def save(self, entity: dict) -> dict: ...
 ```
 
-## No new helper methods
+## Helper extraction
 
-When refactoring, do not introduce new private helper functions. Refactor within existing
-boundaries. A too-long function is a signal to simplify the logic, not to split it into
-helpers — helpers accumulate into a maze.
+Simplify within existing boundaries first. Extract a focused helper when it removes duplication or materially
+clarifies complex logic; never one that merely relocates code. See `skills/simplify/references/extract-method.md`.
 
 ## Immutability & data containers
 
@@ -183,7 +182,6 @@ Never do without explicit user confirmation:
 
 - `rm -rf` on anything under the repo
 - `pip install` to the system interpreter (always use venv)
-- `pytest` / `unittest` without a runtime estimate
 - Reformatting a file larger than the user asked about
 - Changing type-hint style across a module when asked about one function
 
@@ -191,4 +189,4 @@ Never do without explicit user confirmation:
 
 - [references/idioms.md](references/idioms.md) — full catalog: context managers, decorators,
   comprehensions/generators, concurrency, performance, anti-patterns
-- `lib/check-style.sh` — runs ruff + black --check on target files
+- `lib/check-style.sh` — runs ruff check + ruff format --check on target files
