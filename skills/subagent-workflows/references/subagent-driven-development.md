@@ -14,7 +14,7 @@ Confirm the plan, order, dependencies and acceptance criteria (review a written 
 2. Spec review ([prompts.md#spec-reviewer](prompts.md#spec-reviewer)); send gaps back until `SPEC_COMPLIANT`.
 3. Simplify the task diff (`Skill(simplify)`; its behavior gate is the task's verification command).
 4. Quality review ([prompts.md#code-quality-reviewer](prompts.md#code-quality-reviewer)) with the simplify report;
-   fix until `APPROVED`.
+   fix until `SHIP`.
 5. Run the task's verification yourself; mark it done.
 
 Order is always spec → simplify → quality: simplifying non-compliant code polishes the wrong thing, and reviewing

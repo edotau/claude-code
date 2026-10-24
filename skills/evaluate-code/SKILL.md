@@ -39,6 +39,9 @@ marked **followed**, **skipped**, or **faked** (claimed without observation).
 
 ## Lenses
 
+Report only findings on changed code at >80% confidence; consolidate similar findings; skip stylistic preferences
+unless CRITICAL.
+
 ### Discipline — the four principles
 
 The four characteristic LLM code failures. CLAUDE.md → Behavioral guidelines defines them; what
@@ -94,7 +97,11 @@ which half.
 
 Determine scope, then fan out **both** reviewers in parallel.
 
-Scope and mechanical-gate commands: [Dispatch setup](references/tasks.md#dispatch-setup).
+```bash
+BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
+```
+
+Mechanical gate first: [Lint & format gate](references/detectors.md#lint--format-gate-run-before-detectors).
 
 1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
 2. In a **single message**, launch two subagents concurrently:
@@ -102,7 +109,8 @@ Scope and mechanical-gate commands: [Dispatch setup](references/tasks.md#dispatc
    - a **general-purpose** subagent that loads the **`security-reviewer` skill** (or run
      `/security-reviewer`) — OWASP Top 10, secrets, injection, auth. Read-only (findings only).
 3. Scope each agent to the diff range + changed files, NOT your session history — keeps them on
-   the work product and preserves your context. A ready-to-paste dispatch prompt: `references/tasks.md`.
+   the work product and preserves your context. A ready-to-paste dispatch prompt:
+   `../subagent-workflows/references/prompts.md#code-quality-reviewer`.
 
 Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping are canonical in
 `rules/standards/quality.md` (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no
