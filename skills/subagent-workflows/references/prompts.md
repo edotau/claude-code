@@ -41,13 +41,14 @@ Return SPEC_COMPLIANT with brief evidence, or SPEC_ISSUES with file:line finding
 Only after `SPEC_COMPLIANT` and the simplify pass.
 
 ```markdown
-Review for correctness, edge cases, error handling, test quality, interface clarity, security and repo conventions.
+Load evaluate-code (Skill tool, or read ~/.claude/skills/evaluate-code/SKILL.md) and apply its lenses — the
+performance lens on any hot path touched.
 Task: <summary>
 Scope: base <rev>, head <rev>, files <list>
-Simplify report (applied; flagged items left on purpose): <report>
+Simplify report (if one ran; flagged items left on purpose): <report>
 
 Complexity is the simplify pass's lane — raise it only where a flagged item hides a bug. Only issues this change introduced.
-Return: findings ordered Critical / Important / Minor with file:line and a fix; verdict APPROVED or CHANGES_REQUIRED.
+Return: verdict SHIP | FIX REQUIRED | BLOCK first; findings CRITICAL / HIGH / MEDIUM / LOW with file:line and a fix.
 ```
 
 ## Plan Reviewer
