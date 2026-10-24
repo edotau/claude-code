@@ -62,6 +62,8 @@ word for a change, the findings for a read-only research leg.
   integration edit.
 - The manager owns decisions, integration and final verification; commits are the manager's, a lane orchestrator's
   (pathspec), or `copilot` LAST-MILE's. Leaves never dispatch, start a Workflow, commit or run the suite.
+- Before fanning out more, the manager checks the load with `claude-code agents tree --running`, follows a vendor leg
+  with `claude-code <vendor> tail -f <job>`, and clears dead entries with `claude-code agents reap`.
 - Every code dispatch includes `copilot` in the same message; it waits for the manager's "landed" `SendMessage`
   (files + signatures), never a poll (`../testing-guidelines/references/test-discipline.md`).
 
