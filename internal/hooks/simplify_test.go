@@ -136,6 +136,7 @@ func TestSimplifyAfterEditsBlocksOnSourceEditThenProceedsOnce(t *testing.T) {
 	for _, want := range []string{
 		"skills/simplify/SKILL.md", "claude-code review quality", "re-send your complete task report", "/r/a.go",
 		"never a summary or placeholder instead of it", "never a separate section or checklist",
+		"but never paste its output", "The skill's report format and fixed/skipped summary do not apply here",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("block message must name %q: %s", want, out)
