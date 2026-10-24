@@ -19,8 +19,8 @@ each leaf in an isolated copy, and commits it.
 - [x] <verb> <object> — runner: copilot — owns: internal/foo/bar.go — a1b2c3d
 ```
 
-Leaf size: one package (≤3 tightly coupled files), ≤10 edits, one 45-minute run; split anything bigger (25–40-item
-legs timed out, 5–10 finished). Runners per [cost-routing.md](cost-routing.md).
+Leaf size and the checklist line format: `agents/Plan.md` → `## Tasks` (25–40-item legs timed out, 5–10 finished).
+Runners per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
@@ -40,17 +40,7 @@ Wait in one foreground call (≤10 min, repeat):
 Disjoint leaves run concurrently; overlapping ones wait; a test-repair leaf starts only after its implementer's exit
 line. A small leaf still running at ~10 min needs a look, not more waiting.
 
-Brief (the attached lane plan carries the context):
-
-```text
-You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/restore.
-Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
-Done when: <scoped test> exits 0 and <live check> shows <expected>.
-Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
-After a defect fix write ISSUE: searched P, found N.
-Report: files changed, each command with exit code and env (cwd, CLAUDE_CONFIG_DIR), the TASK/ISSUE facts as
-plain sentences (never raw tags), anything outside your files.
-```
+Brief: [prompts.md#lane-leaf](prompts.md#lane-leaf); the attached lane plan carries the context.
 
 A finding outside the leaf's files becomes a new line in this lane (same package) or a note to the manager.
 

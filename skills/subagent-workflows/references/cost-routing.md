@@ -41,10 +41,11 @@ sequence. Legs on one provider share its rate limit — reduce concurrency on pe
 ## Verify and compare
 
 `--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` when another runner
-stood in — a non-empty `fallback` means the saving did not happen; report it. Treat the answer as a claim: check
-`git diff --stat` for the expected files and run the verification yourself. Each leaf reports runner, model, fallback,
-first-try pass/fail and hand fixes; tally per runner (`claude-code ask --log`) and shift the split only on that
-evidence. A leaf assigned a runner that did the work itself is a skipped leg, not a success.
+stood in — a non-empty `fallback` means the saving did not happen; report it. Treat the answer as a claim: check `git
+diff --stat` for the expected files and run the verification yourself. Each leaf's report carries the contract's `Ran
+on:` line plus first-try pass/fail and hand fixes (`../SKILL.md` → Handoff contract); tally per runner (`claude-code
+ask --log`) and shift the split only on that evidence. A leaf assigned a runner that did the work itself is a skipped
+leg, not a success.
 
 The vendor CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
 As a `Workflow` stage (only when the user asks for one): `external-agent {leg, cwd, task}`, or
