@@ -86,10 +86,11 @@ func agyUsageRows(res agyUsageResult) []quota {
 			}
 			out = append(out, quota{
 				Provider: "google", Plan: "Antigravity", Account: "-",
-				Window:  b.Window,
-				UsedPct: math.Round((1 - b.RemainingFrac) * 100),
-				Resets:  formatAgyReset(b.ResetTime),
-				Group:   g.Name,
+				Window:   b.Window,
+				UsedPct:  math.Round((1 - b.RemainingFrac) * 100),
+				Resets:   formatAgyReset(b.ResetTime),
+				ResetsAt: agyResetUTC(b.ResetTime),
+				Group:    g.Name,
 			})
 		}
 	}
@@ -141,4 +142,13 @@ func formatAgyReset(s string) string {
 		return ""
 	}
 	return t.Local().Format("2006-01-02 15:04")
+}
+
+// agyResetUTC parses agy's RFC3339 reset_time and normalizes it to a UTC instant for ResetsAt.
+func agyResetUTC(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }

@@ -19,9 +19,33 @@ import (
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/usageledger"
 )
+
+// billing names the session provider's pricing: a Claude.ai plan quota, or per-token API billing.
+type billing struct {
+	Mode     string `json:"mode"`
+	Provider string `json:"provider"`
+}
+
+// resolveBilling reports "subscription" unless the session provider authenticates with an API key.
+func resolveBilling() *billing {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil || sel.Provider == nil {
+		return nil
+	}
+	mode := "subscription" // passthrough (vendor login) and none bill by plan; a static key bills per token
+	if t := sel.Provider.Auth.Type; t == providers.AuthAPIKey || t == providers.AuthBearer {
+		mode = "api"
+	}
+	return &billing{Mode: mode, Provider: sel.Provider.Name}
+}
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
@@ -83,6 +107,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	}
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
+	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days)
 
 	var quotas []quota
 	if *providersFlag && show != "total" {
@@ -104,9 +129,11 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(struct {
 			*transcript.UsageAggregate
-			Providers []quota     `json:"providers,omitempty"`
-			API       []ledgerAgg `json:"api,omitempty"`
-		}{agg, quotas, aggs}); err != nil {
+			Providers []quota      `json:"providers,omitempty"`
+			API       []ledgerAgg  `json:"api,omitempty"`
+			Billing   *billing     `json:"billing,omitempty"`
+			Agents    []agentUsage `json:"agents,omitempty"`
+		}{agg, quotas, aggs, resolveBilling(), agents}); err != nil {
 			return 1
 		}
 		return 0
@@ -117,6 +144,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		printUsageTable(out, agg, len(files))
 	}
 	printQuotas(out, quotas, show, aggs, ledgerSince(ledgerEntries))
+	printAgentsSection(out, agents, days)
 	printQuotaWarnings(errw, quotas)
 	return 0
 }
