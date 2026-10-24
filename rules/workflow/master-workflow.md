@@ -22,8 +22,8 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 |-------|----------------|--------|------|
 | 0. Classify | (inline) | Scope tier | Determines which phases run |
 | 1. Review | `Plan` subagent, or `claude-code ask --agent <leg>` for a second model family | Refined Task Brief | READY / NEEDS CLARIFICATION verdict |
-| 2. Codebase Intel | 3 parallel `Explore` subagents | Codebase Context Brief | Structure, conventions, deps covered |
-| 3. Research | `gh` search, WebFetch, WebSearch | Prior art links + library refs | At least 1 relevant reference |
+| 2. Codebase Intel | 3 parallel `Explore` subagents, or one `gemini` leg (`claude-code gemini explore`) | Codebase Context Brief | Structure, conventions, deps covered |
+| 3. Research | `gh` search, WebFetch, WebSearch, `claude-code gemini explore` (web research) | Prior art links + library refs | At least 1 relevant reference |
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
 | 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
@@ -81,6 +81,9 @@ Launch **3 parallel `Explore` subagents** in a single message:
 **Scope the fan-out** to the directories the task touches — a repo-wide Explore sweep is the
 biggest avoidable input-token cost of this protocol.
 
+**Alternative**: one `claude-code gemini explore "<question>"` leg returns the same brief from agy
+(code + web research), off Claude's token budget; `bridge` for whole-repo context.
+
 ---
 
 ## Phase 3: Research & Reuse
@@ -91,6 +94,8 @@ biggest avoidable input-token cost of this protocol.
 2. `WebFetch` on vendor docs — confirm API behavior and patterns
 3. `WebSearch` — broader discovery (only when 1-2 are insufficient)
 4. Package registries (PyPI, npm, pkg.go.dev) — prefer battle-tested libraries
+5. `claude-code gemini explore "<question>"` — one leg for web research with cited URLs, off
+   Claude's token budget
 
 **Gate**: At least 1 relevant reference found, or explicit "nothing found" documented.
 
