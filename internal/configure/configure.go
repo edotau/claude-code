@@ -43,6 +43,8 @@ type Options struct {
 	Vendor      string    // --agent: scope keys/agents to one agent CLI
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
+	Drop        []string  // --drop: top-level settings.json keys to remove on every render
+	Keep        []string  // --keep: keys to stop dropping
 	Interactive bool      // stdin+stderr are both a terminal; the caller decides this
 	Home        string    // vendor-config home override (tests); "" -> os.UserHomeDir
 	In          io.Reader // "" -> os.Stdin
@@ -99,7 +101,7 @@ func (d *dialog) printf(format string, args ...any) {
 func (d *dialog) println(args ...any) { d.printf("%s\n", fmt.Sprint(args...)) }
 
 func (d *dialog) header(section string) {
-	d.println(ansi.Style(d.color, ansi.Bold+ansi.Cyan, "== "+section+" =="))
+	d.println(tui.Accent(d.color, "== "+section+" =="))
 }
 
 // Run executes the named section (empty = every section in Sections order); returns the CLI exit code.
@@ -113,6 +115,10 @@ func Run(o Options, section string) int {
 		}
 		want = []string{section}
 	}
+	if len(o.Drop)+len(o.Keep) > 0 && o.Vendor != "" && o.Vendor != "claude" {
+		fmt.Fprintln(out, "configure: --drop/--keep apply to claude settings only")
+		return 2
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)
@@ -120,6 +126,13 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
+	if len(o.Drop)+len(o.Keep) > 0 {
+		code := runDropKeep(d)
+		if d.changed && !o.Check && !o.DryRun && !rerenderConfigs(d) && code == 0 {
+			code = 1 // the list is saved but settings.json still holds the key
+		}
+		return code
+	}
 	if section == "" && o.Interactive && !o.Check && !o.DryRun && isStdinTTY() {
 		return runMenu(d)
 	}

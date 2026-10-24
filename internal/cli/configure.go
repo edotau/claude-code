@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
@@ -15,8 +16,22 @@ import (
 )
 
 // configureUsage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
-var configureUsage = "usage: claude-code configure [--provider p] [--agent CLI] [--dry-run] [--check]\n       [" +
+var configureUsage = "usage: claude-code configure [--provider p] [--agent CLI] [--dry-run] [--check]\n       [--drop k[,k…]] [--keep k[,k…]]\n       [" +
 	strings.Join(configure.Sections, "|") + "]"
+
+// keyList is a repeatable comma-separated flag: splits, trims, skips empties, dedupes in first-seen order.
+type keyList []string
+
+func (k *keyList) String() string { return strings.Join(*k, ",") }
+
+func (k *keyList) Set(v string) error {
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" && !slices.Contains(*k, p) {
+			*k = append(*k, p)
+		}
+	}
+	return nil
+}
 
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
@@ -25,7 +40,13 @@ func cmdConfigure(args []string) int {
 	vendor := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
 	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
-	fs.Usage = func() { helptext.Fprint(os.Stderr, configureUsage+"\n") }
+	var drop, keep keyList
+	fs.Var(&drop, "drop", "remove these top-level settings.json keys on every render (comma or repeat)")
+	fs.Var(&keep, "keep", "stop dropping these keys")
+	fs.Usage = func() {
+		helptext.Fprint(os.Stderr, configureUsage+"\n")
+		fs.PrintDefaults()
+	}
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -41,7 +62,7 @@ func cmdConfigure(args []string) int {
 		section = fs.Arg(0)
 	}
 	return configure.Run(configure.Options{
-		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
+		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
 	}, section)
 }
 

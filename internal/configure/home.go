@@ -382,34 +382,41 @@ func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
 	return pick(d, title, rows)
 }
 
-// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the vendor configs.
-func rerenderConfigs(d *dialog) {
+// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the vendor configs;
+// false when settings.json could not be brought current.
+func rerenderConfigs(d *dialog) bool {
 	file := launch.SettingsFile()
 	existing, err := os.ReadFile(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		d.printf("settings.json: %v\n", err)
-		return
+		return false
 	}
 	rendered, err := settings.RenderLive()
 	if err != nil {
 		d.printf("settings.json: %v\n", err)
-		return
+		return false
 	}
-	merged, _, err := settings.Merge(existing, rendered)
+	dropped, derr := settings.LoadDropped() // the vault drop list; unavailable → merge as if empty
+	if derr != nil {
+		d.printf("settings: drop list unavailable: %v\n", derr)
+	}
+	merged, _, err := settings.Merge(existing, rendered, dropped)
 	switch {
 	case err != nil:
 		d.printf("settings.json: %v\n", err)
+		return false
 	case string(merged) == string(existing):
 		d.println("settings.json unchanged")
 	default:
 		backup, err := settings.WriteWithBackup(file, merged)
 		if err != nil {
 			d.printf("settings.json: %v\n", err)
-			return
+			return false
 		}
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
 	if _, err := generate.Run(generate.Options{Out: d.out}); err != nil {
 		d.printf("vendor configs: %v\n", err)
 	}
+	return true
 }
