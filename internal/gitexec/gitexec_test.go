@@ -110,6 +110,36 @@ func TestRunGitErrorWrapsArgvAndStderr(t *testing.T) {
 	}
 }
 
+func TestRunGitStripsGitPrefixedFromSubprocessEnv(t *testing.T) {
+	t.Setenv("GIT_TEST_X", "1")
+	dir := t.TempDir()
+	if _, err := RunGit(context.Background(), dir, "init", "-q"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	out, err := RunGit(context.Background(), dir, "-c", "alias.e=!env", "e")
+	if err != nil {
+		t.Fatalf("git e: %v", err)
+	}
+	if strings.Contains(out, "GIT_TEST_X") {
+		t.Fatalf("RunGit leaked GIT_TEST_X into the subprocess: %q", out)
+	}
+}
+
+func TestRunGitInheritPassesGitPrefixedThrough(t *testing.T) {
+	t.Setenv("GIT_TEST_X", "1")
+	dir := t.TempDir()
+	if _, err := RunGit(context.Background(), dir, "init", "-q"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	out, err := RunGitInherit(context.Background(), dir, "-c", "alias.e=!env", "e")
+	if err != nil {
+		t.Fatalf("git e: %v", err)
+	}
+	if !strings.Contains(out, "GIT_TEST_X=1") {
+		t.Fatalf("RunGitInherit did not pass GIT_TEST_X through: %q", out)
+	}
+}
+
 func TestRunGitHonorsContextTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()

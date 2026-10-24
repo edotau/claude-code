@@ -27,12 +27,26 @@ func Env() []string {
 // RunGit executes git with the sanitized environment. dir is passed as -C when non-empty; pass ""
 // when args already carries its own -C (or other global flags) ahead of the subcommand.
 func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
+	return run(ctx, Env(), dir, args...)
+}
+
+// RunGitInherit executes git with the caller's own environment, unmodified. Use this only for
+// commands that operate on the user's own repo and may run inside a git hook (e.g. `review gate`
+// during `git commit`), where git sets GIT_INDEX_FILE/GIT_DIR to point at its own temp state and
+// stripping GIT_* breaks the command instead of protecting it. internal/history and internal/memory
+// must keep using RunGit: they operate on the harness's own repos and must not be retargeted by an
+// inherited GIT_DIR.
+func RunGitInherit(ctx context.Context, dir string, args ...string) (string, error) {
+	return run(ctx, os.Environ(), dir, args...)
+}
+
+func run(ctx context.Context, env []string, dir string, args ...string) (string, error) {
 	full := args
 	if dir != "" {
 		full = append([]string{"-C", dir}, args...)
 	}
 	cmd := exec.CommandContext(ctx, "git", full...)
-	cmd.Env = Env()
+	cmd.Env = env
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
