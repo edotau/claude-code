@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -85,15 +86,62 @@ func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool
 	return err == nil && (beforeInfo == nil || !afterInfo.ModTime().Equal(beforeInfo.ModTime()))
 }
 
-// stopAgy asks a still-running agy to exit: SIGINT, SIGTERM after agyStopGrace if that didn't land.
+// stopAgy asks a still-running agy and its descendants to exit: SIGINT, SIGTERM after agyStopGrace.
 func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
+	desc := proc.Descendants(cmd.Process.Pid)
 	_ = cmd.Process.Signal(syscall.SIGINT)
+	signalDescendants(desc, syscall.SIGINT)
 	select {
 	case <-done:
+		waitOrTermDescendants(desc)
 	case <-time.After(agyStopGrace):
 		_ = cmd.Process.Signal(syscall.SIGTERM)
+		signalAliveDescendants(desc, syscall.SIGTERM)
 		<-done
 	}
+}
+
+func waitOrTermDescendants(pids []int) {
+	deadline := time.Now().Add(agyStopGrace)
+	for {
+		alive := false
+		for _, pid := range pids {
+			if proc.Alive(pid) {
+				alive = true
+				break
+			}
+		}
+		if !alive {
+			return
+		}
+		if time.Now().After(deadline) {
+			signalAliveDescendants(pids, syscall.SIGTERM)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func signalDescendants(pids []int, sig syscall.Signal) {
+	self := os.Getpid()
+	for _, pid := range pids {
+		if pid <= 1 || pid == self {
+			continue
+		}
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Signal(sig)
+		}
+	}
+}
+
+func signalAliveDescendants(pids []int, sig syscall.Signal) {
+	var alive []int
+	for _, pid := range pids {
+		if proc.Alive(pid) {
+			alive = append(alive, pid)
+		}
+	}
+	signalDescendants(alive, sig)
 }
 
 func geminiMenu(d *dialog) agentMenu {
