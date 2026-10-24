@@ -23,6 +23,7 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Step needs | Load |
 |---|---|
 | Done criteria, gate chain, claim discipline | `references/verify.md` |
+| Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `audit-fix-verify {fix: false}` |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
