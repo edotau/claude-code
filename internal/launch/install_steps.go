@@ -58,7 +58,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 
 // installCompact runs every install step for real (never dry-run) and prints one line per step:
 // install (binary + snapshot), vendors, settings, settings (windows) when applicable, agents, extras.
-// A warning, skip or error on any step always prints in full, on its own line, regardless.
+// Steps run in installVerbose's order; the extras line prints last. Warnings always print in full.
 func installCompact(w io.Writer) error {
 	commit := snapshotPreInstall(w, false, true)
 	target, err := installBinaryTarget()
@@ -67,18 +67,26 @@ func installCompact(w io.Writer) error {
 	}
 	fmt.Fprintln(w, installLine(target, commit))
 	vendorsCompactLine(w)
+	extras := extrasCompact(w)
+	defer func() {
+		if extras != "" {
+			fmt.Fprintln(w, extras)
+		}
+	}()
 	if err := linkOnPathCompact(w, target); err != nil {
 		return err
 	}
 	settingsLine, settingsErr := settingsCompactLine()
 	if settingsErr != nil {
+		if settingsLine != "" {
+			fmt.Fprintln(w, settingsLine)
+		}
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	} else {
 		fmt.Fprintln(w, settingsLine)
 	}
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
-	extrasCompact(w)
 	installGitHooks(w, false)
 	return settingsErr
 }
@@ -211,6 +219,9 @@ func settingsMergeApply(dryRun bool) (file string, existing, merged []byte, sum 
 func installSettings(w io.Writer, dryRun bool) error {
 	file, existing, merged, sum, backup, err := settingsMergeApply(dryRun)
 	if err != nil {
+		if backup != "" {
+			fmt.Fprintf(w, "settings %s\n  backup %s\n", file, backup)
+		}
 		return err
 	}
 	fmt.Fprintf(w, "settings %s\n  keep   %s\n  merge  %s\n  hooks  %d harness + %d foreign kept\n",
@@ -237,6 +248,9 @@ func installSettings(w io.Writer, dryRun bool) error {
 func settingsCompactLine() (line string, err error) {
 	_, existing, merged, sum, backup, err := settingsMergeApply(false)
 	if err != nil {
+		if backup != "" {
+			return "settings error · backup …" + filepath.Base(backup), err
+		}
 		return "", err
 	}
 	status := "updated"
@@ -299,9 +313,9 @@ func agentsSyncCompact(w io.Writer) {
 	fmt.Fprintf(w, "agents   synced: %s\n", strings.Join(crossgen.VendorNames(), " "))
 }
 
-// extrasCompact runs the completion, clipboard-proxy and tmux-seed steps, folding their routine outcomes
-// into one "extras" line; any of their skip notes always prints in full instead.
-func extrasCompact(w io.Writer) {
+// extrasCompact runs the completion, clipboard-proxy and tmux-seed steps and returns their one-line summary;
+// skip notes print in full immediately.
+func extrasCompact(w io.Writer) string {
 	var tokens []string
 	if _, err := completion.Install("claude-code"); err != nil {
 		fmt.Fprintf(w, "completion skip  %v\n", err)
@@ -328,9 +342,10 @@ func extrasCompact(w io.Writer) {
 	case strings.Contains(txt, "skip"):
 		fmt.Fprint(w, txt)
 	}
-	if len(tokens) > 0 {
-		fmt.Fprintf(w, "extras   %s\n", strings.Join(tokens, " · "))
+	if len(tokens) == 0 {
+		return ""
 	}
+	return "extras   " + strings.Join(tokens, " · ")
 }
 
 // shortenHome replaces the user's home directory prefix with "~", for compact path display.
