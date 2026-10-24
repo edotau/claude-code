@@ -5,20 +5,6 @@
 /** Agent CLIs the dispatch command and the extension's quick-pick both allow. */
 const AGENTS = ['claude', 'codex', 'opencode', 'gemini', 'copilot'];
 
-/** argv for `<binary> agents tree --days N [--all] --format json`. */
-function treeArgv(binary, opts) {
-  const { days, all } = opts || {};
-  const argv = [binary, 'agents', 'tree', '--days', String(days != null ? days : 1)];
-  if (all) argv.push('--all');
-  argv.push('--format', 'json');
-  return argv;
-}
-
-/** argv for `<binary> dispatch --list --host H --format json`. */
-function dispatchListArgv(binary, host) {
-  return [binary, 'dispatch', '--list', '--host', host, '--format', 'json'];
-}
-
 /** argv for `<binary> dispatch --host H --agent A [--dir D] <task>`. Throws on an unknown agent. */
 function dispatchStartArgv(binary, opts) {
   const { host, agent, dir, task } = opts || {};
@@ -28,22 +14,6 @@ function dispatchStartArgv(binary, opts) {
   const argv = [binary, 'dispatch', '--host', host, '--agent', agent];
   if (dir) argv.push('--dir', dir);
   argv.push(task);
-  return argv;
-}
-
-/** argv for `<binary> web view <agentId> [--session S] --format json` (the click-through detail pane). */
-function viewArgv(binary, agentId, sessionId) {
-  const argv = [binary, 'web', 'view', agentId];
-  if (sessionId) argv.push('--session', sessionId);
-  argv.push('--format', 'json');
-  return argv;
-}
-
-/** argv for `<binary> web view <agentId> --session S --follow` (text/plain event stream, no --format). */
-function viewFollowArgv(binary, agentId, sessionId) {
-  const argv = [binary, 'web', 'view', agentId];
-  if (sessionId) argv.push('--session', sessionId);
-  argv.push('--follow');
   return argv;
 }
 
@@ -81,11 +51,7 @@ function attachCommandLine(host, session) {
 
 module.exports = {
   AGENTS,
-  treeArgv,
-  dispatchListArgv,
   dispatchStartArgv,
-  viewArgv,
-  viewFollowArgv,
   usageArgv,
   profileArgv,
   vscodeServeArgv,

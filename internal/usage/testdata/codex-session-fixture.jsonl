@@ -1,5 +1,5 @@
-{"type":"session_meta","payload":{"id":"sess-astra-1"}}
-{"type":"turn_context","payload":{"model":"gpt-6-astra"}}
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":1000}}}}
+{"timestamp":"2026-10-22T09:00:00Z","type":"session_meta","payload":{"id":"sess-astra-1"}}
+{"timestamp":"2026-10-22T09:00:01Z","type":"turn_context","payload":{"model":"gpt-6-astra"}}
+{"timestamp":"2026-10-22T09:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":800,"cached_input_tokens":150,"output_tokens":50,"total_tokens":1000}}}}
 this line is not json at all {{{
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":2500}}}}
+{"timestamp":"2026-10-23T10:15:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":2000,"cached_input_tokens":300,"output_tokens":200,"total_tokens":2500}}}}

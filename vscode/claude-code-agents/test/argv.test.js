@@ -2,36 +2,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  treeArgv,
-  dispatchListArgv,
   dispatchStartArgv,
-  viewArgv,
-  viewFollowArgv,
   attachShellArgs,
   attachCommandLine,
   vscodeServeArgv,
+  AGENTS,
 } = require('../lib/argv');
-
-test('treeArgv: defaults to --days 1, no --all, --format json', () => {
-  assert.deepEqual(
-    treeArgv('claude-code', {}),
-    ['claude-code', 'agents', 'tree', '--days', '1', '--format', 'json']
-  );
-});
-
-test('treeArgv: --all flag is inserted before --format', () => {
-  assert.deepEqual(
-    treeArgv('claude-code', { days: 7, all: true }),
-    ['claude-code', 'agents', 'tree', '--days', '7', '--all', '--format', 'json']
-  );
-});
-
-test('dispatchListArgv: --list --host H --format json', () => {
-  assert.deepEqual(
-    dispatchListArgv('claude-code', 'myhost'),
-    ['claude-code', 'dispatch', '--list', '--host', 'myhost', '--format', 'json']
-  );
-});
 
 test('dispatchStartArgv: --dir is omitted entirely when empty', () => {
   assert.deepEqual(
@@ -60,28 +36,14 @@ test('dispatchStartArgv: honors any requested agent string verbatim (allowlistin
   assert.equal(argv[argv.indexOf('--agent') + 1], 'gemini');
 });
 
-test('viewArgv: no session -> "web view <id> --format json"', () => {
-  assert.deepEqual(viewArgv('claude-code', 'fakewfagent002', undefined), [
-    'claude-code', 'web', 'view', 'fakewfagent002', '--format', 'json',
-  ]);
+test('dispatchStartArgv: rejects an agent outside the allowlist', () => {
+  assert.throws(() => dispatchStartArgv('claude-code', { host: 'h', agent: 'not-a-real-agent', dir: '', task: 't' }), /must be one of/);
 });
 
-test('viewArgv: with session -> "--session S" inserted before --format', () => {
-  assert.deepEqual(viewArgv('claude-code', 'fakewfagent002', 'finished-session-aaaa1111'), [
-    'claude-code', 'web', 'view', 'fakewfagent002', '--session', 'finished-session-aaaa1111', '--format', 'json',
-  ]);
-});
-
-test('viewFollowArgv: no session -> "web view <id> --follow", no --format', () => {
-  assert.deepEqual(viewFollowArgv('claude-code', 'fakewfagent002', undefined), [
-    'claude-code', 'web', 'view', 'fakewfagent002', '--follow',
-  ]);
-});
-
-test('viewFollowArgv: with session -> "--session S" inserted before --follow', () => {
-  assert.deepEqual(viewFollowArgv('claude-code', 'fakewfagent002', 'finished-session-aaaa1111'), [
-    'claude-code', 'web', 'view', 'fakewfagent002', '--session', 'finished-session-aaaa1111', '--follow',
-  ]);
+test('dispatchStartArgv: the allowlist matches the quick-pick list exported as AGENTS', () => {
+  for (const agent of AGENTS) {
+    assert.doesNotThrow(() => dispatchStartArgv('claude-code', { host: 'h', agent, dir: '', task: 't' }));
+  }
 });
 
 test('attachShellArgs: matches the Go CLI\'s AttachArgs shape minus the leading "ssh"', () => {

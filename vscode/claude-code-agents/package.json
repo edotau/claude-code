@@ -1,7 +1,7 @@
 {
   "name": "claude-code-agents",
-  "displayName": "Claude Code Agents",
-  "description": "Browse the claude-code harness agent tree and dispatch remote work over SSH.",
+  "displayName": "Claude Code Agents Dashboard",
+  "description": "Dispatch remote work over SSH and watch per-agent-CLI token usage from the activity bar.",
   "version": "0.1.0",
   "publisher": "edotau",
   "engines": {
@@ -12,7 +12,6 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onView:claudeCodeAgents.tree",
     "onView:claudeCodeAgents.usage",
     "onStartupFinished"
   ],
@@ -21,7 +20,7 @@
       "activitybar": [
         {
           "id": "claudeCodeAgents",
-          "title": "Agents",
+          "title": "Agents Dashboard",
           "icon": "media/hubot.svg"
         }
       ]
@@ -30,28 +29,12 @@
       "claudeCodeAgents": [
         {
           "id": "claudeCodeAgents.usage",
-          "name": "Agent Dashboard",
+          "name": "Agents Dashboard",
           "type": "webview"
-        },
-        {
-          "id": "claudeCodeAgents.tree",
-          "name": "Agents"
         }
       ]
     },
     "commands": [
-      {
-        "command": "claudeCodeAgents.refresh",
-        "title": "Refresh",
-        "icon": "$(refresh)",
-        "category": "Claude Code Agents"
-      },
-      {
-        "command": "claudeCodeAgents.toggleShowAll",
-        "title": "Toggle Show All",
-        "icon": "$(filter)",
-        "category": "Claude Code Agents"
-      },
       {
         "command": "claudeCodeAgents.dispatch",
         "title": "Dispatch…",
@@ -59,37 +42,20 @@
         "category": "Claude Code Agents"
       },
       {
-        "command": "claudeCodeAgents.viewAgent",
-        "title": "View Agent",
-        "icon": "$(eye)",
-        "category": "Claude Code Agents"
-      },
-      {
-        "command": "claudeCodeAgents.attach",
-        "title": "Attach",
-        "icon": "$(terminal)",
-        "category": "Claude Code Agents"
-      },
-      {
-        "command": "claudeCodeAgents.copyAttachCommand",
-        "title": "Copy Attach Command",
-        "category": "Claude Code Agents"
-      },
-      {
         "command": "claudeCodeAgents.showUsage",
-        "title": "Show Agent Dashboard",
+        "title": "Show Agents Dashboard",
         "icon": "$(graph)",
         "category": "Claude Code Agents"
       },
       {
         "command": "claudeCodeAgents.refreshUsage",
-        "title": "Refresh Agent Dashboard",
+        "title": "Refresh Agents Dashboard",
         "icon": "$(refresh)",
         "category": "Claude Code Agents"
       },
       {
         "command": "claudeCodeAgents.openUsageEditor",
-        "title": "Open Agent Dashboard in Editor",
+        "title": "Open Agents Dashboard in Editor",
         "icon": "$(pulse)",
         "category": "Claude Code Agents"
       },
@@ -107,21 +73,6 @@
     "menus": {
       "view/title": [
         {
-          "command": "claudeCodeAgents.refresh",
-          "when": "view == claudeCodeAgents.tree",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeAgents.toggleShowAll",
-          "when": "view == claudeCodeAgents.tree",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeAgents.dispatch",
-          "when": "view == claudeCodeAgents.tree",
-          "group": "navigation"
-        },
-        {
           "command": "claudeCodeAgents.refreshUsage",
           "when": "view == claudeCodeAgents.usage",
           "group": "navigation"
@@ -130,16 +81,6 @@
           "command": "claudeCodeAgents.openUsageEditor",
           "when": "view == claudeCodeAgents.usage",
           "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "claudeCodeAgents.attach",
-          "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session"
-        },
-        {
-          "command": "claudeCodeAgents.copyAttachCommand",
-          "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session"
         }
       ],
       "editor/title": [
@@ -158,23 +99,13 @@
           "default": "claude-code",
           "description": "Path or name of the claude-code binary."
         },
-        "claudeCodeAgents.refreshSeconds": {
-          "type": "number",
-          "default": 5,
-          "description": "Auto-refresh interval, in seconds."
-        },
-        "claudeCodeAgents.days": {
-          "type": "number",
-          "default": 1,
-          "description": "Scope the agent tree to sessions modified within the last N days."
-        },
         "claudeCodeAgents.hosts": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "SSH hosts to list dispatched tmux sessions on."
+          "description": "SSH hosts offered by the Dispatch… quick-pick."
         },
         "claudeCodeAgents.usageRefreshSeconds": {
           "type": "number",
@@ -211,7 +142,7 @@
         },
         "claudeCodeAgents.usageDays": {
           "type": "number",
-          "default": 1,
+          "default": 30,
           "description": "Window, in days, for the per-agent totals; passed as --days."
         },
         "claudeCodeAgents.usageOpenIn": {
@@ -226,7 +157,7 @@
         "claudeCodeAgents.usageEditorTitleButton": {
           "type": "boolean",
           "default": true,
-          "description": "Show an Open Agent Dashboard in Editor button in every editor's title bar."
+          "description": "Show an Open Agents Dashboard in Editor button in every editor's title bar."
         }
       }
     }

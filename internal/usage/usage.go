@@ -107,7 +107,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	}
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
-	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days)
+	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
 
 	var quotas []quota
 	if *providersFlag && show != "total" {
@@ -129,11 +129,12 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(struct {
 			*transcript.UsageAggregate
-			Providers []quota      `json:"providers,omitempty"`
-			API       []ledgerAgg  `json:"api,omitempty"`
-			Billing   *billing     `json:"billing,omitempty"`
-			Agents    []agentUsage `json:"agents,omitempty"`
-		}{agg, quotas, aggs, resolveBilling(), agents}); err != nil {
+			Providers  []quota      `json:"providers,omitempty"`
+			API        []ledgerAgg  `json:"api,omitempty"`
+			Billing    *billing     `json:"billing,omitempty"`
+			Agents     []agentUsage `json:"agents,omitempty"`
+			WindowDays int          `json:"window_days"`
+		}{agg, quotas, aggs, resolveBilling(), agents, days}); err != nil {
 			return 1
 		}
 		return 0

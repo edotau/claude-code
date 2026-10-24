@@ -1,30 +1,28 @@
-# Claude Code Agents
+# Claude Code Agents Dashboard
 
-Browse the claude-code harness's live agent tree (sessions, subagents, workflows) from the VS Code
-activity bar, and dispatch or attach to remote work over SSH/tmux.
+Dispatch remote work over SSH/tmux and watch per-agent-CLI token usage from the VS Code activity bar.
 
-Runs `claude-code agents tree --format json` and `claude-code dispatch --list/--host` via
-`child_process.execFile` — no shell, no npm dependencies. On Remote-SSH it runs on the remote host
-(workspace extension kind), so the tree always reflects the box the binary is actually on.
+Runs `claude-code dispatch`, `claude-code usage --format json` and `claude-code profile --format json`
+via `child_process.execFile` — no shell, no npm dependencies. On Remote-SSH it runs on the remote host
+(workspace extension kind), so usage always reflects the box the binary is actually on.
 
 ## Settings
 
 - `claudeCodeAgents.binary` — path or name of the `claude-code` binary (default `claude-code`).
-- `claudeCodeAgents.refreshSeconds` — auto-refresh interval (default `5`).
-- `claudeCodeAgents.days` — scope the tree to sessions touched in the last N days (default `1`).
-- `claudeCodeAgents.hosts` — SSH hosts to list dispatched tmux sessions on (default `[]`).
+- `claudeCodeAgents.hosts` — SSH hosts offered by the Dispatch… quick-pick (default `[]`).
 
 ## Commands
 
-Refresh, Toggle Show All (`--all`), Dispatch… (quick-pick host/agent + task input), Attach, and
-Copy Attach Command, all under the "Agents" view's title bar or a dispatch session's context menu.
+Dispatch… (quick-pick host/agent + task input, "Enter custom host…" for an ad hoc SSH target; starts
+the task and offers to copy the `ssh -t host tmux attach -t <session>` command), all under "Claude Code
+Agents" in the command palette.
 
-## Agent Dashboard
+## Agents Dashboard
 
-A status bar segment (right side) and an "Agent Dashboard" view above "Agents" show
+A status bar segment (right side) and an "Agents Dashboard" activity-bar view show
 `claude-code usage` at a glance — most importantly, the Claude 5-hour window's used percentage and
 time until it resets. Click the status bar segment (or run "Claude Code Agents: Show Agent
-Dashboard") to open the view; "Claude Code Agents: Refresh Agent Dashboard" re-fetches on demand.
+Dashboard") to open the view; "Claude Code Agents: Refresh Agents Dashboard" re-fetches on demand.
 Data comes from `claude-code usage --format json` and `claude-code profile --format json`,
 refreshed every `claudeCodeAgents.usageRefreshSeconds` (default `60`, floored to `15`); reset
 countdowns tick every minute between fetches by re-rendering the cached JSON, no refetch needed.
@@ -48,24 +46,37 @@ vertically; a group missing a window renders a muted "—" in that cell. Provide
 group (Claude, GitHub Copilot) keep one row per window but share the same fixed-width bar/pct cells.
 Compact mode is unchanged either way.
 
-**Agents**: when `usage`'s `agents[]` is present (newer `claude-code`), an "Agents" section lists
-Claude/Codex/OpenCode/Copilot CLI token totals, sessions, turns and cost, scoped by
-`claudeCodeAgents.usageDays` (default `1`, passed as `--days`). The status bar also appends a
-compact `· codex 25k · opencode 321k · copilot 1.7M` summary (Claude is excluded — the quota chips
-already cover it) when `claudeCodeAgents.usageStatusBarAgents` is `true` (default). Older
+**Stats layer**: in Detailed mode, above the providers list, a tile row (Total tokens, Est. cost,
+Sessions, Active days) summarizes `claude-code usage`'s `window_days` window, followed by a
+daily-intensity heatmap (one square per day, 7 rows of weekdays × N week columns, 5 opacity steps,
+best day called out) and a stacked token-mix bar (input/output/cache read/cache write). Est. cost
+sums each agent's own `cost_usd` where the CLI reports it (OpenCode) and otherwise estimates from
+Anthropic's published per-model rates (`lib/pricing.js`); a model it can't price (non-Anthropic, or
+an unrecognized Anthropic tier) marks the total "(partial)" rather than silently underestimating it.
+Older `claude-code` builds without `window_days`/`mix`/`daily`/`active_days` render the tile row with
+whatever they can (sessions, turns, cost) and an empty heatmap/mix. Compact mode hides this layer.
+
+**Agents**: when `usage`'s `agents[]` is present (newer `claude-code`), an "Agents" section renders
+one card per agent — Claude/Codex/OpenCode/Copilot CLI — in a responsive grid (2-4 across in a wide
+editor tab, stacked in the narrow sidebar): name, provider/model, a "tokens · sessions · turns · $cost"
+line (omitting whatever the CLI didn't report), and a thin bar showing that agent's share of the
+total tokens across all agents. An agent with no sessions in the window renders as a muted card. The
+window is scoped by `claudeCodeAgents.usageDays` (default `30`, passed as `--days`). The status bar
+also appends a compact `· codex 25k · opencode 321k · copilot 1.7M` summary (Claude is excluded — the
+quota chips already cover it) when `claudeCodeAgents.usageStatusBarAgents` is `true` (default). Older
 `claude-code` builds without `agents[]` render exactly as before.
 
 **Editor tab**: `claudeCodeAgents.usageOpenIn` (`sidebar` default, or `editor`) picks what "Show
-Agent Dashboard" opens — the sidebar view, or a single reusable editor-area tab rendering the same
+Agents Dashboard" opens — the sidebar view, or a single reusable editor-area tab rendering the same
 dashboard (same data, same Refresh/Detailed/Compact/accounts handlers). "Claude Code Agents: Open
-Agent Dashboard in Editor" always opens that tab regardless of the setting, and is also available as
+Agents Dashboard in Editor" always opens that tab regardless of the setting, and is also available as
 a `$(pulse)` button in every editor's title bar (top-right) when `claudeCodeAgents.usageEditorTitleButton`
-is `true` (default); the same button sits in the Agent Dashboard view's own title bar next to Refresh.
+is `true` (default); the same button sits in the Agents Dashboard view's own title bar next to Refresh.
 
 ## Phone access
 
 "Claude Code Agents: Serve for Phone (Tailscale)" runs `claude-code vscode serve` in a terminal
-named "Agent Dashboard", publishing this VS Code's web UI to your tailnet (or the public internet
+named "Agents Dashboard", publishing this VS Code's web UI to your tailnet (or the public internet
 with `--funnel`) with a token-gated URL and a terminal QR code; "Stop Serving for Phone" runs
 `claude-code vscode serve --stop`.
 
