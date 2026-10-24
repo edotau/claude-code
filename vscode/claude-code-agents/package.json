@@ -137,6 +137,12 @@
         "title": "Open Tasks in New Window",
         "icon": "$(link-external)",
         "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeTasks.recheck",
+        "title": "Re-check connections",
+        "icon": "$(refresh)",
+        "category": "Claude Code Tasks"
       }
     ],
     "menus": {
@@ -154,12 +160,17 @@
         {
           "command": "claudeCodeTasks.popOut",
           "when": "view == claudeCodeTasks.page",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "claudeCodeTasks.popOut",
           "when": "view == claudeCodeTasks.panel",
           "group": "navigation"
+        },
+        {
+          "command": "claudeCodeTasks.recheck",
+          "when": "view == claudeCodeTasks.page",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [
