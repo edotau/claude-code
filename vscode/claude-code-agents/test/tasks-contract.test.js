@@ -61,7 +61,7 @@ test('package.json: Open in New Window is the only Tasks view-title button (drag
   const entries = (pkg.contributes.menus['view/title'] || []).filter((m) => m.command.startsWith('claudeCodeTasks.'));
   for (const view of ['claudeCodeTasks.page', 'claudeCodeTasks.panel']) {
     const cmds = entries.filter((m) => m.when === `view == ${view}`).map((m) => m.command).sort();
-    assert.deepEqual(cmds, ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
+    assert.deepEqual(cmds, view === 'claudeCodeTasks.page' ? ['claudeCodeTasks.popOut', 'claudeCodeTasks.recheck'] : ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
   }
 });
 
@@ -118,6 +118,7 @@ test('renderLauncherHtml: the left-nav view lists sources with status dots and o
   assert.match(html, /Exit node: wks/);
   assert.match(html, /open in a separate window/);
   assert.doesNotMatch(html, /class="row head"|id="query"/);
+  assert.doesNotMatch(html, /data-act="doctor"/); // Re-check is the view-title refresh icon
 });
 
 test('extension.js: the left-nav view resolves to the launcher and pops Tasks out; the Panel view keeps the page', () => {

@@ -1401,6 +1401,7 @@ function activate(context) {
     vscode.commands.registerCommand('claudeCodeTasks.openInEditor', () => tasksProvider.openInEditor()),
     vscode.commands.registerCommand('claudeCodeTasks.show', () => tasksProvider.show()),
     vscode.commands.registerCommand('claudeCodeTasks.popOut', () => tasksProvider.popOut()),
+    vscode.commands.registerCommand('claudeCodeTasks.recheck', () => tasksProvider.handleMessage({ type: 'doctor' })),
     vscode.commands.registerCommand('claudeCodeTasks.open', (url) => {
       if (url) vscode.env.openExternal(vscode.Uri.parse(url));
     }),

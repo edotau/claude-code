@@ -919,7 +919,7 @@ function renderLauncherHtml(model, opts) {
   <div class="section">Sources</div>
   <div>${sources.join('')}</div>
   <button class="btn primary" data-act="openWindow">${ICONS.externalLink}Open Tasks in new window</button>
-  <div class="row"><button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button><button class="btn" data-act="doctor">${ICONS.refreshCw}Re-check</button></div>
+  <button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button>
   ${where ? `<div class="muted">Tasks is open in ${esc(where)}.</div>` : ''}
   <div class="section">Network</div>
   <div class="net">${ICONS.globe}<span class="muted">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="spacer"></span><button class="mini" data-act="exitNode"${net && net.ok ? '' : ' disabled'}>Change</button></div>
