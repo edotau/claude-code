@@ -57,8 +57,7 @@ battle-tested wheel is a should-fix.
 ## Procedure
 
 MEDIUM+ features run **Design → Implement → Simplify → Review** in sequence. A "review my diff"
-request runs only Simplify → Review. Simplification always precedes review — complexity reduction is
-part of correctness, not post-processing.
+request runs only Simplify → Review.
 
 ### Design — hand to Plan
 
@@ -84,16 +83,13 @@ verify, say so explicitly — never claim success.
 
 ### Simplify — mandatory quality gate
 
-`Skill(simplify)` is authoritative; the procedure lives in `skills/simplify/SKILL.md`. Run it after
-Implement, before Review — complexity reduction is part of correctness, not post-processing.
+Simplify before review: `skills/subagent-workflows/SKILL.md` → Rules.
 
 ### Review — quality check after simplification
 
 `Skill(evaluate-code)` is authoritative; the procedure lives in `skills/evaluate-code/SKILL.md`.
-Review only changed code unless there's a CRITICAL security issue in adjacent code. The 4-principle
-discipline lens and confidence filtering (>80% to report; skip stylistic preferences and unchanged
-code unless CRITICAL; consolidate similar findings) live in that skill — apply them, don't restate
-them. Hot-path/N+1/complexity check: `skills/evaluate-code/references/performance.md`.
+Review only changed code unless there's a CRITICAL security issue in adjacent code. Apply that skill's
+lenses and confidence filter; hot-path check: `skills/evaluate-code/references/performance.md`.
 
 ### Workflow (hybrid)
 
@@ -115,10 +111,9 @@ tiers and effort/model escalation: `rules/workflow/agents.md`.
 
 ## Report contract
 
-**Implementation report:** what changed, files touched, the verification command and its output,
-simplifications applied with a one-line confirmation that behavior is preserved, and any out-of-diff
-fix tagged **[extended]** with its blast radius. State the `TASK:`/`ISSUE:` facts
-(`skills/problem-solving/references/notes.md`) as plain sentences, never raw tags.
+**Implementation report:** the Handoff contract's Report (out), plus simplifications applied with the
+behavior-preserved confirmation and any **[extended]** fix with its blast radius. State the
+`TASK:`/`ISSUE:` facts (`skills/problem-solving/references/notes.md`) as plain sentences, never raw tags.
 
 **Review request:** hand back `evaluate-code`'s own report format and verdict (`SHIP \| FIX REQUIRED \| BLOCK`).
 Verdict discipline — closed vocabulary first, evidence after, never soften or inflate —

@@ -128,7 +128,7 @@ Every phase is:
 - **Concrete** — starts with a verb (Add, Create, Modify, Extract, Remove) and names files with line ranges.
 - **Verifiable** — has a live check with expected output, then a scoped test command.
 - **Self-contained** — a fresh agent with zero context can execute it: paths, exact commands, what "done" is
-  (the cold-start test: `skills/subagent-workflows/SKILL.md`).
+  (the cold-start test: `skills/subagent-workflows/SKILL.md` → Handoff contract).
 - **Placeholder-free** — never "TBD", "implement as needed", "add appropriate error handling", "handle edge
   cases", "similar to Phase N", or a reference to a type/function no phase defines.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
