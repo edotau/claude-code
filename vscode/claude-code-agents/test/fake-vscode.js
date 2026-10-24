@@ -71,6 +71,7 @@ const vscode = {
   StatusBarAlignment: { Left: 1, Right: 2 },
   window: {
     createWebviewPanel: (viewType, title) => fakePanel(viewType, title),
+    createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
     createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {}, text: '', tooltip: '' }),
     showErrorMessage: (m) => state.messages.push(['error', m]),
     showWarningMessage: (m) => state.messages.push(['warn', m]),

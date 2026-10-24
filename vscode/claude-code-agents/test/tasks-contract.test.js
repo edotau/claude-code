@@ -126,5 +126,8 @@ test('renderLauncherHtml: the left-nav view lists sources with status dots and o
 test('extension.js: every external open goes through the http(s)/mailto allowlist', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
   assert.doesNotMatch(src.replace(/function openExternalWeb[\s\S]*?\n}\n/, ''), /vscode\.env\.openExternal\(/);
+  const body = (src.match(/function openExternalWeb[\s\S]*?\n}\n/) || [''])[0];
+  assert.match(body, /vscode\.env\.openExternal\(vscode\.Uri\.parse\(u\)\)/, 'the allowlist wrapper must call the real opener, not itself');
+  assert.doesNotMatch(body, /return openExternalWeb\(/);
   assert.match(src, /if \(!\/\^\(https\?:\\\/\\\/\|mailto:\)\/i\.test\(u\)\) return/);
 });

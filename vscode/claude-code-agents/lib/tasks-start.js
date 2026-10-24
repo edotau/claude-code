@@ -64,6 +64,8 @@ function findAttached(worktrees, item) {
   return hit || null;
 }
 
+const { isMine } = require('./tasks-ownership');
+
 function shellQuote(s) {
   return `'${String(s).replace(/'/g, "'\\''")}'`;
 }
@@ -73,4 +75,4 @@ function launchCommand({ binary, cwd, promptFile }) {
   return `cd ${shellQuote(cwd)} && ${binary} claude "$(cat ${shellQuote(promptFile)})"`;
 }
 
-module.exports = { PROMPT_TEMPLATES, taskPrompt, renderPrompt, branchNameFor, worktreeNameFor, findAttached, shellQuote, launchCommand };
+module.exports = { PROMPT_TEMPLATES, taskPrompt, renderPrompt, branchNameFor, worktreeNameFor, findAttached, isMine, shellQuote, launchCommand };

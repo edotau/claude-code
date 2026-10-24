@@ -241,3 +241,9 @@ test('actions cell: a hydrated PR row keeps the same Start/Resume contract', () 
   assert.match(attached, /btn-primary" data-act="start"[^>]*>.*Resume/s);
   assert.match(attached, /data-act="startNew"/);
 });
+
+test('webview script: a board card click posts detail, never open (cards carry data-url for the card menu only)', () => {
+  const { renderTasksHtml } = require('../lib/tasks-view');
+  const html = renderTasksHtml({ sources: [{ id: 'jira' }], source: 'jira', query: '', scope: 'issue', state: 'open', presets: [], repos: [], repoCount: 0, loading: false, items: [], errors: [], page: 1, totalPages: 1, now: 0, view: 'list', viewMode: 'board', board: [], rowErrors: {}, settings: { jira: {}, github: {}, bitbucket: {}, tailscale: {} } }, { nonce: 'n' });
+  assert.match(html, /!t\.classList\.contains\('row'\) && !t\.classList\.contains\('board-card'\)/);
+});
