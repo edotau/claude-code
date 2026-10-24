@@ -6,21 +6,35 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// exitErrorWithCode runs a trivial subprocess that exits with code, returning a genuine *exec.ExitError —
-// used to mimic the OS keychain tool's exit semantics without shelling out to the real keyring.
-func exitErrorWithCode(t *testing.T, code int) *exec.ExitError {
+// exitErrorWithCode runs a trivial subprocess that exits with code after writing stderr, returning a genuine
+// *exec.ExitError (Stderr populated, as Output() does) — the OS keychain tool's exit semantics without the keyring.
+func exitErrorWithCode(t *testing.T, code int, stderr string) *exec.ExitError {
 	t.Helper()
-	err := exec.Command("/bin/sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	script := "exit " + strconv.Itoa(code)
+	if stderr != "" {
+		script = "echo " + stderr + " >&2; " + script
+	}
+	_, err := exec.Command("/bin/sh", "-c", script).Output()
 	ee, ok := err.(*exec.ExitError)
 	if !ok {
 		t.Fatalf("exitErrorWithCode(%d): want *exec.ExitError, got %T (%v)", code, err, err)
 	}
 	return ee
+}
+
+// keyringMissErr is the current OS's "nothing stored" exit: security exits 44, secret-tool exits 1 with no stderr.
+func keyringMissErr(t *testing.T) *exec.ExitError {
+	t.Helper()
+	if runtime.GOOS == "darwin" {
+		return exitErrorWithCode(t, 44, "")
+	}
+	return exitErrorWithCode(t, 1, "")
 }
 
 // codexAccountJSON is the fixture body the keyring (or file) returns: a well-formed codex auth.json payload.
@@ -108,7 +122,7 @@ func TestCodexAuthJSON_FileAbsentKeyringMissTreatedAsAbsent(t *testing.T) {
 		err  error
 		out  []byte
 	}{
-		{"exit 44 (security: item not found)", exitErrorWithCode(t, 44), nil},
+		{"keyring tool: item not found", keyringMissErr(t), nil},
 		{"empty output, no error", nil, []byte("")},
 	}
 	for _, c := range cases {
@@ -140,7 +154,7 @@ func TestCodexAuthJSON_KeyringErrorOtherThanAbsentNotedAsKeyring(t *testing.T) {
 
 	orig := codexKeychainCmd
 	codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error) {
-		return nil, exitErrorWithCode(t, 1)
+		return nil, exitErrorWithCode(t, 1, "keyring is locked") // non-empty stderr: a real failure on every OS
 	}
 	defer func() { codexKeychainCmd = orig }()
 
