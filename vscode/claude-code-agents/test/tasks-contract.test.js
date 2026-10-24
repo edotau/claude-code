@@ -66,9 +66,11 @@ test('package.json: refresh and openInEditor sit in view/title for both the side
 });
 
 test('package.json: the Tasks page settings exist with their defaults', () => {
-  assert.equal(findSetting('claudeCodeAgents.tasksDefaultSource').default, 'github');
-  assert.deepEqual(findSetting('claudeCodeAgents.tasksDefaultSource').enum, ['github', 'bitbucket']);
-  assert.deepEqual(findSetting('claudeCodeAgents.tasksVisibleSources').default, ['github', 'bitbucket']);
+  assert.equal(findSetting('claudeCodeAgents.tasksDefaultSource').default, 'jira');
+  assert.deepEqual(findSetting('claudeCodeAgents.tasksDefaultSource').enum, ['jira', 'github', 'bitbucket']);
+  assert.deepEqual(findSetting('claudeCodeAgents.tasksVisibleSources').default, ['jira', 'github', 'bitbucket']);
+  assert.deepEqual(findSetting('claudeCodeAgents.tasksJiraProjects').default, []);
+  assert.equal(findSetting('claudeCodeAgents.tasksDefaultQuery.jira').default, 'is:issue is:open assignee:@me');
   assert.deepEqual(findSetting('claudeCodeAgents.tasksGitHubRepos').default, []);
   assert.deepEqual(findSetting('claudeCodeAgents.tasksBitbucketRepos').default, []);
   assert.equal(findSetting('claudeCodeAgents.tasksDefaultQuery.github').default, 'is:open');

@@ -1,0 +1,44 @@
+{
+  "transitions": [
+    {
+      "id": "696880717",
+      "name": "Cancelled",
+      "to": {
+        "name": "Cancelled",
+        "statusCategory": {
+          "key": "done"
+        }
+      }
+    },
+    {
+      "id": "696880827",
+      "name": "Done",
+      "to": {
+        "name": "Done",
+        "statusCategory": {
+          "key": "done"
+        }
+      }
+    },
+    {
+      "id": "696880857",
+      "name": "Blocked",
+      "to": {
+        "name": "Blocked",
+        "statusCategory": {
+          "key": "indeterminate"
+        }
+      }
+    },
+    {
+      "id": "696880897",
+      "name": "In Review",
+      "to": {
+        "name": "IN TESTNG",
+        "statusCategory": {
+          "key": "indeterminate"
+        }
+      }
+    }
+  ]
+}

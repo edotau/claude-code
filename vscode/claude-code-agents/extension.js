@@ -15,6 +15,8 @@ const bitbucketClient = require('./lib/bitbucket-client');
 const taskQuery = require('./lib/task-query');
 const tasksGithub = require('./lib/tasks-github');
 const tasksBitbucket = require('./lib/tasks-bitbucket');
+const jiraClient = require('./lib/jira-client');
+const tasksJira = require('./lib/tasks-jira');
 const tasksState = require('./lib/tasks-state');
 const { renderTasksHtml } = require('./lib/tasks-view');
 
@@ -294,24 +296,31 @@ class TasksViewProvider {
     this.loadingPage = null;
     this.hardError = null;
     this.settingsExpanded = false;
-    this.status = { github: null, bitbucket: null };
+    this.status = { github: null, bitbucket: null, jira: null };
     this.githubRepos = [];
     this.bitbucketRepos = [];
+    this.jiraProjects = [];
     this.cache = new tasksState.PageCache({ ttlMs: Math.max(15, config().get('tasksRefreshSeconds', 120) || 120) * 1000 });
     this.tokenPromise = null;
+    this.jiraTokenPromise = null;
     this.loadNonce = 0;
   }
 
   cfg() {
     const cfg = config();
-    const visible = (cfg.get('tasksVisibleSources', ['github', 'bitbucket']) || []).filter((s) => s === 'github' || s === 'bitbucket');
+    const visible = (cfg.get('tasksVisibleSources', ['jira', 'github', 'bitbucket']) || []).filter((s) => s === 'github' || s === 'bitbucket' || s === 'jira');
     return {
       binary: cfg.get('binary') || 'claude-code',
       baseUrl: cfg.get('bitbucketUrl') || 'https://bitbucket.biscrum.com',
       jiraBaseUrl: cfg.get('tasksJiraBaseUrl') || '',
-      visible: visible.length ? visible : ['github', 'bitbucket'],
-      defaultSource: cfg.get('tasksDefaultSource', 'github') || 'github',
-      defaultQuery: { github: cfg.get('tasksDefaultQuery.github') || tasksState.DEFAULT_QUERY.github, bitbucket: cfg.get('tasksDefaultQuery.bitbucket') || tasksState.DEFAULT_QUERY.bitbucket },
+      visible: visible.length ? visible : ['jira', 'github', 'bitbucket'],
+      defaultSource: cfg.get('tasksDefaultSource', 'jira') || 'jira',
+      defaultQuery: {
+        github: cfg.get('tasksDefaultQuery.github') || tasksState.DEFAULT_QUERY.github,
+        bitbucket: cfg.get('tasksDefaultQuery.bitbucket') || tasksState.DEFAULT_QUERY.bitbucket,
+        jira: cfg.get('tasksDefaultQuery.jira') || tasksState.DEFAULT_QUERY.jira,
+      },
+      jiraProjects: (cfg.get('tasksJiraProjects', []) || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean),
       pageSize: Math.max(5, cfg.get('tasksPageSize', 36) || 36),
     };
   }
@@ -382,6 +391,7 @@ class TasksViewProvider {
     const cfg = this.cfg();
     const stored = this.context.workspaceState.get('tasks.githubRepos');
     [this.githubRepos, this.bitbucketRepos] = await Promise.all([discoverGitHubRepos(stored), discoverBitbucketRepos(this.dcHost())]);
+    this.jiraProjects = cfg.jiraProjects;
     if (!this.source || !cfg.visible.includes(this.source)) this.source = cfg.visible.includes(cfg.defaultSource) ? cfg.defaultSource : cfg.visible[0];
     await this.doctor();
     await Promise.all([this.load({ force: true }), this.loadBranch()]);
@@ -389,11 +399,18 @@ class TasksViewProvider {
 
   async doctor() {
     const cfg = this.cfg();
-    const [github, bitbucket] = await Promise.all([
+    const noToken = (err) => ({ ok: false, message: looksLikeMissingToken(err.message) ? 'No token' : err.message });
+    const [github, bitbucket, jira] = await Promise.all([
       tasksGithub.authStatus(),
-      this.withClient((client) => client.doctor()).catch((err) => ({ ok: false, message: looksLikeMissingToken(err.message) ? 'No token' : err.message })),
+      this.withClient((client) => client.doctor()).catch(noToken),
+      cfg.jiraBaseUrl ? this.withJiraClient((client) => client.myself()).catch(noToken) : Promise.resolve({ ok: false, message: 'No Jira URL' }),
     ]);
-    this.status = { github, bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : { ok: false, message: bitbucket.message || (bitbucket.reason === 'rejected' ? 'Token rejected' : 'Unreachable') } };
+    const failed = (r) => ({ ok: false, message: r.message || (r.reason === 'rejected' ? 'Token rejected' : 'Unreachable') });
+    this.status = {
+      github,
+      bitbucket: bitbucket.ok ? { ok: true, login: decodeURIComponent(bitbucket.user.username) } : failed(bitbucket),
+      jira: jira.ok ? { ok: true, login: jira.user.displayName || jira.user.name } : failed(jira),
+    };
     this.render();
   }
 
@@ -407,6 +424,29 @@ class TasksViewProvider {
       });
     }
     return this.tokenPromise;
+  }
+
+  /** Resolves JIRA_TOKEN once (vault → env → token files); `forceRefresh` re-resolves after a 401/403. */
+  getJiraToken(forceRefresh) {
+    if (forceRefresh) this.jiraTokenPromise = null;
+    if (!this.jiraTokenPromise) {
+      this.jiraTokenPromise = jiraClient.resolveToken({ binary: this.cfg().binary }).catch((err) => {
+        this.jiraTokenPromise = null;
+        throw err;
+      });
+    }
+    return this.jiraTokenPromise;
+  }
+
+  async withJiraClient(op) {
+    const baseUrl = this.cfg().jiraBaseUrl;
+    const token = await this.getJiraToken();
+    try {
+      return await op(jiraClient.createClient({ baseUrl, token }));
+    } catch (err) {
+      if (err.status !== 401 && err.status !== 403) throw err;
+      return op(jiraClient.createClient({ baseUrl, token: await this.getJiraToken(true) }));
+    }
   }
 
   async withClient(op) {
@@ -428,6 +468,9 @@ class TasksViewProvider {
       if (!repos.length) return Promise.resolve({ items: [], errors: [], totalPages: 1, failedRepos: 0 });
       return tasksGithub.listWorkItems({ repos, query: parsed, page, limit: cfg.pageSize });
     }
+    if (source === 'jira') {
+      return this.withJiraClient((client) => tasksJira.list({ client, query: parsed, projects: this.jiraProjects, page, limit: cfg.pageSize, baseUrl: cfg.jiraBaseUrl }));
+    }
     return this.withClient((client) => tasksBitbucket.list({ client, query: parsed, repos: this.bitbucketRepos, page, limit: cfg.pageSize, jiraBaseUrl: cfg.jiraBaseUrl }));
   }
 
@@ -437,7 +480,8 @@ class TasksViewProvider {
     const source = this.source;
     const query = this.currentQuery();
     const nonce = ++this.loadNonce;
-    const key = { source, repos: source === 'github' ? this.githubRepos.filter((r) => r.selected).map((r) => r.label) : this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), query, page };
+    const scopes = { github: () => this.githubRepos.filter((r) => r.selected).map((r) => r.label), bitbucket: () => this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), jira: () => this.jiraProjects };
+    const key = { source, repos: (scopes[source] || scopes.bitbucket)(), query, page };
     const cached = force ? null : this.cache.get(key);
     if (cached) {
       this.page = page;
@@ -509,6 +553,7 @@ class TasksViewProvider {
     const s = this.status[this.source];
     if (!s || s.ok) return null;
     if (this.source === 'github') return { kind: 'warn', text: `GitHub: ${s.message}`, action: { act: 'signIn', label: 'Sign in' } };
+    if (this.source === 'jira') return { kind: 'warn', text: `Jira: ${s.message}`, action: { act: 'signIn', label: 'Set token' } };
     return { kind: 'warn', text: `Bitbucket: ${s.message}`, action: { act: 'signIn', label: 'Set token' } };
   }
 
@@ -518,7 +563,12 @@ class TasksViewProvider {
     const parsed = taskQuery.parseTaskQuery(query);
     const presets = tasksState.presetsFor(this.source);
     const result = this.result || { items: [], errors: [], totalPages: 1, failedRepos: 0 };
-    const repos = this.source === 'github' ? this.githubRepos.map((r) => ({ label: r.label, selected: r.selected })) : this.bitbucketRepos.map((r) => ({ label: `${r.project}/${r.repo}`, selected: true }));
+    const repos =
+      this.source === 'github'
+        ? this.githubRepos.map((r) => ({ label: r.label, selected: r.selected }))
+        : this.source === 'jira'
+          ? this.jiraProjects.map((k) => ({ label: k, selected: true }))
+          : this.bitbucketRepos.map((r) => ({ label: `${r.project}/${r.repo}`, selected: true }));
     const defaultPreset = presets.find((p) => p.query === cfg.defaultQuery[this.source]);
     const activePreset = presets.find((p) => p.query === query);
     return {
@@ -549,6 +599,7 @@ class TasksViewProvider {
         defaultSource: cfg.defaultSource,
         github: { status: this.status.github, visible: cfg.visible.includes('github'), repos: this.githubRepos.map((r) => r.label) },
         bitbucket: { status: this.status.bitbucket, visible: cfg.visible.includes('bitbucket'), repos: this.bitbucketRepos.map((r) => `${r.project}/${r.repo}`), baseUrl: cfg.baseUrl },
+        jira: { status: this.status.jira, visible: cfg.visible.includes('jira'), repos: this.jiraProjects, baseUrl: cfg.jiraBaseUrl },
       },
     };
   }
@@ -646,9 +697,10 @@ class TasksViewProvider {
       }
       case 'signIn': {
         const t = terminal();
-        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} secrets set BITBUCKET_TOKEN` : 'gh auth login');
+        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} secrets set BITBUCKET_TOKEN` : msg.source === 'jira' ? `${cfg.binary} secrets set JIRA_TOKEN` : 'gh auth login');
         t.show();
         this.tokenPromise = null;
+        this.jiraTokenPromise = null;
         return;
       }
       case 'doctor':
