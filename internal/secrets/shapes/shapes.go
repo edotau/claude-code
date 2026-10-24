@@ -9,6 +9,9 @@ import (
 // bearerToken matches a bearer-style header value: the scheme plus a long opaque token.
 var bearerToken = regexp.MustCompile(`(?i)bearer\s+\S{40,}`)
 
+// bearerAuth captures the scheme so Redact masks only the token after it.
+var bearerAuth = regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`)
+
 // Looks reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
 func Looks(val string) bool {
@@ -59,6 +62,34 @@ func RedactMap(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// Redact replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
+func Redact(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && tokenByte(s[j]) {
+			j++
+		}
+		if j == i {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if run := s[i:j]; Looks(run) {
+			b.WriteString("REDACTED")
+		} else {
+			b.WriteString(run)
+		}
+		i = j
+	}
+	return bearerAuth.ReplaceAllString(b.String(), "${1}REDACTED")
+}
+
+// tokenByte reports a byte in the token alphabet every known prefix uses.
+func tokenByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
 // Any reports whether any value in m is credential-shaped.

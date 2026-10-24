@@ -35,6 +35,16 @@ func TestLogRedactsCredentials(t *testing.T) {
 	}
 }
 
+// A credential embedded inside a KEY=value detail (not just a whole field) is still redacted.
+func TestLogRedactsEmbeddedCredential(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	Log(SecretSet, "AWS_SECRET", "export AWS_SECRET=AKIAIOSFODNN7EXAMPLE")
+	b, _ := os.ReadFile(File())
+	if strings.Contains(string(b), "AKIAIOSFODNN7EXAMPLE") || !strings.Contains(string(b), "REDACTED") {
+		t.Errorf("log line: %s", b)
+	}
+}
+
 // Past the cap the live file rotates to .1, and Read still sees both, skipping a malformed line.
 func TestRotationAndMalformedLines(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
