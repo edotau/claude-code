@@ -972,10 +972,6 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	before := readSidecar(sidecarPath(subDir))
 
 	writeEdits(t, a, 9) // grows past the cached size: countSubagentEdits must attempt the lock
-	fi, err := os.Stat(a)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	held := make(chan struct{})
 	release := make(chan struct{})
@@ -993,10 +989,10 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	edits, bytes := countSubagentEdits(tr, bytes0, edits0)
 	elapsed := time.Since(start)
 
-	// The lock-busy path keeps the caller's cached edit count (no recount) but still names the current
-	// total byte size, since that stat is free — it is the sidecar read-compute-write that was skipped.
-	if edits != edits0 || bytes != fi.Size() {
-		t.Fatalf("lock held elsewhere: countSubagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, fi.Size())
+	// The lock-busy path keeps the caller's cached totals entirely (edits AND bytes): caching the new
+	// totalBytes against stale edits would make the next call's fast-path skip the recount permanently.
+	if edits != edits0 || bytes != bytes0 {
+		t.Fatalf("lock held elsewhere: countSubagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
 	}
 	if elapsed > 2500*time.Millisecond {
 		t.Fatalf("countSubagentEdits took %s waiting on a held lock, want it to give up near its 2s wait", elapsed)
