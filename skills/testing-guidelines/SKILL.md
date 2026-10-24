@@ -11,14 +11,21 @@ description: >-
 
 Rules earned by shipping three tests around a real defect and then discovering none of them
 would have caught it coming back. The order is always: **run it live → pin what you observed
-→ prove the test bites.** Tooling (pytest, mocks, API matrices) is at the end.
+→ prove the test bites.** Tooling (pytest, mocks, API matrices) is at the end. Dispatch policy
+(who owns tests, when the test agent runs): [test discipline](references/test-discipline.md).
 
 ## Run it on data before you build the suite
 
 **Demonstrate the feature works on real — or at least representative — input first. Write
-the test suite second.**
+the test suite second.** Tests written before first execution encode what you *assumed* the data
+looks like; when the assumption is wrong they still pass. Test-first is right only when the
+contract is already known (a specified API, a documented format, a reproduced defect); when the
+contract is discovered from the data, the data is the specification.
 
-[Live-first rationale and examples](references/live-first.md).
+**The tell:** the code has never consumed a real input and the test count is climbing — the only
+fixtures are synthetic ones built from your beliefs about the format, or a memo/README already
+states conclusions no execution produced. (A residue-scan reader once shipped with a module, a
+verifier, passing tests and an interpretation memo — and had never been run on the real export.)
 
 ### The right order
 
@@ -31,15 +38,21 @@ the test suite second.**
 ### When the data is not available
 
 Say so, and stop. The substitute for a missing input is **asking for it**, not writing more
-tests.
+tests. Name exactly what is needed and mark anything already written as unverified until it arrives.
 
-[Missing-input example](references/live-first.md#when-the-data-is-not-available).
+### Fixtures from the live artifact
+
+Drive parsers with real bytes sampled from the artifact they parse. Real headers range-read from
+five live databases exposed two defects hand-written fixtures had hidden for months.
 
 ## The import rule
 
-**A test that does not import the code under test is documentation, not a guard.**
+**A test that does not import the code under test is documentation, not a guard.** A test that
+rebuilds the data and the arithmetic inline passes just as happily with the fix reverted.
 
-[Import check](references/guard-examples.md#the-import-rule).
+```bash
+grep -nE '^(import|from)' <test-file> | grep <module-under-test>   # no hit = no guard
+```
 
 ## Prove the teeth empirically
 
@@ -52,44 +65,52 @@ Do not reason about whether a test would catch a regression. Demonstrate it:
 4. restore the file and confirm the checksum matches
 5. run the suite again and confirm it passes
 
-If the suite passes at step 3, the test is not a guard yet.
+If the suite passes at step 3, the test is not a guard yet. The checksum is what lets you state the
+tree is unchanged rather than hope so.
 
-[Checksum rationale](references/guard-examples.md#prove-the-teeth-empirically).
+**Prove the injection landed.** A `python -c` one-liner with nested quotes, or a `str.replace` whose
+anchor a formatter has since rewritten, silently changes nothing — and the suite passes for the very
+reason you were disproving. `assert s.count(old) == 1` before writing, `grep` the injected marker out
+of the file on disk, and fail loudly if the anchor is missing.
 
 ## Reproduce the whole fault, not part of it
 
 A guard that only partially recreates the fault condition can pass over a reintroduced bug.
-
-Ask what the worst case of the defect looks like, and build that.
-
-[Worked regression](references/guard-examples.md#reproduce-the-whole-fault-not-part-of-it).
+Ask what the worst case of the defect looks like, and build that. (Starving one prediction window
+of fifteen left the total non-zero, so the test held with the fix reverted; starving every affected
+window reproduced `0.0 == 0.0 : starved candidate reported as neutral` and the test bit.)
 
 ## Anti-vacuity for equivalence tests
 
-So assert that the fast path was actually taken. Observe something only it does: the input
-file it requests, a call count, a cache key.
+An optimised path with a silent fallback makes "fast == reference" trivially true. So assert that the
+fast path was actually taken. Observe something only it does: the input file it requests, a call
+count, a cache key (`assert requested == "unique_peptides.fst"`).
 
 Stub the shared dependency with a **deterministic oracle** — a pure function of its inputs —
 so both paths receive identical values for identical inputs and any difference is genuinely
 the logic under test rather than stub noise.
 
-[Anti-vacuity example](references/guard-examples.md#anti-vacuity-for-equivalence-tests).
-
 ## Derive assertions from the fixture
 
-[Fixture-derived assertion example](references/guard-examples.md#derive-assertions-from-the-fixture).
+Compute expected values from the fixture instead of hardcoding what you believe is in it:
+`f"cand_{PARENT[19]}20W"`, not `"cand_S20W"` — otherwise a fixture surprise looks like a code bug.
 
 ## Failing loudly beats degrading quietly
 
 When the fix itself is being designed: given a choice between continuing with incomplete
-data and raising, raise.
-
-[Silent-degradation example](references/guard-examples.md#failing-loudly-beats-degrading-quietly).
+data and raising, raise. (A missing prediction logged at DEBUG produced a plausible "no impact"
+answer; raising into the existing fallback turned a silent wrong result into a slower correct one.)
 
 ## Pin the behavior before the assertion
 
 You can't assert behavior you haven't pinned down. Once the live run has shown what the code
 does — or the spec states it — write the expected behavior as **Given / When / Then**:
+
+```text
+Given an authenticated user with no widgets
+When they POST /api/widgets/ with {"name": "w"}
+Then the response is 201 and the body contains the new widget's id
+```
 
 Each criterion maps 1:1 to a test. Vague asks get caught here ("should work well" is not a
 criterion), and anything not traceable to one is scope creep you can drop.
@@ -97,8 +118,6 @@ criterion), and anything not traceable to one is scope creep you can drop.
 **Stop and ask** instead of guessing when the behavior for a case isn't determinable from the
 request or the data, the change alters an existing API/DB contract, or it touches
 auth/permissions/PII. Don't encode a silent guess into a test that then "passes."
-
-[Worked criterion](references/guard-examples.md#pin-the-behavior-before-the-assertion).
 
 ## Root cause before the regression test
 
@@ -109,30 +128,43 @@ components, log at each boundary to find the layer that actually breaks. A regre
 built on the wrong root cause turns green while the real bug survives — then prove its teeth
 (above).
 
+## Test-and-fix loop
+
+For "run the tests and fix what fails": a named test path runs directly
+(`.venv/bin/python -m pytest <path> -x -v`, `go test ./<pkg> -run '<Name>'`); `fast`/`unit`/`all` run
+`make test-smoke`/`test-unit`/`test-all` when defined (`make -n <target>`), else `make test-unit`, else
+`make test`. Then one failure at a time: read the test and the source, decide test-wrong vs
+impl-wrong (root cause, above), make the minimal fix, re-run only that test; max 3 attempts per test,
+then report it and move on. Finish with the full target and `make fmt`. Never bare `python`/`pytest`
+in a Python repo — always `.venv/bin/`. Unattended or many repos: Workflow `gate-loop`.
+
 ## Mock at boundaries, not everywhere
 
-Mocks isolate; they are never the thing under test.
+Mocks isolate; they are never the thing under test. Mock external IO at the consumer's import site;
+more than two mocks in one test is a design smell (add a seam). Asserting on a mock's own behavior
+fails the import rule in disguise.
 
-[Mocking rules and pitfalls](references/testing-anti-patterns.md#mock-at-boundaries-not-everywhere).
+| Anti-pattern | Gate question | Fix |
+|---|---|---|
+| Asserting on a mock element | "Real behavior, or just mock existence?" | Unmock it, or delete the assertion |
+| Test-only method on a production class | "Only used by tests?" | Move it to test utilities |
+| Mocking without understanding | "What side effects does the real method have, and does the test need them?" | Mock only the slow/external call; keep the write path real |
+| Incomplete mock | "What fields does the real API return?" | Mirror the complete real shape |
 
 ## pytest quick reference
 
-[pytest quick reference](references/pytest-patterns.md#quick-reference), examples, and `tests/` layout.
+| Need | Use |
+|------|-----|
+| Setup/teardown, shared data | `@pytest.fixture` (scopes: function/class/module/package/session), `conftest.py` |
+| Input matrix | `@pytest.mark.parametrize("a,b", [...])` |
+| Isolate external calls | `@patch("consumer.module.func")`, `autospec=True` for signature safety |
+| Expect an exception | `with pytest.raises(ValueError, match="...")` |
+| Slow/optional tests | `@pytest.mark.slow`, `@pytest.mark.skipif(...)` |
+| Async code | `@pytest.mark.asyncio` |
 
 ## API & contract testing
 
-[API & contract testing](references/api-contract-testing.md#boundary-checklist) — boundary rules,
-route detection, matrices, and patterns.
-
-## References
-
-- `references/test-and-fix.md` — the run-the-suite-and-fix-failures loop (was `/testing:test-and-fix`): one test at a
-  time, root cause first, max 3 attempts each, then the full suite.
-- [Test discipline](references/test-discipline.md) — live checks, test-agent ownership, fixtures,
-  gates, and injection proofs.
-- `references/pytest-patterns.md` — fixtures, parametrize, mocking/patching, markers,
-  exception/async tests, `tests/` layout.
-- `references/api-contract-testing.md` — route detection, auth/input matrices, DRF + httpx
-  patterns, data-job boundary contracts.
-- `references/testing-anti-patterns.md` — testing mock behavior, test-only production methods,
-  mocking without understanding, incomplete mocks.
+Unit tests prove a function behaves; contract tests prove a boundary does — request shapes, status
+codes, response shape, enforced auth. Drive coverage from the auth/permission and input-validation
+matrices, not the happy path: [API & contract testing](references/api-contract-testing.md).
+Django `APITestCase`, factories and JWT: the `django` skill.

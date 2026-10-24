@@ -100,10 +100,6 @@ for auth/input/API/crypto); automated tests green and manual checks for user-fac
 current. Full checklist and the severity scale (CRITICAL → LOW; approve when no CRITICAL/HIGH):
 `skills/evaluate-code/references/completion-criteria.md`.
 
-Fixtures From the Live Artifact: [fixture discipline][discipline].
-
-Name the Gates You Ran: [gate reporting][discipline].
-
-Prove the Injection: [mutation verification][discipline].
+Fixture discipline and mutation (injection) proofs: the `testing-guidelines` skill.
 
 [discipline]: ../../skills/testing-guidelines/references/test-discipline.md
