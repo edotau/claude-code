@@ -1,0 +1,208 @@
+{
+  "expand": "schema,names",
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 21,
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "3017417",
+      "self": "https://jira.biscrum.com/rest/api/2/issue/3017417",
+      "key": "DIGITALBTD-8139",
+      "fields": {
+        "summary": "celery work scoping (fixture)",
+        "issuetype": {
+          "self": "https://jira.biscrum.com/rest/api/2/issuetype/10001",
+          "id": "10001",
+          "description": "Created by Jira Software - do not edit or delete. Issue type for a user story.",
+          "iconUrl": "https://jira.biscrum.com/secure/viewavatar?size=xsmall&avatarId=10315&avatarType=issuetype",
+          "name": "Story",
+          "subtask": false,
+          "avatarId": 10315
+        },
+        "created": "2026-09-15T22:10:42.000+0200",
+        "project": {
+          "self": "https://jira.biscrum.com/rest/api/2/project/32616",
+          "id": "32616",
+          "key": "DIGITALBTD",
+          "name": "DIGITAL BTD PORTAL",
+          "projectTypeKey": "software",
+          "avatarUrls": {
+            "48x48": "https://jira.biscrum.com/secure/projectavatar?avatarId=11803",
+            "24x24": "https://jira.biscrum.com/secure/projectavatar?size=small&avatarId=11803",
+            "16x16": "https://jira.biscrum.com/secure/projectavatar?size=xsmall&avatarId=11803",
+            "32x32": "https://jira.biscrum.com/secure/projectavatar?size=medium&avatarId=11803"
+          }
+        },
+        "reporter": {
+          "name": "user.one@example.com",
+          "key": "JIRAUSER1",
+          "displayName": "User One",
+          "active": true,
+          "avatarUrls": {
+            "24x24": "https://example.invalid/avatar.png"
+          }
+        },
+        "assignee": {
+          "name": "user.one@example.com",
+          "key": "JIRAUSER1",
+          "displayName": "User One",
+          "active": true,
+          "avatarUrls": {
+            "24x24": "https://example.invalid/avatar.png"
+          }
+        },
+        "priority": {
+          "self": "https://jira.biscrum.com/rest/api/2/priority/10601",
+          "iconUrl": "https://jira.biscrum.com/images/icons/priorities/high.svg",
+          "name": "Important",
+          "id": "10601"
+        },
+        "updated": "2026-10-22T02:53:21.000+0200",
+        "labels": [],
+        "status": {
+          "self": "https://jira.biscrum.com/rest/api/2/status/10400",
+          "description": "This issue is being actively worked on at the moment by the assignee.",
+          "iconUrl": "https://jira.biscrum.com/images/icons/statuses/inprogress.png",
+          "name": "In Progress",
+          "id": "10400",
+          "statusCategory": {
+            "self": "https://jira.biscrum.com/rest/api/2/statuscategory/4",
+            "id": 4,
+            "key": "indeterminate",
+            "colorName": "inprogress",
+            "name": "In Progress"
+          }
+        }
+      },
+      "renderedFields": null
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "3072389",
+      "self": "https://jira.biscrum.com/rest/api/2/issue/3072389",
+      "key": "DIGITALBTD-9901",
+      "fields": {
+        "summary": "second issue (fixture)",
+        "issuetype": {
+          "self": "https://jira.biscrum.com/rest/api/2/issuetype/10001",
+          "id": "10001",
+          "description": "Created by Jira Software - do not edit or delete. Issue type for a user story.",
+          "iconUrl": "https://jira.biscrum.com/secure/viewavatar?size=xsmall&avatarId=10315&avatarType=issuetype",
+          "name": "Story",
+          "subtask": false,
+          "avatarId": 10315
+        },
+        "created": "2026-10-15T16:44:28.000+0200",
+        "project": {
+          "self": "https://jira.biscrum.com/rest/api/2/project/32616",
+          "id": "32616",
+          "key": "DIGITALBTD",
+          "name": "DIGITAL BTD PORTAL",
+          "projectTypeKey": "software",
+          "avatarUrls": {
+            "48x48": "https://jira.biscrum.com/secure/projectavatar?avatarId=11803",
+            "24x24": "https://jira.biscrum.com/secure/projectavatar?size=small&avatarId=11803",
+            "16x16": "https://jira.biscrum.com/secure/projectavatar?size=xsmall&avatarId=11803",
+            "32x32": "https://jira.biscrum.com/secure/projectavatar?size=medium&avatarId=11803"
+          }
+        },
+        "reporter": {
+          "name": "user.one@example.com",
+          "key": "JIRAUSER1",
+          "displayName": "User One",
+          "active": true,
+          "avatarUrls": {
+            "24x24": "https://example.invalid/avatar.png"
+          }
+        },
+        "assignee": {
+          "name": "user.one@example.com",
+          "key": "JIRAUSER1",
+          "displayName": "User One",
+          "active": true,
+          "avatarUrls": {
+            "24x24": "https://example.invalid/avatar.png"
+          }
+        },
+        "priority": {
+          "self": "https://jira.biscrum.com/rest/api/2/priority/10601",
+          "iconUrl": "https://jira.biscrum.com/images/icons/priorities/high.svg",
+          "name": "Important",
+          "id": "10601"
+        },
+        "updated": "2026-10-19T17:00:11.000+0200",
+        "labels": [],
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "key": "new",
+            "name": "To Do"
+          }
+        }
+      },
+      "renderedFields": null
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "3056219",
+      "self": "https://jira.biscrum.com/rest/api/2/issue/3056219",
+      "key": "DIGITALBTD-9685",
+      "fields": {
+        "summary": "third issue (fixture)",
+        "issuetype": {
+          "self": "https://jira.biscrum.com/rest/api/2/issuetype/10001",
+          "id": "10001",
+          "description": "Created by Jira Software - do not edit or delete. Issue type for a user story.",
+          "iconUrl": "https://jira.biscrum.com/secure/viewavatar?size=xsmall&avatarId=10315&avatarType=issuetype",
+          "name": "Story",
+          "subtask": false,
+          "avatarId": 10315
+        },
+        "created": "2026-10-07T16:20:35.000+0200",
+        "project": {
+          "self": "https://jira.biscrum.com/rest/api/2/project/32616",
+          "id": "32616",
+          "key": "DIGITALBTD",
+          "name": "DIGITAL BTD PORTAL",
+          "projectTypeKey": "software",
+          "avatarUrls": {
+            "48x48": "https://jira.biscrum.com/secure/projectavatar?avatarId=11803",
+            "24x24": "https://jira.biscrum.com/secure/projectavatar?size=small&avatarId=11803",
+            "16x16": "https://jira.biscrum.com/secure/projectavatar?size=xsmall&avatarId=11803",
+            "32x32": "https://jira.biscrum.com/secure/projectavatar?size=medium&avatarId=11803"
+          }
+        },
+        "reporter": {
+          "name": "user.one@example.com",
+          "key": "JIRAUSER1",
+          "displayName": "User One",
+          "active": true,
+          "avatarUrls": {
+            "24x24": "https://example.invalid/avatar.png"
+          }
+        },
+        "assignee": null,
+        "priority": {
+          "self": "https://jira.biscrum.com/rest/api/2/priority/10601",
+          "iconUrl": "https://jira.biscrum.com/images/icons/priorities/high.svg",
+          "name": "Important",
+          "id": "10601"
+        },
+        "updated": "2026-10-19T17:00:06.000+0200",
+        "labels": [],
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "key": "done",
+            "name": "Done"
+          }
+        }
+      },
+      "renderedFields": null
+    }
+  ],
+  "warningMessages": null,
+  "names": null,
+  "schema": null
+}

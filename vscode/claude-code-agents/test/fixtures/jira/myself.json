@@ -1,0 +1,8 @@
+{
+  "name": "user.one@example.com",
+  "displayName": "User One",
+  "emailAddress": "user.one@example.com",
+  "avatarUrls": {
+    "24x24": "https://example.invalid/avatar.png"
+  }
+}
