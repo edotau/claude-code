@@ -449,10 +449,6 @@ function renderUsageHtml(model, opts) {
   ${agentsBody}
   <div class="section-header">MORE</div>
   <div class="more-list">
-  <div class="footer-row" id="details">
-    <span>Usage details &amp; history</span>
-    <span class="chevron">\u203A</span>
-  </div>
   <div class="footer-row" id="accounts">
     <span>Manage Accounts&hellip;</span>
     <span class="chevron">\u203A</span>
@@ -461,7 +457,6 @@ function renderUsageHtml(model, opts) {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-    document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
     document.getElementById('accounts').addEventListener('click', () => vscode.postMessage({ type: 'accounts' }));
     for (const mode of ['used', 'left']) {
       const btn = document.getElementById('show-' + mode);
