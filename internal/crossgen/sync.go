@@ -31,7 +31,7 @@ const (
 
 // syncResult counts one run's writes; pending (not synced) is what --check gates on.
 type syncResult struct {
-	synced, skipped, errored, pending int
+	synced, skipped, errored, pending, current int
 }
 
 func (r *syncResult) record(w writeResult) {
@@ -41,6 +41,7 @@ func (r *syncResult) record(w writeResult) {
 		r.pending++
 	case unchanged:
 		r.synced++
+		r.current++
 	case kept:
 		r.skipped++
 	default:
@@ -53,6 +54,7 @@ func (r *syncResult) add(o syncResult) {
 	r.skipped += o.skipped
 	r.errored += o.errored
 	r.pending += o.pending
+	r.current += o.current
 }
 
 // Sync renders agents/ into the tracked dist/<vendor>/agents tree, installs each vendor's copy into its home,
@@ -125,13 +127,16 @@ func Sync(opts SyncOptions) int {
 		pruned += pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(home), dryRun)
 	}
 
-	verb := ""
+	summary := fmt.Sprintf("\nDone: %d synced, %d skipped", res.synced, res.skipped)
 	if dryRun {
-		verb = "would be "
+		summary = fmt.Sprintf("\nDone: %d to sync, %d up to date, %d skipped", res.pending, res.current, res.skipped)
 	}
-	summary := fmt.Sprintf("\nDone: %d %ssynced, %d skipped", res.synced, verb, res.skipped)
 	if pruned > 0 {
-		summary += fmt.Sprintf(", %d %spruned", pruned, verb)
+		verb := "pruned"
+		if dryRun {
+			verb = "to prune"
+		}
+		summary += fmt.Sprintf(", %d %s", pruned, verb)
 	}
 	fmt.Fprintln(out, summary)
 	if res.errored > 0 {
