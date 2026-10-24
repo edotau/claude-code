@@ -195,7 +195,7 @@ func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-runeL
 func listLines(s listState, color bool, cols, h int) []line {
 	var head, body []line
 	if s.spec.Title != "" {
-		head = append(head, line{s.spec.Title, ansi.Style(color, ansi.Bold+ansi.Cyan, s.spec.Title)})
+		head = append(head, line{s.spec.Title, Accent(color, s.spec.Title)})
 	}
 	if s.spec.Search {
 		q := string(s.query)
@@ -228,7 +228,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 		case i == s.pendRow:
 			styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)
 		case p == s.cur:
-			styled = ansi.Style(color, ansi.Cyan, "▸") + " " + ansi.Style(color, "\x1b[7m", cells)
+			styled = AccentMark(color, "▸") + " " + Selected(color, cells)
 		default:
 			st := ansi.Status(color, r.Status)
 			if r.OK {
