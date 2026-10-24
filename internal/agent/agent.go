@@ -248,7 +248,10 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	tail := &TailBuffer{}
-	cmd.Stderr = teeWriter(ctx, tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
+	cmd.Stderr = io.Writer(tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
+	if sk := stderrLogFrom(ctx); sk != nil {
+		cmd.Stderr = io.MultiWriter(tail, sk.Stream())
+	}
 	return cmd, tail
 }
 

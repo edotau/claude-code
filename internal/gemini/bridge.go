@@ -103,10 +103,13 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		rec := agent.NewRecord(bridgeDispatchLabel, agent.Request{
 			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
 		}, time.Now())
+		rec.Log = rec.LogPath()
+		sink := agent.NewLogSink(rec.LogPath())
 		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 
 		start := time.Now()
 		cw := &countingWriter{w: stream}
+		ctx = agent.WithLog(ctx, sink) // agy's raw events and stderr reach the log through the ctx carrier
 		var res agent.Result
 		aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
 			cw.n = 0
@@ -118,6 +121,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		if aerr != nil {
 			err = aerr
 		}
+		sink.Close() // flush before the record leaves running, so tail -f never misses the last line
 		rec.Finish(res, err, time.Since(start))
 		_ = rec.Save()
 		return res, err
