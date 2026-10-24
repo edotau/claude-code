@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/vendoragent"
@@ -156,7 +157,7 @@ func cmdVendorResult(vendor string, args []string) int {
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
 		}{rec.ID, rec.SessionID, resumeHint(vendor, rec.SessionID), log})
-		return 0
+		return resultExit(rec)
 	}
 	fmt.Print(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
@@ -166,7 +167,16 @@ func cmdVendorResult(vendor string, args []string) int {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		fmt.Printf("resume: %s\n", resumeHint(vendor, rec.SessionID))
 	}
-	return 0
+	return resultExit(rec)
+}
+
+// resultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
+func resultExit(rec agent.Record) int {
+	if rec.Status != "error" {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "error: %s\n", rec.Error)
+	return 1
 }
 
 // resumeHint renders Adapter.ResumeHint for id, empty when the vendor has none.

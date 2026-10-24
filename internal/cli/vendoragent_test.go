@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
+	"os"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/vendoragent"
 	"slices"
 	"strings"
 	"testing"
@@ -182,5 +185,37 @@ func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
 	}
 	if !strings.Contains(out, "😀…") {
 		t.Errorf("output lacks a truncated preview ending in …:\n%s", out)
+	}
+}
+
+func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
+	t.Helper()
+	cwd, _ := os.Getwd()
+	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec.Status, rec.Error = status, errMsg
+	rec.Repo = vendoragent.RepoRoot(context.Background(), cwd)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+func TestVendorResultErrorRecordExits1(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := saveResultRecord(t, "error", "boom happened")
+	for _, args := range [][]string{{rec.ID}, {"--format", "json", rec.ID}} {
+		code, _, stderr := captureOutput(t, func() int { return cmdVendorResult("codex", args) })
+		if code != 1 || !strings.Contains(stderr, "error: boom happened") {
+			t.Errorf("args %v: exit %d stderr %q, want 1 and \"error: boom happened\"", args, code, stderr)
+		}
+	}
+}
+
+func TestVendorResultOKRecordExits0(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := saveResultRecord(t, "ok", "")
+	code, _, stderr := captureOutput(t, func() int { return cmdVendorResult("codex", []string{rec.ID}) })
+	if code != 0 || strings.Contains(stderr, "error:") {
+		t.Errorf("exit %d stderr %q, want 0 and no error line", code, stderr)
 	}
 }

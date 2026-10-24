@@ -7,13 +7,17 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Preview collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
-func Preview(prompt string, n int) string {
-	preview := strings.Join(strings.Fields(prompt), " ")
-	for w := range strings.FieldsSeq(preview) {
+// Redact replaces credential-shaped words in s with REDACTED, leaving the rest untouched.
+func Redact(s string) string {
+	for w := range strings.FieldsSeq(s) {
 		if shapes.Looks(w) {
-			preview = strings.ReplaceAll(preview, w, "REDACTED")
+			s = strings.ReplaceAll(s, w, "REDACTED")
 		}
 	}
-	return textutil.Truncate(preview, n)
+	return s
+}
+
+// Preview collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
+func Preview(prompt string, n int) string {
+	return textutil.Truncate(Redact(strings.Join(strings.Fields(prompt), " ")), n)
 }

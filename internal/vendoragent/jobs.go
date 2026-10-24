@@ -2,11 +2,11 @@
 package vendoragent
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -110,17 +110,33 @@ func Alive(rec agent.Record) bool {
 	return rec.Alive()
 }
 
-// procCmdline returns pid's command line (NUL-joined argv rendered with spaces) via /proc on Linux,
-// falling back to `ps -o command=` elsewhere (darwin has no /proc).
-func procCmdline(pid int) (string, error) {
+// procArgv returns pid's argv via /proc on Linux (NUL-split), falling back to `ps -o command=` split on spaces.
+func procArgv(pid int) ([]string, error) {
 	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
-		return string(bytes.ReplaceAll(raw, []byte{0}, []byte{' '})), nil
+		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
 	}
 	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(out), nil
+	return strings.Fields(string(out)), nil
+}
+
+// isJobArgv reports whether argv carries the whole arguments `ask`, `--job` and id.
+func isJobArgv(argv []string, id string) bool {
+	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
+}
+
+// markGone reloads rec and marks it Status "error" only if it is still "running".
+func markGone(rec *agent.Record) error {
+	if latest, err := agent.LoadRecord(rec.ID); err == nil {
+		*rec = latest
+	}
+	if rec.Status != "running" {
+		return nil
+	}
+	rec.Status, rec.Error = "error", "process gone (pid reused)"
+	return rec.Save()
 }
 
 // Cancel verifies rec.PID is still the job it was spawned as (guards against pid reuse), interrupts it
@@ -130,11 +146,18 @@ func Cancel(rec *agent.Record) error {
 	if rec.PID <= 0 {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
-	cmdline, err := procCmdline(rec.PID)
-	if err != nil || !strings.Contains(cmdline, "ask") || !strings.Contains(cmdline, "--job") || !strings.Contains(cmdline, rec.ID) {
-		rec.Status, rec.Error = "error", "process gone (pid reused)"
-		_ = rec.Save()
-		return nil
+	if !proc.Alive(rec.PID) {
+		return markGone(rec)
+	}
+	argv, err := procArgv(rec.PID)
+	if err != nil {
+		return fmt.Errorf("dispatch %q: cannot read pid %d command line: %w", rec.ID, rec.PID, err)
+	}
+	if !isJobArgv(argv, rec.ID) {
+		if rec.Log == "" || (slices.Contains(argv, "ask") && !slices.Contains(argv, "--job")) { // a foreground ask
+			return fmt.Errorf("dispatch %q is a foreground run; interrupt it in its own terminal", rec.ID)
+		}
+		return fmt.Errorf("dispatch %q: pid %d is a different program (pid reused); not signalling it", rec.ID, rec.PID)
 	}
 	if err := escalate(rec.PID, rec.ID); err != nil {
 		return err

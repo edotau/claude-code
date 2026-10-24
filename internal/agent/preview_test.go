@@ -36,3 +36,27 @@ func TestPreviewTruncatesOnRuneBoundary(t *testing.T) {
 		t.Errorf("Preview = %q (%d runes), want 10 runes ending in …", got, utf8.RuneCountInString(got))
 	}
 }
+
+func TestRedact(t *testing.T) {
+	tok := "ghp_" + strings.Repeat("a", 36)
+	tok2 := "sk-" + strings.Repeat("b", 20)
+	cases := []struct{ name, in, want string }{
+		{"clean unchanged", "plain  text\twith\nspace", "plain  text\twith\nspace"},
+		{"token replaced", "use " + tok + " now", "use REDACTED now"},
+		{"multiple tokens", tok + " and " + tok2 + "\nend", "REDACTED and REDACTED\nend"},
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		if got := Redact(c.in); got != c.want {
+			t.Errorf("%s: Redact(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestPreviewRedactsThenTruncates(t *testing.T) {
+	tok := "ghp_" + strings.Repeat("a", 36)
+	got := Preview("tok "+tok+" tail words here", 12)
+	if want := "tok REDACTE…"; got != want { // redacted first (no ghp_), then cut to 12 runes
+		t.Errorf("Preview = %q, want %q", got, want)
+	}
+}
