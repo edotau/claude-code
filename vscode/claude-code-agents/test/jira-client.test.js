@@ -148,6 +148,7 @@ test('transitions: GET …/transitions, unwrapped to the transitions array', asy
 
   const url = new URL(calls[0].url);
   assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/transitions');
+  assert.equal(url.searchParams.get('expand'), 'transitions.fields');
   assert.deepEqual(result, fixture('transitions').transitions);
 });
 

@@ -128,10 +128,17 @@ quoted phrases and unknown tokens pass through as free text.
   `ORDER BY updated DESC`, paged with `startAt`. `claudeCodeAgents.tasksJiraProjects` scopes it to project
   keys (empty = every project the token can see). Presets: Assigned to me (default), Reported by me, Done by
   me, All open. The Status pill is toned by status category (To Do muted, In Progress primary, Done green);
-  the issue-type and priority icons are Jira's own.
+  the issue-type and priority icons are Jira's own. Clicking a Jira row swaps the list for an **inline detail view**
+  (Back returns, scroll position kept): key · project · updated, title, a status pill that opens the transition menu
+  (transitions needing a resolution or comment show a small form; ones needing other fields say so and defer to
+  Jira), a priority menu, an assignee button (QuickPick: Unassigned · Assign to me · live search), labels, the
+  description (Jira's rendered HTML, sanitised), the comments with a composer (Cmd/Ctrl+Enter sends; the draft
+  survives re-renders), and a rail: Open in Jira, Copy URL / key / branch name / prompt. Every write is optimistic
+  through `lib/tasks-mutations.js` (patch now, writes serialised per issue, refetch after, rollback + an inline
+  Retry banner on failure). GitHub and Bitbucket rows open a header-only detail with "Open in browser" for now.
 
-The **Task sources** section at the bottom of the page shows one card per source — connection status
-(`gh api user` / the DC doctor / Jira `/myself`), "Show in Tasks" (the last visible source cannot be hidden), the default
+The **Task sources** section at the bottom of the page shows one card per source — a Connected / Disconnected
+pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the last visible source cannot be hidden), the default
 source, the repo list — with "Edit repos and defaults in Settings" and "Re-check connections".
 Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`, `tasksDefaultQuery.jira` /
 `.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`, `tasksPageSize`,
