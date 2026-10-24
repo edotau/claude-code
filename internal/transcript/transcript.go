@@ -157,7 +157,10 @@ func CountEditsFrom(path string, offset int64) (edits int, next int64) {
 	n := 0
 	read := scanLines(f, true, func(line []byte) {
 		eachEditLine(line, func(string) { n++ })
-		eachCommitLine(line, func() { n += CommitEditWeight })
+		func() {
+			defer func() { recover() }() // malformed command text must not crash the hook; treat line as not-a-commit
+			eachCommitLine(line, func() { n += CommitEditWeight })
+		}()
 	})
 	return n, offset + read
 }
@@ -317,6 +320,9 @@ func extractSubstitutions(cmd string) []string {
 					depth--
 				}
 				k++
+			}
+			if depth > 0 {
+				return out // unterminated `$(` — nothing closes it, so stop scanning rather than slice
 			}
 			inner := cmd[i+2 : k-1]
 			out = append(out, inner)
