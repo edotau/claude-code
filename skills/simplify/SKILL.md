@@ -6,7 +6,7 @@ description: 'Behavior-preserving cleanup of changed code — overrides the buil
 # Simplify
 
 The **apply-the-fix** lens for two code-discipline principles — **Simplicity First (#2)** and
-**Surgical Changes (#3)** — and the skill behind the simplify stage of `/workflow:orchestrate`.
+**Surgical Changes (#3)** — and the skill behind the simplify stage of orchestrate.
 It overrides the built-in `/simplify`. Use it directly in place, or hand it to a subagent over a diff.
 
 **The lane:** behavior is preserved — you change *how* code is structured, never *what* it does.

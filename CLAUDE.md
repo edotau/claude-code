@@ -21,9 +21,10 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. A linked worktree
-   (`~/worktrees/<repo>/<slug>`, shared with Orca, via `EnterWorktree` or `/workflow:worktree`) is a separate checkout:
-   branch there freely, merge back with `/workflow:worktree merge <slug>` (verified, fast-forward-only:
-   `skills/using-git-worktrees/references/merge-and-clean.md`), never `checkout`/`reset` the live tree to it.
+   (`~/worktrees/<repo>/<slug>`, shared with Orca, via `EnterWorktree` or `claude-code worktree create`) is a
+   separate checkout: branch there freely, merge back with `claude-code worktree merge <slug>`
+   (verified, fast-forward-only: `skills/using-git-worktrees/references/merge-and-clean.md`), never
+   `checkout`/`reset` the live tree to it.
    `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR`
    points at it.
 
@@ -73,7 +74,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |
 | Recall or save session memory | `claude-code memory recall <terms>` · `/reflection:update` (auto via the Stop/SessionEnd harvest) · `memory init\|review\|promote\|remember\|dream` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` only at wrap-up, user-approved; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
-| Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; `/workflow:orchestrate` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
+| Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; the `subagent-workflows` skill's `orchestrate.md` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `review-funnel` · `dag` · `test-and-fix-fanout` · `external-agent` · `fable-eval` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff; catalog tech debt | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code` (debt: `skills/evaluate-code/references/techdebt.md`), `skills/security-reviewer` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/references/test-and-fix.md` |

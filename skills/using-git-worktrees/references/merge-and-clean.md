@@ -1,6 +1,6 @@
 # Harness worktrees: create, list, merge, clean
 
-The one procedure behind `/workflow:worktree` and the `worktree-create`/`worktree-remove` hooks. Every verb
+The one procedure behind `claude-code worktree` and the `worktree-create`/`worktree-remove` hooks. Every verb
 delegates to `claude-code worktree …` (`internal/worktree`), which resolves the root and each worktree's real
 branch from git — never assume a naming convention; discover it. Root: `~/worktrees/<repo>/<slug>`, shared
 with native Claude Code and Orca. Manual mechanics for non-harness repos: [manual-worktrees.md](manual-worktrees.md).

@@ -1,7 +1,7 @@
 # Manual Worktree Mechanics
 
 The underlying steps for **manual control**. Inside a Claude Code session, prefer
-`/workflow:worktree` (see the parent `SKILL.md`) — it bakes these in.
+`claude-code worktree create` (see the parent `SKILL.md`) — it bakes these in.
 
 ## Manual creation
 

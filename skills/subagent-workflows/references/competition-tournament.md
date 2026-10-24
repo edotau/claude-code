@@ -21,7 +21,7 @@ by the concurrency tier (lean leaves ~8–10, deep-context ≤8).
 4. **Re-measure yourself.** Run the eval command in each worktree from the manager; a leaf's
    self-reported number is a claim, not evidence (`skills/approval-gate`). Discard leaves whose tests are red.
 5. **Rank** — see modes below.
-6. **Merge the winner** (`/workflow:worktree merge`), then **re-run the
+6. **Merge the winner** (`claude-code worktree merge`), then **re-run the
    gates on the merged tree**: green in isolation is not green merged.
 7. **Archive the losers** before removing anything: `git tag compete/<slug>/<n>` keeps every approach
    reachable, then drop the worktrees (`skills/using-git-worktrees`).

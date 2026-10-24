@@ -22,16 +22,28 @@ reliable parallel sessions that never step on each other or pollute git status.
 | Reproducing a bug on another branch | Temporary worktree, clean up same day |
 | Quick local diff review only | Stay on current tree — no worktree |
 
-## In this harness: use `/workflow:worktree` (the paved road)
+## In this harness: use `claude-code worktree` (the paved road)
 
-The command handles everything with the harness conventions baked in:
+The verbs handle everything with the harness conventions baked in:
 
 ```bash
-/workflow:worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
-/workflow:worktree list                        # all worktrees + status
-/workflow:worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
-/workflow:worktree clean add-auth-endpoint     # safe single removal
+claude-code worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
+claude-code worktree list                        # all worktrees + status
+claude-code worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
+claude-code worktree clean add-auth-endpoint     # safe single removal
 ```
+
+More verbs and options:
+
+| Verb | Does |
+|------|------|
+| `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
+| `claude-code worktree merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify]` | `--dry-run` preview, confirm, apply |
+| `claude-code worktree merge <name> --resolve-agent claude\|codex` · `--resume` | Agent resolves a predicted conflict; reattach |
+| `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
+
+Never pass a force flag: every verb refuses with a reason instead. Inside a session prefer the native
+`EnterWorktree`/`ExitWorktree` for create/enter; the additive value here is `merge` and `clean-all`.
 
 It creates worktrees under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude
 Code and Orca), **symlinks** the shared `.venv` (avoids a 500MB+ copy), and copies `.env` +
@@ -42,7 +54,7 @@ but `make install` and `claude-code` verbs run from it still target the live `~/
 
 ## Manual control / non-harness repos
 
-When `/workflow:worktree` doesn't apply, follow the full mechanics — directory selection,
+When `claude-code worktree` doesn't apply, follow the full mechanics — directory selection,
 gitignore safety, `.venv` symlink, port allocation for parallel dev servers, and gated
 cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
 
