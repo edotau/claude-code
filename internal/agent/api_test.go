@@ -139,11 +139,40 @@ func TestAPIRunnerOpenAI(t *testing.T) {
 	}
 }
 
-func TestAPIRunnerPassthroughRefused(t *testing.T) {
+// TestAPIRunnerPassthroughDelegatesToClaude proves api no longer refuses outright on a passthrough
+// provider: it must hand the same request to claudeRunner (marked via res.Fallback), not fail instantly
+// with the old "needs a key" message. The delegated claude call itself fails in this sandbox (no
+// subscription login), but that failure must come from claude, not from api's own passthrough guard.
+func TestAPIRunnerPassthroughDelegatesToClaude(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	_, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
-	if e := Classify("api", err, false); e == nil || e.Kind != KindFatal || !strings.Contains(err.Error(), "passthrough") {
-		t.Errorf("err = %v", err)
+	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
+	if res.Fallback != "api" {
+		t.Errorf("res.Fallback = %q, want %q (delegation marker)", res.Fallback, "api")
+	}
+	if err != nil && strings.Contains(err.Error(), "needs a key") {
+		t.Errorf("err = %v, want delegation to claude instead of the old instant refusal", err)
+	}
+}
+
+// TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage proves that when the delegated claude
+// run itself fails (no binary/login in this sandbox), api still marks the attempt (res.Fallback,
+// res.FallbackReason) and surfaces claude's own error verbatim, not a masked or generic one.
+func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	req := Request{Prompt: "x", Provider: "subscription"}
+
+	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)
+	if directErr == nil {
+		t.Fatal("claudeRunner.Run must fail in this sandbox (no claude binary/login) for this test to prove anything")
+	}
+
+	res, err := apiRunner{}.Run(context.Background(), req, io.Discard)
+	if res.Fallback != "api" || res.FallbackReason == "" {
+		t.Errorf("res = %+v, want Fallback=%q and a non-empty FallbackReason even on a failed delegation", res, "api")
+	}
+	if err == nil || err.Error() != directErr.Error() {
+		t.Errorf("err = %v, want claude's own error verbatim: %v", err, directErr)
 	}
 }
 
