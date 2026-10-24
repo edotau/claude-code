@@ -51,3 +51,10 @@ func TestResultStatusMapsTopLevelStatusWhenResultAbsent(t *testing.T) {
 		})
 	}
 }
+
+func TestUserTurnTextConcatenatesTextBlocks(t *testing.T) {
+	raw := []byte(`{"content":[{"type":"text","text":"first "},{"type":"tool_use","name":"X"},{"type":"text","text":"second"}]}`)
+	if got := userTurnText(raw); got != "first second" {
+		t.Errorf("userTurnText = %q, want %q", got, "first second")
+	}
+}

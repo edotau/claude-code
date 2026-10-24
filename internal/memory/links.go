@@ -36,7 +36,7 @@ func EnsureNativeLinks() ([]LinkResult, error) {
 		if origin == "" {
 			return
 		}
-		slug := projectSlug(filepath.Clean(origin))
+		slug := ProjectSlug(filepath.Clean(origin))
 		if seen[slug] {
 			return
 		}
@@ -68,7 +68,7 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
 		return LinkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
-	return ensureLink(projectsMemory(projectSlug(root)), target), true
+	return ensureLink(projectsMemory(ProjectSlug(root)), target), true
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.

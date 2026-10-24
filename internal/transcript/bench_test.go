@@ -23,7 +23,7 @@ func TestEachLineOverflowAndUnterminated(t *testing.T) {
 	giant := strings.Repeat("x", 3<<20) + "\n"
 	in := "a\n" + giant + "b\nlast"
 	var got []string
-	eachLine(strings.NewReader(in), func(l []byte) { got = append(got, string(l)) })
+	EachLine(strings.NewReader(in), func(l []byte) { got = append(got, string(l)) })
 	want := []string{"a\n", giant, "b\n", "last"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d lines, want %d", len(got), len(want))

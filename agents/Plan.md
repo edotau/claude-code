@@ -33,7 +33,8 @@ returns a plan in this file's template; it never edits files, commits, or runs a
 
 - **`claude` / `code-worker` leaves** — implementation of the approved plan's phases; dispatched by the
   manager, not by Plan itself.
-- **`codex` (REVIEW mode)** — adversarial review of the drafted plan, dispatched by the caller, not Plan:
+- **`codex`** (`claude-code codex ask` + `skills/evaluate-code/references/task-review.md`) —
+  adversarial review of the drafted plan, dispatched by the caller, not Plan:
   `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / `gemini`** — wide research before drafting (codebase structure, conventions, a 1M-context
   sweep) when the area is large or unfamiliar.
@@ -108,7 +109,7 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Phase 2.1 — <name> — runner: <runner> — owns: <files>
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages
-- [ ] Review (`claude-code ask --agent codex`)
+- [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
 - [ ] Commit + push
 - [ ] Handoff / `claude-code memory update`

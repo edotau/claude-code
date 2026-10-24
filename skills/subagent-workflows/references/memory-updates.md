@@ -8,8 +8,7 @@ one-line `MEMORY.md` TOC entry, with a rationale, keeping `MEMORY.md` a lean ind
 ## Codex
 
 Candidate content: frequently missed constraints, common task patterns worth flagging,
-project-specific evaluation criteria, baseline scores worth anchoring, effective
-optimizations (what moved the needle), config patterns that worked, build/test quirks
+project-specific evaluation criteria, baseline scores worth anchoring, build/test quirks
 (flaky tests, build order, platform differences), common skill-quality issues,
 triggering-description improvements, recurring manifest failures.
 

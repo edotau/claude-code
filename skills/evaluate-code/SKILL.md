@@ -21,7 +21,9 @@ pass** — the `security-reviewer` skill owns it. Doing the work, rather than ch
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
 - **Scan tech debt** → `references/techdebt.md`.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
-  checklists `agents/codex.md` runs).
+  checklists `agents/codex.md` runs via `claude-code codex ask`).
+- **Vet a task brief before implementation** → `references/task-review.md` (verdict `READY | NEEDS
+  CLARIFICATION`; on another model family via `claude-code codex ask`).
 
 ## Audit a transcript
 
@@ -132,8 +134,8 @@ Per mode:
 | review (this skill) | `SHIP \| FIX REQUIRED \| BLOCK` |
 | judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
 | gate loop (`../problem-solving/references/verify.md`) | `PASS \| FAIL` |
-| codex REVIEW | `READY \| NEEDS CLARIFICATION` |
-| codex diff review | `SHIP IT \| NEEDS WORK \| BLOCK` |
+| task-brief review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
+| vendor diff review (`claude-code <v> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
 
 ## Receive feedback
 

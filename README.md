@@ -208,7 +208,8 @@ claude-code web search --query q           # Tavily one-shot (bare = stdio MCP s
 claude-code agents                                     # runners and availability
 claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
-claude-code run opencode --provider ollama --model qwen3-coder   # interactive; --print-env shows wiring
+claude-code opencode --provider ollama --model qwen3-coder   # interactive; -- forces passthrough
+claude-code codex review --adversarial --base main     # per-vendor verbs; claude-code codex -h lists them
 claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
 claude-code agents sync [--dry-run|--check]            # project agents/ + CLAUDE.md into every vendor
 claude-code usage --days 7                             # subagent token usage

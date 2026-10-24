@@ -1,0 +1,174 @@
+package vendoragent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/gitexec"
+)
+
+// Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
+// base branch (base), the sha (commit), or is empty (uncommitted, pr).
+type Scope struct{ Kind, Ref string }
+
+// ParseScope validates that at most one scope flag was set; none selects uncommitted.
+func ParseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
+	n := 0
+	for _, set := range []bool{uncommitted, base != "", commit != "", pr} {
+		if set {
+			n++
+		}
+	}
+	if n > 1 {
+		return Scope{}, errors.New("review: at most one of --uncommitted, --base, --commit, --pr")
+	}
+	switch {
+	case base != "":
+		return Scope{Kind: "base", Ref: base}, nil
+	case commit != "":
+		return Scope{Kind: "commit", Ref: commit}, nil
+	case pr:
+		return Scope{Kind: "pr"}, nil
+	default:
+		return Scope{Kind: "uncommitted"}, nil
+	}
+}
+
+// untrackedCap caps how much of one untracked file's content Diff inlines.
+const untrackedCap = 64 * 1024
+
+// Diff materializes s's diff in cwd via gitexec. Empty content is an error, not an empty slice.
+func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
+	var out string
+	var err error
+	switch s.Kind {
+	case "base":
+		out, err = gitexec.RunGit(ctx, cwd, "diff", s.Ref+"...HEAD")
+	case "commit":
+		out, err = gitexec.RunGit(ctx, cwd, "show", "--no-color", "--format=", s.Ref)
+	case "pr":
+		var base string
+		base, err = gitexec.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
+		if err != nil {
+			return nil, err
+		}
+		base = strings.TrimPrefix(base, "origin/")
+		out, err = gitexec.RunGit(ctx, cwd, "diff", base+"...HEAD")
+	default: // uncommitted
+		out, err = gitexec.RunGit(ctx, cwd, "diff", "HEAD")
+		if err == nil {
+			var untracked string
+			untracked, err = untrackedBlock(ctx, cwd)
+			if err == nil && untracked != "" {
+				out = strings.TrimRight(out, "\n") + "\n" + untracked
+			}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, errors.New("nothing in scope")
+	}
+	return []byte(out), nil
+}
+
+// untrackedBlock renders every untracked file (git ls-files --others --exclude-standard) as a
+// "new file: <path>" header plus its content, capped at untrackedCap bytes each.
+func untrackedBlock(ctx context.Context, cwd string) (string, error) {
+	listing, err := gitexec.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, rel := range strings.Split(listing, "\n") {
+		if rel == "" {
+			continue
+		}
+		data, rerr := readCapped(filepath.Join(cwd, rel))
+		if rerr != nil {
+			continue // vanished between listing and read; skip rather than fail the whole diff
+		}
+		fmt.Fprintf(&b, "new file: %s\n%s\n", rel, data)
+	}
+	return b.String(), nil
+}
+
+// readCapped reads at most untrackedCap bytes of path without loading a larger file whole.
+func readCapped(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, untrackedCap+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > untrackedCap {
+		data = data[:untrackedCap]
+	}
+	return data, nil
+}
+
+// reviewPromptNeutral mirrors the adversarial prompt's shape with a non-adversarial brief.
+const reviewPromptNeutral = `Review the attached diff for correctness, regressions, missing tests, and scope creep.
+Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
+The first line of your answer is the verdict alone: SHIP IT, NEEDS WORK or BLOCK.`
+
+// reviewPromptAdversarial is agents/codex.md's "Adversarial diff review (`/codex`)" prompt, verbatim.
+const reviewPromptAdversarial = `You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in
+priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
+MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.
+Skepticism ON: name the hidden assumption each change depends on. No praise, no summary — findings only, one
+per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: VERDICT: no actionable findings.`
+
+// ReviewPrompt returns the base review prompt, with a "Focus: " line appended when focus is set.
+func ReviewPrompt(adversarial bool, focus string) string {
+	p := reviewPromptNeutral
+	if adversarial {
+		p = reviewPromptAdversarial
+	}
+	if focus != "" {
+		p += "\nFocus: " + focus
+	}
+	return p
+}
+
+// ReviewArgs builds the `ask` argv for a review: the diff lands in a temp file attached via --attach.
+// cleanup removes the temp file in foreground mode; in background mode the detached child reads it, so
+// cleanup is a no-op. rubric, when set, emits --rubric <f> before the trailing prompt argument.
+func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
+	f, err := os.CreateTemp("", "claude-code-review-*.diff")
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := f.Write(diff); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, nil, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return nil, nil, err
+	}
+	args := []string{"--agent", vendor, "--fallback", agent.FallbackVendors, "--attach", f.Name()}
+	if background {
+		args = append(args, "--background")
+	}
+	if rubric != "" {
+		args = append(args, "--rubric", rubric)
+	}
+	args = append(args, ReviewPrompt(adversarial, focus))
+	cleanup := func() {}
+	if !background {
+		cleanup = func() { os.Remove(f.Name()) }
+	}
+	return args, cleanup, nil
+}

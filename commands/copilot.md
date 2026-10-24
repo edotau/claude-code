@@ -1,13 +1,17 @@
 ---
-description: "Dispatch the copilot agent: `test` (default) repairs and writes tests, `commit`/`pr` do the last mile"
-argument-hint: "[test | commit | pr] <task, packages, or files>"
-allowed-tools: Agent
+description: "Dispatch the copilot agent: `test` (default) repairs and writes tests, `commit`/`pr` do the last mile; any other `claude-code copilot <verb>` (`ask`, `review`, `resume`, `status`, …) passes straight through"
+argument-hint: "[test|commit|pr|ask|resume|review|transfer|status|result|cancel|setup|models] <args>"
+allowed-tools: Agent, Bash
 ---
 
 # /copilot
 
-Launcher only. Modes, rules and the report shape live in `agents/copilot.md`.
+Launcher only. Modes, verbs and the report contract live in `agents/copilot.md`; `claude-code copilot -h`
+lists the surface.
 
-Dispatch one `Agent` with `subagent_type: "copilot"`, in the background. Brief it with the mode from the first
-token of `$ARGUMENTS`: `test` (default) is TEST; `commit` or `pr` is LAST-MILE, that subsection. Pass the rest of
-`$ARGUMENTS` as the task, plus the files or packages in scope and the exact verification command. Relay its report.
+First token of `$ARGUMENTS`: `test` (default) or `commit`/`pr` — dispatch one `Agent` with
+`subagent_type: "copilot"`, in the background, briefed with that mode, the rest as the task plus the files
+or packages in scope and the exact verification command; relay its report. Any other verb
+(`ask|resume|review|transfer|status|result|cancel|setup|models`) — run `claude-code copilot <verb> <rest>`
+straight through via Bash and relay the output (`--background` → relay the `job <id>` line and name
+`claude-code copilot status|result|cancel`).

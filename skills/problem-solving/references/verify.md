@@ -33,8 +33,8 @@ Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change 
 failures minimally. Once an iteration is clean, run Gates 3-5 (the full build + full test suite +
 security scan + diff review) exactly ONCE as the final pass. Only a failing final pass sends the
 loop back to Gate 1; after 5 iterations total, stop and escalate to the user with the remaining
-failures. This mirrors `codex` VERIFY mode and matches `rules/standards/quality.md`'s Verification
-Order — the expensive run happens once, never per iteration.
+failures. This is the brief for codex's final gate run (`claude-code codex ask --tools`) and matches
+`rules/standards/quality.md`'s Verification Order — the expensive run happens once, never per iteration.
 
 Per-gate fix strategy:
 
