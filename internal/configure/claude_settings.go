@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -201,10 +202,83 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 			}
 		}
 	}
+	if dropped, err := settings.LoadDropped(); err == nil && len(dropped) > 0 {
+		d.println("dropped keys: " + strings.Join(dropped, ", "))
+	}
 	if d.o.Check {
 		return ok
 	}
 	return true
+}
+
+// runDropKeep applies --drop/--keep to the dropped-key list (next = (list + drop) - keep); the caller re-renders.
+func runDropKeep(d *dialog) int {
+	cur, err := settings.LoadDropped()
+	if err != nil {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	if d.o.Check { // exit 1 while a --drop key is not yet listed or a --keep key still is
+		d.println("dropped keys: " + strings.Join(cur, ", "))
+		for _, k := range d.o.Drop {
+			if !slices.Contains(cur, k) {
+				return 1
+			}
+		}
+		for _, k := range d.o.Keep {
+			if slices.Contains(cur, k) {
+				return 1
+			}
+		}
+		return 0
+	}
+	live, err := readLiveSettings()
+	if err != nil && !os.IsNotExist(err) {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	var absent []string // a key Claude Code has not written (yet) is still worth dropping: it goes on arrival
+	for _, k := range d.o.Drop {
+		if _, ok := live[k]; !ok && !slices.Contains(cur, k) {
+			absent = append(absent, k)
+		}
+	}
+	if len(absent) > 0 {
+		d.printf("claude code: not in settings.json now, removed if it appears: %s\n", strings.Join(absent, ", "))
+	}
+	var notDropped []string
+	for _, k := range d.o.Keep {
+		if !slices.Contains(cur, k) {
+			notDropped = append(notDropped, k)
+		}
+	}
+	if len(notDropped) > 0 {
+		d.printf("claude code: not dropped: %s\n", strings.Join(notDropped, ", "))
+		return 1
+	}
+	apply := func(cur []string) []string {
+		return slices.DeleteFunc(slices.Concat(cur, d.o.Drop), func(k string) bool { return slices.Contains(d.o.Keep, k) })
+	}
+	next := apply(cur)
+	if d.o.DryRun {
+		err = settings.CheckDroppable(next)
+	} else if err = settings.UpdateDropped(apply); err == nil { // read-apply-write in one vault transaction
+		d.changed = true
+	}
+	if err != nil {
+		d.printf("claude code: %v\n", err)
+		return 1
+	}
+	if len(d.o.Drop) > 0 {
+		d.printf("claude code: dropped: %s\n", strings.Join(d.o.Drop, ", "))
+	}
+	if len(d.o.Keep) > 0 {
+		d.printf("claude code: kept: %s\n", strings.Join(d.o.Keep, ", "))
+	}
+	if d.o.DryRun {
+		d.println("dropped keys: " + strings.Join(slices.Compact(slices.Sorted(slices.Values(next))), ", "))
+	}
+	return 0
 }
 
 // runClaudeSettingsMenu is the interactive page: rows grouped under Sections() headers, edits staged until
