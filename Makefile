@@ -58,8 +58,8 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools)
-	$(BIN) install
+install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools; V=1: verbose)
+	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
@@ -159,7 +159,8 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install DEV_TOOLS=1)"; fi
 	@$(MAKE) --no-print-directory lint-yaml
-	@CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run >/dev/null
+	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)"; rc=$$?; \
+		if [ $$rc -ne 0 ]; then echo "$$out"; exit $$rc; fi
 	@t=$$(mktemp) && $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg; rc=$$?; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke + generated docs; vuln + yaml when installed)"
