@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -263,5 +264,46 @@ func TestCheckSettingsDriftLinesFitEightyColumns(t *testing.T) {
 		if !strings.HasPrefix(l, "settings: ") {
 			t.Errorf("line %q must be prefixed %q", l, "settings: ")
 		}
+	}
+}
+
+// TestCheckSettingsDriftDroppedKey: a live key on the drop list is Differs (not Foreign) until install removes it.
+func TestCheckSettingsDriftDroppedKey(t *testing.T) {
+	freshConfigDir(t)
+	rendered, err := settings.RenderLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+		t.Fatal(err)
+	}
+	withKey := strings.TrimRight(strings.TrimSpace(string(rendered)), "}") + `,"verbose":true}`
+	if err := os.WriteFile(SettingsFile(), []byte(withKey), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := CheckSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "verbose is dropped (run claude-code install)"
+	if !d.Drifted() || !slices.Contains(d.Differs, want) {
+		t.Errorf("Differs = %v, want %q", d.Differs, want)
+	}
+	if slices.Contains(d.Foreign, "verbose") {
+		t.Errorf("dropped key must not also be Foreign: %v", d.Foreign)
+	}
+	merged, _, err := settings.Merge([]byte(withKey), rendered, []string{"verbose"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SettingsFile(), merged, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err = CheckSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Drifted() || len(d.Lines()) != 0 {
+		t.Errorf("after the merge-rendered file nothing should print: %v", d.Lines())
 	}
 }

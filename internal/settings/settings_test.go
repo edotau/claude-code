@@ -89,7 +89,7 @@ const existing = `{
 
 func TestMergePreservesForeign(t *testing.T) {
 	rendered, _ := Render()
-	merged, sum, err := Merge([]byte(existing), rendered)
+	merged, sum, err := Merge([]byte(existing), rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
 		t.Errorf("kept %v", sum.Kept)
 	}
-	again, _, err := Merge(merged, rendered)
+	again, _, err := Merge(merged, rendered, nil)
 	if err != nil || string(again) != string(merged) {
 		t.Errorf("merge is not idempotent:\n%s", again)
 	}
@@ -165,7 +165,7 @@ func hermeticCacheDir(t *testing.T) string {
 func TestMergeEmptyAndBackup(t *testing.T) {
 	hermeticCacheDir(t)
 	rendered, _ := Render()
-	merged, _, err := Merge(nil, rendered)
+	merged, _, err := Merge(nil, rendered, nil)
 	if err != nil || string(merged) != string(rendered) {
 		t.Fatalf("merge onto nothing should equal the render: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := `{"companyAnnouncements":["hi"],"autoMemoryDirectory":"/flat/memory","zzForeign":{"a":1}}`
-	out, sum, err := Merge([]byte(in), rendered)
+	out, sum, err := Merge([]byte(in), rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 	if i, j := strings.Index(string(out), "companyAnnouncements"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
 		t.Errorf("foreign key order lost:\n%s", out)
 	}
-	again, sum2, err := Merge(out, rendered)
+	again, sum2, err := Merge(out, rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 
 func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
 	in := `{"env":{"CLAUDE_CODE_DBX_HOST":"x","CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL":"1","KEEP":"1"}}`
-	out, sum, err := Merge([]byte(in), []byte(`{"env":{"A":"b"}}`))
+	out, sum, err := Merge([]byte(in), []byte(`{"env":{"A":"b"}}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,5 +297,34 @@ func TestMergeHooksPreservesForeignFieldsAndOrder(t *testing.T) {
 	}
 	if compact.String() != want || sum.ForeignHooks != 3 || sum.HarnessHooks != 0 {
 		t.Fatalf("mergeHooks = %s, %+v", got, sum)
+	}
+}
+
+// TestMergeDropsListedForeignKey: a dropped foreign key is removed and recorded; a template key in the list stays.
+func TestMergeDropsListedForeignKey(t *testing.T) {
+	rendered, err := Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := `{"skipDangerousModePermissionPrompt":true,"keepMe":1,"env":{"A":"b"}}`
+	out, sum, err := Merge([]byte(in), rendered, []string{"skipDangerousModePermissionPrompt", "env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["skipDangerousModePermissionPrompt"]; ok {
+		t.Error("dropped foreign key survived Merge")
+	}
+	if _, ok := doc["keepMe"]; !ok {
+		t.Error("unlisted foreign key was removed")
+	}
+	if _, ok := doc["env"]; !ok {
+		t.Error("template-owned key in the drop list must still be rendered")
+	}
+	if !slices.Contains(sum.Dropped, "skipDangerousModePermissionPrompt") {
+		t.Errorf("Summary.Dropped = %v, want it to list the foreign key", sum.Dropped)
 	}
 }

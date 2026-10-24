@@ -1,7 +1,9 @@
 package launch
 
 import (
+	"encoding/json"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -76,10 +78,42 @@ func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	if err != nil {
 		return d, err
 	}
+	dropped, derr := settings.LoadDropped()
+	if derr != nil {
+		return d, derr
+	}
+	d.applyDropped(dropped, rendered)
 	if nested := clean.NestedConfig(); nested.Dir != "" && !nested.OnlyWorktrees() {
 		d.Nested = nestedDetail(nested)
 	}
 	return d, nil
+}
+
+// applyDropped moves live drop-list keys from Foreign to a Differs line; install removes them.
+func (s *SettingsDrift) applyDropped(dropped []string, rendered []byte) {
+	if len(dropped) == 0 || s.Invalid != nil {
+		return
+	}
+	live, _, err := readStrippingBOM(s.File)
+	if err != nil {
+		return
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(live, &top) != nil {
+		return
+	}
+	var tpl map[string]json.RawMessage
+	_ = json.Unmarshal(rendered, &tpl)
+	for _, k := range dropped {
+		if _, ok := top[k]; !ok {
+			continue
+		}
+		if _, owned := tpl[k]; owned {
+			continue
+		}
+		s.Foreign = slices.DeleteFunc(s.Foreign, func(f string) bool { return f == k })
+		s.Differs = append(s.Differs, k+" is dropped (run claude-code install)")
+	}
 }
 
 // newestBackup names the latest cache-mirrored backup to restore from, or says none was found.
