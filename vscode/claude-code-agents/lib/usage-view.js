@@ -120,12 +120,11 @@ function renderProvider(p, show, detailed) {
         : renderUngroupedGrid(p.windows, show)
       : `<div class="windows windows-compact">${p.windows.map((w) => renderWindow(w, show, false)).join('')}</div>`
     : `<div class="provider-note">${esc(p.note || 'no data')}</div>`;
-  return `<div class="provider" data-provider="${esc(p.id)}">
+  return `<div class="provider">
     <div class="provider-head">
       ${GLYPHS[p.id] || '<span class="glyph">\u25CF</span>'}
       <span class="provider-name">${esc(p.name)}</span>
       <span class="provider-resets">${esc(resets)}</span>
-      <span class="chevron">\u203A</span>
     </div>
     ${body}
   </div>`;
@@ -218,7 +217,7 @@ function heatLevel(tokens, max) {
   return 1;
 }
 
-const HEAT_OPACITY = [0.08, 0.3, 0.5, 0.75, 1];
+const HEAT_OPACITY = [1, 0.3, 0.5, 0.75, 1]; // level 0 paints the track tint at full opacity
 
 /** One tile: a muted label over a bold value; `opts.html` lets the value carry inline markup (the cost partial suffix). */
 function renderStatTile(label, value, opts) {
@@ -253,7 +252,7 @@ function renderHeatmap(stats) {
   for (const d of days) {
     const level = heatLevel(d.tokens, max);
     cells.push(
-      `<span class="heat-cell" style="grid-column:${col + 1};grid-row:${row + 1};opacity:${HEAT_OPACITY[level]}" title="${esc(
+      `<span class="heat-cell" style="grid-column:${col + 1};grid-row:${row + 1};opacity:${HEAT_OPACITY[level]}${level === 0 ? ';background:var(--track)' : ''}" title="${esc(
         formatDayLabel(d.date)
       )}: ${esc(formatCount(d.tokens))} tokens"></span>`
     );
@@ -269,7 +268,7 @@ function renderHeatmap(stats) {
 
 /** "Less [□▢▦▩■] More" legend, same 5-step opacity scale as the heatmap cells. */
 function renderHeatLegend() {
-  const squares = HEAT_OPACITY.map((o) => `<span class="heat-cell heat-legend-cell" style="opacity:${o}"></span>`).join('');
+  const squares = HEAT_OPACITY.map((o, i) => `<span class="heat-cell heat-legend-cell" style="opacity:${o}${i === 0 ? ';background:var(--track)' : ''}"></span>`).join('');
   return `<div class="heat-legend muted">Less ${squares} More</div>`;
 }
 
@@ -333,7 +332,7 @@ function renderUsageHtml(model, opts) {
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
 <style>
-  body { --heat-cell: 10px; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
+  body { --track: color-mix(in srgb, var(--vscode-foreground) 14%, transparent); --heat-cell: 10px; font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 0; }
   .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; flex-wrap: nowrap; }
   .header h1 { font-size: 13px; font-weight: 600; margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-right { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
@@ -350,7 +349,7 @@ function renderUsageHtml(model, opts) {
   /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
   .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quotas-list { display: flex; flex-direction: column; gap: 10px; }
-  .provider { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); cursor: pointer; }
+  .provider { padding: 8px 12px; border-top: 1px solid var(--vscode-widget-border); }
   .quotas-list .provider:first-child { border-top: none; }
   .provider-head { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
   .provider-name { font-weight: 600; flex: none; white-space: nowrap; }
@@ -364,7 +363,7 @@ function renderUsageHtml(model, opts) {
   .window-row { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
   .window-label { min-width: 32px; color: var(--vscode-descriptionForeground); }
   .window-bar { flex: none; }
-  .window-bar { width: 36px; height: 6px; border-radius: 3px; background: var(--vscode-widget-border); overflow: hidden; }
+  .window-bar { width: 36px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
   .window-fill { display: block; height: 100%; }
   .window-pct { width: 32px; text-align: right; }
   .windows-compact { flex-direction: row; flex-wrap: wrap; gap: 10px; }
@@ -372,11 +371,11 @@ function renderUsageHtml(model, opts) {
   .ungrouped-grid { grid-template-columns: auto 36px 36px; }
   .grid-group-name, .grid-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--vscode-descriptionForeground); }
   .grid-col-label { grid-column: span 2; text-align: right; color: var(--vscode-descriptionForeground); }
-  .grid-bar { display: inline-block; width: 36px; height: 6px; border-radius: 3px; background: var(--vscode-widget-border); overflow: hidden; }
+  .grid-bar { display: inline-block; width: 36px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
   .grid-pct { width: 36px; text-align: right; }
   .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
   .chip-label { color: var(--vscode-descriptionForeground); }
-  .chip-bar { width: 24px; height: 6px; border-radius: 3px; background: var(--vscode-widget-border); overflow: hidden; }
+  .chip-bar { width: 24px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
   .chip-fill { display: block; height: 100%; }
   .provider-note { margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 12px; }
   .agents-section { padding: 0 12px; }
@@ -386,7 +385,7 @@ function renderUsageHtml(model, opts) {
   .agent-name { font-weight: 600; }
   .agent-model, .agent-stats, .agent-note { font-size: 12px; }
   .agent-stats { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--vscode-widget-border); overflow: hidden; }
+  .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
   .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .agent-compact { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; padding: 2px 0; }
   .more-list .footer-row:first-child { border-top: none; }
@@ -466,9 +465,6 @@ function renderUsageHtml(model, opts) {
     const compactBtn = document.getElementById('compact');
     if (detailedBtn) detailedBtn.addEventListener('click', () => vscode.postMessage({ type: 'toggle', detailed: true }));
     if (compactBtn) compactBtn.addEventListener('click', () => vscode.postMessage({ type: 'toggle', detailed: false }));
-    document.querySelectorAll('.provider').forEach((el) => {
-      el.addEventListener('click', () => vscode.postMessage({ type: 'provider', id: el.getAttribute('data-provider') }));
-    });
   </script>
 </body>
 </html>`;

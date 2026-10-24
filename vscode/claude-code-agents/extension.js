@@ -105,7 +105,6 @@ class UsageViewProvider {
       terminal.show();
       return;
     }
-    // 'provider' clicks are reserved for a future per-provider drill-down; no-op today
   }
 
   async load() {
