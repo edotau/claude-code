@@ -23,6 +23,8 @@ const tailscale = require('./lib/tailscale');
 const tasksState = require('./lib/tasks-state');
 const { renderTasksHtml, rowCells, gridKind } = require('./lib/tasks-view');
 
+// Source order for the source bar and the settings writes; every handler reads this one list.
+const TASK_SOURCES = ['jira', 'github', 'bitbucket'];
 const GITHUB_PR_EXTENSION_ID = 'github.vscode-pull-request-github';
 
 // dashboardTerminal reuses one "Agents Dashboard" terminal for every command the dashboard launches.
@@ -678,12 +680,12 @@ class TasksViewProvider {
 
   cfg() {
     const cfg = config();
-    const visible = (cfg.get('tasksVisibleSources', ['jira', 'github', 'bitbucket']) || []).filter((s) => s === 'github' || s === 'bitbucket' || s === 'jira');
+    const visible = (cfg.get('tasksVisibleSources', TASK_SOURCES) || []).filter((s) => TASK_SOURCES.includes(s));
     return {
       binary: cfg.get('binary') || 'claude-code',
       baseUrl: cfg.get('bitbucketUrl') || 'https://bitbucket.biscrum.com',
       jiraBaseUrl: cfg.get('tasksJiraBaseUrl') || '',
-      visible: visible.length ? visible : ['jira', 'github', 'bitbucket'],
+      visible: visible.length ? visible : TASK_SOURCES,
       defaultSource: cfg.get('tasksDefaultSource', 'jira') || 'jira',
       defaultQuery: {
         github: cfg.get('tasksDefaultQuery.github') || tasksState.DEFAULT_QUERY.github,
@@ -1183,12 +1185,12 @@ class TasksViewProvider {
         const next = cfg.visible.filter((s) => s !== msg.source);
         if (msg.visible) next.push(msg.source);
         if (!next.length) return this.render(); // the last visible source stays on
-        await config().update('tasksVisibleSources', ['github', 'bitbucket'].filter((s) => next.includes(s)), vscode.ConfigurationTarget.Global);
+        await config().update('tasksVisibleSources', TASK_SOURCES.filter((s) => next.includes(s)), vscode.ConfigurationTarget.Global);
         if (!next.includes(this.source)) return this.handleMessage({ type: 'source', source: next[0] });
         return this.render();
       }
       case 'defaultSource':
-        if (msg.source === 'github' || msg.source === 'bitbucket') await config().update('tasksDefaultSource', msg.source, vscode.ConfigurationTarget.Global);
+        if (TASK_SOURCES.includes(msg.source)) await config().update('tasksDefaultSource', msg.source, vscode.ConfigurationTarget.Global);
         return this.render();
       case 'settingsExpanded':
         this.settingsExpanded = !!msg.expanded;

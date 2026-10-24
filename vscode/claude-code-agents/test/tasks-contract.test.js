@@ -82,3 +82,10 @@ test('package.json: the Tasks page settings exist with their defaults', () => {
     assert.ok(findSetting(id), `${id} setting missing`);
   }
 });
+
+test('extension.js: settings writes keep every source — no handler hard-codes the GitHub/Bitbucket pair', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(src, /const TASK_SOURCES = \['jira', 'github', 'bitbucket'\];/);
+  assert.doesNotMatch(src, /\['github', 'bitbucket'\]\.filter/);
+  assert.doesNotMatch(src, /msg\.source === 'github' \|\| msg\.source === 'bitbucket'/);
+});
