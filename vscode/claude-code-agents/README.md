@@ -75,8 +75,8 @@ is `true` (default); the same button sits in the Agents Dashboard view's own tit
 
 ## Tasks
 
-The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for two
-sources: **GitHub** and **Bitbucket Data Center**. It is contributed in two places backed by the same
+The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for three
+sources: **Jira Data Center** (the default — "Assigned to me"), **GitHub** and **Bitbucket Data Center**. It is contributed in two places backed by the same
 provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to Terminal/Problems) and an
 activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use (right-click its
 icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
@@ -84,17 +84,19 @@ icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar 
 in Editor" (also a view-title button) always opens the page as an editor tab, and "Open Tasks in New Window"
 (the `$(multiple-windows)` view-title button on the left-nav and Panel views) pops it out into a floating
 VS Code window (the editor tab moved with "Move Editor into New Window"). No Go: the harness only supplies the
-Bitbucket credential (`<binary> secrets get BITBUCKET_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` env var,
-then the token files), cached for the session and re-resolved once on a 401/403.
+Bitbucket and Jira credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the
+`BITBUCKET_TOKEN` / `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session
+and re-resolved once on a 401/403.
 
 Chrome, top to bottom: a source bar (one square button per visible source), an availability banner
 (not signed in / no token, with a Sign in / Set token action that runs `gh auth login` or
-`claude-code secrets set BITBUCKET_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
+`claude-code secrets set BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
 chips (click applies; **right-click makes it the default** for that source), type/state dropdowns, the
 query input (Enter applies, X clears), "New issue" (GitHub) and Refresh. The list is a sticky-header grid
 with sticky ID and Title columns under horizontal scroll — issues: ID · Title · Assignees · Status ·
 Updated · Actions; pull requests (query scope `is:pr`, Bitbucket, or every row a PR): ID · Title ·
-Reviewers · Checks · Merge · Updated · Actions. Loading shows 12 shimmer rows; errors show a banner
+Reviewers · Checks · Merge · Updated · Actions; Jira: Key · Title · Assignee · Status · Priority · Updated ·
+Actions. Loading shows 12 shimmer rows; errors show a banner
 ("N of M repos failed", a hard-error banner with Retry) plus per-repo error rows. A pagination bar
 appears below the list only when there is more than one page; jumping to page *k* loads only page *k*
 (36 rows per repo per page, 100 across repos — `claudeCodeAgents.tasksPageSize`). Clicking a row, the
@@ -119,13 +121,21 @@ quoted phrases and unknown tokens pass through as free text.
   Checks cell shows the folded Jenkins build status and links its URL; Merge is "Open in Bitbucket" (DC
   exposes no mergeability). A Jira key detected from the branch (then the title) renders as a chip linking
   to `claudeCodeAgents.tasksJiraBaseUrl/browse/<KEY>`.
+- **Jira Data Center** (`lib/tasks-jira.js` over `lib/jira-client.js`, `/rest/api/2`, Bearer PAT): the query
+  becomes JQL — `assignee:@me` → `assignee = currentUser()`, `author:@me` → `reporter = currentUser()`,
+  `is:open` → `statusCategory != Done`, `is:closed` → `statusCategory = Done`, `label:` → `labels in (…)`,
+  `project:KEY`, `status:Blocked`, a bare `KEY-123`, and other words → `text ~ "…"`; always
+  `ORDER BY updated DESC`, paged with `startAt`. `claudeCodeAgents.tasksJiraProjects` scopes it to project
+  keys (empty = every project the token can see). Presets: Assigned to me (default), Reported by me, Done by
+  me, All open. The Status pill is toned by status category (To Do muted, In Progress primary, Done green);
+  the issue-type and priority icons are Jira's own.
 
 The **Task sources** section at the bottom of the page shows one card per source — connection status
-(`gh api user` / the DC doctor), "Show in Tasks" (the last visible source cannot be hidden), the default
+(`gh api user` / the DC doctor / Jira `/myself`), "Show in Tasks" (the last visible source cannot be hidden), the default
 source, the repo list — with "Edit repos and defaults in Settings" and "Re-check connections".
-Settings: `claudeCodeAgents.tasksDefaultSource`, `tasksVisibleSources`, `tasksDefaultQuery.github` /
-`.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksPageSize`, `bitbucketUrl` (default
-`https://bitbucket.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
+Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`, `tasksDefaultQuery.jira` /
+`.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`, `tasksPageSize`,
+`bitbucketUrl` (default `https://bitbucket.biscrum.com`), `tasksJiraBaseUrl` (default `https://jira.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
 
 On activation, the extension installs the "GitHub Pull Requests and Issues" extension
 (`github.vscode-pull-request-github`, also listed as an `extensionPack` dependency for a

@@ -267,7 +267,7 @@
         "claudeCodeAgents.tasksJiraBaseUrl": {
           "type": "string",
           "default": "https://jira.biscrum.com",
-          "description": "Jira base URL used to link detected issue keys, e.g. https://jira.example.com"
+          "description": "Jira Data Center base URL the Tasks page queries and links issue keys to, e.g. https://jira.example.com"
         },
         "claudeCodeAgents.tasksStatusBar": {
           "type": "boolean",
@@ -287,10 +287,11 @@
         "claudeCodeAgents.tasksDefaultSource": {
           "type": "string",
           "enum": [
+            "jira",
             "github",
             "bitbucket"
           ],
-          "default": "github",
+          "default": "jira",
           "description": "Source the Tasks page opens on."
         },
         "claudeCodeAgents.tasksVisibleSources": {
@@ -298,11 +299,13 @@
           "items": {
             "type": "string",
             "enum": [
+              "jira",
               "github",
               "bitbucket"
             ]
           },
           "default": [
+            "jira",
             "github",
             "bitbucket"
           ],
@@ -324,6 +327,14 @@
           "default": [],
           "description": "Bitbucket Data Center repos (PROJECT/repo) listed under the \"This repo\" preset, in addition to the workspace folders’ remotes."
         },
+        "claudeCodeAgents.tasksJiraProjects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Jira project keys the Jira source is scoped to (empty = every project the token can see)."
+        },
         "claudeCodeAgents.tasksDefaultQuery.github": {
           "type": "string",
           "default": "is:open",
@@ -333,6 +344,11 @@
           "type": "string",
           "default": "is:pr is:open review-requested:@me",
           "description": "Query the Bitbucket source starts with; right-click a preset chip to set it."
+        },
+        "claudeCodeAgents.tasksDefaultQuery.jira": {
+          "type": "string",
+          "default": "is:issue is:open assignee:@me",
+          "description": "Query the Jira source starts with; right-click a preset chip to set it."
         },
         "claudeCodeAgents.tasksPageSize": {
           "type": "number",

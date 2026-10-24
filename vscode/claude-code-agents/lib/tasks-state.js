@@ -13,9 +13,15 @@ const PRESETS = {
     { id: 'myprs', label: 'My pull requests', query: 'is:pr is:open author:@me' },
     { id: 'repo', label: 'This repo', query: 'is:pr is:open' },
   ],
+  jira: [
+    { id: 'assigned', label: 'Assigned to me', query: 'is:issue is:open assignee:@me' },
+    { id: 'reported', label: 'Reported by me', query: 'is:issue is:open author:@me' },
+    { id: 'done', label: 'Done by me', query: 'is:issue is:closed assignee:@me' },
+    { id: 'open', label: 'All open', query: 'is:issue is:open' },
+  ],
 };
 
-const DEFAULT_QUERY = { github: 'is:open', bitbucket: 'is:pr is:open review-requested:@me' };
+const DEFAULT_QUERY = { github: 'is:open', bitbucket: 'is:pr is:open review-requested:@me', jira: 'is:issue is:open assignee:@me' };
 
 function presetsFor(source) {
   return PRESETS[source] || [];

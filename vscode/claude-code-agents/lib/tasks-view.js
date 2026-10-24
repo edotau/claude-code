@@ -7,7 +7,10 @@ const { getPageNumbers, formatRelativeTime } = require('./tasks-state');
 const SKELETON_ROWS = 12;
 const ISSUE_GRID = '72px minmax(320px,1fr) 84px 100px 92px 122px';
 const PR_GRID = '72px minmax(360px,2fr) 132px 128px 132px 92px 158px';
-const SOURCE_LABELS = { github: 'GitHub', bitbucket: 'Bitbucket' };
+// Jira: ID (key) · Title · Assignee · Status · Priority · Updated · Actions; the key is wider than a #number.
+const JIRA_GRID = '156px minmax(320px,1fr) 110px 120px 100px 92px 158px';
+const SOURCE_LABELS = { github: 'GitHub', bitbucket: 'Bitbucket', jira: 'Jira' };
+const GRIDS = { pr: PR_GRID, issue: ISSUE_GRID, jira: JIRA_GRID };
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,8 +20,14 @@ function attr(obj) {
   return JSON.stringify(obj).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+/** `jira` for the Jira source, else `pr` / `issue` per usesPrGrid. */
+function gridKind(model) {
+  return model.source === 'jira' ? 'jira' : usesPrGrid(model) ? 'pr' : 'issue';
+}
+
 /** The PR grid when the query scope is pr, Bitbucket is active, or every loaded row is a PR; else the issue grid. */
 function usesPrGrid(model) {
+  if (model.source === 'jira') return false;
   if (model.source === 'bitbucket' || model.scope === 'pr') return true;
   if (model.scope === 'issue') return false;
   return model.items.length > 0 && model.items.every((i) => i.type === 'pr');
@@ -35,7 +44,16 @@ function stateTone(state) {
   return 'muted';
 }
 
+/** `<img>` for a Jira-hosted icon (issue type, priority); the CSP allows https images. */
+function remoteIcon(ref, cls) {
+  return ref && ref.iconUrl ? `<img class="${cls}" src="${esc(ref.iconUrl)}" alt="" title="${esc(ref.name || '')}">` : '';
+}
+
 function idPill(item) {
+  if (item.source === 'jira') {
+    const icon = remoteIcon(item.issueType, 'type-icon') || ICONS.circleDot;
+    return `<span class="id-pill" aria-label="${esc((item.issueType && item.issueType.name) || 'Issue')} ${esc(item.key)}" title="${esc((item.issueType && item.issueType.name) || '')}">${icon}<span class="mono">${esc(item.key)}</span></span>`;
+  }
   const draft = item.state === 'draft';
   const icon = item.type === 'pr' ? (draft ? ICONS.gitPullRequestDraft : item.state === 'merged' ? ICONS.gitMerge : ICONS.gitPullRequest) : ICONS.circleDot;
   const tone = item.type !== 'pr' ? '' : item.state === 'merged' ? ' tone-primary' : item.state === 'closed' ? ' tone-danger' : draft ? ' tone-muted' : ' tone-emerald';
@@ -57,7 +75,7 @@ function titleCell(item, model) {
   if (item.state === 'draft') meta.push('<span aria-hidden="true">·</span><span>Draft</span>');
   const delta = deltaText(item);
   if (delta) meta.push(`<span class="meta-icon">${ICONS.files}${esc(delta)}</span>`);
-  if (item.jiraKey) meta.push(`<a class="jira-chip" data-url="${esc(item.jiraUrl || '')}" title="Open ${esc(item.jiraKey)} in Jira">${esc(item.jiraKey)}</a>`);
+  if (item.jiraKey && item.source !== 'jira') meta.push(`<a class="jira-chip" data-url="${esc(item.jiraUrl || '')}" title="Open ${esc(item.jiraKey)} in Jira">${esc(item.jiraKey)}</a>`);
   for (const label of (item.labels || []).slice(0, 3)) meta.push(`<span class="label-chip">${esc(label)}</span>`);
   return `<div class="title-row"><h3 class="title">${esc(item.title)}</h3>${badge}${repoBadge}</div><div class="meta">${meta.join('')}</div>`;
 }
@@ -101,7 +119,21 @@ function mergeCell(item) {
   return `<button class="pill pill-${tone} pill-btn link-btn" data-url="${esc(item.url)}" title="${esc(title)}">${esc(m.label)}${ICONS.externalLink}</button>`;
 }
 
+/** Jira status pill toned by category: To Do muted, In Progress primary, Done emerald. */
+function jiraStatusCell(item) {
+  const st = item.status || { name: item.state === 'closed' ? 'Done' : 'Open', category: item.state === 'closed' ? 'done' : 'new' };
+  const tone = st.category === 'done' ? 'emerald' : st.category === 'indeterminate' ? 'primary' : 'muted';
+  return pill(tone, st.name, st.name);
+}
+
+function priorityCell(item) {
+  const p = item.priority;
+  if (!p) return '<span class="muted cell-text">—</span>';
+  return `<span class="cell-text" title="${esc(p.name)}">${remoteIcon(p, 'type-icon')}${esc(p.name)}</span>`;
+}
+
 function statusCell(item) {
+  if (item.source === 'jira') return jiraStatusCell(item);
   const closed = item.state === 'closed';
   const reason = item.stateReason ? ` (${String(item.stateReason).replace('_', ' ')})` : '';
   return pill(closed ? 'primary' : 'emerald', closed ? 'Closed' : 'Open', `${closed ? 'Closed' : 'Open'}${reason}`);
@@ -130,10 +162,12 @@ function actionsCell(item) {
   return `<span class="split">${start}<button class="btn btn-outline" data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open</button><details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items"><button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details></span>`;
 }
 
-function row(item, model, prGrid) {
+function row(item, model, kind) {
   const cells = [`<div class="cell c-id">${idPill(item)}</div>`, `<div class="cell c-title">${titleCell(item, model)}</div>`];
-  if (prGrid) {
+  if (kind === 'pr') {
     cells.push(`<div class="cell">${reviewersCell(item)}</div>`, `<div class="cell">${checksCell(item)}</div>`, `<div class="cell">${mergeCell(item)}</div>`);
+  } else if (kind === 'jira') {
+    cells.push(`<div class="cell">${assigneesCell(item)}</div>`, `<div class="cell">${statusCell(item)}</div>`, `<div class="cell">${priorityCell(item)}</div>`);
   } else {
     cells.push(`<div class="cell">${assigneesCell(item)}</div>`, `<div class="cell">${statusCell(item)}</div>`);
   }
@@ -141,13 +175,19 @@ function row(item, model, prGrid) {
   return `<div class="row" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}">${cells.join('')}</div>`;
 }
 
-function headerRow(prGrid) {
-  const cols = prGrid ? ['ID', 'Title', 'Reviewers', 'Checks', 'Merge', 'Updated', 'Actions'] : ['ID', 'Title', 'Assignees', 'Status', 'Updated', 'Actions'];
+const HEADERS = {
+  pr: ['ID', 'Title', 'Reviewers', 'Checks', 'Merge', 'Updated', 'Actions'],
+  issue: ['ID', 'Title', 'Assignees', 'Status', 'Updated', 'Actions'],
+  jira: ['Key', 'Title', 'Assignee', 'Status', 'Priority', 'Updated', 'Actions'],
+};
+
+function headerRow(kind) {
+  const cols = HEADERS[kind] || HEADERS.issue;
   return `<div class="row head">${cols.map((c, i) => `<div class="cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}">${c}</div>`).join('')}</div>`;
 }
 
-function skeletonRows(prGrid) {
-  const n = prGrid ? 7 : 6;
+function skeletonRows(kind) {
+  const n = (HEADERS[kind] || HEADERS.issue).length;
   const one = `<div class="row skeleton" aria-hidden="true">${Array.from({ length: n }, (_, i) => `<div class="cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}"><span class="shimmer${i === 1 ? ' wide' : ''}"></span></div>`).join('')}</div>`;
   return one.repeat(SKELETON_ROWS);
 }
@@ -157,8 +197,8 @@ function errorRows(model) {
 }
 
 function emptyState(model) {
-  const title = model.source === 'bitbucket' ? 'No pull requests' : 'Nothing matches';
-  const desc = model.source === 'bitbucket' ? 'No Bitbucket pull requests match this filter.' : model.repoCount ? 'Try another preset or clear the query.' : 'Add a GitHub repo in Task sources or open a workspace with a GitHub remote.';
+  const title = model.source === 'bitbucket' ? 'No pull requests' : model.source === 'jira' ? 'No issues' : 'Nothing matches';
+  const desc = model.source === 'bitbucket' ? 'No Bitbucket pull requests match this filter.' : model.source === 'jira' ? 'No Jira issues match this filter.' : model.repoCount ? 'Try another preset or clear the query.' : 'Add a GitHub repo in Task sources or open a workspace with a GitHub remote.';
   return `<div class="empty"><div class="empty-title">${esc(title)}</div><div class="muted">${esc(desc)}</div></div>`;
 }
 
@@ -205,10 +245,10 @@ function filters(model) {
     .map((p) => `<button class="chip${p.id === model.activePreset ? ' active' : ''}" data-preset="${esc(p.id)}" title="${esc(p.query)} — right-click to make default">${p.id === model.defaultPreset ? '<span class="default-dot" title="Default"></span>' : ''}${esc(p.label)}</button>`)
     .join('');
   const scope = model.source === 'github' ? `<select class="select" data-filter="scope" aria-label="Type"><option value="all"${model.scope === 'all' ? ' selected' : ''}>Issues and PRs</option><option value="issue"${model.scope === 'issue' ? ' selected' : ''}>Issues</option><option value="pr"${model.scope === 'pr' ? ' selected' : ''}>Pull requests</option></select>` : '';
-  const stateOpts = [['open', 'Open'], ['closed', model.source === 'bitbucket' ? 'Declined' : 'Closed'], ['merged', 'Merged'], ['all', 'All']];
+  const stateOpts = model.source === 'jira' ? [['open', 'Open'], ['closed', 'Done'], ['all', 'All']] : [['open', 'Open'], ['closed', model.source === 'bitbucket' ? 'Declined' : 'Closed'], ['merged', 'Merged'], ['all', 'All']];
   const state = `<select class="select" data-filter="state" aria-label="State">${stateOpts.map(([v, l]) => `<option value="${v}"${(model.state || 'open') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const newIssue = model.source === 'github' && (model.repos || []).some((r) => r.selected) ? `<button class="btn btn-outline" data-act="newIssue" title="New issue">${ICONS.plus}New issue</button>` : '';
-  return `<div class="filters"><div class="chips">${chips}</div><div class="filter-row">${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="Search ${model.source === 'bitbucket' ? 'pull requests' : 'issues and pull requests'}…" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button></div></div>`;
+  return `<div class="filters"><div class="chips">${chips}</div><div class="filter-row">${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="${model.source === 'bitbucket' ? 'Search pull requests…' : model.source === 'jira' ? 'Search issues… (project:KEY, status:Blocked, DIGITALBTD-1)' : 'Search issues and pull requests…'}" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button></div></div>`;
 }
 
 function statusPill(status) {
@@ -224,13 +264,13 @@ function settingsSection(model) {
   const card = (id, cfg) => {
     const c = cfg || {};
     const lockVisible = c.visible && visibleCount <= 1;
-    const repos = (c.repos || []).length ? c.repos.map((r) => `<span class="label-chip">${esc(r)}</span>`).join('') : '<span class="muted">workspace remotes only</span>';
+    const repos = (c.repos || []).length ? c.repos.map((r) => `<span class="label-chip">${esc(r)}</span>`).join('') : `<span class="muted">${id === 'jira' ? 'every project' : 'workspace remotes only'}</span>`;
     const signIn = c.status && !c.status.ok ? `<button class="btn btn-outline" data-act="signIn" data-source="${id}">${id === 'github' ? 'gh auth login' : 'Set token'}</button>` : '';
     return `<div class="card"><div class="card-head">${ICONS[id]}<span class="card-title">${esc(SOURCE_LABELS[id])}</span>${statusPill(c.status)}${signIn}</div>
       <div class="card-row"><label class="menu-check"><input type="checkbox" data-visible="${id}"${c.visible ? ' checked' : ''}${lockVisible ? ' disabled title="The last visible source stays on"' : ''}>Show in Tasks</label><label class="menu-check"><input type="radio" name="defaultSource" data-default="${id}"${s.defaultSource === id ? ' checked' : ''}>Default</label></div>
       <div class="card-row repos">${repos}</div>${c.baseUrl ? `<div class="card-row muted truncate">${esc(c.baseUrl)}</div>` : ''}</div>`;
   };
-  return `<details class="settings" id="settings"${s.expanded ? ' open' : ''}><summary class="section-header">TASK SOURCES</summary><div class="cards">${card('github', s.github)}${card('bitbucket', s.bitbucket)}</div><div class="card-row"><button class="btn btn-outline" data-act="openSettings">${ICONS.settings}Edit repos and defaults in Settings</button><button class="btn btn-outline" data-act="doctor">${ICONS.refreshCw}Re-check connections</button></div></details>`;
+  return `<details class="settings" id="settings"${s.expanded ? ' open' : ''}><summary class="section-header">TASK SOURCES</summary><div class="cards">${card('jira', s.jira)}${card('github', s.github)}${card('bitbucket', s.bitbucket)}</div><div class="card-row"><button class="btn btn-outline" data-act="openSettings">${ICONS.settings}Edit repos and defaults in Settings</button><button class="btn btn-outline" data-act="doctor">${ICONS.refreshCw}Re-check connections</button></div></details>`;
 }
 
 const CSS = `
@@ -292,13 +332,14 @@ const CSS = `
   .cell { min-width: 0; display: flex; align-items: center; }
   .c-id, .c-title { position: sticky; z-index: 20; background: inherit; }
   .c-id { left: 0; }
-  .c-title { left: 84px; flex-direction: column; align-items: stretch; justify-content: center; }
+  .c-title { left: var(--title-left, 84px); flex-direction: column; align-items: stretch; justify-content: center; }
   .c-id::before, .c-title::before { content: ''; position: absolute; top: 0; bottom: 0; width: 12px; background: inherit; }
   .c-id::before { left: -12px; }
   .c-title::before { left: -12px; }
   .c-title::after { content: ''; position: absolute; top: 0; bottom: 0; right: -12px; width: 12px; background: inherit; }
-  .id-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 2px 6px; color: var(--vscode-descriptionForeground); }
+  .id-pill { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 2px 6px; color: var(--vscode-descriptionForeground); }
   .id-pill svg { width: 12px; height: 12px; }
+  .type-icon { width: 14px; height: 14px; flex: none; }
   .tone-emerald { color: var(--emerald); } .tone-danger { color: var(--danger); } .tone-amber { color: var(--amber); } .tone-primary { color: var(--primary); } .tone-muted { color: var(--vscode-descriptionForeground); }
   .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .title { margin: 0; font-size: 13px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); }
@@ -355,7 +396,7 @@ const CSS = `
   .card-title { font-weight: 600; }
   .card-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
   .card-row.repos { gap: 4px; }
-  @media (max-width: 480px) { .chrome { padding: 8px; } .row { padding: 10px 8px; } .c-title { left: 80px; } .page-btn { min-width: 0; } }
+  @media (max-width: 480px) { .chrome { padding: 8px; } .row { padding: 10px 8px; } .c-title { left: calc(var(--title-left, 84px) - 4px); } .page-btn { min-width: 0; } }
 `;
 
 const SCRIPT = `
@@ -415,29 +456,30 @@ const SCRIPT = `
 /** Full webview HTML for the Tasks page. `model` is built by the extension's TasksViewProvider. */
 function renderTasksHtml(model, opts) {
   const { nonce = '', cspSource = '' } = opts || {};
-  const prGrid = usesPrGrid(model);
-  const grid = prGrid ? PR_GRID : ISSUE_GRID;
+  const kind = gridKind(model);
+  const grid = GRIDS[kind];
+  const titleLeft = kind === 'jira' ? '168px' : '84px';
   let body;
-  if (model.loading) body = skeletonRows(prGrid);
+  if (model.loading) body = skeletonRows(kind);
   else if (!model.items.length && !(model.errors || []).length) body = emptyState(model);
-  else body = model.items.map((i) => row(i, model, prGrid)).join('') + errorRows(model);
+  else body = model.items.map((i) => row(i, model, kind)).join('') + errorRows(model);
   const bodyIsEmpty = !model.loading && !model.items.length && !(model.errors || []).length;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
 <style>${CSS}</style>
 </head>
-<body style="--grid:${grid}">
+<body style="--grid:${grid};--title-left:${titleLeft}">
   <div class="chrome">
     ${sourceBar(model)}
     ${listBanner(model)}
     ${modeControls(model)}
     ${filters(model)}
   </div>
-  <div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(prGrid)}${body}</div></div>
+  <div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind)}${body}</div></div>
   ${pagination(model)}
   ${settingsSection(model)}
   <script nonce="${nonce}">${SCRIPT}</script>
@@ -445,4 +487,4 @@ function renderTasksHtml(model, opts) {
 </html>`;
 }
 
-module.exports = { renderTasksHtml, usesPrGrid, ISSUE_GRID, PR_GRID, SKELETON_ROWS };
+module.exports = { renderTasksHtml, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };
