@@ -67,11 +67,11 @@ pre-commit review around Phase 8.
 
 Launch **3 parallel `Explore` subagents** in a single message:
 
-| Agent | Focus |
-|-------|-------|
-| Structure | Directory layout, entry points, pipeline stages |
-| Conventions | Naming, error handling, logging, test patterns |
-| Dependencies | Manifest deps, env vars, CLI tools, policies |
+| Agent | Focus | Output |
+|-------|-------|--------|
+| Structure | Directory layout, entry points, pipeline stages | Package map + architecture overview |
+| Conventions | Naming, error handling, logging, test patterns | Style rules + code references |
+| Dependencies | Manifest deps, env vars, CLI tools, policies | Integration map + constraints |
 
 **Output**: Codebase Context Brief — passed to ALL downstream agents.
 
@@ -197,9 +197,9 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 ## Agent Reference
 
 Roster (`Explore`, `Plan`, `claude`, `code-worker`, `copilot`, `codex`, `gemini`, `opencode`) and
-purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan`/`codex` → 1, 4;
-`Explore` → 2; `general-purpose` → 5, 6; `code-worker`/`copilot` → 6; `claude-code ask --agent <leg>`
-→ 1, 6, 8.
+purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan` → 1, 4;
+`codex`/`gemini`/`opencode` → 1; `Explore` → 2; `general-purpose` (built-in) → 5, 6;
+`code-worker`/`copilot` → 6; `claude-code ask --agent <leg>` → 1, 6, 8.
 
 > **Security review is a skill, not an agent.** Run it via `/security-reviewer` (the `security-reviewer`
 > skill), typically alongside Phase 8.

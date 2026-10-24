@@ -1,9 +1,10 @@
 # Review and Simplify Task Template
 
 Run claude in Review & Simplify mode over my current diff: apply `Skill(simplify)`, the comment
-rule (`rules/standards/communication.md`), and the performance lens (`references/performance.md`)
-on any hot path touched. Behavior preserved exactly; surgical changes only; >80% confidence filter;
-consolidate similar issues into one finding.
+rule (`rules/standards/communication.md`), and the performance lens (`performance.md`)
+on any hot path touched. Behavior preserved exactly; surgical changes only; match existing
+project conventions; do not introduce new abstractions, dependencies, or patterns; do not expand
+scope beyond the current diff; >80% confidence filter; consolidate similar issues into one finding.
 
 Output:
 
