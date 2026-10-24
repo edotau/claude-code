@@ -284,6 +284,20 @@ func TestCmdAskRetryFlags(t *testing.T) {
 	}
 }
 
+// --background and --job are mutually exclusive: cmdAsk must fail before doing any work.
+func TestCmdAskBackgroundAndJobMutuallyExclusive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdAsk([]string{"--background", "--job", "some-id", "say ok"})
+	})
+	if code == 0 {
+		t.Fatalf("exit = %d, want non-zero for --background with --job; stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "mutually exclusive") {
+		t.Errorf("stderr = %q, want a mutually-exclusive message", stderr)
+	}
+}
+
 // agents tree's text output (the default) renders without error when no sessions are in scope.
 func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

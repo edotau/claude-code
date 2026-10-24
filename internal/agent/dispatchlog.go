@@ -27,12 +27,16 @@ type Record struct {
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string    `json:"fallback_reason,omitempty"`
 	RanAs          string    `json:"ran_as,omitempty"` // the runner that answered, when a fallback leg did
+	Repo           string    `json:"repo,omitempty"`   // main checkout root the job belongs to
+	PID            int       `json:"pid,omitempty"`    // pid of the detached `claude-code ask --job` child
+	Log            string    `json:"log,omitempty"`    // absolute path of the job's combined stdout+stderr log
 }
 
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
 
-func dispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
+// DispatchDir is the directory holding dispatch records and job logs.
+func DispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(agent string, req Request, now time.Time) Record {
@@ -41,7 +45,7 @@ func NewRecord(agent string, req Request, now time.Time) Record {
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
 func (r Record) Save() error {
-	dir := dispatchDir()
+	dir := DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -73,6 +77,8 @@ func pruneDispatches(dir string) {
 	names := recordNames(dir)
 	for len(names) > dispatchKeep {
 		_ = os.Remove(filepath.Join(dir, names[0]))
+		logName := strings.TrimSuffix(names[0], ".json") + ".log"
+		_ = os.Remove(filepath.Join(dir, logName)) // ignore not-exist
 		names = names[1:]
 	}
 }
@@ -93,7 +99,7 @@ func recordNames(dir string) []string {
 // LoadRecord reads one record by id; a unique id prefix is accepted.
 func LoadRecord(id string) (Record, error) {
 	var match []string
-	for _, n := range recordNames(dispatchDir()) {
+	for _, n := range recordNames(DispatchDir()) {
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
 		}
@@ -102,7 +108,7 @@ func LoadRecord(id string) (Record, error) {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code ask --log)", id, len(match))
 	}
 	var r Record
-	b, err := os.ReadFile(filepath.Join(dispatchDir(), match[0]))
+	b, err := os.ReadFile(filepath.Join(DispatchDir(), match[0]))
 	if err == nil {
 		err = json.Unmarshal(b, &r)
 	}
@@ -111,7 +117,7 @@ func LoadRecord(id string) (Record, error) {
 
 // RecentRecords returns up to n records, newest first.
 func RecentRecords(n int) []Record {
-	names := recordNames(dispatchDir())
+	names := recordNames(DispatchDir())
 	var out []Record
 	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {
 		if r, err := LoadRecord(strings.TrimSuffix(names[i], ".json")); err == nil {
