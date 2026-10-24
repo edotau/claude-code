@@ -21,7 +21,7 @@ const { MutationQueue } = require('./lib/tasks-mutations');
 const tasksBoard = require('./lib/tasks-board');
 const tailscale = require('./lib/tailscale');
 const tasksState = require('./lib/tasks-state');
-const { renderTasksHtml, renderElsewhereHtml, rowCells, gridKind } = require('./lib/tasks-view');
+const { renderTasksHtml, renderElsewhereHtml, renderLauncherHtml, rowCells, gridKind } = require('./lib/tasks-view');
 
 // Source order for the source bar and the settings writes; every handler reads this one list.
 const TASK_SOURCES = ['jira', 'github', 'bitbucket'];
@@ -712,10 +712,38 @@ class TasksViewProvider {
   }
 
   resolveWebviewView(webviewView) {
+    if (webviewView.viewType === 'claudeCodeTasks.page') {
+      // The left-nav view is a launcher: too narrow for the page, so it lists the sources and opens Tasks in a window.
+      this.sidebar = webviewView;
+      webviewView.onDidDispose(() => {
+        if (this.sidebar === webviewView) this.sidebar = undefined;
+      });
+      this.wireWebview(webviewView.webview);
+      webviewView.onDidChangeVisibility(() => {
+        if (webviewView.visible) this.openFromSidebar();
+      });
+      this.render();
+      this.openFromSidebar();
+      return;
+    }
     this.views.add(webviewView);
     webviewView.onDidDispose(() => this.views.delete(webviewView));
     this.wireWebview(webviewView.webview);
     this.render();
+  }
+
+  /** Left-nav click: reveal Tasks where it already lives, else pop it out into a new window. */
+  openFromSidebar(source) {
+    if (source && TASK_SOURCES.includes(source) && source !== this.source) this.handleMessage({ type: 'source', source });
+    if (this.panel) return this.panel.reveal();
+    if ([...this.views].some((v) => v.visible)) return;
+    return this.popOut();
+  }
+
+  openWhere() {
+    if (this.panel) return this.panelFloating ? 'window' : 'editor';
+    if ([...this.views].some((v) => v.visible)) return 'panel';
+    return null;
   }
 
   /** Opens (or reveals) the single Tasks editor-tab panel; same model and message handling as the sidebar view. */
@@ -1026,6 +1054,7 @@ class TasksViewProvider {
   render() {
     const model = this.model();
     if (this.panel) this.panel.webview.html = renderTasksHtml(model, { nonce: nonce(), cspSource: this.panel.webview.cspSource });
+    if (this.sidebar) this.sidebar.webview.html = renderLauncherHtml({ ...model, openWhere: this.openWhere() }, { nonce: nonce(), cspSource: this.sidebar.webview.cspSource });
     for (const view of this.views) {
       // While the editor tab / window owns the page, views show a pointer to it instead of a second live copy.
       view.webview.html = this.panel ? renderElsewhereHtml({ floating: !!this.panelFloating, viewType: view.viewType, nonce: nonce(), cspSource: view.webview.cspSource }) : renderTasksHtml(model, { nonce: nonce(), cspSource: view.webview.cspSource });
@@ -1141,6 +1170,11 @@ class TasksViewProvider {
         return this.pickAssignee(msg.id);
       case 'hydrate':
         return this.hydrate(msg.ids || []);
+      case 'openWindow':
+        return this.openFromSidebar(msg.source);
+      case 'openPanel':
+        await vscode.commands.executeCommand('workbench.view.extension.claudeCodeTasksPanel');
+        return vscode.commands.executeCommand('claudeCodeTasks.panel.focus');
       case 'revealElsewhere':
         if (this.panel) this.panel.reveal();
         return;
