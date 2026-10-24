@@ -9,6 +9,7 @@ const {
   viewFollowArgv,
   attachShellArgs,
   attachCommandLine,
+  vscodeServeArgv,
 } = require('../lib/argv');
 
 test('treeArgv: defaults to --days 1, no --all, --format json', () => {
@@ -93,5 +94,23 @@ test('attachCommandLine: full "ssh -t host tmux attach -t session" text', () => 
   assert.equal(
     attachCommandLine('myhost', 'cc-claude-abcd'),
     'ssh -t myhost tmux attach -t cc-claude-abcd'
+  );
+});
+
+test('vscodeServeArgv: "<binary> vscode serve"', () => {
+  assert.deepEqual(vscodeServeArgv('claude-code'), ['claude-code', 'vscode', 'serve']);
+});
+
+test('vscodeServeArgv: {stop: true} appends --stop', () => {
+  assert.deepEqual(
+    vscodeServeArgv('claude-code', { stop: true }),
+    ['claude-code', 'vscode', 'serve', '--stop']
+  );
+});
+
+test('vscodeServeArgv: {stop: false} omits --stop entirely', () => {
+  assert.deepEqual(
+    vscodeServeArgv('claude-code', { stop: false }),
+    ['claude-code', 'vscode', 'serve']
   );
 });

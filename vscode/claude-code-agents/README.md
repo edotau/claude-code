@@ -62,6 +62,13 @@ Agent Dashboard in Editor" always opens that tab regardless of the setting, and 
 a `$(pulse)` button in every editor's title bar (top-right) when `claudeCodeAgents.usageEditorTitleButton`
 is `true` (default); the same button sits in the Agent Dashboard view's own title bar next to Refresh.
 
+## Phone access
+
+"Claude Code Agents: Serve for Phone (Tailscale)" runs `claude-code vscode serve` in a terminal
+named "Agent Dashboard", publishing this VS Code's web UI to your tailnet (or the public internet
+with `--funnel`) with a token-gated URL and a terminal QR code; "Stop Serving for Phone" runs
+`claude-code vscode serve --stop`.
+
 ## Tests
 
 `node --test <dir>` fails to discover files on this box (mise node 24); use a glob instead:

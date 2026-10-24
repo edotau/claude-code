@@ -10,6 +10,7 @@ const {
   viewFollowArgv,
   usageArgv,
   profileArgv,
+  vscodeServeArgv,
   attachShellArgs,
   attachCommandLine,
 } = require('./lib/argv');
@@ -424,6 +425,21 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('claudeCodeAgents.refreshUsage', () => usageProvider.load()),
     vscode.commands.registerCommand('claudeCodeAgents.openUsageEditor', () => usageProvider.openInEditor())
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('claudeCodeAgents.servePhone', () => {
+      const binary = config().get('binary') || 'claude-code';
+      const terminal = vscode.window.createTerminal({ name: 'Agent Dashboard' });
+      terminal.sendText(vscodeServeArgv(binary, {}).join(' '));
+      terminal.show();
+    }),
+    vscode.commands.registerCommand('claudeCodeAgents.servePhoneStop', () => {
+      const binary = config().get('binary') || 'claude-code';
+      const terminal = vscode.window.createTerminal({ name: 'Agent Dashboard' });
+      terminal.sendText(vscodeServeArgv(binary, { stop: true }).join(' '));
+      terminal.show();
+    })
   );
 
   usageProvider.load();
