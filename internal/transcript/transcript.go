@@ -105,6 +105,11 @@ func Window(model string, used int) int {
 
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
 var toolUseKey = []byte(`"tool_use"`)
+var commitKey = []byte("commit") // cheap prefilter; the real check is gitCommitCommand (segment/token aware)
+
+// CommitEditWeight is how many edits a Bash `git commit` call counts for: one commit alone is
+// substantive work; hooks.harvestMinEdits is defined from this so the two stay in lockstep.
+const CommitEditWeight = 3
 
 // EditedFiles returns up to limit unique paths the transcript's Edit/Write tool calls touched, sorted.
 func EditedFiles(path string, limit int) []string {
@@ -125,7 +130,7 @@ func EditedFiles(path string, limit int) []string {
 	return out
 }
 
-// CountEdits counts editor tool_use calls in the transcript's complete JSONL records.
+// CountEdits counts editor tool_use calls (plus weighted commits) in the transcript's complete JSONL records.
 func CountEdits(path string) int {
 	n, _ := CountEditsFrom(path, 0)
 	return n
@@ -152,6 +157,7 @@ func CountEditsFrom(path string, offset int64) (edits int, next int64) {
 	n := 0
 	read := scanLines(f, true, func(line []byte) {
 		eachEditLine(line, func(string) { n++ })
+		eachCommitLine(line, func() { n += CommitEditWeight })
 	})
 	return n, offset + read
 }
@@ -193,6 +199,150 @@ func eachEditLine(line []byte, fn func(filePath string)) {
 			fn(c.Input.FilePath + c.Input.NotebookPath)
 		}
 	}
+}
+
+// eachCommitLine calls fn once per Bash tool_use that actually RUNS `git commit` — not sed/heredoc writes,
+// and not `grep 'git commit'`/`echo "git commit"`, where the phrase is quoted text, never executed.
+func eachCommitLine(line []byte, fn func()) {
+	if !bytes.Contains(line, toolUseKey) || !bytes.Contains(line, commitKey) {
+		return
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type  string `json:"type"`
+				Name  string `json:"name"`
+				Input struct {
+					Command string `json:"command"`
+				} `json:"input"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" {
+		return
+	}
+	for _, c := range rec.Message.Content {
+		if c.Type == "tool_use" && c.Name == "Bash" && gitCommitCommand(c.Input.Command) {
+			fn()
+		}
+	}
+}
+
+// gitValueOpts are git global options whose value is the next token when not spelled with `=`.
+var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true}
+
+// gitCommitCommand reports whether cmd actually RUNS `git … commit …` in some shell segment: split on
+// &&/||/;/|/newline, tokenize each segment (quotes collapse to one token, so quoted text never matches),
+// skip a leading env assignment or sudo/env, then require `git` (or a .../git path) followed by global
+// options up to the verb `commit`.
+func gitCommitCommand(cmd string) bool {
+	for _, seg := range commitShellSegments(cmd) {
+		toks := skipCommitWrappers(commitShellTokens(seg))
+		if len(toks) == 0 {
+			continue
+		}
+		if toks[0] != "git" && !strings.HasSuffix(toks[0], "/git") {
+			continue
+		}
+		i := 1
+		for i < len(toks) && strings.HasPrefix(toks[i], "-") {
+			if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
+				i += 2
+				continue
+			}
+			i++
+		}
+		if i < len(toks) && toks[i] == "commit" {
+			return true
+		}
+	}
+	return false
+}
+
+// skipCommitWrappers drops leading `NAME=value` env assignments and `sudo`/`env` tokens before `git`.
+func skipCommitWrappers(toks []string) []string {
+	for len(toks) > 0 {
+		if toks[0] == "sudo" || toks[0] == "env" {
+			toks = toks[1:]
+			continue
+		}
+		if name, _, ok := strings.Cut(toks[0], "="); ok && name != "" && !strings.ContainsAny(name, " \t") {
+			toks = toks[1:]
+			continue
+		}
+		break
+	}
+	return toks
+}
+
+// commitShellSegments splits cmd on &&, ||, ;, |, newline — quoted delimiters stay inside their segment.
+func commitShellSegments(cmd string) []string {
+	var out []string
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		if quote != 0 {
+			b.WriteByte(c)
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch {
+		case c == '\'' || c == '"':
+			quote = c
+			b.WriteByte(c)
+		case c == ';' || c == '|' || c == '&' || c == '\n':
+			if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
+				i++
+			}
+			out = append(out, b.String())
+			b.Reset()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return append(out, b.String())
+}
+
+// commitShellTokens splits one segment into words on whitespace; a quoted run collapses to ONE token,
+// so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match.
+func commitShellTokens(seg string) []string {
+	var out []string
+	var b strings.Builder
+	var quote byte
+	started := false
+	for i := 0; i < len(seg); i++ {
+		c := seg[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			} else {
+				b.WriteByte(c)
+			}
+			continue
+		}
+		switch {
+		case c == '\'' || c == '"':
+			quote = c
+			started = true
+		case c == ' ' || c == '\t':
+			if started {
+				out = append(out, b.String())
+				b.Reset()
+				started = false
+			}
+		default:
+			started = true
+			b.WriteByte(c)
+		}
+	}
+	if started {
+		out = append(out, b.String())
+	}
+	return out
 }
 
 // eachLine includes partial EOF records; callback slices are valid only until fn returns.

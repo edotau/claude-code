@@ -18,7 +18,7 @@ import (
 // Harvest gate thresholds: the floor asks "was this substantive work"; re-arming needs 10 NEW edits AND 15 min,
 // since every harvest appends a sessionHistory entry and a chatty re-arm evicts other sessions' history.
 const (
-	harvestMinEdits   = 3
+	harvestMinEdits   = transcript.CommitEditWeight // keeps a `git commit` worth exactly one gate floor
 	harvestRearmEdits = 10
 	reharvestCooldown = 15 * time.Minute
 	harvestMaxBlocks  = 3
@@ -365,10 +365,13 @@ func writeStamp(path string, at time.Time, state string, edits int) {
 	_ = paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600)
 }
 
-// countState tracks complete transcript lines separately from edits already covered by a harvest.
+// countState tracks complete transcript lines separately from edits already covered by a harvest;
+// subEdits/subBytes cache dispatched subagents' edit count against their summed file size.
 type countState struct {
-	edits  int
-	offset int64
+	edits    int
+	offset   int64
+	subEdits int
+	subBytes int64
 }
 
 func countPath(sessionID string) string {
@@ -381,7 +384,7 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) != 2 {
+	if len(parts) != 2 && len(parts) != 3 {
 		return countState{}, false
 	}
 	edits, err1 := strconv.Atoi(parts[0])
@@ -389,15 +392,27 @@ func readCountState(path string) (countState, bool) {
 	if err1 != nil || err2 != nil || edits < 0 || offset < 0 {
 		return countState{}, false
 	}
-	return countState{edits: edits, offset: offset}, true
+	cs := countState{edits: edits, offset: offset}
+	if len(parts) == 3 {
+		subEditsStr, subBytesStr, ok := strings.Cut(parts[2], ":")
+		subEdits, err3 := strconv.Atoi(subEditsStr)
+		subBytes, err4 := strconv.ParseInt(subBytesStr, 10, 64)
+		if !ok || err3 != nil || err4 != nil || subEdits < 0 || subBytes < 0 {
+			return countState{}, false
+		}
+		cs.subEdits, cs.subBytes = subEdits, subBytes
+	}
+	return cs, true
 }
 
 func writeCountState(path string, cs countState) {
-	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10)
+	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10) + "|" +
+		strconv.Itoa(cs.subEdits) + ":" + strconv.FormatInt(cs.subBytes, 10)
 	_ = paths.AtomicWrite(path, []byte(line), 0o600)
 }
 
-// countEdits resumes after the last complete line, leaving partial appends for the next Stop.
+// countEdits resumes after the last complete line, leaving partial appends for the next Stop; dispatched
+// subagents' files are only re-scanned when their summed size moved, never on every Stop.
 func countEdits(transcriptPath, countFile string) int {
 	fi, err := os.Stat(transcriptPath)
 	if err != nil || fi.IsDir() {
@@ -408,17 +423,45 @@ func countEdits(transcriptPath, countFile string) int {
 		_ = os.Remove(countFile)
 		cs = countState{}
 	}
-	if fi.Size() == cs.offset {
-		return cs.edits
+	mainProgressed := false
+	if fi.Size() != cs.offset {
+		delta, next := transcript.CountEditsFrom(transcriptPath, cs.offset)
+		if next < cs.offset {
+			_ = os.Remove(countFile)
+			cs = countState{}
+		}
+		cs.edits += delta
+		if next != cs.offset {
+			cs.offset = next
+			mainProgressed = true
+		}
 	}
-	delta, next := transcript.CountEditsFrom(transcriptPath, cs.offset)
-	if next < cs.offset {
-		_ = os.Remove(countFile)
-		cs = countState{}
+	subEdits, subBytes := countSubagentEdits(transcriptPath, cs.subBytes, cs.subEdits)
+	if mainProgressed || subEdits != cs.subEdits || subBytes != cs.subBytes {
+		cs.subEdits, cs.subBytes = subEdits, subBytes
+		writeCountState(countFile, cs)
 	}
-	edits := cs.edits + delta
-	if next != cs.offset {
-		writeCountState(countFile, countState{edits: edits, offset: next})
+	return cs.edits + subEdits
+}
+
+// countSubagentEdits sums agent-*.jsonl sizes under the session's subagents dir and only recounts their
+// edits when that sum moved since the cached value — background agents may still be growing those files.
+func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int) (edits int, totalBytes int64) {
+	dir := subagentDir(transcriptPath)
+	if dir == "" {
+		return 0, 0
 	}
-	return edits
+	matches, _ := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
+	for _, m := range matches {
+		if fi, err := os.Stat(m); err == nil {
+			totalBytes += fi.Size()
+		}
+	}
+	if totalBytes == cachedBytes {
+		return cachedEdits, totalBytes
+	}
+	for _, m := range matches {
+		edits += transcript.CountEdits(m)
+	}
+	return edits, totalBytes
 }
