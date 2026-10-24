@@ -7,12 +7,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
@@ -907,6 +910,100 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	}
 	if _, present := got[b]; !present {
 		t.Fatalf("surviving file b missing from rewritten sidecar: %+v", got)
+	}
+}
+
+// TestCountSubagentEditsConcurrentCallsCountOnce: Stop and SessionEnd can call in for the same session at
+// once; two concurrent calls racing the same growth must serialize through the sidecar lock so the total
+// is counted once each, not doubled, and both land on the same final offset.
+func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, a, 2)
+
+	edits0, bytes0 := countSubagentEdits(tr, 0, 0) // seed the sidecar
+	if edits0 != 2 {
+		t.Fatalf("seed scan edits = %d, want 2", edits0)
+	}
+
+	writeEdits(t, a, 7) // grows past the cached size: both goroutines will try the lock
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	results := make([]struct {
+		edits int
+		bytes int64
+	}, 2)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			e, b := countSubagentEdits(tr, bytes0, edits0)
+			results[i] = struct {
+				edits int
+				bytes int64
+			}{e, b}
+		}(i)
+	}
+	wg.Wait()
+
+	for i, r := range results {
+		if r.edits != 7 || r.bytes != fi.Size() {
+			t.Errorf("goroutine %d = (%d,%d), want (7,%d) — the race must not double- or under-count", i, r.edits, r.bytes, fi.Size())
+		}
+	}
+	got := readSidecar(sidecarPath(subDir))
+	if got[a].Edits != 7 || got[a].Offset != fi.Size() {
+		t.Fatalf("sidecar after concurrent calls = %+v, want 7 edits at offset %d (one writer, consistent offset)", got[a], fi.Size())
+	}
+}
+
+// TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting: when the sidecar lock is held by
+// another writer, countSubagentEdits must fall back to the caller's cached totals, write nothing, and
+// return within its ~2s lock wait rather than hang.
+func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testing.T) {
+	tr, subDir := subagentFixture(t)
+	a := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, a, 2)
+	edits0, bytes0 := countSubagentEdits(tr, 0, 0) // seed the sidecar
+	before := readSidecar(sidecarPath(subDir))
+
+	writeEdits(t, a, 9) // grows past the cached size: countSubagentEdits must attempt the lock
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		paths.WithFileLock(sidecarPath(subDir), func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	defer close(release)
+
+	start := time.Now()
+	edits, bytes := countSubagentEdits(tr, bytes0, edits0)
+	elapsed := time.Since(start)
+
+	// The lock-busy path keeps the caller's cached edit count (no recount) but still names the current
+	// total byte size, since that stat is free — it is the sidecar read-compute-write that was skipped.
+	if edits != edits0 || bytes != fi.Size() {
+		t.Fatalf("lock held elsewhere: countSubagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, fi.Size())
+	}
+	if elapsed > 2500*time.Millisecond {
+		t.Fatalf("countSubagentEdits took %s waiting on a held lock, want it to give up near its 2s wait", elapsed)
+	}
+	after := readSidecar(sidecarPath(subDir))
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("sidecar written while the lock was held elsewhere: before=%+v after=%+v", before, after)
 	}
 }
 

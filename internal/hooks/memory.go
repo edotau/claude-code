@@ -496,21 +496,29 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 		return cachedEdits, totalBytes
 	}
 	sidecar := sidecarPath(dir)
-	prevState := readSidecar(sidecar)
-	next := make(map[string]subFileState, len(matches))
-	for _, m := range matches {
-		st := prevState[m] // nil map read: zero value, no rescan skipped
-		if sizes[m] < st.Offset {
-			st = subFileState{} // shrank or rotated: rescan from 0
+	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so
+	// neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
+	ran, _ := paths.TryFileLock(sidecar+".lock", 2*time.Second, func() error {
+		prevState := readSidecar(sidecar)
+		next := make(map[string]subFileState, len(matches))
+		for _, m := range matches {
+			st := prevState[m] // nil map read: zero value, no rescan skipped
+			if sizes[m] < st.Offset {
+				st = subFileState{} // shrank or rotated: rescan from 0
+			}
+			if sizes[m] != st.Offset {
+				delta, off := transcript.CountEditsFrom(m, st.Offset)
+				st.Edits += delta
+				st.Offset = off
+			}
+			edits += st.Edits
+			next[m] = st
 		}
-		if sizes[m] != st.Offset {
-			delta, off := transcript.CountEditsFrom(m, st.Offset)
-			st.Edits += delta
-			st.Offset = off
-		}
-		edits += st.Edits
-		next[m] = st
+		writeSidecar(sidecar, next)
+		return nil
+	})
+	if !ran {
+		return cachedEdits, totalBytes
 	}
-	writeSidecar(sidecar, next)
 	return edits, totalBytes
 }
