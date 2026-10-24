@@ -212,7 +212,7 @@ var promoteJudgmentTarget = map[string]string{
 // apply by hand (model residue), and never edit those targets themselves.
 func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 	if target, ok := promoteJudgmentTarget[to]; ok {
-		return promoteJudgment(root, id, target)
+		return promoteJudgment(root, id, to, target)
 	}
 	if to != "home" {
 		return "", fmt.Errorf("--to %q: want %s", to, strings.Join(PromoteTargets, ", "))
@@ -248,8 +248,16 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 }
 
 // promoteJudgment finds id in root's local bank (falling back to the home bank) and prints it with
-// target for a human/agent follow-up; it is model residue, so Go never writes target itself.
-func promoteJudgment(root, id, target string) (string, error) {
+// target and the embedded judgment procedure for a human/agent to apply by hand; it is model
+// residue, so Go never writes target itself. `claude-md` is gated: it only prints outside a dream
+// run's own promote call, where there is no cross-pollination check (3+ entries, hard prohibition)
+// behind it.
+func promoteJudgment(root, id, to, target string) (string, error) {
+	if to == "claude-md" && !IsDreamChild() {
+		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+
+			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
+			"`memory promote %s --to rules`", id, id)
+	}
 	dir := Dir(root)
 	_, block, err := extractBlock(dir, id)
 	if err != nil && !IsHomeBank(root) {
@@ -258,8 +266,11 @@ func promoteJudgment(root, id, target string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return block + "\n\ntarget: " + target +
-		"\nneeds judgment: follow skills/reflection/references/promote.md\n", nil
+	ref, err := Reference("promote")
+	if err != nil {
+		return "", err
+	}
+	return block + "\n\ntarget: " + target + "\n\n" + ref + "\n", nil
 }
 
 // extractBlock finds the id-marked block in dir's typed files, returning its filename and text.

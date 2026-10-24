@@ -1,55 +1,40 @@
 package memory
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestReferenceMissingFileErrors: a missing skills/reflection/references/<verb>.md is an error —
-// a background job must fail loudly rather than run on a silently empty prompt.
-func TestReferenceMissingFileErrors(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, err := Reference("dream"); err == nil {
-		t.Fatal("Reference(\"dream\") with no file on disk = nil error, want one")
+// embeddedVerbs are every verb Go actually calls memory.Reference with — grepped by hand from
+// harvest.go, dream.go, promote.go — each must resolve to a non-empty embedded prompt.
+var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
+
+// TestReferenceEmbeddedVerbsNonEmpty: every verb Go calls Reference(verb) with resolves to a
+// non-empty embedded prompt — no disk path left to go missing at runtime.
+func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
+	for _, verb := range embeddedVerbs {
+		got, err := Reference(verb)
+		if err != nil {
+			t.Errorf("Reference(%q): %v", verb, err)
+			continue
+		}
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("Reference(%q) = empty, want a non-empty procedure", verb)
+		}
 	}
 }
 
-// TestReferenceEmptyFileErrors: a present-but-empty (or whitespace-only) reference is also refused —
-// it is just as silent as a missing file.
-func TestReferenceEmptyFileErrors(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	refDir := filepath.Join(cfg, "skills", "reflection", "references")
-	if err := os.MkdirAll(refDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(refDir, "promote.md"), []byte("   \n\n  "), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Reference("promote"); err == nil {
-		t.Fatal("Reference(\"promote\") on a whitespace-only file = nil error, want one")
+// TestReferenceUnknownVerbErrors: a verb with no embedded prompts/<verb>.md is an error, not an
+// empty string — a caller must never run a background job on a silently empty prompt.
+func TestReferenceUnknownVerbErrors(t *testing.T) {
+	if _, err := Reference("does-not-exist"); err == nil {
+		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
 	}
 }
 
-// TestReferencePresentReturnsContent: a present, non-empty reference returns its trimmed content verbatim.
-func TestReferencePresentReturnsContent(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	refDir := filepath.Join(cfg, "skills", "reflection", "references")
-	if err := os.MkdirAll(refDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := "\n\n# Review procedure\n\nstep one\nstep two\n\n"
-	if err := os.WriteFile(filepath.Join(refDir, "review.md"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Reference("review")
-	if err != nil {
-		t.Fatalf("Reference(\"review\"): %v", err)
-	}
-	if got != strings.TrimSpace(body) {
-		t.Errorf("Reference(\"review\") = %q, want %q", got, strings.TrimSpace(body))
+// TestReferenceEmptyVerbErrors: the empty string is also an unknown verb.
+func TestReferenceEmptyVerbErrors(t *testing.T) {
+	if _, err := Reference(""); err == nil {
+		t.Fatal("Reference(\"\") = nil error, want one")
 	}
 }

@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +22,8 @@ import (
 const HarvestPrompt = "Background harvest of a finished session (transcript: %s). " +
 	"Read ONLY the last ~1500 lines of that transcript — it may be many MB and reading it whole will " +
 	"exhaust your turn budget before you can write anything. " +
-	"Then run /reflection:update — the COMPLETE pass, every step, not the abbreviated one. " +
+	"Then run `claude-code memory update` with no --transcript to print the narrative procedure, and follow it " +
+	"COMPLETE, every step, not the abbreviated one. " +
 	"Do it in this order so a truncated run still leaves the bank coherent: sessionHistory first, then " +
 	"activeContext, then progress, decisionLog, and conventions. Be surgical; touch nothing else."
 
@@ -87,9 +90,9 @@ func (r HarvestResult) NeedsAttention(now time.Time) bool {
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
-// agentHarvestPrompt frames /reflection:update for an agent that has no slash commands; the
-// procedure itself is one copy, read from skills/reflection/references/update.md.
-func agentHarvestPrompt(transcript string) (string, error) {
+// agentHarvestPrompt frames `claude-code memory update`'s procedure for an agent that has no slash
+// commands; the procedure itself is one copy, embedded at prompts/update.md.
+func agentHarvestPrompt(transcript, cwd string) (string, error) {
 	ref, err := Reference("update")
 	if err != nil {
 		return "", err
@@ -100,7 +103,81 @@ func agentHarvestPrompt(transcript string) (string, error) {
 		ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
+		gitSinceBlock(transcript, cwd) +
 		tagBlock(transcript), nil
+}
+
+// firstTranscriptTimestamp reads only the first JSONL line's "timestamp" field — the session's
+// start time, used to scope `git log --since`. Zero time when absent or unparseable.
+func firstTranscriptTimestamp(transcript string) time.Time {
+	f, err := os.Open(transcript)
+	if err != nil {
+		return time.Time{}
+	}
+	defer f.Close()
+	line, err := bufio.NewReader(f).ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return time.Time{}
+	}
+	var rec struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if json.Unmarshal(line, &rec) != nil {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, rec.Timestamp)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// gitSinceBlock appends this session's commits and touched files (committed + working tree) so the
+// narrative pass does not have to re-derive them. Empty when the transcript carries no timestamp or
+// cwd is not a git repo — the pass still runs from the brief alone.
+func gitSinceBlock(transcript, cwd string) string {
+	since := firstTranscriptTimestamp(transcript)
+	if since.IsZero() || cwd == "" {
+		return ""
+	}
+	commits, _ := gitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
+	touched, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
+	status, _ := gitOut(cwd, "status", "--porcelain")
+	if commits == "" && touched == "" && status == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nThis session's git activity (for the summary; verify before quoting):\n")
+	if commits != "" {
+		b.WriteString("Commits:\n" + commits + "\n")
+	}
+	if files := mergeFileLists(touched, status); len(files) > 0 {
+		b.WriteString("Touched files:\n" + strings.Join(files, "\n") + "\n")
+	}
+	return b.String()
+}
+
+// mergeFileLists dedupes git log's --name-only paths with git status --porcelain's (status lines
+// carry a 2-char code prefix; strip it before merging).
+func mergeFileLists(nameOnly, porcelain string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for ln := range strings.SplitSeq(nameOnly, "\n") {
+		add(strings.TrimSpace(ln))
+	}
+	for ln := range strings.SplitSeq(porcelain, "\n") {
+		ln = strings.TrimSpace(ln)
+		if len(ln) > 3 {
+			add(strings.TrimSpace(ln[3:]))
+		}
+	}
+	return out
 }
 
 // tagBlock extracts DECISION/BUG/NEXT/NOTE tags from the whole transcript and appends a filing
@@ -137,7 +214,7 @@ type UpdateOptions struct {
 	Out        io.Writer
 }
 
-// Update runs headless /reflection:update under the bank lock, settles the bank, and records the outcome.
+// Update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
 func Update(o UpdateOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -161,7 +238,7 @@ func Update(o UpdateOptions) error {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
-			prompt, perr := agentHarvestPrompt(o.Transcript)
+			prompt, perr := agentHarvestPrompt(o.Transcript, o.CWD)
 			if perr != nil {
 				runErr = perr
 				return nil

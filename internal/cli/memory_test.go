@@ -545,6 +545,105 @@ func TestMemoryReviewBriefPrintsOnlyCount(t *testing.T) {
 	}
 }
 
+// TestMemoryReviewCandidatesPrintsProcedureAfterStats: --candidates appends the embedded review
+// procedure after the doctor/stats blocks — the ranking pass a human/agent applies by hand.
+func TestMemoryReviewCandidatesPrintsProcedureAfterStats(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", repo, "--candidates"}) })
+	if code != 0 {
+		t.Fatalf("memory review --candidates: code=%d stderr=%q", code, stderr)
+	}
+	statsIdx := strings.Index(out, "== memory stats (receipts on disk) ==")
+	if statsIdx < 0 {
+		t.Fatalf("output missing the stats block: %q", out)
+	}
+	ref, err := memory.Reference("review")
+	if err != nil {
+		t.Fatalf("memory.Reference(\"review\"): %v", err)
+	}
+	refIdx := strings.Index(out, ref)
+	if refIdx < 0 {
+		t.Errorf("output missing the embedded review procedure: %q", out)
+	}
+	if refIdx < statsIdx {
+		t.Errorf("review procedure (at %d) printed before the stats block (at %d)", refIdx, statsIdx)
+	}
+}
+
+// TestMemoryDreamDryRunWritesNothing: --dry-run prints PreviewDream's deterministic report and
+// never touches the bank — checksummed before/after, no DreamDue gate consulted, no agent run.
+func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	before := dirChecksum(t, memory.Dir(repo))
+
+	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"dream", "--cwd", repo, "--dry-run"}) })
+	if code != 0 {
+		t.Fatalf("memory dream --dry-run: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(out, "bank: "+memory.Dir(repo)) {
+		t.Errorf("output missing the preview's bank line: %q", out)
+	}
+
+	after := dirChecksum(t, memory.Dir(repo))
+	if before != after {
+		t.Errorf("--dry-run changed the bank directory: before=%s after=%s", before, after)
+	}
+}
+
+// dirChecksum sums every regular file's size+modtime under dir — enough to detect any write
+// without reading file bytes; used to prove a --dry-run path touched nothing.
+func dirChecksum(t *testing.T, dir string) string {
+	t.Helper()
+	var b strings.Builder
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		fmt.Fprintf(&b, "%s|%d|%s\n", path, fi.Size(), fi.ModTime())
+		return nil
+	})
+	return b.String()
+}
+
+// TestMemoryInitPrintsProcedureOnFreshBank: a fresh `memory init` leaves projectContext.md as the
+// template, so init prints the embedded init procedure after the scaffold summary.
+func TestMemoryInitPrintsProcedureOnFreshBank(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"init", "--repo", repo}) })
+	if code != 0 {
+		t.Fatalf("memory init: code=%d stderr=%q", code, stderr)
+	}
+	ref, err := memory.Reference("init")
+	if err != nil {
+		t.Fatalf("memory.Reference(\"init\"): %v", err)
+	}
+	if !strings.Contains(out, ref) {
+		t.Errorf("output missing the embedded init procedure: %q", out)
+	}
+}
+
 // decisionLogOverCLI writes n decisionLog.md entries so `memory review` has a cap problem to report.
 func decisionLogOverCLI(t *testing.T, path string, n int) {
 	t.Helper()
@@ -610,16 +709,20 @@ func TestMemoryPromoteCLIMissingArgsFail(t *testing.T) {
 	}
 }
 
-// TestMemoryUpdateMissingTranscriptFailsNamingTheReference: cmdMemoryUpdate refuses to spawn a
-// worker on nothing — exit 1, and the message points at skills/reflection/references/update.md.
-func TestMemoryUpdateMissingTranscriptFailsNamingTheReference(t *testing.T) {
+// TestMemoryUpdateMissingTranscriptPrintsTheProcedure: without --transcript (a live session)
+// cmdMemoryUpdate prints the embedded update procedure to stdout and exits 0 — it no longer refuses.
+func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"update", "--cwd", t.TempDir(), "--session", "s"}) })
-	if code != 1 {
-		t.Fatalf("memory update with no --transcript: code=%d, want 1", code)
+	code, out, _ := captureOutput(t, func() int { return cmdMemory([]string{"update", "--cwd", t.TempDir(), "--session", "s"}) })
+	if code != 0 {
+		t.Fatalf("memory update with no --transcript: code=%d, want 0", code)
 	}
-	if !strings.Contains(stderr, "--transcript required") || !strings.Contains(stderr, "references/update.md") {
-		t.Errorf("stderr missing the reference pointer: %q", stderr)
+	ref, err := memory.Reference("update")
+	if err != nil {
+		t.Fatalf("memory.Reference(\"update\"): %v", err)
+	}
+	if !strings.Contains(out, ref) {
+		t.Errorf("stdout missing the embedded update procedure: %q", out)
 	}
 }
 

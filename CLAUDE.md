@@ -72,14 +72,14 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Check MCP server health, scope drift, inline secrets | `claude-code mcp doctor [--format json]` | `rules/harness/settings-management.md` |
 | Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |
-| Recall or save session memory | `claude-code memory recall <terms>` · `/reflection:update` (auto via the Stop/SessionEnd harvest) · `memory init\|review\|promote\|remember\|dream` | `README.md` → Memory bank |
+| Recall or save session memory | `claude-code memory recall <terms>` · `memory update` (auto via the Stop/SessionEnd harvest) · `memory init\|review\|promote\|remember\|dream` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` only at wrap-up, user-approved; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; the `subagent-workflows` skill's `orchestrate.md` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow implement-and-verify` · `audit-fix-verify` · `gate-loop` · `external-agent` · `fable-eval` | `rules/workflow/master-workflow.md` → Saved Workflows |
 | Review a diff; catalog tech debt | `/code-review` (quality) ‖ `/security-reviewer` | `skills/evaluate-code` (debt: `skills/evaluate-code/references/techdebt.md`), `skills/security-reviewer` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/SKILL.md` → Test-and-fix loop |
-| Capture a session's corrections into rules | `/reflection:remember <fact>` then `/reflection:promote <id> --to rules` (routing table: `skills/reflection/references/promote.md`) | `rules/workflow/memory-consolidation.md` |
-| Audit / recall / remember / promote / save / consolidate memory | `/reflection:review` · `:recall` · `:remember` · `:promote` · `:update` · `:dream` | `agents/opencode.md` |
+| Capture a session's corrections into rules | `claude-code memory remember <fact>` then `memory promote <id> --to rules` (routing table: `claude-code memory promote` procedure) | `rules/workflow/memory-consolidation.md` |
+| Audit / recall / remember / promote / save / consolidate memory | `claude-code memory review\|recall\|remember\|promote\|update\|dream` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex` (session-correlated handoff) · `claude-code ask --agent codex` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `claude-code gemini bridge` / `ask --agent <leg>` | `skills/subagent-workflows/references/cost-routing.md` |
 | Scan the config surface / MCP for leaked credentials | `claude-code secrets scan` · `claude-code mcp doctor` | `rules/standards/security.md` |

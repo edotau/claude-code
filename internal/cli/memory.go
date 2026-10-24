@@ -21,11 +21,11 @@ import (
 const memoryUsage = `usage: claude-code memory recall [--repo R|--all] [-k 3] [--load N] <terms>
        claude-code memory remember [--repo R] [--type T] <fact>
        claude-code memory init [--repo R]
-       claude-code memory review [--repo R] [--stale-days 90] [--brief]
+       claude-code memory review [--repo R] [--stale-days 90] [--brief|--candidates]
        claude-code memory promote <id> --to home|rules|skill|claude-md
                                    [--repo R] [--dry-run]
-       claude-code memory update --transcript T --cwd C --session S
-       claude-code memory dream [--cwd C] [--force]
+       claude-code memory update [--transcript T --cwd C --session S]
+       claude-code memory dream [--cwd C] [--force|--dry-run]
 plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,
           migrate, alias — dispatchable, off the menu above`
 
@@ -69,11 +69,20 @@ func cmdMemoryInit(args []string) int {
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	dir, err := memory.Init(memoryRoot(*repo))
+	root := memoryRoot(*repo)
+	dir, err := memory.Init(root)
 	if err != nil {
 		return fail("memory init: %v", err)
 	}
-	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; /reflection:update (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
+	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
+	if memory.IsProjectContextTemplate(root) {
+		ref, err := memory.Reference("init")
+		if err != nil {
+			return fail("memory init: %v", err)
+		}
+		fmt.Println()
+		fmt.Println(ref)
+	}
 	return 0
 }
 
@@ -140,7 +149,8 @@ func recallLoad(hits []memory.SearchHit, n int) {
 
 func cmdMemoryRemember(args []string) int {
 	fs, repo := memoryRepoFlagSet("remember")
-	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md")
+	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
+		"reads like a rule? `memory promote --to rules` instead")
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return 2
@@ -262,9 +272,13 @@ func cmdMemoryUpdate(args []string) int {
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	if *transcript == "" { // without a transcript the worker has nothing to summarize; refuse before spawning it
-		return fail("memory update: --transcript required (hooks pass it); in a live session follow " +
-			"skills/reflection/references/update.md, then run `claude-code memory index`")
+	if *transcript == "" { // a live session: print the narrative procedure instead of refusing outright
+		ref, err := memory.Reference("update")
+		if err != nil {
+			return fail("memory update: %v", err)
+		}
+		fmt.Println(ref)
+		return 0
 	}
 	root := *cwd
 	if root == "" {
@@ -281,12 +295,17 @@ func cmdMemoryDream(args []string) int {
 	fs := memoryFlagSet("dream")
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
 	force := fs.Bool("force", false, "run even when not due")
+	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, promotable/archivable blocks; no writes")
 	if fs.Parse(args) != nil {
 		return 2
 	}
 	root := *cwd
 	if root == "" {
 		root, _ = os.Getwd()
+	}
+	if *dryRun {
+		fmt.Print(memory.PreviewDream(root, time.Now()).Report())
+		return 0
 	}
 	if !*force && !memory.DreamDue(root, time.Now()) {
 		fmt.Println("memory dream: not due")
@@ -347,6 +366,7 @@ func cmdMemoryReview(args []string) int {
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
+	candidates := fs.Bool("candidates", false, "print today's stats, then the ranking procedure")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -368,6 +388,14 @@ func cmdMemoryReview(args []string) int {
 		}
 	}
 	fmt.Print(memory.CollectBankStats().Report())
+	if *candidates {
+		ref, err := memory.Reference("review")
+		if err != nil {
+			return fail("memory review: %v", err)
+		}
+		fmt.Println()
+		fmt.Println(ref)
+	}
 	return 0
 }
 

@@ -1,6 +1,6 @@
 # Active Context
 
-> Current session state — auto-injected at session start. REPLACE each `/reflection:update`.
+> Current session state — auto-injected at session start. REPLACE each `claude-code memory update`.
 
 ## Current Focus
 

@@ -1,10 +1,8 @@
-# `/reflection:review` (no flag) — Judgment Residue: Ranking Promotion Candidates
+# `memory review --candidates` — Judgment Residue: Ranking Promotion Candidates
 
-> Read-only. `claude-code memory review` computes caps, staleness, exact dupes, and hot/cold
-> signals from `access.log` deterministically. `--brief` and `--stale-days N` need no further
-> judgment — report the CLI output directly. the unflagged default needs a
-> model to rank entries against the promotion gradient; that's this reference. Never modify,
-> promote, or create files in this mode — that's `/reflection:promote`'s job.
+> `claude-code memory review` prints today's caps/staleness/dupe stats first; this is what
+> ranks them against the promotion gradient. Read-only — never modify, promote, or create
+> files here; that's `memory promote`'s job.
 
 ## Memory layer inventory
 
@@ -68,8 +66,8 @@ should be shorter than the memory it analyzes.
 
 ## What you don't do
 
-- Don't promote entries or edit any file (that's `/reflection:promote` or the human); don't write
-  to `CLAUDE.md` (that gate is `/reflection:dream` — you surface candidates); don't invent entries;
+- Don't promote entries or edit any file (that's `memory promote` or the human); don't write
+  to `CLAUDE.md` (that gate is `memory dream` — you surface candidates); don't invent entries;
   no destructive bash (`memory review` only, never `--apply`).
 
 ## Failure Modes

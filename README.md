@@ -269,7 +269,7 @@ claude-code memory archive [--split N --apply|--dupes]  # keep MEMORY.md small
 claude-code memory migrate|alias                     # one-time cutover; fold a second checkout
 ```
 
-`/reflection:init` enriches a bank; `/reflection:update` saves manually.
+`claude-code memory init` enriches a bank; `claude-code memory update` saves manually.
 
 ## Housekeeping
 
