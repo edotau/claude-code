@@ -14,7 +14,7 @@ skills that already own it. Do not restate those here — load them.
 | Step needs | Load |
 |---|---|
 | Done criteria, gate chain, claim discipline | `approval-gate` |
-| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `review-funnel` |
+| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `audit-fix-verify {fix: false}` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
 | Diff review, scope creep, detectors | `evaluate-code`, `simplify`, `security-reviewer` |

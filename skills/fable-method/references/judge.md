@@ -11,7 +11,7 @@ for a graded transcript walk-through use `audit` mode.
 
 **Related, don't duplicate:** `codex` (VERIFY mode) runs the *project's* gate chain and fixes
 failures. This judges *claims* against *the diff* and changes nothing. `codex` REVIEW vets a task
-before code exists; this judges claims after. Workflow `review-funnel` finds new defects across
+before code exists; this judges claims after. Workflow `audit-fix-verify {fix: false}` finds new defects across
 dimensions; this refutes asserted ones. `evaluate-code` judges quality; this judges honesty.
 
 ## Protocol
