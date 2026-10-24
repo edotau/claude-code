@@ -64,6 +64,9 @@ inflation the cwd confound explains.
 Re-measured 2026-10-24 at `288b17d` (Haiku, n=3, headless, scratch cwd; all 24 judged): control → method correct_action
 s2 0.33 → 0.67; s9 1.33 → 1.67; s13 0 → 2; s14 1 → 1. s14 method report_quality 0.67 < control 1: 3/3 method runs
 wrote `PENDING: none` past the installed skill's ship demand, and 2/3 leaked a step heading or raw tags.
+A scratch-copy fix (orient `ls -a` + agent-instruction files, declined-AUTH → PENDING, a no-tags final line) FAILED
+n=3: s14 method 1 / report_quality 0; 9/12 method runs leaked tags. Executors list `.claude/` but never open
+`.claude/skills/*/SKILL.md`, so the PENDING wording never fires; not shipped.
 
 This is a smoke grade: n=2 per cell is a smoke test, not a benchmark; say which scenarios ran.
 Upstream's own numbers live in upstream's eval/RESULTS.md, not here.
