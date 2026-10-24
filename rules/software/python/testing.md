@@ -49,4 +49,4 @@ catches attribute chains like `client.files.get_metadata(...)`). Neither can see
 
 ## Reference
 
-See skill: `testing-guidelines` for detailed pytest patterns and fixtures.
+See skill: `testing-guidelines` for the pytest quick reference and test discipline.

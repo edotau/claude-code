@@ -17,13 +17,9 @@ tests wait for the live check.
 
 ## Where nothing can be run live
 
-Pin the contract from the spec as Given/When/Then, write the test against the code under test (it must
-import it), then prove its teeth by revert-and-restore. Verify coverage (80%+). How-to: the
-`testing-guidelines` skill.
-
-Reach for **copilot** once the live check has landed, or immediately where there is no surface to
-run. On failures: check test isolation, verify mocks, fix the implementation (not the test, unless the
-test is wrong).
+Pin the contract from the spec as Given/When/Then, write a test that imports the code under test, then prove its
+teeth by revert-and-restore — how-to in [the skill](../SKILL.md). Reach for **copilot** once the live check has
+landed, or immediately where there is no surface to run.
 
 ## Test-agent concurrency
 
@@ -66,28 +62,3 @@ unasked.
 
 Report the remainder as a list, never as silence: tests planned but not written are an outcome, not
 an omission to leave undiscovered.
-
-## Fixtures From the Live Artifact
-
-Drive parsers with real bytes sampled from the artifact they parse, not synthetic examples. Real headers
-range-read from five live databases immediately exposed two defects that hand-written fixtures had hidden
-for months (an entry separator that made one field swallow the next, and a rebuilt DB whose headers
-parsed to null). A synthetic fixture encodes the author's belief about the format; a sampled one does not.
-
-## Name the Gates You Ran
-
-A formatter + tests is not the gate chain when the project's lint target also runs a type checker
-(pyright, mypy, `go vet`). State which gates ran and which did not -- a type error is invisible to the
-linter that passed.
-
-## Prove the Injection Before Trusting a Teeth Proof
-
-Revert-and-restore ("break the code, confirm RED, restore") is only evidence if the break ACTUALLY LANDED.
-A `python -c` one-liner with nested quotes, or a `str.replace` whose anchor has since been reformatted,
-silently changes nothing — and the tests then pass for the very reason you were trying to disprove. That is
-worse than no proof: it manufactures false confidence.
-
-Assert the mutation, every time: `assert s.count(old) == 1` before writing, then `grep` the injected marker
-out of the file on disk and show it. If the anchor is not found, the run must FAIL loudly, not continue.
-Formatters are the usual culprit — `black`/`ruff format` runs after an edit, so an anchor copied from an
-earlier read may no longer exist.
