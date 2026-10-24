@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/quality.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (`codex` VERIFY) nor memory (`opencode`). TEST edits run on the Copilot CLI via `claude-code ask --agent copilot --tools`.
+  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/quality.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (codex's final gate run, `claude-code codex ask --tools`) nor memory (`opencode`). TEST edits run on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the vendor surface.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.

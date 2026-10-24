@@ -1,5 +1,5 @@
 ---
-description: "Adversarial code review via the codex agent runner — second-opinion review using a different model stack to catch blind spots the session model misses. Saves the review as a memory-store report."
+description: "Codex via `claude-code codex <verb>` — bare `/codex` is an adversarial second-opinion diff review on a different model stack, saved as a memory-store report; a leading verb (`ask`, `review`, `transfer`, `status`, `result`, …) passes straight through."
 argument-hint: "[ask|resume|review|transfer|status|result|cancel|setup|models] [args…] (bare = review --adversarial)"
 allowed-tools: Bash
 ---

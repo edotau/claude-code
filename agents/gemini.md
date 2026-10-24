@@ -1,12 +1,12 @@
 ---
 name: gemini
 description: |
-  Read-only codebase scanner and web-search leg on Gemini (agy): `claude-code ask --agent gemini --tools` for targeted scope and web lookups, `claude-code gemini bridge` for 1M-token sweeps across many files. Sonnet (Read/Grep/Glob) only when asked or agy fails — see "Backend Selection". Use before architecture decisions, when context is stale, or as input to claude.
+  Read-only codebase scanner and web-search leg on Gemini (agy), driven through `claude-code gemini <verb>`: `gemini ask --tools` for targeted scope and web lookups, `gemini bridge` for 1M-token sweeps across many files, `gemini review [--adversarial]` for a diff review on the Gemini family, `resume`/`transfer`/`status`/`result` for the dispatch lifecycle. Sonnet (Read/Grep/Glob) only when asked (`backend: sonnet`) or every agy leg fails. Use before architecture decisions, when context is stale, or as input to claude.
 
   <example>
   Context: Targeted cross-module trace — fits in a single session context.
   user: "How does the settings.json template flow into internal/settings and the install verb?"
-  assistant: "Launching gemini to trace the template through the render path into install with `ask --agent gemini --tools`."
+  assistant: "Launching gemini to trace the template through the render path into install with `claude-code gemini ask --tools`."
   </example>
 model: sonnet
 effort: low
