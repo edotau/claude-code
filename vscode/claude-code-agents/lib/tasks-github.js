@@ -2,8 +2,11 @@
 // GitHub read path for the Tasks page over the `gh` CLI (execFile, no shell) — ported from claude-orcastra's
 // src/main/github/client/list. Pure argv builders + mappers; `execFileImpl` is the injectable seam for tests.
 
-const PR_LIST_FIELDS =
-  'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,reviewRequests,latestReviews,reviewDecision,additions,deletions,changedFiles,statusCheckRollup,mergeable,mergeStateStatus,assignees';
+// Why: the list asks only for cheap fields (Orca's WORK_ITEM_PR_LIST_JSON_FIELDS); checks/mergeability hydrate lazily per row.
+const PR_LIST_FIELDS = 'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,headRepositoryOwner,reviewRequests,assignees';
+const PR_DETAIL_FIELDS = `${PR_LIST_FIELDS},additions,deletions,changedFiles,reviewDecision,latestReviews,statusCheckRollup,mergeable,mergeStateStatus,autoMergeRequest`;
+const ISSUE_DETAIL_FIELDS = 'number,title,state,stateReason,url,labels,updatedAt,author,assignees';
+const MERGE_METHOD_FLAGS = { merge: '--merge', squash: '--squash', rebase: '--rebase' };
 // Why: issue numbers follow creation order, so a created sort aligns gh's PR rows with numbered Search API pages.
 const NUMBER_SORT = 'sort:created-desc';
 const PER_REPO_FETCH_LIMIT = 36;
@@ -162,10 +165,13 @@ function repoLabel(repo) {
   return `${repo.owner}/${repo.name}`;
 }
 
-/** `gh pr list --json` item → row contract (`source: 'github'`, `type: 'pr'`). */
+/** `gh pr list|view --json` item → row contract (`source: 'github'`, `type: 'pr'`); light items are `hydrated: false`. */
 function mapPullRequest(item, repo) {
   const raw = String(item.state || '').toLowerCase();
   const state = raw === 'merged' || item.mergedAt ? 'merged' : raw === 'closed' ? 'closed' : item.isDraft ? 'draft' : 'open';
+  const terminal = state === 'merged' || state === 'closed';
+  const hydrated = 'statusCheckRollup' in item || terminal;
+  const loading = { state: 'loading', label: '…' };
   return {
     source: 'github',
     id: `github:${repoLabel(repo)}:pr:${item.number}`,
@@ -187,8 +193,10 @@ function mapPullRequest(item, repo) {
     reviewDecision: item.reviewDecision ? String(item.reviewDecision).toUpperCase() : null,
     reviewers: reviewersOf(item),
     assignees: (item.assignees || []).map(loginOf).filter(Boolean),
-    checks: summarizeChecks(item.statusCheckRollup),
-    merge: mergeState(item, state),
+    checks: hydrated ? summarizeChecks(item.statusCheckRollup) : { ...loading, counts: { success: 0, failed: 0, pending: 0, skipped: 0 } },
+    merge: hydrated ? mergeState(item, state) : loading,
+    autoMergeEnabled: !!item.autoMergeRequest,
+    hydrated,
     jiraKey: null,
   };
 }
@@ -202,7 +210,7 @@ function mapIssue(item, repo) {
     number: Number(item.number),
     title: String(item.title || ''),
     state: String(item.state || 'open').toLowerCase() === 'closed' ? 'closed' : 'open',
-    stateReason: item.state_reason || null,
+    stateReason: item.state_reason || item.stateReason || null,
     url: String(item.html_url || item.url || ''),
     repo: { owner: repo.owner, name: repo.name, label: repoLabel(repo) },
     author: loginOf(item.user || item.author) || null,
@@ -227,9 +235,47 @@ function classifyGhError(err) {
   return text.split('\n')[0] || 'GitHub request failed';
 }
 
-function ghExec(execFileImpl, args, options) {
+// --- gh hygiene (Orca's gh-retry-policy + gh-rate-limit-breaker, reduced) ---
+const GH_TIMEOUT_MS = 30000;
+let retryDelaysMs = [250, 1000];
+const blockedUntil = { search: 0, core: 0 };
+
+function setRetryDelays(delays) {
+  retryDelaysMs = Array.isArray(delays) ? delays : [250, 1000];
+}
+
+function _resetBreaker() {
+  blockedUntil.search = 0;
+  blockedUntil.core = 0;
+}
+
+/** `search` for `gh search …` and `gh api search/…`; everything else spends the core bucket. */
+function bucketOf(args) {
+  if (args[0] === 'search') return 'search';
+  if (args[0] === 'api') {
+    const path = args.find((a, i) => i > 0 && !a.startsWith('-') && !['120s', '60s'].includes(a)) || '';
+    if (/^search\//.test(path)) return 'search';
+  }
+  return 'core';
+}
+
+function isTransient(err, stderr) {
+  const text = `${stderr || ''} ${err && err.message ? err.message : ''}`;
+  if (err && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT')) return true;
+  if (/socket hang up/i.test(text)) return true;
+  if (/HTTP 50[0234]/i.test(text)) return true;
+  if (/HTTP 429/i.test(text) && !/retry-after/i.test(text)) return true;
+  return false;
+}
+
+function isPrimaryRateLimit(stderr) {
+  return /api rate limit exceeded/i.test(stderr || '') && !/secondary rate limit/i.test(stderr || '');
+}
+
+function execOnce(execFileImpl, args, options) {
   return new Promise((resolve, reject) => {
-    execFileImpl('gh', args, { maxBuffer: 32 * 1024 * 1024, ...(options || {}) }, (err, stdout, stderr) => {
+    const env = { ...process.env, GH_PROMPT_DISABLED: '1', ...((options && options.env) || {}) };
+    execFileImpl('gh', args, { maxBuffer: 32 * 1024 * 1024, timeout: GH_TIMEOUT_MS, ...(options || {}), env }, (err, stdout, stderr) => {
       if (err) {
         err.stderr = stderr;
         return reject(err);
@@ -237,6 +283,29 @@ function ghExec(execFileImpl, args, options) {
       resolve(String(stdout || ''));
     });
   });
+}
+
+/** execFile `gh` with no shell; retries transient failures, trips a per-bucket breaker on a primary rate limit. */
+async function ghExec(execFileImpl, args, options) {
+  const bucket = bucketOf(args);
+  const now = Date.now();
+  if (blockedUntil[bucket] > now) {
+    const err = new Error(`GitHub API rate limit exceeded (${bucket}); retrying in ~${Math.ceil((blockedUntil[bucket] - now) / 1000)}s`);
+    err.rateLimited = true;
+    throw err;
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await execOnce(execFileImpl, args, options);
+    } catch (err) {
+      if (isPrimaryRateLimit(err.stderr)) {
+        blockedUntil[bucket] = Date.now() + (bucket === 'search' ? 70000 : 300000);
+        throw err;
+      }
+      if (attempt >= retryDelaysMs.length || !isTransient(err, err.stderr)) throw err;
+      await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+    }
+  }
 }
 
 function parseJsonArray(text) {
@@ -292,6 +361,107 @@ async function listWorkItems({ repos, query, page = 1, limit = PER_REPO_FETCH_LI
   };
 }
 
+// --- per-row detail + mutations (argv mirrors Orca's src/main/github/client/{fetch,update,merge}) ---
+function slug(repo) {
+  return `${repo.owner}/${repo.name}`;
+}
+
+function prDetailArgs({ repo, number }) {
+  return ['pr', 'view', String(number), '--repo', slug(repo), '--json', PR_DETAIL_FIELDS];
+}
+
+function issueDetailArgs({ repo, number }) {
+  return ['issue', 'view', String(number), '--repo', slug(repo), '--json', ISSUE_DETAIL_FIELDS];
+}
+
+/** `gh issue close` with `--reason completed|"not planned"` or `--duplicate-of N` (duplicate wins). */
+function issueCloseArgs({ repo, number, reason, duplicateOf }) {
+  const args = ['issue', 'close', String(number), '--repo', slug(repo)];
+  if (duplicateOf) args.push('--duplicate-of', String(duplicateOf));
+  else if (reason === 'not_planned' || reason === 'not planned') args.push('--reason', 'not planned');
+  else if (reason === 'completed') args.push('--reason', 'completed');
+  return args;
+}
+
+function issueReopenArgs({ repo, number }) {
+  return ['issue', 'reopen', String(number), '--repo', slug(repo)];
+}
+
+function issueEditArgs({ repo, number, addAssignees, removeAssignees, addLabels, removeLabels }) {
+  const args = ['issue', 'edit', String(number), '--repo', slug(repo)];
+  if (addAssignees && addAssignees.length) args.push('--add-assignee', addAssignees.join(','));
+  if (removeAssignees && removeAssignees.length) args.push('--remove-assignee', removeAssignees.join(','));
+  if (addLabels && addLabels.length) args.push('--add-label', addLabels.join(','));
+  if (removeLabels && removeLabels.length) args.push('--remove-label', removeLabels.join(','));
+  return args;
+}
+
+function prReviewersArgs({ repo, number, add, remove }) {
+  const args = ['pr', 'edit', String(number), '--repo', slug(repo)];
+  if (add && add.length) args.push('--add-reviewer', add.join(','));
+  if (remove && remove.length) args.push('--remove-reviewer', remove.join(','));
+  return args;
+}
+
+function prMergeArgs({ repo, number, method }) {
+  const flag = MERGE_METHOD_FLAGS[method];
+  if (!flag) throw new Error(`unknown merge method: ${method}`);
+  return ['pr', 'merge', String(number), '--repo', slug(repo), flag];
+}
+
+function autoMergeArgs({ repo, number, method, enable }) {
+  const args = ['pr', 'merge', String(number), '--repo', slug(repo)];
+  if (enable === false) return [...args, '--disable-auto'];
+  const flag = MERGE_METHOD_FLAGS[method || 'squash'];
+  if (!flag) throw new Error(`unknown merge method: ${method}`);
+  return [...args, '--auto', flag];
+}
+
+function prReadyArgs({ repo, number, undo }) {
+  return ['pr', 'ready', String(number), '--repo', slug(repo), ...(undo ? ['--undo'] : [])];
+}
+
+function prStateArgs({ repo, number, state }) {
+  return ['pr', state === 'open' ? 'reopen' : 'close', String(number), '--repo', slug(repo)];
+}
+
+function assignableArgs({ repo }) {
+  return ['api', '--paginate', `repos/${slug(repo)}/assignees?per_page=100`, '--jq', '.[].login'];
+}
+
+function mergeMethodsArgs({ repo }) {
+  return ['api', `repos/${slug(repo)}`, '--jq', '{merge: .allow_merge_commit, squash: .allow_squash_merge, rebase: .allow_rebase_merge}'];
+}
+
+const runner = (execFileImpl) => execFileImpl || require('node:child_process').execFile;
+
+async function prDetail({ repo, number, execFileImpl }) {
+  return mapPullRequest(JSON.parse(await ghExec(runner(execFileImpl), prDetailArgs({ repo, number }))), repo);
+}
+
+async function issueDetail({ repo, number, execFileImpl }) {
+  return mapIssue(JSON.parse(await ghExec(runner(execFileImpl), issueDetailArgs({ repo, number }))), repo);
+}
+
+const okAfter = (p) => p.then(() => ({ ok: true }));
+const closeIssue = (o) => okAfter(ghExec(runner(o.execFileImpl), issueCloseArgs(o)));
+const reopenIssue = (o) => okAfter(ghExec(runner(o.execFileImpl), issueReopenArgs(o)));
+const editIssue = (o) => okAfter(ghExec(runner(o.execFileImpl), issueEditArgs(o)));
+const editPrReviewers = (o) => okAfter(ghExec(runner(o.execFileImpl), prReviewersArgs(o)));
+const mergePr = (o) => okAfter(ghExec(runner(o.execFileImpl), prMergeArgs(o)));
+const setAutoMerge = (o) => okAfter(ghExec(runner(o.execFileImpl), autoMergeArgs(o)));
+const setPrReady = (o) => okAfter(ghExec(runner(o.execFileImpl), prReadyArgs(o)));
+const setPrState = (o) => okAfter(ghExec(runner(o.execFileImpl), prStateArgs(o)));
+
+async function listAssignable({ repo, execFileImpl }) {
+  return (await ghExec(runner(execFileImpl), assignableArgs({ repo }))).split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+async function mergeMethods({ repo, execFileImpl }) {
+  const parsed = JSON.parse((await ghExec(runner(execFileImpl), mergeMethodsArgs({ repo }))).trim() || '{}');
+  return { merge: !!parsed.merge, squash: !!parsed.squash, rebase: !!parsed.rebase };
+}
+
 /** `{ok, login}` from `gh api user`; `{ok:false, message}` when gh is missing or signed out. */
 async function authStatus(execFileImpl) {
   const run = execFileImpl || require('node:child_process').execFile;
@@ -319,4 +489,32 @@ module.exports = {
   classifyGhError,
   listWorkItems,
   authStatus,
+  PR_DETAIL_FIELDS,
+  ISSUE_DETAIL_FIELDS,
+  prDetailArgs,
+  issueDetailArgs,
+  issueCloseArgs,
+  issueReopenArgs,
+  issueEditArgs,
+  prReviewersArgs,
+  prMergeArgs,
+  autoMergeArgs,
+  assignableArgs,
+  mergeMethodsArgs,
+  prDetail,
+  issueDetail,
+  closeIssue,
+  reopenIssue,
+  editIssue,
+  editPrReviewers,
+  mergePr,
+  setAutoMerge,
+  prReadyArgs,
+  prStateArgs,
+  setPrReady,
+  setPrState,
+  listAssignable,
+  mergeMethods,
+  setRetryDelays,
+  _resetBreaker,
 };

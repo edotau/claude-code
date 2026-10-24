@@ -355,6 +355,15 @@
           "default": 36,
           "description": "Rows fetched per repo per page in the Tasks page."
         },
+        "claudeCodeAgents.tasksViewMode": {
+          "type": "string",
+          "enum": [
+            "list",
+            "board"
+          ],
+          "default": "list",
+          "description": "How the Tasks page shows rows until the List | Board toggle is used (the toggle is remembered per source and workspace)."
+        },
         "claudeCodeAgents.tasksOpenIn": {
           "type": "string",
           "enum": [
@@ -364,6 +373,11 @@
           ],
           "default": "panel",
           "description": "Where \"Show Tasks\" and the status bar segment open the Tasks page: the bottom Panel, the activity-bar sidebar, or an editor tab. Both the Panel and sidebar views exist; hide the one you don’t use (right-click its icon)."
+        },
+        "claudeCodeAgents.tailscaleBinary": {
+          "type": "string",
+          "default": "tailscale",
+          "description": "Path or name of the tailscale CLI used to switch exit nodes (the peer list comes from `claude-code tailscale status`)."
         }
       }
     }

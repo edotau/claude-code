@@ -71,6 +71,8 @@ test('package.json: the Tasks page settings exist with their defaults', () => {
   assert.deepEqual(findSetting('claudeCodeAgents.tasksVisibleSources').default, ['jira', 'github', 'bitbucket']);
   assert.deepEqual(findSetting('claudeCodeAgents.tasksJiraProjects').default, []);
   assert.equal(findSetting('claudeCodeAgents.tasksDefaultQuery.jira').default, 'is:issue is:open assignee:@me');
+  assert.deepEqual(findSetting('claudeCodeAgents.tasksViewMode').enum, ['list', 'board']);
+  assert.equal(findSetting('claudeCodeAgents.tailscaleBinary').default, 'tailscale');
   assert.deepEqual(findSetting('claudeCodeAgents.tasksGitHubRepos').default, []);
   assert.deepEqual(findSetting('claudeCodeAgents.tasksBitbucketRepos').default, []);
   assert.equal(findSetting('claudeCodeAgents.tasksDefaultQuery.github').default, 'is:open');
