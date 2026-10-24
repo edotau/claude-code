@@ -526,3 +526,127 @@ func TestBuildWorkflowRunsTieBreaksByID(t *testing.T) {
 		t.Errorf("got order [%s, %s], want [run-aaa, run-zzz] (ID-ascending tie-break on equal Updated)", runs[0].ID, runs[1].ID)
 	}
 }
+
+// runningIDs collects every subagent id in a session, direct and inside workflow phases.
+func runningIDs(s Session) (subs, wfAgents []string, runs []string) {
+	for _, sub := range s.Subagents {
+		subs = append(subs, sub.ID)
+	}
+	for _, r := range s.Workflows {
+		runs = append(runs, r.ID)
+		for _, p := range r.Phases {
+			for _, a := range p.Agents {
+				wfAgents = append(wfAgents, a.ID)
+			}
+		}
+	}
+	return
+}
+
+// --running prunes finished/error subagents and workflow runs inside a kept session; running ones stay.
+func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	subs, _, runs := runningIDs(s)
+	if len(subs) != 1 || subs[0] != "fakeagentid002" {
+		t.Errorf("subagents = %v, want only the running [fakeagentid002]", subs)
+	}
+	for _, id := range runs {
+		if id == "wf_fake0001-abc" || id == "wf_fake0005-killed" {
+			t.Errorf("--running kept wholly finished/killed run %s (runs=%v)", id, runs)
+		}
+	}
+	for _, r := range s.Workflows {
+		for _, p := range r.Phases {
+			for _, a := range p.Agents {
+				if a.Status == statusFinished || a.Status == statusError {
+					t.Errorf("--running kept %s workflow agent %s", a.Status, a.ID)
+				}
+			}
+		}
+	}
+	found := false
+	for _, id := range runs {
+		found = found || id == "wf_fake0003-running"
+	}
+	if !found {
+		t.Errorf("running workflow run wf_fake0003-running dropped (runs=%v)", runs)
+	}
+}
+
+// Plain Build (no --running) keeps both the finished and the running subagent.
+func TestBuildPlainKeepsFinishedChildren(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs, _, runs := runningIDs(sessionByID(t, tree, "finished-session-aaaa1111"))
+	if len(subs) != 2 {
+		t.Errorf("plain subagents = %v, want both fakeagentid001 and 002", subs)
+	}
+	if len(runs) != 5 {
+		t.Errorf("plain runs = %v, want all 5", runs)
+	}
+}
+
+// A stale (unfinished, past the window) subagent is kept by --running: it may be hung, not done.
+func TestBuildRunningKeepsStaleSubagent(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	p := filepath.Join(claudeDir, "projects", "-Users-fake-demo-repo", "finished-session-aaaa1111",
+		"subagents", "agent-fakeagentid002.jsonl")
+	old := now.Add(-time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != statusStale {
+		t.Errorf("subagents = %+v, want the stale fakeagentid002 kept", s.Subagents)
+	}
+}
+
+// The JSON view marshals the same pruned tree: no finished/error subagents, same session count.
+func TestBuildRunningJSONMatchesPrunedTree(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Sessions []struct {
+			ID        string `json:"id"`
+			Subagents []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"subagents"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Sessions) != len(tree.Sessions) {
+		t.Fatalf("json sessions = %d, tree = %d", len(decoded.Sessions), len(tree.Sessions))
+	}
+	for _, s := range decoded.Sessions {
+		for _, sub := range s.Subagents {
+			if sub.Status == statusFinished || sub.Status == statusError {
+				t.Errorf("json kept %s subagent %s in %s", sub.Status, sub.ID, s.ID)
+			}
+		}
+		if s.ID == "finished-session-aaaa1111" && (len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002") {
+			t.Errorf("json subagents = %+v, want [fakeagentid002]", s.Subagents)
+		}
+	}
+}
