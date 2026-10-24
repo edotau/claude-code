@@ -117,7 +117,7 @@ func newLegacyFixture(t *testing.T, withOrcaAlias bool) legacyFixture {
 	}
 
 	rSlug := paths.RepoSlug(repoR)
-	buildNativeStore(t, filepath.Join(cfg, "projects", projectSlug(repoR), "memory"))
+	buildNativeStore(t, filepath.Join(cfg, "projects", ProjectSlug(repoR), "memory"))
 	buildLegacyGlobalBank(t)
 	buildChangedRepoBank(t, rSlug)
 	buildPristineBank(t, filepath.Join(LegacyGlobalDir(), "pristine1"))
@@ -134,9 +134,9 @@ func newLegacyFixture(t *testing.T, withOrcaAlias bool) legacyFixture {
 	}
 
 	buildHandoffs(t, cfg)
-	write(t, filepath.Join(cfg, "projects", projectSlug(cfg), "memory", "cfg-topic.md"),
+	write(t, filepath.Join(cfg, "projects", ProjectSlug(cfg), "memory", "cfg-topic.md"),
 		"---\nname: cfg-topic\n---\n\nharness fact\n")
-	write(t, filepath.Join(cfg, "projects", projectSlug(home), "memory", "home-topic.md"),
+	write(t, filepath.Join(cfg, "projects", ProjectSlug(home), "memory", "home-topic.md"),
 		"---\nname: home-topic\n---\n\nhome fact\n")
 
 	return legacyFixture{cfg: cfg, home: home, repoR: repoR, rSlug: rSlug, orphanDir: orphanDir, impeccable: impeccable, decoy: cfg}
@@ -455,7 +455,7 @@ func TestApplyFullImportCommitsAndRetires(t *testing.T) {
 			assertPathsGone(t,
 				filepath.Join(LegacyGlobalDir(), "activeContext.md"),
 				filepath.Join(LegacyGlobalDir(), fx.rSlug, "activeContext.md"),
-				filepath.Join(fx.cfg, "projects", projectSlug(fx.repoR), "memory", "a-topic.md"),
+				filepath.Join(fx.cfg, "projects", ProjectSlug(fx.repoR), "memory", "a-topic.md"),
 				filepath.Join(LegacyGlobalDir(), "pristine1"),
 				filepath.Join(LegacyGlobalDir(), "ling"),
 				filepath.Join(fx.cfg, "docs", "handoffs", "HANDOFF.md"),
@@ -818,11 +818,11 @@ func TestApplyBlocksTypedNameCollisionAppearingAfterDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(cfg, "projects", projectSlug(repoR), "memory", "progress.md"),
+	write(t, filepath.Join(cfg, "projects", ProjectSlug(repoR), "memory", "progress.md"),
 		"a native file that happens to share the typed name\n")
 
 	m, manifestPath := inventoryAndWrite(t, InventoryOptions{})
-	it := wantItem(t, m.Items, filepath.Join(projectSlug(repoR), "memory", "progress.md"), KindNativeTopic, ActionCopy)
+	it := wantItem(t, m.Items, filepath.Join(ProjectSlug(repoR), "memory", "progress.md"), KindNativeTopic, ActionCopy)
 	if !strings.Contains(it.Reason, "no typed file exists") {
 		t.Fatalf("reason = %q, want it to note no typed file existed yet", it.Reason)
 	}
@@ -883,11 +883,11 @@ func TestInventoryTypedNameCollisionBlocksApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dest, "progress.md"), "# Progress\nalready present typed file\n")
-	write(t, filepath.Join(cfg, "projects", projectSlug(repoR), "memory", "progress.md"),
+	write(t, filepath.Join(cfg, "projects", ProjectSlug(repoR), "memory", "progress.md"),
 		"a native file that happens to share the typed name\n")
 
 	m, manifestPath := inventoryAndWrite(t, InventoryOptions{})
-	it := wantItem(t, m.Items, filepath.Join(projectSlug(repoR), "memory", "progress.md"), KindNativeTopic, ActionSkip)
+	it := wantItem(t, m.Items, filepath.Join(ProjectSlug(repoR), "memory", "progress.md"), KindNativeTopic, ActionSkip)
 	if !strings.HasPrefix(it.Reason, "conflict:") || !strings.Contains(it.Reason, "typed-name collision") || it.Dest != "" {
 		t.Errorf("colliding native progress.md = %+v, want a destless conflict", it)
 	}

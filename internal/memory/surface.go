@@ -235,7 +235,7 @@ func nativeLinked(root, dir string) bool {
 	if top := mainCheckout(r); top != "" {
 		r = top
 	}
-	cur, err := os.Readlink(projectsMemory(projectSlug(r)))
+	cur, err := os.Readlink(projectsMemory(ProjectSlug(r)))
 	return err == nil && paths.SamePath(cur, dir)
 }
 
