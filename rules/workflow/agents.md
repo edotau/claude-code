@@ -26,7 +26,7 @@ or a Makefile target.
 | copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
 | codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
 | gemini | Codebase scanning on agy (Google sign-in): `ask --agent gemini --tools` or `gemini bridge` for 1M-token sweeps | Architecture, refactor impact, cross-file surveys |
-| opencode | DOCS refresh/lookup · ANALYZE native project memory (`/reflection:review`) · proven-pattern EXTRACT (`/reflection:promote --to skill`) · session PERSIST (`/reflection:update`) | Updating docs, API reference; `/reflection:*` — auditing/promoting/persisting memory |
+| opencode | DOCS refresh/lookup · ANALYZE native project memory (`memory review`) · proven-pattern EXTRACT (`memory promote --to skill`) · session PERSIST (`memory update`) | Updating docs, API reference; `claude-code memory <verb>` — auditing/promoting/persisting memory |
 
 ## Codebase Intelligence Protocol
 

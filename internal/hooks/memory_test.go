@@ -108,7 +108,7 @@ func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
 	for range 5 {
 		var errb bytes.Buffer
 		codes = append(codes, SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &errb))
-		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "/reflection:update") {
+		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
 			t.Errorf("block reason %q", errb.String())
 		}
 	}

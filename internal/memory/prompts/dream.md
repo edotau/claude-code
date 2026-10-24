@@ -1,13 +1,9 @@
-# `/reflection:dream` — Judgment Residue: Merge Near-Duplicates
+# `claude-code memory dream` — Judgment Residue: Merge Near-Duplicates
 
-> The daily background `claude-code memory dream` runs this on the Copilot CLI (claude-opus-5.5,
-> Claude fallback); a manual run overrides it. `--dry-run` runs the same audit and reports what
-> would change without editing.
-
-`claude-code memory dream` does the deterministic hygiene (rotate, archive, exact dedupe, cap
-enforcement). What it cannot do is judge **meaning** — two entries that say the same thing in
-different words, a stale fact a newer one contradicts, a pattern that recurs across 3+ memories
-and is a hard prohibition. That's this reference.
+What Go cannot judge is **meaning** — two entries that say the same thing in different words, a
+stale fact a newer one contradicts, a pattern that recurs across 3+ memories and is a hard
+prohibition. That's this reference. (`memory dream --dry-run` is the separate, deterministic
+preview — no model call, see its own output.)
 
 ## Phase 1: Baseline
 
@@ -83,15 +79,6 @@ Cross-Pollination:
 Total changes: N files modified, N files unchanged
 ```
 
-## Dry-run mode
-
-When invoked with `--dry-run`:
-
-1. Run all audit and analysis steps
-2. Do NOT edit any files
-3. Output what *would* change
-4. End with: "Run `/reflection:dream` to apply these changes."
-
 ## Background run
 
 > The daily, unattended run (no human watching the edits) — the same phases, with a tighter leash.
@@ -102,8 +89,8 @@ When invoked with `--dry-run`:
   forward; a dropped id breaks every cross-reference to it.
 - **Archive superseded decisions, never delete them** — strike the title line, point at the
   replacement, move the body to `archive/` only once the active file is over cap.
-- **Respect the caps** (`rules/workflow/memory-bank.md`): projectContext 60, activeContext 80,
-  progress 60, conventions 80, decisionLog 200, sessionHistory 30 entries.
+- **Respect the caps** — `rules/workflow/memory-bank.md`; Go enforces them on settle, but a
+  judgment edit must not write past one either.
 - **The RULES region is untouchable** — `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` in any native
   `MEMORY.md`, unattended or not.
 
@@ -121,7 +108,7 @@ After all updates:
 - **Proactively**: when context window is ≥85% full (the `context-checkpoint` Stop hook's
   threshold, before compaction loses detail)
 - **After corrections**: when user feedback or gate failures revealed a pattern worth capturing
-  — route those into `rules/` via `/reflection:remember` + `/reflection:promote <id> --to rules` first; dream only
+  — route those into `rules/` via `memory remember` + `memory promote <id> --to rules` first; dream only
   cross-pollinates what has already settled into 3+ memories
 
 ## Integration

@@ -79,10 +79,14 @@ func TestPromoteHomeDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// TestPromoteJudgmentTargetsWriteNothingAndNeedJudgment: rules/skill/claude-md never move or copy
-// the block anywhere — Go only prints it plus the target and a "needs judgment" pointer.
-func TestPromoteJudgmentTargetsWriteNothingAndNeedJudgment(t *testing.T) {
-	for _, to := range []string{"rules", "skill", "claude-md"} {
+// TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure: rules/skill never move or copy the
+// block anywhere — Go prints the block, the target, and the embedded promote procedure inline.
+func TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure(t *testing.T) {
+	ref, err := Reference("promote")
+	if err != nil {
+		t.Fatalf("Reference(\"promote\"): %v", err)
+	}
+	for _, to := range []string{"rules", "skill"} {
 		t.Run(to, func(t *testing.T) {
 			tempConfig(t)
 			root := repoRoot(t, "proj")
@@ -96,8 +100,11 @@ func TestPromoteJudgmentTargetsWriteNothingAndNeedJudgment(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Promote --to %s: %v", to, err)
 			}
-			if !strings.Contains(out, "needs judgment") || !strings.Contains(out, "target: ") {
-				t.Errorf("--to %s output missing judgment pointer: %q", to, out)
+			if !strings.Contains(out, "target: ") {
+				t.Errorf("--to %s output missing the target line: %q", to, out)
+			}
+			if !strings.Contains(out, ref) {
+				t.Errorf("--to %s output missing the embedded promote procedure:\n%s", to, out)
 			}
 			after, err := os.ReadFile(localPath)
 			if err != nil || string(before) != string(after) {
@@ -107,6 +114,46 @@ func TestPromoteJudgmentTargetsWriteNothingAndNeedJudgment(t *testing.T) {
 				t.Errorf("--to %s wrote the home bank file that didn't exist before", to)
 			}
 		})
+	}
+}
+
+// TestPromoteClaudeMDRefusedOutsideDream: --to claude-md outside a dream run is refused with the
+// reason, naming the --to rules alternative, and writes nothing.
+func TestPromoteClaudeMDRefusedOutsideDream(t *testing.T) {
+	t.Setenv(DreamChildEnv, "")
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	id := seedConventionBlock(t, root)
+	localPath := filepath.Join(Dir(root), "conventions.md")
+	before, _ := os.ReadFile(localPath)
+
+	_, err := Promote(root, id, "claude-md", false, time.Now())
+	if err == nil {
+		t.Fatal("Promote --to claude-md outside a dream run = nil error, want one")
+	}
+	if !strings.Contains(err.Error(), "memory dream") || !strings.Contains(err.Error(), "--to rules") {
+		t.Errorf("error missing the reason/alternative: %v", err)
+	}
+	after, rerr := os.ReadFile(localPath)
+	if rerr != nil || string(before) != string(after) {
+		t.Errorf("--to claude-md rewrote the local bank: before=%q after=%q err=%v", before, after, rerr)
+	}
+}
+
+// TestPromoteClaudeMDAllowedInsideDream: inside a dream run (DreamChildEnv set) --to claude-md
+// prints the block, target, and procedure instead of refusing.
+func TestPromoteClaudeMDAllowedInsideDream(t *testing.T) {
+	t.Setenv(DreamChildEnv, "1")
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	id := seedConventionBlock(t, root)
+
+	out, err := Promote(root, id, "claude-md", false, time.Now())
+	if err != nil {
+		t.Fatalf("Promote --to claude-md inside a dream run: %v", err)
+	}
+	if !strings.Contains(out, "target: ") {
+		t.Errorf("--to claude-md output missing the target line: %q", out)
 	}
 }
 

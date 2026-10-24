@@ -74,7 +74,7 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Review (`claude-code ask --agent codex`)
 - [ ] Full suite once
 - [ ] Commit + push
-- [ ] Handoff / `/reflection:update`
+- [ ] Handoff / `claude-code memory update`
 ```
 
 Write a `Suggested slug:` line right under the H1 (e.g. `Suggested slug: fable-method-upstream-refine`): the

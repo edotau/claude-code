@@ -52,7 +52,7 @@ The loop turns judgment into evidence only when the answer is reachable. Locate 
 - **In a technique you don't know** → research it first (Step 2's budget), then run the loop.
 - **Only in your own inference, nothing to open** → say so. Do not dress a guess as rigor
   (failure mode 18, costume rigor). Label it low-confidence, never silently.
-- **In a procedure the harness lacks, and it recurs** → build it as a skill (`/reflection:promote --to skill`).
+- **In a procedure the harness lacks, and it recurs** → build it as a skill (`claude-code memory promote --to skill`).
 
 Any route other than "run the loop" is named in the report; a silent detour reads as a skipped step.
 

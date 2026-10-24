@@ -18,7 +18,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 | Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-template` gates the native undated draft's first Write; `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
-| Promoted, public-safe knowledge | `~/.claude/docs/knowledge/<topic>.md` · `docs/knowledge/<repo>/<topic>.md` (tracked) | `/reflection:promote`, reviewed |
+| Promoted, public-safe knowledge | `~/.claude/docs/knowledge/<topic>.md` · `docs/knowledge/<repo>/<topic>.md` (tracked) | `claude-code memory promote`, reviewed |
 | Session memory bank (STATE, not a doc) | `<store>/` | `memory init` / the harvest gate |
 
 `<store>` is the repo's memory store, `~/.claude/memory/<repo>/` (`claude-code memory path` prints it; the harness

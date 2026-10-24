@@ -1,7 +1,6 @@
-# `/reflection:promote` — Judgment Residue: Target, Wording, Gate
+# `memory promote --to rules|skill|claude-md` — Judgment Residue: Target, Wording, Gate
 
-> The daily background `claude-code memory dream` also calls promote on the Copilot CLI
-> (claude-opus-5.5); a manual run overrides it.
+> The daily background `claude-code memory dream` also prints this during its cross-pollination step.
 
 `claude-code memory promote <id> --to home|rules|skill|claude-md` does the mechanical move: locate
 the entry, move/copy it to the target, link back, drop the source, settle. What it cannot do is
@@ -22,10 +21,10 @@ bank entry ──promote --to home──▶ home bank (~/.claude/memory/home/)
                                                   │ hard prohibition
                                                   ▼
                  ──promote --to claude-md─▶ CLAUDE.md "Known Gotchas"  ← always-on tier,
-                                              ONLY from `/reflection:dream`'s gate
+                                              ONLY from `memory dream`'s gate
 ```
 
-**`--to claude-md` is dream-gated.** Outside `/reflection:dream`'s cross-pollination step, route a
+**`--to claude-md` is dream-gated.** Outside `memory dream`'s cross-pollination step, route a
 CLAUDE.md-worthy entry to `rules/standards/` instead and note that the dream gate will consider it
 later — that is the only path. `promote` also never edits `rules/workflow/` (human-authored
 process).
@@ -57,7 +56,7 @@ grep -rni "<keywords>" ~/.claude/memory/*/   # one store dir per repo
 ```
 
 Show the matching topic file(s) + `MEMORY.md` index line and confirm this is the entry to
-promote. (Run `/reflection:review` first if you need candidates.)
+promote. (Run `claude-code memory review` first if you need candidates.)
 
 ### Step 2: Route to a target
 
@@ -83,7 +82,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflow/`).
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
 never edits `rules/workflow/` (human-authored process), and never writes to `CLAUDE.md` directly —
-only `/reflection:dream` promotes learnings there after the recurrence + hard-prohibition test passes.
+only `memory dream` promotes learnings there after the recurrence + hard-prohibition test passes.
 
 ### Step 3: Distill into a rule
 
@@ -99,7 +98,7 @@ file. Create the file only if the topic genuinely has no home, following the exi
 the file is meant to be on-demand.
 
 **Promote** when the entry recurs across sessions, prevents a repeat mistake, or is a convention
-any contributor should know (`/reflection:review` scores it ≥ 6). **Don't** promote one-off
+any contributor should know (`memory review` scores it ≥ 6). **Don't** promote one-off
 debugging notes, session-specific context, or anything mid-migration that may change soon.
 
 ## `--to skill`: reusable how-to, not a one-liner
@@ -175,7 +174,7 @@ Promoted: "<distilled rule / entry title>"
 Removed from native memory: <slug>.md  +  MEMORY.md index line
 MEMORY.md: N index lines remaining
 
-[if claude-md-worthy] Routed to <rules file>; the /reflection:dream gate
+[if claude-md-worthy] Routed to <rules file>; the `memory dream` gate
 (3+ memory entries AND hard prohibition) will consider it for CLAUDE.md promotion.
 This path does not write CLAUDE.md directly.
 ```
@@ -184,7 +183,7 @@ This path does not write CLAUDE.md directly.
 
 - Don't create agent files; don't invent patterns; don't create omnibus guides (one problem per
   skill); don't write discovery-narrative history.
-- Don't write `CLAUDE.md` outside `/reflection:dream`'s gate.
+- Don't write `CLAUDE.md` outside `memory dream`'s gate.
 
 ## Failure Modes
 

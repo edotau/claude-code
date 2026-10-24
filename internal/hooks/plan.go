@@ -205,7 +205,7 @@ var planCloseout = []string{
 	"Review (`claude-code ask --agent codex --fallback vendors`)",
 	"Full suite once",
 	"Commit + push",
-	"Handoff / `/reflection:update`",
+	"Handoff / `claude-code memory update`",
 }
 
 // withTasks appends a `## Tasks` checklist when the plan has none: the recovery point if a session, agent or

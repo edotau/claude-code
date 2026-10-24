@@ -2,9 +2,11 @@ package memory
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeTranscript(t *testing.T, lines ...string) string {
@@ -50,34 +52,57 @@ func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
 }
 
 func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	refDir := filepath.Join(dir, "skills", "reflection", "references")
-	if err := os.MkdirAll(refDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(refDir, "update.md"), []byte("the procedure"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	path := writeTranscript(t, assistantLine("NOTE: keep examples deterministic"))
-	got, err := agentHarvestPrompt(path)
+	got, err := agentHarvestPrompt(path, "")
 	if err != nil {
 		t.Fatalf("agentHarvestPrompt: %v", err)
 	}
-	if !strings.Contains(got, "the procedure") {
-		t.Errorf("prompt missing the reference text:\n%s", got)
+	if !strings.Contains(got, "Judgment Residue") {
+		t.Errorf("prompt missing the embedded update reference:\n%s", got)
 	}
 	if !strings.Contains(got, "Tagged this session") {
 		t.Errorf("prompt missing the tag block:\n%s", got)
 	}
 }
 
-func TestAgentHarvestPrompt_MissingReferenceErrors(t *testing.T) {
-	// paths.ConfigDir() resolution is environment-driven; point CLAUDE_CONFIG_DIR at a dir with no
-	// skills/reflection/references/update.md so agentHarvestPrompt fails loudly instead of running empty.
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	path := writeTranscript(t, assistantLine("NOTE: should not appear"))
-	if _, err := agentHarvestPrompt(path); err == nil {
-		t.Fatalf("agentHarvestPrompt with no reference file = nil error, want one")
+// TestAgentHarvestPrompt_UnknownVerbErrors: Reference errors on an unknown verb; agentHarvestPrompt
+// must surface that rather than running on an empty prompt. "update" itself is now always embedded,
+// so this exercises the error path through a verb that will never exist.
+func TestAgentHarvestPrompt_UnknownVerbErrors(t *testing.T) {
+	if _, err := Reference("does-not-exist"); err == nil {
+		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
+	}
+}
+
+// TestAgentHarvestPrompt_WithCWDAppendsGitActivity: a transcript with a parseable timestamp and a
+// real git cwd gets a "git activity" block with the session's commits/touched files appended.
+func TestAgentHarvestPrompt_WithCWDAppendsGitActivity(t *testing.T) {
+	cwd := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cwd
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(cwd, "f.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "f.txt")
+	run("commit", "-q", "-m", "seed commit")
+
+	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	path := writeTranscript(t, `{"timestamp":"`+ts+`"}`)
+	got, err := agentHarvestPrompt(path, cwd)
+	if err != nil {
+		t.Fatalf("agentHarvestPrompt: %v", err)
+	}
+	if !strings.Contains(got, "git activity") {
+		t.Errorf("prompt missing git activity block:\n%s", got)
+	}
+	if !strings.Contains(got, "seed commit") {
+		t.Errorf("prompt missing the seeded commit:\n%s", got)
 	}
 }

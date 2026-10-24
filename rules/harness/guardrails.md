@@ -21,7 +21,7 @@ evidence contract.
 |---|---|---|
 | `session-harvest` / `session-harvest-end` | Stop / SessionEnd | memory-bank mtime after the prompt (`activeContext`/`progress`/`sessionHistory.md`), or an explicit receipt |
 | `memory watch` (spawned by `session-harvest`) | detached, per session | the session stamp (`state/harness/memory/stamp-<id>`) carries the covered count; exits when the owner pid or transcript is gone |
-| `context-checkpoint` | Stop | once-per-session (the model writes a handoff (`/reflection:update`), then stops) |
+| `context-checkpoint` | Stop | once-per-session (the model writes a handoff (`claude-code memory update`), then stops) |
 | `bash-guard` | PreToolUse (Bash) | n/a — blocks the call outright; each block is logged to `claude-code doctor --audit` by reason and pattern, never the command; an eligible noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) is then prefixed with the `rtk` proxy when it is on PATH (Claude sessions only; `HARNESS_RTK_BIN` overrides the binary) |
 | `docs-placement` | PreToolUse (Write\|Edit) | n/a — blocks the call; placement names the canonical home (`HARNESS_DOCS_PLACEMENT=0` disables), plan-template is retried with `# Plan:`, `## Context`, `## Phases`, `## Tasks` from `agents/Plan.md`; deny-one-call, not a Stop loop |
 | `plan-mirror` | PostToolUse (Write\|Edit) | n/a — advisory; mirrors to a dated, repo-tagged file, preserving the first destination/date across edits |

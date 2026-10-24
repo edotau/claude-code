@@ -1,6 +1,6 @@
 # Progress
 
-> Task tracking — auto-injected at session start. REPLACE each `/reflection:update`.
+> Task tracking — auto-injected at session start. REPLACE each `claude-code memory update`.
 
 ## What Works
 
