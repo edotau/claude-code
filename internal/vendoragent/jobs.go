@@ -122,6 +122,20 @@ func procArgv(pid int) ([]string, error) {
 	return strings.Fields(string(out)), nil
 }
 
+// jobArgvSettled reads pid's argv, retrying for ~500ms while it does not match: a child spawned a moment ago
+// has forked but not yet exec'd, so /proc still shows the parent's argv.
+func jobArgvSettled(pid int, id string) ([]string, error) {
+	var argv []string
+	var err error
+	for i := 0; i < 5; i++ {
+		if argv, err = procArgv(pid); err != nil || isJobArgv(argv, id) {
+			return argv, err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return argv, nil
+}
+
 // isJobArgv reports whether argv carries the whole arguments `ask`, `--job` and id.
 func isJobArgv(argv []string, id string) bool {
 	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
@@ -149,7 +163,7 @@ func Cancel(rec *agent.Record) error {
 	if !proc.Alive(rec.PID) {
 		return markGone(rec)
 	}
-	argv, err := procArgv(rec.PID)
+	argv, err := jobArgvSettled(rec.PID, rec.ID)
 	if err != nil {
 		return fmt.Errorf("dispatch %q: cannot read pid %d command line: %w", rec.ID, rec.PID, err)
 	}
