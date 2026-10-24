@@ -195,6 +195,11 @@ with `__all__` in `__init__.py`.
 def append_to(item, items=[]):       # WRONG
 def append_to(item, items=None):     # RIGHT — create inside if items is None
 
+@dataclass
+class Basket:
+    items: list = []                 # WRONG — same list shared by every instance
+    items: list = field(default_factory=list)  # RIGHT
+
 if type(obj) == list:                # WRONG
 if isinstance(obj, list):            # RIGHT
 

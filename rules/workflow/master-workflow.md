@@ -199,7 +199,7 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 Roster (`Explore`, `Plan`, `claude`, `code-worker`, `copilot`, `codex`, `gemini`, `opencode`) and
 purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan` → 1, 4;
 `codex`/`gemini`/`opencode` → 1; `Explore` → 2; `general-purpose` (built-in) → 5, 6;
-`code-worker`/`copilot` → 6; `claude-code ask --agent <leg>` → 1, 6, 8.
+`code-worker`/`copilot` → 6; `claude` → 4, 7; `claude-code ask --agent <leg>` → 1, 6, 8.
 
 > **Security review is a skill, not an agent.** Run it via `/security-reviewer` (the `security-reviewer`
 > skill), typically alongside Phase 8.
