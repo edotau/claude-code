@@ -633,6 +633,119 @@ func TestReadChainLegacyOneLineFormat(t *testing.T) {
 	}
 }
 
+// TestCountEditsIncludesSubagentEdits: a dispatched subagent's own agent-*.jsonl transcript counts toward
+// the parent session's edits, and that combined total is what arms the Stop harvest gate.
+func TestCountEditsIncludesSubagentEdits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 1)
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 2)
+
+	if got := countEdits(tr, countPath("sub-session")); got != 3 {
+		t.Fatalf("countEdits = %d, want 3 (1 main edit + 2 subagent edits)", got)
+	}
+
+	cwd := t.TempDir()
+	calls := stubSpawn(t, true)
+	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
+	if code := SessionHarvest(strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("subagent edits must arm the harvest gate: code=%d calls=%d", code, calls.Load())
+	}
+}
+
+// TestCountEditsGitCommitWeightArmsGate: a single `git commit` Bash call, with zero Edit/Write calls,
+// counts for harvestMinEdits on its own and arms the Stop gate.
+func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
+	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := countEdits(tr, countPath("commit-session")); got != harvestMinEdits {
+		t.Fatalf("countEdits = %d, want %d (one git commit)", got, harvestMinEdits)
+	}
+
+	cwd := t.TempDir()
+	calls := stubSpawn(t, true)
+	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
+	if code := SessionHarvest(strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("a bare git commit must arm the harvest gate: code=%d calls=%d", code, calls.Load())
+	}
+}
+
+// TestCountStateOldFormatReadsAndNewFieldsRoundTrip: a pre-upgrade "edits|offset" count file still parses
+// (subEdits/subBytes default to zero), and writeCountState's 3-field format round-trips exactly.
+func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "count-x")
+	if err := os.WriteFile(path, []byte("5|120"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cs, ok := readCountState(path)
+	if !ok || cs != (countState{edits: 5, offset: 120}) {
+		t.Fatalf("old-format read = %+v ok=%v", cs, ok)
+	}
+
+	want := countState{edits: 7, offset: 240, subEdits: 4, subBytes: 999}
+	writeCountState(path, want)
+	got, ok := readCountState(path)
+	if !ok || got != want {
+		t.Fatalf("round trip = %+v ok=%v, want %+v", got, ok, want)
+	}
+}
+
+// TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth: countSubagentEdits trusts a cached edit count
+// outright when the summed subagent file size hasn't moved, and only rescans once it grows.
+func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
+	dir := t.TempDir()
+	tr := filepath.Join(dir, "t.jsonl")
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := filepath.Join(subDir, "agent-a.jsonl")
+	writeEdits(t, agent, 2)
+	fi, err := os.Stat(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := fi.Size()
+
+	edits, bytes := countSubagentEdits(tr, 0, 0)
+	if edits != 2 || bytes != size {
+		t.Fatalf("initial scan = (%d,%d), want (2,%d)", edits, bytes, size)
+	}
+
+	// A deliberately wrong cached edit count, paired with the SAME cached size, must be trusted as-is:
+	// this is the only way to prove the unchanged-size path skips the rescan rather than coincidentally
+	// recomputing the same answer.
+	edits2, bytes2 := countSubagentEdits(tr, size, 999)
+	if edits2 != 999 || bytes2 != size {
+		t.Fatalf("unchanged size must skip the rescan: got (%d,%d), want (999,%d)", edits2, bytes2, size)
+	}
+
+	writeEdits(t, agent, 5) // grows the file: the cached size no longer matches
+	fi2, err := os.Stat(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size2 := fi2.Size()
+	if size2 == size {
+		t.Fatal("test setup: file did not grow")
+	}
+	edits3, bytes3 := countSubagentEdits(tr, size, 999)
+	if edits3 != 5 || bytes3 != size2 {
+		t.Fatalf("grown file must be rescanned: got (%d,%d), want (5,%d)", edits3, bytes3, size2)
+	}
+}
+
 // TestReadStampCatchupStateDoesNotBreakParsing: a "catchup" stamp still parses through the same 3-field
 // format the Stop gate reads, with blocks defaulting to 0 (not crashing on a non-numeric second field).
 func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {

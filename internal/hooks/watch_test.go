@@ -53,6 +53,33 @@ func TestIdleHarvestOnceDispatchesUncoveredWork(t *testing.T) {
 	}
 }
 
+// TestIdleHarvestOnceCountsSubagentEdits: the idle watcher's edit count is the same countEdits unit the
+// Stop gate's stamp uses — main transcript edits PLUS any dispatched subagent's own edits — so growth in
+// either one past the covered total still dispatches the final harvest.
+func TestIdleHarvestOnceCountsSubagentEdits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 1)
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
+	calls := stubSpawn(t, true)
+
+	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 1 {
+		t.Fatalf("1 main + 10 subagent edits must dispatch the final harvest (calls=%d)", calls.Load())
+	}
+	if st, _ := readStamp(stampPath("idle-sub")); !st.bg || st.edits != 11 {
+		t.Errorf("stamp after the idle harvest = %+v, want bg covering 11 edits", st)
+	}
+
+	writeEdits(t, tr, 7) // 6 more main edits (1 -> 7); the subagent file is untouched
+	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 2 {
+		t.Fatalf("6 more main edits past the covered 11 must dispatch again (calls=%d)", calls.Load())
+	}
+}
+
 // The Stop gate claims one watcher per session at its first dispatch — never a second.
 func TestSessionHarvestSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

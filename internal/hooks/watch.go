@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // harvestIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
@@ -111,7 +110,7 @@ func idleHarvestOnce(tr, cwd, session string, note io.Writer) bool {
 	if st, ok := readStamp(stamp); ok {
 		covered = st.edits
 	}
-	edits := transcript.CountEdits(tr)
+	edits := countEdits(tr, countPath(session))
 	if edits < harvestMinEdits || edits <= covered {
 		return false
 	}

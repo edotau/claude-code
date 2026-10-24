@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,54 @@ func TestCountEditsFromLongLines(t *testing.T) {
 	checkEditsFrom(t, path, next, 1, next+int64(len(short)))
 	if got := CountEdits(path); got != 2 {
 		t.Fatalf("full scan after long records = %d, want 2", got)
+	}
+}
+
+// bashLine builds a single-tool_use assistant record running cmd under Bash.
+func bashLine(cmd string) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":%q}}]}}`, cmd)
+}
+
+// editLine builds a single-tool_use assistant Edit record whose old_string is oldStr.
+func editLine(oldStr string) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go","old_string":%q}}]}}`, oldStr)
+}
+
+// TestCountEditsFromGitCommitDetection: a segment counts only when git is actually RUN with the verb
+// `commit` (including -C/-c flags and a leading env-var assignment before `git`), never on quoted/echoed
+// text that merely mentions "git commit", and never twice when an Edit's own content mentions it.
+func TestCountEditsFromGitCommitDetection(t *testing.T) {
+	cases := []struct {
+		name  string
+		line  string
+		count bool // true: counts CommitEditWeight; false: counts 0
+	}{
+		{"plain git commit", bashLine("git commit -m x"), true},
+		{"dash-C before the verb", bashLine("git -C /repo commit"), true},
+		{"dash-c config before the verb", bashLine("git -c user.name=x commit"), true},
+		{"leading env var assignment", bashLine("X=1 git commit"), true},
+		{"grep for the quoted phrase", bashLine(`grep -R 'git commit' .`), false},
+		{"echo of the quoted phrase", bashLine(`echo "git commit"`), false},
+		{"bare commit, no git", bashLine("echo commit"), false},
+		{"Edit content mentioning git commit", editLine("says git commit here"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "commit.jsonl")
+			if err := os.WriteFile(path, []byte(tc.line+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if tc.count {
+				want = CommitEditWeight
+			}
+			if tc.name == "Edit content mentioning git commit" {
+				want = 1 // the Edit tool_use itself still counts as one ordinary edit
+			}
+			if got := CountEdits(path); got != want {
+				t.Errorf("CountEdits(%q) = %d, want %d", tc.line, got, want)
+			}
+		})
 	}
 }
 
