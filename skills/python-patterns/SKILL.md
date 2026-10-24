@@ -101,6 +101,12 @@ Check `requires-python`: only fall back to `typing.Optional/List/Dict` if the pr
 targets < 3.10. Mixing styles inside one module is worse than either consistently.
 Prefer `typing.Protocol` for duck-typed interfaces over ABC inheritance.
 
+```python
+class Repository(Protocol):
+    def find_by_id(self, id: str) -> dict | None: ...
+    def save(self, entity: dict) -> dict: ...
+```
+
 ## No new helper methods
 
 When refactoring, do not introduce new private helper functions. Refactor within existing
@@ -112,6 +118,17 @@ helpers — helpers accumulate into a maze.
 Prefer `@dataclass(frozen=True)` for value objects and `typing.NamedTuple` for immutable
 tuples. Use `field(default_factory=...)` for mutable defaults — never a bare `[]`/`{}`
 default argument (a classic shared-state bug; see references/idioms.md).
+
+```python
+@dataclass(frozen=True)
+class User:
+    name: str
+    email: str
+
+class Point(NamedTuple):
+    x: float
+    y: float
+```
 
 ## Venv discipline
 
