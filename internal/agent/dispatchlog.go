@@ -33,6 +33,17 @@ type Record struct {
 	Log            string    `json:"log,omitempty"`    // absolute path of the job's combined stdout+stderr log
 }
 
+// Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
+func (r Record) Alive() bool {
+	if r.Status != "running" {
+		return false
+	}
+	if r.PID > 0 {
+		return proc.Alive(r.PID)
+	}
+	return time.Since(r.Time) < time.Minute
+}
+
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
 
@@ -90,20 +101,23 @@ func pruneDispatches(dir string) {
 	}
 }
 
-// activeRecord keeps a live background job (Log set; pid alive, or not yet recorded within a minute) out of the prune.
+// activeRecord keeps a live dispatch (see Record.Alive) out of the prune.
 func activeRecord(path string) bool {
-	b, err := os.ReadFile(path)
+	r, err := readRecord(path)
 	if err != nil {
 		return false
 	}
+	return r.Alive()
+}
+
+// readRecord reads and unmarshals one record file by its full path.
+func readRecord(path string) (Record, error) {
 	var r Record
-	if json.Unmarshal(b, &r) != nil || r.Status != "running" || r.Log == "" {
-		return false
+	b, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(b, &r)
 	}
-	if r.PID == 0 {
-		return time.Since(r.Time) < time.Minute
-	}
-	return proc.Alive(r.PID)
+	return r, err
 }
 
 // recordNames lists record files oldest first (ids sort by time).
@@ -130,20 +144,16 @@ func LoadRecord(id string) (Record, error) {
 	if len(match) != 1 {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code ask --log)", id, len(match))
 	}
-	var r Record
-	b, err := os.ReadFile(filepath.Join(DispatchDir(), match[0]))
-	if err == nil {
-		err = json.Unmarshal(b, &r)
-	}
-	return r, err
+	return readRecord(filepath.Join(DispatchDir(), match[0]))
 }
 
 // RecentRecords returns up to n records, newest first.
 func RecentRecords(n int) []Record {
-	names := recordNames(DispatchDir())
+	dir := DispatchDir()
+	names := recordNames(dir)
 	var out []Record
 	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {
-		if r, err := LoadRecord(strings.TrimSuffix(names[i], ".json")); err == nil {
+		if r, err := readRecord(filepath.Join(dir, names[i])); err == nil {
 			out = append(out, r)
 		}
 	}

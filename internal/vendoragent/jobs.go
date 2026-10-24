@@ -107,7 +107,7 @@ func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (age
 
 // Alive reports a running record whose PID is still alive.
 func Alive(rec agent.Record) bool {
-	return rec.Status == "running" && proc.Alive(rec.PID)
+	return rec.Alive()
 }
 
 // procCmdline returns pid's command line (NUL-joined argv rendered with spaces) via /proc on Linux,
@@ -136,16 +136,8 @@ func Cancel(rec *agent.Record) error {
 		_ = rec.Save()
 		return nil
 	}
-	if err := interrupt(rec.PID); err != nil {
+	if err := escalate(rec.PID, rec.ID); err != nil {
 		return err
-	}
-	if !waitGone(rec.PID, 5*time.Second) {
-		if err := kill(rec.PID); err != nil {
-			return err
-		}
-		if !waitGone(rec.PID, 2*time.Second) {
-			return fmt.Errorf("dispatch %q still running after SIGKILL", rec.ID)
-		}
 	}
 	if latest, err := agent.LoadRecord(rec.ID); err == nil {
 		*rec = latest
@@ -153,6 +145,23 @@ func Cancel(rec *agent.Record) error {
 	if rec.Status == "running" {
 		rec.Status, rec.Error = "error", fmt.Sprintf("cancelled by claude-code %s cancel", rec.Agent)
 		return rec.Save()
+	}
+	return nil
+}
+
+// escalate sends SIGINT, waits 5s, then SIGKILL and waits 2s more; errors if pid outlives both.
+func escalate(pid int, id string) error {
+	if err := interrupt(pid); err != nil {
+		return err
+	}
+	if waitGone(pid, 5*time.Second) {
+		return nil
+	}
+	if err := kill(pid); err != nil {
+		return err
+	}
+	if !waitGone(pid, 2*time.Second) {
+		return fmt.Errorf("dispatch %q still running after SIGKILL", id)
 	}
 	return nil
 }

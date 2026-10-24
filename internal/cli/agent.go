@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
@@ -146,6 +145,9 @@ func cmdAsk(args []string) int {
 		}
 		rec.Repo = vendoragent.RepoRoot(ctx, cwd)
 		rec.Log = filepath.Join(agent.DispatchDir(), rec.ID+".log")
+		if !*background {
+			rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
+		}
 	}
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
@@ -402,15 +404,7 @@ func printDispatchLog(format string) int {
 		return 0
 	}
 	for _, r := range recs {
-		preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
-		for w := range strings.FieldsSeq(preview) {
-			if shapes.Looks(w) {
-				preview = strings.ReplaceAll(preview, w, "REDACTED")
-			}
-		}
-		if len(preview) > 60 {
-			preview = preview[:60] + "…"
-		}
+		preview := agent.Preview(r.Request.Prompt, 60)
 		tools := ""
 		if r.Request.Tools {
 			tools = " tools"

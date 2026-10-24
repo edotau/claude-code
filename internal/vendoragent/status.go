@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Row is one background-job line for `claude-code <v> status`.
@@ -86,15 +84,6 @@ func toRow(r agent.Record) Row {
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
-	preview := strings.Join(strings.Fields(r.Request.Prompt), " ")
-	for w := range strings.FieldsSeq(preview) {
-		if shapes.Looks(w) {
-			preview = strings.ReplaceAll(preview, w, "REDACTED")
-		}
-	}
-	if len([]rune(preview)) > 60 {
-		runes := []rune(preview)
-		preview = string(runes[:60]) + "…"
-	}
+	preview := agent.Preview(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID}
 }
