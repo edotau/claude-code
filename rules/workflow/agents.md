@@ -12,10 +12,11 @@ Located flat at `agents/<name>.md`. Agents hold no per-agent memory scope; they 
 memory in their reports. The main session writes it to Claude Code's native project memory,
 `~/.claude/projects/<slug>/memory/MEMORY.md` (a lean index) plus the topic files beside it.
 
-`agents/<name>.md` is the single definition (role, modes, rules, report format); `commands/<name>.md`
-is a ~10-line launcher (how to read `$ARGUMENTS`, which agent/script to run, relay the report, a
-pointer to the agent file); shell logic a skill needs lives in `skills/<name>/scripts/`, anything else in a Go verb
-or a Makefile target.
+`agents/<name>.md` is the single definition, on one skeleton —
+`## Role · ## Owns · ## Verbs · ## Hands off to · ## Procedure · ## Report contract · ## Don't`;
+`commands/<name>.md` is a ~10-line launcher (how to read `$ARGUMENTS`, which agent/script to run,
+relay the report, a pointer to the agent file); shell logic a skill needs lives in
+`skills/<name>/scripts/`, anything else in a Go verb or a Makefile target.
 
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
@@ -23,10 +24,10 @@ or a Makefile target.
 | Plan | Read-only planner; owns design and the plan template (`problem-solving` Steps 0-3), ends every plan with `## Tasks` | Plan mode, plan-only work, MEDIUM+ before code |
 | claude | Builds and manages: implement → simplify → hand review to evaluate-code; top-level orchestration | MEDIUM+ changes, multi-task plans to execute, post-write simplify |
 | code-worker | Sonnet-tier leaf: one well-scoped task in-context (`problem-solving` Steps 4-6), effort per dispatch | Dispatched by a manager (claude / Workflow / main session) — never ambient |
-| copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
-| codex | Adversarial REVIEW (pre-impl task/diff vetting) · VERIFY (format→lint→test→security gate loop) · OPTIMIZE (harness tuning) · SKILL/PLUGIN (artifact validation) | Before implementing; before shipping a PR; harness cost/reliability; reviewing an authored skill or plugin |
-| gemini | Codebase scanning on agy (Google sign-in): `ask --agent gemini --tools` or `gemini bridge` for 1M-token sweeps | Architecture, refactor impact, cross-file surveys |
-| opencode | DOCS refresh/lookup · ANALYZE native project memory (`memory review`) · proven-pattern EXTRACT (`memory promote --to skill`) · session PERSIST (`memory update`) | Updating docs, API reference; `claude-code memory <verb>` — auditing/promoting/persisting memory |
+| copilot | The test surface (repairs EXISTING tests a change breaks or makes stale, writes NEW coverage after the live check) + last mile: merge branches in dependency order, then stage + commit; every `claude-code copilot <verb>` (`ask --tools` for delegated mechanical work, `review`, `resume`, `status|result|cancel`) | Renames/signature changes, a suite that was green before the change, new behavior once the live check confirms it (dispatch WITH the implementer, not after); merge/stage/commit after the gates are green |
+| codex | General-purpose agent on the Codex CLI (`claude-code codex <verb>`): `review [--adversarial]` on a diff · `ask` vets a task brief, runs the final gate chain (`--tools`), audits a skill/plugin, or takes any delegated task · `transfer` hands a session over | Second opinion on a diff or plan; the final gate pass before a PR; a skill or plugin to review; work to delegate to another model family |
+| gemini | Explore alternative on agy (Google sign-in): `claude-code gemini explore` (code scan + web research brief), `gemini ask --tools`, `gemini bridge` for 1M-token sweeps, `gemini review [--adversarial]` | Exploring before a plan, research and prior art, architecture, refactor impact, cross-file surveys, web lookups |
+| opencode | DOCS refresh/lookup on the OpenCode CLI (`claude-code opencode ask --tools`) · ANALYZE native project memory (`memory review`) · proven-pattern EXTRACT (`memory promote --to skill`) · session PERSIST (`memory update`) · `opencode review|resume` | Updating docs, API reference; `claude-code memory <verb>` — auditing/promoting/persisting memory |
 
 ## Codebase Intelligence Protocol
 
@@ -106,8 +107,8 @@ codex / copilot / gemini as extra hands via `claude-code ask --agent <runner>`.
 - **Quick edits / mechanical changes / search** → `haiku` or `sonnet` leaves (cheap, fast).
   Prefer a Claude sonnet/haiku leaf over recruiting a whole external agent for small work.
 - **Long-context exploration** → `gemini` (its window is the reason to use it).
-- **Adversarial / second-opinion review** → `codex` (`/codex`) — a
-  genuinely different model family catches what a same-model self-review won't.
+- **Adversarial / second-opinion review** → `codex` (`/codex`, `claude-code codex review
+  --adversarial`) — a genuinely different model family catches what a same-model self-review won't.
 - **Heavy reasoning / architecture** → keep it on `opus`.
 
 ### Parallel vs sequential

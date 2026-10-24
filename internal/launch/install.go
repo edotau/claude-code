@@ -101,6 +101,33 @@ func DoctorChecks() (checks []Check, ok bool) {
 	return checks, ok
 }
 
+// RouteDetail returns the "<vendor> route" detail string DoctorChecks would emit for vendor, without
+// running the rest of the doctor sweep; ok is false for an unknown vendor or a registry load error.
+func RouteDetail(vendor string) (detail string, ok bool) {
+	switch vendor {
+	case "codex":
+		return codexRouteDetail(), true
+	case "gemini":
+		return geminiRouteDetail(), true
+	case "opencode":
+		reg, err := providers.Load()
+		if err != nil || reg == nil {
+			return "", false
+		}
+		sel, selErr := providers.Select(reg, "")
+		return opencodeRouteDetail(reg, sel, selErr), true
+	case "copilot":
+		reg, err := providers.Load()
+		if err != nil || reg == nil {
+			return "", false
+		}
+		_, selErr := providers.Select(reg, "")
+		return copilotRouteDetail(reg, selErr), true
+	default:
+		return "", false
+	}
+}
+
 func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p

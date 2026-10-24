@@ -52,7 +52,7 @@ func LastUsage(path string) (Usage, bool) {
 	_, _ = f.Seek(0, io.SeekStart)
 	var last Usage
 	found := false
-	eachLine(f, func(line []byte) {
+	EachLine(f, func(line []byte) {
 		if u, ok := usageFromLine(line); ok {
 			last, found = u, true
 		}
@@ -226,7 +226,7 @@ func eachEdit(path string, fn func(filePath string)) {
 		return
 	}
 	defer f.Close()
-	eachLine(f, func(line []byte) {
+	EachLine(f, func(line []byte) {
 		eachEditLine(line, fn)
 	})
 }
@@ -681,9 +681,34 @@ func commitShellTokens(seg string) []string {
 	return out
 }
 
-// eachLine includes partial EOF records; callback slices are valid only until fn returns.
-func eachLine(r io.Reader, fn func([]byte)) {
+// EachLine calls fn per line of r (oversized lines joined, partial EOF record included); slice valid only in fn.
+func EachLine(r io.Reader, fn func([]byte)) {
 	scanLines(r, false, fn)
+}
+
+// contentPart is one element of a message.content array; only {type:"text"} parts carry transcript text.
+type contentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// ContentText flattens message.content (bare string, or {type,text} parts) to its text parts joined; others skipped.
+func ContentText(content json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(content, &s); err == nil {
+		return s
+	}
+	var parts []contentPart
+	if err := json.Unmarshal(content, &parts); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == "text" {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 // readerPool reuses the 1MB bufio.Reader across calls — this runs on every Stop hook, so a fresh

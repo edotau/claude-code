@@ -191,18 +191,6 @@ func dispatchHostNames() []string {
 // dispatchAgentNames is dispatch.Agents, named to match the other *Names domain functions.
 func dispatchAgentNames() []string { return dispatch.Agents }
 
-// completionProjectSlug mirrors Claude Code's projects/<slug> naming (internal/memory.projectSlug,
-// unexported there): every non-alphanumeric byte becomes '-'.
-func completionProjectSlug(root string) string {
-	b := []byte(filepath.Clean(root))
-	for i, c := range b {
-		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
-			b[i] = '-'
-		}
-	}
-	return string(b)
-}
-
 // webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded
 // directory glob (no transcript parsing), current session first, fast enough for the Tab path.
 func webViewAgentIDs() []string {
@@ -210,7 +198,7 @@ func webViewAgentIDs() []string {
 	if err != nil {
 		return nil
 	}
-	projectDir := filepath.Join(paths.ConfigDir(), "projects", completionProjectSlug(cwd))
+	projectDir := filepath.Join(paths.ConfigDir(), "projects", memory.ProjectSlug(cwd))
 	sessions, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
 	if err != nil || len(sessions) == 0 {
 		return nil

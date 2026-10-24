@@ -18,30 +18,13 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
-const geminiVerbUsage = `claude-code gemini — the gemini agent
-
-USAGE
-  claude-code gemini [vendor args…]      launch agy; forward args unchanged
-  claude-code gemini ask …              one-shot on agy (= ask --agent gemini)
-  claude-code gemini bridge [flags] …    ingest files for a large-context task
-`
-
-// cmdGemini is the gemini agent verb: ask/bridge reach the harness's own runners; everything else
-// launches agy (the Antigravity CLI) with the args untouched.
+// cmdGemini is the gemini agent verb: bridge reaches the harness's own 1M-context sweep; everything
+// else (launch, ask, resume, status, result, cancel, setup, models, help) is vendorVerb's job.
 func cmdGemini(args []string) int {
-	if len(args) > 0 {
-		switch args[0] {
-		case "ask":
-			return cmdAsk(append([]string{"--agent", "gemini"}, args[1:]...))
-		case "bridge":
-			return cmdGeminiBridge(args[1:])
-		}
+	if len(args) > 0 && args[0] == "bridge" {
+		return cmdGeminiBridge(args[1:])
 	}
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		helptext.Fprint(os.Stderr, geminiVerbUsage)
-		return 2
-	}
-	return launchVendor("gemini", args)
+	return vendorVerb("gemini", args)
 }
 
 // splitCSV splits a comma-separated flag value, trimming blanks and dropping empty entries.

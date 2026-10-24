@@ -21,7 +21,7 @@ func TestCompletionTopLevel(t *testing.T) {
 		}
 	}
 	for _, hidden := range []string{"models", "router", "ask", "agents", "review", "workflow",
-		"completion", "__complete", "hook", "statusline", "version", "run", "switch", "resolve", "claude"} {
+		"completion", "__complete", "hook", "statusline", "version", "switch", "resolve", "claude"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("top-level candidates must not offer hidden %q: %v", hidden, got)
 		}
@@ -111,9 +111,6 @@ func TestCompletionFlagValues(t *testing.T) {
 
 // TestCompletionPositionals: a verb's first bare argument completes from its own static domain.
 func TestCompletionPositionals(t *testing.T) {
-	if got := completionCandidates([]string{"run", ""}); !slices.Equal(got, vendorNames()) {
-		t.Errorf("run values = %v, want %v", got, vendorNames())
-	}
 	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, hookNames()) {
 		t.Errorf("hook values = %v, want %v", got, hookNames())
 	}
@@ -122,11 +119,6 @@ func TestCompletionPositionals(t *testing.T) {
 	}
 	if got := completionCandidates([]string{"profile", ""}); !slices.Equal(got, providerNames()) {
 		t.Errorf("profile values = %v, want %v", got, providerNames())
-	}
-	// "run codex --" is past the vendor's own (unknown) flags — must offer nothing, not the run
-	// verb's positional domain again.
-	if got := completionCandidates([]string{"run", "codex", "--"}); len(got) != 0 {
-		t.Errorf("run codex -- = %v, want none (codex's own flags are not ours to know)", got)
 	}
 }
 
@@ -172,7 +164,7 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // flags belong to a process this binary never inspects, so completing them must offer nothing — and,
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
-	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "run", "science", "claude"} {
+	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
 		if n := specTree()[name]; n != nil && len(n.flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}

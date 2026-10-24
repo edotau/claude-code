@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
@@ -27,12 +28,27 @@ type Record struct {
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string    `json:"fallback_reason,omitempty"`
 	RanAs          string    `json:"ran_as,omitempty"` // the runner that answered, when a fallback leg did
+	Repo           string    `json:"repo,omitempty"`   // main checkout root the job belongs to
+	PID            int       `json:"pid,omitempty"`    // pid of the detached `claude-code ask --job` child
+	Log            string    `json:"log,omitempty"`    // absolute path of the job's combined stdout+stderr log
+}
+
+// Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
+func (r Record) Alive() bool {
+	if r.Status != "running" {
+		return false
+	}
+	if r.PID > 0 {
+		return proc.Alive(r.PID)
+	}
+	return time.Since(r.Time) < time.Minute
 }
 
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
 
-func dispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
+// DispatchDir is the directory holding dispatch records and job logs.
+func DispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(agent string, req Request, now time.Time) Record {
@@ -41,7 +57,7 @@ func NewRecord(agent string, req Request, now time.Time) Record {
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
 func (r Record) Save() error {
-	dir := dispatchDir()
+	dir := DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -71,10 +87,37 @@ func (r *Record) Finish(res Result, err error, took time.Duration) {
 
 func pruneDispatches(dir string) {
 	names := recordNames(dir)
-	for len(names) > dispatchKeep {
-		_ = os.Remove(filepath.Join(dir, names[0]))
-		names = names[1:]
+	excess := len(names) - dispatchKeep
+	for _, name := range names {
+		if excess <= 0 {
+			return
+		}
+		if activeRecord(filepath.Join(dir, name)) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
+		excess--
 	}
+}
+
+// activeRecord keeps a live dispatch (see Record.Alive) out of the prune.
+func activeRecord(path string) bool {
+	r, err := readRecord(path)
+	if err != nil {
+		return false
+	}
+	return r.Alive()
+}
+
+// readRecord reads and unmarshals one record file by its full path.
+func readRecord(path string) (Record, error) {
+	var r Record
+	b, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(b, &r)
+	}
+	return r, err
 }
 
 // recordNames lists record files oldest first (ids sort by time).
@@ -93,7 +136,7 @@ func recordNames(dir string) []string {
 // LoadRecord reads one record by id; a unique id prefix is accepted.
 func LoadRecord(id string) (Record, error) {
 	var match []string
-	for _, n := range recordNames(dispatchDir()) {
+	for _, n := range recordNames(DispatchDir()) {
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
 		}
@@ -101,20 +144,16 @@ func LoadRecord(id string) (Record, error) {
 	if len(match) != 1 {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code ask --log)", id, len(match))
 	}
-	var r Record
-	b, err := os.ReadFile(filepath.Join(dispatchDir(), match[0]))
-	if err == nil {
-		err = json.Unmarshal(b, &r)
-	}
-	return r, err
+	return readRecord(filepath.Join(DispatchDir(), match[0]))
 }
 
 // RecentRecords returns up to n records, newest first.
 func RecentRecords(n int) []Record {
-	names := recordNames(dispatchDir())
+	dir := DispatchDir()
+	names := recordNames(dir)
 	var out []Record
 	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {
-		if r, err := LoadRecord(strings.TrimSuffix(names[i], ".json")); err == nil {
+		if r, err := readRecord(filepath.Join(dir, names[i])); err == nil {
 			out = append(out, r)
 		}
 	}

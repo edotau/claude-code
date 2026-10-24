@@ -76,8 +76,8 @@ func (inv *inventory) resolveOrigins(explicit map[string]string) error {
 	for _, a := range aliases {
 		inv.aliasOf[a] = cfgOrigin
 		inv.mapSlug(paths.RepoSlug(a), cfgOrigin)
-		inv.mapSlug(projectSlug(a), cfgOrigin)
-		inv.mapSlug(projectSlug(orca), cfgOrigin)
+		inv.mapSlug(ProjectSlug(a), cfgOrigin)
+		inv.mapSlug(ProjectSlug(orca), cfgOrigin)
 	}
 	if inv.home != "" {
 		inv.register(inv.home, "", nil)
@@ -123,8 +123,8 @@ func (inv *inventory) register(path, explicitSlug string, aliases []string) stri
 		inv.originItemFor(dest, origin, aliases)
 	}
 	inv.mapSlug(paths.RepoSlug(canon), origin)
-	inv.mapSlug(projectSlug(canon), origin)
-	inv.mapSlug(projectSlug(filepath.Clean(path)), origin) // native slugs come from the cwd as typed, symlinks unresolved
+	inv.mapSlug(ProjectSlug(canon), origin)
+	inv.mapSlug(ProjectSlug(filepath.Clean(path)), origin) // native slugs come from the cwd as typed, symlinks unresolved
 	if explicitSlug != "" {
 		inv.m.Origins[explicitSlug] = origin
 	}

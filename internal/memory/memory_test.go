@@ -273,10 +273,10 @@ func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	cfg := tempConfig(t)
 	root := repoRoot(t, "proj")
-	if got := projectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
-		t.Errorf("projectSlug = %q", got)
+	if got := ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
+		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := filepath.Join(cfg, "projects", projectSlug(root), "memory")
+	native := filepath.Join(cfg, "projects", ProjectSlug(root), "memory")
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")

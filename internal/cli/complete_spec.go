@@ -38,6 +38,7 @@ func buildSpecTree() map[string]*compNode {
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
+		boolFlag("background"), flag("job"),
 	}
 
 	tree := map[string]*compNode{
@@ -54,7 +55,6 @@ func buildSpecTree() map[string]*compNode {
 			sub: map[string]*compNode{"serve": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"),
 				boolFlag("no-tailscale"), boolFlag("funnel"), formatFlag()}}}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
-		"run":      {args: []func() []string{vendorNames}},
 		"ask":      {flags: askFlags},
 		"theme": {args: []func() []string{statusline.GradientNames}, flags: []flagInfo{boolFlag("preview")},
 			sub: map[string]*compNode{"apply": {flags: []flagInfo{boolFlag("dry-run")}}}},
@@ -70,12 +70,6 @@ func buildSpecTree() map[string]*compNode {
 			"lint":     {},
 		}},
 		"review": {sub: reviewSubNodes()},
-		"gemini": {sub: map[string]*compNode{
-			"ask": {flags: askFlags},
-			"bridge": {flags: []flagInfo{flag("task"), flag("model"), valuedFlag("provider", providerNames), flag("effort"),
-				flag("dirs"), flag("files"), flag("format"), flag("max-files"), flag("max-file-bytes"),
-				flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}},
-		}},
 		"secrets": {sub: map[string]*compNode{
 			"set":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("dry-run")}},
 			"get":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export")}},
@@ -164,9 +158,18 @@ func buildSpecTree() map[string]*compNode {
 	}
 
 	// Launchers that only ever get a bare node (no flags of their own — see noComplete).
-	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science", "copilot", "codex", "opencode"} {
+	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
 		tree[v] = &compNode{}
 	}
+	// Vendor agents: ask/resume/review/transfer/status/result/cancel/setup/models, same shape per vendor.
+	for _, v := range []string{"codex", "copilot", "opencode"} {
+		tree[v] = &compNode{sub: vendorSubNodes(askFlags)}
+	}
+	geminiSub := vendorSubNodes(askFlags)
+	geminiSub["bridge"] = &compNode{flags: []flagInfo{flag("task"), flag("model"), valuedFlag("provider", providerNames), flag("effort"),
+		flag("dirs"), flag("files"), flag("format"), flag("max-files"), flag("max-file-bytes"),
+		flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}}
+	tree["gemini"] = &compNode{sub: geminiSub}
 	// Every remaining verb (hook/statusline/version/completion/__complete and anything future) at
 	// least gets an empty node so it's never silently unrepresented.
 	for _, c := range commands() {
@@ -176,6 +179,27 @@ func buildSpecTree() map[string]*compNode {
 	}
 	tree["hook"] = &compNode{args: []func() []string{hookNames}}
 	return tree
+}
+
+// vendorSubNodes is the one builder for every vendor agent's completion subtree (codex, copilot,
+// opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/models, same shape per vendor.
+func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
+	flag := func(name string) flagInfo { return flagInfo{name: name} }
+	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
+	formatFlag := func() flagInfo { return flagInfo{name: "format", values: formatValues} }
+	return map[string]*compNode{
+		"ask":    {flags: askFlags},
+		"resume": {},
+		"review": {flags: []flagInfo{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
+			boolFlag("adversarial"), boolFlag("background"), flag("rubric")}},
+		"explore":  {flags: []flagInfo{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
+		"transfer": {flags: []flagInfo{flag("source"), boolFlag("wait")}},
+		"status":   {flags: []flagInfo{boolFlag("all"), formatFlag()}},
+		"result":   {flags: []flagInfo{formatFlag()}},
+		"cancel":   {},
+		"setup":    {flags: []flagInfo{formatFlag()}},
+		"models":   {},
+	}
 }
 
 // reviewSubNodes gives every review detector (reviewTools, review.go) an empty node — none of them

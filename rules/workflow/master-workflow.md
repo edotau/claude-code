@@ -22,8 +22,8 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 |-------|----------------|--------|------|
 | 0. Classify | (inline) | Scope tier | Determines which phases run |
 | 1. Review | `Plan` subagent, or `claude-code ask --agent <leg>` for a second model family | Refined Task Brief | READY / NEEDS CLARIFICATION verdict |
-| 2. Codebase Intel | 3 parallel `Explore` subagents | Codebase Context Brief | Structure, conventions, deps covered |
-| 3. Research | `gh` search, WebFetch, WebSearch | Prior art links + library refs | At least 1 relevant reference |
+| 2. Codebase Intel | 3 parallel `Explore` subagents, or one `gemini` leg (`claude-code gemini explore`) | Codebase Context Brief | Structure, conventions, deps covered |
+| 3. Research | `gh` search, WebFetch, WebSearch, `claude-code gemini explore` (web research) | Prior art links + library refs | At least 1 relevant reference |
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
 | 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
@@ -54,10 +54,11 @@ user override ("just do it").
 
 Vet the *task request* before any code is written — in a `Plan` subagent, or on a different model
 family via `claude-code ask --agent codex|gemini|opencode` (see `claude-code agents` for what is
-available). Checklist, output format and verdict discipline: `agents/codex.md` → REVIEW mode.
+available). Checklist, output format and verdict discipline: `skills/evaluate-code/references/task-review.md` (on
+codex: `claude-code codex ask`).
 
 The same adversarial pass run on the finished branch diff (verdict SHIP IT / NEEDS WORK / BLOCK) is the
-pre-commit review around Phase 8.
+pre-commit review around Phase 8 (`claude-code codex review [--adversarial] --base <branch>`).
 
 ---
 
@@ -80,6 +81,9 @@ Launch **3 parallel `Explore` subagents** in a single message:
 **Scope the fan-out** to the directories the task touches — a repo-wide Explore sweep is the
 biggest avoidable input-token cost of this protocol.
 
+**Alternative**: one `claude-code gemini explore "<question>"` leg returns the same brief from agy
+(code + web research), off Claude's token budget; `bridge` for whole-repo context.
+
 ---
 
 ## Phase 3: Research & Reuse
@@ -90,6 +94,8 @@ biggest avoidable input-token cost of this protocol.
 2. `WebFetch` on vendor docs — confirm API behavior and patterns
 3. `WebSearch` — broader discovery (only when 1-2 are insufficient)
 4. Package registries (PyPI, npm, pkg.go.dev) — prefer battle-tested libraries
+5. `claude-code gemini explore "<question>"` — one leg for web research with cited URLs, off
+   Claude's token budget
 
 **Gate**: At least 1 relevant reference found, or explicit "nothing found" documented.
 
@@ -169,7 +175,8 @@ user asks for it).
 The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
 `skills/problem-solving/references/verify.md`. Migrations are never edited to make a gate pass.
 
-**Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
+**Alternatives**: the codex final gate run (`claude-code codex ask --tools`) as the cross-model second
+pass; the
 `testing-guidelines` test-and-fix loop for targeted test fixing,
 `skills/evaluate-code/references/techdebt.md` (scan and fix sections) for debt.
 

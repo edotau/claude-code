@@ -10,10 +10,11 @@ you didn't watch get built. For your own work mid-loop, `../../problem-solving/S
 `../../problem-solving/references/verify.md` is the gate; for a graded transcript walk-through use this
 skill's audit path.
 
-**Related, don't duplicate:** `codex` (VERIFY mode) runs the *project's* gate chain and fixes
-failures. This judges *claims* against *the diff* and changes nothing. `codex` REVIEW vets a task
-before code exists; this judges claims after. Workflow `audit-fix-verify {fix: false}` finds new defects across
-dimensions; this refutes asserted ones. `evaluate-code` judges quality; this judges honesty.
+**Related, don't duplicate:** the codex final gate run (`claude-code codex ask --tools`, briefed with
+`../../problem-solving/references/verify.md`) runs the *project's* gate chain and fixes failures. This judges
+*claims* against *the diff* and changes nothing. `task-review.md` vets a task before code exists; this judges
+claims after. Workflow `audit-fix-verify {fix: false}` finds new defects across dimensions; this refutes
+asserted ones. `evaluate-code` judges quality; this judges honesty.
 
 ## Protocol
 

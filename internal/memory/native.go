@@ -36,7 +36,7 @@ func NativeDirs(root string) []string {
 		if r == "" {
 			continue
 		}
-		if d := filepath.Join(paths.ConfigDir(), "projects", projectSlug(r), "memory"); !slices.Contains(out, d) {
+		if d := filepath.Join(paths.ConfigDir(), "projects", ProjectSlug(r), "memory"); !slices.Contains(out, d) {
 			out = append(out, d)
 		}
 	}
@@ -50,11 +50,11 @@ func NativeDir(root string) string {
 	if CutOver() {
 		return Dir(root)
 	}
-	return filepath.Join(paths.ConfigDir(), "projects", projectSlug(root), "memory")
+	return filepath.Join(paths.ConfigDir(), "projects", ProjectSlug(root), "memory")
 }
 
-// projectSlug mirrors Claude Code's projects/<slug> naming: every non-alphanumeric byte becomes '-'.
-func projectSlug(root string) string {
+// ProjectSlug mirrors Claude Code's projects/<slug> naming: every non-alphanumeric byte becomes '-'.
+func ProjectSlug(root string) string {
 	b := []byte(filepath.Clean(root))
 	for i, c := range b {
 		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
