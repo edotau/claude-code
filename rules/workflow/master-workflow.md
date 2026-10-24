@@ -214,21 +214,5 @@ purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `
 
 ## Saved Workflows (`workflows/*.js`)
 
-Run one only when the user asks for it; the default dispatch is `/code-workers` ‖ `copilot` (Phase 6).
-Deterministic templates of the phases above, runnable by name (`Workflow({name, args})`) or inline from
-another script via `workflow(name, args)`. Sequential = awaited stages, Parallel = `parallel()`/`pipeline()`,
-Loop = a bounded `while` — control flow is code, never a model decision. Agents work in the shared tree.
-Every `agent()` call pins `model:` (or `agentType:`) AND `effort:` — an unpinned leaf inherits the session's
-reasoning tier; a call that deliberately omits `effort:` carries `// lint:opus-ok` on its closing line. `meta`
-is a pure literal and nothing throws at top level, or the saved-workflow registry skips the script silently.
-`claude-code workflow lint` checks all three; `make test` gates the shipped scripts on it.
-
-| Workflow | Shape | Phases | args |
-|----------|-------|--------|------|
-| `gate-loop` | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
-| `implement-and-verify` | Parallel intel → implementer ‖ copilot → gate-loop. Does not chain into `audit-fix-verify` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
-| `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
-| `external-agent` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
-
-The skill A/B eval lives under evaluate-code: `skills/evaluate-code/scripts/code-evaluator.js`
-(run via `scriptPath`, never by name) — `skills/evaluate-code/references/eval.md`.
+Run one only when the user asks for it; the default dispatch is `/code-workers` ‖ `copilot` (Phase 6). Shapes, args,
+pinning rules and the drift lint: `skills/subagent-workflows/references/saved-workflows.md`.

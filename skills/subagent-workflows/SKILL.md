@@ -16,7 +16,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | One objective, several phases and owners | HIGH/EPIC | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |
 | Same measurable task, several approaches | any | N isolated attempts, re-measure, merge one | [competition-tournament.md](references/competition-tournament.md) |
 | Cheaper or second-family leg (Copilot, Codex, Gemini, OpenCode) | any | `claude-code ask --agent <runner>` | [cost-routing.md](references/cost-routing.md) |
-| Repeatable pipeline, evaluator or bounded loop | any | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | `rules/workflow/master-workflow.md` → Saved Workflows |
+| Repeatable pipeline, evaluator or bounded loop | any | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | [saved-workflows.md](references/saved-workflows.md) |
 
 Tier is `rules/workflow/master-workflow.md` → Phase 0. Each leaf runs one method skill, named in the brief's `Method:`
 field: `problem-solving` (implementer, code-worker, lane leaf), `evaluate-code` (spec, quality and plan reviewers;
