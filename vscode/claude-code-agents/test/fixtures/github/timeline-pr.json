@@ -1,0 +1,138 @@
+[
+  {
+    "id": null,
+    "event": "committed",
+    "created_at": null,
+    "actor": null,
+    "user": null,
+    "author": {
+      "name": "dependabot[bot]"
+    },
+    "body_html": null,
+    "state": null,
+    "label": null,
+    "assignee": null,
+    "commit_id": null,
+    "message": "chore(deps): bump the go-modules group with 2 updates\n\nBumps the go-modules grou",
+    "sha": "f8b76b08a0c0",
+    "html_url": "https://github.com/edotau/claude-code/commit/f8b76b08a0c0def2c4159f2c9a1e66ca20a8b607",
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  },
+  {
+    "id": 33896377937,
+    "event": "labeled",
+    "created_at": "2026-10-21T22:53:42Z",
+    "actor": {
+      "login": "dependabot[bot]"
+    },
+    "user": null,
+    "author": null,
+    "body_html": null,
+    "state": null,
+    "label": {
+      "name": "dependencies"
+    },
+    "assignee": null,
+    "commit_id": null,
+    "message": null,
+    "sha": null,
+    "html_url": null,
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  },
+  {
+    "id": 33896378461,
+    "event": "labeled",
+    "created_at": "2026-10-21T22:53:43Z",
+    "actor": {
+      "login": "dependabot[bot]"
+    },
+    "user": null,
+    "author": null,
+    "body_html": null,
+    "state": null,
+    "label": {
+      "name": "go"
+    },
+    "assignee": null,
+    "commit_id": null,
+    "message": null,
+    "sha": null,
+    "html_url": null,
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  },
+  {
+    "id": 33898365833,
+    "event": "merged",
+    "created_at": "2026-10-21T23:28:52Z",
+    "actor": {
+      "login": "edotau"
+    },
+    "user": null,
+    "author": null,
+    "body_html": null,
+    "state": null,
+    "label": null,
+    "assignee": null,
+    "commit_id": "b7efdf9f23b525c21a56994fad28902109490e78",
+    "message": null,
+    "sha": null,
+    "html_url": null,
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  },
+  {
+    "id": 33898365899,
+    "event": "closed",
+    "created_at": "2026-10-21T23:28:52Z",
+    "actor": {
+      "login": "edotau"
+    },
+    "user": null,
+    "author": null,
+    "body_html": null,
+    "state": null,
+    "label": null,
+    "assignee": null,
+    "commit_id": null,
+    "message": null,
+    "sha": null,
+    "html_url": null,
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  },
+  {
+    "id": 33898367770,
+    "event": "head_ref_deleted",
+    "created_at": "2026-10-21T23:28:54Z",
+    "actor": {
+      "login": "edotau"
+    },
+    "user": null,
+    "author": null,
+    "body_html": null,
+    "state": null,
+    "label": null,
+    "assignee": null,
+    "commit_id": null,
+    "message": null,
+    "sha": null,
+    "html_url": null,
+    "source": null,
+    "rename": null,
+    "requested_reviewer": null,
+    "submitted_at": null
+  }
+]
