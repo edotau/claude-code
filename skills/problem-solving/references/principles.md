@@ -1,8 +1,8 @@
 # The Four Principles — in depth
 
-LLM-written code fails in four characteristic ways. These principles are the discipline
-lens that catches them; each maps to a detector that makes the mechanical part of the check
-deterministic.
+LLM-written code fails in four characteristic ways. These principles are the discipline lens that
+catches them; `evaluate-code` maps each to a detector that makes the mechanical part of the
+review deterministic.
 
 > **Attribution.** The four principles are adapted from Andrej Karpathy's observations on
 > LLM coding pitfalls (X post, 2025). The detector tooling, anti-pattern gallery, and

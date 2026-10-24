@@ -46,9 +46,10 @@ Brief (the attached lane plan carries the context):
 You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/restore.
 Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
 Done when: <scoped test> exits 0 and <live check> shows <expected>.
-Before a behavior change write INTENT: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
-After a defect fix write TWINS: searched P, found N.
-Report: files changed, each command with exit code and env (cwd, CLAUDE_CONFIG_DIR), INTENT/TWINS, anything outside your files.
+Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
+After a defect fix write ISSUE: searched P, found N.
+Report: files changed, each command with exit code and env (cwd, CLAUDE_CONFIG_DIR), the TASK/ISSUE facts as
+plain sentences (never raw tags), anything outside your files.
 ```
 
 A finding outside the leaf's files becomes a new line in this lane (same package) or a note to the manager.

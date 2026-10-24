@@ -42,7 +42,7 @@ and stop. Skip for one-line fixes or when a scan is already warm this session.
    | implement (Phase 6) | `code-worker` per sub-task (parallel-safe ones in one message) ‖ `copilot` | `## Implementation Notes` |
    | simplify (Phase 7) | `Skill(simplify)` over the integrated diff | `## Simplification` |
    | review | `evaluate-code` ‖ `security-reviewer`; optionally `claude-code ask --agent codex` on the diff range | `## Review` (SHIP / FIX REQUIRED / BLOCK) |
-   | verify (Phase 8) | main session: the repo's gates, then the `approval-gate` checklist | `## Verification` |
+   | verify (Phase 8) | main session: the repo's gates, then the gate chain in `skills/problem-solving/references/verify.md` | `## Verification` |
 
    Status per stage follows [subagent-driven-development.md](subagent-driven-development.md) → Status.
 3. Set the document's status to `complete` and summarize: what changed, review findings, whether verification

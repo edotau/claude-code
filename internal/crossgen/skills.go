@@ -16,11 +16,6 @@ func linkSkills(out io.Writer, skills []Source, skillsDir, agentsSkills string, 
 		_ = os.MkdirAll(agentsSkills, 0o755)
 	}
 	for _, skill := range skills {
-		if skipNames[skill.dirName] {
-			fmt.Fprintf(out, "  SKIP  %s (Claude-Code-only skill)\n", skill.dirName)
-			res.skipped++
-			continue
-		}
 		name := skill.Name()
 		if !safeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe skill name %q (must be a plain path component)\n", name)

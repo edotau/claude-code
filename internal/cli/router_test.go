@@ -32,7 +32,7 @@ func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 	}
 }
 
-// TestSecretsOpHelpPrintsUsage: the same ignored-flag twin in `secrets status|scan|doctor -h` (TWINS sweep of the
+// TestSecretsOpHelpPrintsUsage: the same ignored-flag twin in `secrets status|scan|doctor -h` (ISSUE sweep of the
 // router fix); each must print usage instead of running the op.
 func TestSecretsOpHelpPrintsUsage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

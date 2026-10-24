@@ -178,11 +178,6 @@ func syncVendor(out io.Writer, t vendorTarget, agents []Source, distDir, homeDir
 	var res syncResult
 	rendered := make(map[string]bool, len(agents))
 	for _, agent := range agents {
-		if skipNames[agent.dirName] {
-			fmt.Fprintf(out, "  SKIP  %s (Claude-Code-only)\n", agent.dirName)
-			res.skipped++
-			continue
-		}
 		name := agent.Name()
 		if !safeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe agent name %q (must be a plain path component)\n", name)

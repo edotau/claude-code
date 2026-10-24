@@ -15,7 +15,7 @@ Bug-hunting is `evaluate-code`'s job; security is `security-reviewer`'s.
 ## Simplicity First (#2) and Surgical Changes (#3)
 
 The two principles this skill applies the fix for. Definitions, attribution, and the
-review-time framing are canonical in `skills/evaluate-code/references/karpathy-principles.md`
+review-time framing are canonical in `skills/problem-solving/references/principles.md`
 (#2, #3); CLAUDE.md → Behavioral guidelines states the base rule. This skill's job is
 narrower: *apply* the fix, not just flag it.
 
@@ -99,5 +99,5 @@ Local to this skill:
 Shared with `evaluate-code` (canonical owner — read from `skills/evaluate-code/references/`):
 
 - `anti-patterns.md` — over-abstraction gallery across Python, TS, shell.
-- `karpathy-principles.md` — source attribution + when to relax each principle.
+- `../problem-solving/references/principles.md` — source attribution + when to relax each principle.
 - `detectors.md` — full CLI reference for all detectors (incl. `claude-code review complexity`).

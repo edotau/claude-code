@@ -28,7 +28,7 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
 | 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
 | 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
-| 8. Verify | the `testing-guidelines` test-and-fix loop + the `approval-gate` skill | All gates green | format + lint + test + security pass |
+| 8. Verify | the `testing-guidelines` test-and-fix loop + the `problem-solving` gate chain | All gates green | format + lint + test + security pass |
 | 9. Commit | `/copilot commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
 
 ---
@@ -167,7 +167,7 @@ other's helpers and only the merged diff shows it. A leaf gets `skills/simplify/
 user asks for it).
 
 The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
-`skills/approval-gate/SKILL.md`. Migrations are never edited to make a gate pass.
+`skills/problem-solving/references/verify.md`. Migrations are never edited to make a gate pass.
 
 **Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
 `testing-guidelines` test-and-fix loop for targeted test fixing,
@@ -222,5 +222,6 @@ is a pure literal and nothing throws at top level, or the saved-workflow registr
 | `audit-fix-verify` | Sized scope → chunked auditors → batched refute → fix ‖ test per package → gate-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
 | `external-agent` | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
 
-The fable-method A/B eval lives under its skill, not here: `skills/fable-method/scripts/code-evaluator.js` (run via
-`scriptPath`, never by name) — `skills/fable-method/references/eval.md`.
+The problem-solving A/B eval lives under its skill, not here:
+`skills/problem-solving/scripts/code-evaluator.js` (run via `scriptPath`, never by name) —
+`skills/problem-solving/references/eval.md`.

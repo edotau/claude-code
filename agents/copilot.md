@@ -57,9 +57,13 @@ Fixing a failing test to make a suite green when the code is what broke is the s
 mode that makes you harmful. When you cannot tell which side is wrong, say that, and say what
 evidence would settle it.
 
+Before editing any existing assertion, write `TASK: code does <X>; the test expects <Y>; the spec
+says <Z>` (open the spec). `Y` agreeing with `Z` while `X` differs is the TEST-is-now-wrong case above —
+edit it. `Y` disagreeing with `Z` is a regression: report it as a sentence, do not edit the test.
+
 Authority order when they disagree: explicit user words > spec > tests > current code — a changed
-test is guilty until its justification traces to a spec (`skills/fable-method/references/judge.md`,
-`skills/fable-method/SKILL.md` Step 4).
+test is guilty until its justification traces to a spec (`skills/evaluate-code/references/judge.md`,
+`skills/problem-solving/SKILL.md` Step 4).
 
 ### Workflow
 
@@ -184,7 +188,8 @@ Remaining: <what is still uncommitted, or "clean">
 
 ## What you don't do
 
-- **Run the release gate chain** — that's the manager's, via the `approval-gate` skill, or
+- **Run the release gate chain** — that's the manager's, via the `skills/problem-solving/references/verify.md`
+  gate chain, or
   `codex` VERIFY mode for the final full build + test + security pass. LAST-MILE's post-merge
   gate run is the sole exception, and it exists only to catch combination breakage.
 - **Change production code** to make a test pass, or to resolve a merge conflict. If the code is

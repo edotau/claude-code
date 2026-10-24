@@ -161,14 +161,13 @@ func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
 }
 
 // ~/.agents/skills: a real dir or a foreign symlink under a projected name is kept; a stale harness link is
-// re-pointed; an orphaned harness link is pruned; the skip-listed skill is never linked.
+// re-pointed; an orphaned harness link is pruned.
 func TestSkillLinksRespectOwnership(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "keeper", "keeper")
 	writeSource(t, claude, "skills", "mine-dir", "mine")
 	writeSource(t, claude, "skills", "foreign-dir", "foreign")
 	writeSource(t, claude, "skills", "moved-new", "moved")
-	writeSource(t, claude, "skills", "approval-gate", "approval-gate")
 	agentsSkills := AgentsSkillsDir(home)
 	writeFile(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy\n")
 	vendor := filepath.Join(home, "vendor", "foreign")
@@ -198,9 +197,6 @@ func TestSkillLinksRespectOwnership(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(agentsSkills, "gone")); !os.IsNotExist(err) {
 		t.Error("orphaned harness link not pruned")
-	}
-	if _, err := os.Lstat(filepath.Join(agentsSkills, "approval-gate")); !os.IsNotExist(err) {
-		t.Error("skip-listed skill was linked")
 	}
 	assertFileContains(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy")
 }
