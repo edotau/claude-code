@@ -179,11 +179,15 @@ func ReviewPrompt(adversarial bool, focus string) string {
 	return p
 }
 
-// ReviewArgs builds the `ask` argv for a review: the diff lands in a temp file attached via --attach.
-// cleanup removes the temp file in foreground mode; in background mode the detached child reads it, so
-// cleanup is a no-op (no clean sweep covers the temp file yet). rubric, when set, emits --rubric <f> before the trailing prompt argument.
+// ReviewArgs builds the `ask` argv for a review: the diff lands in state/harness/dispatch/review-*.diff attached
+// via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
+// `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
 func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
-	f, err := os.CreateTemp("", "claude-code-review-*.diff")
+	dir := agent.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.CreateTemp(dir, "review-*.diff")
 	if err != nil {
 		return nil, nil, err
 	}

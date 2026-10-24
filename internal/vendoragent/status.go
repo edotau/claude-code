@@ -23,7 +23,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	if _, ok := Lookup(name); !ok {
 		return nil, errUnknownVendor(name)
 	}
-	recs := List(name, RepoRoot(ctx, cwd), all)
+	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
 	if ref != "" {
 		rec, err := Resolve(recs, ref, nil)
 		if err != nil {
@@ -43,7 +43,7 @@ func Result(ctx context.Context, name, cwd, ref string) (agent.Record, string, e
 	if _, ok := Lookup(name); !ok {
 		return agent.Record{}, "", errUnknownVendor(name)
 	}
-	recs := List(name, RepoRoot(ctx, cwd), false)
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Status != "running" })
 	if err != nil {
 		return agent.Record{}, "", err
@@ -60,7 +60,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	if _, ok := Lookup(name); !ok {
 		return agent.Record{}, errUnknownVendor(name)
 	}
-	recs := List(name, RepoRoot(ctx, cwd), false)
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return Alive(r) })
 	if err != nil {
 		return agent.Record{}, err
