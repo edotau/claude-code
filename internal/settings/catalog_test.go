@@ -229,7 +229,7 @@ func TestParseRejectsCleanupPeriodDaysZero(t *testing.T) {
 // TestValidateRejectsNull: a JSON null must never satisfy any Kind's Validate — json.Unmarshal(null, ptr)
 // silently succeeds as a no-op, so without an explicit null guard every Kind would accept it unchallenged.
 func TestValidateRejectsNull(t *testing.T) {
-	for _, key := range []string{"alwaysThinkingEnabled", "effortLevel", "outputStyle", "cleanupPeriodDays"} {
+	for _, key := range []string{"alwaysThinkingEnabled", "outputStyle", "cleanupPeriodDays"} {
 		f, ok := Lookup(key)
 		if !ok {
 			t.Fatalf("%s is not in Catalog", key)
@@ -264,20 +264,5 @@ func TestParseRejectsAutoMode(t *testing.T) {
 	}
 	if _, err := f.Parse(`{"soft_deny":["$defaults"]}`); err == nil {
 		t.Error("Parse on autoMode = nil error, want rejection (no text-entry form)")
-	}
-}
-
-// TestParseRejectsEffortLevelMax: "max" and "ultracode" are session-only per the schema description and are
-// not accepted in the settings file — only low/medium/high/xhigh persist.
-func TestParseRejectsEffortLevelMax(t *testing.T) {
-	f, ok := Lookup("effortLevel")
-	if !ok {
-		t.Fatal("effortLevel is not in Catalog")
-	}
-	if _, err := f.Parse("max"); err == nil {
-		t.Error("Parse(\"max\") on effortLevel = nil error, want rejection (session-only value)")
-	}
-	if _, err := f.Parse("high"); err != nil {
-		t.Errorf("Parse(\"high\") on effortLevel = %v, want no error", err)
 	}
 }

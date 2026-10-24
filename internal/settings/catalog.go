@@ -34,7 +34,6 @@ type Field struct {
 // means the schemastore copy in testdata/claude-code-settings.schema.json documents it; "docs"
 // means code.claude.com documents it but schemastore is behind; "template" means neither does.
 var Catalog = []Field{
-	{Key: "effortLevel", Section: "model", Kind: KindEnum, Values: []string{"low", "medium", "high", "xhigh"}, Source: "schema"},
 	{Key: "alwaysThinkingEnabled", Section: "model", Kind: KindBool, Source: "schema"},
 	{Key: "outputStyle", Section: "model", Kind: KindString, Source: "schema"},
 	{Key: "switchModelsOnFlag", Section: "model", Kind: KindBool, Source: "docs"},
