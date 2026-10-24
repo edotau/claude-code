@@ -37,8 +37,8 @@ func vendorUsage(vendor string) string {
 		{vendor + " setup [--format json]", "binary, login, route, projection"},
 		{vendor + " models", "the vendor's own model catalog"},
 	}
-	if vendor == "gemini" {
-		rows = append(rows, [2]string{"gemini bridge [flags] …", "ingest files for a large-context task"})
+	if a, ok := vendoragent.Lookup(vendor); ok {
+		rows = append(rows, a.ExtraUsage...)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "claude-code %s — the %s agent\n\nUSAGE\n", vendor, vendor)
@@ -49,6 +49,16 @@ func vendorUsage(vendor string) string {
 		}
 	}
 	return b.String()
+}
+
+// newVendorFlags makes a ContinueOnError FlagSet named "<vendor> <verb>" with the shared usage printer.
+func newVendorFlags(vendor, verb string) *flag.FlagSet {
+	fs := flag.NewFlagSet(vendor+" "+verb, flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
+	return fs
 }
 
 // cmdVendorSub dispatches a vendor's background-job and setup subverbs (resume/status/result/cancel/setup/models).
@@ -86,11 +96,7 @@ func cmdVendorResume(vendor string, args []string) int {
 
 // cmdVendorStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
 func cmdVendorStatus(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" status", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "status")
 	all := fs.Bool("all", false, "every repo, not just this one")
 	format := outfmt.Flag(fs)
 	pos, err := outfmt.Parse(fs, args)
@@ -125,11 +131,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 
 // cmdVendorResult is `claude-code <v> result [id] [--format text|json]`.
 func cmdVendorResult(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" result", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "result")
 	format := outfmt.Flag(fs)
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
@@ -193,11 +195,7 @@ func cmdVendorCancel(vendor string, args []string) int {
 
 // cmdVendorSetup is `claude-code <v> setup [--format text|json]`.
 func cmdVendorSetup(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" setup", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "setup")
 	format := outfmt.Flag(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -221,11 +219,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 
 // cmdVendorReview is `claude-code <v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.
 func cmdVendorReview(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" review", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "review")
 	uncommitted := fs.Bool("uncommitted", false, "working tree + index vs HEAD (default)")
 	base := fs.String("base", "", "diff against this branch (triple-dot merge base)")
 	commit := fs.String("commit", "", "diff this single commit")
@@ -246,25 +240,17 @@ func cmdVendorReview(vendor string, args []string) int {
 		return fail("%s review: %v", vendor, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
-	askArgs, cleanup, err := vendoragent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus)
+	askArgs, cleanup, err := vendoragent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
 		return fail("%s review: %v", vendor, err)
 	}
 	defer cleanup()
-	if *rubric != "" {
-		task := askArgs[len(askArgs)-1]
-		askArgs = append(askArgs[:len(askArgs)-1], "--rubric", *rubric, task)
-	}
 	return cmdAsk(askArgs)
 }
 
 // cmdVendorExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
 func cmdVendorExplore(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" explore", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "explore")
 	noWeb := fs.Bool("no-web", false, "skip the web-research leg; code scan only")
 	background := fs.Bool("background", false, "detach; claude-code "+vendor+" status|result to follow up")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
@@ -286,11 +272,7 @@ func cmdVendorExplore(vendor string, args []string) int {
 
 // cmdVendorTransfer is `claude-code <v> transfer [--source f] [--wait] [note…]`.
 func cmdVendorTransfer(vendor string, args []string) int {
-	fs := flag.NewFlagSet(vendor+" transfer", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := newVendorFlags(vendor, "transfer")
 	source := fs.String("source", "", "transcript .jsonl (default: newest session for this repo)")
 	wait := fs.Bool("wait", false, "block for the answer instead of detaching")
 	if err := fs.Parse(args); err != nil {

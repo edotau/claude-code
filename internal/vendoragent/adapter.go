@@ -15,6 +15,7 @@ type Adapter struct {
 	ModelsArgv     []string               // vendor args that list models; nil = no vendor catalog verb
 	ModelsProvider string                 // non-empty = list via claude-code models --live --provider <this>, not the vendor
 	ReadNeedsTools bool                   // true when the vendor denies file reads/search too unless --tools is set
+	ExtraUsage     [][2]string            // extra vendorUsage rows (label, description) beyond the common roster
 }
 
 // adapters is the roster, in verb order.
@@ -32,6 +33,7 @@ var adapters = []Adapter{
 		ResumeHint:     func(id string) string { return "agy --conversation " + id },
 		ModelsArgv:     []string{"models"},
 		ReadNeedsTools: true, // agy's no-tools preamble bars @path reads; needs --tools to read/search
+		ExtraUsage:     [][2]string{{"gemini bridge [flags] …", "ingest files for a large-context task"}},
 	},
 	{
 		Name:           "copilot",

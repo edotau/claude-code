@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 	"slices"
 	"strings"
 	"testing"
@@ -153,5 +156,31 @@ func TestVendorCompletionSubverbFlags(t *testing.T) {
 func TestVendorCompletionDoesNotFollowDoubleDash(t *testing.T) {
 	if got := completionCandidates([]string{"codex", "--", ""}); len(got) != 0 {
 		t.Errorf("codex -- ⇥ = %v, want none (codex's own flags are not ours to know)", got)
+	}
+}
+
+func TestVendorUsageBridgeRowOnlyForGemini(t *testing.T) {
+	if u := vendorUsage("codex"); strings.Contains(u, "bridge") {
+		t.Errorf("vendorUsage(codex) must not carry the bridge row:\n%s", u)
+	}
+	if u := vendorUsage("gemini"); !strings.Contains(u, "gemini bridge") {
+		t.Errorf("vendorUsage(gemini) missing the bridge row:\n%s", u)
+	}
+}
+
+func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
+	// Given a prompt of 4-byte runes longer than the preview; When the log prints; Then the cut line is valid UTF-8
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("codex", agent.Request{Prompt: strings.Repeat("😀", 100)}, time.Now())
+	rec.Status = "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ := captureOutput(t, func() int { return printDispatchLog("text") })
+	if !utf8.ValidString(out) {
+		t.Fatalf("output is not valid UTF-8: %q", out)
+	}
+	if !strings.Contains(out, "😀…") {
+		t.Errorf("output lacks a truncated preview ending in …:\n%s", out)
 	}
 }
