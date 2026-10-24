@@ -47,6 +47,20 @@ function viewFollowArgv(binary, agentId, sessionId) {
   return argv;
 }
 
+/** argv for `<binary> usage [--days N] --format json`. */
+function usageArgv(binary, opts) {
+  const { days } = opts || {};
+  const argv = [binary, 'usage'];
+  if (days != null) argv.push('--days', String(days));
+  argv.push('--format', 'json');
+  return argv;
+}
+
+/** argv for `<binary> profile --format json`. */
+function profileArgv(binary) {
+  return [binary, 'profile', '--format', 'json'];
+}
+
 /** shellArgs for an `ssh -t host tmux attach -t session` terminal. */
 function attachShellArgs(host, session) {
   return ['-t', host, 'tmux', 'attach', '-t', session];
@@ -57,4 +71,15 @@ function attachCommandLine(host, session) {
   return ['ssh', ...attachShellArgs(host, session)].join(' ');
 }
 
-module.exports = { AGENTS, treeArgv, dispatchListArgv, dispatchStartArgv, viewArgv, viewFollowArgv, attachShellArgs, attachCommandLine };
+module.exports = {
+  AGENTS,
+  treeArgv,
+  dispatchListArgv,
+  dispatchStartArgv,
+  viewArgv,
+  viewFollowArgv,
+  usageArgv,
+  profileArgv,
+  attachShellArgs,
+  attachCommandLine,
+};

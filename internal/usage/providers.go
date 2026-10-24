@@ -31,6 +31,7 @@ type quota struct {
 	Used     float64 `json:"used_credits,omitempty"`
 	Limit    float64 `json:"limit_credits,omitempty"`
 	Resets   string  `json:"resets,omitempty"`
+	ResetsAt string  `json:"resets_at,omitempty"`
 	Note     string  `json:"note,omitempty"`
 	State    string  `json:"state,omitempty"`
 	Group    string  `json:"group,omitempty"`
@@ -75,14 +76,15 @@ var fetchQuotas = func() []quota {
 	defer cancel()
 	agyCtx, agyCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer agyCancel()
-	var gh, oa, ag []quota
+	var an, gh, oa, ag []quota
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
+	go func() { defer wg.Done(); an = claudeQuotas(ctx) }()
 	go func() { defer wg.Done(); gh = githubQuotas(ctx) }()
 	go func() { defer wg.Done(); oa = openaiQuotas(ctx) }()
 	go func() { defer wg.Done(); ag = antigravityQuotas(agyCtx) }()
 	wg.Wait()
-	return append(append(gh, oa...), ag...)
+	return append(append(append(an, gh...), oa...), ag...)
 }
 
 // ghRun runs gh with extra env; stdout only, so gh's stderr chatter never lands in a parse.

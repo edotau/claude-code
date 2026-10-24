@@ -1,0 +1,15 @@
+{
+  "billing": { "mode": "api", "provider": "anthropic" },
+  "models": {},
+  "peak_input_tokens_per_min": 0,
+  "providers": [],
+  "api": [
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "today": 1200000,
+      "last_30d": 5000000,
+      "all_time": 9000000
+    }
+  ]
+}

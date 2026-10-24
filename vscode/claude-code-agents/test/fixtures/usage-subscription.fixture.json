@@ -1,0 +1,145 @@
+{
+  "billing": { "mode": "subscription", "provider": "subscription" },
+  "models": {},
+  "peak_input_tokens_per_min": 0,
+  "agents": [
+    {
+      "agent": "codex",
+      "sessions": 3,
+      "turns": 5,
+      "tokens": 25258,
+      "models": [
+        { "provider": "openai", "model": "gpt-6-astra", "turns": 5, "tokens": 25258 }
+      ]
+    },
+    {
+      "agent": "opencode",
+      "sessions": 6,
+      "turns": 97,
+      "tokens": 320866,
+      "cost_usd": 0.08,
+      "models": [
+        { "provider": "github-copilot", "model": "mai-code-1.1-flash", "turns": 97, "tokens": 320866, "cost_usd": 0.08 }
+      ]
+    },
+    {
+      "agent": "copilot",
+      "sessions": 2,
+      "turns": 2,
+      "tokens": 1701190,
+      "models": [
+        { "provider": "github-copilot", "model": "claude-opus-5.5", "turns": 2, "tokens": 1701190 }
+      ]
+    },
+    {
+      "agent": "claude",
+      "tokens": 4200000000
+    }
+  ],
+  "providers": [
+    {
+      "provider": "anthropic",
+      "plan": "Max",
+      "window": "5h",
+      "used_percent": 24,
+      "left_percent": 76,
+      "resets": "2026-10-24 01:29",
+      "resets_at": "2026-10-24T05:29:59Z",
+      "state": "ok"
+    },
+    {
+      "provider": "anthropic",
+      "plan": "Max",
+      "window": "weekly",
+      "used_percent": 51,
+      "left_percent": 49,
+      "resets": "2026-10-26 11:59",
+      "resets_at": "2026-10-26T15:59:59Z",
+      "state": "ok"
+    },
+    {
+      "provider": "anthropic",
+      "plan": "Max",
+      "window": "weekly",
+      "group": "Fable",
+      "used_percent": 18,
+      "left_percent": 82,
+      "resets": "2026-10-26 11:59",
+      "resets_at": "2026-10-26T15:59:59Z",
+      "state": "ok"
+    },
+    {
+      "provider": "github",
+      "account": "edotau",
+      "plan": "Pro+",
+      "window": "monthly",
+      "used_percent": 28.8,
+      "left_percent": 71.2,
+      "used_credits": 2009,
+      "limit_credits": 7000,
+      "resets": "2026-11-01",
+      "state": "ok"
+    },
+    {
+      "provider": "openai",
+      "used_percent": 0,
+      "left_percent": 100,
+      "note": "unavailable: codex not signed in to ChatGPT"
+    },
+    {
+      "provider": "google",
+      "account": "-",
+      "plan": "Antigravity",
+      "window": "weekly",
+      "used_percent": 8,
+      "left_percent": 92,
+      "resets": "2026-10-25 15:55",
+      "state": "ok",
+      "group": "Gemini Models"
+    },
+    {
+      "provider": "google",
+      "account": "-",
+      "plan": "Antigravity",
+      "window": "5h",
+      "used_percent": 8,
+      "left_percent": 92,
+      "resets": "2026-10-24 04:12",
+      "state": "ok",
+      "group": "Gemini Models"
+    },
+    {
+      "provider": "google",
+      "account": "-",
+      "plan": "Antigravity",
+      "window": "weekly",
+      "used_percent": 1,
+      "left_percent": 99,
+      "resets": "2026-10-26 16:12",
+      "state": "ok",
+      "group": "Claude and GPT models"
+    },
+    {
+      "provider": "google",
+      "account": "-",
+      "plan": "Antigravity",
+      "window": "5h",
+      "used_percent": 0,
+      "left_percent": 100,
+      "resets": "2026-10-24 06:24",
+      "state": "ok",
+      "group": "Claude and GPT models"
+    },
+    {
+      "provider": "google",
+      "account": "-",
+      "plan": "Antigravity",
+      "window": "weekly",
+      "used_percent": 46,
+      "left_percent": 54,
+      "resets": "2026-10-25 15:54",
+      "state": "ok",
+      "group": "Gemini 4 Argon"
+    }
+  ]
+}

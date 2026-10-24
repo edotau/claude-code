@@ -9,7 +9,7 @@
   },
   "categories": ["Other"],
   "main": "./extension.js",
-  "activationEvents": ["onView:claudeCodeAgents.tree"],
+  "activationEvents": ["onView:claudeCodeAgents.tree", "onView:claudeCodeAgents.usage", "onStartupFinished"],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -23,6 +23,11 @@
     "views": {
       "claudeCodeAgents": [
         {
+          "id": "claudeCodeAgents.usage",
+          "name": "Agent Dashboard",
+          "type": "webview"
+        },
+        {
           "id": "claudeCodeAgents.tree",
           "name": "Agents"
         }
@@ -34,17 +39,25 @@
       { "command": "claudeCodeAgents.dispatch", "title": "Dispatch…", "icon": "$(rocket)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.viewAgent", "title": "View Agent", "icon": "$(eye)", "category": "Claude Code Agents" },
       { "command": "claudeCodeAgents.attach", "title": "Attach", "icon": "$(terminal)", "category": "Claude Code Agents" },
-      { "command": "claudeCodeAgents.copyAttachCommand", "title": "Copy Attach Command", "category": "Claude Code Agents" }
+      { "command": "claudeCodeAgents.copyAttachCommand", "title": "Copy Attach Command", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.showUsage", "title": "Show Agent Dashboard", "icon": "$(graph)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.refreshUsage", "title": "Refresh Agent Dashboard", "icon": "$(refresh)", "category": "Claude Code Agents" },
+      { "command": "claudeCodeAgents.openUsageEditor", "title": "Open Agent Dashboard in Editor", "icon": "$(pulse)", "category": "Claude Code Agents" }
     ],
     "menus": {
       "view/title": [
         { "command": "claudeCodeAgents.refresh", "when": "view == claudeCodeAgents.tree", "group": "navigation" },
         { "command": "claudeCodeAgents.toggleShowAll", "when": "view == claudeCodeAgents.tree", "group": "navigation" },
-        { "command": "claudeCodeAgents.dispatch", "when": "view == claudeCodeAgents.tree", "group": "navigation" }
+        { "command": "claudeCodeAgents.dispatch", "when": "view == claudeCodeAgents.tree", "group": "navigation" },
+        { "command": "claudeCodeAgents.refreshUsage", "when": "view == claudeCodeAgents.usage", "group": "navigation" },
+        { "command": "claudeCodeAgents.openUsageEditor", "when": "view == claudeCodeAgents.usage", "group": "navigation" }
       ],
       "view/item/context": [
         { "command": "claudeCodeAgents.attach", "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session" },
         { "command": "claudeCodeAgents.copyAttachCommand", "when": "view == claudeCodeAgents.tree && viewItem == dispatch-session" }
+      ],
+      "editor/title": [
+        { "command": "claudeCodeAgents.openUsageEditor", "when": "config.claudeCodeAgents.usageEditorTitleButton", "group": "navigation" }
       ]
     },
     "configuration": {
@@ -70,6 +83,49 @@
           "items": { "type": "string" },
           "default": [],
           "description": "SSH hosts to list dispatched tmux sessions on."
+        },
+        "claudeCodeAgents.usageRefreshSeconds": {
+          "type": "number",
+          "default": 60,
+          "description": "Usage popover auto-refresh interval, in seconds (minimum 15)."
+        },
+        "claudeCodeAgents.usageShow": {
+          "type": "string",
+          "enum": ["used", "left"],
+          "default": "used",
+          "description": "Status bar percentage: used or left"
+        },
+        "claudeCodeAgents.usageStatusBarAlignment": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "left",
+          "description": "Status bar side for the usage segment."
+        },
+        "claudeCodeAgents.usageStatusBarPriority": {
+          "type": "number",
+          "default": 1000000,
+          "description": "Status bar sort priority for the usage segment."
+        },
+        "claudeCodeAgents.usageStatusBarAgents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Append per-agent token totals (codex, opencode, copilot) to the status bar."
+        },
+        "claudeCodeAgents.usageDays": {
+          "type": "number",
+          "default": 1,
+          "description": "Window, in days, for the per-agent totals; passed as --days."
+        },
+        "claudeCodeAgents.usageOpenIn": {
+          "type": "string",
+          "enum": ["sidebar", "editor"],
+          "default": "sidebar",
+          "description": "Where the status bar item opens the Usage view: the extension's sidebar view, or a tab in the editor area."
+        },
+        "claudeCodeAgents.usageEditorTitleButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an Open Agent Dashboard in Editor button in every editor's title bar."
         }
       }
     }
