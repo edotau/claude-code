@@ -59,3 +59,33 @@ func TestGitBranchFast(t *testing.T) {
 		t.Fatalf("GIT_DIR override = %q, %v; want fallback", got, ok)
 	}
 }
+
+// checkoutOf maps a subdir or a linked worktree to the main checkout (naming the worktree), and leaves a
+// non-repo cwd as is.
+func TestCheckoutOf(t *testing.T) {
+	base := t.TempDir()
+	main := filepath.Join(base, "repo")
+	sub := filepath.Join(main, "internal", "pkg")
+	wt := filepath.Join(base, "worktrees", "x")
+	lone := filepath.Join(base, "lone")
+	for _, d := range []string{filepath.Join(main, ".git", "worktrees", "x"), sub, filepath.Join(wt, "cmd"), lone} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitfile := "gitdir: " + filepath.Join(main, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(gitfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, cwd, root, worktree string }{
+		{"repo root", main, main, ""},
+		{"subdir", sub, main, ""},
+		{"linked worktree", wt, main, wt},
+		{"worktree subdir", filepath.Join(wt, "cmd"), main, wt},
+		{"no repo", lone, lone, ""},
+	} {
+		if root, worktree := checkoutOf(tc.cwd); root != tc.root || worktree != tc.worktree {
+			t.Errorf("%s: checkoutOf(%q) = %q, %q; want %q, %q", tc.name, tc.cwd, root, worktree, tc.root, tc.worktree)
+		}
+	}
+}

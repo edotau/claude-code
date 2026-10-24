@@ -59,6 +59,34 @@ func gitBranchFast(cwd string) (string, bool) {
 	}
 }
 
+// checkoutOf finds cwd's checkout: root is the main checkout (a subdir or linked worktree maps to the repo it
+// belongs to; no repo → cwd) and worktree is the linked worktree's top dir, "" in the main checkout.
+func checkoutOf(cwd string) (root, worktree string) {
+	dir, err := filepath.Abs(cwd)
+	if err != nil {
+		return cwd, ""
+	}
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if fi, err := os.Stat(gitPath); err == nil {
+			if fi.IsDir() {
+				return dir, ""
+			}
+			target, ok := gitfileTarget(gitPath)
+			sep := string(filepath.Separator)
+			if main, _, linked := strings.Cut(target, sep+".git"+sep+"worktrees"+sep); ok && linked {
+				return main, dir
+			}
+			return dir, "" // a submodule or a gitfile we can't map: its own checkout
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return cwd, ""
+		}
+		dir = parent
+	}
+}
+
 func gitfileTarget(path string) (string, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
