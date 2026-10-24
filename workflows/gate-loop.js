@@ -1,6 +1,6 @@
 export const meta = {
   name: 'gate-loop',
-  description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations',
+  description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
     '{gate?: auto-detected when absent, cwd, scope: ["dir"], maxIterations: 3, fixesPerIteration?: 3}. Returns {status, exit: green|stalled|capped|error, gate, gateSource, iterations, filesChanged, residual, history}.',
   phases: [
@@ -20,7 +20,7 @@ const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.ma
 const FIXES = Number.isInteger(a.fixesPerIteration) && a.fixesPerIteration > 0 ? a.fixesPerIteration : 3
 const RULES = a.rules ||
   'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. ' +
-  'Fix the implementation, not the test, unless the test is provably wrong. One root cause per edit; re-run only the gate.'
+  'Edit only inside scope; re-run only the gate.'
 
 const GATE_SCHEMA = {
   type: 'object',
@@ -74,12 +74,13 @@ for (let i = 1; i <= MAX_ITER; i++) {
   const prior = last && last.residual.length ? `\nStill red after iteration ${i - 1}:\n- ${last.residual.join('\n- ')}\n` : ''
   last = await agent(
     `Iteration ${i}/${MAX_ITER} of a gate loop. ${CD}` +
+    `Method: ~/.claude/skills/problem-solving/references/verify.md (Gate Loop)\n` +
     `Gate: ${GATE}\n` +
     `Edit ONLY under: ${SCOPE.join(', ')}\n` +
     `Rules: ${RULES}\n${prior}\n` +
-    `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise take the FIRST failure, read the code it names, ` +
-    `make the minimal fix inside scope, re-run the gate; repeat within this iteration for at most ${FIXES} distinct failures, then report (the rest go into residual verbatim). ` +
-    `Never widen scope; a failure outside scope goes into residual verbatim.`,
+    `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; ` +
+    `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
+    `A failure outside scope goes into residual verbatim.`,
     { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: 'sonnet', effort: 'medium' }
   )
   if (!last) { last = { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' } }
