@@ -235,6 +235,34 @@ test('createClient.listWithBuilds: maps raw PRs and attaches each one\'s own bui
   assert.equal(out[1].build.state, 'failed');
 });
 
+test('createClient.pullRequests: GET {repoApiPath}/pull-requests with state=OPEN (default) + limit=50, returns raw page.values', async () => {
+  const rawOpen = fixture('pr-by-id-open');
+  const { fetchImpl, calls } = fakeFetch([
+    [(u) => u.pathname.endsWith('/pull-requests'), () => jsonResponse(200, { values: [rawOpen], size: 1 })],
+  ]);
+  const client = createClient({ baseUrl: `https://${HOST}`, token: 'tok', fetchImpl });
+  const ref = { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' };
+  const rows = await client.pullRequests(ref);
+
+  const url = new URL(calls[0].url);
+  assert.equal(url.pathname, '/rest/api/1.0/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests');
+  assert.equal(url.searchParams.get('state'), 'OPEN');
+  assert.equal(url.searchParams.get('limit'), '50');
+  assert.equal(calls[0].opts.headers.Authorization, 'Bearer ' + 'tok');
+  assert.deepEqual(rows, [rawOpen]);
+});
+
+test('createClient.dashboard: an explicit state is passed through; omitted state defaults to OPEN', async () => {
+  const { fetchImpl, calls } = fakeFetch([
+    [(u) => u.pathname.endsWith('/dashboard/pull-requests'), () => jsonResponse(200, { values: [] })],
+  ]);
+  const client = createClient({ baseUrl: `https://${HOST}`, token: 'tok', fetchImpl });
+  await client.dashboard('AUTHOR', 'MERGED');
+  assert.equal(new URL(calls[0].url).searchParams.get('state'), 'MERGED');
+  await client.dashboard('REVIEWER');
+  assert.equal(new URL(calls[1].url).searchParams.get('state'), 'OPEN');
+});
+
 // -- resolveToken (execFileImpl is Node callback-style: (binary, args, cb(err, stdout))) --
 
 test('resolveToken: trims the binary\'s stdout', async () => {

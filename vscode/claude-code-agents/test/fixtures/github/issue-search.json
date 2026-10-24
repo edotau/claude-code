@@ -1,0 +1,48 @@
+[
+  {
+    "number": 33125,
+    "title": "Optional Claude terminal rich output with Markdown and media",
+    "state": "open",
+    "state_reason": null,
+    "html_url": "https://github.com/acme/widgets/issues/33125",
+    "labels": [],
+    "updated_at": "2026-10-24T10:14:33Z",
+    "user": {
+      "login": "dev1"
+    },
+    "assignees": []
+  },
+  {
+    "number": 33124,
+    "title": "[Bug]: Headless server (Electron host): projects cannot be s",
+    "state": "open",
+    "state_reason": null,
+    "html_url": "https://github.com/acme/widgets/issues/33124",
+    "labels": [
+      {
+        "name": "bug"
+      },
+      {
+        "name": "os:linux"
+      }
+    ],
+    "updated_at": "2026-10-24T10:09:27Z",
+    "user": {
+      "login": "dev2"
+    },
+    "assignees": []
+  },
+  {
+    "number": 33118,
+    "title": "Kitty Unicode-placeholder images disappear after renderer re",
+    "state": "open",
+    "state_reason": null,
+    "html_url": "https://github.com/acme/widgets/issues/33118",
+    "labels": [],
+    "updated_at": "2026-10-24T09:53:13Z",
+    "user": {
+      "login": "dev1"
+    },
+    "assignees": []
+  }
+]

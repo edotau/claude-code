@@ -75,46 +75,105 @@ is `true` (default); the same button sits in the Agents Dashboard view's own tit
 
 ## Tasks
 
-A second activity-bar container, "Tasks", backed by `lib/bitbucket-client.js`, a dependency-free
-Bitbucket Data Center REST client built into the extension itself (`fetch`, no shell). The harness
-only supplies the credential: the extension runs `<binary> secrets get BITBUCKET_TOKEN` via
-`execFile` (falling back to the `BITBUCKET_TOKEN` env var), caches it for the session, and
-re-resolves once on a 401/403. Three tree views:
+The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for three
+sources: **Jira Data Center** (the default — "Assigned to me"), **GitHub** and **Bitbucket Data Center**. It is contributed in two places backed by the same
+provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to Terminal/Problems) and an
+activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use (right-click its
+icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
+`claudeCodeAgents.tasksOpenIn` names (`panel`, default; `sidebar`; `editor`). "Claude Code Tasks: Open Tasks
+in Editor" (also a view-title button) always opens the page as an editor tab, and "Open Tasks in New Window"
+(the `$(multiple-windows)` view-title button on the left-nav and Panel views) pops it out into a floating
+VS Code window (the editor tab moved with "Move Editor into New Window"). No Go: the harness only supplies the
+Bitbucket and Jira credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the
+`BITBUCKET_TOKEN` / `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session
+and re-resolved once on a 401/403.
 
-- **This branch** — the pull request for the checked-out workspace folder's git branch (the first
-  workspace folder's `origin` remote resolves the Bitbucket project/repo; reviewers, build status, a
-  linked Jira key when one is detected), or a "No pull request for `<branch>`" placeholder. When the
-  remote isn't a Data Center repo on `claudeCodeAgents.bitbucketUrl`'s host (e.g. GitHub), this view
-  shows a plain "Not a Bitbucket Data Center repo: `<host>`" row instead of an error.
-- **My pull requests** — open PRs you authored, across every project, newest-updated first.
-- **Review requests** — open PRs where you're a requested reviewer, newest-updated first.
+Chrome, top to bottom: a source bar (one square button per visible source), an availability banner
+(not signed in / no token, with a Sign in / Set token action that runs `gh auth login` or
+`claude-code secrets set BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
+chips (click applies; **right-click makes it the default** for that source), type/state dropdowns, the
+query input (Enter applies, X clears), "New issue" (GitHub) and Refresh. The list is a sticky-header grid
+with sticky ID and Title columns under horizontal scroll — issues: ID · Title · Assignees · Status ·
+Updated · Actions; pull requests (query scope `is:pr`, Bitbucket, or every row a PR): ID · Title ·
+Reviewers · Checks · Merge · Updated · Actions; Jira: Key · Title · Assignee · Status · Priority · Updated ·
+Actions. Loading shows 12 shimmer rows; errors show a banner
+("N of M repos failed", a hard-error banner with Retry) plus per-repo error rows. A pagination bar
+appears below the list only when there is more than one page; jumping to page *k* loads only page *k*
+(36 rows per repo per page, 100 across repos — `claudeCodeAgents.tasksPageSize`). Clicking a row, the
+Checks cell, the Merge pill or a Jira chip opens the URL in the browser; "Start" copies
+`Work on PR #N "title" (url)` to the clipboard and opens the shared terminal running `<binary> claude`.
+Mutations (merge, assign, review) stay in the GitHub Pull Requests extension / the browser.
 
-My pull requests and Review requests work from the dashboard endpoint and don't need the workspace
-to be a Data Center repo. Each PR row opens its URL in the browser (click, or right-click → "Open");
-"Copy task prompt & open Claude" copies `Work on <title> (<url>)` to the clipboard and opens the
-shared "Agents Dashboard" terminal running `<binary> claude` so you can paste it in. "Refresh" (view
-title bar) re-fetches a view on demand; otherwise every visible view polls every
-`claudeCodeAgents.tasksRefreshSeconds` (default `120`). With no token configured, every tree shows
-one row with that message that runs `claude-code secrets set BITBUCKET_TOKEN` in a terminal.
-`claudeCodeAgents.bitbucketUrl` (default `https://bitbucket.biscrum.com`) points the client at your
-Data Center server.
+The query language is Orca's (`lib/task-query.js`): `is:issue` / `is:pr`, `is:open|closed|merged`,
+`state:…`, `is:draft`, `assignee:`, `author:`, `review-requested:`, `reviewed-by:`, `label:` (repeatable),
+quoted phrases and unknown tokens pass through as free text.
 
-The Jira key shown on a branch/PR row is detected locally (branch name first, then the PR title;
-same regex + denylist as the Orca app) — no Jira API call. Set
-`claudeCodeAgents.tasksJiraBaseUrl` (e.g. `https://jira.example.com`) to turn a detected key into a
-link to `<base>/browse/<KEY>`; left empty (default), the key still shows but isn't clickable.
+- **GitHub** (`lib/tasks-github.js`) reads through the `gh` CLI (`gh pr list --search --json …` for PRs,
+  `gh api search/issues` for issues, one count call per kind for the page total) with your `gh auth`
+  login — no token is stored. Repos: every workspace folder's github.com remote plus
+  `claudeCodeAgents.tasksGitHubRepos` (`owner/name`); the selection persists per workspace. Presets:
+  Assigned to me, Created by me, Review requested, My PRs. Checks come from `statusCheckRollup`; Merge
+  readiness from `mergeable` + `mergeStateStatus`.
+- **Bitbucket Data Center** (`lib/tasks-bitbucket.js` over `lib/bitbucket-client.js`): `review-requested:@me`
+  → the dashboard as REVIEWER, `author:@me` → as AUTHOR, anything else → the open PRs of the workspace
+  folders' Data Center remotes plus `claudeCodeAgents.tasksBitbucketRepos` (`PROJECT/repo`). Only `is:pr`,
+  `state:`, `author:`, `review-requested:@me` and free text apply (free text filters client-side). The
+  Checks cell shows the folded Jenkins build status and links its URL; Merge is "Open in Bitbucket" (DC
+  exposes no mergeability). A Jira key detected from the branch (then the title) renders as a chip linking
+  to `claudeCodeAgents.tasksJiraBaseUrl/browse/<KEY>`.
+- **Jira Data Center** (`lib/tasks-jira.js` over `lib/jira-client.js`, `/rest/api/2`, Bearer PAT): the query
+  becomes JQL — `assignee:@me` → `assignee = currentUser()`, `author:@me` → `reporter = currentUser()`,
+  `is:open` → `statusCategory != Done`, `is:closed` → `statusCategory = Done`, `label:` → `labels in (…)`,
+  `project:KEY`, `status:Blocked`, a bare `KEY-123`, and other words → `text ~ "…"`; always
+  `ORDER BY updated DESC`, paged with `startAt`. `claudeCodeAgents.tasksJiraProjects` scopes it to project
+  keys (empty = every project the token can see). Presets: Assigned to me (default), Reported by me, Done by
+  me, All open. The Status pill is toned by status category (To Do muted, In Progress primary, Done green);
+  the issue-type and priority icons are Jira's own. Clicking a Jira row swaps the list for an **inline detail view**
+  (Back returns, scroll position kept): key · project · updated, title, a status pill that opens the transition menu
+  (transitions needing a resolution or comment show a small form; ones needing other fields say so and defer to
+  Jira), a priority menu, an assignee button (QuickPick: Unassigned · Assign to me · live search), labels, the
+  description (Jira's rendered HTML, sanitised), the comments with a composer (Cmd/Ctrl+Enter sends; the draft
+  survives re-renders), and a rail: Open in Jira, Copy URL / key / branch name / prompt. Every write is optimistic
+  through `lib/tasks-mutations.js` (patch now, writes serialised per issue, refetch after, rollback + an inline
+  Retry banner on failure). GitHub and Bitbucket rows open a header-only detail with "Open in browser" for now.
+- **GitHub cells are live.** The PR list asks `gh` only for cheap fields; Checks, Merge and Reviewers hydrate per row
+  through `gh pr view` when the row scrolls near (160 px) or is hovered, four at a time, and the cells are patched in
+  place (no page re-render). Status (issues) is a menu: Open · Close as completed · not planned · duplicate… (asks for
+  the number); Assignees and Reviewers open a multi-select QuickPick over the repo's assignable users (reviewers capped
+  at 15); Merge is a menu with Enable/Disable auto-merge, one item per method the repo allows, and "Open GitHub merge
+  box" — merging asks "<Method> PR #N?" first. Writes run `gh issue close|reopen|edit`, `gh pr edit|merge|ready|close`
+  through the same optimistic queue; a failure shows under the row's title with Retry. `gh` runs with
+  `GH_PROMPT_DISABLED=1`, a 30 s timeout, two retries on 5xx / reset / 429-without-Retry-After, and a per-bucket
+  breaker after "API rate limit exceeded" (search 70 s, core 5 min).
+- **Board view.** The `List | Board` toggle (per source, remembered in the workspace; `claudeCodeAgents.tasksViewMode`
+  sets the start) groups the same page of rows into 272 px columns: Jira by status (To Do · In Progress · Done order,
+  "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open · Closed,
+  Bitbucket Open · Needs work · Approved · Merged · Declined. Dropping a card (native drag and drop, or "Move to…" in the
+  card's ⋮ menu) performs the matching action: Jira runs the transition that lands in that column (one → apply, several
+  → pick, required resolution/comment → asked first, none → an inline note and the card stays), GitHub issues
+  reopen/close, PRs ready/draft/close/reopen/merge (with the confirm); review columns and Bitbucket refuse with a note.
+
+The **Task sources** section at the bottom of the page shows one card per source, plus a **Tailscale** card (exit-node
+pill; "Exit node…" lists the tailnet's exit nodes from `<binary> tailscale status --format json` in a QuickPick and
+switches with `tailscale set --exit-node=<ip> --exit-node-allow-lan-access=true`; "Direct" clears it — VPN-style
+routing without any API key; `claudeCodeAgents.tailscaleBinary` names the CLI). It shows one card per source — a Connected / Disconnected
+pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the last visible source cannot be hidden), the default
+source, the repo list — with "Edit repos and defaults in Settings" and "Re-check connections".
+Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`, `tasksDefaultQuery.jira` /
+`.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`, `tasksPageSize`,
+`bitbucketUrl` (default `https://bitbucket.biscrum.com`), `tasksJiraBaseUrl` (default `https://jira.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
 
 On activation, the extension installs the "GitHub Pull Requests and Issues" extension
 (`github.vscode-pull-request-github`, also listed as an `extensionPack` dependency for a
-marketplace install) if it isn't already present, for GitHub-hosted PR support alongside these
-Bitbucket Data Center views; `claudeCodeAgents.tasksInstallGitHubExtension` (default `true`) turns
-that off. A failed install (offline, marketplace unreachable) is silent — the Tasks views work
-without it.
+marketplace install) if it isn't already present — it stays the write path for GitHub;
+`claudeCodeAgents.tasksInstallGitHubExtension` (default `true`) turns that off. A failed install
+(offline, marketplace unreachable) is silent — the Tasks page works without it.
 
 A status bar segment (same side/priority pattern as the usage segment, one slot to its right) shows
-the current branch's PR as `#123 ✓ · 1/2` (build status · reviewers approved/total), `no PR` when
-the branch has a detected Jira key but no PR, or hides itself entirely when there's neither;
-`claudeCodeAgents.tasksStatusBar` (default `true`) turns it off. Clicking it focuses "This branch".
+the current branch's PR — from Bitbucket when the first workspace folder's remote is on the Data Center
+host, from GitHub when it is on github.com — as `#123 ✓ · 1/2` (checks · reviewers approved/total), or
+hides itself when the branch has no PR; `claudeCodeAgents.tasksStatusBar` (default `true`) turns it off.
+Clicking it runs "Show Tasks".
 
 ## Phone access
 
