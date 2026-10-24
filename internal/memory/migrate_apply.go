@@ -289,10 +289,10 @@ func (a *applier) copyPhase() error {
 		case act != ActionCopy && act != ActionQuarantine: // deletes (and their dir deps) wait for retire
 		case a.unmetDep(it) != "":
 			err = a.mark(it, stepBlocked, "")
-		case it.Inline != nil: // an origin record is a vault row: no dest file to guard
-			err = a.originItem(it)
-		case act == ActionCopy && a.badDest(it):
+		case (act == ActionCopy || it.Inline != nil) && a.badDest(it):
 			err = a.mark(it, stepConflict, a.j.Steps[it.ID].DestSHA256)
+		case it.Inline != nil: // an origin record is a vault row; its store dir was proven by badDest
+			err = a.originItem(it)
 		case act == ActionCopy && it.Kind == KindAccessLog: // append-only state: merge, never conflict on growth
 			err = a.mergeAccessLog(it)
 		case act == ActionCopy && it.Kind == KindIndexMerge:
@@ -309,7 +309,12 @@ func (a *applier) copyPhase() error {
 
 // badDest reports (and prints) a destination that would escape its root; the item stays a conflict until it is fixed.
 func (a *applier) badDest(it MigrateItem) bool {
-	_, _, err := destRel(it)
+	var err error
+	if it.Inline != nil {
+		err = originDestErr(it.Dest)
+	} else {
+		_, _, err = destRel(it)
+	}
 	if err != nil {
 		fmt.Fprintf(a.out, "reject %s: %v\n", it.ID, err)
 	}
@@ -338,6 +343,29 @@ func destRel(it MigrateItem) (string, bool, error) {
 		return "", false, fmt.Errorf("%s: not an allowed destination under %s", it.Dest, root)
 	}
 	return rel, inStore, nil
+}
+
+// originDestErr proves an origin item's Dest is a store dir reached through plain directories (the leaf is a dir).
+func originDestErr(dest string) error {
+	rel, err := filepath.Rel(StoreDir(), filepath.Clean(dest))
+	if err != nil {
+		return err
+	}
+	bad := fmt.Errorf("%s: origin dest not a plain directory under %s", dest, StoreDir())
+	if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return bad
+	}
+	abs := StoreDir()
+	for i, p := range strings.Split(rel, string(filepath.Separator)) {
+		if i == 0 && p == ".git" {
+			return bad
+		}
+		abs = filepath.Join(abs, p)
+		if fi, err := os.Lstat(abs); err == nil && !fi.IsDir() {
+			return bad
+		}
+	}
+	return nil
 }
 
 // importItem copies a source exclusively to its dest (or the quarantine tree) after re-proving its hash; a quarantine

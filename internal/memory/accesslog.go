@@ -28,7 +28,7 @@ func LogAccess(dir string, now time.Time, entry, reason string) {
 
 // LogAccessBatch appends a recall batch with one open and write per bank.
 func LogAccessBatch(dir string, now time.Time, entries []string, reason string) {
-	if dir == "" || len(entries) == 0 {
+	if dir == "" || len(entries) == 0 || checkLegacyWritable() != nil { // never seed a stray legacy log dir
 		return
 	}
 	if credentialPattern.MatchString(reason) {
