@@ -8,6 +8,9 @@ func Truncate(s string, n int) string {
 	if len(r) <= n {
 		return s
 	}
+	if n <= 0 {
+		return ""
+	}
 	return string(r[:n-1]) + "…"
 }
 
@@ -15,7 +18,7 @@ func Truncate(s string, n int) string {
 func TruncateRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {
-		return string(r[:n])
+		return string(r[:max(n, 0)])
 	}
 	return s
 }
