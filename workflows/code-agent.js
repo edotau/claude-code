@@ -1,17 +1,17 @@
 export const meta = {
-  name: 'external-agent',
+  name: 'code-agent',
   description: 'One non-Claude leg (codex|gemini|opencode|copilot) as a workflow stage: smoke ask, JSON envelope relay, sonnet fallback',
   whenToUse:
-    'Inline from another script: workflow("external-agent", {leg, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
+    'Inline from another script: workflow("code-agent", {leg, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
   phases: [{ title: 'Leg', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 const LEGS = ['codex', 'gemini', 'opencode', 'copilot']
-if (!LEGS.includes(a.leg)) return { error: 'external-agent needs args.leg in ' + LEGS.join('|') }
-if (!a.task) return { error: 'external-agent needs args.task' }
-if (a.task.length > 90 * 1024) return { error: 'external-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
+if (!LEGS.includes(a.leg)) return { error: 'code-agent needs args.leg in ' + LEGS.join('|') }
+if (!a.task) return { error: 'code-agent needs args.task' }
+if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
 const CWD = a.cwd || '.'
 const CAP = a.leg === 'gemini' ? 8 : 3
 const MIN = Number.isInteger(a.timeoutMin) && a.timeoutMin > 0 && a.timeoutMin <= CAP ? a.timeoutMin : CAP

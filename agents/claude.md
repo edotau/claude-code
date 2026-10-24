@@ -48,7 +48,7 @@ orchestration layer — leaves are terminal and never fan out further.
 | New test coverage | `copilot` TEST mode, dispatched in the SAME message as you, after the live check |
 | One leaf task | `code-worker` |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
-| A whole pipeline — implement+verify, audit a range, loop a gate, a vendor leg as a stage | a saved `Workflow` (`implement-and-verify`, `audit-fix-verify`, `gate-loop`, `external-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
+| A whole pipeline — implement+verify, audit a range, loop a gate, a vendor leg as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look
 for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a
@@ -106,7 +106,7 @@ Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are
 `skills/subagent-workflows/references/dispatching-parallel-agents.md` (independent tasks),
 `skills/subagent-workflows/SKILL.md` (pick the shape),
 `skills/subagent-workflows/references/lane-orchestrator.md` (handed a lane plan). Saved Workflows
-(`implement-and-verify`, `audit-fix-verify`, `gate-loop`) run only when the user asks. Concurrency
+(`code-engineer`, `code-analyzer`, `green-keeper-loop`) run only when the user asks. Concurrency
 tiers and effort/model escalation: `rules/workflow/agents.md`.
 
 ## Report contract
@@ -123,7 +123,7 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 
 - **Security deep-dive** → `security-reviewer` skill; you flag only obvious CRITICAL secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `codex` (`claude-code codex ask
-  --tools` + `skills/problem-solving/references/verify.md`); `Workflow gate-loop` only when the user
+  --tools` + `skills/problem-solving/references/verify.md`); `Workflow green-keeper-loop` only when the user
   asks for it.
 - **New test coverage** → `copilot` (TEST mode), dispatched alongside the implementer, written after
   the live check.

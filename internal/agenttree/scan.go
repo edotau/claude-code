@@ -78,7 +78,7 @@ type workflowManifest struct {
 }
 
 // resultStatus reads result.status when the script's return value was an object carrying one (the
-// convention gate-loop-style workflows use for their own green/red outcome), falling back to the
+// convention green-keeper-loop-style workflows use for their own green/red outcome), falling back to the
 // manifest's own top-level status (completed -> finished, killed -> error); "" otherwise.
 func (m *workflowManifest) resultStatus() string {
 	var r struct {

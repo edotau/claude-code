@@ -423,7 +423,7 @@ func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
 	return sub
 }
 
-// workflowRunStatus prefers the manifest's own result status (e.g. a gate-loop's "green"/"red" when
+// workflowRunStatus prefers the manifest's own result status (e.g. a green-keeper-loop's "green"/"red" when
 // its script returned an object carrying one); otherwise it's journal-derived: finished once every
 // started agent has a result and nothing has touched the run dir for subagentActiveWindow, else running.
 func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, updated, now time.Time) string {

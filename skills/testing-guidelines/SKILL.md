@@ -136,7 +136,7 @@ For "run the tests and fix what fails": a named test path runs directly
 `make test`. Then one failure at a time: read the test and the source, decide test-wrong vs
 impl-wrong (root cause, above), make the minimal fix, re-run only that test; max 3 attempts per test,
 then report it and move on. Finish with the full target and `make fmt`. Never bare `python`/`pytest`
-in a Python repo — always `.venv/bin/`. Unattended or many repos: Workflow `gate-loop`.
+in a Python repo — always `.venv/bin/`. Unattended or many repos: Workflow `green-keeper-loop`.
 
 ## Mock at boundaries, not everywhere
 

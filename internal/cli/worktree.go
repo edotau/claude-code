@@ -290,7 +290,7 @@ func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePl
 
 // chooseVerifyGate picks the command applyMerge runs after integration and before promotion: --no-verify
 // skips it outright, an explicit --verify wins next, otherwise it is auto-detected from worktreePath the
-// same way the gate-loop workflow does (workflows/gate-loop.js: Makefile test target -> go.mod -> pyproject
+// same way the green-keeper-loop workflow does (workflows/green-keeper-loop.js: Makefile test target -> go.mod -> pyproject
 // -> package.json -> Cargo.toml) — pure file checks, no execution, no network. Finding nothing and not
 // passed --no-verify refuses outright, before anything is integrated.
 func chooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
@@ -307,7 +307,7 @@ func chooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source 
 	return gate, source, nil
 }
 
-// detectVerifyGate mirrors workflows/gate-loop.js's detection order over dir's own files.
+// detectVerifyGate mirrors workflows/green-keeper-loop.js's detection order over dir's own files.
 func detectVerifyGate(dir string) (gate, source string) {
 	if hasMakeTarget(filepath.Join(dir, "Makefile"), "test") {
 		return "make test", "Makefile"

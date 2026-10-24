@@ -13,7 +13,7 @@ skill's audit path.
 **Related, don't duplicate:** the codex final gate run (`claude-code codex ask --tools`, briefed with
 `../../problem-solving/references/verify.md`) runs the *project's* gate chain and fixes failures. This judges
 *claims* against *the diff* and changes nothing. `task-review.md` vets a task before code exists; this judges
-claims after. Workflow `audit-fix-verify {fix: false}` finds new defects across dimensions; this refutes
+claims after. Workflow `code-analyzer {fix: false}` finds new defects across dimensions; this refutes
 asserted ones. `evaluate-code` judges quality; this judges honesty.
 
 ## Protocol

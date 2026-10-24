@@ -1,24 +1,24 @@
 export const meta = {
-  name: 'implement-and-verify',
+  name: 'code-engineer',
   description: 'The house dispatch: parallel Explore intel → implementer ‖ copilot (same message) → gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into audit-fix-verify (workflow() nests one level); run audit-fix-verify as the next top-level call before merge.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files) ‖ copilot test agent (test files)' },
-    { title: 'Gate', detail: 'gate-loop workflow over the touched packages' },
+    { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages' },
   ],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 // The registry imports the script to read its meta, so a missing arg must not throw at module top level.
-if (!a.task) return { error: 'implement-and-verify needs args.task' }
+if (!a.task) return { error: 'code-engineer needs args.task' }
 const TASK = a.task
 const CWD = a.cwd || ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : []
 const PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : SCOPE
-const GATE = a.gate // undefined → gate-loop detects it from the repo
+const GATE = a.gate // undefined → green-keeper-loop detects it from the repo
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 const TEST_GLOBS = '*_test.go, testdata/, test_*.py, *_test.py, tests/, conftest.py, *.test.*, *.spec.*, __tests__/, fixtures/'
 const SHARED_TREE =
@@ -89,9 +89,9 @@ const [impl, tests] = await parallel([
 ])
 log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'}`)
 
-// ── Phase 3: Gate (ADK LoopAgent via the saved gate-loop workflow) ─────────────────────────
+// ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
 if (impl && (impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT')) return { brief, impl, tests, gate: null, status: 'blocked' }
-const gate = await workflow('gate-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
+const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }

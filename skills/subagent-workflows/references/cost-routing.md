@@ -48,6 +48,6 @@ ask --log`) and shift the split only on that evidence. A leaf assigned a runner 
 leg, not a success.
 
 The vendor CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
-As a `Workflow` stage (only when the user asks for one): `external-agent {leg, cwd, task}`, or
-`audit-fix-verify {refuters: ["codex"]}`. Interactive vendor session: `claude-code codex|gemini|opencode|copilot
+As a `Workflow` stage (only when the user asks for one): `code-agent {leg, cwd, task}`, or
+`code-analyzer {refuters: ["codex"]}`. Interactive vendor session: `claude-code codex|gemini|opencode|copilot
 [args]` (`--` forces passthrough).

@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'gate-loop',
+  name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
     '{gate?: auto-detected when absent, cwd, scope: ["dir"], maxIterations: 3, fixesPerIteration?: 3}. Returns {status, exit: green|stalled|capped|error, gate, gateSource, iterations, filesChanged, residual, history}.',

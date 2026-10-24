@@ -170,8 +170,8 @@ other's helpers and only the merged diff shows it. A leaf gets
 
 ## Phase 8: Verify
 
-**Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow gate-loop` when the
-user asks for it).
+**Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow green-keeper-loop`
+when the user asks for it).
 
 The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
 `skills/problem-solving/references/verify.md`. Migrations are never edited to make a gate pass.
