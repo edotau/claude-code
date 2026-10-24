@@ -106,8 +106,8 @@ codex / copilot / gemini as extra hands via `claude-code ask --agent <runner>`.
 - **Quick edits / mechanical changes / search** → `haiku` or `sonnet` leaves (cheap, fast).
   Prefer a Claude sonnet/haiku leaf over recruiting a whole external agent for small work.
 - **Long-context exploration** → `gemini` (its window is the reason to use it).
-- **Adversarial / second-opinion review** → `codex` (`/codex`) — a
-  genuinely different model family catches what a same-model self-review won't.
+- **Adversarial / second-opinion review** → `codex` (`/codex`, `claude-code codex review
+  --adversarial`) — a genuinely different model family catches what a same-model self-review won't.
 - **Heavy reasoning / architecture** → keep it on `opus`.
 
 ### Parallel vs sequential

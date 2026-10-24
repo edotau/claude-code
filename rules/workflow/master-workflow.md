@@ -54,10 +54,11 @@ user override ("just do it").
 
 Vet the *task request* before any code is written — in a `Plan` subagent, or on a different model
 family via `claude-code ask --agent codex|gemini|opencode` (see `claude-code agents` for what is
-available). Checklist, output format and verdict discipline: `agents/codex.md` → REVIEW mode.
+available). Checklist, output format and verdict discipline: `skills/evaluate-code/references/task-review.md` (on
+codex: `claude-code codex ask`).
 
 The same adversarial pass run on the finished branch diff (verdict SHIP IT / NEEDS WORK / BLOCK) is the
-pre-commit review around Phase 8.
+pre-commit review around Phase 8 (`claude-code codex review [--adversarial] --base <branch>`).
 
 ---
 
@@ -169,7 +170,8 @@ user asks for it).
 The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
 `skills/problem-solving/references/verify.md`. Migrations are never edited to make a gate pass.
 
-**Alternatives**: codex VERIFY (`claude-code ask --agent codex`) as the cross-model second pass; the
+**Alternatives**: the codex final gate run (`claude-code codex ask --tools`) as the cross-model second
+pass; the
 `testing-guidelines` test-and-fix loop for targeted test fixing,
 `skills/evaluate-code/references/techdebt.md` (scan and fix sections) for debt.
 
