@@ -40,9 +40,9 @@ const RESULT_SCHEMA = {
   additionalProperties: false,
   required: ['status', 'filesChanged', 'summary', 'leftUndone'],
   properties: {
-    status: { type: 'string', enum: ['done', 'partial', 'blocked'] },
+    status: { type: 'string', enum: ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'] },
     filesChanged: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string', minLength: 60, description: 'what changed, what you ran and its last lines — a one-word summary is a defect' },
+    summary: { type: 'string', minLength: 60, description: 'what changed, what you ran and its last lines, Ran on:, the TASK/ISSUE facts as plain sentences — a one-word summary is a defect' },
     leftUndone: { type: 'array', items: { type: 'string' } },
   },
 }
@@ -74,12 +74,15 @@ const context = `Task: ${TASK}\nFiles: ${brief.files.join(', ')}\nSeams:\n- ${br
 const [impl, tests] = await parallel([
   () => agent(
     `${context}\nYou are the IMPLEMENTER. Edit non-test source files only — never test files or fixtures (` + TEST_GLOBS + `); a concurrent test agent owns them. ` +
-    `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report files changed and anything left undone.`,
+    `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report NEEDS_CONTEXT before editing if anything is unclear; stop rather than guess at a new design decision. ` +
+    `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report). ` +
+    `After a defect fix write ISSUE: searched P, found N. Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). ` +
+    `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <runner (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`,
     { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: a.implModel || 'sonnet', effort: 'high' }
   ),
   () => agent(
     `${context}\nYou are the TEST agent (copilot). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
-    `Repair existing tests the change breaks or makes stale, regenerate goldens by their documented procedure, add coverage sized to the change. ` +
+    `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
     `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
     { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }
   ),
@@ -88,7 +91,7 @@ log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : '
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved gate-loop workflow) ─────────────────────────
 phase('Gate')
-if (impl && impl.status === 'blocked') return { brief, impl, tests, gate: null, status: 'blocked' }
+if (impl && (impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT')) return { brief, impl, tests, gate: null, status: 'blocked' }
 const gate = await workflow('gate-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }

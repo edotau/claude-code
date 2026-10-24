@@ -46,6 +46,7 @@ const DEFAULT_DIMENSIONS = [
   { key: 'tests', prompt: 'tests deleted alongside kept code, tests skipped in the range, guard tests that pin filenames the change moved, goldens that no longer match', effort: 'low' },
 ]
 // Files mode (paths, no range) audits whole files, so the lenses are about the CODE, not the change.
+// Its failure-modes lens (error handling) is not evaluate-code's references/failure-modes.md (LLM loop symptoms).
 const CODE_DIMENSIONS = [
   { key: 'correctness', prompt: 'logic defects: wrong conditionals, off-by-one, nil/empty/zero-value paths that produce a wrong result or a crash, error values checked then ignored' },
   { key: 'failure-modes', prompt: 'error handling: swallowed errors, fail-open where the comment or name promises fail-closed, exec/HTTP without a timeout or context, locks that can be skipped, partial writes' },
@@ -214,7 +215,8 @@ for (let round = 1; round <= ROUNDS; round++) {
       (FILES_MODE
         ? `First tool call: cat the files listed below (one call, all of them). Judge from that; open another file only to check a caller or a test (budget 8 tool calls). `
         : `First tool call: ${CD}git diff ${RANGE || 'HEAD~1..HEAD'} -- <the files listed below> (one call, all of them). Judge from that diff; open a file only to check a caller or a test named in it (budget 8 tool calls). `) +
-      `Report only defects you can evidence with a grep, diff or test run — no style nits. ${SHARED_TREE}\n\n` +
+      `Report only defects you can evidence with a grep, diff or test run — no style nits. ${SHARED_TREE}\n` +
+      `Method: ~/.claude/skills/evaluate-code/SKILL.md (report only findings on changed code you verified; >80% confidence filter)\n\n` +
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`),
@@ -302,9 +304,14 @@ for (let round = 1; round <= ROUNDS; round++) {
     return parallel([
       () => agent(`${ctx}\nYou are the IMPLEMENTER: fix every listed defect in non-test files of ${pkg} only; never test files or fixtures (${TEST_GLOBS}). ` +
         `The evidence above is already verified — do not re-audit. First tool call: cat ${files.join(' ')} (one call). ` +
-        `Budget ~15 tool calls; then run the repo's formatter and linter on the files you touched (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint) and report per defect.`,
+        `Budget ~15 tool calls; then run the repo's formatter and linter on the files you touched (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint) and report per defect.\n` +
+        `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).\n` +
+        `After a defect fix write ISSUE: searched P, found N.\n` +
+        `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
+        `Put the TASK/ISSUE facts as plain sentences in your summary.`,
         { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: hot ? 'opus' : 'sonnet', effort: hot ? 'high' : 'medium' }),
       () => testsNeeded ? agent(`${ctx}\nYou are the TEST agent (an implementer is fixing the non-test files concurrently): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
+        `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg} once the implementer's edits land, and report. Budget ~20 tool calls.`,
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }) : null,
