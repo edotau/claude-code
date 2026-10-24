@@ -230,7 +230,7 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | `agent-routed` | SubagentStart | Records the subagent's actual launch model against `agent-effort`'s decision log |
 | `workflow-lint` | PreToolUse Workflow | Pins unpinned inline agents to sonnet |
 | `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 8 |
-| `subagent-stop` | SubagentStop | One simplify pass for source-editing agents |
+| `subagent-stop` | SubagentStop | Retires the stopping subagent's inflight slot |
 | `plan-mirror` / `save-plan` | PostToolUse | Dated plan copies under `plans/`; files the approved plan |
 | `context-checkpoint` | Stop | At ≥85% context, pauses once for a handoff |
 | `stop-format` | Stop | Formats files edited this turn |

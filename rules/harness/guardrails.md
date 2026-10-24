@@ -31,7 +31,7 @@ evidence contract.
 | `agent-inflight` | PreToolUse (Agent\|Task) | Wait for a slot to retire or work sequentially; stale/dead markers are pruned, infra errors fail open |
 | `agent-inflight-tag` | PostToolUse (Agent\|Task) | n/a — binds the marker to the agent id, or retires a completed foreground spawn |
 | `agent-inflight-post` | PostToolUseFailure (Agent\|Task) | n/a — retires that dispatch's marker |
-| `subagent-stop` | SubagentStop | One simplify pass requested; the next stop proceeds via a persistent marker (read-only/config agent exemptions); inflight slot retires even on the blocked stop |
+| `subagent-stop` | SubagentStop | n/a — never blocks; retires the stopping subagent's inflight slot |
 | `workflow-lint` | PreToolUse (Workflow) | fills `model: 'sonnet'` via `updatedInput` (an explicit pin always wins); blocks only an options argument it cannot rewrite, a bad pin literal, or an unpinned `scriptPath` file; a saved-by-name call is redirected to `scriptPath` (the on-disk file) via `updatedInput` and gated identically, since the by-name registry is read once at session start |
 | `memory-recall` | UserPromptSubmit | n/a — never blocks; injects `additionalContext` only |
 | `stop-format` | Stop | n/a — never blocks; formats and continues |
