@@ -131,7 +131,11 @@ quoted phrases and unknown tokens pass through as free text.
   `ORDER BY updated DESC`, paged with `startAt`. `claudeCodeAgents.tasksJiraProjects` scopes it to project
   keys (empty = every project the token can see). Presets: Assigned to me (default), Reported by me, Done by
   me, All open. The Status pill is toned by status category (To Do muted, In Progress primary, Done green);
-  the issue-type and priority icons are Jira's own. Clicking a Jira row swaps the list for an **inline detail view**
+  the issue-type and priority icons are Jira's own. List extras: column headers sort (JQL `ORDER BY`), rows group
+  under collapsible status sections (in the project's board column order when exactly one board exists), status
+  quick-filter chips come from the loaded issues (with "Edit as JQL" to promote the filter into the search box),
+  a Favourites menu lists your saved Jira filters, "Current sprint" adds `sprint in openSprints()`, and the search
+  box accepts raw JQL (`jql:` prefix or operator shapes like `project = X`). Clicking a Jira row swaps the list for an **inline detail view**
   (Back returns, scroll position kept): key · project · updated, title, a status pill that opens the transition menu
   (transitions needing a resolution or comment show a small form; ones needing other fields say so and defer to
   Jira), a priority menu, an assignee button (QuickPick: Unassigned · Assign to me · live search), labels, the
@@ -156,6 +160,17 @@ quoted phrases and unknown tokens pass through as free text.
   through the same optimistic queue; a failure shows under the row's title with Retry. `gh` runs with
   `GH_PROMPT_DISABLED=1`, a 30 s timeout, two retries on 5xx / reset / 429-without-Retry-After, and a per-bucket
   breaker after "API rate limit exceeded" (search 70 s, core 5 min).
+- **Start / Resume** (Orca's workspace composer as QuickPicks): Start asks "Open Claude here" or "Create worktree
+  `<key-slug>`" (`claude-code worktree create`, `claudeCodeAgents.tasksStartDefault` skips the question), then a
+  prompt template (Start implementation · Investigate bug · Write test plan · Draft PR summary · Plain; the last
+  choice is remembered). The prompt is written to a file under the extension's storage and Claude opens in a
+  terminal with `cd '<cwd>' && claude-code claude "$(cat '<file>')"`, so no prompt text rides the command line.
+  Rows whose branch matches a worktree (`claude-code worktree list`) show a solid **Resume** button and a branch
+  marker; "Start new workspace" in the ⋮ menu ignores the attachment.
+- **GitHub header actions** in the PR detail: Mark ready / Convert to draft, Rerun failed checks (one rerun per
+  failed workflow run, re-request for other check apps), and a ⋯ menu with Rename, Close/Reopen, Request reviewers
+  and Open merge box; issues get Rename. Unresolved review threads render above the activity with Resolve/Unresolve
+  (GraphQL `resolveReviewThread`) and a reply box (`…/pulls/N/comments/{id}/replies`, body on stdin).
 - **Board view.** The `List | Board` toggle (per source, remembered in the workspace; `claudeCodeAgents.tasksViewMode`
   sets the start) groups the same page of rows into 272 px columns: Jira by status (To Do · In Progress · Done order,
   "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open ·

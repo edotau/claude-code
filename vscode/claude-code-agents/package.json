@@ -368,6 +368,16 @@
           "type": "string",
           "default": "tailscale",
           "description": "Path or name of the tailscale CLI used to switch exit nodes (the peer list comes from `claude-code tailscale status`)."
+        },
+        "claudeCodeAgents.tasksStartDefault": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "here",
+            "worktree"
+          ],
+          "default": "ask",
+          "description": "What Start does: ask each time, open Claude in the workspace folder, or create a worktree (`claude-code worktree create <key-slug>`) and open Claude there. Resume always reopens the attached worktree."
         }
       }
     }

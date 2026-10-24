@@ -73,6 +73,7 @@ function titleCell(item, model) {
   const meta = [`<span>${esc(item.author || 'unknown author')}</span>`];
   if (!multiRepo) meta.push(`<span>${esc(item.repo.label)}</span>`);
   if (item.state === 'draft') meta.push('<span aria-hidden="true">·</span><span>Draft</span>');
+  if (item.attached) meta.push(`<span class="meta-icon tone-emerald" title="${esc(item.attached.Path || '')}">${ICONS.gitBranch}${esc(item.attached.Branch || 'worktree')}</span>`);
   const delta = deltaText(item);
   if (delta) meta.push(`<span class="meta-icon">${ICONS.files}${esc(delta)}</span>`);
   if (item.jiraKey && item.source !== 'jira') meta.push(`<a class="jira-chip" data-url="${esc(item.jiraUrl || '')}" title="Open ${esc(item.jiraKey)} in Jira">${esc(item.jiraKey)}</a>`);
@@ -176,13 +177,22 @@ function updatedCell(item, now) {
 }
 
 /** PR: `Start` + chevron menu (Start, Open in browser). Issue: `Start | Open` + ⋮ menu. */
+/** Orca's Start/Resume: solid "Resume" when a worktree is attached to the item, outline "Start" otherwise. */
+function startButton(item) {
+  const id = esc(item.id);
+  if (item.attached) return `<button class="btn btn-primary" data-act="start" data-id="${id}" title="Resume Claude in ${esc(item.attached.Path || 'the attached worktree')}">${ICONS.play}Resume</button>`;
+  return `<button class="btn btn-outline" data-act="start" data-id="${id}" title="Open Claude on this task (here or in a new worktree)">${ICONS.play}Start</button>`;
+}
+
 function actionsCell(item) {
   const id = esc(item.id);
-  const start = `<button class="btn btn-outline" data-act="start" data-id="${id}" title="Copy a task prompt and open Claude">${ICONS.play}Start</button>`;
+  const start = startButton(item);
+  const startNew = `<button data-act="startNew" data-id="${id}">${ICONS.plus}Start new workspace</button>`;
+  const openBrowser = `<button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button>`;
   if (item.type === 'pr') {
-    return `<span class="split">${start}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.chevronDown}</summary><div class="menu-items"><button data-act="start" data-id="${id}">${ICONS.plus}Start new workspace</button><button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details></span>`;
+    return `<span class="split">${start}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.chevronDown}</summary><div class="menu-items">${startNew}${openBrowser}</div></details></span>`;
   }
-  return `<span class="split">${start}<button class="btn btn-outline" data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open</button><details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items"><button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details></span>`;
+  return `<span class="split">${start}<button class="btn btn-outline" data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open</button><details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${startNew}${openBrowser}</div></details></span>`;
 }
 
 /** Every cell of a row keyed by name — `row()` renders them; the extension re-posts them to patch cells in place. */
@@ -217,9 +227,26 @@ const HEADERS = {
   jira: ['Key', 'Title', 'Assignee', 'Status', 'Priority', 'Updated', 'Actions'],
 };
 
-function headerRow(kind) {
+const JIRA_SORT_FIELDS = { Key: 'key', Title: 'title', Assignee: 'assignee', Status: 'status', Priority: 'priority', Updated: 'updated' };
+
+function headerRow(kind, model) {
   const cols = HEADERS[kind] || HEADERS.issue;
-  return `<div class="row head">${cols.map((c, i) => `<div class="cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}">${c}</div>`).join('')}</div>`;
+  const sort = (model && model.jiraSort) || null;
+  return `<div class="row head">${cols
+    .map((c, i) => {
+      const cls = `cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}`;
+      const field = kind === 'jira' ? JIRA_SORT_FIELDS[c] : null;
+      if (!field) return `<div class="${cls}">${c}</div>`;
+      const active = sort && sort.field === field;
+      const arrow = active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
+      return `<div class="${cls}"><button class="sort-btn${active ? ' active' : ''}" data-sort="${field}"${active ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''} title="Sort by ${esc(c.toLowerCase())}">${c}${arrow}</button></div>`;
+    })
+    .join('')}</div>`;
+}
+
+/** Status group header row (Orca's collapsible sections): pill, count, chevron. */
+function groupRow(group) {
+  return `<div class="row group" data-group="${esc(group.key)}"><div class="cell c-id group-cell"><button class="icon-btn" data-collapse-group="${esc(group.key)}" aria-label="Collapse">${ICONS.chevronDown}</button>${pill(jiraStatusTone(group.category), group.label)}<span class="count">${group.rows.length}</span></div></div>`;
 }
 
 function skeletonRows(kind) {
@@ -284,8 +311,18 @@ function filters(model) {
   const stateOpts = model.source === 'jira' ? [['open', 'Open'], ['closed', 'Done'], ['all', 'All']] : [['open', 'Open'], ['closed', model.source === 'bitbucket' ? 'Declined' : 'Closed'], ['merged', 'Merged'], ['all', 'All']];
   const state = `<select class="select" data-filter="state" aria-label="State">${stateOpts.map(([v, l]) => `<option value="${v}"${(model.state || 'open') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const newIssue = model.source === 'github' && (model.repos || []).some((r) => r.selected) ? `<button class="btn btn-outline" data-act="newIssue" title="New issue">${ICONS.plus}New issue</button>` : '';
+  const statusChips =
+    model.source === 'jira' && (model.jiraStatusCatalog || []).length
+      ? `<span class="chips-label muted">Status:</span>${model.jiraStatusCatalog.map((st) => `<button class="chip${(model.jiraStatuses || []).includes(st.name) ? ' active' : ''}" data-status-chip="${esc(st.name)}" title="${esc(st.count)} loaded">${esc(st.name)}</button>`).join('')}${(model.jiraStatuses || []).length ? `<button class="chip chip-dashed" data-act="editJql" title="Put this filter in the search box as JQL">Edit as JQL</button>` : ''}`
+      : '';
+  const favourites =
+    model.source === 'jira' && (model.jiraFavourites || []).length
+      ? `<details class="menu fav-menu"><summary class="btn btn-outline" title="Jira favourite filters">${ICONS.star}Favourites${ICONS.chevronDown}</summary><div class="menu-items">${model.jiraFavourites.map((f) => `<button data-favourite="${esc(f.id)}" title="${esc(f.jql)}">${esc(f.name)}</button>`).join('')}</div></details>`
+      : '';
+  const sprint = model.source === 'jira' ? `<label class="menu-check sprint-check" title="sprint in openSprints()"><input type="checkbox" data-filter="sprint"${model.jiraSprint ? ' checked' : ''}>Current sprint</label>` : '';
+  const jqlPreview = model.source === 'jira' && model.jiraJqlPreview ? `<div class="jql-preview muted mono truncate" title="${esc(model.jiraJqlPreview)}">${esc(model.jiraJqlPreview)}</div>` : '';
   const viewToggle = `<div class="segmented" role="group" aria-label="View"><button class="seg${model.viewMode !== 'board' ? ' active' : ''}" data-view-mode="list" title="List">${ICONS.list}</button><button class="seg${model.viewMode === 'board' ? ' active' : ''}" data-view-mode="board" title="Board">${ICONS.columns}</button></div>`;
-  return `<div class="filters"><div class="chips">${chips}</div><div class="filter-row">${viewToggle}${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="${model.source === 'bitbucket' ? 'Search pull requests…' : model.source === 'jira' ? 'Search issues… (project:KEY, status:Blocked, DIGITALBTD-1)' : 'Search issues and pull requests…'}" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button></div></div>`;
+  return `<div class="filters"><div class="chips">${chips}${statusChips}</div><div class="filter-row">${viewToggle}${favourites}${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="${model.source === 'bitbucket' ? 'Search pull requests…' : model.source === 'jira' ? 'Search issues… (project:KEY, status:Blocked, DIGITALBTD-1)' : 'Search issues and pull requests…'}" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button>${sprint}</div>${jqlPreview}</div>`;
 }
 
 function statusPill(status) {
@@ -321,19 +358,22 @@ function boardCard(item, model) {
   const who = item.source === 'jira' ? (item.assignee ? item.assignee.displayName : '') : (item.assignees || [])[0] || item.author || '';
   const face = who ? `<span class="avatar ring-muted" title="${esc(who)}">${esc(initials(who))}</span>` : '';
   const prio = item.priority ? `<span class="cell-text muted">${remoteIcon(item.priority, 'type-icon')}${esc(item.priority.name)}</span>` : '';
+  const review = item.type === 'pr' && item.source === 'github' && item.state !== 'merged' && item.state !== 'closed' && item.reviewDecision ? pill(item.reviewDecision === 'APPROVED' ? 'emerald' : item.reviewDecision === 'CHANGES_REQUESTED' ? 'danger' : 'muted', String(item.reviewDecision).toLowerCase().replace('_', ' ')) : item.state === 'draft' ? pill('muted', 'draft') : '';
   const checks = item.type === 'pr' && item.checks && item.checks.state !== 'loading' && item.checks.state !== 'none' ? `<span class="cell-text tone-${item.checks.state === 'success' ? 'emerald' : item.checks.state === 'failed' ? 'danger' : 'amber'}">${item.checks.state === 'success' ? ICONS.checkCircle2 : item.checks.state === 'failed' ? ICONS.alertCircle : ICONS.clock3}${esc(item.checks.label)}</span>` : '';
-  const moves = (model.board || []).filter((c) => c.key !== item.boardColumn).map((c) => `<button data-move-to="${esc(c.key)}" data-id="${esc(item.id)}">${ICONS.arrowRight}Move to ${esc(c.label)}</button>`).join('');
-  const menu = `<details class="menu card-menu"><summary class="icon-btn" aria-label="Card actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${moves}<div class="menu-sep"></div><button data-act="start" data-id="${esc(item.id)}">${ICONS.play}Start</button><button data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details>`;
+  const moves = require('./tasks-board').dropTargets(model.board).filter((c) => c.key !== item.boardColumn).map((c) => `<button data-move-to="${esc(c.key)}" data-id="${esc(item.id)}">${ICONS.arrowRight}Move to ${esc(c.label)}</button>`).join('');
+  const menu = `<details class="menu card-menu"><summary class="icon-btn" aria-label="Card actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${moves}<div class="menu-sep"></div><button data-act="start" data-id="${esc(item.id)}">${ICONS.play}${item.attached ? 'Resume' : 'Start'}</button><button data-act="startNew" data-id="${esc(item.id)}">${ICONS.plus}Start new workspace</button><button data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details>`;
   const busy = model.pendingIds && model.pendingIds.includes(item.id);
-  return `<div class="card board-card${busy ? ' busy' : ''}" draggable="${busy ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
+  return `<div class="card board-card${busy ? ' busy' : ''}" draggable="${busy ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${review}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
 }
 
 function boardView(model) {
   const cols = model.board || [];
   if (model.loading) return `<div class="board">${Array.from({ length: 3 }, () => `<div class="board-col"><div class="board-head"><span class="shimmer" style="width:40%"></span></div><div class="board-body">${'<div class="card board-card skeleton"><span class="shimmer wide"></span><span class="shimmer"></span></div>'.repeat(3)}</div></div>`).join('')}</div>`;
   if (!cols.length) return emptyState(model);
+  const cards = (rows, key) => rows.map((r) => boardCard({ ...r, boardColumn: key }, model)).join('') || '<div class="board-empty muted">Drop here</div>';
+  const section = (sec) => `<div class="board-section${sec.collapsed ? ' collapsed' : ''}" data-col="${esc(sec.key)}"><div class="section-head"><button class="icon-btn collapse" data-collapse-section="${esc(sec.key)}" aria-label="Collapse section">${ICONS.chevronDown}</button><span class="board-label">${esc(sec.label)}</span><span class="count">${sec.rows.length}</span></div><div class="section-body">${cards(sec.rows, sec.key)}</div></div>`;
   return `<div class="board">${cols
-    .map((c) => `<div class="board-col" data-col="${esc(c.key)}"><div class="board-head"><button class="icon-btn collapse" data-collapse="${esc(c.key)}" aria-label="Collapse">${ICONS.chevronDown}</button><span class="board-label">${esc(c.label)}</span><span class="count">${c.rows.length}</span></div><div class="board-body">${c.rows.map((r) => boardCard({ ...r, boardColumn: c.key }, model)).join('') || '<div class="board-empty muted">Drop here</div>'}</div></div>`)
+    .map((c) => `<div class="board-col" data-col="${esc(c.key)}"><div class="board-head"><button class="icon-btn collapse" data-collapse="${esc(c.key)}" aria-label="Collapse column" title="Collapse column">${ICONS.chevronDown}</button><span class="board-label">${esc(c.label)}</span><span class="count">${c.rows.length}</span></div><div class="board-body">${c.sections ? c.sections.map(section).join('') : cards(c.rows, c.key)}</div><div class="board-collapsed-label"><span>${esc(c.label)}</span><span class="count">${c.rows.length}</span></div></div>`)
     .join('')}</div>`;
 }
 
@@ -400,9 +440,37 @@ function checksTab(d) {
 }
 
 /** GitHub detail (Orca github-item-dialog): header, status/assignee controls, PR tabs, body, activity, composer, rail. */
+function threadCard(t, now) {
+  const label = `${t.path}${t.line != null ? `:${t.line}` : ''}`;
+  const first = t.comments[0] || {};
+  const body = `<div class="thread-head"><span class="mono">${esc(label)}</span>${pill(t.resolved ? 'emerald' : 'amber', t.resolved ? 'resolved' : 'unresolved')}${t.outdated ? pill('muted', 'outdated') : ''}<span class="spacer"></span><button class="btn btn-outline" data-act="resolveThread" data-thread="${esc(t.id)}" data-resolved="${t.resolved ? 'false' : 'true'}">${t.resolved ? 'Unresolve' : 'Resolve'}</button></div>${t.comments.map((c) => activityEntry({ ...c, kind: 'comment' }, now)).join('')}<form class="composer thread-reply" data-comment="${esc(first.id || '')}"><textarea rows="1" placeholder="Reply…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary">${ICONS.send}Reply</button></div></form>`;
+  if (t.resolved) return `<details class="thread card" data-thread="${esc(t.id)}"><summary class="thread-summary muted">${ICONS.chevronRight}${esc(label)} · resolved · ${t.comments.length} comment${t.comments.length === 1 ? '' : 's'}</summary>${body}</details>`;
+  return `<section class="thread card" data-thread="${esc(t.id)}">${body}</section>`;
+}
+
+/** PR header actions (Orca github-item-dialog-pr-header): ready/draft, rerun, and the ⋯ menu. */
+function githubHeaderActions(data) {
+  const id = esc(data.id);
+  const terminal = data.state === 'merged' || data.state === 'closed';
+  const items = [];
+  if (data.type === 'pr') {
+    items.push(`<button data-act="prTitle" data-id="${id}">${ICONS.copy}Rename…</button>`);
+    items.push(terminal ? (data.state === 'closed' ? `<button data-act="prReopen" data-id="${id}">${ICONS.gitPullRequest}Reopen pull request</button>` : '') : `<button data-act="prClose" data-id="${id}">${ICONS.x}Close pull request</button>`);
+    items.push(`<button data-act="reviewers" data-id="${id}">${ICONS.plus}Request reviewers…</button>`);
+    items.push(`<button data-url="${esc(data.url)}">${ICONS.externalLink}Open merge box</button>`);
+  } else {
+    items.push(`<button data-act="issueTitle" data-id="${id}">${ICONS.copy}Rename…</button>`);
+    items.push(`<button data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button>`);
+  }
+  const ready = data.type === 'pr' && !terminal ? (data.state === 'draft' ? `<button class="btn btn-outline" data-act="prReady" data-id="${id}">${ICONS.checkCircle2}Mark ready</button>` : `<button class="btn btn-outline" data-act="prDraft" data-id="${id}">${ICONS.gitPullRequestDraft}Convert to draft</button>`) : '';
+  const rerun = data.type === 'pr' && data.checks && data.checks.counts && data.checks.counts.failed > 0 ? `<button class="btn btn-outline" data-act="rerunChecks" data-id="${id}">${ICONS.refreshCw}Rerun failed checks</button>` : '';
+  return `${ready}${rerun}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${items.join('')}</div></details>`;
+}
+
 function githubDetail(model, d, data, head, title, err, now) {
   const isPr = data.type === 'pr';
   const conv = d.conversation || null;
+  head = head.replace('<span class="spacer"></span>', `<span class="spacer"></span>${githubHeaderActions(data)}`);
   const controls = isPr
     ? `${reviewersCellFor(data)}${checksCell(data)}${mergeCell(data, model)}`
     : `${statusCell(data)}${assigneesCell(data)}`;
@@ -415,7 +483,8 @@ function githubDetail(model, d, data, head, title, err, now) {
   else {
     const body = `<section class="card"><div class="card-head"><span class="card-title">${esc(conv.author || data.author || '')}</span><span class="muted" title="${esc(conv.createdAt)}">opened ${esc(formatRelativeTime(conv.createdAt, now))}</span></div>${conv.bodyHtml ? `<div class="prose">${conv.bodyHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
     const activity = `<section class="card"><div class="card-head"><span class="card-title">Activity</span><span class="count">${conv.entries.length}</span></div>${conv.entries.map((e) => activityEntry(e, now)).join('') || '<div class="muted">No activity yet.</div>'}<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Leave a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Comment</button><span class="muted">Markdown · ⌘/Ctrl+Enter</span></div></form></section>`;
-    main = body + activity;
+    const threads = Array.isArray(d.threads) && d.threads.length ? `<section class="card"><div class="card-head"><span class="card-title">Review threads</span><span class="count">${d.threads.filter((t) => !t.resolved).length} open</span></div>${d.threads.map((t) => threadCard(t, now)).join('')}</section>` : '';
+    main = body + threads + activity;
   }
   const rail = `<aside class="rail"><button class="btn btn-outline" data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button>${isPr && data.branch ? `<button class="btn btn-outline" data-act="copy" data-text="${esc(data.branch)}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button>` : ''}<button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
   return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
@@ -429,7 +498,7 @@ function detailView(model, now) {
   if (d.loading) return `<div class="detail"><div class="detail-head">${back}<span class="spin">${ICONS.loaderCircle}</span><span class="muted">Loading ${esc(d.key || '')}…</span></div></div>`;
   if (d.error) return `<div class="detail"><div class="detail-head">${back}</div><div class="banner banner-error" role="alert">${ICONS.alertCircle}<span>${esc(d.error)}</span><button class="btn btn-outline" data-act="detail" data-id="${esc(d.id)}">Retry</button></div></div>`;
   const key = data.source === 'jira' ? data.key : `#${data.number}`;
-  const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}<button class="btn btn-outline" data-act="start" data-id="${esc(data.id)}">${ICONS.play}Start</button><button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
+  const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${startButton(data)}<button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
   const title = `<h2 class="detail-title">${esc(data.title)}</h2>`;
   const err = d.mutationError ? `<div class="banner banner-error" role="alert">${ICONS.alertCircle}<span class="truncate" title="${esc(d.mutationError)}">${esc(d.mutationError)}</span><button class="btn btn-outline" data-act="retry" data-id="${esc(data.id)}">Retry</button><button class="icon-btn" data-act="clearError" data-id="${esc(data.id)}" aria-label="Dismiss">${ICONS.x}</button></div>` : '';
   if (data.source === 'bitbucket') {
@@ -583,8 +652,18 @@ const CSS = `
   .board-col { flex: 1 1 272px; min-width: 240px; max-width: 420px; display: flex; flex-direction: column; min-height: 0; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--track) 20%, transparent); transition: border-color .12s, box-shadow .12s; }
   .board-col.drag-over { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
   .board-col.collapsed { flex: 0 0 44px; min-width: 44px; }
-  .board-col.collapsed .board-body, .board-col.collapsed .board-label, .board-col.collapsed .count { display: none; }
+  .board-col.collapsed .board-body, .board-col.collapsed .board-label, .board-col.collapsed .board-head .count { display: none; }
+  .board-col.collapsed .board-head { border-bottom: none; justify-content: center; padding: 0; }
   .board-col.collapsed .collapse svg { transform: rotate(-90deg); }
+  .board-collapsed-label { display: none; }
+  .board-col.collapsed .board-collapsed-label { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; }
+  .board-col.collapsed .board-collapsed-label span:first-child { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+  .board-section { border: 1px dashed transparent; border-radius: 6px; }
+  .board-section.drag-over { border-color: var(--vscode-focusBorder); }
+  .section-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); }
+  .section-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .board-section.collapsed .section-body { display: none; }
+  .board-section.collapsed .collapse svg { transform: rotate(-90deg); }
   .board-head { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-size: 12px; font-weight: 600; }
   .board-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
   .board-empty { font-size: 12px; text-align: center; padding: 16px 0; border: 1px dashed var(--border); border-radius: 6px; }
@@ -599,6 +678,17 @@ const CSS = `
   .card-title { font-size: 13px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .card-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
   .card-menu .menu-items { right: 0; min-width: 200px; }
+  .sort-btn { background: none; border: none; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  .sort-btn:hover, .sort-btn.active { color: var(--vscode-foreground); }
+  .row.group { min-height: 0; padding: 5px 12px; background: color-mix(in srgb, var(--track) 30%, transparent); cursor: default; grid-template-columns: 1fr; }
+  .row.group:hover { background: color-mix(in srgb, var(--track) 30%, transparent); }
+  .group-cell { display: flex; align-items: center; gap: 8px; position: static; }
+  .row.group.collapsed .icon-btn svg { transform: rotate(-90deg); }
+  .chips-label { align-self: center; margin-left: 6px; font-size: 12px; }
+  .chip-dashed { border-style: dashed; }
+  .sprint-check { white-space: nowrap; padding: 0 4px; }
+  .fav-menu .menu-items { left: 0; right: auto; min-width: 220px; max-height: 280px; overflow: auto; }
+  .jql-preview { font-size: 11px; padding: 0 2px; }
   .cell-btn { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; cursor: pointer; min-width: 0; }
   .cell-btn svg:last-child { width: 12px; height: 12px; color: var(--vscode-descriptionForeground); }
   .pill-menu { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; list-style: none; }
@@ -639,6 +729,11 @@ const CSS = `
   .timeline-row a { color: var(--vscode-textLink-foreground); cursor: pointer; }
   .check-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent); font-size: 12px; }
   .check-row:last-child { border-bottom: none; }
+  .thread { margin-bottom: 8px; }
+  .thread-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .thread-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .thread-summary::-webkit-details-marker { display: none; }
+  details.thread[open] .thread-summary svg { transform: rotate(90deg); }
   .bubble { border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--track) 20%, transparent); margin-bottom: 8px; }
   .bubble-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 6px 10px; font-size: 12px; }
   .bubble-author { font-weight: 600; }
@@ -658,17 +753,20 @@ const SCRIPT = `
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-act], [data-url], [data-source], [data-preset], [data-page], .row, .board-card');
     if (!t) return;
+    if (e.target.closest('[data-sort], [data-status-chip], [data-favourite], [data-collapse-group], input[data-filter]')) return;
     if (t.matches('.menu > summary') || t.closest('.menu > summary')) return;
     if (t.closest('[data-issue-state], [data-merge], [data-auto-merge]')) return;
     if (t.dataset.act) {
       e.stopPropagation();
       if (t.dataset.act === 'start') return post({ type: 'start', id: t.dataset.id });
+      if (t.dataset.act === 'startNew') return post({ type: 'start', id: t.dataset.id, fresh: true });
       if (t.dataset.act === 'back') return post({ type: 'back' });
       if (t.dataset.act === 'detail') return post({ type: 'detail', id: t.dataset.id });
       if (t.dataset.act === 'assign') return post({ type: 'assign', id: t.dataset.id });
       if (t.dataset.act === 'retry') return post({ type: 'retry', id: t.dataset.id });
       if (t.dataset.act === 'clearError') return post({ type: 'clearError', id: t.dataset.id });
       if (t.dataset.act === 'copy') return post({ type: 'copy', text: t.dataset.text, label: t.dataset.label });
+      if (['prReady', 'prDraft', 'rerunChecks', 'prTitle', 'prClose', 'prReopen', 'issueTitle'].includes(t.dataset.act)) return post({ type: t.dataset.act, id: t.dataset.id });
       if (t.dataset.act === 'open') return post({ type: 'open', url: t.dataset.url });
       if (t.dataset.act === 'toggleSettings') { const d = $('#settings'); d.open = !d.open; post({ type: 'settingsExpanded', expanded: d.open }); return; }
       return post({ type: t.dataset.act, source: t.dataset.source });
@@ -677,6 +775,7 @@ const SCRIPT = `
     if (t.dataset.page) return post({ type: 'page', page: Number(t.dataset.page) });
     if (t.classList.contains('source-btn')) return post({ type: 'source', source: t.dataset.source });
     if (t.dataset.url !== undefined && !t.classList.contains('row')) { e.stopPropagation(); return post({ type: 'open', url: t.dataset.url }); }
+    if (t.classList.contains('group')) return;
     if ((t.classList.contains('row') || t.classList.contains('board-card')) && t.dataset.id) return post({ type: 'detail', id: t.dataset.id });
   });
   document.addEventListener('contextmenu', (e) => {
@@ -744,6 +843,21 @@ const SCRIPT = `
     if (t.dataset.merge) return post({ type: 'merge', id: t.dataset.id, method: t.dataset.merge });
     if (t.dataset.autoMerge) return post({ type: 'autoMerge', id: t.dataset.id, enable: t.dataset.autoMerge === 'enable' });
   });
+  document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'sort', field: b.dataset.sort }); }));
+  document.querySelectorAll('[data-status-chip]').forEach((b) => b.addEventListener('click', () => post({ type: 'statusChip', status: b.dataset.statusChip })));
+  document.querySelectorAll('[data-favourite]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); post({ type: 'favourite', id: b.dataset.favourite }); }));
+  const sprintBox = document.querySelector('input[data-filter="sprint"]');
+  if (sprintBox) sprintBox.addEventListener('change', () => post({ type: 'sprint', on: sprintBox.checked }));
+  {
+    const st = vscode.getState() || {};
+    const collapsedGroups = st.collapsedGroups || {};
+    document.querySelectorAll('.row.group').forEach((g) => {
+      const key = g.dataset.group;
+      const apply = (on) => { g.classList.toggle('collapsed', on); let n = g.nextElementSibling; while (n && !n.classList.contains('group')) { n.classList.toggle('hidden', on); n = n.nextElementSibling; } };
+      if (collapsedGroups[key]) apply(true);
+      g.querySelector('[data-collapse-group]').addEventListener('click', (e) => { e.stopPropagation(); const on = !g.classList.contains('collapsed'); apply(on); const s2 = vscode.getState() || {}; vscode.setState({ ...s2, collapsedGroups: { ...(s2.collapsedGroups || {}), [key]: on } }); });
+    });
+  }
   document.querySelectorAll('[data-view-mode]').forEach((b) => b.addEventListener('click', () => post({ type: 'viewMode', mode: b.dataset.viewMode })));
   const board = $('.board');
   if (board) {
@@ -765,20 +879,30 @@ const SCRIPT = `
       card.classList.add('dragging');
     });
     board.addEventListener('dragend', (e) => { const c = e.target.closest('.board-card'); if (c) c.classList.remove('dragging'); board.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over')); });
-    board.addEventListener('dragover', (e) => { const col = e.target.closest('.board-col'); if (!col) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; board.querySelectorAll('.drag-over').forEach((x) => { if (x !== col) x.classList.remove('drag-over'); }); col.classList.add('drag-over'); });
-    board.addEventListener('dragleave', (e) => { const col = e.target.closest('.board-col'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    board.querySelectorAll('.board-section').forEach((sec) => {
+      const key = sec.dataset.col;
+      if (key in collapsed) sec.classList.toggle('collapsed', !!collapsed[key]);
+      sec.querySelector('[data-collapse-section]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        sec.classList.toggle('collapsed');
+        const s2 = vscode.getState() || {};
+        vscode.setState({ ...s2, collapsed: { ...(s2.collapsed || {}), [key]: sec.classList.contains('collapsed') } });
+      });
+    });
+    board.addEventListener('dragover', (e) => { const col = e.target.closest('.board-section, .board-col'); if (!col) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; board.querySelectorAll('.drag-over').forEach((x) => { if (x !== col) x.classList.remove('drag-over'); }); col.classList.add('drag-over'); });
+    board.addEventListener('dragleave', (e) => { const col = e.target.closest('.board-section, .board-col'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
     board.addEventListener('drop', (e) => {
-      const col = e.target.closest('.board-col');
+      const col = e.target.closest('.board-section, .board-col');
       if (!col) return;
       e.preventDefault();
-      col.classList.remove('drag-over');
+      board.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over'));
       const id = e.dataTransfer.getData('text/plain');
       const from = board.querySelector('.board-card[data-id="' + CSS.escape(id) + '"]');
-      const fromCol = from && from.closest('.board-col');
+      const fromCol = from && from.closest('.board-section, .board-col');
       if (!id || !fromCol || fromCol === col) return;
       post({ type: 'move', id, from: fromCol.dataset.col, to: col.dataset.col });
     });
-    board.querySelectorAll('[data-move-to]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); const card = b.closest('.board-card'); post({ type: 'move', id: b.dataset.id, from: card.closest('.board-col').dataset.col, to: b.dataset.moveTo }); }));
+    board.querySelectorAll('[data-move-to]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); const card = b.closest('.board-card'); post({ type: 'move', id: b.dataset.id, from: card.closest('.board-section, .board-col').dataset.col, to: b.dataset.moveTo }); }));
     board.addEventListener('scroll', () => vscode.setState({ ...(vscode.getState() || {}), boardScroll: board.scrollLeft }));
     if ((vscode.getState() || {}).boardScroll) board.scrollLeft = (vscode.getState() || {}).boardScroll;
   }
@@ -805,6 +929,12 @@ const SCRIPT = `
         post({ type: 'comment', id, body: text });
       });
     }
+    detail.querySelectorAll('[data-act="resolveThread"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'resolveThread', id, threadId: b.dataset.thread, resolved: b.dataset.resolved === 'true' }); }));
+    detail.querySelectorAll('form.thread-reply').forEach((f) => {
+      const ta = f.querySelector('textarea');
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); f.requestSubmit(); } });
+      f.addEventListener('submit', (e) => { e.preventDefault(); const text = ta.value.trim(); if (!text) return; ta.value = ''; post({ type: 'replyThread', id, commentId: f.dataset.comment, body: text }); });
+    });
     detail.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); if (b.dataset.url) return post({ type: 'open', url: b.dataset.url }); post({ type: 'tab', id, tab: b.dataset.tab }); }));
     detail.querySelectorAll('[data-priority]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'priority', id, priorityId: b.dataset.priority }); }));
     const form = $('#transition-form');
@@ -848,6 +978,7 @@ function renderTasksHtml(model, opts) {
   let body;
   if (model.loading) body = skeletonRows(kind);
   else if (!model.items.length && !(model.errors || []).length) body = emptyState(model);
+  else if (kind === 'jira' && Array.isArray(model.jiraGroups)) body = model.jiraGroups.map((g) => groupRow(g) + g.rows.map((i) => row(i, model, kind)).join('')).join('') + errorRows(model);
   else body = model.items.map((i) => row(i, model, kind)).join('') + errorRows(model);
   const bodyIsEmpty = !model.loading && !model.items.length && !(model.errors || []).length;
   return `<!DOCTYPE html>
@@ -866,7 +997,7 @@ function renderTasksHtml(model, opts) {
     ${filters(model)}
   </div>
   ${model.view === 'detail' ? detailView(model, model.now) : model.viewMode === 'board' ? `${boardView(model)}
-  ${pagination(model)}` : `<div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind)}${body}</div></div>
+  ${pagination(model)}` : `<div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind, model)}${body}</div></div>
   ${pagination(model)}`}
   ${settingsSection(model)}
   <script nonce="${nonce}">${SCRIPT}</script>

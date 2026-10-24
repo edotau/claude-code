@@ -89,6 +89,21 @@ function createClient(opts) {
     return request('/rest/api/2/priority');
   }
 
+  /** Column order of the project's board (Orca's jira:getProjectStatusOrder); null unless exactly one board matches. */
+  async function boardStatusOrder(projectKey) {
+    const boards = await request(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=2`);
+    const values = (boards && boards.values) || [];
+    if (values.length !== 1) return null;
+    const cfg = await request(`/rest/agile/1.0/board/${encodeURIComponent(values[0].id)}/configuration`);
+    const columns = ((cfg && cfg.columnConfig && cfg.columnConfig.columns) || []).map((c) => ({ name: c.name || '', statusIds: (c.statuses || []).map((st) => String(st.id)) }));
+    return { boardId: String(values[0].id), columns };
+  }
+
+  async function favouriteFilters() {
+    const list = await request('/rest/api/2/filter/favourite?expand=jql');
+    return (Array.isArray(list) ? list : []).map((f) => ({ id: String(f.id), name: f.name || '', jql: f.jql || '' }));
+  }
+
   function assign(key, name) {
     return request(`/rest/api/2/issue/${encodeURIComponent(key)}/assignee`, { method: 'PUT', body: { name } });
   }
@@ -119,7 +134,7 @@ function createClient(opts) {
     }
   }
 
-  return { search, issue, comments, addComment, transitions, transition, update, priorities, assign, assignable, myself };
+  return { search, issue, comments, addComment, transitions, transition, update, priorities, boardStatusOrder, favouriteFilters, assign, assignable, myself };
 }
 
 /** First non-empty token file among the skill's conventional locations ($JIRA_TOKEN_FILE, ~/.ssh/atlassian-ci-pat, ~/.ssh/jira-ci-pat). */
