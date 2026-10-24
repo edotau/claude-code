@@ -150,6 +150,9 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 		if opts.Running && !sessionHasActivity(s) {
 			continue
 		}
+		if opts.Running {
+			s = pruneToRunning(s)
+		}
 		tree.Sessions = append(tree.Sessions, s)
 	}
 	slices.SortStableFunc(tree.Sessions, func(a, b Session) int { return b.Updated.Compare(a.Updated) })
@@ -177,6 +180,29 @@ func sessionHasActivity(s Session) bool {
 		}
 	}
 	return false
+}
+
+// pruneToRunning drops finished/error subagents (with their legs) and workflow runs left with none;
+// stale ones stay, since an unfinished agent past the window may be stuck. Returns a copy.
+func pruneToRunning(s Session) Session {
+	done := func(sub Subagent) bool { return sub.Status == statusFinished || sub.Status == statusError }
+	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), done)
+	var runs []WorkflowRun
+	for _, run := range s.Workflows {
+		var phases []WorkflowPhase
+		for _, ph := range run.Phases {
+			ph.Agents = slices.DeleteFunc(slices.Clone(ph.Agents), done)
+			if len(ph.Agents) > 0 {
+				phases = append(phases, ph)
+			}
+		}
+		run.Phases = phases
+		if len(phases) > 0 || run.Status == statusRunning {
+			runs = append(runs, run)
+		}
+	}
+	s.Workflows = runs
+	return s
 }
 
 const (
