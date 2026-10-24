@@ -132,7 +132,9 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	e := Do(ctx, p, func(actx context.Context, _ int) *Error {
 		cw := &countingWriter{w: stream}
 		out, err := r.Run(actx, req, cw)
-		out.Agent, out.Dropped = res.Agent, res.Dropped
+		// A runner that delegated (e.g. api on a passthrough provider) names the actual runner itself;
+		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
+		out.Agent, out.Dropped = cmp.Or(out.Agent, res.Agent), res.Dropped
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
 		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.

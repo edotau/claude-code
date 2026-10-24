@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -154,9 +155,37 @@ func TestAPIRunnerPassthroughDelegatesToClaude(t *testing.T) {
 	}
 }
 
+// TestAPIRunnerPassthroughDelegationSuccessReportsClaudeAgent proves that on a successful delegated
+// run (a fake claude binary standing in for the real one), the envelope names "claude" as the agent
+// that actually ran, with "api" recorded as the fallback that got it there — never the reverse.
+func TestAPIRunnerPassthroughDelegationSuccessReportsClaudeAgent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\",\"session_id\":\"s1\"}'\n"
+	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
+	if err != nil {
+		t.Fatalf("delegated run with a working fake claude binary must succeed: %v", err)
+	}
+	if res.Agent != "claude" {
+		t.Errorf("res.Agent = %q, want %q (the runner that actually ran)", res.Agent, "claude")
+	}
+	if res.Fallback != "api" {
+		t.Errorf("res.Fallback = %q, want %q (the runner that dispatched the delegation)", res.Fallback, "api")
+	}
+}
+
 // TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage proves that when the delegated claude
 // run itself fails (no binary/login in this sandbox), api still marks the attempt (res.Fallback,
-// res.FallbackReason) and surfaces claude's own error verbatim, not a masked or generic one.
+// res.FallbackReason) and surfaces claude's own error verbatim, not a masked or generic one — and that
+// an early claude failure (before claude ever sets res.Provider/res.Model) still leaves api's own
+// resolved provider/model on the result, never blank.
 func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -173,6 +202,21 @@ func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
 	}
 	if err == nil || err.Error() != directErr.Error() {
 		t.Errorf("err = %v, want claude's own error verbatim: %v", err, directErr)
+	}
+	if res.Provider != "subscription" || res.Model == "" {
+		t.Errorf("res = %+v, want api's resolved provider/model kept even though claude failed before setting its own", res)
+	}
+}
+
+// Available is request-agnostic: a missing claude binary must not block an explicit keyed --provider.
+func TestAPIRunnerAvailableIgnoresClaudeBinary(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir()) // isolate from any claude install under the real $HOME/.local/share/claude
+	if (claudeRunner{}).Available() == nil {
+		t.Fatal("claudeRunner.Available() must fail in this sandbox (no claude binary) for this test to prove anything")
+	}
+	if err := (apiRunner{}).Available(); err != nil {
+		t.Errorf("apiRunner{}.Available() = %v, want nil when the registry loads", err)
 	}
 }
 

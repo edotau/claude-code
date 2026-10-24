@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -21,8 +23,12 @@ func TestOnPassthroughProvider(t *testing.T) {
 	t.Setenv("HARNESS_PROVIDER", "") // a session's own pin must not leak into this test
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"fakepass","providers":{
 	  "fakepass":{"kind":"anthropic","base_url":"https://example.invalid","auth":{"type":"passthrough"},"models":{"opus":"x"}}}}`)
-	if !onPassthroughProvider() {
-		t.Error("onPassthroughProvider() = false, want true for a passthrough default provider")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatalf("providers.Load() = %v", err)
+	}
+	if !onPassthroughProvider(reg) {
+		t.Error("onPassthroughProvider(reg) = false, want true for a passthrough default provider")
 	}
 }
 
@@ -32,8 +38,57 @@ func TestOnPassthroughProviderFalseForAPIKeyProvider(t *testing.T) {
 	t.Setenv("TEST_FAKE_KEY", "k")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"fakekey","providers":{
 	  "fakekey":{"kind":"anthropic","base_url":"https://example.invalid","auth":{"type":"x-api-key","env":"TEST_FAKE_KEY"},"models":{"opus":"x"}}}}`)
-	if onPassthroughProvider() {
-		t.Error("onPassthroughProvider() = true, want false for an api-key default provider")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatalf("providers.Load() = %v", err)
+	}
+	if onPassthroughProvider(reg) {
+		t.Error("onPassthroughProvider(reg) = true, want false for an api-key default provider")
+	}
+}
+
+// TestListRunnersRegistryLoadErrorNoPanic proves listRunners handles a providers.Load() failure
+// without dereferencing the nil registry it gets back: the "api" row must show "✗" with the load
+// error as its reason, and the call must not panic for any other runner row either.
+func TestListRunnersRegistryLoadErrorNoPanic(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_PROVIDER", "")
+	vaulttest.Put(t, vault.Overlay, "providers", "{not valid json")
+	if _, err := providers.Load(); err == nil {
+		t.Fatal("providers.Load() must fail on malformed overlay JSON for this test to prove anything")
+	}
+
+	tmp := filepath.Join(t.TempDir(), "stdout.txt")
+	f, err := os.Create(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = f
+	func() {
+		defer func() { os.Stdout = old; f.Close() }()
+		listRunners() // must not panic despite a nil registry from the failed Load()
+	}()
+
+	out, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == "api" {
+			if fields[0] != "✗" {
+				t.Errorf("api row mark = %q, want ✗: %q", fields[0], line)
+			}
+			if !strings.Contains(line, "not valid json") && !strings.Contains(strings.ToLower(line), "invalid character") {
+				t.Errorf("api row must name the load error as its reason: %q", line)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no api row found in output:\n%s", out)
 	}
 }
 

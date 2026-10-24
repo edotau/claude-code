@@ -22,8 +22,9 @@ const apiMaxTokens = 16_000
 // apiRunner is a tool-less one-shot: the anthropic route via the SDK, else the openai chat-completions route.
 type apiRunner struct{}
 
-func (apiRunner) Name() string     { return "api" }
-func (apiRunner) Caps() Caps       { return Caps{Model: true, Provider: true, Effort: true} }
+func (apiRunner) Name() string { return "api" }
+func (apiRunner) Caps() Caps   { return Caps{Model: true, Provider: true, Effort: true} }
+
 func (apiRunner) Available() error { _, err := providers.Load(); return err }
 
 func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
@@ -41,6 +42,13 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 		// No API key to call the vendor directly: delegate to claude in tool-less one-shot mode, same
 		// prompt/model/effort, so dispatchers picking "api" off passthrough providers still get an answer.
 		dres, derr := claudeRunner{}.Run(ctx, req, stream)
+		dres.Agent = claudeRunner{}.Name()
+		if dres.Provider == "" {
+			dres.Provider = res.Provider
+		}
+		if dres.Model == "" {
+			dres.Model = res.Model
+		}
 		dres.Fallback, dres.FallbackReason = "api", fmt.Sprintf("provider %s uses passthrough (subscription) auth; ran via claude instead", p.Name)
 		return dres, derr
 	}
