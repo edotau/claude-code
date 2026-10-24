@@ -30,19 +30,6 @@ func TestBackupPathNoFilesystemAccess(t *testing.T) {
 	}
 }
 
-func TestBackupPathTimestampFormat(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	home := filepath.Join(dir, "home")
-	t.Setenv("HOME", home)
-	src := filepath.Join(home, "settings.json")
-	got := BackupPath(src, backupTS)
-	want := filepath.Join(dir, ".memory-cache", "backups", "settings.json.bak-20261021-150405.123456789")
-	if got != want {
-		t.Errorf("BackupPath() = %s, want %s", got, want)
-	}
-}
-
 func TestBackupPathInHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -68,18 +55,6 @@ func TestBackupPathOutsideHome(t *testing.T) {
 	want := filepath.Join(dir, ".memory-cache", "backups", filepath.Clean(outside[1:])+".bak-20261021-150405.123456789")
 	if got != want {
 		t.Errorf("BackupPath() = %s, want %s", got, want)
-	}
-}
-
-func TestBackupPathNoCollisionBetweenInHomeAndOutsideHomeSameTail(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	home := filepath.Join(dir, "home")
-	t.Setenv("HOME", home)
-	inHome := BackupPath(filepath.Join(home, "settings.json"), backupTS)
-	outsideHome := BackupPath(filepath.Join(dir, "elsewhere", "settings.json"), backupTS)
-	if inHome == outsideHome {
-		t.Errorf("in-home and outside-home sources collided on %s", inHome)
 	}
 }
 

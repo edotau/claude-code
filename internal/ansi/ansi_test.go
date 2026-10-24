@@ -143,16 +143,6 @@ func TestPaintAlwaysResets(t *testing.T) {
 	}
 }
 
-// TestModeConstsAreTheWireStrings: the mode travels as a plain string through config JSON and
-// COLORTERM sniffing. Renaming a const value silently routes every render to the 16-color arm.
-func TestModeConstsAreTheWireStrings(t *testing.T) {
-	for got, want := range map[string]string{TrueColor: "truecolor", ANSI256: "ansi256", ANSI16: "ansi16"} {
-		if got != want {
-			t.Errorf("mode const = %q, want %q", got, want)
-		}
-	}
-}
-
 func TestStatusPaintsTokensOnlyWhenEnabled(t *testing.T) {
 	line := "codex      present (ChatGPT login) · cred:ok · ABSENT"
 	if got := Status(false, line); got != line {

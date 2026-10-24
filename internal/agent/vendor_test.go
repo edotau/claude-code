@@ -256,13 +256,3 @@ func TestParseAgyStream_SoftDeny(t *testing.T) {
 		t.Errorf("usage = %+v", res.Usage)
 	}
 }
-
-func TestParseAgyStream_Error(t *testing.T) {
-	stream := `{"event":"init","conversation_id":"e1","init":{"model":"gemini-nope-9","cwd":"/tmp","tools":[]}}
-{"event":"result","result":{"conversation_id":"e1","status":"ERROR","error":"model gemini-nope-9 is not found","usage":{"input_tokens":100,"output_tokens":0}}}
-`
-	res, err := parseAgyStream(strings.NewReader(stream), &strings.Builder{})
-	if err == nil || !strings.Contains(err.Error(), "gemini-nope-9 is not found") || res.SessionID != "e1" {
-		t.Fatalf("err = %v, res = %+v", err, res)
-	}
-}

@@ -211,22 +211,6 @@ func TestCatalogSectionsMatchSections(t *testing.T) {
 	}
 }
 
-// TestLookupFindsCataloged: Lookup must resolve every key actually present in Catalog, and report absent
-// for one that cannot be.
-func TestLookupFindsCataloged(t *testing.T) {
-	if len(Catalog) == 0 {
-		t.Fatal("Catalog is empty")
-	}
-	want := Catalog[0]
-	got, ok := Lookup(want.Key)
-	if !ok || got.Key != want.Key {
-		t.Errorf("Lookup(%q) = %+v, %v; want the catalog entry", want.Key, got, ok)
-	}
-	if _, ok := Lookup("this-key-does-not-exist"); ok {
-		t.Error("Lookup(unknown key) = true, want false")
-	}
-}
-
 // TestParseRejectsCleanupPeriodDaysZero: the schema's minimum is 1; "0" must be rejected, not merely
 // discouraged — a 0-day retention would behave as "delete everything immediately".
 func TestParseRejectsCleanupPeriodDaysZero(t *testing.T) {

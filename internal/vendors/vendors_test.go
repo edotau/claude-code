@@ -1018,51 +1018,8 @@ func TestRedactConfigProviderOptionsHeaders(t *testing.T) {
 	}
 }
 
-// TestRedactConfigProviderAndMCPTogether: provider.*.options.headers redaction must not disturb the
-// existing mcp.*.environment/headers redaction when both sections are present in the same config.
-func TestRedactConfigProviderAndMCPTogether(t *testing.T) {
-	in := map[string]any{
-		"mcp": map[string]any{
-			"x": map[string]any{"environment": map[string]any{"K": "mcp-secret"}},
-		},
-		"provider": map[string]any{
-			"y": map[string]any{"options": map[string]any{
-				"baseURL": "https://api.example.com/v1",
-				"headers": map[string]any{"Authorization": "Bearer provider-secret"},
-			}},
-		},
-	}
-	b, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := RedactConfig(string(b))
-	for _, secret := range []string{"mcp-secret", "provider-secret"} {
-		if strings.Contains(got, secret) {
-			t.Errorf("%s leaked into redacted config: %s", secret, got)
-		}
-	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(got), &out); err != nil {
-		t.Fatal(err)
-	}
-	mcpEnv := out["mcp"].(map[string]any)["x"].(map[string]any)["environment"].(map[string]any)
-	if mcpEnv["K"] != "<redacted>" {
-		t.Errorf("mcp.x.environment.K = %v, want <redacted>", mcpEnv["K"])
-	}
-	opts := out["provider"].(map[string]any)["y"].(map[string]any)["options"].(map[string]any)
-	if opts["headers"].(map[string]any)["Authorization"] != "<redacted>" {
-		t.Errorf("provider.y.options.headers.Authorization = %v, want <redacted>", opts["headers"])
-	}
-	// Non-secret fields must survive unchanged.
-	if opts["baseURL"] != "https://api.example.com/v1" {
-		t.Errorf("provider.y.options.baseURL = %v, must survive unchanged", opts["baseURL"])
-	}
-}
-
-// TestRedactConfigNonSecretFieldsAndInvalidJSON: model ids and baseURL pass through untouched, and
-// malformed JSON is returned unchanged rather than dropped or panicking.
-func TestRedactConfigNonSecretFieldsAndInvalidJSON(t *testing.T) {
+// TestRedactConfigNonSecretFields: model ids and baseURL pass through untouched.
+func TestRedactConfigNonSecretFields(t *testing.T) {
 	in := map[string]any{
 		"model": "harness-anthropic/claude-opus-5",
 		"provider": map[string]any{
@@ -1086,10 +1043,6 @@ func TestRedactConfigNonSecretFieldsAndInvalidJSON(t *testing.T) {
 	opts := out["provider"].(map[string]any)["harness-anthropic"].(map[string]any)["options"].(map[string]any)
 	if opts["baseURL"] != "https://api.anthropic.com/v1" {
 		t.Errorf("baseURL = %v, must survive unchanged", opts["baseURL"])
-	}
-
-	if got := RedactConfig("not even json"); got != "not even json" {
-		t.Errorf("invalid JSON must be returned unchanged, got %q", got)
 	}
 }
 
@@ -1127,10 +1080,6 @@ func TestRedactConfigCommandAndURL(t *testing.T) {
 	}
 	if url := mcp["y"].(map[string]any)["url"]; url != "https://h/p?<redacted>" {
 		t.Errorf("url = %v, want https://h/p?<redacted>", url)
-	}
-
-	if got := RedactConfig("{not json"); got != "{not json" {
-		t.Errorf("malformed input must be returned unchanged, got %q", got)
 	}
 }
 

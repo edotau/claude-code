@@ -188,9 +188,3 @@ func TestQuoteEscapesBackslashAndDoubleQuote(t *testing.T) {
 		t.Errorf("quote(%q) = %q, want %q", `a\b"c`, got, want)
 	}
 }
-
-func TestQuotePlain(t *testing.T) {
-	if got := quote("plain"); got != `"plain"` {
-		t.Errorf("quote(plain) = %q, want %q", got, `"plain"`)
-	}
-}

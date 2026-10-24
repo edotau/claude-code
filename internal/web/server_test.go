@@ -122,72 +122,32 @@ func TestHostAllowed(t *testing.T) {
 	}
 }
 
-func TestGuardRejectsBadHost(t *testing.T) {
-	s := newTestServer(t, Options{}, nil)
-	req := newReq(t, "GET", "/api/tree", "evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusMisdirectedRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusMisdirectedRequest)
+func TestGuardAndOriginOnTree(t *testing.T) {
+	cases := []struct {
+		name   string
+		host   string
+		header [2]string
+		want   int
+	}{
+		{"bad host", "evil.example", [2]string{}, http.StatusMisdirectedRequest},
+		{"missing host", "", [2]string{}, http.StatusMisdirectedRequest},
+		{"bound host", "127.0.0.1:7777", [2]string{}, http.StatusOK},
+		{"sec-fetch-site cross-site", "127.0.0.1:7777", [2]string{"Sec-Fetch-Site", "cross-site"}, http.StatusForbidden},
+		{"sec-fetch-site same-origin", "127.0.0.1:7777", [2]string{"Sec-Fetch-Site", "same-origin"}, http.StatusOK},
+		{"cross-origin Origin", "127.0.0.1:7777", [2]string{"Origin", "http://evil.example"}, http.StatusForbidden},
+		{"same-origin Origin", "127.0.0.1:7777", [2]string{"Origin", "http://127.0.0.1:7777"}, http.StatusOK},
 	}
-}
-
-func TestGuardRejectsMissingHost(t *testing.T) {
-	s := newTestServer(t, Options{}, nil)
-	req := newReq(t, "GET", "/api/tree", "")
-	w := do(s, req)
-	if w.Code != http.StatusMisdirectedRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusMisdirectedRequest)
-	}
-}
-
-func TestGuardAllowsBoundHost(t *testing.T) {
-	s := newTestServer(t, Options{Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/tree", "127.0.0.1:7777")
-	w := do(s, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
-	}
-}
-
-// --- Origin / Sec-Fetch-Site cross-origin rejection ---
-
-func TestCheckOriginCrossSite(t *testing.T) {
-	s := newTestServer(t, Options{}, nil)
-	req := newReq(t, "GET", "/api/tree", "127.0.0.1:7777")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	w := do(s, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("Sec-Fetch-Site cross-site: status = %d, want 403", w.Code)
-	}
-}
-
-func TestCheckOriginSameOriginAllowed(t *testing.T) {
-	s := newTestServer(t, Options{Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/tree", "127.0.0.1:7777")
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	w := do(s, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("Sec-Fetch-Site same-origin: status = %d, want 200", w.Code)
-	}
-}
-
-func TestCheckOriginCrossOriginHeaderRejected(t *testing.T) {
-	s := newTestServer(t, Options{}, nil)
-	req := newReq(t, "GET", "/api/tree", "127.0.0.1:7777")
-	req.Header.Set("Origin", "http://evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("cross-origin Origin: status = %d, want 403", w.Code)
-	}
-}
-
-func TestCheckOriginSameOriginHeaderAllowed(t *testing.T) {
-	s := newTestServer(t, Options{Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/tree", "127.0.0.1:7777")
-	req.Header.Set("Origin", "http://127.0.0.1:7777")
-	w := do(s, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("same-origin Origin: status = %d, want 200", w.Code)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := newTestServer(t, Options{Days: 36500}, nil)
+			req := newReq(t, "GET", "/api/tree", c.host)
+			if c.header[0] != "" {
+				req.Header.Set(c.header[0], c.header[1])
+			}
+			if w := do(s, req); w.Code != c.want {
+				t.Fatalf("status = %d, want %d; body=%s", w.Code, c.want, w.Body.String())
+			}
+		})
 	}
 }
 

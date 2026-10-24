@@ -96,9 +96,3 @@ func TestSecretsImportDashMalformedWritesNothing(t *testing.T) {
 		t.Fatal("GAMMA stored despite a malformed sibling line")
 	}
 }
-
-// TestSecretsImportDashRefusesOnTerminal documents the TTY refusal; it cannot drive isTerminal(fd) to
-// true from a test (no seam over a real controlling terminal), so it only pins the non-TTY paths above.
-func TestSecretsImportDashRefusesOnTerminal(t *testing.T) {
-	t.Skip("no seam to simulate a controlling terminal on stdin from within go test; verified manually")
-}

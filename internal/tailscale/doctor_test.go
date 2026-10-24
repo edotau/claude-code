@@ -56,18 +56,6 @@ func TestDoctorRunningAndApproved(t *testing.T) {
 	}
 }
 
-// An ID without its secret (a truncated `secrets set` name, say) is reported as incomplete, not as present.
-func TestDoctorHalfOAuthCredentialIsIncomplete(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "set")
-	_, detail := Doctor(context.Background())
-	if !strings.Contains(detail, "api credential incomplete") {
-		t.Errorf("detail = %q, want incomplete", detail)
-	}
-}
-
 // A half-set OAuth pair alongside an API key falls through to the API-key note, matching
 // tailscaleAPIVerdict's own fallback (NewClient prefers the API key when OAuth is half-set).
 func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
@@ -85,15 +73,19 @@ func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
 	}
 }
 
-// A half-set OAuth pair with no API key is still reported as incomplete.
+// A half-set OAuth pair (ID or secret alone, say a truncated `secrets set` name) with no API key is incomplete.
 func TestDoctorHalfOAuthWithoutAPIKeyStillIncomplete(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "set")
-	_, detail := Doctor(context.Background())
-	if !strings.Contains(detail, "api credential incomplete") {
-		t.Errorf("detail = %q, want incomplete", detail)
+	for _, env := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"} {
+		t.Run(env, func(t *testing.T) {
+			stubCLI(t, catScript(t, "status_running.json"))
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+			t.Setenv(env, "set")
+			_, detail := Doctor(context.Background())
+			if !strings.Contains(detail, "api credential incomplete") {
+				t.Errorf("detail = %q, want incomplete", detail)
+			}
+		})
 	}
 }
 

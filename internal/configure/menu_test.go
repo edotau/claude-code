@@ -3,9 +3,7 @@ package configure
 import (
 	"bytes"
 	"github.com/edotau/claude-code/internal/tui"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 
@@ -202,41 +200,6 @@ func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	}
 	if len(d.pending) != 0 {
 		t.Errorf("pending = %v, want empty after an all-success save", d.pending)
-	}
-}
-
-// preFixSaveKeys replicates saveKeys as it stood before this change (unconditional discardKeys, no
-// return value) — a direct edit of menu.go to prove teeth was blocked by the sandbox's destructive-edit
-// guard on this shared live tree, so the pre-fix logic is reproduced here instead.
-func preFixSaveKeys(d *dialog) {
-	if len(d.pending) == 0 {
-		return
-	}
-	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
-		k := d.pending[name]
-		_ = secrets.Store(name, k.val) // error ignored, exactly like the pre-fix body
-	}
-	discardKeys(d) // unconditional: wipes a failed key's staging too
-}
-
-// TestSaveKeysPreFixLogicDroppedTheFailedKey is the teeth proof for the test above: run the exact
-// pre-fix body against the same bad/good setup and show it violates "the failed key must remain
-// staged" — i.e. TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded would have failed on it.
-func TestSaveKeysPreFixLogicDroppedTheFailedKey(t *testing.T) {
-	vaulttest.Use(t)
-	const bad = "CONFIGURE_SAVEKEYS_TEETH_BAD"
-	badVal := "line one\nline two"
-	t.Setenv(bad, "prior-bad")
-	_ = os.Setenv(bad, badVal)
-	d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{
-		bad: {val: badVal, prev: "prior-bad", had: true},
-	}}
-	preFixSaveKeys(d)
-	if _, staged := d.pending[bad]; staged {
-		t.Fatal("pre-fix saveKeys kept the failed key staged — the replica no longer reproduces the bug")
-	}
-	if got := os.Getenv(bad); got != "prior-bad" {
-		t.Fatalf("pre-fix saveKeys env = %q, want it wiped back to prior-bad (losing the unsaved value)", got)
 	}
 }
 
