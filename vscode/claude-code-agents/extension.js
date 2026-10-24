@@ -19,17 +19,6 @@ function dashboardTerminal() {
   return existing || vscode.window.createTerminal({ name });
 }
 
-// detailsChannel shows `claude-code usage` text output read-only, without spawning a shell.
-let detailsChannel = null;
-function showUsageDetails(binary, days) {
-  if (!detailsChannel) detailsChannel = vscode.window.createOutputChannel('Agents Dashboard');
-  execFile(binary, ['usage', '--days', String(days)], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-    detailsChannel.clear();
-    detailsChannel.appendLine(err ? `${binary} usage failed: ${stderr || err.message}` : stdout);
-    detailsChannel.show(true);
-  });
-}
-
 function config() {
   return vscode.workspace.getConfiguration('claudeCodeAgents');
 }
@@ -109,10 +98,6 @@ class UsageViewProvider {
       // Persisted as the usageShow setting so the status bar and every window follow the same perspective.
       await config().update('usageShow', show, vscode.ConfigurationTarget.Global);
       return this.render();
-    }
-    if (msg.type === 'details') {
-      showUsageDetails(binary, config().get('usageDays', 30) || 30);
-      return;
     }
     if (msg.type === 'accounts') {
       const terminal = dashboardTerminal();
