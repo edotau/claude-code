@@ -21,6 +21,7 @@ const { MutationQueue } = require('./lib/tasks-mutations');
 const tasksBoard = require('./lib/tasks-board');
 const tailscale = require('./lib/tailscale');
 const tasksStart = require('./lib/tasks-start');
+const ownership = require('./lib/tasks-ownership');
 const tasksState = require('./lib/tasks-state');
 const { renderTasksHtml, renderElsewhereHtml, renderLauncherHtml, rowCells, gridKind } = require('./lib/tasks-view');
 
@@ -31,7 +32,7 @@ const TASK_SOURCES = ['jira', 'github', 'bitbucket'];
 function openExternalWeb(url) {
   const u = String(url || '');
   if (!/^(https?:\/\/|mailto:)/i.test(u)) return Promise.resolve(false);
-  return openExternalWeb(u);
+  return vscode.env.openExternal(vscode.Uri.parse(u));
 }
 const GITHUB_PR_EXTENSION_ID = 'github.vscode-pull-request-github';
 
@@ -40,6 +41,13 @@ function dashboardTerminal() {
   const name = 'Agents Dashboard';
   const existing = vscode.window.terminals.find((t) => t.name === name && t.exitStatus === undefined);
   return existing || vscode.window.createTerminal({ name });
+}
+
+let tasksLogChannel;
+/** One Output channel for handler failures (with stacks), created on first use. */
+function tasksLog() {
+  if (!tasksLogChannel) tasksLogChannel = vscode.window.createOutputChannel('Claude Code Tasks');
+  return tasksLogChannel;
 }
 
 function config() {
@@ -439,6 +447,7 @@ class TasksViewProvider {
   async pickAssignee(id) {
     const item = this.findItem(id);
     if (!item || item.source !== 'jira') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const me = this.status.jira && this.status.jira.ok ? this.status.jira : null;
     const fixed = [{ label: '$(circle-slash) Unassigned', name: null, displayName: '' }, ...(me && me.name ? [{ label: `$(account) Assign to me (${me.login})`, name: me.name, displayName: me.login }] : [])];
     const qp = vscode.window.createQuickPick();
@@ -536,6 +545,7 @@ class TasksViewProvider {
   async changeAssignees(id) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const r = await this.pickLogins(item, item.assignees || [], `Assignees for #${item.number}`);
     if (!r || (!r.add.length && !r.remove.length)) return;
     return this.runMutation(id, { assignees: r.next }, () => tasksGithub.editIssue({ repo: item.repo, number: item.number, addAssignees: r.add, removeAssignees: r.remove }));
@@ -544,6 +554,7 @@ class TasksViewProvider {
   async changeReviewers(id) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const current = (item.reviewers || []).filter((x) => x.status === 'PENDING').map((x) => x.name);
     const r = await this.pickLogins(item, current, `Request reviewers for #${item.number} (up to 15)`);
     if (!r || (!r.add.length && !r.remove.length)) return;
@@ -555,6 +566,7 @@ class TasksViewProvider {
   async setIssueState(id, state, reason) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github' || item.type !== 'issue') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     if (state === 'open') return this.runMutation(id, { state: 'open', stateReason: null }, () => tasksGithub.reopenIssue({ repo: item.repo, number: item.number }));
     let duplicateOf;
     if (reason === 'duplicate') {
@@ -569,6 +581,7 @@ class TasksViewProvider {
   async mergePullRequest(id, method) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const labels = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
     const label = labels[method] || 'Merge';
     const ok = await vscode.window.showWarningMessage(`${label} PR #${item.number}?`, { modal: true, detail: 'This will update the pull request on GitHub.' }, label);
@@ -579,6 +592,7 @@ class TasksViewProvider {
   async setAutoMerge(id, enable) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github' || item.type !== 'pr') return;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const allowed = await this.ensureMergeMethods(item.repo);
     const method = ['squash', 'merge', 'rebase'].find((m) => allowed[m]) || 'squash';
     return this.runMutation(id, { autoMergeEnabled: !!enable }, () => tasksGithub.setAutoMerge({ repo: item.repo, number: item.number, method, enable: !!enable }));
@@ -663,6 +677,7 @@ class TasksViewProvider {
   /** A board drop = the matching in-panel action; unmapped drops are refused with an inline note (Orca's rule). */
   async moveRow(id, toKey) {
     const item = this.findItem(id);
+    if (item && !this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     const targets = tasksBoard.dropTargets(this.model().board);
     let col = targets.find((c) => c.key === toKey);
     if (!col) {
@@ -726,6 +741,20 @@ class TasksViewProvider {
     return this.runMutation(item.id, { status: { name: t.to.name, category: t.to.category }, state: t.to.category === 'done' ? 'closed' : 'open' }, () => this.withJiraClient((client) => client.transition(item.key, t.id, comment, fields)));
   }
 
+  /** Logins each source's doctor reported; the ownership gate compares items against these. */
+  logins() {
+    return {
+      jira: this.status.jira && this.status.jira.ok ? this.status.jira.name : null,
+      jiraDisplay: this.status.jira && this.status.jira.ok ? this.status.jira.login : null,
+      github: this.status.github && this.status.github.ok ? this.status.github.login : null,
+      bitbucket: this.status.bitbucket && this.status.bitbucket.ok ? this.status.bitbucket.login : null,
+    };
+  }
+
+  canWrite(item) {
+    return ownership.canWrite(item, this.logins(), this.cfg().writeScope);
+  }
+
   /** Worktrees of the first workspace folder (30 s cache); `force` after a create. */
   async refreshWorktrees(force) {
     const dir = workspaceDir();
@@ -752,6 +781,7 @@ class TasksViewProvider {
     await this.refreshWorktrees(false);
     const attached = tasksStart.findAttached(this.worktrees, item);
     const label = item.source === 'jira' ? item.key : `#${item.number}`;
+    if (!this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
     let cwd = dir;
     let where = cfg.startDefault;
     if (attached && !fresh) {
@@ -812,6 +842,8 @@ class TasksViewProvider {
 
   /** Optimistic write through the queue; the error lands on the detail banner / row instead of a toast. */
   async runMutation(id, patch, write) {
+    const target = this.findItem(id);
+    if (target && !this.canWrite(target)) return this.rowError(id, ownership.readOnlyReason(target));
     try {
       await this.mutations.enqueue({ id, patch, write });
       if (this.detail && this.detail.id === id) this.detail = { ...this.detail, mutationError: null };
@@ -837,6 +869,7 @@ class TasksViewProvider {
       },
       tailscaleBinary: cfg.get('tailscaleBinary') || 'tailscale',
       startDefault: cfg.get('tasksStartDefault', 'ask') || 'ask',
+      writeScope: cfg.get('tasksWriteScope', 'mine') === 'all' ? 'all' : 'mine',
       jiraProjects: (cfg.get('tasksJiraProjects', []) || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean),
       pageSize: Math.max(5, cfg.get('tasksPageSize', 36) || 36),
     };
@@ -852,7 +885,12 @@ class TasksViewProvider {
 
   wireWebview(webview) {
     webview.options = { enableScripts: true };
-    webview.onDidReceiveMessage((msg) => this.handleMessage(msg).catch((err) => vscode.window.showErrorMessage(`Claude Code Tasks: ${err.message}`)));
+    webview.onDidReceiveMessage((msg) =>
+      this.handleMessage(msg).catch((err) => {
+        tasksLog().appendLine(`[${new Date().toISOString()}] ${msg && msg.type}: ${err && err.stack ? err.stack : err}`);
+        vscode.window.showErrorMessage(`Claude Code Tasks: ${err.message}`, 'Show log').then((c) => c && tasksLog().show(true));
+      })
+    );
   }
 
   resolveWebviewView(webviewView) {
@@ -1177,7 +1215,7 @@ class TasksViewProvider {
       loading: this.initialLoad,
       refreshing: this.refreshing,
       loadingPage: this.loadingPage,
-      items: result.items.map((i) => ({ ...i, attached: tasksStart.findAttached(this.worktrees, i) })),
+      items: result.items.map((i) => ({ ...i, attached: tasksStart.findAttached(this.worktrees, i), readOnly: !this.canWrite(i) })),
       errors: result.errors,
       failedRepos: result.failedRepos,
       hardError: this.hardError,
@@ -1187,10 +1225,10 @@ class TasksViewProvider {
       view: this.view,
       rowErrors: Object.fromEntries([...this.mutations.errors].map(([id, e]) => [id, e.message])),
       viewMode: this.viewMode(),
-      board: this.viewMode() === 'board' ? tasksBoard.groupRows(result.items, this.source, parsed.scope, { ensure: this.source === 'jira' ? [{ label: 'Done', category: 'done' }] : [] }) : null,
+      board: this.viewMode() === 'board' ? tasksBoard.groupRows(result.items.map((i) => ({ ...i, attached: tasksStart.findAttached(this.worktrees, i), readOnly: !this.canWrite(i) })), this.source, parsed.scope, { ensure: this.source === 'jira' ? [{ label: 'Done', category: 'done' }] : [] }) : null,
       pendingIds: result.items.filter((i) => this.mutations.isPending(i.id)).map((i) => i.id),
       mergeMethods: this.mergeMethods,
-      detail: this.detail ? { ...this.detail, data: this.detail.data ? { ...this.detail.data, attached: tasksStart.findAttached(this.worktrees, this.detail.data) } : this.detail.data, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
+      detail: this.detail ? { ...this.detail, data: this.detail.data ? { ...this.detail.data, attached: tasksStart.findAttached(this.worktrees, this.detail.data), readOnly: !this.canWrite(this.detail.data) } : this.detail.data, pending: this.mutations.isPending(this.detail.id), priorities: this.priorities || [] } : null,
       settings: {
         expanded: this.settingsExpanded,
         defaultSource: cfg.defaultSource,

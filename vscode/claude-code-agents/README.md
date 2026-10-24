@@ -160,6 +160,11 @@ quoted phrases and unknown tokens pass through as free text.
   through the same optimistic queue; a failure shows under the row's title with Retry. `gh` runs with
   `GH_PROMPT_DISABLED=1`, a 30 s timeout, two retries on 5xx / reset / 429-without-Retry-After, and a per-bucket
   breaker after "API rate limit exceeded" (search 70 s, core 5 min).
+- **Read-only for teammates' work.** Only items that are yours — assigned to you (Jira) or authored by / assigned to
+  you (GitHub, Bitbucket) — take writes from this page: comments, transitions, priority, assignment, close/merge,
+  review replies, board moves and Start. Everything else renders with a lock marker, plain pills instead of menus, no
+  composer, and the extension refuses the write even if the webview posts it (`claudeCodeAgents.tasksWriteScope`,
+  `mine` by default; `all` lifts the gate). Writes also log to the "Claude Code Tasks" Output channel when they fail.
 - **Start / Resume** (Orca's workspace composer as QuickPicks): Start asks "Open Claude here" or "Create worktree
   `<key-slug>`" (`claude-code worktree create`, `claudeCodeAgents.tasksStartDefault` skips the question), then a
   prompt template (Start implementation · Investigate bug · Write test plan · Draft PR summary · Plain; the last

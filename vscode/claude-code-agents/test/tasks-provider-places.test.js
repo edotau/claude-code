@@ -108,3 +108,12 @@ test('launcher markup is rebuilt only when its inputs change', () => {
   assert.notEqual(sidebar.webview.html, 'untouched');
   assert.notEqual(sidebar.webview.html, first);
 });
+
+test('open: an https url reaches vscode.env.openExternal once; file:// and javascript: are refused', async () => {
+  const p = make();
+  await p.handleMessage({ type: 'open', url: 'https://example.com/x' });
+  assert.deepEqual(state.commands.filter((c) => c[0] === 'openExternal'), [['openExternal', 'https://example.com/x']]);
+  await p.handleMessage({ type: 'open', url: 'file:///etc/passwd' });
+  await p.handleMessage({ type: 'open', url: 'javascript:alert(1)' });
+  assert.equal(state.commands.filter((c) => c[0] === 'openExternal').length, 1);
+});

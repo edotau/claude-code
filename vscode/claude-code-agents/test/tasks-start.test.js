@@ -231,3 +231,4 @@ test('launchCommand: the prompt text never appears in the command, only the prom
   assert.ok(cmd.includes(promptFile));
   assert.ok(!cmd.includes('Implement the following'));
 });
+

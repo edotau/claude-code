@@ -378,6 +378,15 @@
           ],
           "default": "ask",
           "description": "What Start does: ask each time, open Claude in the workspace folder, or create a worktree (`claude-code worktree create <key-slug>`) and open Claude there. Resume always reopens the attached worktree."
+        },
+        "claudeCodeAgents.tasksWriteScope": {
+          "type": "string",
+          "enum": [
+            "mine",
+            "all"
+          ],
+          "default": "mine",
+          "description": "Which items the Tasks page may write to (comment, transition, assign, merge, board moves, Start): only your own (assigned to you or authored by you), or all. Teammates’ items are read-only by default even where the server would allow a write."
         }
       }
     }
