@@ -67,6 +67,9 @@ wrote `PENDING: none` past the installed skill's ship demand, and 2/3 leaked a s
 A scratch-copy fix (orient `ls -a` + agent-instruction files, declined-AUTH → PENDING, a no-tags final line) FAILED
 n=3: s14 method 1 / report_quality 0; 9/12 method runs leaked tags. Executors list `.claude/` but never open
 `.claude/skills/*/SKILL.md`, so the PENDING wording never fires; not shipped.
+Round 3 (a forced first line to `find` + Read agent-instruction files, a forced last line to grep the draft for tags)
+FAILED n=3: s14 method 1 / report_quality 1 (= control); no s14 executor ran the `find` or opened release-helper,
+and s2-m2, s9-m2 still leaked "Step 6". s9 method 1.33 (was 1.67). Not shipped; wording rounds stop here.
 
 This is a smoke grade: n=2 per cell is a smoke test, not a benchmark; say which scenarios ran.
 Upstream's own numbers live in upstream's eval/RESULTS.md, not here.
