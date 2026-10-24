@@ -204,7 +204,11 @@ func settingsMergeApply(dryRun bool) (file string, existing, merged []byte, sum 
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
 	}
-	merged, sum, err = settings.Merge(existing, rendered)
+	dropped, derr := settings.LoadDropped()
+	if derr != nil {
+		fmt.Println("settings: drop list unavailable: " + derr.Error())
+	}
+	merged, sum, err = settings.Merge(existing, rendered, dropped)
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
 	}
@@ -228,6 +232,9 @@ func installSettings(w io.Writer, dryRun bool) error {
 		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
 	if len(sum.Retired) > 0 {
 		fmt.Fprintf(w, "  drop   %s (retired)\n", strings.Join(sum.Retired, ", "))
+	}
+	if len(sum.Dropped) > 0 {
+		fmt.Fprintf(w, "  drop   %s (drop list)\n", strings.Join(sum.Dropped, ", "))
 	}
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
@@ -263,6 +270,9 @@ func settingsCompactLine() (line string, err error) {
 	}
 	if len(sum.Retired) > 0 {
 		line += " · dropped " + strings.Join(sum.Retired, ", ")
+	}
+	if len(sum.Dropped) > 0 {
+		line += fmt.Sprintf(" · %d dropped", len(sum.Dropped))
 	}
 	return line, nil
 }

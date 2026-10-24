@@ -113,7 +113,7 @@ func panelLines(title string, s pickState, cols int) int {
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
 	if title != "" {
-		b.WriteString(ansi.Style(color, ansi.Bold+ansi.Cyan, title) + "\x1b[K\r\n")
+		b.WriteString(Accent(color, title) + "\x1b[K\r\n")
 		if s.header != "" {
 			b.WriteString("  " + ansi.Style(color, ansi.Dim, s.header))
 		}
@@ -124,13 +124,13 @@ func render(title string, s pickState, color bool) string {
 			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
 		}
 		if s.heads[i] {
-			b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Bold+ansi.Cyan, row) + "\x1b[K\r\n")
+			b.WriteString("\x1b[K\r\n" + Accent(color, row) + "\x1b[K\r\n")
 			continue
 		}
 		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
-			prefix = ansi.Style(color, ansi.Cyan, "▸") + " "
-			line = ansi.Style(color, "\x1b[7m", row)
+			prefix = AccentMark(color, "▸") + " "
+			line = Selected(color, row)
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
