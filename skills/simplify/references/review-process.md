@@ -29,7 +29,8 @@ angles yourself in one pass and say so in the summary.
   flexibility, impossible-state error handling, over-long docstrings; name the simpler form.
 - **Efficiency** — flag wasted work the diff introduces: redundant computation or repeated I/O, independent
   operations run sequentially, blocking work on startup or hot paths, long-lived closures capturing large
-  scopes; name the cheaper form.
+  scopes; name the cheaper form; a cost that needs a measurement before it's a finding →
+  `skills/evaluate-code/references/performance.md`.
 - **Altitude** — check each change fixes the root cause at the right depth rather than patching a symptom;
   special cases layered on shared infrastructure mean the fix isn't deep enough; name the more general change.
 
