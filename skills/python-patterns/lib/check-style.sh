@@ -3,8 +3,8 @@
 # Usage: check-style.sh <path> [path ...]
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../../../_shared/lib/common.sh
-source "${CLAUDE_SKILLS_ROOT:-$HOME/.claude/skills}/_shared/lib/common.sh"
+# shellcheck source=./common.sh
+source "$SKILL_DIR/common.sh"
 
 require_cmd ruff black
 
