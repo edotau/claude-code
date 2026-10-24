@@ -73,6 +73,12 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 
 func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	mergeFixtureLockEnv(t)
+	if MergeLockWait != 5*time.Second || mergeLockWait != MergeLockWait {
+		t.Fatalf("defaults: MergeLockWait=%v mergeLockWait=%v, want both 5s", MergeLockWait, mergeLockWait)
+	}
+	const short = 300 * time.Millisecond
+	t.Cleanup(func() { mergeLockWait = MergeLockWait })
+	mergeLockWait = short
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
@@ -91,9 +97,9 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	if err != ErrMergeBusy {
 		t.Fatalf("err = %v, want ErrMergeBusy", err)
 	}
-	// wait<=0 must fall back to MergeLockWait (5s), not return immediately as a zero wait would imply.
-	if elapsed < MergeLockWait-500*time.Millisecond {
-		t.Fatalf("Acquire(0, ...) returned after %v, want it to have used MergeLockWait (%v)", elapsed, MergeLockWait)
+	// wait<=0 must fall back to the default wait, not return immediately as a zero wait would imply.
+	if elapsed < short-50*time.Millisecond {
+		t.Fatalf("Acquire(0, ...) returned after %v, want it to have used the default wait (%v)", elapsed, short)
 	}
 }
 

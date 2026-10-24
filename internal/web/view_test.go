@@ -183,7 +183,7 @@ func TestFollowSurvivesWriteTimeout(t *testing.T) {
 
 	s := newTestServer(t, Options{ClaudeDir: claudeDir, Days: 36500}, nil)
 	ts := httptest.NewUnstartedServer(s.mux)
-	ts.Config.WriteTimeout = 1 * time.Second
+	ts.Config.WriteTimeout = 300 * time.Millisecond
 	ts.Start()
 	defer ts.Close()
 
@@ -205,7 +205,7 @@ func TestFollowSurvivesWriteTimeout(t *testing.T) {
 	}
 
 	go func() {
-		time.Sleep(1500 * time.Millisecond) // past ts.Config.WriteTimeout
+		time.Sleep(350 * time.Millisecond) // past ts.Config.WriteTimeout; Follow emits it at its 500ms tick
 		f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return

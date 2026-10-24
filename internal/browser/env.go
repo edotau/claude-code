@@ -58,9 +58,12 @@ func realClaude() string {
 	return p
 }
 
+// winRootTimeout bounds the wslpath call in winRoot; a var so tests can shrink it.
+var winRootTimeout = 2 * time.Second
+
 // winRoot is where WSL mounts C: (wslpath honors a custom /etc/wsl.conf automount root), else /mnt/c.
 func winRoot() string {
-	if out, err := runCommand(2*time.Second, "wslpath", "-u", `C:\`); err == nil {
+	if out, err := runCommand(winRootTimeout, "wslpath", "-u", `C:\`); err == nil {
 		if p := strings.TrimRight(out, "/"); p != "" {
 			return p
 		}

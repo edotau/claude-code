@@ -50,7 +50,7 @@ func TestRunAgySignsInThenStopsIt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakeAgyCommand(t, "sleep 0.2; echo tok > '"+marker+"'; sleep 30")
+	fakeAgyCommand(t, "sleep 0.2; echo tok > '"+marker+"'; exec sleep 30")
 	origPoll, origGrace := agySignInPoll, agyStopGrace
 	t.Cleanup(func() { agySignInPoll, agyStopGrace = origPoll, origGrace })
 	agySignInPoll, agyStopGrace = 50*time.Millisecond, 100*time.Millisecond
@@ -95,7 +95,7 @@ func TestRunAgyReportsNotSignedInWhenItExitsOnItsOwn(t *testing.T) {
 func TestRunAgyStopsOnTimeout(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	fakeAgyCommand(t, "sleep 30")
+	fakeAgyCommand(t, "exec sleep 30")
 	origPoll, origTimeout, origGrace := agySignInPoll, agySignInTimeout, agyStopGrace
 	t.Cleanup(func() { agySignInPoll, agySignInTimeout, agyStopGrace = origPoll, origTimeout, origGrace })
 	agySignInPoll, agySignInTimeout, agyStopGrace = 10*time.Millisecond, 60*time.Millisecond, 20*time.Millisecond

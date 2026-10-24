@@ -22,7 +22,7 @@ const defaultEventCount = 40
 
 // followPollInterval is how often Follow re-reads the transcript and the journal/meta looking for
 // new events and the terminal result.
-const followPollInterval = 500 * time.Millisecond
+var followPollInterval = 500 * time.Millisecond
 
 // ViewOptions scopes View/Follow: ClaudeDir + the same Session/Days scoping as Options, narrowed to
 // one Agent (its full id, or a prefix unique across the sessions in scope).

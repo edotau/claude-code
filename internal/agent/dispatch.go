@@ -132,9 +132,15 @@ type Policy struct {
 	Notify  func(string)
 }
 
+// DefaultBaseDelay and DefaultMaxDelay are DefaultPolicy's backoff bounds; tests shrink them.
+var (
+	DefaultBaseDelay = 2 * time.Second
+	DefaultMaxDelay  = 30 * time.Second
+)
+
 // DefaultPolicy suits slow, expensive agent runs: few attempts, real spacing.
 func DefaultPolicy() Policy {
-	return Policy{MaxAttempts: 3, BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second, AttemptTimeout: 10 * time.Minute}
+	return Policy{MaxAttempts: 3, BaseDelay: DefaultBaseDelay, MaxDelay: DefaultMaxDelay, AttemptTimeout: 10 * time.Minute}
 }
 
 // Backoff is the equal-jitter wait after attempt (1-based); jitter in [0,1] keeps it pure for tests.

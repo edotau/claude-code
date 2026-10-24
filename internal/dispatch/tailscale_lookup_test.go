@@ -118,14 +118,18 @@ func TestIsLocalHost_SlowLookupDoesNotBlock(t *testing.T) {
 	resetSelfCache(t)
 	dir := t.TempDir()
 	started := filepath.Join(dir, "started")
-	script := "#!/bin/sh\necho started > " + QuoteSH(started) + "\nsleep 2\nexit 1\n"
+	release := filepath.Join(dir, "release")
+	script := "#!/bin/sh\necho started > " + QuoteSH(started) + "\nwhile [ ! -e " + QuoteSH(release) + " ]; do sleep 0.02; done\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	done := make(chan bool, 1)
 	go func() { done <- IsLocalHost(context.Background(), "remote-test-host") }()
-	defer func() { <-done }()
+	defer func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		<-done
+	}()
 	deadline := time.Now().Add(time.Second)
 	for {
 		if _, err := os.Stat(started); err == nil {

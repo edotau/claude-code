@@ -157,6 +157,8 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
 
+	t.Cleanup(func() { mergeLockWait = MergeLockWait })
+	mergeLockWait = 100 * time.Millisecond
 	release := make(chan struct{})
 	held := make(chan struct{})
 	go func() {

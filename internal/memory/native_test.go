@@ -776,6 +776,7 @@ func TestRestoreNativeRefusesReservedNameEvenIfArchived(t *testing.T) {
 // TestArchiveNativeReturnsErrBankBusy: while another fd holds BankLockPath(), ArchiveNative
 // must return ErrBankBusy (wrapped), and no "<lock>.lock" file is created anywhere.
 func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
+	shortBankWait(t)
 	dir := nativeStore(t)
 	if err := os.MkdirAll(filepath.Dir(BankLockPath()), 0o700); err != nil {
 		t.Fatal(err)

@@ -150,6 +150,7 @@ func TestSessionFromBanner(t *testing.T) {
 
 // A hard-quota 429 (this key cannot use the model) demotes the slot for the retry instead of waiting it out.
 func TestRunDemotesSlotOnHardQuota(t *testing.T) {
+	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
 	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{hard, nil}}

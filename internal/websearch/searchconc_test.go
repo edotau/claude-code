@@ -83,7 +83,7 @@ func TestEnrichResults(t *testing.T) {
 	}
 
 	// The slow fetch is bounded by ctx, not waited on serially: a short deadline returns promptly.
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	slowres := []tavilyResult{

@@ -2,7 +2,6 @@ package vault
 
 import (
 	"io"
-	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -12,7 +11,7 @@ import (
 // It opens its own bbolt.DB directly rather than going through View, so it runs alongside an
 // unrelated writer without the architectural contract that View/Update callbacks must not nest.
 func SnapshotTo(path string, w io.Writer) error {
-	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: readLockTimeout})
 	if err != nil {
 		return err
 	}

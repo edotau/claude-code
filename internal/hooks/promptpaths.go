@@ -219,7 +219,7 @@ func OnWSL() bool {
 }
 
 // wslpathTimeout bounds one `wslpath` call: hung WSL interop must fall back, never stall UserPromptSubmit.
-const wslpathTimeout = time.Second
+var wslpathTimeout = time.Second
 
 // TranslateWinPath converts a Windows path to its WSL form. Prefers `wslpath -u` (handles every
 // grammar); falls back to a /mnt/<drive> mapping when wslpath is absent.

@@ -93,6 +93,9 @@ func TestPromptPathFeedbackReportsNonImageFile(t *testing.T) {
 // A hung `wslpath` interop binary must not stall the hook past wslpathTimeout: TranslateWinPath must
 // fall back to the /mnt/<drive> mapping instead of blocking the whole UserPromptSubmit indefinitely.
 func TestTranslateWinPathTimesOutOnHungWslpath(t *testing.T) {
+	saved := wslpathTimeout
+	wslpathTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { wslpathTimeout = saved })
 	dir := t.TempDir()
 	script := filepath.Join(dir, "wslpath")
 	// `exec` replaces the shell in place (no forked grandchild holding the stdout pipe open), matching
