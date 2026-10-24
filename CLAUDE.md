@@ -36,7 +36,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 3. **Surgical changes.** Touch only what the request requires; match existing style; don't refactor
    adjacent code. Remove only orphans your change created; mention pre-existing dead code.
 4. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "reproduce it, fix,
-   re-run"). Loop until verified. → 1–4 in depth: `skills/problem-solving/references/principles.md`.
+   re-run"). Loop until verified. → 1–4 in depth: `skills/evaluate-code/references/principles.md`.
 5. **Terse comments.** 1 line max, ≤120 chars, per section → `rules/standards/communication.md`.
 6. **Live check first; scoped tests while developing; the full suite once, with the user's approval.** Every
    code dispatch carries the `copilot` test agent in the same message → `rules/standards/quality.md`.

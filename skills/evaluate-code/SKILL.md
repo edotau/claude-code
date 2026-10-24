@@ -53,8 +53,8 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 
-Full treatment + attribution: `../problem-solving/references/principles.md`. Before/after examples per
-detector: `references/anti-patterns.md`.
+Full treatment, attribution, worked examples: `references/principles.md` (the #2 fixes are simplify's
+`../simplify/references/simplification-patterns.md`).
 
 ### Performance
 
