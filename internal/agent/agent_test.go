@@ -341,6 +341,23 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	}
 }
 
+// TestRunTimeoutEndsKindFatalRegardlessOfTools: Run() no longer special-cases a tools-on timeout (that
+// branch was removed as redundant); Do's own AttemptTimeout-is-terminal path is the only one left, and it
+// must classify a hung call to KindFatal wrapping context.DeadlineExceeded the same whether Tools was on.
+func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tools := range []bool{true, false} {
+		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
+			hang := &codexHang{}
+			_, err := Run(context.Background(), hang, Request{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, io.Discard, nil)
+			var e *Error
+			if !errors.As(err, &e) || e.Kind != KindFatal || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Tools=%v: err=%v, want KindFatal wrapping DeadlineExceeded", tools, err)
+			}
+		})
+	}
+}
+
 // codexHang blocks until its context is done, named "codex" so RunWithFallback's class check applies.
 type codexHang struct{ calls int }
 

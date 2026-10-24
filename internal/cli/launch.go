@@ -277,6 +277,7 @@ func cmdInstall(args []string) int {
 		helptext.Defaults(fs)
 	}
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
+	verbose := fs.Bool("verbose", false, "print every step in full, instead of one line each")
 	var tf toolsFlag
 	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
 	setup := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
@@ -292,7 +293,7 @@ func cmdInstall(args []string) int {
 		}
 		return 0
 	}
-	if err := launch.Install(os.Stdout, *dry); err != nil {
+	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
 		return fail("install: %v", err)
 	}
 	return 0

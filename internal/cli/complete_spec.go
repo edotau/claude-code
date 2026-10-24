@@ -113,7 +113,7 @@ func buildSpecTree() map[string]*compNode {
 				flag("tags"), flag("expiry"), flag("description"), boolFlag("save")}},
 			"exit-node": {flags: []flagInfo{boolFlag("enable"), boolFlag("disable"), boolFlag("approve")}},
 		}},
-		"install": {flags: []flagInfo{boolFlag("dry-run"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
+		"install": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
 			"adopt":     {flags: []flagInfo{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 			"nuke":      {flags: []flagInfo{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 			"workspace": {args: []func() []string{setupWorkspaceSubwords}, flags: []flagInfo{flag("with"), boolFlag("dry-run")}},
