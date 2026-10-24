@@ -7,3 +7,6 @@ func Parent(pid int) int { return 0 }
 
 // Comm has no portable source outside /proc: "".
 func Comm(pid int) string { return "" }
+
+// Descendants has no portable source outside /proc or ps: nil.
+func Descendants(pid int) []int { return nil }
