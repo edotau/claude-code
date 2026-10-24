@@ -116,6 +116,11 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
 		return ExitBlock
 	}
+	if attributionFooterBlocked(cmd) {
+		fmt.Fprintf(stderr, "safety: BLOCKED — AI-attribution footer in a commit message (CLAUDE.md hard rule 3)\n  command: %s\nDrop the Co-Authored-By / Generated-with lines; the committer identity covers it.\n", cmd)
+		audit.Log(audit.HookBlocked, "safety", "attribution footer")
+		return ExitBlock
+	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
 		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", cmd)
 		audit.Log(audit.HookBlocked, "safety", "destructive SQL")

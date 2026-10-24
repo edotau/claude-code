@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -111,19 +110,7 @@ func Log(a Action, resource, detail string) {
 }
 
 // scrub replaces every credential-shaped field so the log can never become a secret store.
-func scrub(s string) string {
-	f := strings.Fields(s)
-	changed := false
-	for i, w := range f {
-		if shapes.Looks(w) {
-			f[i], changed = "REDACTED", true
-		}
-	}
-	if !changed {
-		return s
-	}
-	return strings.Join(f, " ")
-}
+func scrub(s string) string { return shapes.Redact(s) }
 
 // Read returns events at or after since, oldest first, across the rotated and live files.
 func Read(since time.Time) ([]Event, error) {
