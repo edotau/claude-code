@@ -2,6 +2,7 @@
 
 Every reviewer inspects the artifact itself (code, tests, plan), never the report describing it, returns findings as
 file:line plus a concrete fix, and edits nothing. Paste the context each role needs; never make it reconstruct the plan.
+Each template instantiates `../SKILL.md` → Handoff contract; its field names match the contract.
 
 ## Implementer
 
@@ -18,6 +19,7 @@ patterns; stop rather than guess at a new design decision or scope growth. Test 
 behaviors that need coverage. Shared tree: never git stash/checkout/reset/restore; confirm each write with
 `git diff --stat -- <file>`.
 
+Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)
 Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; files changed; verification output; concerns.
 ```
 
@@ -69,6 +71,8 @@ Only after `SPEC_COMPLIANT` and the simplify pass.
 ```markdown
 Load evaluate-code (Skill tool, or read ~/.claude/skills/evaluate-code/SKILL.md) and apply its lenses — the
 performance lens on any hot path touched.
+You are a read-only terminal reviewer: apply only its Lenses and Verdicts — skip its Dispatch a review and
+mechanical-gate steps (the manager ran them); never edit files or dispatch agents.
 Task: <summary>
 Scope: base <rev>, head <rev>, files <list>
 Simplify report (if one ran; flagged items left on purpose): <report>
@@ -84,4 +88,21 @@ After a plan is written, before executing it.
 ```markdown
 Review plan <PLAN_PATH> against spec <SPEC_PATH> by
 `~/.claude/skills/evaluate-code/references/task-review.md` → Plan review. Return its verdict first.
+You are a read-only terminal reviewer: apply only that procedure and skip any dispatch or mechanical-gate
+steps (the manager ran them); never edit files or dispatch agents.
+```
+
+## Lane leaf
+
+Brief for a lane orchestrator's leaf ([lane-orchestrator.md](lane-orchestrator.md)); the attached lane plan carries the
+context.
+
+```text
+You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/restore.
+Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
+Done when: <scoped test> exits 0 and <live check> shows <expected>.
+Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
+After a defect fix write ISSUE: searched P, found N.
+Report: files changed, each command with exit code and env (cwd, CLAUDE_CONFIG_DIR), the TASK/ISSUE facts as
+plain sentences (never raw tags), anything outside your files.
 ```
