@@ -24,7 +24,8 @@
   "env": {
     "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
-    "CLAUDE_CODE_AUTO_CONNECT_IDE": "false"
+    "CLAUDE_CODE_AUTO_CONNECT_IDE": "false",
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "permissions": {
     "defaultMode": "auto",
