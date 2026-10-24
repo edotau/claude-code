@@ -155,9 +155,13 @@ var whamURL = "https://chatgpt.com/backend-api/wham/usage"
 
 // openaiQuotas reads codex's ChatGPT rate-limit windows (5h + weekly).
 func openaiQuotas(ctx context.Context) []quota {
-	tok, acct := vendors.CodexAccessToken()
+	tok, acct, keyringNote := vendors.CodexAccessToken()
 	if tok == "" {
-		return []quota{{Provider: "openai", Note: "unavailable: codex not signed in to ChatGPT"}}
+		note := "unavailable: codex not signed in to ChatGPT"
+		if keyringNote != "" {
+			note += " (keyring: " + keyringNote + ")"
+		}
+		return []quota{{Provider: "openai", Note: note}}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, whamURL, nil)
 	if err != nil {
