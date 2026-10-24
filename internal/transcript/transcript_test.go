@@ -235,6 +235,14 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"-h short-circuits", bashLine("git -h commit"), false},
 		{"bare --exec-path short-circuits", bashLine("git --exec-path commit"), false},
 		{"--exec-path= supplies a value, does not short-circuit", bashLine("git --exec-path=/x commit"), true},
+		// Dangling/truncated substitutions must not panic and must not count as a commit.
+		{"dangling dollar-paren after a comment", bashLine("echo commit # $("), false},
+		{"bare dangling dollar-paren", bashLine("$("), false},
+		{"nested dangling dollar-parens", bashLine("a $( b $( c"), false},
+		{"dangling backtick", bashLine("echo `git commit"), false},
+		{"dangling heredoc marker", bashLine("cat <<"), false},
+		{"dangling quoted heredoc marker", bashLine("cat <<'"), false},
+		{"complete substitution still runs commit", bashLine("echo $(git commit -m x)"), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,6 +261,35 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 				t.Errorf("CountEdits(%q) = %d, want %d", tc.line, got, want)
 			}
 		})
+	}
+}
+
+// TestExtractSubstitutionsDanglingOpen: an unterminated `$(` must return what was found so far, never panic.
+func TestExtractSubstitutionsDanglingOpen(t *testing.T) {
+	cases := []struct{ name, cmd string }{
+		{"bare dangling", "$("},
+		{"trailing comment dangling", "echo commit # $("},
+		{"nested dangling", "a $( b $( c"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractSubstitutions(tc.cmd); len(got) != 0 {
+				t.Errorf("extractSubstitutions(%q) = %v, want empty", tc.cmd, got)
+			}
+		})
+	}
+}
+
+// TestCountEditsFromMalformedCommandNoPanic: a Bash command with a dangling `$(` must not panic
+// CountEditsFrom and must not count as a commit — the recover in eachCommitLine is the safety net.
+func TestCountEditsFromMalformedCommandNoPanic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commit.jsonl")
+	line := bashLine("echo commit # $(")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CountEdits(path); got != 0 {
+		t.Errorf("CountEdits with a dangling $( = %d, want 0", got)
 	}
 }
 
