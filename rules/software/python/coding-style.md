@@ -36,22 +36,8 @@ justify the underscore after typing it.
 
 ## Immutability
 
-Prefer immutable data structures:
-
-```python
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class User:
-    name: str
-    email: str
-
-from typing import NamedTuple
-
-class Point(NamedTuple):
-    x: float
-    y: float
-```
+Prefer immutable data structures (`@dataclass(frozen=True)`, `typing.NamedTuple`). See skill:
+`python-patterns`.
 
 ## Formatting
 

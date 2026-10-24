@@ -35,9 +35,8 @@ pass read-only and end with a PASS / FIX REQUIRED / BLOCK verdict.
 
 ## Must-Review Triggers
 
-STOP and run a full pass when a change touches: authentication / authorization, user-input
-handling, database queries, file-system operations, external API calls, cryptography, or
-payment code. These are non-negotiable review territory.
+Trigger list is canonical in `rules/standards/security.md` → Must-review. Non-negotiable review
+territory — STOP and run a full pass.
 
 ## Mode 1: Application Security Review
 

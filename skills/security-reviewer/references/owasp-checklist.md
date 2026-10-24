@@ -5,14 +5,9 @@ triggers, and read-only contract; this is the detailed pass to run when auditing
 
 ## Pre-Commit Security Checklist
 
-Before ANY commit:
+Secrets, input validation, injection/XSS, CSRF, auth/authz: `rules/standards/security.md` →
+Before commit. This skill adds, before ANY commit:
 
-- [ ] No hardcoded secrets (API keys, passwords, tokens)
-- [ ] All user inputs validated
-- [ ] SQL injection prevention (parameterized queries)
-- [ ] XSS prevention (sanitized HTML output)
-- [ ] CSRF protection enabled
-- [ ] Authentication/authorization verified
 - [ ] Rate limiting on endpoints
 - [ ] Error messages don't leak sensitive data
 - [ ] Logs carry no secrets or PII

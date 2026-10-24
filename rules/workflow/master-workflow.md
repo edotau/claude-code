@@ -54,14 +54,7 @@ user override ("just do it").
 
 Vet the *task request* before any code is written — in a `Plan` subagent, or on a different model
 family via `claude-code ask --agent codex|gemini|opencode` (see `claude-code agents` for what is
-available):
-
-1. **CAPTURE** the task description from user input
-2. **CONTEXT** — read CLAUDE.md, `git status --short`, `git diff --stat`
-3. **EVALUATE**: scope clarity, acceptance criteria, constraints, security surface, testing
-   expectations, missing context
-4. **OUTPUT** a Refined Task Brief with verdict: **READY** (proceed) or **NEEDS CLARIFICATION**
-   (ask specific questions, loop back)
+available). Checklist, output format and verdict discipline: `agents/codex.md` → REVIEW mode.
 
 The same adversarial pass run on the finished branch diff (verdict SHIP IT / NEEDS WORK / BLOCK) is the
 pre-commit review around Phase 8.
@@ -83,6 +76,9 @@ Launch **3 parallel `Explore` subagents** in a single message:
 **Output**: Codebase Context Brief — passed to ALL downstream agents.
 
 **Skip if**: a context brief was generated this session and no files have changed.
+
+**Scope the fan-out** to the directories the task touches — a repo-wide Explore sweep is the
+biggest avoidable input-token cost of this protocol.
 
 ---
 
@@ -200,14 +196,10 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 
 ## Agent Reference
 
-| Agent | Purpose | Phase |
-|-------|---------|-------|
-| `Explore` (built-in) | Codebase scanning | 2 |
-| `Plan` (`agents/Plan.md`, overrides the built-in) | Task vetting, plan-only architecture; the single definition of plan writing | 1, 4 |
-| `general-purpose` (built-in) | Brief refinement, implementation, review | 5, 6 |
-| `code-worker` | Parallel fan-out leaf — one scoped sub-task | 6 |
-| `copilot` | The test surface: existing tests a change breaks (WITH the implementer) + new coverage (after the live check); also the merge/stage/commit last mile | 6 |
-| `claude-code ask --agent <leg>` | Cross-model review or an independent lane | 1, 6, 8 |
+Roster (`Explore`, `Plan`, `claude`, `code-worker`, `copilot`, `codex`, `gemini`, `opencode`) and
+purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan`/`codex` → 1, 4;
+`Explore` → 2; `general-purpose` → 5, 6; `code-worker`/`copilot` → 6; `claude-code ask --agent <leg>`
+→ 1, 6, 8.
 
 > **Security review is a skill, not an agent.** Run it via `/security-reviewer` (the `security-reviewer`
 > skill), typically alongside Phase 8.

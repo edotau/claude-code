@@ -19,6 +19,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Repeatable pipeline, evaluator or bounded loop | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | `rules/workflow/master-workflow.md` → Saved Workflows |
 
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
+Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
 Concurrency: lean leaves ~8–10 in flight, deep-context agents ≤8 (`rules/workflow/agents.md`).
 
 ## Dispatch contract

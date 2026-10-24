@@ -97,9 +97,8 @@ Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping are c
 `rules/standards/quality.md` (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no
 CRITICAL/HIGH, block on either.
 
-**Escalate to the security pass** whenever a change touches auth, user input, DB queries,
-file-system ops, external APIs, crypto, or payments — `security-reviewer` territory, not a
-quality nit.
+**Escalate to the security pass** on the must-review triggers (`rules/standards/security.md` →
+Must-review) — `security-reviewer` territory, not a quality nit.
 
 ## Receive feedback
 
