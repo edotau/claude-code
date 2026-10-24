@@ -47,7 +47,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			"digest", "index", "path", "watch", "timeline", "archive", "migrate", "alias", "fmt"},
 		"router":    {"serve", "start", "stop", "status"},
 		"mcp":       {"doctor"},
-		"agents":    {"sync", "tree"},
+		"agents":    {"sync", "tree", "reap"},
 		"workflow":  {"skeleton", "lint"},
 		"theme":     {"apply"},
 		"tailscale": {"status", "machines", "connect", "key", "exit-node"},

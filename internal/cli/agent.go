@@ -322,7 +322,8 @@ func reportAskResult(format string, res agent.Result, err error) {
 const agentsUsage = `usage: claude-code agents
        claude-code agents sync [--vendor V] [--dry-run] [--check] [--no-prune]
        claude-code agents tree [--days N] [--session ID] [--running] [--all]
-                              [--watch [--interval D]] [--format text|json]`
+                              [--watch [--interval D]] [--format text|json]
+       claude-code agents reap [--dry-run]`
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
@@ -333,6 +334,8 @@ func cmdAgents(args []string) int {
 		return cmdAgentsSync(args[1:])
 	case "tree":
 		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
+	case "reap":
+		return cmdAgentsReap(args[1:])
 	case "-h", "--help":
 		helptext.Fprint(os.Stderr, agentsUsage+"\n")
 		return 2
@@ -340,6 +343,21 @@ func cmdAgents(args []string) int {
 	fail("agents: unknown subcommand %q", args[0])
 	helptext.Fprint(os.Stderr, agentsUsage+"\n")
 	return 1
+}
+
+// cmdAgentsReap marks dead-but-"running" dispatch records as error and drops stale agent-inflight markers.
+func cmdAgentsReap(args []string) int {
+	fs := flag.NewFlagSet("agents reap", flag.ContinueOnError)
+	fs.Usage = func() {
+		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
+		helptext.Defaults(fs)
+	}
+	dryRun := fs.Bool("dry-run", false, "print what would change, write nothing")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		helptext.Fprint(os.Stderr, agentsUsage+"\n")
+		return 2
+	}
+	return agenttree.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
 // cmdAgentsSync renders agents/ into state/projections/<vendor>/agents plus each vendor's global instruction file, installs the

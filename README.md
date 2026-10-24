@@ -195,6 +195,8 @@ claude-code tailscale status|machines|connect|key [--save]|exit-node
 ```bash
 claude-code worktree list|create <name>|clean <name>|clean-all   # ~/worktrees/<repo>/*; never forces a removal
 claude-code agents tree [--watch]          # sessions → subagents → workflows, with vendor legs and fallbacks
+claude-code agents tree --running          # only what runs now, machine-wide: sessions, subagents, dispatch jobs
+claude-code agents reap [--dry-run]        # mark lost dispatch jobs `error`, drop dead agent-inflight markers
 claude-code web view <agentId> [--follow]  # one agent's snapshot or live events
 claude-code web [--addr ip:port]           # dashboard over loopback or the tailnet
 claude-code dispatch --host <h> --agent <a> "<task>"   # detached agent TUI on another box (tmux)
@@ -289,7 +291,8 @@ claude-code theme [--preview] | apply     # statusline palette; whole look acros
 ## Status line
 
 `claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router, context
-%, tokens, duration and git state. Config: `~/.claude/state/statusline/config.json`.
+%, tokens, duration and git state, plus `⚙ N running (A agents · L legs)` while subagents or dispatch jobs run.
+Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout
 
@@ -320,7 +323,7 @@ Rows `CLAUDE.md` points here for.
 | Project agents into vendors | `claude-code agents sync [--vendor v] [--dry-run\|--check]` |
 | Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |
 | Watch agents from a phone | `claude-code web [--addr ip:port]` |
-| Subagent status and legs | `claude-code agents tree [--watch]` · `claude-code web view <id>` |
+| Subagent status and legs | `claude-code agents tree [--watch\|--running]` · `agents reap` · `claude-code web view <id>` |
 | Browsers Claude in Chrome can drive | `claude-code web browsers` · `web setup --browser <b>` |
 | Audit what acted | `claude-code doctor --audit` |
 | Config history | `claude-code history snapshot\|log\|diff` · memory: `git -C ~/.claude/memory log` |

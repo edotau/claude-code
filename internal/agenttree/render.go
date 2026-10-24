@@ -60,7 +60,7 @@ func computeColumnWidths(tree *Tree) columnWidths {
 // Every row is fit to terminalWidth() by truncating its description (then its tool, as a last
 // resort) rather than wrapping.
 func RenderText(w io.Writer, tree *Tree, now time.Time) {
-	if len(tree.Sessions) == 0 {
+	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
@@ -73,6 +73,19 @@ func RenderText(w io.Writer, tree *Tree, now time.Time) {
 			renderSession(w, s, now, cols, width, home)
 		}
 		fmt.Fprintln(w)
+	}
+	renderDispatches(w, tree.Dispatches, width)
+}
+
+// renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
+func renderDispatches(w io.Writer, legs []Leg, width int) {
+	if len(legs) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "dispatches")
+	for _, l := range legs {
+		prefix := fmt.Sprintf("  %s  %-8s  %-6s", l.ID, l.Agent, l.Duration)
+		fmt.Fprintln(w, fitRow(prefix, l.Repo, "", width))
 	}
 }
 
