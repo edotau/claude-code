@@ -20,12 +20,7 @@ Confirm the plan, order, dependencies and acceptance criteria (review a written 
 Order is always spec → simplify → quality: simplifying non-compliant code polishes the wrong thing, and reviewing
 before simplifying reviews code about to change. Never overlap implementers.
 
-| Status | Action |
-|---|---|
-| `DONE` | Spec review |
-| `DONE_WITH_CONCERNS` | Resolve correctness or scope concerns first |
-| `NEEDS_CONTEXT` | Add the context, re-dispatch |
-| `BLOCKED` | Change something — clarify, split, raise capability, or revisit the plan; never resend unchanged |
+Status handling: `../SKILL.md` → Handoff contract.
 
 Stop and ask the user when an assumption breaks (missing file, changed API), scope grows, or a decision falls
 outside the plan.
