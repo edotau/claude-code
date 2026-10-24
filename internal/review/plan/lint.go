@@ -26,19 +26,21 @@ const lintOpusOK = "lint:opus-ok"
 // Generous: prompt template literals routinely run into the thousands of characters.
 const pinWindow = 20000
 
-// RunWorkflowLint lints every workflows/*.js under root (default: the config dir the caller passes as
-// args[0]; a bare call uses cwd). Exit 1 when anything is flagged.
+// RunWorkflowLint lints every workflows/*.js plus every skills/*/scripts/*.js that opens with `export
+// const meta` under root (default: the config dir the caller passes as args[0]; a bare call uses cwd).
+// Exit 1 when anything is flagged.
 func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	root := "."
 	if len(args) > 0 && args[0] != "" {
 		if args[0] == "-h" || args[0] == "--help" {
-			helptext.Fprint(stdout, "usage: claude-code workflow lint [<root>]   (lints <root>/workflows/*.js)\n")
+			helptext.Fprint(stdout, "usage: claude-code workflow lint [<root>]   (lints <root>/workflows/*.js and <root>/skills/*/scripts/*.js)\n")
 			return 0
 		}
 		root = args[0]
 	}
 	pattern := filepath.Join(root, "workflows", "*.js")
 	files, _ := filepath.Glob(pattern)
+	files = append(files, skillScripts(root)...)
 	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
 		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", pattern)
 		return 1
@@ -65,6 +67,35 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "workflow lint: %d script(s) clean\n", len(files))
 	return 0
+}
+
+// skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a
+// Workflow script moved out of workflows/) — other scripts under scripts/ are plain helpers, not linted.
+func skillScripts(root string) []string {
+	files, _ := filepath.Glob(filepath.Join(root, "skills", "*", "scripts", "*.js"))
+	var out []string
+	for _, f := range files {
+		if isWorkflowScript(f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// isWorkflowScript reports whether f's first non-blank, non-comment line opens `export const meta`.
+func isWorkflowScript(f string) bool {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "//") {
+			continue
+		}
+		return strings.HasPrefix(t, "export const meta")
+	}
+	return false
 }
 
 // LintPins returns every agent() pin problem in src; shared by `workflow lint` and the workflow-lint hook.

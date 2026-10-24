@@ -6,7 +6,7 @@
 //   4. args.skill is the path to the SKILL.md (or brief text file) under test.
 
 export const meta = {
-  name: 'fable-eval',
+  name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
     'args (required): {base, skill}; optional: {scenarios: ["s2","s13"], seeds: 2, model: "haiku", conditions: ["control","method"]}. base/pristine/<id> and base/runs/<id>-<cond><seed> must already exist per the setup steps above. Returns {runs, cells}.',
@@ -15,8 +15,8 @@ export const meta = {
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-if (!a.base) return { error: 'fable-eval needs args.base (scratch dir with pristine/ and runs/ laid out)' }
-if (!a.skill) return { error: 'fable-eval needs args.skill (path to the SKILL.md or brief under test)' }
+if (!a.base) return { error: 'code-evaluator needs args.base (scratch dir with pristine/ and runs/ laid out)' }
+if (!a.skill) return { error: 'code-evaluator needs args.skill (path to the SKILL.md or brief under test)' }
 const BASE = a.base
 const SKILL = a.skill
 const SCENARIOS = Array.isArray(a.scenarios) && a.scenarios.length ? a.scenarios : ['s2', 's13']
