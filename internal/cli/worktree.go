@@ -25,7 +25,7 @@ const worktreeUsage = `usage: claude-code worktree list [--format text|json]
                                  [--resolve-agent claude|codex] <name>
        claude-code worktree merge --resume [--target <ref>] [--no-clean]
                                  [--verify "<cmd>"|--no-verify] <name>
-       claude-code worktree clean [--dry-run] <name>
+       claude-code worktree clean [--dry-run] [--force] <name>
        claude-code worktree clean-all [--dry-run|--yes]
 
 Verify inside the worktree after integration, before promotion.
@@ -511,6 +511,7 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 		helptext.Defaults(fs)
 	}
 	dryRun := fs.Bool("dry-run", false, "preview the recheck without removing anything")
+	force := fs.Bool("force", false, "discard uncommitted and unmerged work")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -518,7 +519,15 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 	if len(rest) != 1 {
 		return fail("worktree clean: give exactly one name")
 	}
-	result, err := worktree.Clean(repo, rest[0], *dryRun)
+	var result worktree.CleanResult
+	var err error
+	if *force {
+		result, err = worktree.CleanForce(repo, rest[0], *dryRun, func(s worktree.DiscardSummary) {
+			printDiscardSummary(s, *dryRun)
+		})
+	} else {
+		result, err = worktree.Clean(repo, rest[0], *dryRun)
+	}
 	if err != nil {
 		return fail("worktree clean: %v", err)
 	}
@@ -527,6 +536,17 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// printDiscardSummary lists what --force is about to throw away, before CleanForce removes anything.
+func printDiscardSummary(s worktree.DiscardSummary, dryRun bool) {
+	verb := "discarding"
+	if dryRun {
+		verb = "would discard"
+	}
+	fmt.Printf("%s: %s\n", verb, s.Path)
+	fmt.Printf("  uncommitted files: %d\n", s.Dirty)
+	fmt.Printf("  unmerged commits: %d on %s (not in %s)\n", s.Unmerged, s.Branch, s.Target)
 }
 
 func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
