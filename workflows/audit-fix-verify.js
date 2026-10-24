@@ -2,7 +2,7 @@ export const meta = {
   name: 'audit-fix-verify',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer ‖ test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings, cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-family refuter via external-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute; lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), legs, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-family refuter via external-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), legs, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -17,13 +17,12 @@ const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 const CWD = a.cwd || ''
 const IN = CWD ? ' in ' + CWD : ''
 const CD = CWD ? 'cd ' + CWD + ' && ' : ''
-const RANGE = a.range || ''
 let PATHS = Array.isArray(a.paths) ? a.paths.filter(Boolean) : []
 let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : PATHS
-// A saved workflow is imported to read its meta, so a missing arg must not throw at module top level.
 // A pre-verified findings list (same shape as FINDINGS_SCHEMA items) skips Scope/Find/Refute and goes straight to Fix.
 let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
-if (!RANGE && !PATHS.length && !PRE) return { error: 'audit-fix-verify needs args.range, args.paths or args.findings' }
+// No range, paths or findings → audit the uncommitted working tree (git diff HEAD).
+const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 // Rounds re-audit exactly the non-test source the previous round's fix touched, until dry/stalled/capped (D2: in-script loop, not self-recursion).
