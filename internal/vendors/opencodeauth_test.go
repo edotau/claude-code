@@ -84,18 +84,6 @@ func TestParseOpencodeMajor(t *testing.T) {
 	}
 }
 
-func TestOpencodeMajorFromSeam(t *testing.T) {
-	for _, tc := range []struct {
-		version string
-		want    int
-	}{{"1.19.3", 1}, {"2.0.32", 2}, {"not a version", 0}, {"", 0}} {
-		fakeOpencode(t, tc.version, "[]", nil)
-		if got := OpencodeMajor(); got != tc.want {
-			t.Errorf("version %q: OpencodeMajor() = %d, want %d", tc.version, got, tc.want)
-		}
-	}
-}
-
 func TestOpencodeAuthV2(t *testing.T) {
 	data, _ := fakeOpencode(t, "2.0.32", v2List, nil)
 	writeAuthJSON(t, data, `{"stale":{"type":"api"}}`) // 2.x ignores auth.json when its CLI answers

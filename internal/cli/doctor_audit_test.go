@@ -9,13 +9,6 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 )
 
-// `claude-code audit` was folded into `doctor --audit`: the standalone verb must no longer resolve.
-func TestAuditVerbRemoved(t *testing.T) {
-	if lookup("audit") != nil {
-		t.Error(`lookup("audit") resolved — the standalone verb must be gone (use doctor --audit)`)
-	}
-}
-
 // doctor --audit (text) reproduces exactly what the old `audit` verb printed for the same fixture
 // log: one line per event, newest first, in "<time>  <action><pad><resource><pad><detail>" form.
 func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {

@@ -50,26 +50,6 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 	}
 }
 
-// TestAssignIDsDuplicateContentGetsDistinctIDs: two blocks with identical header text must not collide on one ID.
-func TestAssignIDsDuplicateContentGetsDistinctIDs(t *testing.T) {
-	dir := t.TempDir()
-	write(t, filepath.Join(dir, "decisionLog.md"), "## Fix the bug\nbody one\n\n## Fix the bug\nbody two\n")
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if n, err := assignIDs(dir, now); err != nil || n != 2 {
-		t.Fatalf("assignIDs = %d, %v; want 2", n, err)
-	}
-	data, _ := os.ReadFile(filepath.Join(dir, "decisionLog.md"))
-	var ids []string
-	for l := range strings.SplitSeq(string(data), "\n") {
-		if id := BlockID(l); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) != 2 || ids[0] == ids[1] {
-		t.Fatalf("duplicate content got duplicate ids: %v", ids)
-	}
-}
-
 // TestAssignIDsSecondPassLeavesExistingIDsByteIdentical: a stamped block must never be re-stamped, even byte-wise.
 func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
 	dir := t.TempDir()

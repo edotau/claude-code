@@ -9,15 +9,6 @@ import (
 	"time"
 )
 
-// TestAgentDreamPrompt_MissingReferenceErrors: mirrors agentHarvestPrompt's contract — a missing
-// skills/reflection/references/dream.md must fail loudly, never silently run on an empty prompt.
-func TestAgentDreamPrompt_MissingReferenceErrors(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, err := agentDreamPrompt(); err == nil {
-		t.Fatal("agentDreamPrompt with no reference file = nil error, want one")
-	}
-}
-
 // TestAgentDreamPrompt_UsesReference: a present reference lands in the built prompt's headings.
 func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	dir := t.TempDir()

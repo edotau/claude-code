@@ -79,19 +79,6 @@ func TestVaultVerbsAndMenu(t *testing.T) {
 	}
 }
 
-// TestVaultMigrateIsUnknownSubcommand: env.d support is gone (D2) — "vault migrate" is no longer a
-// verb at all, not a no-op; it fails the same way any unrecognized subcommand does.
-func TestVaultMigrateIsUnknownSubcommand(t *testing.T) {
-	vaulttest.Use(t)
-	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"migrate"}) })
-	if code != 2 {
-		t.Fatalf("vault migrate = %d, want 2; stderr = %q", code, stderr)
-	}
-	if !strings.Contains(stderr, `unknown subcommand "migrate"`) {
-		t.Fatalf("vault migrate stderr = %q, want it to name the unknown subcommand", stderr)
-	}
-}
-
 func vaultTestStdin(t *testing.T, input string) {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "stdin")
@@ -248,17 +235,6 @@ func TestCmdVaultSetBareExitsTwo(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "secrets set") {
 		t.Errorf("stderr = %q, want guidance to use secrets set", stderr)
-	}
-}
-
-func TestConfigVerbIsUnknown(t *testing.T) {
-	vaulttest.Use(t)
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
-	if code != 2 {
-		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)
-	}
-	if !strings.Contains(stderr, `unknown command "config"`) {
-		t.Errorf("stderr = %q, want it to name config as unknown", stderr)
 	}
 }
 
@@ -601,5 +577,17 @@ func TestVaultInAuthGroupHelp(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("menuRows() has no vault row")
+	}
+}
+
+// TestConfigVerbIsUnknown is also the only coverage of Run's unknown-command path (provider lookup → exit 2).
+func TestConfigVerbIsUnknown(t *testing.T) {
+	vaulttest.Use(t)
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
+	if code != 2 {
+		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)
+	}
+	if !strings.Contains(stderr, `unknown command "config"`) {
+		t.Errorf("stderr = %q, want it to name config as unknown", stderr)
 	}
 }

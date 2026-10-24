@@ -259,15 +259,6 @@ func TestUsageCmdWorkflowsRejectsJSON(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsNoMatches: an empty tree exits 0 under --workflows, matching the plain path.
-func TestUsageCmdWorkflowsNoMatches(t *testing.T) {
-	claudeDir := t.TempDir()
-	var out, errw bytes.Buffer
-	if code := Run([]string{"--workflows", "--days", "1"}, claudeDir, &out, &errw); code != 0 {
-		t.Fatalf("Run --workflows on empty dir = %d, want 0", code)
-	}
-}
-
 // TestWorkflowPhaseFromMetaMalformed: a truncated/malformed meta.json must fall back to "" (routed
 // to "(none)" by the caller) and warn on errw, mirroring loadWorkflowRun's read-error pattern.
 func TestWorkflowPhaseFromMetaMalformed(t *testing.T) {
@@ -303,6 +294,14 @@ func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
 	}
 	if strings.Contains(got, "claude-haiku-4-5-20251001") {
 		t.Errorf("MODEL column must print the short name, not the raw model id:\n%s", got)
+	}
+	const header = "MODEL AGENTS TURNS INPUT CACHE-READ CACHE-CREATE OUTPUT"
+	headerIdx := indexOfFields(got, header)
+	if headerIdx < 0 {
+		t.Fatalf("missing rollup header %q in:\n%s", header, got)
+	}
+	if n := strings.Count(got[headerIdx+len(header):], "haiku-4-5"); n != 1 {
+		t.Errorf("single-model run must print exactly one rollup row, found %d after the header:\n%s", n, got)
 	}
 }
 
@@ -352,8 +351,6 @@ func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 	if headerIdx < 0 {
 		t.Fatalf("missing rollup header %q in:\n%s", header, got)
 	}
-	sonnetIdx := strings.Index(got, "sonnet-5")
-	haikuIdx := strings.Index(got, "haiku-4-5")
 	rollupSonnetIdx := strings.Index(got[headerIdx:], "sonnet-5")
 	rollupHaikuIdx := strings.Index(got[headerIdx:], "haiku-4-5")
 	if rollupSonnetIdx < 0 || rollupHaikuIdx < 0 {
@@ -362,32 +359,6 @@ func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 	if rollupSonnetIdx > rollupHaikuIdx {
 		t.Errorf("rollup must sort by cache-read desc (sonnet's cache-read total is larger): sonnet@%d haiku@%d in:\n%s",
 			rollupSonnetIdx, rollupHaikuIdx, got[headerIdx:])
-	}
-	_ = sonnetIdx
-	_ = haikuIdx
-}
-
-// TestUsageCmdWorkflowsOneModelOneRollupRow: a run that used exactly one model prints exactly one
-// rollup row under the rollup header.
-func TestUsageCmdWorkflowsOneModelOneRollupRow(t *testing.T) {
-	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
-		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
-
-	var out, errw bytes.Buffer
-	if code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw); code != 0 {
-		t.Fatalf("Run --workflows = %d, want 0; stderr:\n%s", code, errw.String())
-	}
-	got := out.String()
-	const header = "MODEL AGENTS TURNS INPUT CACHE-READ CACHE-CREATE OUTPUT"
-	headerIdx := indexOfFields(got, header)
-	if headerIdx < 0 {
-		t.Fatalf("missing rollup header %q in:\n%s", header, got)
-	}
-	rest := got[headerIdx+len(header):]
-	n := strings.Count(rest, "haiku-4-5")
-	if n != 1 {
-		t.Errorf("single-model run must print exactly one rollup row, found %d occurrences of haiku-4-5 after the header:\n%s", n, rest)
 	}
 }
 

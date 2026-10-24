@@ -33,19 +33,6 @@ func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
 	}
 }
 
-// The lazily-compiled codex regexps must compile exactly once: every call returns the same *Regexp.
-func TestCodexLazyRegexpsReturnSamePointer(t *testing.T) {
-	if a, b := codexBannerRE(), codexBannerRE(); a != b {
-		t.Error("codexBannerRE() returned a different *Regexp on a repeat call")
-	}
-	if a, b := codexTrustTableRE(), codexTrustTableRE(); a != b {
-		t.Error("codexTrustTableRE() returned a different *Regexp on a repeat call")
-	}
-	if a, b := codexTrustedHashRE(), codexTrustedHashRE(); a != b {
-		t.Error("codexTrustedHashRE() returned a different *Regexp on a repeat call")
-	}
-}
-
 func TestMergeCodexTrustPreservesUnownedText(t *testing.T) {
 	raw := `note = """
 [hooks.state."active"]

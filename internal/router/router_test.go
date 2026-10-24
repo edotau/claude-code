@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/translate"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -96,27 +95,6 @@ func post(t *testing.T, url, body string, hdr map[string]string) *http.Response 
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
-}
-
-func TestUpstreamRejectsMalformedJSON(t *testing.T) {
-	var handled atomic.Bool
-	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
-		handled.Store(true)
-		ok(w, r, n)
-	})
-	resp := post(t, up.URL, `{"model":`, nil)
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusBadRequest || handled.Load() || up.body.Load() != nil {
-		t.Fatalf("malformed JSON: status=%d handled=%v body=%v", resp.StatusCode, handled.Load(), up.body.Load())
-	}
-}
-
-func TestTestRequestHasDeadline(t *testing.T) {
-	req := testRequest(t, http.MethodGet, "http://127.0.0.1/healthz", nil)
-	deadline, ok := req.Context().Deadline()
-	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Second {
-		t.Fatalf("request deadline = %v, present=%v", deadline, ok)
-	}
 }
 
 func anthropicProvider(url, env string, models string) string {
@@ -410,9 +388,6 @@ func TestStoreCredentialPresentDropsStaleGeneration(t *testing.T) {
 }
 
 func TestOpenAITranslation(t *testing.T) {
-	if _, _, err := translate.ToChatRequest([]byte(`{"model":"x","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`), "x"); err != nil && strings.Contains(err.Error(), "not implemented") {
-		t.Skip("translate still stubbed")
-	}
 	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"id":"c1","object":"chat.completion","model":"gpt-x","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)

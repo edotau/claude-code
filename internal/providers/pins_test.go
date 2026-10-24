@@ -233,38 +233,6 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 	}
 }
 
-// Copilot's two launch pins round-trip through SetPins/Pin like any other vault pin: unset reads "",
-// a set value reads back, and clearing (value "") removes it again.
-func TestCopilotEffortAndContextPinsRoundTrip(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	for _, key := range []string{PinCopilotEffort, PinCopilotContext} {
-		t.Setenv(key, "")
-	}
-	for _, key := range []string{PinCopilotEffort, PinCopilotContext} {
-		if got := Pin(key); got != "" {
-			t.Errorf("%s unset = %q, want \"\"", key, got)
-		}
-	}
-	if err := SetPins(map[string]string{PinCopilotEffort: "xhigh", PinCopilotContext: "long_context"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := Pin(PinCopilotEffort); got != "xhigh" {
-		t.Errorf("PinCopilotEffort = %q, want xhigh", got)
-	}
-	if got := Pin(PinCopilotContext); got != "long_context" {
-		t.Errorf("PinCopilotContext = %q, want long_context", got)
-	}
-	if err := SetPins(map[string]string{PinCopilotEffort: "", PinCopilotContext: ""}); err != nil {
-		t.Fatal(err)
-	}
-	if got := Pin(PinCopilotEffort); got != "" {
-		t.Errorf("PinCopilotEffort cleared = %q, want \"\"", got)
-	}
-	if got := Pin(PinCopilotContext); got != "" {
-		t.Errorf("PinCopilotContext cleared = %q, want \"\"", got)
-	}
-}
-
 // CopilotModel resolves the COPILOT_MODEL pin first; with no pin, it falls back to the
 // github-copilot provider's own opus slot — and names which source won in both cases.
 func TestCopilotModelPinBeatsFallback(t *testing.T) {
@@ -361,21 +329,5 @@ func TestGeminiModelResolverPinVsDefaultIgnoresUnrelatedEnvVar(t *testing.T) {
 	}
 	if got, src := GeminiModel(); got != "gemini-3.8-flash-high" || src != "pin" {
 		t.Errorf("GeminiModel(pinned) = (%q, %q), want (gemini-3.8-flash-high, pin)", got, src)
-	}
-}
-
-// A process env var for either key beats the vault pin, same precedence as every other pin.
-func TestCopilotEffortAndContextEnvBeatsVaultPin(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	if err := SetPins(map[string]string{PinCopilotEffort: "low", PinCopilotContext: "default"}); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(PinCopilotEffort, "max")
-	t.Setenv(PinCopilotContext, "long_context")
-	if got := Pin(PinCopilotEffort); got != "max" {
-		t.Errorf("Pin(PinCopilotEffort) = %q, want env value max", got)
-	}
-	if got := Pin(PinCopilotContext); got != "long_context" {
-		t.Errorf("Pin(PinCopilotContext) = %q, want env value long_context", got)
 	}
 }

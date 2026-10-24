@@ -52,7 +52,6 @@ func TestParseFrontmatterNoTrailingNewline(t *testing.T) {
 }
 
 // A "## Memory" heading inside a fenced code block is example text, not a real section, and must survive.
-// This currently FAILS: the hand-rolled regexp has no fence awareness and strips it anyway (see report).
 func TestStripMemorySectionInsideFenceNotStripped(t *testing.T) {
 	body := "Intro.\n\n```\n## Memory\nexample content, not a real section\n```\n\nTrailer.\n"
 	got := stripMemorySection(body)

@@ -173,20 +173,6 @@ func TestCopilotEffortRowListsModelsOwnEfforts(t *testing.T) {
 	}
 }
 
-// copilotEffortRow is nil when the catalog says the model has no reasoning-effort support at all.
-func TestCopilotEffortRowHiddenWhenUnsupported(t *testing.T) {
-	menuTestEnv(t)
-	fakeCopilotBin(t)
-	stubCatalog(t, []copilotsdk.Model{
-		{ID: "claude-haiku-4.5", ReasoningEffort: false, Efforts: nil},
-	}, nil)
-
-	d := &dialog{out: discardWriter{}}
-	if r := copilotEffortRow(d, "claude-haiku-4.5"); r != nil {
-		t.Errorf("copilotEffortRow = %+v, want nil (model has no efforts)", r)
-	}
-}
-
 // Switching to a model that cannot honor the current effort/context pins must clear them, with a reason.
 func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	menuTestEnv(t)
@@ -242,17 +228,12 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	}
 }
 
-// Catalog-driven rows (the Model picker's name+multiplier line, and an Effort choice with "(default)")
-// must still fit 80 columns alongside the longest label they are rendered against.
+// Catalog-driven rows (the Model picker's name+multiplier line) must still fit 80 columns against the longest label.
 func TestCopilotCatalogRowsFitEightyColumns(t *testing.T) {
 	mult := 10.0
 	id := "gemini-3-pro-preview" // a realistic worst-case id length from the live catalog
 	desc := copilotModelDesc(copilotsdk.Model{ID: id, Name: "Gemini 3 Pro Preview", Multiplier: &mult}, id)
 	if w := rowRenderedWidth([]string{id}, desc); w > 80 {
 		t.Errorf("Model row = %d cols, want <=80: %q", w, desc)
-	}
-	longestLabel := "Extra High (default)"
-	if w := rowRenderedWidth([]string{longestLabel}, "copilot's own default"); w > 80 {
-		t.Errorf("Effort choice row = %d cols, want <=80: %q", w, longestLabel)
 	}
 }

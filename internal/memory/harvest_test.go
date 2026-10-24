@@ -46,16 +46,6 @@ func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
 	}
 }
 
-func TestAgentHarvestPrompt_MissingReferenceErrors(t *testing.T) {
-	// paths.ConfigDir() resolution is environment-driven; point CLAUDE_CONFIG_DIR at a dir with no
-	// skills/reflection/references/update.md so agentHarvestPrompt fails loudly instead of running empty.
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	path := writeTranscript(t, assistantLine("NOTE: should not appear"))
-	if _, err := agentHarvestPrompt(path); err == nil {
-		t.Fatalf("agentHarvestPrompt with no reference file = nil error, want one")
-	}
-}
-
 func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -76,5 +66,15 @@ func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
 	}
 	if !strings.Contains(got, "Tagged this session") {
 		t.Errorf("prompt missing the tag block:\n%s", got)
+	}
+}
+
+func TestAgentHarvestPrompt_MissingReferenceErrors(t *testing.T) {
+	// paths.ConfigDir() resolution is environment-driven; point CLAUDE_CONFIG_DIR at a dir with no
+	// skills/reflection/references/update.md so agentHarvestPrompt fails loudly instead of running empty.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := writeTranscript(t, assistantLine("NOTE: should not appear"))
+	if _, err := agentHarvestPrompt(path); err == nil {
+		t.Fatalf("agentHarvestPrompt with no reference file = nil error, want one")
 	}
 }

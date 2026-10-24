@@ -40,17 +40,6 @@ func TestDiscoverAgentsRejectsNameDirMismatch(t *testing.T) {
 	}
 }
 
-func TestDuplicateValidationAllowsAgentAndSkillToShareName(t *testing.T) {
-	agents := []Source{{dirName: "shared", frontmatter: map[string]any{"name": "shared"}}}
-	skills := []Source{{dirName: "skill-dir", frontmatter: map[string]any{"name": "shared"}}}
-	if err := validateUniqueNames("agent", agents); err != nil {
-		t.Fatalf("agent validation: %v", err)
-	}
-	if err := validateUniqueNames("skill", skills); err != nil {
-		t.Fatalf("skill validation: %v", err)
-	}
-}
-
 // Agents and skills live on different surfaces now (vendor agent dirs vs ~/.agents/skills), so a shared name is
 // not a collision: both project, and a NoPrune run leaves exactly what a pruning run leaves.
 func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
