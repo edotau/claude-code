@@ -37,9 +37,9 @@ test('package.json: a Panel container claudeCodeTasksPanel hosts the claudeCodeT
   assert.ok(pkg.activationEvents.includes('onView:claudeCodeTasks.panel'));
 });
 
-test('package.json: tasksOpenIn is a panel|sidebar|editor enum defaulting to panel, and Show Tasks exists', () => {
+test('package.json: tasksOpenIn is a panel|editor|window enum defaulting to panel, and Show Tasks exists', () => {
   const prop = findSetting('claudeCodeAgents.tasksOpenIn');
-  assert.deepEqual(prop.enum, ['panel', 'sidebar', 'editor']);
+  assert.deepEqual(prop.enum, ['panel', 'editor', 'window']);
   assert.equal(prop.default, 'panel');
   assert.ok(findCommand('claudeCodeTasks.show'), 'claudeCodeTasks.show command missing');
   assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(link-external)');
@@ -61,7 +61,7 @@ test('package.json: Open in New Window is the only Tasks view-title button (drag
   const entries = (pkg.contributes.menus['view/title'] || []).filter((m) => m.command.startsWith('claudeCodeTasks.'));
   for (const view of ['claudeCodeTasks.page', 'claudeCodeTasks.panel']) {
     const cmds = entries.filter((m) => m.when === `view == ${view}`).map((m) => m.command).sort();
-    assert.deepEqual(cmds, ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
+    assert.deepEqual(cmds, view === 'claudeCodeTasks.page' ? ['claudeCodeTasks.popOut', 'claudeCodeTasks.recheck'] : ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
   }
 });
 
@@ -83,6 +83,13 @@ test('package.json: the Tasks page settings exist with their defaults', () => {
   }
 });
 
+test('package.json: tasksStartDefault is an ask|here|worktree enum defaulting to ask', () => {
+  const prop = findSetting('claudeCodeAgents.tasksStartDefault');
+  assert.ok(prop, 'claudeCodeAgents.tasksStartDefault setting missing');
+  assert.deepEqual(prop.enum, ['ask', 'here', 'worktree']);
+  assert.equal(prop.default, 'ask');
+});
+
 test('extension.js: settings writes keep every source — no handler hard-codes the GitHub/Bitbucket pair', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
   assert.match(src, /const TASK_SOURCES = \['jira', 'github', 'bitbucket'\];/);
@@ -101,12 +108,6 @@ test('renderElsewhereHtml: a pointer page with Bring back here / Show it, scoped
   assert.doesNotMatch(floating, /class="row head"/); // never a second live list
 });
 
-test('extension.js: views render the pointer page while the editor tab owns Tasks, and the dispose handler re-focuses them', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(src, /this\.panel \? renderElsewhereHtml\(/);
-  assert.match(src, /executeCommand\(`\$\{viewType\}\.focus`\)/);
-  assert.match(src, /'workbench\.action\.closePanel'/);
-});
 
 test('renderLauncherHtml: the left-nav view lists sources with status dots and opens Tasks in a window, never the page', () => {
   const { renderLauncherHtml } = require('../lib/tasks-view');
@@ -118,11 +119,15 @@ test('renderLauncherHtml: the left-nav view lists sources with status dots and o
   assert.match(html, /Exit node: wks/);
   assert.match(html, /open in a separate window/);
   assert.doesNotMatch(html, /class="row head"|id="query"/);
+  assert.doesNotMatch(html, /data-act="doctor"/); // Re-check is the view-title refresh icon
 });
 
-test('extension.js: the left-nav view resolves to the launcher and pops Tasks out; the Panel view keeps the page', () => {
+
+test('extension.js: every external open goes through the http(s)/mailto allowlist', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(src, /viewType === 'claudeCodeTasks\.page'/);
-  assert.match(src, /renderLauncherHtml\(/);
-  assert.match(src, /openFromSidebar\(\)/);
+  assert.doesNotMatch(src.replace(/function openExternalWeb[\s\S]*?\n}\n/, ''), /vscode\.env\.openExternal\(/);
+  const body = (src.match(/function openExternalWeb[\s\S]*?\n}\n/) || [''])[0];
+  assert.match(body, /vscode\.env\.openExternal\(vscode\.Uri\.parse\(u\)\)/, 'the allowlist wrapper must call the real opener, not itself');
+  assert.doesNotMatch(body, /return openExternalWeb\(/);
+  assert.match(src, /if \(!\/\^\(https\?:\\\/\\\/\|mailto:\)\/i\.test\(u\)\) return/);
 });

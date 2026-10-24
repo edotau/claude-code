@@ -80,11 +80,10 @@ The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces 
 two places backed by the same provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to
 Terminal/Problems) and an activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use
 (right-click its icon — VS Code remembers). "Claude Code Tasks: Show Tasks" and the status bar segment open the one
-`claudeCodeAgents.tasksOpenIn` names (`panel`, default; `sidebar`; `editor`). "Claude Code Tasks: Open Tasks in Editor"
+`claudeCodeAgents.tasksOpenIn` names (`panel`, default; `editor`; `window`). "Claude Code Tasks: Open Tasks in Editor"
 (palette only — or drag the Tasks tab from the Panel into the editor area) opens the page as an editor tab, and "Open
 Tasks in New Window" (the one view-title button, `$(link-external)`) pops it out into a floating VS Code window (the
-editor tab moved with "Move Editor into New Window"). The activity-bar view is a **launcher** (source list with status dots, "Open Tasks in new window",
-"Open in Panel", the exit node): clicking the Tasks icon pops the page out into a window, or reveals it where it already
+editor tab moved with "Move Editor into New Window"). The activity-bar view is a **launcher** (source rows with status dots, "New Window", "Panel", the exit-node row): clicking the Tasks icon pops the page out into a window, or reveals it where it already
 lives. VS Code decides the floating window's size and remembers the last size you gave it; the page fills whatever it
 gets (board columns stretch to the width). Tasks is live in one place at a time: the Panel/sidebar copy
 closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the harness only supplies the Bitbucket and Jira
@@ -132,7 +131,11 @@ quoted phrases and unknown tokens pass through as free text.
   `ORDER BY updated DESC`, paged with `startAt`. `claudeCodeAgents.tasksJiraProjects` scopes it to project
   keys (empty = every project the token can see). Presets: Assigned to me (default), Reported by me, Done by
   me, All open. The Status pill is toned by status category (To Do muted, In Progress primary, Done green);
-  the issue-type and priority icons are Jira's own. Clicking a Jira row swaps the list for an **inline detail view**
+  the issue-type and priority icons are Jira's own. List extras: column headers sort (JQL `ORDER BY`), rows group
+  under collapsible status sections (in the project's board column order when exactly one board exists), status
+  quick-filter chips come from the loaded issues (with "Edit as JQL" to promote the filter into the search box),
+  a Favourites menu lists your saved Jira filters, "Current sprint" adds `sprint in openSprints()`, and the search
+  box accepts raw JQL (`jql:` prefix or operator shapes like `project = X`). Clicking a Jira row swaps the list for an **inline detail view**
   (Back returns, scroll position kept): key · project · updated, title, a status pill that opens the transition menu
   (transitions needing a resolution or comment show a small form; ones needing other fields say so and defer to
   Jira), a priority menu, an assignee button (QuickPick: Unassigned · Assign to me · live search), labels, the
@@ -157,6 +160,22 @@ quoted phrases and unknown tokens pass through as free text.
   through the same optimistic queue; a failure shows under the row's title with Retry. `gh` runs with
   `GH_PROMPT_DISABLED=1`, a 30 s timeout, two retries on 5xx / reset / 429-without-Retry-After, and a per-bucket
   breaker after "API rate limit exceeded" (search 70 s, core 5 min).
+- **Read-only for teammates' work.** Only items that are yours — assigned to you (Jira) or authored by / assigned to
+  you (GitHub, Bitbucket) — take writes from this page: comments, transitions, priority, assignment, close/merge,
+  review replies, board moves and Start. Everything else renders with a lock marker, plain pills instead of menus, no
+  composer, and the extension refuses the write even if the webview posts it (`claudeCodeAgents.tasksWriteScope`,
+  `mine` by default; `all` lifts the gate). Writes also log to the "Claude Code Tasks" Output channel when they fail.
+- **Start / Resume** (Orca's workspace composer as QuickPicks): Start asks "Open Claude here" or "Create worktree
+  `<key-slug>`" (`claude-code worktree create`, `claudeCodeAgents.tasksStartDefault` skips the question), then a
+  prompt template (Start implementation · Investigate bug · Write test plan · Draft PR summary · Plain; the last
+  choice is remembered). The prompt is written to a file under the extension's storage and Claude opens in a
+  terminal with `cd '<cwd>' && claude-code claude "$(cat '<file>')"`, so no prompt text rides the command line.
+  Rows whose branch matches a worktree (`claude-code worktree list`) show a solid **Resume** button and a branch
+  marker; "Start new workspace" in the ⋮ menu ignores the attachment.
+- **GitHub header actions** in the PR detail: Mark ready / Convert to draft, Rerun failed checks (one rerun per
+  failed workflow run, re-request for other check apps), and a ⋯ menu with Rename, Close/Reopen, Request reviewers
+  and Open merge box; issues get Rename. Unresolved review threads render above the activity with Resolve/Unresolve
+  (GraphQL `resolveReviewThread`) and a reply box (`…/pulls/N/comments/{id}/replies`, body on stdin).
 - **Board view.** The `List | Board` toggle (per source, remembered in the workspace; `claudeCodeAgents.tasksViewMode`
   sets the start) groups the same page of rows into 272 px columns: Jira by status (To Do · In Progress · Done order,
   "Done" always present), GitHub PRs Draft · Open · Changes requested · Approved · Merged · Closed, issues Open ·

@@ -388,8 +388,9 @@ function issueReopenArgs({ repo, number }) {
   return ['issue', 'reopen', String(number), '--repo', slug(repo)];
 }
 
-function issueEditArgs({ repo, number, addAssignees, removeAssignees, addLabels, removeLabels }) {
+function issueEditArgs({ repo, number, title, addAssignees, removeAssignees, addLabels, removeLabels }) {
   const args = ['issue', 'edit', String(number), '--repo', slug(repo)];
+  if (title) args.push('--title', String(title));
   if (addAssignees && addAssignees.length) args.push('--add-assignee', addAssignees.join(','));
   if (removeAssignees && removeAssignees.length) args.push('--remove-assignee', removeAssignees.join(','));
   if (addLabels && addLabels.length) args.push('--add-label', addLabels.join(','));
@@ -572,9 +573,82 @@ const CHECK_ORDER = { failed: 0, in_progress: 1, success: 2, skipped: 3 };
 
 function mapCheckRuns(json) {
   const data = typeof json === 'string' ? JSON.parse(json || '{}') : json || {};
-  const runs = (data.check_runs || []).map((r) => ({ name: r.name || '', status: String(r.status || '').toLowerCase(), conclusion: r.conclusion ? String(r.conclusion).toLowerCase() : null, url: r.html_url || null, app: (r.app && r.app.slug) || '', state: checkRunState(r) }));
+  const runs = (data.check_runs || []).map((r) => ({ id: r.id != null ? String(r.id) : '', name: r.name || '', status: String(r.status || '').toLowerCase(), conclusion: r.conclusion ? String(r.conclusion).toLowerCase() : null, url: r.html_url || null, app: (r.app && r.app.slug) || '', state: checkRunState(r) }));
   runs.sort((a, b) => CHECK_ORDER[a.state] - CHECK_ORDER[b.state] || a.name.localeCompare(b.name));
   return { total: typeof data.total_count === 'number' ? data.total_count : runs.length, runs };
+}
+
+// --- review threads + PR header actions (Orca github-pr-review-handlers / pr-mutation-handlers) ---
+const REVIEW_THREADS_QUERY = 'query($owner:String!,$repo:String!,$pr:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$pr){ reviewThreads(first:50){ nodes{ id isResolved isOutdated path line comments(first:20){ nodes{ id databaseId author{login} bodyHTML createdAt url } } } } } } }';
+
+function reviewThreadsArgs({ repo, number }) {
+  return ['api', 'graphql', '-f', `query=${REVIEW_THREADS_QUERY}`, '-f', `owner=${repo.owner}`, '-f', `repo=${repo.name}`, '-F', `pr=${Number(number)}`];
+}
+
+function mapReviewThreads(json) {
+  const data = typeof json === 'string' ? JSON.parse(json || '{}') : json || {};
+  const nodes = (((((data.data || data).repository || {}).pullRequest || {}).reviewThreads || {}).nodes) || [];
+  const threads = nodes.map((t) => ({
+    id: String(t.id || ''),
+    resolved: !!t.isResolved,
+    outdated: !!t.isOutdated,
+    path: t.path || '',
+    line: t.line != null ? Number(t.line) : null,
+    comments: (((t.comments || {}).nodes) || []).map((c) => ({ id: c.databaseId != null ? String(c.databaseId) : '', nodeId: String(c.id || ''), actor: loginOf(c.author), bodyHtml: sanitizeHtml(c.bodyHTML || ''), createdAt: c.createdAt || '', url: c.url || null })),
+  }));
+  const first = (t) => Date.parse((t.comments[0] && t.comments[0].createdAt) || 0);
+  return threads.sort((a, b) => Number(a.resolved) - Number(b.resolved) || first(a) - first(b));
+}
+
+function resolveThreadArgs({ threadId, resolved }) {
+  const name = resolved ? 'resolveReviewThread' : 'unresolveReviewThread';
+  return ['api', 'graphql', '-f', `query=mutation($threadId:ID!){ ${name}(input:{threadId:$threadId}){ thread{ id isResolved } } }`, '-f', `threadId=${threadId}`];
+}
+
+function replyArgs({ repo, number, commentId }) {
+  return ['api', '-X', 'POST', `repos/${slug(repo)}/pulls/${number}/comments/${commentId}/replies`, '-H', HTML_ACCEPT, '--input', '-'];
+}
+
+function prTitleArgs({ repo, number, title }) {
+  return ['pr', 'edit', String(number), '--repo', slug(repo), '--title', String(title)];
+}
+
+/** One rerun per failed workflow run (`/actions/runs/<id>` in the check's url), else a re-request per check run. */
+function rerunFailedArgs({ repo, runs }) {
+  const out = [];
+  const seen = new Set();
+  for (const r of (runs && runs.runs) || runs || []) {
+    if (r.state !== 'failed') continue;
+    const m = /\/actions\/runs\/(\d+)/.exec(r.url || '');
+    if (m) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      out.push(['api', '-X', 'POST', `repos/${slug(repo)}/actions/runs/${m[1]}/rerun-failed-jobs`]);
+    } else if (r.id) {
+      out.push(['api', '-X', 'POST', `repos/${slug(repo)}/check-runs/${r.id}/rerequest`]);
+    }
+  }
+  return out;
+}
+
+async function reviewThreads({ repo, number, execFileImpl }) {
+  return mapReviewThreads(await ghExec(runner(execFileImpl), reviewThreadsArgs({ repo, number })));
+}
+
+const setThreadResolved = (o) => okAfter(ghExec(runner(o.execFileImpl), resolveThreadArgs(o)));
+const setPrTitle = (o) => okAfter(ghExec(runner(o.execFileImpl), prTitleArgs(o)));
+
+async function replyToThread({ repo, number, commentId, body, execFileImpl }) {
+  const text = await ghExec(runner(execFileImpl), replyArgs({ repo, number, commentId }), { input: JSON.stringify({ body }) });
+  const c = JSON.parse(text || '{}');
+  return { kind: 'comment', id: String(c.id || ''), actor: loginOf(c.user), bodyHtml: sanitizeHtml(c.body_html || ''), createdAt: c.created_at || new Date().toISOString(), url: c.html_url || null };
+}
+
+async function rerunFailedChecks({ repo, runs, execFileImpl }) {
+  const run = runner(execFileImpl);
+  const argvs = rerunFailedArgs({ repo, runs });
+  for (const argv of argvs) await ghExec(run, argv);
+  return { ok: true, reruns: argvs.length };
 }
 
 async function conversation({ repo, number, execFileImpl }) {
@@ -659,6 +733,18 @@ module.exports = {
   conversation,
   checkRuns,
   addComment,
+  REVIEW_THREADS_QUERY,
+  reviewThreadsArgs,
+  mapReviewThreads,
+  resolveThreadArgs,
+  replyArgs,
+  prTitleArgs,
+  rerunFailedArgs,
+  reviewThreads,
+  setThreadResolved,
+  setPrTitle,
+  replyToThread,
+  rerunFailedChecks,
   setRetryDelays,
   _resetBreaker,
 };

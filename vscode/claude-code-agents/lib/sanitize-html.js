@@ -13,6 +13,7 @@ const VOID = new Set(['br', 'hr', 'img']);
 
 function safeUrl(value, { allowData = false } = {}) {
   const v = String(value || '').trim().replace(/[\u0000-\u001f]/g, '');
+  if (v.startsWith('//')) return null; // protocol-relative = an absolute host in disguise
   if (/^(https?:|mailto:)/i.test(v) || /^(\/|#)/.test(v)) return v;
   if (allowData && /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(v)) return v;
   return null;

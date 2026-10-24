@@ -5,10 +5,10 @@ const { ICONS } = require('../media/icons');
 const { getPageNumbers, formatRelativeTime } = require('./tasks-state');
 
 const SKELETON_ROWS = 12;
-const ISSUE_GRID = '72px minmax(320px,1fr) 84px 100px 92px 122px';
-const PR_GRID = '72px minmax(360px,2fr) 132px 128px 132px 92px 158px';
+const ISSUE_GRID = '72px minmax(240px,1fr) 84px 100px 92px 122px';
+const PR_GRID = '72px minmax(260px,2fr) 132px 128px 132px 92px 158px';
 // Jira: ID (key) · Title · Assignee · Status · Priority · Updated · Actions; the key is wider than a #number.
-const JIRA_GRID = '156px minmax(320px,1fr) 110px 120px 100px 92px 158px';
+const JIRA_GRID = '156px minmax(240px,1fr) 110px 120px 100px 92px 158px';
 const SOURCE_LABELS = { github: 'GitHub', bitbucket: 'Bitbucket', jira: 'Jira' };
 const GRIDS = { pr: PR_GRID, issue: ISSUE_GRID, jira: JIRA_GRID };
 
@@ -73,6 +73,8 @@ function titleCell(item, model) {
   const meta = [`<span>${esc(item.author || 'unknown author')}</span>`];
   if (!multiRepo) meta.push(`<span>${esc(item.repo.label)}</span>`);
   if (item.state === 'draft') meta.push('<span aria-hidden="true">·</span><span>Draft</span>');
+  if (item.readOnly) meta.push(`<span class="meta-icon muted" title="${esc(require('./tasks-ownership').readOnlyReason(item))}">${ICONS.lock}read-only</span>`);
+  if (item.attached) meta.push(`<span class="meta-icon tone-emerald" title="${esc(item.attached.Path || '')}">${ICONS.gitBranch}${esc(item.attached.Branch || 'worktree')}</span>`);
   const delta = deltaText(item);
   if (delta) meta.push(`<span class="meta-icon">${ICONS.files}${esc(delta)}</span>`);
   if (item.jiraKey && item.source !== 'jira') meta.push(`<a class="jira-chip" data-url="${esc(item.jiraUrl || '')}" title="Open ${esc(item.jiraKey)} in Jira">${esc(item.jiraKey)}</a>`);
@@ -106,7 +108,7 @@ function reviewersCell(item) {
 
 /** GitHub: the roster is a button opening the reviewer QuickPick; Bitbucket stays display-only. */
 function reviewersCellFor(item) {
-  if (item.source !== 'github' || item.type !== 'pr' || item.state === 'merged' || item.state === 'closed') return reviewersCell(item);
+  if (item.source !== 'github' || item.type !== 'pr' || item.state === 'merged' || item.state === 'closed' || item.readOnly) return reviewersCell(item);
   return `<button class="cell-btn" data-act="reviewers" data-id="${esc(item.id)}" title="Request reviewers">${reviewersCell(item)}${ICONS.chevronDown}</button>`;
 }
 
@@ -128,7 +130,7 @@ function mergeCell(item, model) {
   if (m.state === 'loading') return '<span class="muted cell-text">…</span>';
   const tone = m.state === 'ready' ? 'emerald' : m.state === 'merged' ? 'primary' : m.state === 'conflict' ? 'danger' : m.state === 'blocked' ? 'amber' : 'muted';
   const terminal = item.state === 'merged' || item.state === 'closed';
-  if (item.source !== 'github' || terminal) {
+  if (item.source !== 'github' || terminal || item.readOnly) {
     const title = item.source === 'bitbucket' ? 'Open the pull request in Bitbucket' : `Open the merge box in browser (${m.label})`;
     return `<button class="pill pill-${tone} pill-btn link-btn" data-url="${esc(item.url)}" title="${esc(title)}">${esc(m.label)}${ICONS.externalLink}</button>`;
   }
@@ -156,7 +158,7 @@ function statusCell(item) {
   const closed = item.state === 'closed';
   const reason = item.stateReason ? ` (${String(item.stateReason).replace('_', ' ')})` : '';
   const pillHtml = pill(closed ? 'primary' : 'emerald', closed ? 'Closed' : 'Open', `${closed ? 'Closed' : 'Open'}${reason}`);
-  if (item.source !== 'github' || item.type !== 'issue') return pillHtml;
+  if (item.source !== 'github' || item.type !== 'issue' || item.readOnly) return pillHtml;
   const id = esc(item.id);
   return `<details class="menu"><summary class="pill-menu" title="Change status">${pillHtml}${ICONS.chevronDown}</summary><div class="menu-items"><button data-issue-state="open" data-id="${id}">${ICONS.circleDot}Open</button><button data-issue-state="closed" data-reason="completed" data-id="${id}">${ICONS.checkCircle2}Close as completed</button><button data-issue-state="closed" data-reason="not_planned" data-id="${id}">${ICONS.minus}Close as not planned</button><button data-issue-state="closed" data-reason="duplicate" data-id="${id}">${ICONS.files}Close as duplicate…</button></div></details>`;
 }
@@ -165,7 +167,7 @@ function assigneesCell(item) {
   const list = item.assignees || [];
   const more = list.length > 1 ? `<span class="more">+${list.length - 1}</span>` : '';
   const stack = !list.length ? '<span class="muted cell-text">—</span>' : `<span class="reviewers" title="${esc(list.join('\n'))}"><span class="avatar ring-muted">${esc(initials(list[0]))}</span>${more}</span>`;
-  if (item.source !== 'github') return stack;
+  if (item.source !== 'github' || item.readOnly) return stack;
   return `<button class="cell-btn" data-act="assignees" data-id="${esc(item.id)}" title="Change assignees">${stack}${ICONS.chevronDown}</button>`;
 }
 
@@ -176,13 +178,23 @@ function updatedCell(item, now) {
 }
 
 /** PR: `Start` + chevron menu (Start, Open in browser). Issue: `Start | Open` + ⋮ menu. */
+/** Orca's Start/Resume: solid "Resume" when a worktree is attached to the item, outline "Start" otherwise. */
+function startButton(item) {
+  const id = esc(item.id);
+  if (item.readOnly) return `<span class="pill pill-muted" title="${esc(require('./tasks-ownership').readOnlyReason(item))}">${ICONS.lock}Read-only</span>`;
+  if (item.attached) return `<button class="btn btn-primary" data-act="start" data-id="${id}" title="Resume Claude in ${esc(item.attached.Path || 'the attached worktree')}">${ICONS.play}Resume</button>`;
+  return `<button class="btn btn-outline" data-act="start" data-id="${id}" title="Open Claude on this task (here or in a new worktree)">${ICONS.play}Start</button>`;
+}
+
 function actionsCell(item) {
   const id = esc(item.id);
-  const start = `<button class="btn btn-outline" data-act="start" data-id="${id}" title="Copy a task prompt and open Claude">${ICONS.play}Start</button>`;
+  const start = startButton(item);
+  const startNew = item.readOnly ? '' : `<button data-act="startNew" data-id="${id}">${ICONS.plus}Start new workspace</button>`;
+  const openBrowser = `<button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button>`;
   if (item.type === 'pr') {
-    return `<span class="split">${start}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.chevronDown}</summary><div class="menu-items"><button data-act="start" data-id="${id}">${ICONS.plus}Start new workspace</button><button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details></span>`;
+    return `<span class="split">${start}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.chevronDown}</summary><div class="menu-items">${startNew}${openBrowser}</div></details></span>`;
   }
-  return `<span class="split">${start}<button class="btn btn-outline" data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open</button><details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items"><button data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details></span>`;
+  return `<span class="split">${start}<button class="btn btn-outline" data-act="open" data-url="${esc(item.url)}">${ICONS.externalLink}Open</button><details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${startNew}${openBrowser}</div></details></span>`;
 }
 
 /** Every cell of a row keyed by name — `row()` renders them; the extension re-posts them to patch cells in place. */
@@ -217,9 +229,26 @@ const HEADERS = {
   jira: ['Key', 'Title', 'Assignee', 'Status', 'Priority', 'Updated', 'Actions'],
 };
 
-function headerRow(kind) {
+const JIRA_SORT_FIELDS = { Key: 'key', Title: 'title', Assignee: 'assignee', Status: 'status', Priority: 'priority', Updated: 'updated' };
+
+function headerRow(kind, model) {
   const cols = HEADERS[kind] || HEADERS.issue;
-  return `<div class="row head">${cols.map((c, i) => `<div class="cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}">${c}</div>`).join('')}</div>`;
+  const sort = (model && model.jiraSort) || null;
+  return `<div class="row head">${cols
+    .map((c, i) => {
+      const cls = `cell${i === 0 ? ' c-id' : i === 1 ? ' c-title' : ''}`;
+      const field = kind === 'jira' ? JIRA_SORT_FIELDS[c] : null;
+      if (!field) return `<div class="${cls}">${c}</div>`;
+      const active = sort && sort.field === field;
+      const arrow = active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
+      return `<div class="${cls}"><button class="sort-btn${active ? ' active' : ''}" data-sort="${field}"${active ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''} title="Sort by ${esc(c.toLowerCase())}">${c}${arrow}</button></div>`;
+    })
+    .join('')}</div>`;
+}
+
+/** Status group header row (Orca's collapsible sections): pill, count, chevron. */
+function groupRow(group) {
+  return `<div class="row group" data-group="${esc(group.key)}"><div class="cell c-id group-cell"><button class="icon-btn" data-collapse-group="${esc(group.key)}" aria-label="Collapse">${ICONS.chevronDown}</button>${pill(jiraStatusTone(group.category), group.label)}<span class="count">${group.rows.length}</span></div></div>`;
 }
 
 function skeletonRows(kind) {
@@ -284,8 +313,18 @@ function filters(model) {
   const stateOpts = model.source === 'jira' ? [['open', 'Open'], ['closed', 'Done'], ['all', 'All']] : [['open', 'Open'], ['closed', model.source === 'bitbucket' ? 'Declined' : 'Closed'], ['merged', 'Merged'], ['all', 'All']];
   const state = `<select class="select" data-filter="state" aria-label="State">${stateOpts.map(([v, l]) => `<option value="${v}"${(model.state || 'open') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const newIssue = model.source === 'github' && (model.repos || []).some((r) => r.selected) ? `<button class="btn btn-outline" data-act="newIssue" title="New issue">${ICONS.plus}New issue</button>` : '';
+  const statusChips =
+    model.source === 'jira' && (model.jiraStatusCatalog || []).length
+      ? `<span class="chips-label muted">Status:</span>${model.jiraStatusCatalog.map((st) => `<button class="chip${(model.jiraStatuses || []).includes(st.name) ? ' active' : ''}" data-status-chip="${esc(st.name)}" title="${esc(st.count)} loaded">${esc(st.name)}</button>`).join('')}${(model.jiraStatuses || []).length ? `<button class="chip chip-dashed" data-act="editJql" title="Put this filter in the search box as JQL">Edit as JQL</button>` : ''}`
+      : '';
+  const favourites =
+    model.source === 'jira' && (model.jiraFavourites || []).length
+      ? `<details class="menu fav-menu"><summary class="btn btn-outline" title="Jira favourite filters">${ICONS.star}Favourites${ICONS.chevronDown}</summary><div class="menu-items">${model.jiraFavourites.map((f) => `<button data-favourite="${esc(f.id)}" title="${esc(f.jql)}">${esc(f.name)}</button>`).join('')}</div></details>`
+      : '';
+  const sprint = model.source === 'jira' ? `<label class="menu-check sprint-check" title="sprint in openSprints()"><input type="checkbox" data-filter="sprint"${model.jiraSprint ? ' checked' : ''}>Current sprint</label>` : '';
+  const jqlPreview = model.source === 'jira' && model.jiraJqlPreview ? `<div class="jql-preview muted mono truncate" title="${esc(model.jiraJqlPreview)}">${esc(model.jiraJqlPreview)}</div>` : '';
   const viewToggle = `<div class="segmented" role="group" aria-label="View"><button class="seg${model.viewMode !== 'board' ? ' active' : ''}" data-view-mode="list" title="List">${ICONS.list}</button><button class="seg${model.viewMode === 'board' ? ' active' : ''}" data-view-mode="board" title="Board">${ICONS.columns}</button></div>`;
-  return `<div class="filters"><div class="chips">${chips}</div><div class="filter-row">${viewToggle}${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="${model.source === 'bitbucket' ? 'Search pull requests…' : model.source === 'jira' ? 'Search issues… (project:KEY, status:Blocked, DIGITALBTD-1)' : 'Search issues and pull requests…'}" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button></div></div>`;
+  return `<div class="filters"><div class="chips">${chips}${statusChips}</div><div class="filter-row">${viewToggle}${favourites}${scope}${state}<label class="search"><span class="search-icon">${ICONS.search}</span><input id="query" type="text" value="${esc(model.query || '')}" placeholder="${model.source === 'bitbucket' ? 'Search pull requests…' : model.source === 'jira' ? 'Search issues… (project:KEY, status:Blocked, DIGITALBTD-1)' : 'Search issues and pull requests…'}" spellcheck="false" autocomplete="off"><button class="clear${model.query ? '' : ' hidden'}" id="clear" aria-label="Clear">${ICONS.x}</button></label>${newIssue}<button class="icon-btn${model.loading || model.loadingPage != null ? ' spin' : ''}" data-act="refresh" title="Refresh">${ICONS.refreshCw}</button>${sprint}</div>${jqlPreview}</div>`;
 }
 
 function statusPill(status) {
@@ -321,19 +360,22 @@ function boardCard(item, model) {
   const who = item.source === 'jira' ? (item.assignee ? item.assignee.displayName : '') : (item.assignees || [])[0] || item.author || '';
   const face = who ? `<span class="avatar ring-muted" title="${esc(who)}">${esc(initials(who))}</span>` : '';
   const prio = item.priority ? `<span class="cell-text muted">${remoteIcon(item.priority, 'type-icon')}${esc(item.priority.name)}</span>` : '';
+  const review = item.type === 'pr' && item.source === 'github' && item.state !== 'merged' && item.state !== 'closed' && item.reviewDecision ? pill(item.reviewDecision === 'APPROVED' ? 'emerald' : item.reviewDecision === 'CHANGES_REQUESTED' ? 'danger' : 'muted', String(item.reviewDecision).toLowerCase().replace('_', ' ')) : item.state === 'draft' ? pill('muted', 'draft') : '';
   const checks = item.type === 'pr' && item.checks && item.checks.state !== 'loading' && item.checks.state !== 'none' ? `<span class="cell-text tone-${item.checks.state === 'success' ? 'emerald' : item.checks.state === 'failed' ? 'danger' : 'amber'}">${item.checks.state === 'success' ? ICONS.checkCircle2 : item.checks.state === 'failed' ? ICONS.alertCircle : ICONS.clock3}${esc(item.checks.label)}</span>` : '';
-  const moves = (model.board || []).filter((c) => c.key !== item.boardColumn).map((c) => `<button data-move-to="${esc(c.key)}" data-id="${esc(item.id)}">${ICONS.arrowRight}Move to ${esc(c.label)}</button>`).join('');
-  const menu = `<details class="menu card-menu"><summary class="icon-btn" aria-label="Card actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${moves}<div class="menu-sep"></div><button data-act="start" data-id="${esc(item.id)}">${ICONS.play}Start</button><button data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details>`;
+  const moves = item.readOnly ? '' : require('./tasks-board').dropTargets(model.board).filter((c) => c.key !== item.boardColumn).map((c) => `<button data-move-to="${esc(c.key)}" data-id="${esc(item.id)}">${ICONS.arrowRight}Move to ${esc(c.label)}</button>`).join('');
+  const menu = `<details class="menu card-menu"><summary class="icon-btn" aria-label="Card actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${moves}<div class="menu-sep"></div><button data-act="start" data-id="${esc(item.id)}">${ICONS.play}${item.attached ? 'Resume' : 'Start'}</button><button data-act="startNew" data-id="${esc(item.id)}">${ICONS.plus}Start new workspace</button><button data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details>`;
   const busy = model.pendingIds && model.pendingIds.includes(item.id);
-  return `<div class="card board-card${busy ? ' busy' : ''}" draggable="${busy ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
+  return `<div class="card board-card${busy ? ' busy' : ''}${item.readOnly ? ' readonly' : ''}" draggable="${busy || item.readOnly ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${review}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
 }
 
 function boardView(model) {
   const cols = model.board || [];
   if (model.loading) return `<div class="board">${Array.from({ length: 3 }, () => `<div class="board-col"><div class="board-head"><span class="shimmer" style="width:40%"></span></div><div class="board-body">${'<div class="card board-card skeleton"><span class="shimmer wide"></span><span class="shimmer"></span></div>'.repeat(3)}</div></div>`).join('')}</div>`;
   if (!cols.length) return emptyState(model);
+  const cards = (rows, key) => rows.map((r) => boardCard({ ...r, boardColumn: key }, model)).join('') || '<div class="board-empty muted">Drop here</div>';
+  const section = (sec) => `<div class="board-section${sec.collapsed ? ' collapsed' : ''}" data-col="${esc(sec.key)}"><div class="section-head"><button class="icon-btn collapse" data-collapse-section="${esc(sec.key)}" aria-label="Collapse section">${ICONS.chevronDown}</button><span class="board-label">${esc(sec.label)}</span><span class="count">${sec.rows.length}</span></div><div class="section-body">${cards(sec.rows, sec.key)}</div></div>`;
   return `<div class="board">${cols
-    .map((c) => `<div class="board-col" data-col="${esc(c.key)}"><div class="board-head"><button class="icon-btn collapse" data-collapse="${esc(c.key)}" aria-label="Collapse">${ICONS.chevronDown}</button><span class="board-label">${esc(c.label)}</span><span class="count">${c.rows.length}</span></div><div class="board-body">${c.rows.map((r) => boardCard({ ...r, boardColumn: c.key }, model)).join('') || '<div class="board-empty muted">Drop here</div>'}</div></div>`)
+    .map((c) => `<div class="board-col" data-col="${esc(c.key)}"><div class="board-head"><button class="icon-btn collapse" data-collapse="${esc(c.key)}" aria-label="Collapse column" title="Collapse column">${ICONS.chevronDown}</button><span class="board-label truncate">${esc(c.label)}</span><span class="count">${c.rows.length}</span></div><div class="board-body">${c.sections ? c.sections.map(section).join('') : cards(c.rows, c.key)}</div><div class="board-collapsed-label"><span>${esc(c.label)}</span><span class="count">${c.rows.length}</span></div></div>`)
     .join('')}</div>`;
 }
 
@@ -400,13 +442,45 @@ function checksTab(d) {
 }
 
 /** GitHub detail (Orca github-item-dialog): header, status/assignee controls, PR tabs, body, activity, composer, rail. */
+function threadCard(t, now, readOnly) {
+  const label = `${t.path}${t.line != null ? `:${t.line}` : ''}`;
+  const first = t.comments[0] || {};
+  const resolveBtn = readOnly ? '' : `<button class="btn btn-outline" data-act="resolveThread" data-thread="${esc(t.id)}" data-resolved="${t.resolved ? 'false' : 'true'}">${t.resolved ? 'Unresolve' : 'Resolve'}</button>`;
+  const reply = readOnly ? '' : `<form class="composer thread-reply" data-comment="${esc(first.id || '')}"><textarea rows="1" placeholder="Reply…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary">${ICONS.send}Reply</button></div></form>`;
+  const body = `<div class="thread-head"><span class="mono">${esc(label)}</span>${pill(t.resolved ? 'emerald' : 'amber', t.resolved ? 'resolved' : 'unresolved')}${t.outdated ? pill('muted', 'outdated') : ''}<span class="spacer"></span>${resolveBtn}</div>${t.comments.map((c) => activityEntry({ ...c, kind: 'comment' }, now)).join('')}${reply}`;
+  if (t.resolved) return `<details class="thread card" data-thread="${esc(t.id)}"><summary class="thread-summary muted">${ICONS.chevronRight}${esc(label)} · resolved · ${t.comments.length} comment${t.comments.length === 1 ? '' : 's'}</summary>${body}</details>`;
+  return `<section class="thread card" data-thread="${esc(t.id)}">${body}</section>`;
+}
+
+/** PR header actions (Orca github-item-dialog-pr-header): ready/draft, rerun, and the ⋯ menu. */
+function githubHeaderActions(data) {
+  const id = esc(data.id);
+  const terminal = data.state === 'merged' || data.state === 'closed';
+  const items = [];
+  if (data.type === 'pr') {
+    items.push(`<button data-act="prTitle" data-id="${id}">${ICONS.copy}Rename…</button>`);
+    items.push(terminal ? (data.state === 'closed' ? `<button data-act="prReopen" data-id="${id}">${ICONS.gitPullRequest}Reopen pull request</button>` : '') : `<button data-act="prClose" data-id="${id}">${ICONS.x}Close pull request</button>`);
+    items.push(`<button data-act="reviewers" data-id="${id}">${ICONS.plus}Request reviewers…</button>`);
+    items.push(`<button data-url="${esc(data.url)}">${ICONS.externalLink}Open merge box</button>`);
+  } else {
+    items.push(`<button data-act="issueTitle" data-id="${id}">${ICONS.copy}Rename…</button>`);
+    items.push(`<button data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button>`);
+  }
+  const ready = data.type === 'pr' && !terminal ? (data.state === 'draft' ? `<button class="btn btn-outline" data-act="prReady" data-id="${id}">${ICONS.checkCircle2}Mark ready</button>` : `<button class="btn btn-outline" data-act="prDraft" data-id="${id}">${ICONS.gitPullRequestDraft}Convert to draft</button>`) : '';
+  const rerun = data.type === 'pr' && data.checks && data.checks.counts && data.checks.counts.failed > 0 ? `<button class="btn btn-outline" data-act="rerunChecks" data-id="${id}">${ICONS.refreshCw}Rerun failed checks</button>` : '';
+  return `${ready}${rerun}<details class="menu"><summary class="btn btn-outline btn-icon" aria-label="More actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${items.join('')}</div></details>`;
+}
+
 function githubDetail(model, d, data, head, title, err, now) {
   const isPr = data.type === 'pr';
   const conv = d.conversation || null;
+  const ro = !!data.readOnly;
+  head = head.replace('<span class="spacer"></span>', `<span class="spacer"></span>${ro ? '' : githubHeaderActions(data)}`);
   const controls = isPr
     ? `${reviewersCellFor(data)}${checksCell(data)}${mergeCell(data, model)}`
     : `${statusCell(data)}${assigneesCell(data)}`;
   const metaBar = `<div class="meta-bar">${controls}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${isPr && data.branch ? `<span class="muted cell-text">${ICONS.gitBranch}${esc(data.baseBranch || '')} ← ${esc(data.branch)}</span>` : ''}${deltaText(data) ? `<span class="muted cell-text">${ICONS.files}${esc(deltaText(data))}</span>` : ''}</div>`;
+  const roNote = ro ? `<div class="banner" role="status">${ICONS.lock}<span>${esc(require('./tasks-ownership').readOnlyReason(data))} — comments, reviews and merges are off for items that aren't yours.</span></div>` : '';
   const tab = d.tab || 'conversation';
   const tabs = isPr ? `<div class="tabs" role="tablist"><button class="tab${tab === 'conversation' ? ' active' : ''}" role="tab" data-tab="conversation">Conversation${conv ? ` <span class="count">${conv.commentCount}</span>` : ''}</button><button class="tab${tab === 'checks' ? ' active' : ''}" role="tab" data-tab="checks">Checks${data.checks && data.checks.counts ? ` <span class="count">${(data.checks.counts.success || 0) + (data.checks.counts.failed || 0) + (data.checks.counts.pending || 0)}</span>` : ''}</button><button class="tab" role="tab" data-tab="files" data-url="${esc(data.url)}/files">Files${data.changedFiles != null ? ` <span class="count">${data.changedFiles}</span>` : ''} ${ICONS.externalLink}</button></div>` : '';
   let main;
@@ -414,11 +488,12 @@ function githubDetail(model, d, data, head, title, err, now) {
   else if (!conv) main = `<section class="card"><div class="card-head"><span class="spin">${ICONS.loaderCircle}</span><span class="muted">Loading conversation…</span></div></section>`;
   else {
     const body = `<section class="card"><div class="card-head"><span class="card-title">${esc(conv.author || data.author || '')}</span><span class="muted" title="${esc(conv.createdAt)}">opened ${esc(formatRelativeTime(conv.createdAt, now))}</span></div>${conv.bodyHtml ? `<div class="prose">${conv.bodyHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
-    const activity = `<section class="card"><div class="card-head"><span class="card-title">Activity</span><span class="count">${conv.entries.length}</span></div>${conv.entries.map((e) => activityEntry(e, now)).join('') || '<div class="muted">No activity yet.</div>'}<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Leave a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Comment</button><span class="muted">Markdown · ⌘/Ctrl+Enter</span></div></form></section>`;
-    main = body + activity;
+    const activity = `<section class="card"><div class="card-head"><span class="card-title">Activity</span><span class="count">${conv.entries.length}</span></div>${conv.entries.map((e) => activityEntry(e, now)).join('') || '<div class="muted">No activity yet.</div>'}${ro ? '' : `<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Leave a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Comment</button><span class="muted">Markdown · ⌘/Ctrl+Enter</span></div></form>`}</section>`;
+    const threads = Array.isArray(d.threads) && d.threads.length ? `<section class="card"><div class="card-head"><span class="card-title">Review threads</span><span class="count">${d.threads.filter((t) => !t.resolved).length} open</span></div>${d.threads.map((t) => threadCard(t, now, ro)).join('')}</section>` : '';
+    main = body + threads + activity;
   }
   const rail = `<aside class="rail"><button class="btn btn-outline" data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button>${isPr && data.branch ? `<button class="btn btn-outline" data-act="copy" data-text="${esc(data.branch)}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button>` : ''}<button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
-  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${roNote}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
 }
 
 /** Full-source detail for Jira; GitHub gets the conversation view; Bitbucket the header + browser link. */
@@ -429,19 +504,21 @@ function detailView(model, now) {
   if (d.loading) return `<div class="detail"><div class="detail-head">${back}<span class="spin">${ICONS.loaderCircle}</span><span class="muted">Loading ${esc(d.key || '')}…</span></div></div>`;
   if (d.error) return `<div class="detail"><div class="detail-head">${back}</div><div class="banner banner-error" role="alert">${ICONS.alertCircle}<span>${esc(d.error)}</span><button class="btn btn-outline" data-act="detail" data-id="${esc(d.id)}">Retry</button></div></div>`;
   const key = data.source === 'jira' ? data.key : `#${data.number}`;
-  const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}<button class="btn btn-outline" data-act="start" data-id="${esc(data.id)}">${ICONS.play}Start</button><button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
+  const head = `<div class="detail-head">${back}<span class="mono detail-key">${esc(key)}</span><span class="muted">${esc(data.repo ? data.repo.label : '')}</span><span class="muted" title="${esc(data.updatedAt)}">updated ${esc(formatRelativeTime(data.updatedAt, now))}</span><span class="spacer"></span>${d.pending ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${startButton(data)}<button class="icon-btn" data-act="open" data-url="${esc(data.url)}" title="Open in browser">${ICONS.externalLink}</button></div>`;
   const title = `<h2 class="detail-title">${esc(data.title)}</h2>`;
   const err = d.mutationError ? `<div class="banner banner-error" role="alert">${ICONS.alertCircle}<span class="truncate" title="${esc(d.mutationError)}">${esc(d.mutationError)}</span><button class="btn btn-outline" data-act="retry" data-id="${esc(data.id)}">Retry</button><button class="icon-btn" data-act="clearError" data-id="${esc(data.id)}" aria-label="Dismiss">${ICONS.x}</button></div>` : '';
   if (data.source === 'bitbucket') {
     return `<div class="detail">${head}${title}<div class="meta-bar">${reviewersCell(data)}${checksCell(data)}${mergeCell(data, model)}</div>${err}<div class="card"><div class="muted">Comments and approvals for Bitbucket pull requests open in the browser for now.</div><div class="card-row"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in Bitbucket</button></div></div></div>`;
   }
   if (data.source === 'github') return githubDetail(model, d, data, head, title, err, now);
-  const metaBar = `<div class="meta-bar">${transitionMenu({ ...data, transitions: d.transitions })}${priorityMenu({ ...data, priorities: d.priorities })}${assigneeButton(data)}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${data.issueType ? `<span class="muted cell-text">${remoteIcon(data.issueType, 'type-icon')}${esc(data.issueType.name)}</span>` : ''}</div>`;
+  const ro = !!data.readOnly;
+  const roNote = ro ? `<div class="banner" role="status">${ICONS.lock}<span>${esc(require('./tasks-ownership').readOnlyReason(data))} — comments and status changes are off for items that aren't yours.</span></div>` : '';
+  const metaBar = `<div class="meta-bar">${ro ? pill(jiraStatusTone((data.status || {}).category), (data.status || {}).name || 'Open') : transitionMenu({ ...data, transitions: d.transitions })}${ro ? (data.priority ? `<span class="cell-text muted">${remoteIcon(data.priority, 'type-icon')}${esc(data.priority.name)}</span>` : '') : priorityMenu({ ...data, priorities: d.priorities })}${ro ? `<span class="cell-text muted">${data.assignee ? `<span class="avatar ring-muted">${esc(initials(data.assignee.displayName))}</span>${esc(data.assignee.displayName)}` : 'Unassigned'}</span>` : assigneeButton(data)}${(data.labels || []).map((l) => `<span class="label-chip">${esc(l)}</span>`).join('')}${data.issueType ? `<span class="muted cell-text">${remoteIcon(data.issueType, 'type-icon')}${esc(data.issueType.name)}</span>` : ''}</div>`;
   const description = `<section class="card"><div class="card-head"><span class="card-title">Description</span><span class="muted">${esc(data.author || '')}</span></div>${data.descriptionHtml ? `<div class="prose">${data.descriptionHtml}</div>` : '<div class="muted">No description provided.</div>'}</section>`;
   const comments = d.comments || [];
-  const commentsCard = `<section class="card"><div class="card-head"><span class="card-title">Comments</span><span class="count">${comments.length}</span></div>${comments.map((c) => commentBubble(c, now)).join('') || '<div class="muted">No comments yet.</div>'}<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Add a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Send</button><span class="muted">Plain text or Jira wiki markup</span></div></form></section>`;
+  const commentsCard = `<section class="card"><div class="card-head"><span class="card-title">Comments</span><span class="count">${comments.length}</span></div>${comments.map((c) => commentBubble(c, now)).join('') || '<div class="muted">No comments yet.</div>'}${ro ? '' : `<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Add a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Send</button><span class="muted">Plain text or Jira wiki markup</span></div></form>`}</section>`;
   const rail = `<aside class="rail"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in Jira</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.key)}" data-label="Key">${ICONS.copy}Copy key</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.branchName || '')}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
-  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${err}${transitionForm()}<div class="detail-body"><div class="detail-main">${description}${commentsCard}</div>${rail}</div></div>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${roNote}${err}${ro ? '' : transitionForm()}<div class="detail-body"><div class="detail-main">${description}${commentsCard}</div>${rail}</div></div>`;
 }
 
 const CSS = `
@@ -501,7 +578,10 @@ const CSS = `
   .menu-check input:disabled { opacity: .5; cursor: default; }
   .card .menu-check { padding: 2px 4px; }
   .menu-group { padding: 4px 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
-  .list { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
+  .list { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; scrollbar-gutter: stable; }
+  .list::-webkit-scrollbar, .board::-webkit-scrollbar { height: 8px; width: 8px; }
+  .list::-webkit-scrollbar-thumb, .board::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vscode-foreground) 25%, transparent); border-radius: 4px; }
+  .list::-webkit-scrollbar-track, .board::-webkit-scrollbar-track { background: transparent; }
   .grid { min-width: max-content; }
   .row { display: grid; grid-template-columns: var(--grid); gap: 12px; padding: 10px 12px; min-height: 48px; align-items: stretch; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); background: var(--bg); cursor: pointer; }
   .row:hover { background: var(--hover); }
@@ -579,19 +659,31 @@ const CSS = `
   .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .seg { background: none; border: none; padding: 3px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); display: inline-flex; }
   .seg.active { background: color-mix(in srgb, var(--track) 70%, transparent); color: var(--vscode-foreground); }
-  .board { flex: 1; min-height: 0; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; padding: 4px 12px 12px; align-items: stretch; }
-  .board-col { flex: 1 1 272px; min-width: 240px; max-width: 420px; display: flex; flex-direction: column; min-height: 0; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--track) 20%, transparent); transition: border-color .12s, box-shadow .12s; }
+  /* Columns fill the width, shrink to a 200px floor, then wrap into another row; the board never scrolls sideways. */
+  .board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 12px; overflow-y: auto; overflow-x: hidden; padding: 4px 12px 12px; align-items: stretch; }
+  .board-col { min-width: 0; container-type: inline-size; display: flex; flex-direction: column; min-height: 0; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--track) 20%, transparent); transition: border-color .12s, box-shadow .12s; }
   .board-col.drag-over { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
-  .board-col.collapsed { flex: 0 0 44px; min-width: 44px; }
-  .board-col.collapsed .board-body, .board-col.collapsed .board-label, .board-col.collapsed .count { display: none; }
+  .board-col.collapsed { align-self: start; }
+  .board-col.collapsed .board-body { display: none; }
+  .board-col.collapsed .board-head { border-bottom: none; }
   .board-col.collapsed .collapse svg { transform: rotate(-90deg); }
-  .board-head { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-size: 12px; font-weight: 600; }
-  .board-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .board-collapsed-label { display: none; }
+  .board-card { min-width: 0; }
+  @container (max-width: 240px) { .card-top .cell-text { display: none; } .card-foot .label-chip { display: none; } }
+  .board-section { border: 1px dashed transparent; border-radius: 6px; }
+  .board-section.drag-over { border-color: var(--vscode-focusBorder); }
+  .section-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); }
+  .section-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .board-section.collapsed .section-body { display: none; }
+  .board-section.collapsed .collapse svg { transform: rotate(-90deg); }
+  .board-head { display: flex; align-items: center; gap: 6px; min-width: 0; height: 36px; padding: 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-size: 12px; font-weight: 600; }
+  .board-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
   .board-empty { font-size: 12px; text-align: center; padding: 16px 0; border: 1px dashed var(--border); border-radius: 6px; }
   .board-card { cursor: grab; background: var(--bg); padding: 8px; gap: 4px; }
   .board-card:active { cursor: grabbing; }
   .board-card.dragging { opacity: .5; }
   .board-card.busy { cursor: wait; opacity: .7; }
+  .board-card.readonly { cursor: pointer; }
   .board-card:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
   .card-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .card-top .cell-text { flex: 0 1 auto; min-width: 0; }
@@ -599,6 +691,17 @@ const CSS = `
   .card-title { font-size: 13px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .card-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
   .card-menu .menu-items { right: 0; min-width: 200px; }
+  .sort-btn { background: none; border: none; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  .sort-btn:hover, .sort-btn.active { color: var(--vscode-foreground); }
+  .row.group { min-height: 0; padding: 5px 12px; background: color-mix(in srgb, var(--track) 30%, transparent); cursor: default; grid-template-columns: 1fr; }
+  .row.group:hover { background: color-mix(in srgb, var(--track) 30%, transparent); }
+  .group-cell { display: flex; align-items: center; gap: 8px; position: static; }
+  .row.group.collapsed .icon-btn svg { transform: rotate(-90deg); }
+  .chips-label { align-self: center; margin-left: 6px; font-size: 12px; }
+  .chip-dashed { border-style: dashed; }
+  .sprint-check { white-space: nowrap; padding: 0 4px; }
+  .fav-menu .menu-items { left: 0; right: auto; min-width: 220px; max-height: 280px; overflow: auto; }
+  .jql-preview { font-size: 11px; padding: 0 2px; }
   .cell-btn { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; cursor: pointer; min-width: 0; }
   .cell-btn svg:last-child { width: 12px; height: 12px; color: var(--vscode-descriptionForeground); }
   .pill-menu { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; list-style: none; }
@@ -630,7 +733,7 @@ const CSS = `
   .prose table { border-collapse: collapse; } .prose th, .prose td { border: 1px solid var(--border); padding: 3px 6px; font-size: 12px; }
   .prose img { max-width: 100%; }
   .prose a { color: var(--vscode-textLink-foreground); }
-  .tabs { display: flex; gap: 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .tabs { display: flex; gap: 12px; overflow-x: auto; white-space: nowrap; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
   .tab { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 6px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 4px; }
   .tab.active { color: var(--vscode-foreground); border-bottom-color: var(--vscode-foreground); }
   .tab:hover { color: var(--vscode-foreground); }
@@ -639,6 +742,11 @@ const CSS = `
   .timeline-row a { color: var(--vscode-textLink-foreground); cursor: pointer; }
   .check-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent); font-size: 12px; }
   .check-row:last-child { border-bottom: none; }
+  .thread { margin-bottom: 8px; }
+  .thread-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .thread-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .thread-summary::-webkit-details-marker { display: none; }
+  details.thread[open] .thread-summary svg { transform: rotate(90deg); }
   .bubble { border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--track) 20%, transparent); margin-bottom: 8px; }
   .bubble-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); padding: 6px 10px; font-size: 12px; }
   .bubble-author { font-weight: 600; }
@@ -648,6 +756,7 @@ const CSS = `
   .composer textarea:focus, .transition-form textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
   .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
   @media (max-width: 720px) { .detail-body { grid-template-columns: 1fr; } .rail { flex-direction: row; flex-wrap: wrap; } }
+  @media (max-height: 420px) { .chrome { padding: 4px 12px; gap: 4px; } .filters { gap: 4px; } .source-bar { min-height: 0; } .source-btn { width: 26px; height: 26px; } .chip { padding: 1px 8px; } .jql-preview { display: none; } .settings summary { padding: 4px 0; } }
   @media (max-width: 480px) { .chrome { padding: 8px; } .row { padding: 10px 8px; } .c-title { left: calc(var(--title-left, 84px) - 4px); } .page-btn { min-width: 0; } }
 `;
 
@@ -658,17 +767,20 @@ const SCRIPT = `
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-act], [data-url], [data-source], [data-preset], [data-page], .row, .board-card');
     if (!t) return;
+    if (e.target.closest('[data-sort], [data-status-chip], [data-favourite], [data-collapse-group], input[data-filter]')) return;
     if (t.matches('.menu > summary') || t.closest('.menu > summary')) return;
     if (t.closest('[data-issue-state], [data-merge], [data-auto-merge]')) return;
     if (t.dataset.act) {
       e.stopPropagation();
       if (t.dataset.act === 'start') return post({ type: 'start', id: t.dataset.id });
+      if (t.dataset.act === 'startNew') return post({ type: 'start', id: t.dataset.id, fresh: true });
       if (t.dataset.act === 'back') return post({ type: 'back' });
       if (t.dataset.act === 'detail') return post({ type: 'detail', id: t.dataset.id });
       if (t.dataset.act === 'assign') return post({ type: 'assign', id: t.dataset.id });
       if (t.dataset.act === 'retry') return post({ type: 'retry', id: t.dataset.id });
       if (t.dataset.act === 'clearError') return post({ type: 'clearError', id: t.dataset.id });
       if (t.dataset.act === 'copy') return post({ type: 'copy', text: t.dataset.text, label: t.dataset.label });
+      if (['prReady', 'prDraft', 'rerunChecks', 'prTitle', 'prClose', 'prReopen', 'issueTitle'].includes(t.dataset.act)) return post({ type: t.dataset.act, id: t.dataset.id });
       if (t.dataset.act === 'open') return post({ type: 'open', url: t.dataset.url });
       if (t.dataset.act === 'toggleSettings') { const d = $('#settings'); d.open = !d.open; post({ type: 'settingsExpanded', expanded: d.open }); return; }
       return post({ type: t.dataset.act, source: t.dataset.source });
@@ -676,7 +788,8 @@ const SCRIPT = `
     if (t.dataset.preset) return post({ type: 'preset', id: t.dataset.preset });
     if (t.dataset.page) return post({ type: 'page', page: Number(t.dataset.page) });
     if (t.classList.contains('source-btn')) return post({ type: 'source', source: t.dataset.source });
-    if (t.dataset.url !== undefined && !t.classList.contains('row')) { e.stopPropagation(); return post({ type: 'open', url: t.dataset.url }); }
+    if (t.dataset.url !== undefined && !t.classList.contains('row') && !t.classList.contains('board-card')) { e.stopPropagation(); return post({ type: 'open', url: t.dataset.url }); }
+    if (t.classList.contains('group')) return;
     if ((t.classList.contains('row') || t.classList.contains('board-card')) && t.dataset.id) return post({ type: 'detail', id: t.dataset.id });
   });
   document.addEventListener('contextmenu', (e) => {
@@ -744,6 +857,21 @@ const SCRIPT = `
     if (t.dataset.merge) return post({ type: 'merge', id: t.dataset.id, method: t.dataset.merge });
     if (t.dataset.autoMerge) return post({ type: 'autoMerge', id: t.dataset.id, enable: t.dataset.autoMerge === 'enable' });
   });
+  document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'sort', field: b.dataset.sort }); }));
+  document.querySelectorAll('[data-status-chip]').forEach((b) => b.addEventListener('click', () => post({ type: 'statusChip', status: b.dataset.statusChip })));
+  document.querySelectorAll('[data-favourite]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); post({ type: 'favourite', id: b.dataset.favourite }); }));
+  const sprintBox = document.querySelector('input[data-filter="sprint"]');
+  if (sprintBox) sprintBox.addEventListener('change', () => post({ type: 'sprint', on: sprintBox.checked }));
+  {
+    const st = vscode.getState() || {};
+    const collapsedGroups = st.collapsedGroups || {};
+    document.querySelectorAll('.row.group').forEach((g) => {
+      const key = g.dataset.group;
+      const apply = (on) => { g.classList.toggle('collapsed', on); let n = g.nextElementSibling; while (n && !n.classList.contains('group')) { n.classList.toggle('hidden', on); n = n.nextElementSibling; } };
+      if (collapsedGroups[key]) apply(true);
+      g.querySelector('[data-collapse-group]').addEventListener('click', (e) => { e.stopPropagation(); const on = !g.classList.contains('collapsed'); apply(on); const s2 = vscode.getState() || {}; vscode.setState({ ...s2, collapsedGroups: { ...(s2.collapsedGroups || {}), [key]: on } }); });
+    });
+  }
   document.querySelectorAll('[data-view-mode]').forEach((b) => b.addEventListener('click', () => post({ type: 'viewMode', mode: b.dataset.viewMode })));
   const board = $('.board');
   if (board) {
@@ -765,20 +893,30 @@ const SCRIPT = `
       card.classList.add('dragging');
     });
     board.addEventListener('dragend', (e) => { const c = e.target.closest('.board-card'); if (c) c.classList.remove('dragging'); board.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over')); });
-    board.addEventListener('dragover', (e) => { const col = e.target.closest('.board-col'); if (!col) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; board.querySelectorAll('.drag-over').forEach((x) => { if (x !== col) x.classList.remove('drag-over'); }); col.classList.add('drag-over'); });
-    board.addEventListener('dragleave', (e) => { const col = e.target.closest('.board-col'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    board.querySelectorAll('.board-section').forEach((sec) => {
+      const key = sec.dataset.col;
+      if (key in collapsed) sec.classList.toggle('collapsed', !!collapsed[key]);
+      sec.querySelector('[data-collapse-section]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        sec.classList.toggle('collapsed');
+        const s2 = vscode.getState() || {};
+        vscode.setState({ ...s2, collapsed: { ...(s2.collapsed || {}), [key]: sec.classList.contains('collapsed') } });
+      });
+    });
+    board.addEventListener('dragover', (e) => { const col = e.target.closest('.board-section, .board-col'); if (!col) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; board.querySelectorAll('.drag-over').forEach((x) => { if (x !== col) x.classList.remove('drag-over'); }); col.classList.add('drag-over'); });
+    board.addEventListener('dragleave', (e) => { const col = e.target.closest('.board-section, .board-col'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
     board.addEventListener('drop', (e) => {
-      const col = e.target.closest('.board-col');
+      const col = e.target.closest('.board-section, .board-col');
       if (!col) return;
       e.preventDefault();
-      col.classList.remove('drag-over');
+      board.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over'));
       const id = e.dataTransfer.getData('text/plain');
       const from = board.querySelector('.board-card[data-id="' + CSS.escape(id) + '"]');
-      const fromCol = from && from.closest('.board-col');
+      const fromCol = from && from.closest('.board-section, .board-col');
       if (!id || !fromCol || fromCol === col) return;
       post({ type: 'move', id, from: fromCol.dataset.col, to: col.dataset.col });
     });
-    board.querySelectorAll('[data-move-to]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); const card = b.closest('.board-card'); post({ type: 'move', id: b.dataset.id, from: card.closest('.board-col').dataset.col, to: b.dataset.moveTo }); }));
+    board.querySelectorAll('[data-move-to]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('details.menu[open]').forEach((d) => { d.open = false; }); const card = b.closest('.board-card'); post({ type: 'move', id: b.dataset.id, from: card.closest('.board-section, .board-col').dataset.col, to: b.dataset.moveTo }); }));
     board.addEventListener('scroll', () => vscode.setState({ ...(vscode.getState() || {}), boardScroll: board.scrollLeft }));
     if ((vscode.getState() || {}).boardScroll) board.scrollLeft = (vscode.getState() || {}).boardScroll;
   }
@@ -805,6 +943,12 @@ const SCRIPT = `
         post({ type: 'comment', id, body: text });
       });
     }
+    detail.querySelectorAll('[data-act="resolveThread"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'resolveThread', id, threadId: b.dataset.thread, resolved: b.dataset.resolved === 'true' }); }));
+    detail.querySelectorAll('form.thread-reply').forEach((f) => {
+      const ta = f.querySelector('textarea');
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); f.requestSubmit(); } });
+      f.addEventListener('submit', (e) => { e.preventDefault(); const text = ta.value.trim(); if (!text) return; ta.value = ''; post({ type: 'replyThread', id, commentId: f.dataset.comment, body: text }); });
+    });
     detail.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); if (b.dataset.url) return post({ type: 'open', url: b.dataset.url }); post({ type: 'tab', id, tab: b.dataset.tab }); }));
     detail.querySelectorAll('[data-priority]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'priority', id, priorityId: b.dataset.priority }); }));
     const form = $('#transition-form');
@@ -848,6 +992,7 @@ function renderTasksHtml(model, opts) {
   let body;
   if (model.loading) body = skeletonRows(kind);
   else if (!model.items.length && !(model.errors || []).length) body = emptyState(model);
+  else if (kind === 'jira' && Array.isArray(model.jiraGroups)) body = model.jiraGroups.map((g) => groupRow(g) + g.rows.map((i) => row(i, model, kind)).join('')).join('') + errorRows(model);
   else body = model.items.map((i) => row(i, model, kind)).join('') + errorRows(model);
   const bodyIsEmpty = !model.loading && !model.items.length && !(model.errors || []).length;
   return `<!DOCTYPE html>
@@ -866,7 +1011,7 @@ function renderTasksHtml(model, opts) {
     ${filters(model)}
   </div>
   ${model.view === 'detail' ? detailView(model, model.now) : model.viewMode === 'board' ? `${boardView(model)}
-  ${pagination(model)}` : `<div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind)}${body}</div></div>
+  ${pagination(model)}` : `<div class="list"><div class="grid${bodyIsEmpty ? ' grid-empty' : ''}">${bodyIsEmpty ? '' : headerRow(kind, model)}${body}</div></div>
   ${pagination(model)}`}
   ${settingsSection(model)}
   <script nonce="${nonce}">${SCRIPT}</script>
@@ -874,7 +1019,7 @@ function renderTasksHtml(model, opts) {
 </html>`;
 }
 
-/** The left-nav view: a compact launcher (source icons, per-source status, open buttons) — the page itself lives in a window/Panel. */
+/** Left-nav launcher: source rows with status dots and open buttons; the page itself lives in a window or the Panel. */
 function renderLauncherHtml(model, opts) {
   const { nonce = '', cspSource = '' } = opts || {};
   const s = model.settings || {};
@@ -882,7 +1027,7 @@ function renderLauncherHtml(model, opts) {
   const statusDot = (st) => (!st ? 'muted' : st.ok ? 'emerald' : 'danger');
   const sources = (model.sources || []).map((src) => {
     const c = s[src.id] || {};
-    return `<button class="src${src.id === model.source ? ' active' : ''}" data-open-source="${esc(src.id)}" title="Open Tasks on ${esc(SOURCE_LABELS[src.id] || src.id)} in a new window"><span class="src-icon">${ICONS[src.id] || ''}</span><span class="src-name">${esc(SOURCE_LABELS[src.id] || src.id)}</span><span class="dot dot-${statusDot(c.status)}" title="${esc(c.status ? (c.status.ok ? `Connected${c.status.login ? ` as ${c.status.login}` : ''}` : c.status.message || 'Disconnected') : 'Checking…')}"></span>${c.status && !c.status.ok ? `<button class="mini" data-act="signIn" data-source="${esc(src.id)}">${src.id === 'github' ? 'Sign in' : 'Token'}</button>` : ''}</button>`;
+    return `<button class="src${src.id === model.source ? ' active' : ''}" data-open-source="${esc(src.id)}" title="Open Tasks on ${esc(SOURCE_LABELS[src.id] || src.id)} in a new window"><span class="src-icon">${ICONS[src.id] || ''}</span><span class="src-name">${esc(SOURCE_LABELS[src.id] || src.id)}</span><span class="dot dot-${statusDot(c.status)}" title="${esc(c.status ? (c.status.ok ? `Connected${c.status.login ? ` as ${c.status.login}` : ''}` : c.status.message || 'Disconnected') : 'Checking…')}"></span>${c.status && !c.status.ok ? `<span class="mini" role="button" tabindex="0" data-act="signIn" data-source="${esc(src.id)}">${src.id === 'github' ? 'Sign in' : 'Token'}</span>` : ''}</button>`;
   });
   const where = model.openWhere === 'window' ? 'a separate window' : model.openWhere === 'editor' ? 'an editor tab' : model.openWhere === 'panel' ? 'the Panel' : null;
   return `<!DOCTYPE html>
@@ -906,23 +1051,21 @@ function renderLauncherHtml(model, opts) {
   .src-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .dot-emerald { background: var(--emerald); } .dot-danger { background: var(--danger); } .dot-muted { background: var(--track); }
-  .mini { font: inherit; font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; background: none; color: inherit; cursor: pointer; }
+  .mini { font: inherit; font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; min-height: 24px; background: none; color: inherit; cursor: pointer; }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border-radius: 6px; padding: 5px 10px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--vscode-foreground); font: inherit; }
   .btn.primary { background: var(--primary); color: var(--vscode-button-foreground); border-color: transparent; }
   .btn:hover { filter: brightness(1.1); }
-  .row { display: flex; gap: 6px; }
-  .net { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-  .net .spacer { flex: 1; }
+  .src:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
 <body>
   <div class="section">Sources</div>
   <div>${sources.join('')}</div>
-  <button class="btn primary" data-act="openWindow">${ICONS.externalLink}Open Tasks in new window</button>
-  <div class="row"><button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button><button class="btn" data-act="doctor">${ICONS.refreshCw}Re-check</button></div>
+  <button class="btn primary" data-act="openWindow">${ICONS.externalLink}New Window</button>
+  <button class="btn" data-act="openPanel">${ICONS.layout}Panel</button>
   ${where ? `<div class="muted">Tasks is open in ${esc(where)}.</div>` : ''}
   <div class="section">Network</div>
-  <div class="net">${ICONS.globe}<span class="muted">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="spacer"></span><button class="mini" data-act="exitNode"${net && net.ok ? '' : ' disabled'}>Change</button></div>
+  <button class="src" data-act="exitNode"${net && net.ok ? '' : ' disabled'} title="Change exit node"><span class="src-icon">${ICONS.globe}</span><span class="src-name">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="dot dot-${!net ? 'muted' : !net.ok ? 'danger' : net.exitNode ? 'emerald' : 'muted'}"></span></button>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.addEventListener('click', (e) => {

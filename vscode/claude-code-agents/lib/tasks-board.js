@@ -35,10 +35,10 @@ function githubPrColumn(row) {
   return 'open';
 }
 
-const GITHUB_PR_COLUMNS = [
-  ['draft', 'Draft'], ['open', 'Open'], ['changes', 'Changes requested'], ['approved', 'Approved'], ['merged', 'Merged'], ['closed', 'Closed'],
-];
-const GITHUB_ISSUE_COLUMNS = [['open', 'Open'], ['closed', 'Closed']];
+// Why: review state stays a pill on the card; columns only split by lifecycle so a mixed board fits two columns.
+const GITHUB_PR_COLUMNS = [['pr:open', 'Open'], ['pr:merged', 'Merged'], ['pr:closed', 'Closed']];
+const GITHUB_ISSUE_COLUMNS = [['issue:open', 'Open'], ['issue:closed', 'Closed']];
+const COLLAPSED_BY_DEFAULT = new Set(['pr:merged', 'pr:closed', 'issue:closed']);
 const BITBUCKET_COLUMNS = [['open', 'Open'], ['needs_work', 'Needs work'], ['approved', 'Approved'], ['merged', 'Merged'], ['closed', 'Declined']];
 
 function bitbucketColumn(row) {
@@ -66,9 +66,23 @@ function groupRows(rows, source, scope, opts) {
   if (source === 'bitbucket') return fixedColumns(BITBUCKET_COLUMNS, list, bitbucketColumn);
   const prs = list.filter((r) => r.type === 'pr');
   const issues = list.filter((r) => r.type !== 'pr');
-  if (scope === 'pr' || (prs.length && !issues.length)) return fixedColumns(GITHUB_PR_COLUMNS, list, githubPrColumn);
-  if (scope === 'issue' || (issues.length && !prs.length)) return fixedColumns(GITHUB_ISSUE_COLUMNS, list, (r) => (r.state === 'closed' ? 'closed' : 'open'));
-  return [...fixedColumns(GITHUB_ISSUE_COLUMNS, issues, (r) => (r.state === 'closed' ? 'closed' : 'open')).map((c) => ({ ...c, key: `issue:${c.key}`, label: `Issues · ${c.label}` })), ...fixedColumns(GITHUB_PR_COLUMNS, prs, githubPrColumn).map((c) => ({ ...c, key: `pr:${c.key}`, label: `PRs · ${c.label}` }))];
+  const prLifecycle = (r) => `pr:${r.state === 'merged' ? 'merged' : r.state === 'closed' ? 'closed' : 'open'}`;
+  const issueLifecycle = (r) => `issue:${r.state === 'closed' ? 'closed' : 'open'}`;
+  const withDefaults = (cols) => cols.map((c) => ({ ...c, collapsed: COLLAPSED_BY_DEFAULT.has(c.key) }));
+  if (scope === 'pr' || (prs.length && !issues.length)) return withDefaults(fixedColumns(GITHUB_PR_COLUMNS, list, prLifecycle));
+  if (scope === 'issue' || (issues.length && !prs.length)) return withDefaults(fixedColumns(GITHUB_ISSUE_COLUMNS, list, issueLifecycle));
+  // Mixed scope: one column per kind, lifecycle stacked as sections (closed/merged collapsed) so the board stays two wide.
+  const issueSections = withDefaults(fixedColumns(GITHUB_ISSUE_COLUMNS, issues, issueLifecycle));
+  const prSections = withDefaults(fixedColumns(GITHUB_PR_COLUMNS, prs, prLifecycle));
+  return [
+    { key: 'issues', label: 'Issues', rows: issues, sections: issueSections },
+    { key: 'prs', label: 'Pull requests', rows: prs, sections: prSections },
+  ];
+}
+
+/** Flat drop targets: a column's sections when it has them, else the column itself. */
+function dropTargets(columns) {
+  return (columns || []).flatMap((c) => (c.sections ? c.sections.map((s) => ({ ...s, column: c.key, label: `${c.label} · ${s.label}` })) : [{ ...c, column: c.key }]));
 }
 
 /** The transitions that land a Jira row in `column` (by target status name, then category); [] when none. */
@@ -79,4 +93,4 @@ function jiraTransitionsTo(transitions, column) {
   return list.filter((t) => t.to && t.to.category && t.to.category === column.category && !column.label);
 }
 
-module.exports = { groupRows, jiraColumns, githubPrColumn, bitbucketColumn, jiraTransitionsTo, JIRA_CATEGORY_LABELS, GITHUB_PR_COLUMNS, GITHUB_ISSUE_COLUMNS, BITBUCKET_COLUMNS };
+module.exports = { groupRows, dropTargets, jiraColumns, githubPrColumn, bitbucketColumn, jiraTransitionsTo, JIRA_CATEGORY_LABELS, GITHUB_PR_COLUMNS, GITHUB_ISSUE_COLUMNS, BITBUCKET_COLUMNS };
