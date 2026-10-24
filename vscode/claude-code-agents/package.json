@@ -114,7 +114,6 @@
       {
         "command": "claudeCodeTasks.openInEditor",
         "title": "Open Tasks in Editor",
-        "icon": "$(link-external)",
         "category": "Claude Code Tasks"
       },
       {
@@ -136,7 +135,7 @@
       {
         "command": "claudeCodeTasks.popOut",
         "title": "Open Tasks in New Window",
-        "icon": "$(multiple-windows)",
+        "icon": "$(link-external)",
         "category": "Claude Code Tasks"
       }
     ],
@@ -150,26 +149,6 @@
         {
           "command": "claudeCodeAgents.openUsageEditor",
           "when": "view == claudeCodeAgents.usage",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeTasks.refresh",
-          "when": "view == claudeCodeTasks.page",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeTasks.openInEditor",
-          "when": "view == claudeCodeTasks.page",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeTasks.refresh",
-          "when": "view == claudeCodeTasks.panel",
-          "group": "navigation"
-        },
-        {
-          "command": "claudeCodeTasks.openInEditor",
-          "when": "view == claudeCodeTasks.panel",
           "group": "navigation"
         },
         {

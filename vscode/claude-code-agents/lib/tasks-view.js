@@ -580,9 +580,9 @@ const CSS = `
   .seg { background: none; border: none; padding: 3px 8px; cursor: pointer; color: var(--vscode-descriptionForeground); display: inline-flex; }
   .seg.active { background: color-mix(in srgb, var(--track) 70%, transparent); color: var(--vscode-foreground); }
   .board { flex: 1; min-height: 0; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; padding: 4px 12px 12px; align-items: stretch; }
-  .board-col { width: 272px; flex: none; display: flex; flex-direction: column; min-height: 0; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--track) 20%, transparent); transition: border-color .12s, box-shadow .12s; }
+  .board-col { flex: 1 1 272px; min-width: 240px; max-width: 420px; display: flex; flex-direction: column; min-height: 0; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--track) 20%, transparent); transition: border-color .12s, box-shadow .12s; }
   .board-col.drag-over { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
-  .board-col.collapsed { width: 44px; }
+  .board-col.collapsed { flex: 0 0 44px; min-width: 44px; }
   .board-col.collapsed .board-body, .board-col.collapsed .board-label, .board-col.collapsed .count { display: none; }
   .board-col.collapsed .collapse svg { transform: rotate(-90deg); }
   .board-head { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-size: 12px; font-weight: 600; }
@@ -874,4 +874,101 @@ function renderTasksHtml(model, opts) {
 </html>`;
 }
 
-module.exports = { renderTasksHtml, detailView, boardView, rowCells, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };
+/** The left-nav view: a compact launcher (source icons, per-source status, open buttons) — the page itself lives in a window/Panel. */
+function renderLauncherHtml(model, opts) {
+  const { nonce = '', cspSource = '' } = opts || {};
+  const s = model.settings || {};
+  const net = (s.tailscale && s.tailscale.status) || null;
+  const statusDot = (st) => (!st ? 'muted' : st.ok ? 'emerald' : 'danger');
+  const sources = (model.sources || []).map((src) => {
+    const c = s[src.id] || {};
+    return `<button class="src${src.id === model.source ? ' active' : ''}" data-open-source="${esc(src.id)}" title="Open Tasks on ${esc(SOURCE_LABELS[src.id] || src.id)} in a new window"><span class="src-icon">${ICONS[src.id] || ''}</span><span class="src-name">${esc(SOURCE_LABELS[src.id] || src.id)}</span><span class="dot dot-${statusDot(c.status)}" title="${esc(c.status ? (c.status.ok ? `Connected${c.status.login ? ` as ${c.status.login}` : ''}` : c.status.message || 'Disconnected') : 'Checking…')}"></span>${c.status && !c.status.ok ? `<button class="mini" data-act="signIn" data-source="${esc(src.id)}">${src.id === 'github' ? 'Sign in' : 'Token'}</button>` : ''}</button>`;
+  });
+  const where = model.openWhere === 'window' ? 'a separate window' : model.openWhere === 'editor' ? 'an editor tab' : model.openWhere === 'panel' ? 'the Panel' : null;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
+<style>
+  :root { --track: color-mix(in srgb, var(--vscode-foreground) 14%, transparent); --border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-foreground)) 60%, transparent); --hover: var(--vscode-list-hoverBackground); --emerald: #34d399; --danger: var(--vscode-editorError-foreground, #f87171); --primary: var(--vscode-button-background); }
+  * { box-sizing: border-box; }
+  body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); margin: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 10px; }
+  svg { width: 14px; height: 14px; flex: none; }
+  .muted { color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .section { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
+  .src { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+  .src:hover { background: var(--hover); }
+  .src.active { border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent); background: color-mix(in srgb, var(--track) 50%, transparent); }
+  .src-icon { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; background: color-mix(in srgb, var(--track) 60%, transparent); }
+  .src-icon svg { width: 14px; height: 14px; }
+  .src-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot-emerald { background: var(--emerald); } .dot-danger { background: var(--danger); } .dot-muted { background: var(--track); }
+  .mini { font: inherit; font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; background: none; color: inherit; cursor: pointer; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border-radius: 6px; padding: 5px 10px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--vscode-foreground); font: inherit; }
+  .btn.primary { background: var(--primary); color: var(--vscode-button-foreground); border-color: transparent; }
+  .btn:hover { filter: brightness(1.1); }
+  .row { display: flex; gap: 6px; }
+  .net { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .net .spacer { flex: 1; }
+</style>
+</head>
+<body>
+  <div class="section">Sources</div>
+  <div>${sources.join('')}</div>
+  <button class="btn primary" data-act="openWindow">${ICONS.externalLink}Open Tasks in new window</button>
+  <div class="row"><button class="btn" data-act="openPanel">${ICONS.layout}Open in Panel</button><button class="btn" data-act="doctor">${ICONS.refreshCw}Re-check</button></div>
+  ${where ? `<div class="muted">Tasks is open in ${esc(where)}.</div>` : ''}
+  <div class="section">Network</div>
+  <div class="net">${ICONS.globe}<span class="muted">${esc(!net ? 'Tailscale: checking…' : !net.ok ? `Tailscale: ${net.message || 'disconnected'}` : net.exitNode ? `Exit node: ${net.exitNode.hostName}` : 'Direct (no exit node)')}</span><span class="spacer"></span><button class="mini" data-act="exitNode"${net && net.ok ? '' : ' disabled'}>Change</button></div>
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    document.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-act], [data-open-source]');
+      if (!t) return;
+      e.stopPropagation();
+      if (t.dataset.act === 'signIn') return vscode.postMessage({ type: 'signIn', source: t.dataset.source });
+      if (t.dataset.act) return vscode.postMessage({ type: t.dataset.act });
+      vscode.postMessage({ type: 'openWindow', source: t.dataset.openSource });
+    });
+  </script>
+</body>
+</html>`;
+}
+
+/** What a sidebar/Panel view shows while the editor tab or floating window owns the Tasks page. */
+function renderElsewhereHtml(opts) {
+  const { floating = false, viewType = '', nonce = '', cspSource = '' } = opts || {};
+  const where = floating ? 'a separate window' : 'an editor tab';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
+<style>
+  body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; text-align: center; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button { font: inherit; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 4px 10px; cursor: pointer; border: 1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); background: none; color: var(--vscode-foreground); }
+  button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+  svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+  <div class="box" role="status">
+    <div>Tasks is open in ${where}.</div>
+    <div class="row"><button class="primary" id="back">${ICONS.chevronLeft}Bring back here</button><button id="show">${ICONS.externalLink}Show it</button></div>
+  </div>
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    document.getElementById('back').addEventListener('click', () => vscode.postMessage({ type: 'bringBack', viewType: ${JSON.stringify(viewType)} }));
+    document.getElementById('show').addEventListener('click', () => vscode.postMessage({ type: 'revealElsewhere' }));
+  </script>
+</body>
+</html>`;
+}
+
+module.exports = { renderTasksHtml, renderElsewhereHtml, renderLauncherHtml, detailView, boardView, rowCells, usesPrGrid, gridKind, ISSUE_GRID, PR_GRID, JIRA_GRID, SKELETON_ROWS };

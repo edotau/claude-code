@@ -42,7 +42,7 @@ test('package.json: tasksOpenIn is a panel|sidebar|editor enum defaulting to pan
   assert.deepEqual(prop.enum, ['panel', 'sidebar', 'editor']);
   assert.equal(prop.default, 'panel');
   assert.ok(findCommand('claudeCodeTasks.show'), 'claudeCodeTasks.show command missing');
-  assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(multiple-windows)');
+  assert.equal(findCommand('claudeCodeTasks.popOut').icon, '$(link-external)');
 });
 
 test('package.json: the three tree views are gone', () => {
@@ -57,11 +57,11 @@ test('package.json: refresh/openInEditor/open/startAgent/setupToken commands exi
   }
 });
 
-test('package.json: refresh and openInEditor sit in view/title for both the sidebar and Panel views', () => {
+test('package.json: Open in New Window is the only Tasks view-title button (drag the tab to the editor instead; refresh is in the page)', () => {
   const entries = (pkg.contributes.menus['view/title'] || []).filter((m) => m.command.startsWith('claudeCodeTasks.'));
   for (const view of ['claudeCodeTasks.page', 'claudeCodeTasks.panel']) {
     const cmds = entries.filter((m) => m.when === `view == ${view}`).map((m) => m.command).sort();
-    assert.deepEqual(cmds, ['claudeCodeTasks.openInEditor', 'claudeCodeTasks.popOut', 'claudeCodeTasks.refresh'], `view/title entries for ${view}`);
+    assert.deepEqual(cmds, ['claudeCodeTasks.popOut'], `view/title entries for ${view}`);
   }
 });
 
@@ -88,4 +88,41 @@ test('extension.js: settings writes keep every source — no handler hard-codes 
   assert.match(src, /const TASK_SOURCES = \['jira', 'github', 'bitbucket'\];/);
   assert.doesNotMatch(src, /\['github', 'bitbucket'\]\.filter/);
   assert.doesNotMatch(src, /msg\.source === 'github' \|\| msg\.source === 'bitbucket'/);
+});
+
+test('renderElsewhereHtml: a pointer page with Bring back here / Show it, scoped to the view that asked', () => {
+  const { renderElsewhereHtml } = require('../lib/tasks-view');
+  const floating = renderElsewhereHtml({ floating: true, viewType: 'claudeCodeTasks.panel', nonce: 'n' });
+  assert.match(floating, /open in a separate window/);
+  assert.match(floating, /"claudeCodeTasks\.panel"/);
+  assert.match(floating, /type: 'bringBack'/);
+  assert.match(floating, /type: 'revealElsewhere'/);
+  assert.match(renderElsewhereHtml({ floating: false }), /open in an editor tab/);
+  assert.doesNotMatch(floating, /class="row head"/); // never a second live list
+});
+
+test('extension.js: views render the pointer page while the editor tab owns Tasks, and the dispose handler re-focuses them', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(src, /this\.panel \? renderElsewhereHtml\(/);
+  assert.match(src, /executeCommand\(`\$\{viewType\}\.focus`\)/);
+  assert.match(src, /'workbench\.action\.closePanel'/);
+});
+
+test('renderLauncherHtml: the left-nav view lists sources with status dots and opens Tasks in a window, never the page', () => {
+  const { renderLauncherHtml } = require('../lib/tasks-view');
+  const html = renderLauncherHtml({ sources: [{ id: 'jira' }, { id: 'github' }], source: 'jira', openWhere: 'window', settings: { jira: { status: { ok: true, login: 'e' } }, github: { status: { ok: false, message: 'No token' } }, tailscale: { status: { ok: true, exitNode: { hostName: 'wks' } } } } }, { nonce: 'n' });
+  assert.match(html, /data-open-source="jira"/);
+  assert.match(html, /dot-emerald/);
+  assert.match(html, /dot-danger/);
+  assert.match(html, /data-act="openWindow"/);
+  assert.match(html, /Exit node: wks/);
+  assert.match(html, /open in a separate window/);
+  assert.doesNotMatch(html, /class="row head"|id="query"/);
+});
+
+test('extension.js: the left-nav view resolves to the launcher and pops Tasks out; the Panel view keeps the page', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(src, /viewType === 'claudeCodeTasks\.page'/);
+  assert.match(src, /renderLauncherHtml\(/);
+  assert.match(src, /openFromSidebar\(\)/);
 });
