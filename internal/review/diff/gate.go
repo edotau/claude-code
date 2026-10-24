@@ -21,7 +21,7 @@ var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustC
 func gateStagedFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := gitexec.RunGit(ctx, repo, "diff", "--cached", "--name-only")
+	out, err := gitexec.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return nil
 	}
@@ -37,7 +37,7 @@ func gateStagedFiles(repo string) []string {
 func gateComplexityFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := gitexec.RunGit(ctx, repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+	out, err := gitexec.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}

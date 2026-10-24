@@ -126,7 +126,7 @@ func runGit(repo string, args ...string) (string, bool) {
 	defer cancel()
 	// None of this file's git output starts a line with whitespace, so TrimRight (gitexec's trim) reads
 	// identically to the TrimSpace this replaced.
-	out, err := gitexec.RunGit(ctx, repo, args...)
+	out, err := gitexec.RunGitInherit(ctx, repo, args...)
 	if err != nil {
 		return "", false
 	}
