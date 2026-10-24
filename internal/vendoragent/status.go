@@ -2,7 +2,9 @@ package vendoragent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -53,6 +55,83 @@ func Result(ctx context.Context, name, cwd, ref string) (agent.Record, string, e
 	}
 	log, _ := os.ReadFile(rec.Log) // best-effort: a missing log still returns the record
 	return rec, string(log), nil
+}
+
+// tailBeat is the silence before a follow prints its heartbeat; tailPoll is the log re-read interval. Tests swap both.
+var (
+	tailBeat = 15 * time.Second
+	tailPoll = 250 * time.Millisecond
+)
+
+// Tail copies ref's log (default: name's newest job in cwd's repo) to w. With follow it keeps copying until the
+// record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
+func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (agent.Record, error) {
+	if _, ok := Lookup(name); !ok {
+		return agent.Record{}, errUnknownVendor(name)
+	}
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
+	rec, err := Resolve(recs, ref, nil)
+	if err != nil {
+		return agent.Record{}, err
+	}
+	f, err := os.Open(rec.LogPath())
+	for follow && errors.Is(err, os.ErrNotExist) && Alive(rec) { // the CLI child may not have started yet
+		if err = sleepCtx(ctx, tailPoll); err != nil {
+			return rec, err
+		}
+		rec = reloaded(rec)
+		f, err = os.Open(rec.LogPath())
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return rec, fmt.Errorf("job %s has no log (it never started the CLI, or predates dispatch logs)", rec.ID)
+		}
+		return rec, err
+	}
+	defer f.Close()
+	if _, err := io.Copy(w, f); err != nil || !follow {
+		return reloaded(rec), err
+	}
+	lastOut, lastBeat := time.Now(), time.Time{}
+	for Alive(rec) {
+		if err := sleepCtx(ctx, tailPoll); err != nil {
+			return rec, err
+		}
+		rec = reloaded(rec)
+		n, err := io.Copy(w, f)
+		if err != nil {
+			return rec, err
+		}
+		now := time.Now()
+		if n > 0 {
+			lastOut = now
+		} else if quiet := now.Sub(lastOut); now.Sub(lastBeat) >= tailBeat && quiet >= tailBeat {
+			lastBeat = now
+			fmt.Fprintf(w, "· no output for %s (elapsed %s)\n", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second))
+		}
+	}
+	_, err = io.Copy(w, f) // whatever landed between the last read and the record leaving running
+	return rec, err
+}
+
+// reloaded re-reads rec from the dispatch log; a record pruned mid-follow keeps its last known state.
+func reloaded(rec agent.Record) agent.Record {
+	if latest, err := agent.LoadRecord(rec.ID); err == nil {
+		return latest
+	}
+	return rec
+}
+
+// sleepCtx waits d, returning ctx.Err() if ctx ends first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.

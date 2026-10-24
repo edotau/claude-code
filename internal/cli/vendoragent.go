@@ -5,17 +5,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
 var vendorSubverbs = map[string]bool{
-	"resume": true, "status": true, "result": true, "cancel": true, "setup": true, "models": true,
+	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "models": true,
 	"review": true, "transfer": true, "explore": true,
 }
 
@@ -33,6 +35,7 @@ func vendorUsage(vendor string) string {
 		{vendor + " explore <question>", "scan code + web research → brief"},
 		{vendor + " transfer [--source f]", "hand this Claude session to " + vendor},
 		{vendor + " status [id] [--all]", "background jobs in this repo"},
+		{vendor + " tail [id] [-f]", "a job's output; -f follows live"},
 		{vendor + " result [id]", "a finished job's answer + session"},
 		{vendor + " cancel [id]", "interrupt a running job"},
 		{vendor + " setup [--format json]", "binary, login, route, projection"},
@@ -69,6 +72,8 @@ func cmdVendorSub(vendor string, args []string) int {
 		return cmdVendorResume(vendor, args[1:])
 	case "status":
 		return cmdVendorStatus(vendor, args[1:])
+	case "tail":
+		return cmdVendorTail(vendor, args[1:])
 	case "result":
 		return cmdVendorResult(vendor, args[1:])
 	case "cancel":
@@ -126,6 +131,36 @@ func cmdVendorStatus(vendor string, args []string) int {
 	}
 	for _, r := range rows {
 		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Preview)
+	}
+	return 0
+}
+
+// cmdVendorTail is `claude-code <v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
+func cmdVendorTail(vendor string, args []string) int {
+	fs := newVendorFlags(vendor, "tail")
+	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
+	pos, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return 2
+	}
+	ref := ""
+	if len(pos) > 0 {
+		ref = pos[0]
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cwd, _ := os.Getwd()
+	rec, err := vendoragent.Tail(ctx, vendor, cwd, ref, *follow, os.Stdout)
+	if err != nil {
+		return fail("%s tail: %v", vendor, err)
+	}
+	switch {
+	case rec.Status == "error":
+		fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
+		return 1
+	case rec.Status == "running" && *follow:
+		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
+		return 1
 	}
 	return 0
 }

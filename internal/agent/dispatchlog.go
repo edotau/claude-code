@@ -1,16 +1,22 @@
 package agent
 
 import (
+	"bytes"
+	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
@@ -43,6 +49,9 @@ func (r Record) Alive() bool {
 	}
 	return time.Since(r.Time) < time.Minute
 }
+
+// LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
+func (r Record) LogPath() string { return cmp.Or(r.Log, filepath.Join(DispatchDir(), r.ID+".log")) }
 
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
@@ -158,4 +167,115 @@ func RecentRecords(n int) []Record {
 		}
 	}
 	return out
+}
+
+// logLineCap bounds one buffered log line; a longer run is redacted and written as its own chunk.
+const logLineCap = 256 << 10
+
+// LogSink tees a dispatch's child output, redacted line by line, into its log file (0600, append).
+// Safe for the stdout and stderr streams of every fallback leg to share; a write failure never reaches the run.
+type LogSink struct {
+	path    string
+	mu      sync.Mutex
+	f       *os.File
+	failed  bool
+	streams []*logLineWriter
+}
+
+// NewLogSink makes a sink for path; the file is created when the first child starts.
+func NewLogSink(path string) *LogSink { return &LogSink{path: path} }
+
+type logSinkKey struct{}
+
+// WithLog carries sink in ctx so every vendor child started under it tees into the log.
+func WithLog(ctx context.Context, sink *LogSink) context.Context {
+	return context.WithValue(ctx, logSinkKey{}, sink)
+}
+
+func logFrom(ctx context.Context) *LogSink {
+	s, _ := ctx.Value(logSinkKey{}).(*LogSink)
+	return s
+}
+
+// teeWriter returns w that also feeds ctx's log, or w itself when the dispatch has none.
+func teeWriter(ctx context.Context, w io.Writer) io.Writer {
+	if s := logFrom(ctx); s != nil {
+		return io.MultiWriter(w, s.Stream())
+	}
+	return w
+}
+
+// teeReader returns r that also feeds ctx's log as it is read, or r itself when the dispatch has none.
+func teeReader(ctx context.Context, r io.Reader) io.Reader {
+	if s := logFrom(ctx); s != nil {
+		return io.TeeReader(r, s.Stream())
+	}
+	return r
+}
+
+// Stream opens the log (first call) and returns a line-buffering writer for one child stream.
+func (s *LogSink) Stream() io.Writer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.f == nil && !s.failed {
+		f, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			s.failed = true // fail-open: the log is for watching, never a gate on the run
+		}
+		s.f = f
+	}
+	w := &logLineWriter{sink: s}
+	s.streams = append(s.streams, w)
+	return w
+}
+
+// Close flushes every stream's partial last line and closes the file.
+func (s *LogSink) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, w := range s.streams {
+		s.writeLocked(w.buf)
+		w.buf = nil
+	}
+	if s.f != nil {
+		_ = s.f.Close()
+		s.f = nil
+	}
+	s.failed = true
+}
+
+func (s *LogSink) writeLocked(b []byte) {
+	if len(b) == 0 || s.f == nil {
+		return
+	}
+	line := shapes.Redact(string(b))
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	_, _ = s.f.WriteString(line)
+}
+
+// logLineWriter buffers to newlines so a secret split across Writes is redacted whole.
+type logLineWriter struct {
+	sink *LogSink
+	buf  []byte
+}
+
+func (w *logLineWriter) Write(p []byte) (int, error) {
+	w.sink.mu.Lock()
+	defer w.sink.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		w.sink.writeLocked(w.buf[:i+1])
+		w.buf = w.buf[i+1:]
+	}
+	if len(w.buf) >= logLineCap {
+		w.sink.writeLocked(w.buf)
+		w.buf = nil
+	}
+	return len(p), nil // never an error: a log failure must not abort the child's copy
 }
