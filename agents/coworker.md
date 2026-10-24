@@ -52,7 +52,8 @@ a `Workflow`.
    with `--tools --workdir <worktree or isolate.sh copy>` (opencode has ignored `--workdir` before —
    confirm with `git diff --stat` where the diff landed). Background legs: follow with
    `claude-code <runner> tail -f <job>`, never a sleep loop. Gemini legs are for read-heavy sweeps and
-   research, and their brief must say "open the files and cite file:line" (a gemini leg once answered from memory).
+   research, and their brief must say "open the files and cite file:line" (a gemini leg once answered from memory);
+   such a leg needs `--tools`, or agy refuses rather than read files.
 4. **Treat every answer as a claim.** Re-run the handoff's verification command yourself; for a
    finding, open the cited file:line. A leg that failed, timed out or answered from a `fallback` is
    reported as such — do the task in-context only if the handoff allows it.
