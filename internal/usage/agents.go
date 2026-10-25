@@ -440,7 +440,7 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	_ = json.Unmarshal(modelsOut, &rows)
 	models := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
-		models = append(models, agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD})
+		models = append(models, agentModel(r))
 	}
 	sortModelsByTokens(models)
 

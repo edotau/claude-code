@@ -214,40 +214,9 @@ func (r *Registry) Validate() error {
 	var errs []string
 	valid := map[string]bool{DialectAnthropic: true, DialectOpenAI: true, DialectResponses: true, DialectGemini: true}
 	for _, n := range r.Names() {
-		p := r.Providers[n]
-		if !valid[p.Kind] {
-			errs = append(errs, fmt.Sprintf("%s: kind %q is not a dialect", n, p.Kind))
-		}
-		if p.BaseURL == "" && len(p.Routes) == 0 {
-			errs = append(errs, n+": needs base_url or routes")
-		}
-		for d := range p.Routes {
-			if !valid[d] {
-				errs = append(errs, fmt.Sprintf("%s: route dialect %q unknown", n, d))
-			}
-		}
-		switch p.Auth.Type {
-		case AuthAPIKey, AuthBearer, AuthNone, AuthPassthrough:
-		default:
-			errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
-		}
-		if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
-			errs = append(errs, n+": auth.login needs auth.type passthrough")
-		}
-		if p.OpencodeFallback == "auto" {
-			errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
-		}
+		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
-	for _, n := range append([]string{r.Default}, r.Fallback...) {
-		if _, ok := r.Providers[n]; n != "" && !ok {
-			errs = append(errs, fmt.Sprintf("default/fallback names unknown provider %q", n))
-		}
-	}
-	for _, n := range r.OpencodeLadder {
-		if _, ok := r.Providers[n]; !ok {
-			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown provider %q", n))
-		}
-	}
+	errs = append(errs, validateNameRefs(r)...)
 	for runner, tiers := range r.Route {
 		if !slices.Contains(RouteRunners, runner) {
 			errs = append(errs, fmt.Sprintf("route names unknown runner %q", runner))
@@ -265,4 +234,48 @@ func (r *Registry) Validate() error {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateProvider checks one provider's dialect, routes, and auth shape.
+func validateProvider(n string, p *Provider, valid map[string]bool) []string {
+	var errs []string
+	if !valid[p.Kind] {
+		errs = append(errs, fmt.Sprintf("%s: kind %q is not a dialect", n, p.Kind))
+	}
+	if p.BaseURL == "" && len(p.Routes) == 0 {
+		errs = append(errs, n+": needs base_url or routes")
+	}
+	for d := range p.Routes {
+		if !valid[d] {
+			errs = append(errs, fmt.Sprintf("%s: route dialect %q unknown", n, d))
+		}
+	}
+	switch p.Auth.Type {
+	case AuthAPIKey, AuthBearer, AuthNone, AuthPassthrough:
+	default:
+		errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
+	}
+	if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
+		errs = append(errs, n+": auth.login needs auth.type passthrough")
+	}
+	if p.OpencodeFallback == "auto" {
+		errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
+	}
+	return errs
+}
+
+// validateNameRefs checks default/fallback/opencodeLadder names against known providers.
+func validateNameRefs(r *Registry) []string {
+	var errs []string
+	for _, n := range append([]string{r.Default}, r.Fallback...) {
+		if _, ok := r.Providers[n]; n != "" && !ok {
+			errs = append(errs, fmt.Sprintf("default/fallback names unknown provider %q", n))
+		}
+	}
+	for _, n := range r.OpencodeLadder {
+		if _, ok := r.Providers[n]; !ok {
+			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown provider %q", n))
+		}
+	}
+	return errs
 }

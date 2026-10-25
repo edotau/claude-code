@@ -33,7 +33,7 @@ func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
 				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, tier, c, ok, tb.Billing[c.Account])
 			}
 			// codex and opencode serve one id at both opus and sonnet: the strongest tier claims a shared id
-			if got := tb.TierOf(c.Model); got != tier && !((r == "codex" || r == "opencode") && tier == "sonnet" && got == "opus") {
+			if got := tb.TierOf(c.Model); got != tier && ((r != "codex" && r != "opencode") || tier != "sonnet" || got != "opus") {
 				t.Errorf("TierOf(%s) = %q, want %q", c.Model, got, tier)
 			}
 		}

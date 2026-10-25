@@ -64,7 +64,7 @@ func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, nat
 		}
 	}
 	for _, s := range pick.Skipped {
-		if !(nativeLead && s.Runner == "opencode") {
+		if !nativeLead || s.Runner != "opencode" {
 			c.Skipped = append(c.Skipped, s.Runner+": "+s.Reason)
 		}
 	}
@@ -75,7 +75,7 @@ func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, nat
 		leg := Leg{Model: cand.Model, Effort: cand.Effort, Account: cand.Account, Billing: cand.Billing}
 		leg.keepCaller = cand.Runner == want && explicitModel
 		switch {
-		case cand.Runner == "opencode" && !(native && cand.Runner == want):
+		case cand.Runner == "opencode" && (!native || cand.Runner != want):
 			r, model, err := hubLegFor(reg, cand.Model)
 			if err != nil {
 				c.Skipped = append(c.Skipped, "opencode: "+err.Error())
