@@ -310,7 +310,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  0%  ·  1 ◉ ") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {

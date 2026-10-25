@@ -2,6 +2,7 @@ package statusline
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,10 +28,25 @@ func writeRunningDispatch(t *testing.T, id string, pid, owner int) {
 
 const runningPayload = `{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"}}`
 
+// enableAgents turns on the agents segment (off by default) through the user config, keeping the other defaults.
+func enableAgents(t *testing.T) {
+	t.Helper()
+	segs := maps.Clone(embeddedConfig().Segments) // the embedded map is shared: never mutate it
+	segs["agents"] = true
+	b, _ := json.Marshal(map[string]any{"segments": segs})
+	if err := os.MkdirAll(ConfigDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ConfigDir(), "config.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The segment is always shown, at the floor of just the main thread, when nothing else runs.
 // dashboard is excluded: its own columns list (not cfg.Order) omits "agents" by default.
 func TestRunningSegmentAlwaysShownAtFloor(t *testing.T) {
 	hermetic(t)
+	enableAgents(t)
 	for _, style := range []string{"gradient", "powerline", "capsule", "minimal"} {
 		got := plain(Render([]byte(runningPayload), style))
 		if !strings.Contains(got, " 1 ◉") {
@@ -45,6 +61,7 @@ func TestRunningSegmentAlwaysShownAtFloor(t *testing.T) {
 // A single live, same-owner leg tips the count from 1 to 2, crossing the plural boundary.
 func TestRunningSegmentCountsOwnLeg(t *testing.T) {
 	hermetic(t)
+	enableAgents(t)
 	owner := inflight.SessionOwner()
 	writeRunningDispatch(t, "20261024T000001.000-codex", os.Getpid(), owner)
 	got := plain(Render([]byte(runningPayload), "gradient"))
@@ -56,6 +73,7 @@ func TestRunningSegmentCountsOwnLeg(t *testing.T) {
 // A dead leg (unreachable pid) never lifts the count off the floor.
 func TestRunningSegmentIgnoresDeadLegs(t *testing.T) {
 	hermetic(t)
+	enableAgents(t)
 	owner := inflight.SessionOwner()
 	writeRunningDispatch(t, "20261024T000001.000-codex", 1<<22+12345, owner) // beyond pid_max: never alive
 	got := plain(Render([]byte(runningPayload), "gradient"))
@@ -67,6 +85,7 @@ func TestRunningSegmentIgnoresDeadLegs(t *testing.T) {
 // A live leg owned by a different session, or carrying no owner at all, is not this session's to count.
 func TestRunningSegmentFiltersByOwner(t *testing.T) {
 	hermetic(t)
+	enableAgents(t)
 	owner := inflight.SessionOwner()
 	if owner == 0 {
 		t.Skip("inflight.SessionOwner() resolved to 0 in this test environment; owner filtering is untestable here")
