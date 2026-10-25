@@ -20,7 +20,9 @@ for id in s2 s9 s13 s14; do
   rsync -a --exclude GROUND-TRUTH.md \
     "$S/upstream/eval/scenarios/${DIRS[$id]}/" "$BASE/pristine/$id/"
 done
-# then for each run name (e.g. s2-c1, s2-m1): cp -r "$BASE/pristine/$id" "$BASE/runs/$id-c1"
+for id in s2 s9 s13 s14; do for c in c m; do for n in 1 2; do   # one run dir per (scenario, condition, seed)
+  cp -r "$BASE/pristine/$id" "$BASE/runs/$id-$c$n"
+done; done; done
 ```
 
 Invoke the Workflow tool via `scriptPath` (never by name):
