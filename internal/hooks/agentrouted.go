@@ -115,7 +115,7 @@ func readJSONLRecords(path string) []map[string]any {
 		return nil
 	}
 	var out []map[string]any
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

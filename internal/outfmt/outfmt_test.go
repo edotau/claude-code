@@ -18,3 +18,15 @@ func TestParseInterspersed(t *testing.T) {
 		t.Error("Check accepts only text|json")
 	}
 }
+
+// Parse must never flag-parse anything after a literal "--", even a later "-h".
+func TestParseDoubleDashIsAllPositional(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	pos, err := Parse(fs, []string{"--", "file.py", "-h"})
+	if err != nil {
+		t.Fatalf("Parse err = %v, want nil", err)
+	}
+	if !slices.Equal(pos, []string{"file.py", "-h"}) {
+		t.Fatalf("Parse positionals = %v, want [file.py -h]", pos)
+	}
+}

@@ -94,21 +94,47 @@ func TestRunComplexityNoMatchingFiles(t *testing.T) {
 func TestRunComplexityBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunComplexity([]string{"--nope", "x.py"}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	if code != 2 {
+		t.Fatalf("exit code = %d for a bad flag, want 2", code)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty on a bad flag", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Errorf("stderr = %q, want the stdlib unknown-flag message", stderr.String())
 	}
 }
 
-// -h after a target still prints the usage page (a real FlagSet, not a leading-only check).
+// -h after a target prints the usage page to stdout, exit 0, stderr empty.
 func TestRunComplexityHelpAfterPositional(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunComplexity([]string{"x.py", "-h"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := stdout.String() + stderr.String()
-	if !strings.HasPrefix(got, "usage: claude-code review complexity <targets...> [flags]\n") {
-		t.Errorf("want the review complexity usage page:\n%s", got)
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code review complexity <targets...> [flags]\n") {
+		t.Errorf("stdout = %q, want the review complexity usage page", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty on -h", stderr.String())
+	}
+}
+
+// "--" before -h scans both tokens as targets instead of printing help.
+func TestRunComplexityHelpAfterDoubleDashIsPositional(t *testing.T) {
+	t.Chdir(filepath.Join("testdata", "complexity"))
+	want := readComplexityGoldenAbs(t, "gate-loop.js.want")
+	var stdout, stderr bytes.Buffer
+	code := RunComplexity([]string{"--", "gate-loop.js", "-h"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if stdout.String() != want {
+		t.Errorf("scanned output mismatch (treated -h as a second, nonexistent target):\ngot:  %q\nwant: %q",
+			stdout.String(), want)
+	}
+	if strings.Contains(stdout.String(), "usage:") || strings.Contains(stderr.String(), "usage:") {
+		t.Errorf("printed the usage page instead of scanning: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

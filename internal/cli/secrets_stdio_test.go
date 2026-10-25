@@ -148,6 +148,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
 			}
 			want := ""
+			var wantSb151 strings.Builder
 			for i, name := range []string{"ALPHA", "BETA"} {
 				value := values[i]
 				if export {
@@ -158,8 +159,9 @@ func TestVaultGetMultipleNames(t *testing.T) {
 				if export {
 					prefix = "export "
 				}
-				want += prefix + name + "=" + secrets.Redact(values[i]) + "\n"
+				wantSb151.WriteString(prefix + name + "=" + secrets.Redact(values[i]) + "\n")
 			}
+			want += wantSb151.String()
 			if stdout != want {
 				t.Fatal("get did not produce the expected masked NAME=value rows")
 			}

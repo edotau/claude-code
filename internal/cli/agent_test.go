@@ -75,7 +75,7 @@ func TestListRunnersRegistryLoadErrorNoPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 && fields[1] == "api" {
 			if fields[0] != "✗" {

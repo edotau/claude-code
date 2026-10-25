@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -724,7 +724,7 @@ func TestSnapshotToConsistent(t *testing.T) {
 		records := tx.Bucket([]byte(Secrets))
 		meta := tx.Bucket([]byte(Meta))
 		if records == nil || meta == nil {
-			return fmt.Errorf("snapshot missing records or metadata bucket")
+			return errors.New("snapshot missing records or metadata bucket")
 		}
 		count, err := strconv.Atoi(string(meta.Get([]byte("record_count"))))
 		if err != nil || count < base || records.Stats().KeyN != count {
@@ -904,7 +904,7 @@ func TestMultiProcessProgress(t *testing.T) {
 			t.Errorf("reader subprocess: %v\n%s", err, c.output.String())
 		}
 	}
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	slices.Sort(latencies)
 	p95 := latencies[(95*len(latencies)+99)/100-1]
 	t.Logf("30 writer latencies: %v; p95=%s", latencies, p95)
 	if p95 >= 500*time.Millisecond {

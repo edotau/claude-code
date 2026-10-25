@@ -67,7 +67,7 @@ func (p Page) Fprint(w io.Writer) {
 	}
 	if p.About != "" {
 		var about []string
-		for _, para := range strings.Split(p.About, "\n") {
+		for para := range strings.SplitSeq(p.About, "\n") {
 			about = append(about, WrapRow("", para, 0, 80)...)
 		}
 		secs = append(secs, strings.Join(about, "\n"))
@@ -142,6 +142,20 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 	return rows
 }
 
+// WantsHelp reports a -h/-help/--help token before any literal "--" terminator, so a caller can route
+// explicit help to stdout itself instead of letting fs.Parse's automatic usage call land on stderr.
+func WantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
 // ExitCode maps a FlagSet parse error to the verb's exit code: 0 after -h, 2 for a bad flag.
 func ExitCode(err error) int {
 	if errors.Is(err, flag.ErrHelp) {
@@ -193,7 +207,7 @@ func WrapRow(label, desc string, labelWidth, width int) []string {
 	var lines []string
 	cur := first
 	empty := true
-	for _, w := range strings.Fields(desc) {
+	for w := range strings.FieldsSeq(desc) {
 		if !empty && utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width {
 			lines = append(lines, cur)
 			cur, empty = strings.Repeat(" ", col), true

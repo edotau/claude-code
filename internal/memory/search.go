@@ -51,7 +51,7 @@ func (h SearchHit) Title() string {
 // Plain is the whole block on one line, id markers and heading/bullet marks stripped, for compact previews.
 func (h SearchHit) Plain() string {
 	var parts []string
-	for _, l := range strings.Split(h.Block, "\n") {
+	for l := range strings.SplitSeq(h.Block, "\n") {
 		if l = strings.TrimSpace(strings.TrimLeft(stripID(l), "#- ")); l != "" {
 			parts = append(parts, l)
 		}

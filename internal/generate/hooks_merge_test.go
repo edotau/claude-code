@@ -470,7 +470,7 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 	}
 	idxA, idxMixed, idxC := indexOf("orca-A"), indexOf("orca-mixed"), indexOf("orca-C")
 	idxRendered := indexOf("claude-code hook bash-guard")
-	if !(idxA < idxRendered && idxRendered < idxMixed && idxMixed < idxC) {
+	if idxA >= idxRendered || idxRendered >= idxMixed || idxMixed >= idxC {
 		t.Fatalf("expected order orca-A < rendered < rebuilt-mixed < orca-C, got A=%d rendered=%d mixed=%d C=%d:\n%s",
 			idxA, idxRendered, idxMixed, idxC, merged)
 	}

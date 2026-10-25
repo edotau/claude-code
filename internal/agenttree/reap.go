@@ -1,6 +1,7 @@
 package agenttree
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -143,7 +144,7 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 	}
 	ran, err := paths.TryFileLock(filepath.Join(dir, ".lock"), markerLockWait, sweep)
 	if err == nil && !ran {
-		err = fmt.Errorf("agent-inflight marker dir is locked; markers skipped")
+		err = errors.New("agent-inflight marker dir is locked; markers skipped")
 	}
 	return n, err
 }

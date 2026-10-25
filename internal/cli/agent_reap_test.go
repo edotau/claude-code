@@ -153,7 +153,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 
 func TestAgentsUsageFits80(t *testing.T) {
 	usage := renderHelpPage(agentsPage)
-	for _, line := range strings.Split(usage, "\n") {
+	for line := range strings.SplitSeq(usage, "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("agentsUsage row is %d runes (>80): %q", n, line)
 		}

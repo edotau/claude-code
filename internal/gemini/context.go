@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -329,12 +330,7 @@ func isSecretLike(rel string) bool {
 	if secretExtensions[strings.ToLower(filepath.Ext(base))] {
 		return true
 	}
-	for _, seg := range parts {
-		if seg == "state" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(parts, "state")
 }
 
 // mediaType maps a path's extension to a media_type label (default text/plain).
