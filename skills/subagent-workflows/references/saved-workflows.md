@@ -39,5 +39,7 @@ claude-code ask --agent claude --tools --timeout 20m \
 ```
 
 Only when the brief names it (`Workflow:` field, with args); `--background` past ~3 minutes, then `status`/`result`;
-from a scratch cwd when the script writes files (the eval: `skills/evaluate-code/references/eval.md`). The job id goes
-on the leaf's `Ran on:` line, and the Workflow's result is reported as a claim, never as the leaf's own verification.
+from a scratch cwd when the script writes files (the eval: `skills/evaluate-code/references/eval.md`). A headless
+session reads only under its cwd, so from a scratch cwd pass the script body inline (`Workflow({script: <contents>})`)
+instead of a `~/.claude/...` `scriptPath`. The job id goes on the leaf's `Ran on:` line, and the Workflow's result is
+reported as a claim, never as the leaf's own verification.
