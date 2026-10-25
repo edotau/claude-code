@@ -115,6 +115,38 @@ test('buildUsageModel: billing.mode "api" is honored, carrying the billingProvid
   assert.equal(model.api[0].today, 1200000);
 });
 
+test('buildUsageModel: two github accounts become two distinct providers, each with its own plan/windows/state', () => {
+  const model = buildUsageModel(subscriptionFixture(), {}, Date.now());
+  const githubs = model.providers.filter((p) => p.id === 'github');
+  assert.equal(githubs.length, 2, 'expected two github provider entries, one per account');
+
+  const edotau = githubs.find((p) => p.account === 'edotau');
+  assert.ok(edotau, 'expected the edotau account');
+  assert.equal(edotau.plan, 'Pro+');
+  assert.equal(edotau.windows.length, 1);
+  assert.equal(edotau.windows[0].state, 'ok');
+
+  const work = githubs.find((p) => p.account === 'work-account');
+  assert.ok(work, 'expected the work-account account');
+  assert.equal(work.plan, 'Business');
+  assert.equal(work.windows.length, 1);
+  assert.equal(work.windows[0].state, 'exceeded');
+  assert.equal(work.windows[0].usedPct, 100);
+});
+
+test('buildUsageModel: window.usedCredits/limitCredits are the numbers from the row when present, null otherwise', () => {
+  const model = buildUsageModel(subscriptionFixture(), {}, Date.now());
+  const edotau = model.providers.find((p) => p.id === 'github' && p.account === 'edotau');
+  assert.equal(edotau.windows[0].usedCredits, 2009);
+  assert.equal(edotau.windows[0].limitCredits, 7000);
+
+  const claude = model.providers.find((p) => p.id === 'anthropic');
+  for (const w of claude.windows) {
+    assert.equal(w.usedCredits, null);
+    assert.equal(w.limitCredits, null);
+  }
+});
+
 test('buildUsageModel: a note-only Claude row (no window) surfaces as provider.note, no windows', () => {
   const json = subscriptionFixture();
   json.providers = json.providers.filter((p) => p.provider !== 'anthropic');
