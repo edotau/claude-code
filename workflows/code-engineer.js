@@ -25,6 +25,19 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never run install/deploy/release targets or edit tool config. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
+// ── Router pressure: Claude account state read once; low/exhausted steps every Claude stage down one tier ──
+const routeState = await agent(
+  `Run exactly: ${CWD ? 'cd ' + CWD + ' && ' : ''}claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
+    `is "claude" and its gate value, else "unknown". Never run anything else.`,
+  { label: 'route-state', phase: 'Intel', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
+).catch(() => null)
+const TIER_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
+const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
+const routeTier = m => (PRESSURE && TIER_DOWN[m]) ? TIER_DOWN[m] : m
+if (PRESSURE) log(`router: claude account ${routeState.state} — stepping Claude stages down one tier`)
+else if (!routeState) log('router: route read failed — no downshift (fail open)')
+
 const BRIEF_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -57,7 +70,7 @@ const briefs = (await parallel(LENSES.map(l => () =>
   agent(
     `Read-only scouting for a code change${CWD ? ' in ' + CWD : ''}. Task: ${TASK}\nScope hint: ${SCOPE.join(', ') || 'none given'}\n` +
     `Your lens: ${l.prompt}. Return files, seams (file:line) and risks. Do not edit anything.`,
-    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', model: 'sonnet', effort: 'low' } // Explore alone runs opus
+    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', model: routeTier('sonnet'), effort: 'low' } // Explore alone runs opus
   )
 ))).filter(Boolean)
 if (!briefs.length) log('intel: both Explore readers returned nothing — building blind from the task text')
@@ -78,13 +91,13 @@ const [impl, tests] = await parallel([
     `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report). ` +
     `After a defect fix write ISSUE: searched P, found N. Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). ` +
     `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <runner (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`,
-    { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: a.implModel || 'sonnet', effort: 'high' }
+    { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: routeTier(a.implModel || 'sonnet'), effort: 'high' }
   ),
   () => agent(
     `${context}\nYou are the TEST agent (copilot). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; poll the tree and re-read before asserting). ` +
     `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
     `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
-    { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }
+    { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }
   ),
 ])
 log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'}`)

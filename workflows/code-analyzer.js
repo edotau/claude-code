@@ -40,6 +40,19 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
+// ── Router pressure: Claude account state read once; low/exhausted steps every Claude stage down one tier ──
+const routeState = await agent(
+  `Run exactly: ${CD}claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
+    `is "claude" and its gate value, else "unknown". Never run anything else.`,
+  { label: 'route-state', phase: 'Scope', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
+).catch(() => null)
+const TIER_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
+const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
+const routeTier = m => (PRESSURE && TIER_DOWN[m]) ? TIER_DOWN[m] : m
+if (PRESSURE) log(`router: claude account ${routeState.state} — stepping Claude stages down one tier`)
+else if (!routeState) log('router: route read failed — no downshift (fail open)')
+
 const DEFAULT_DIMENSIONS = [
   { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
   { key: 'regressions', prompt: 'behaviour regressions: a path that used to check or emit X and silently no longer does; a doc, help or dry-run surface pointing at a removed symbol; a test rewritten to pin the broken output' },
@@ -171,7 +184,7 @@ for (let round = 1; round <= ROUNDS; round++) {
           `with path and bytes. Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`
         : `${CD}run ONE command: git diff --numstat ${RANGE || 'HEAD~1..HEAD'} -- ${g.join(' ') || '.'} — and return each file as an entry with path ` +
           `(the new path for a rename) and bytes = (added + deleted) * 80 (binary "-" counts as 0). Do not read the diff; the auditors run it for their chunk. At most 2 tool calls.`,
-      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: 'haiku', effort: 'low' } // file listing: schema-checked, haiku is enough
+      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: routeTier('haiku'), effort: 'low' } // file listing: schema-checked, haiku is enough
     )
   ))
   // Pack files into ≤ CHUNK_CHARS chunks so no auditor sees a truncated view and agent count follows diff size.
@@ -220,7 +233,7 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`),
-      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: 'sonnet', effort: u.dim.effort || 'low' }
+      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeTier('sonnet'), effort: u.dim.effort || 'low' }
     )
   }
   const refuteStage = (found, u) => {
@@ -247,7 +260,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       return Promise.all([
-        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: 'sonnet', effort: 'medium' }),
+        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }),
         ...LEGS_OK.map(leg => askLeg({
           leg, cwd: CWD || undefined, smoke: false, fallback: false,
           task: brief + '\nAnswer with ONLY one JSON object {"verdicts":[{"index":0,"refuted":true,"reason":"<quoted line>"}]} and nothing else.',
@@ -309,12 +322,12 @@ for (let round = 1; round <= ROUNDS; round++) {
         `After a defect fix write ISSUE: searched P, found N.\n` +
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`,
-        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: hot ? 'opus' : 'sonnet', effort: hot ? 'high' : 'medium' }),
+        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeTier(hot ? 'opus' : 'sonnet'), effort: hot ? 'high' : 'medium' }),
       () => testsNeeded ? agent(`${ctx}\nYou are the TEST agent (an implementer is fixing the non-test files concurrently): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg} once the implementer's edits land, and report. Budget ~20 tool calls.`,
-        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: 'sonnet', effort: 'medium' }) : null,
+        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }) : null,
     ]).then(([impl, tests]) => ({ package: pkg, impl, tests }))
   }))
 

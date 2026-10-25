@@ -49,8 +49,8 @@ from `--model`, else the task classifier), including the Claude leg.
     drops it (never another account; `claude-code configure github` changes it).
   - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
 - **Scoring**: `total = 0.5 * price + 0.5 * headroom` (0–1 each); a subscription's price is its window share left,
-  and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`). Low accounts (>=90% of window used) sort after
-  all non-low accounts. Exhausted accounts are never picked.
+  and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`). Low
+  accounts (>=90% of window used) sort after all non-low accounts. Exhausted accounts are never picked.
 - **Quota state**: `state/harness/quota.json`, written by `claude-code usage`, by a leg's quota failure (resets
   parsed from error message, else window end), and a 15-min targeted refresh. `claude-code doctor` displays a row
   per exhausted or low account.
@@ -63,7 +63,10 @@ from `--model`, else the task classifier), including the Claude leg.
 - **Pressure hooks & workflows**: `agent-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
   an unset subagent model one tier; >=97% moves code-worker/Explore to `coworker` at haiku with routed runner
   prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.leg` picks via
-  `claude-code route --format json`.
+  `claude-code route --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model, so it
+  never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `workflow-lint`; each
+  script now reads `claude-code route --agent claude --fallback none` once itself and downshifts its own pins under
+  pressure (`saved-workflows.md`).
 - **Explicit backend** (`--provider`, `provider:model`): one leg, no fallback, but gated and marked on its own account.
 - **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode uses its own `opencode`
   login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub login,
