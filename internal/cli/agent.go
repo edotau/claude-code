@@ -197,6 +197,9 @@ type attachFlag []string
 
 func (a *attachFlag) String() string { return strings.Join(*a, ",") }
 
+// Placeholder names the FLAGS placeholder for attachFlag (helptext.Placeholder).
+func (a *attachFlag) Placeholder() string { return "PATH" }
+
 func (a *attachFlag) Set(s string) error {
 	abs, err := filepath.Abs(s)
 	if err != nil {
@@ -223,6 +226,9 @@ func (a *attachFlag) Set(s string) error {
 type keepEnvFlag []string
 
 func (k *keepEnvFlag) String() string { return strings.Join(*k, ",") }
+
+// Placeholder names the FLAGS placeholder for keepEnvFlag (helptext.Placeholder).
+func (k *keepEnvFlag) Placeholder() string { return "NAME,NAME" }
 
 func (k *keepEnvFlag) Set(s string) error {
 	*k = append(*k, strings.Split(s, ",")...)

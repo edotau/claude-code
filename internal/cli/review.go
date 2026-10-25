@@ -40,38 +40,6 @@ var reviewPage = helptext.Page{
 	Hint: "claude-code review <tool> -h lists that tool's flags.",
 }
 
-// reviewHelp is the -h page for tools whose own parser has no FlagSet; its flags mirror that parser.
-func reviewHelp(tool string) (helptext.Page, bool) {
-	fs := helptext.NewFlagSet(tool, helptext.Page{})
-	p := helptext.Page{Flags: fs}
-	switch tool {
-	case "quality":
-		p.Usage = "claude-code review quality <path> [flags]"
-		p.About = "Code smells and SOLID violations in one file, or every file under a directory."
-		fs.Bool("json", false, "Output in JSON format")
-		fs.String("language", "", "only this language when <path> is a directory (-l)")
-		fs.String("output", "", "with --json: write the report to this file (-o)")
-		fs.Bool("recursive", true, "accepted for compatibility; directories are always recursive (-r)")
-	case "complexity":
-		p.Usage = "claude-code review complexity <targets...> [flags]"
-		p.About = "Function length, nesting depth and branch counts over files and directories. " +
-			"Findings are advisory."
-		fs.Bool("json", false, "Output in JSON format")
-		fs.String("threshold", "medium", "strict|medium|relaxed")
-		fs.String("ext", "py,ts,tsx,js,jsx,go", "file extensions to scan, comma-separated")
-	case "assumptions", "goals":
-		p.Usage = "claude-code review " + tool + " [<input>] [flags]"
-		p.About = map[string]string{
-			"assumptions": "Lint a plan for vague actions, unscoped subjects and hopeful steps.",
-			"goals":       "Check every plan step names a verifiable goal and the plan ends on one.",
-		}[tool] + " <input> is a file, or - (the default) for stdin."
-		fs.Bool("json", false, "Output in JSON format")
-	default:
-		return p, false
-	}
-	return p, true
-}
-
 // wantsHelp reports a leading -h/--help; a later one belongs to the tool's own parser, after its value flags.
 func wantsHelp(args []string) bool {
 	return len(args) > 0 && (args[0] == "-h" || args[0] == "-help" || args[0] == "--help")
@@ -85,10 +53,6 @@ func cmdReview(args []string) int {
 	if reviewTools[args[0]] == nil {
 		reviewPage.Fprint(os.Stderr)
 		return 2
-	}
-	if p, ok := reviewHelp(args[0]); ok && wantsHelp(args[1:]) {
-		p.Fprint(os.Stdout)
-		return 0
 	}
 	return reviewTools[args[0]](args[1:], os.Stdin, os.Stdout, os.Stderr)
 }

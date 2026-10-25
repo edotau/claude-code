@@ -90,3 +90,16 @@ func TestRunAssumptionsBadFlag(t *testing.T) {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
 	}
 }
+
+// -h after a positional input still prints the usage page (a real FlagSet, not a leading-only check).
+func TestRunAssumptionsHelpAfterPositional(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunAssumptions([]string{"somefile.md", "-h"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := stdout.String() + stderr.String()
+	if !strings.HasPrefix(got, "usage: claude-code review assumptions [<input>] [flags]\n") {
+		t.Errorf("want the review assumptions usage page:\n%s", got)
+	}
+}

@@ -125,6 +125,40 @@ func TestNewFlagSetParse(t *testing.T) {
 	}
 }
 
+// placeholderValue is a custom flag.Value implementing Placeholder, so its FLAGS row names its own type.
+type placeholderValue string
+
+func (p *placeholderValue) String() string      { return string(*p) }
+func (p *placeholderValue) Set(s string) error  { *p = placeholderValue(s); return nil }
+func (p *placeholderValue) Placeholder() string { return "KEY,KEY" }
+
+// plainValue is a custom flag.Value with no Placeholder hook: flag.UnquoteUsage's generic fallback applies.
+type plainValue string
+
+func (p *plainValue) String() string     { return string(*p) }
+func (p *plainValue) Set(s string) error { *p = plainValue(s); return nil }
+
+// A custom Value implementing Placeholder renders that placeholder in FLAGS; one without it falls back
+// to flag.UnquoteUsage's generic "value" (no type name, no backtick in the usage string).
+func TestFlagRowsPlaceholderHook(t *testing.T) {
+	var withHook placeholderValue
+	var without plainValue
+	fs := flag.NewFlagSet("x", flag.ContinueOnError)
+	fs.Var(&withHook, "drop", "names to drop")
+	fs.Var(&without, "keep", "names to keep")
+	rows := flagRows(fs)
+	got := map[string]string{}
+	for _, r := range rows {
+		got[r[0]] = r[1]
+	}
+	if label, ok := got["--drop KEY,KEY"]; !ok {
+		t.Errorf("want a --drop KEY,KEY row from the Placeholder hook, got rows: %v (desc %q)", rows, label)
+	}
+	if _, ok := got["--keep value"]; !ok {
+		t.Errorf("want a --keep value row (no Placeholder hook), got rows: %v", rows)
+	}
+}
+
 func TestExitCode(t *testing.T) {
 	for _, tc := range []struct {
 		name string

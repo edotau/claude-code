@@ -39,6 +39,9 @@ type keyList []string
 
 func (k *keyList) String() string { return strings.Join(*k, ",") }
 
+// Placeholder names the FLAGS placeholder for keyList (helptext.Placeholder).
+func (k *keyList) Placeholder() string { return "KEY,KEY" }
+
 func (k *keyList) Set(v string) error {
 	for _, p := range strings.Split(v, ",") {
 		if p = strings.TrimSpace(p); p != "" && !slices.Contains(*k, p) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,19 @@ func TestRunComplexityBadFlag(t *testing.T) {
 	code := RunComplexity([]string{"--nope", "x.py"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	}
+}
+
+// -h after a target still prints the usage page (a real FlagSet, not a leading-only check).
+func TestRunComplexityHelpAfterPositional(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunComplexity([]string{"x.py", "-h"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := stdout.String() + stderr.String()
+	if !strings.HasPrefix(got, "usage: claude-code review complexity <targets...> [flags]\n") {
+		t.Errorf("want the review complexity usage page:\n%s", got)
 	}
 }
 

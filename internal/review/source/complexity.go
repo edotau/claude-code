@@ -3,7 +3,6 @@ package source
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 )
 
 // ComplexityThresholds mirrors complexity_checker.THRESHOLDS.
@@ -263,51 +265,39 @@ type complexityArgs struct {
 	jsonOut   bool
 }
 
-// parseComplexityArgs accepts argparse's interspersed positionals (nargs="+") and its long-only flags.
-func parseComplexityArgs(args []string) (complexityArgs, error) {
-	a := complexityArgs{threshold: "medium", ext: "py,ts,tsx,js,jsx,go"}
-	for i := 0; i < len(args); i++ {
-		tok := args[i]
-		switch {
-		case tok == "--json":
-			a.jsonOut = true
-		case tok == "--threshold":
-			i++
-			if i >= len(args) {
-				return a, errors.New("argument --threshold: expected one argument")
-			}
-			a.threshold = args[i]
-		case strings.HasPrefix(tok, "--threshold="):
-			a.threshold = strings.TrimPrefix(tok, "--threshold=")
-		case tok == "--ext":
-			i++
-			if i >= len(args) {
-				return a, errors.New("argument --ext: expected one argument")
-			}
-			a.ext = args[i]
-		case strings.HasPrefix(tok, "--ext="):
-			a.ext = strings.TrimPrefix(tok, "--ext=")
-		case tok != "-" && strings.HasPrefix(tok, "-"):
-			return a, fmt.Errorf("unrecognized arguments: %s", tok)
-		default:
-			a.targets = append(a.targets, tok)
-		}
+// parseComplexityArgs is a real FlagSet, so -h anywhere in args prints the usage page; targets (nargs="+")
+// may still be interspersed with flags.
+func parseComplexityArgs(args []string, stderr io.Writer) (complexityArgs, int, bool) {
+	fs := helptext.NewFlagSet("review complexity", helptext.Page{
+		Usage: "claude-code review complexity <targets...> [flags]",
+		About: "Function length, nesting depth and branch counts over files and directories. " +
+			"Findings are advisory.",
+	})
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
+	ext := fs.String("ext", "py,ts,tsx,js,jsx,go", "file extensions to scan, comma-separated")
+	targets, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return complexityArgs{}, helptext.ExitCode(err), true
 	}
-	if len(a.targets) == 0 {
-		return a, errors.New("the following arguments are required: targets")
+	if len(targets) == 0 {
+		fmt.Fprintln(stderr, "review complexity: the following arguments are required: targets")
+		fs.Usage()
+		return complexityArgs{}, 2, true
 	}
-	if _, ok := complexityThresholds[a.threshold]; !ok {
-		return a, fmt.Errorf("argument --threshold: invalid choice: %q", a.threshold)
+	if _, ok := complexityThresholds[*threshold]; !ok {
+		fmt.Fprintf(stderr, "review complexity: argument --threshold: invalid choice: %q\n", *threshold)
+		return complexityArgs{}, 2, true
 	}
-	return a, nil
+	return complexityArgs{targets: targets, threshold: *threshold, ext: *ext, jsonOut: *jsonOut}, 0, false
 }
 
 // RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
-	parsed, err := parseComplexityArgs(args)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
+	parsed, code, done := parseComplexityArgs(args, stderr)
+	if done {
+		return code
 	}
 	th := complexityThresholds[parsed.threshold]
 	var extensions []string
