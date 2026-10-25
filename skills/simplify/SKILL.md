@@ -1,6 +1,6 @@
 ---
 name: simplify
-description: 'Behavior-preserving cleanup of changed code — overrides the built-in /simplify. Four parallel angles (reuse, simplification, efficiency, altitude), then applies fixes behind a behavior gate. Triggers "simplify this", "/simplify", "clean this up", "am I overcomplicating this", "too many abstractions", "reduce complexity". Bugs → evaluate-code; security → security-reviewer.'
+description: 'Behavior-preserving cleanup of changed code — overrides the built-in /simplify. Four parallel angles (reuse, simplification, efficiency, altitude), then applies fixes behind a behavior gate. Triggers "simplify this", "/simplify", "clean this up", "am I overcomplicating this", "too many abstractions", "reduce complexity".'
 ---
 
 # Simplify

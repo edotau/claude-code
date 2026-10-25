@@ -1,6 +1,6 @@
 ---
 name: problem-solving
-description: 'Doing the work: the evidence loop for a task, fix or plan - classify the deliverable, define done, gather evidence, one recommendation, act surgically behind TASK/AUTH notes, verify by observation with an ISSUE sweep for copies, report outcome-first in plain prose. Triggers "/problem-solving", "run the loop", "the tests disagree with the spec", "did I fix this everywhere", "plan this first", "act on review feedback", "verify before done", "run the gates", "are we done". Modes - plan, report. Grading finished work: evaluate-code.'
+description: 'Doing the work: the evidence loop for a task, fix or plan - classify the deliverable, define done, gather evidence, one recommendation, act surgically behind TASK/AUTH notes, verify by observation with an ISSUE sweep for copies, report outcome-first in plain prose. Triggers "/problem-solving", "run the loop", "the tests disagree with the spec", "did I fix this everywhere", "plan this first", "act on review feedback", "verify before done", "run the gates", "are we done". Modes - plan, report.'
 metadata:
   version: 2.0.0
 ---
