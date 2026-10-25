@@ -19,20 +19,8 @@ import (
 // gitLogTimeout bounds one history scan; a huge repo with no -n limit must still terminate.
 var gitLogTimeout = 60 * time.Second
 
-// ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never
-// printing the matched line itself — only which commit and file introduced it. since caps the scan
-// to the last N commits (0 = full history); rev limits it to a revision range (e.g. @{u}..HEAD). Read-only: runs `git log -p`, nothing else.
-func ScanGit(out io.Writer, dir, rev string, since int) int {
-	fmt.Fprintln(out, "== git history credential scan ==")
-	inRepo, err := probeGitRepo(dir)
-	if err != nil {
-		fmt.Fprintf(out, "  ⚠ could not probe git repo: %v\n", err)
-		return ExitFindings
-	}
-	if !inRepo {
-		fmt.Fprintln(out, "  ✓ not inside a git repo — skipped")
-		return ExitClean
-	}
+// gitLogArgs builds the `git log -p` argv for dir, limited to since commits and/or rev when set.
+func gitLogArgs(dir, rev string, since int) []string {
 	args := []string{"-C", dir, "log", "-p", "--no-color", "--no-textconv", "--"}
 	if since > 0 {
 		args = append(args[:len(args)-1], "-n", strconv.Itoa(since), "--")
@@ -40,34 +28,23 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 	if rev != "" {
 		args = append(args[:len(args)-1], rev, "--")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
-		return ExitFindings
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
-		return ExitFindings
-	}
+	return args
+}
 
+// scanGitLogOutput walks `git log -p` output and returns one finding per secret-shaped added line.
+// ReadLine fragments an over-long line (minified bundle, lockfile) instead of aborting the scan mid-pipe.
+func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 	var findings []string
 	commit, file := "", ""
 	addition, cont := false, false
-	// ReadLine fragments an over-long line (minified bundle, lockfile) instead of aborting the scan mid-pipe.
 	br := bufio.NewReaderSize(stdout, 1<<20)
-	var readErr error
 	for {
 		frag, isPrefix, err := br.ReadLine()
 		if err != nil {
 			if err != io.EOF {
-				readErr = err
+				return findings, err
 			}
-			break
+			return findings, nil
 		}
 		line := string(frag)
 		if !cont {
@@ -92,6 +69,38 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 		}
 		cont = isPrefix
 	}
+}
+
+// ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never
+// printing the matched line itself — only which commit and file introduced it. since caps the scan
+// to the last N commits (0 = full history); rev limits it to a revision range (e.g. @{u}..HEAD). Read-only: runs `git log -p`, nothing else.
+func ScanGit(out io.Writer, dir, rev string, since int) int {
+	fmt.Fprintln(out, "== git history credential scan ==")
+	inRepo, err := probeGitRepo(dir)
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ could not probe git repo: %v\n", err)
+		return ExitFindings
+	}
+	if !inRepo {
+		fmt.Fprintln(out, "  ✓ not inside a git repo — skipped")
+		return ExitClean
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", gitLogArgs(dir, rev, since)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
+		return ExitFindings
+	}
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
+		return ExitFindings
+	}
+
+	findings, readErr := scanGitLogOutput(stdout)
 	if readErr != nil {
 		cancel() // unread output would block git on a full pipe until the timeout
 	}

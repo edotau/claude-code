@@ -341,6 +341,90 @@ type rotateKeyOpts struct{ force bool }
 // is set — use only once the caller has updated that source with the new key immediately after.
 func ForceRotate() RotateKeyOption { return func(o *rotateKeyOpts) { o.force = true } }
 
+// resealSecrets re-seals every secret from old to next inside t, retires old's kid, and advances meta/kid.
+func resealSecrets(t *Tx, old, next *Key) error {
+	curKid, _ := t.Get(Meta, "kid")
+	if curKid != "" && curKid != old.Kid {
+		return ErrWrongKey
+	}
+	for _, name := range t.Names(Secrets) {
+		r, ok, rerr := t.Record(name)
+		if rerr != nil {
+			return rerr
+		}
+		if !ok {
+			return fmt.Errorf("vault: invalid record %q", name)
+		}
+		plain, e := old.Open(name, r)
+		if e != nil {
+			return e
+		}
+		r.Sealed = next.Seal(name, plain)
+		r.Kid = next.Kid
+		if e := t.PutRecord(name, r); e != nil {
+			return e
+		}
+	}
+	if err := retireKid(t, old.Kid); err != nil {
+		return err
+	}
+	return t.Put(Meta, "kid", next.Kid)
+}
+
+// rotateKeyLocked runs the body of RotateKey under the "<vault>.key" file lock.
+func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
+	defer invalidateKey()
+	old, source, e := MasterKey()
+	if e != nil {
+		return "", "", e
+	}
+	if source != "keyring" {
+		return "", "", errors.New("vault: rotation requires a keyring-held master key")
+	}
+	oldKid = old.Kid
+	id, kid, command, e := keyMeta()
+	if e != nil {
+		return oldKid, "", e
+	}
+	if kid != "" && kid != old.Kid {
+		return oldKid, "", ErrWrongKey
+	}
+	if e := rotateGuard(o.force, command); e != nil {
+		return oldKid, "", e
+	}
+	acct := account(id)
+
+	// Retain the outgoing key under its immutable kid account; idempotent if an earlier
+	// rotation (or this one, resumed after a crash) already wrote it.
+	if e := keyringSet(acct+"."+old.Kid, old.raw); e != nil {
+		return oldKid, "", e
+	}
+
+	next, value, e := randomKey(id)
+	if e != nil {
+		return oldKid, "", e
+	}
+	newKid = next.Kid
+
+	// Persist the new key under its immutable kid account BEFORE any ciphertext is committed
+	// under it (R1): a crash after this line but before (or during) the reseal below leaves
+	// the new key durable and unreferenced — harmless — never stranded or lost.
+	if e := keyringSet(acct+"."+newKid, value); e != nil {
+		return oldKid, newKid, e
+	}
+
+	if e := Update(func(t *Tx) error { return resealSecrets(t, old, next) }); e != nil {
+		return oldKid, newKid, e
+	}
+	// Convenience pointer only, updated after the atomic reseal commits; resolveKey/matchKey
+	// never depend on this being current (R1, R2).
+	if e := keyringSet(acct, value); e != nil {
+		return oldKid, newKid, e
+	}
+	audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
+	return oldKid, newKid, nil
+}
+
 // RotateKey generates a new master key, re-seals every secret under it, and retains every key —
 // outgoing and incoming — forever under its own immutable kid account so an archive, a stalled
 // writer, or a sibling root sharing this vault_id mid-rotation can still open records sealed
@@ -360,83 +444,9 @@ func RotateKey(opts ...RotateKeyOption) (oldKid, newKid string, err error) {
 		opt(&o)
 	}
 	err = paths.WithFileLock(Path()+".key", func() error {
-		defer invalidateKey()
-		old, source, e := MasterKey()
-		if e != nil {
-			return e
-		}
-		if source != "keyring" {
-			return errors.New("vault: rotation requires a keyring-held master key")
-		}
-		oldKid = old.Kid
-		id, kid, command, e := keyMeta()
-		if e != nil {
-			return e
-		}
-		if kid != "" && kid != old.Kid {
-			return ErrWrongKey
-		}
-		if e := rotateGuard(o.force, command); e != nil {
-			return e
-		}
-		acct := account(id)
-
-		// Retain the outgoing key under its immutable kid account; idempotent if an earlier
-		// rotation (or this one, resumed after a crash) already wrote it.
-		if e := keyringSet(acct+"."+old.Kid, old.raw); e != nil {
-			return e
-		}
-
-		next, value, e := randomKey(id)
-		if e != nil {
-			return e
-		}
-		newKid = next.Kid
-
-		// Persist the new key under its immutable kid account BEFORE any ciphertext is committed
-		// under it (R1): a crash after this line but before (or during) the reseal below leaves
-		// the new key durable and unreferenced — harmless — never stranded or lost.
-		if e := keyringSet(acct+"."+newKid, value); e != nil {
-			return e
-		}
-
-		if e := Update(func(t *Tx) error {
-			curKid, _ := t.Get(Meta, "kid")
-			if curKid != "" && curKid != old.Kid {
-				return ErrWrongKey
-			}
-			for _, name := range t.Names(Secrets) {
-				r, ok, rerr := t.Record(name)
-				if rerr != nil {
-					return rerr
-				}
-				if !ok {
-					return fmt.Errorf("vault: invalid record %q", name)
-				}
-				plain, e := old.Open(name, r)
-				if e != nil {
-					return e
-				}
-				r.Sealed = next.Seal(name, plain)
-				r.Kid = next.Kid
-				if e := t.PutRecord(name, r); e != nil {
-					return e
-				}
-			}
-			if err := retireKid(t, old.Kid); err != nil {
-				return err
-			}
-			return t.Put(Meta, "kid", next.Kid)
-		}); e != nil {
-			return e
-		}
-		// Convenience pointer only, updated after the atomic reseal commits; resolveKey/matchKey
-		// never depend on this being current (R1, R2).
-		if e := keyringSet(acct, value); e != nil {
-			return e
-		}
-		audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
-		return nil
+		var e error
+		oldKid, newKid, e = rotateKeyLocked(o)
+		return e
 	})
 	return
 }
