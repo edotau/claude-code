@@ -214,6 +214,31 @@ func TestMachinesFallsBackToStatusWithoutCredential(t *testing.T) {
 	}
 }
 
+func TestUseExitNodeFlags(t *testing.T) {
+	for _, tc := range []struct {
+		peer string
+		want string
+	}{
+		{"peer-node", "set\n--exit-node=peer-node\n--exit-node-allow-lan-access=true\n"},
+		{"", "set\n--exit-node=\n"},
+	} {
+		dir := t.TempDir()
+		argvFile := filepath.Join(dir, "argv")
+		bin := fakeBin(t, dir, "tailscale", "printf '%s\\n' \"$@\" > "+shQuote(argvFile))
+		prevLook, prevExec := lookPathReal, execCommandContext
+		lookPathReal = func(string) (string, error) { return bin, nil }
+		execCommandContext = exec.CommandContext
+		if err := UseExitNode(context.Background(), tc.peer); err != nil {
+			t.Fatalf("UseExitNode(%q) err = %v", tc.peer, err)
+		}
+		b, _ := os.ReadFile(argvFile)
+		if string(b) != tc.want {
+			t.Errorf("UseExitNode(%q) argv = %q, want %q", tc.peer, string(b), tc.want)
+		}
+		lookPathReal, execCommandContext = prevLook, prevExec
+	}
+}
+
 // shQuote single-quotes s for a shell script literal.
 func shQuote(s string) string {
 	return "'" + s + "'"
