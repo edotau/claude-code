@@ -349,6 +349,27 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 			t.Errorf("IsQuota(%q) = false, want true (model-denied implies account-exhausted via the OR)", text)
 		}
 	}
+	// A body carrying BOTH a hard account-exhaustion marker and a model-denied marker (OpenAI's 402 body
+	// reads this way: a 402 wrapping "insufficient_quota") is account-exhausted, not model-denied — demoting
+	// to a lower slot on the same dead account would only fail again, so ModelDenied must veto.
+	hardOverridesModel := []string{
+		`HTTP 402 payment required: insufficient_quota`,
+		`out of credits`,
+	}
+	for _, text := range hardOverridesModel {
+		if !IsQuota(text) {
+			t.Errorf("IsQuota(%q) = false, want true", text)
+		}
+		if ModelDenied(text) {
+			t.Errorf("ModelDenied(%q) = true, want false (hard account-exhaustion marker vetoes)", text)
+		}
+	}
+	// Gemini's free-tier per-model denial reuses accountRE's "exceeded your current quota" phrase alongside
+	// "limit: 0" — hardAccountRE deliberately excludes "current" (only monthly/weekly), so this one stays
+	// model-denied: a lower slot on the same key can still serve.
+	if geminiFreeTier := `exceeded your current quota, limit: 0`; !ModelDenied(geminiFreeTier) {
+		t.Errorf("ModelDenied(%q) = false, want true (model-specific denial, not account-wide)", geminiFreeTier)
+	}
 }
 
 // TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
@@ -361,6 +382,37 @@ func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
 	badRunner := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}
 	if err := badRunner.Validate(); err == nil || !strings.Contains(err.Error(), "unknown runner") {
 		t.Errorf("unknown runner: err = %v, want it to name the rule", err)
+	}
+}
+
+// TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.Validate catches an explicit
+// account_key naming no known billing entry and an opencode cell whose override model prefix has no
+// derivable billing account, while letting a "copilot:" dynamic key and an off-runner "/" model override
+// (no account-key rule applies outside opencode) through.
+func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
+	badAccount := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+		"opencode": {"sonnet": {Model: "opencode-go/y", Account: "nobody:nothing"}},
+	}}
+	if err := badAccount.Validate(); err == nil || !strings.Contains(err.Error(), `account_key "nobody:nothing"`) {
+		t.Errorf("unknown account_key: err = %v, want it to name the rule", err)
+	}
+	badPrefix := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+		"opencode": {"sonnet": {Model: "zed/model"}},
+	}}
+	if err := badPrefix.Validate(); err == nil || !strings.Contains(err.Error(), `model "zed/model" prefix has no known billing account`) {
+		t.Errorf("unknown opencode prefix: err = %v, want it to name the rule", err)
+	}
+	copilotUser := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+		"opencode": {"sonnet": {Model: "github-copilot/x", Account: "copilot:anyuser"}},
+	}}
+	if err := copilotUser.Validate(); err != nil {
+		t.Errorf("copilot:anyuser must pass (dynamic family): %v", err)
+	}
+	offRunnerSlash := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+		"codex": {"sonnet": {Model: "openrouter/some-model"}},
+	}}
+	if err := offRunnerSlash.Validate(); err != nil {
+		t.Errorf("a non-opencode \"/\" model with no account_key must pass (rule is opencode-scoped): %v", err)
 	}
 }
 

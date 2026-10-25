@@ -76,7 +76,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	if reg != nil {
 		for runner, tiers := range reg.Route {
 			for tier, o := range tiers {
-				if err := t.applyRouteOverlayCell(runner, tier, o, copilotKey); err != nil {
+				if err := t.applyRouteOverlayCell(runner, tier, o); err != nil {
 					return nil, err
 				}
 			}
@@ -98,13 +98,13 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 
 // applyRouteOverlayCell merges one overlay cell (o) into t.Rows[runner][tier], resolving the opencode
 // override account when the model prefix moves the cell off its table-defined backend.
-func (t *Table) applyRouteOverlayCell(runner, tier string, o providers.RouteCell, copilotKey string) error {
+func (t *Table) applyRouteOverlayCell(runner, tier string, o providers.RouteCell) error {
 	c, ok := t.Rows[runner][tier]
 	if !ok {
 		return fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, tier)
 	}
 	if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
-		key, err := opencodeOverrideAccount(prefixOf(o.Model), copilotKey)
+		key, err := opencodeOverrideAccount(prefixOf(o.Model))
 		if err != nil {
 			return fmt.Errorf("routetable: overlay %s/%s: %w", runner, tier, err)
 		}
@@ -144,15 +144,17 @@ func prefixOf(model string) string {
 }
 
 // opencodeOverrideAccount derives the billing account for an opencode cell whose override model prefix moves
-// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode:go, github-copilot
-// bills the pinned Copilot account (same key the copilot row uses); any other prefix is rejected outright,
-// since the cell would keep charging quota to opencode:go for a model that account never serves.
-func opencodeOverrideAccount(prefix, copilotKey string) (string, error) {
+// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode:go. github-copilot
+// bills opencode:github-copilot, not the copilot row's pinned-gh-user key — opencode authenticates with its
+// own stored GitHub Copilot login (vendors.OpencodeLogins), which may be a different GitHub user than the
+// one Copilot's own row bills, so quota tracking must not conflate the two accounts. Any other prefix is
+// rejected outright, since the cell would keep charging quota to opencode:go for a model that account never serves.
+func opencodeOverrideAccount(prefix string) (string, error) {
 	switch prefix {
 	case "opencode-go", "opencode":
 		return "opencode:go", nil
 	case "github-copilot":
-		return copilotKey, nil
+		return "opencode:github-copilot", nil
 	default:
 		return "", fmt.Errorf("model prefix %q has no known billing account; set account_key explicitly", prefix)
 	}
