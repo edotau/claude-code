@@ -49,7 +49,7 @@ made directly in `settings.json` that is silently erased on the next `make insta
 
 4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate vendor
    projections with `claude-code agents sync` (for example, `~/.codex/AGENTS.md` and
-   `~/.gemini/GEMINI.md`; local renders are under `state/projections/`).
+   `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md`; local renders are under `state/projections/`).
 
 5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
    what was intentionally left for a later pass.

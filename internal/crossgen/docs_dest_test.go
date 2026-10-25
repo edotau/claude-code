@@ -38,7 +38,7 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"AGENTS.md", "GEMINI.md"} {
+	for _, name := range []string{"AGENTS.md", "GEMINI.md", "copilot-instructions.md"} {
 		if _, err := os.Stat(filepath.Join(claude, name)); err == nil {
 			t.Errorf("%s was rendered at the harness root", name)
 		}
