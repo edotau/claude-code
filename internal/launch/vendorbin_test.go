@@ -45,7 +45,7 @@ func TestRoutedVendorPlanResolvesVendorBin(t *testing.T) {
 	source := vendorPATHFixture(t, "codex", "")
 	t.Setenv("PATH", filepath.Dir(source))
 	bin := pathstest.FakeVendor(t, "codex", "")
-	plan, err := Vendor(context.Background(), "codex", Options{Provider: "openai"}, []string{"--version"})
+	plan, err := Vendor(context.Background(), "codex", Options{Provider: "openai", Direct: true}, []string{"--version"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestRoutedVendorPlanResolvesVendorBin(t *testing.T) {
 	if err := os.Remove(bin); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Vendor(context.Background(), "codex", Options{Provider: "openai"}, nil)
+	_, err = Vendor(context.Background(), "codex", Options{Provider: "openai", Direct: true}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not installed at "+bin) {
 		t.Fatalf("missing routed vendor: %v; want bin-dir error despite PATH vendor", err)
 	}

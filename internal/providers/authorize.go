@@ -23,8 +23,15 @@ func Authorize(ctx context.Context, p *Provider, h http.Header) error {
 	if err != nil {
 		return err
 	}
+	SetCredential(p, h, cred)
+	return nil
+}
+
+// SetCredential strips every client auth header from h, then sets the provider's auth header from cred.
+func SetCredential(p *Provider, h http.Header, cred string) {
 	h.Del("Authorization")
 	h.Del("X-Api-Key")
+	h.Del("X-Goog-Api-Key")
 	switch p.Auth.Type {
 	case AuthNone:
 		for k, v := range p.Headers {
@@ -35,7 +42,6 @@ func Authorize(ctx context.Context, p *Provider, h http.Header) error {
 	case AuthBearer:
 		h.Set("Authorization", "Bearer "+cred)
 	}
-	return nil
 }
 
 // anthropicOAuthBeta is the header Claude Code's own client sends alongside a setup-token bearer.

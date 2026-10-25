@@ -71,10 +71,61 @@ func Refresh(ctx context.Context, p *Provider) (string, error) {
 	return commandCredential(ctx, p, true)
 }
 
-func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	if c, ok := cmdCache.Load(p.Name); ok && !force && time.Now().Before(c.(cached).until) {
-		return c.(cached).value, nil
+// flight is one in-progress command mint for a provider; followers wait on done and share val/err.
+type flight struct {
+	done  chan struct{}
+	force bool
+	val   string
+	err   error
+}
+
+var (
+	flightMu sync.Mutex
+	flights  = map[string]*flight{}
+)
+
+func cachedCommand(name string) (string, bool) {
+	if c, ok := cmdCache.Load(name); ok && time.Now().Before(c.(cached).until) {
+		return c.(cached).value, true
 	}
+	return "", false
+}
+
+// commandCredential single-flights the mint per provider; a forced call never joins a non-forced flight.
+func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	for {
+		flightMu.Lock()
+		if !force {
+			if v, ok := cachedCommand(p.Name); ok {
+				flightMu.Unlock()
+				return v, nil
+			}
+		}
+		f, inflight := flights[p.Name]
+		if !inflight {
+			f = &flight{done: make(chan struct{}), force: force}
+			flights[p.Name] = f
+			flightMu.Unlock()
+			f.val, f.err = mintCommand(context.WithoutCancel(ctx), p, force)
+			flightMu.Lock()
+			delete(flights, p.Name)
+			flightMu.Unlock()
+			close(f.done)
+			return f.val, f.err
+		}
+		flightMu.Unlock()
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if f.force || !force {
+			return f.val, f.err
+		}
+	}
+}
+
+func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 	cmd := p.Auth.Command
 	if force && p.Auth.RefreshCommand != "" {
 		cmd = p.Auth.RefreshCommand
