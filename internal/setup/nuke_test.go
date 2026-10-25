@@ -363,6 +363,38 @@ func TestNukeWithoutKeepMemorySkipsMemoryPlansKnowledge(t *testing.T) {
 	}
 }
 
+// --keep-memory also archives a legacy pre-44aab60 docs/knowledge/ tree when present; its presence
+// is never an error, and without --keep-memory it is skipped like every other keep-memory candidate.
+func TestNukeKeepMemoryIncludesLegacyDocsKnowledge(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "legacy knowledge\n")
+
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	if _, ok := entries["docs/knowledge/x.md"]; !ok {
+		t.Fatalf("--keep-memory should archive legacy docs/knowledge/x.md, got %v", tarNames(entries))
+	}
+}
+
+func TestNukeWithoutKeepMemorySkipsLegacyDocsKnowledge(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "legacy knowledge\n")
+
+	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: false}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	if _, ok := entries["docs/knowledge/x.md"]; ok {
+		t.Fatalf("nuke without --keep-memory must never archive docs/knowledge/x.md, got %v", tarNames(entries))
+	}
+}
+
 // A symlinked projects/*/memory dir anywhere above a real one is still skipped: Lstat gates the
 // candidate root itself before WalkDir ever runs, so a symlinked root contributes nothing.
 func TestNukeKeepMemorySkipsSymlinkedCandidateRoot(t *testing.T) {
