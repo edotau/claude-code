@@ -257,3 +257,22 @@ func Stop(ctx context.Context) (State, error) {
 	}
 	return st, fmt.Errorf("pid %d signalled but still draining", st.PID)
 }
+
+// Restart replaces a running router with one spawned from the current binary; a stopped router is left alone.
+func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
+	old, ok := Running(ctx)
+	if !ok {
+		return old, State{}, false, nil
+	}
+	if _, err = Stop(ctx); err != nil {
+		return old, State{}, false, err
+	}
+	if _, err = Ensure(ctx); err != nil {
+		return old, State{}, false, err
+	}
+	cur, ok = Running(ctx)
+	if !ok {
+		return old, State{}, false, fmt.Errorf("router did not come back healthy (see %s)", LogFile())
+	}
+	return old, cur, true, nil
+}
