@@ -63,30 +63,36 @@ func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
 	}
 }
 
-// A no-tools gemini run whose inlined attachment pushes the composed prompt over MaxPromptBytes errors
-// out before ever touching the agy binary (no bin/agy installed in this test, and it must not need one).
-func TestVendorRunnerGeminiNoToolsOverLimitAttach(t *testing.T) {
+// codex and gemini ride stdin (codexHeadless's `-` operand, agy's stream-json), so an oversized prompt
+// never hits MAX_ARG_STRLEN and must not be refused before launch; opencode still puts the prompt in
+// argv (vendors.opencodeRun), so it alone keeps the refusal. Provider: "subscription" (the built-in
+// default) makes vendorTargetNote return immediately (req.Provider != "" short-circuits the vendor's own
+// fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
+// or bin/opencode needed, and no network call.
+func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
-		t.Fatal(err)
+	t.Setenv("HOME", t.TempDir())
+	big := strings.Repeat("x", MaxPromptBytes+10)
+
+	for _, name := range []string{"codex", "gemini"} {
+		t.Run(name+"/not-refused", func(t *testing.T) {
+			_, err := vendorRunner{name: name}.Run(context.Background(), Request{Prompt: big, Provider: "subscription"}, io.Discard)
+			if err == nil {
+				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
+			}
+			if errors.Is(err, ErrPromptTooLarge) {
+				t.Fatalf("%s: err = %v, want anything but ErrPromptTooLarge (prompt rides stdin, not argv)", name, err)
+			}
+		})
 	}
 
-	big := filepath.Join(t.TempDir(), "big.txt")
-	if err := os.WriteFile(big, []byte(strings.Repeat("x", MaxPromptBytes)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Attach: []string{big}}, io.Discard)
-	var e *Error
-	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
-		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
-	}
+	t.Run("opencode/still-refused", func(t *testing.T) {
+		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), Request{Prompt: big, Provider: "subscription"}, io.Discard)
+		var e *Error
+		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
+			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
+		}
+	})
 }
 
 // geminiOwnLoginFixture isolates HOME/CLAUDE_CONFIG_DIR and writes agy's own login marker, so

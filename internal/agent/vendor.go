@@ -109,7 +109,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if req.Autonomous && v.name == "codex" {
 		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
 	}
-	if len(prompt) > MaxPromptBytes {
+	// Only opencode puts the prompt in argv (vendors.opencodeRun); codex rides stdin behind `-` (codexHeadless)
+	// and gemini rides agy's stdin stream-json (RunAgy/agyStdin) — neither is bound by MAX_ARG_STRLEN.
+	if v.name == "opencode" && len(prompt) > MaxPromptBytes {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(prompt))}
 	}
 	h := vendors.Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
