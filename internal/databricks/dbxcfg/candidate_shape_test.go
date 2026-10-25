@@ -1,4 +1,4 @@
-package dbximport
+package dbxcfg
 
 import (
 	"encoding/json"

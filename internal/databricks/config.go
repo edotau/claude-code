@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/dbxconfig"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -40,8 +39,8 @@ var configPage = helptext.Page{
 
 var rescuePage = helptext.Page{
 	Usage: "claude-code databricks rescue [flags] [-- claude args...]",
-	About: "Break-glass: run claude with a scratch settings file, no router " +
-		"and no harness overlay. The file is deleted when claude exits. " +
+	About: "Break-glass: run claude with a scratch settings file that layers on top of " +
+		"your user settings; no router and no harness overlay. The file is deleted when claude exits. " +
 		"--print shows the file and command only and leaves the file.",
 }
 
@@ -69,7 +68,8 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 		if !slices.Contains(providers.DatabricksEnvs, env) {
 			return nil, "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
 		}
-		name = "databricks-" + env
+		reg, _ := providers.Load() // nil reg: the legacy name, then the --host / registry checks below decide
+		name = rowName(reg, env)
 	} else if f.env != "" {
 		return nil, "", errors.New("use --env or --provider, not both")
 	}
@@ -117,12 +117,12 @@ func synth(name, host, wire string) (*providers.Provider, string, error) {
 	return p, host, nil
 }
 
-func (f cfgFlags) options(target, self string) (dbxconfig.Options, error) {
+func (f cfgFlags) options(target, self string) (Options, error) {
 	p, host, err := resolve(f)
 	if err != nil {
-		return dbxconfig.Options{}, err
+		return Options{}, err
 	}
-	return dbxconfig.Options{Target: target, Host: host, P: p, Auth: f.auth, Self: self,
+	return Options{Target: target, Host: host, P: p, Auth: f.auth, Self: self,
 		Model: f.model, Set: f.set, Unset: f.unset}, nil
 }
 
@@ -135,15 +135,15 @@ func config(args []string) int {
 	target := args[0]
 	var f cfgFlags
 	fs := helptext.NewFlagSet("claude-code databricks config", configPage)
-	bind(fs, &f, dbxconfig.AuthHarness, true)
+	bind(fs, &f, AuthHarness, true)
 	if code, done := helptext.Parse(fs, args[1:]); done {
 		return code
 	}
 	self, _ := os.Executable()
 	o, err := f.options(target, self)
 	if err == nil {
-		var res dbxconfig.Result
-		if res, err = dbxconfig.Render(o); err == nil {
+		var res Result
+		if res, err = Render(o); err == nil {
 			return emit(f, target, res)
 		}
 	}
@@ -151,7 +151,7 @@ func config(args []string) int {
 	return 2
 }
 
-func emit(f cfgFlags, target string, res dbxconfig.Result) int {
+func emit(f cfgFlags, target string, res Result) int {
 	if res.Note != "" {
 		fmt.Fprintln(os.Stderr, "note: "+res.Note)
 	}
@@ -159,21 +159,7 @@ func emit(f cfgFlags, target string, res dbxconfig.Result) int {
 		_, _ = io.WriteString(os.Stdout, res.Text)
 		return 0
 	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if f.force {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-	w, err := os.OpenFile(f.out, flags, 0o600)
-	if err == nil {
-		_, err = io.WriteString(w, res.Text)
-		if cerr := w.Close(); err == nil {
-			err = cerr
-		}
-	}
-	if errors.Is(err, os.ErrExist) {
-		err = fmt.Errorf("%s exists; pass --force to overwrite", f.out)
-	}
-	if err != nil {
+	if err := writeFile0600(f.out, res.Text, f.force); err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks config: %v\n", err)
 		return 2
 	}
@@ -183,7 +169,7 @@ func emit(f cfgFlags, target string, res dbxconfig.Result) int {
 
 func configUsage() {
 	fs := helptext.NewFlagSet("claude-code databricks config", configPage)
-	bind(fs, &cfgFlags{}, dbxconfig.AuthHarness, true)
+	bind(fs, &cfgFlags{}, AuthHarness, true)
 	fs.Usage()
 }
 
@@ -195,11 +181,20 @@ func findClaude() (string, error) {
 	return exec.LookPath("claude")
 }
 
-// scrubbed drops every inherited HARNESS_* and ANTHROPIC_* var so claude sees only the scratch settings.
+// scrubPrefixes and scrubNames are the inherited vars rescue drops so only the scratch settings steer claude.
+var (
+	scrubPrefixes = []string{"HARNESS_", "ANTHROPIC_", "CLAUDE_CODE_USE_", "DATABRICKS_"}
+	scrubNames    = []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
+)
+
+// scrubbed drops every inherited var matching scrubPrefixes or scrubNames.
 func scrubbed(environ []string) []string {
 	var out []string
 	for _, kv := range environ {
-		if strings.HasPrefix(kv, "HARNESS_") || strings.HasPrefix(kv, "ANTHROPIC_") {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(scrubNames, name) || slices.ContainsFunc(scrubPrefixes, func(p string) bool {
+			return strings.HasPrefix(name, p)
+		}) {
 			continue
 		}
 		out = append(out, kv)
@@ -216,16 +211,16 @@ func rescue(args []string) int {
 	var f cfgFlags
 	var print bool
 	fs := helptext.NewFlagSet("claude-code databricks rescue", rescuePage)
-	bind(fs, &f, dbxconfig.AuthCLI, false)
+	bind(fs, &f, AuthCLI, false)
 	fs.BoolVar(&print, "print", false, "print the file and command, do not run")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	self, _ := os.Executable()
-	o, err := f.options(dbxconfig.TargetClaude, self)
-	var res dbxconfig.Result
+	o, err := f.options(TargetClaude, self)
+	var res Result
 	if err == nil {
-		res, err = dbxconfig.Render(o)
+		res, err = Render(o)
 	}
 	var file string
 	if err == nil {
@@ -274,7 +269,7 @@ func writeScratch(text string) (string, error) {
 
 func rescueUsage() {
 	fs := helptext.NewFlagSet("claude-code databricks rescue", rescuePage)
-	bind(fs, &cfgFlags{}, dbxconfig.AuthCLI, false)
+	bind(fs, &cfgFlags{}, AuthCLI, false)
 	fs.Bool("print", false, "print the file and command, do not run")
 	fs.Usage()
 }

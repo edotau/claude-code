@@ -79,13 +79,13 @@ func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
 	}
 }
 
-func TestAuthDatabricksCLIRotatedRefreshIsResealed(t *testing.T) {
+func TestAuthU2MRotatedRefreshIsResealed(t *testing.T) {
 	var seen []string
 	srv := oidcServer(t, func(_ *http.Request, f url.Values) (int, map[string]any) {
 		seen = append(seen, f.Get("refresh_token"))
 		return 200, map[string]any{"access_token": "u2m-acc", "refresh_token": "refresh-2", "expires_in": 3600}
 	})
-	p := mintRow(t, "kind-u2m-rot", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "kind-u2m-rot", AuthU2M, "", srv.URL)
 	name := authSecretName(p)
 	if err := SealSecret(name, "refresh-1"); err != nil {
 		t.Fatal(err)
@@ -104,11 +104,11 @@ func TestAuthDatabricksCLIRotatedRefreshIsResealed(t *testing.T) {
 	}
 }
 
-func TestAuthDatabricksCLINonRotationKeepsSealedToken(t *testing.T) {
+func TestAuthU2MNonRotationKeepsSealedToken(t *testing.T) {
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 		return 200, map[string]any{"access_token": "u2m-acc", "expires_in": 3600}
 	})
-	p := mintRow(t, "kind-u2m-norot", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "kind-u2m-norot", AuthU2M, "", srv.URL)
 	name := authSecretName(p)
 	if err := SealSecret(name, "refresh-1"); err != nil {
 		t.Fatal(err)
@@ -121,22 +121,22 @@ func TestAuthDatabricksCLINonRotationKeepsSealedToken(t *testing.T) {
 	}
 }
 
-func TestAuthDatabricksCLIInvalidGrantPointsToLoginWithoutToken(t *testing.T) {
+func TestAuthU2MInvalidGrantPointsToLoginWithoutToken(t *testing.T) {
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 		return 400, map[string]any{"error": "invalid_grant", "error_description": "refresh token expired"}
 	})
-	p := mintRow(t, "kind-u2m-dead", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "kind-u2m-dead", AuthU2M, "", srv.URL)
 	if err := SealSecret(authSecretName(p), "refresh-dead-value"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "vault login kind-u2m-dead") || strings.Contains(err.Error(), "refresh-dead-value") {
+	if err == nil || !strings.Contains(err.Error(), "databricks login kind-u2m-dead") || strings.Contains(err.Error(), "refresh-dead-value") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestKindMissingSecretErrors(t *testing.T) {
-	for _, kind := range []string{AuthDatabricksCLI, AuthOAuthM2M, AuthPAT} {
+	for _, kind := range []string{AuthU2M, AuthOAuthM2M, AuthPAT} {
 		p := mintRow(t, "kind-missing-"+kind, kind, map[bool]string{true: "cid"}[kind == AuthOAuthM2M], "http://127.0.0.1:1")
 		_, err := Credential(context.Background(), p)
 		if err == nil || !strings.Contains(err.Error(), "no credential") {
@@ -146,7 +146,7 @@ func TestKindMissingSecretErrors(t *testing.T) {
 }
 
 func TestCredentialPresentPerKind(t *testing.T) {
-	for _, kind := range []string{AuthDatabricksCLI, AuthOAuthM2M, AuthPAT} {
+	for _, kind := range []string{AuthU2M, AuthOAuthM2M, AuthPAT} {
 		p := mintRow(t, "kind-present-"+kind, kind, map[bool]string{true: "cid"}[kind == AuthOAuthM2M], "http://127.0.0.1:1")
 		if CredentialPresent(p) {
 			t.Errorf("%s: present before sealing", kind)

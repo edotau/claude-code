@@ -248,8 +248,13 @@ func sessionProvider() (name string, routed bool) {
 // envSuffixRE splits "<family>-<env>[-anything]" where env names a deployment tier.
 var envSuffixRE = regexp.MustCompile(`^(.+?)-(dev|qa|test|stage|staging|prod)(-.*)?$`)
 
-// providerLabel renders "databricks-qa" as "databricks·qa"; any other name is returned unchanged.
+// providerLabel renders a databricks preset row as "databricks·<id>" and "<family>-<env>" as "<family>·<env>".
 func providerLabel(name string) string {
+	if reg := registry(); reg != nil {
+		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
+			return "databricks·" + strings.TrimPrefix(name, "databricks-")
+		}
+	}
 	if m := envSuffixRE.FindStringSubmatch(name); m != nil {
 		return m[1] + "·" + m[2]
 	}

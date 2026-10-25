@@ -13,16 +13,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/dbxoauth"
+	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Auth types (Databricks Go SDK names): how a bearer row's credential is minted. "" keeps env/file/command resolution.
+// Auth types: how a bearer row mints (u2m = the SDK's databricks-cli); "" keeps env/file/command resolution.
 const (
-	AuthDatabricksCLI = "databricks-cli" // browser login once (native PKCE); sealed refresh token mints access tokens
-	AuthOAuthM2M      = "oauth-m2m"      // client id + sealed client secret
-	AuthPAT           = "pat"            // sealed personal access token
+	AuthU2M      = "u2m"       // browser login once (native PKCE); sealed refresh token mints access tokens
+	AuthOAuthM2M = "oauth-m2m" // client id + sealed client secret
+	AuthPAT      = "pat"       // sealed personal access token
 )
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
@@ -34,7 +34,7 @@ func authSecretName(p *Provider) string { return SecretNameFor(p.Name, p.Auth.Au
 func SecretNameFor(id, authType string) string {
 	suffix := ""
 	switch authType {
-	case AuthDatabricksCLI:
+	case AuthU2M:
 		suffix = "REFRESH_TOKEN"
 	case AuthOAuthM2M:
 		suffix = "CLIENT_SECRET"
@@ -90,7 +90,7 @@ func checkAuthScheme(p *Provider) error {
 }
 
 // supportedAuthTypes is the closed set validateAuthType accepts; add a value here to extend it.
-var supportedAuthTypes = []string{AuthDatabricksCLI, AuthOAuthM2M, AuthPAT}
+var supportedAuthTypes = []string{AuthU2M, AuthOAuthM2M, AuthPAT}
 
 var (
 	accountIDRE   = regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`)
@@ -174,7 +174,7 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	if v, ok := cachedValue(p); ok && !force {
 		return v, nil
 	}
-	if p.Auth.AuthType != AuthDatabricksCLI {
+	if p.Auth.AuthType != AuthU2M {
 		return mintAndCache(ctx, p)
 	}
 	var out string
@@ -204,40 +204,40 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 }
 
 // mintAuth is the one path that turns a sealed credential into an access token.
-func mintAuth(ctx context.Context, p *Provider) (dbxoauth.Token, error) {
+func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 	name := authSecretName(p)
 	secret, _, err := EffectiveSecret(name)
 	if err != nil {
-		return dbxoauth.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
+		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
-		return dbxoauth.Token{}, fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
+		return sdkport.Token{}, fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
 	}
 	if err := checkAuthScheme(p); err != nil {
-		return dbxoauth.Token{}, err
+		return sdkport.Token{}, err
 	}
 	host := AuthHost(p)
 	switch p.Auth.AuthType {
 	case AuthPAT:
-		return dbxoauth.Token{Access: secret}, nil
+		return sdkport.Token{Access: secret}, nil
 	case AuthOAuthM2M:
-		return dbxoauth.MintM2M(ctx, host, p.Auth.ClientID, secret)
+		return sdkport.MintM2M(ctx, host, p.Auth.ClientID, secret)
 	}
-	tok, err := dbxoauth.RefreshU2M(ctx, host, secret)
+	tok, err := sdkport.RefreshU2M(ctx, host, secret)
 	if err != nil {
-		return dbxoauth.Token{}, fmt.Errorf("%s: %w (run `claude-code vault login %s`)", p.Name, err, p.Name)
+		return sdkport.Token{}, fmt.Errorf("%s: %w (run `claude-code databricks login %s`)", p.Name, err, p.Name)
 	}
 	if tok.Refresh != "" && tok.Refresh != secret {
 		if err := SealSecret(name, tok.Refresh); err != nil {
-			return dbxoauth.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
+			return sdkport.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
 		}
 	}
 	return tok, nil
 }
 
 func authHint(p *Provider, name string) string {
-	if p.Auth.AuthType == AuthDatabricksCLI {
-		return "run `claude-code vault login " + p.Name + "`"
+	if p.Auth.AuthType == AuthU2M {
+		return "run `claude-code databricks login " + p.Name + "`"
 	}
 	return "set " + name + " with `claude-code vault set`"
 }
@@ -269,10 +269,10 @@ func sealDirect(name, value string) error {
 	return nil
 }
 
-// LoginU2M runs the browser login for a databricks-cli row, seals the refresh token, mints once and returns the token's lifetime.
-func LoginU2M(ctx context.Context, p *Provider, opts dbxoauth.LoginOptions) (time.Duration, error) {
-	if p.Auth.AuthType != AuthDatabricksCLI {
-		return 0, fmt.Errorf("%s: auth.authType is %q, not %s", p.Name, p.Auth.AuthType, AuthDatabricksCLI)
+// LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.
+func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time.Duration, error) {
+	if p.Auth.AuthType != AuthU2M {
+		return 0, fmt.Errorf("%s: auth.authType is %q, not %s", p.Name, p.Auth.AuthType, AuthU2M)
 	}
 	if err := checkAuthScheme(p); err != nil {
 		return 0, err
@@ -281,7 +281,7 @@ func LoginU2M(ctx context.Context, p *Provider, opts dbxoauth.LoginOptions) (tim
 	if host == "" {
 		return 0, fmt.Errorf("%s: no workspace host (set host or base_url)", p.Name)
 	}
-	tok, err := dbxoauth.LoginU2M(ctx, host, opts)
+	tok, err := sdkport.LoginU2M(ctx, host, opts)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", p.Name, err)
 	}

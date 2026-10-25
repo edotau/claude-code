@@ -58,7 +58,7 @@ func commands() []command {
 		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
 		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
 		{name: "opencode", group: groupVendors, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
-		{name: "databricks", group: groupVendors, summary: "Claude Code on Databricks serving; check: smoke/1M probe", run: databricks.Run},
+		{name: "databricks", group: groupVendors, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},

@@ -80,9 +80,12 @@ func TestMigrateApplyAndIdempotent(t *testing.T) {
 	if err := json.Unmarshal([]byte(rawDoc(t)), &top); err != nil {
 		t.Fatal(err)
 	}
-	dev, ok := top.Providers["databricks-dev"]
+	dev, ok := top.Providers["dev"]
 	if !ok || dev.Preset != "databricks" || dev.Host != "https://adb-1.azuredatabricks.net" || dev.CLIProfile != "DEVPROF" {
-		t.Fatalf("databricks-dev = %+v", dev)
+		t.Fatalf("dev = %+v", dev)
+	}
+	if _, ok := top.Providers["databricks-dev"]; ok {
+		t.Error("databricks-dev row not renamed to dev")
 	}
 	if !strings.Contains(dev.Auth.Command, "-p DEVPROF") {
 		t.Errorf("auth.command not kept: %q", dev.Auth.Command)
@@ -90,9 +93,12 @@ func TestMigrateApplyAndIdempotent(t *testing.T) {
 	if _, ok := top.Providers["databricks-dev-oai"]; ok {
 		t.Error("-oai row not deleted")
 	}
-	set := top.Profiles.Sets["databricks-dev"]
+	if _, ok := top.Profiles.Sets["databricks-dev"]; ok {
+		t.Error("legacy set databricks-dev not replaced by DEFAULT")
+	}
+	set := top.Profiles.Sets[DefaultSet]
 	for _, a := range []string{"session", "copilot", "opencode", "codex"} {
-		if set[a].Account != "databricks-dev" {
+		if set[a].Account != "dev" {
 			t.Errorf("set row %s = %+v", a, set[a])
 		}
 	}
@@ -169,17 +175,17 @@ func TestUseOffRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	post := rawDoc(t)
-	if _, _, err := Use(false, "databricks-dev"); err != nil || rawDoc(t) != post {
+	if _, _, err := Use(false, DefaultSet); err != nil || rawDoc(t) != post {
 		t.Fatalf("use dry-run: err %v, changed %v", err, rawDoc(t) != post)
 	}
 	if _, _, err := Use(true, "nope"); err == nil {
 		t.Error("use of a missing set accepted")
 	}
-	if _, _, err := Use(true, "databricks-dev"); err != nil {
+	if _, _, err := Use(true, DefaultSet); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()
-	if err != nil || reg.Profiles.Active != "databricks-dev" {
+	if err != nil || reg.Profiles.Active != DefaultSet {
 		t.Fatalf("active = %q, err %v", reg.Profiles.Active, err)
 	}
 	if _, _, err := Off(true); err != nil {

@@ -18,10 +18,10 @@ func TestValidateKind(t *testing.T) {
 		want string
 	}{
 		{"none", kindRow("", "", AuthBearer), ""},
-		{"u2m", kindRow(AuthDatabricksCLI, "", AuthBearer), ""},
+		{"u2m", kindRow(AuthU2M, "", AuthBearer), ""},
 		{"m2m ok", kindRow(AuthOAuthM2M, "cid", AuthBearer), ""},
 		{"m2m no client", kindRow(AuthOAuthM2M, "", AuthBearer), "needs auth.clientId"},
-		{"unknown", kindRow("saml", "", AuthBearer), "not supported (supported: databricks-cli, oauth-m2m, pat)"},
+		{"unknown", kindRow("saml", "", AuthBearer), "not supported (supported: u2m, oauth-m2m, pat)"},
 		{"non-bearer", kindRow(AuthPAT, "", AuthAPIKey), "needs auth.type bearer"},
 		{"stray clientId", kindRow(AuthPAT, "cid", AuthBearer), "needs auth.authType oauth-m2m"},
 	}
@@ -34,7 +34,7 @@ func TestValidateKind(t *testing.T) {
 }
 
 func TestKindSecretName(t *testing.T) {
-	p := kindRow(AuthDatabricksCLI, "", AuthBearer)
+	p := kindRow(AuthU2M, "", AuthBearer)
 	p.Name = "dbx-dev.1"
 	if got := authSecretName(p); got != "PROVIDER_DBX_DEV_1_REFRESH_TOKEN" {
 		t.Errorf("got %q", got)
@@ -68,7 +68,7 @@ func TestKindChangeRefusedWithoutForce(t *testing.T) {
 	if err := SetProviderFields("openai", row); err != nil {
 		t.Fatal(err)
 	}
-	row["auth"] = map[string]any{"type": "bearer", "authType": "databricks-cli"}
+	row["auth"] = map[string]any{"type": "bearer", "authType": "u2m"}
 	err := SetProviderFields("openai", row)
 	if err == nil || !strings.Contains(err.Error(), "refused without force") {
 		t.Fatalf("kind change err = %v", err)

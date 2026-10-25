@@ -1,4 +1,4 @@
-package dbxconfig
+package databricks
 
 import (
 	"encoding/json"

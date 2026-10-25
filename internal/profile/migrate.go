@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -23,14 +24,28 @@ var profileFlagRE = regexp.MustCompile(`(?:^|\s)-p\s+([A-Za-z0-9_-]+)`)
 const deriveBase = `{"default":"d","providers":{"d":{"kind":"anthropic","base_url":"https://d.invalid",` +
 	`"auth":{"type":"none"},"models":{"opus":"m"}}}}`
 
-// Migrate folds each databricks-<env>[-oai] twin pair into a preset row plus a set; never sets profiles.active.
+// Migrate folds each databricks-<env>[-oai] twin pair into a preset row, renames those rows to <env> and
+// their sets to DEFAULT, and moves any sealed secret along; never sets profiles.active.
 func Migrate(apply bool) (oldDoc, newDoc []byte, notes []string, err error) {
+	sealed, err := secrets.NamesErr()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("vault secrets: %w", err)
+	}
+	var moves []SealedMove
 	oldDoc, newDoc, err = Transform(apply, func(top map[string]json.RawMessage, tx *vault.Tx) error {
-		var e error
 		vendors, _ := tx.Get(vault.Overlay, "vendors")
-		notes, e = migrateDoc(top, tx.All(vault.Pins), tx.All(vault.Env), vendors)
+		pins, env := tx.All(vault.Pins), tx.All(vault.Env)
+		var e error
+		if notes, e = migrateDoc(top, pins, env, vendors); e != nil {
+			return e
+		}
+		more, mv, e := renameDoc(top, pins, env, vendors, sealed)
+		notes, moves = append(notes, more...), mv
 		return e
 	})
+	if err == nil && apply {
+		err = moveSealed(moves)
+	}
 	return oldDoc, newDoc, notes, err
 }
 
@@ -54,6 +69,9 @@ func migrateDoc(top map[string]json.RawMessage, pins, env map[string]string, ven
 		a, o := "databricks-"+e, "databricks-"+e+"-oai"
 		rawA, hasA := provs[a]
 		_, hasO := provs[o]
+		if hasA && !hasO && presetOf(rawA) == providers.PresetDatabricks {
+			continue // already folded by an earlier migrate
+		}
 		if !hasA || !hasO {
 			notes = append(notes, fmt.Sprintf("skip %s: needs both %s and %s in the overlay", e, a, o))
 			continue
@@ -92,6 +110,15 @@ func migrateDoc(top map[string]json.RawMessage, pins, env map[string]string, ven
 	}
 	prof.Sets = sets
 	return notes, putProfiles(top, prof)
+}
+
+// presetOf is a raw provider row's preset ("" when absent or unparsable).
+func presetOf(raw json.RawMessage) string {
+	var p struct {
+		Preset string `json:"preset"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	return p.Preset
 }
 
 // migrateEnv builds the preset row and the profile set for one workspace.

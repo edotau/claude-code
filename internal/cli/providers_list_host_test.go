@@ -51,7 +51,7 @@ func TestUnsupportedAuthTypeWriteRefused(t *testing.T) {
 		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic",
 		"auth": map[string]any{"type": "bearer", "authType": "external-browser"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not supported (supported: databricks-cli, oauth-m2m, pat)") {
+	if err == nil || !strings.Contains(err.Error(), "not supported (supported: u2m, oauth-m2m, pat)") {
 		t.Fatalf("write err = %v", err)
 	}
 	reg, err := providers.Load()

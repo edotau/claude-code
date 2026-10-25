@@ -1,5 +1,4 @@
-// Package dbxconfig renders break-glass Claude Code and Codex configs for Databricks from embedded templates.
-package dbxconfig
+package databricks
 
 import (
 	"embed"
@@ -78,7 +77,19 @@ func Render(o Options) (Result, error) {
 	return res, err
 }
 
-var hostRe = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:\d+)?$`)
+var (
+	hostRe   = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:\d+)?$`)
+	setKeyRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	shellOK  = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+)
+
+// shellQuote single-quotes s for sh unless it is made only of shell-safe characters.
+func shellQuote(s string) string {
+	if shellOK.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 func (o Options) validate() error {
 	if o.Target != TargetClaude && o.Target != TargetCodex {
@@ -100,6 +111,9 @@ func (o Options) validate() error {
 		k, _, ok := strings.Cut(kv, "=")
 		if !ok || k == "" {
 			return fmt.Errorf("--set wants K=V (got %q)", kv)
+		}
+		if !setKeyRE.MatchString(k) {
+			return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
 		}
 		if CredentialShaped(k) {
 			return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
@@ -187,7 +201,7 @@ func renderClaude(o Options) (Result, error) {
 	env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = helperTTL
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
 	if o.Auth == AuthHarness {
-		doc["apiKeyHelper"] = o.Self + " token --provider " + p.Name
+		doc["apiKeyHelper"] = shellQuote(o.Self) + " token --provider " + shellQuote(p.Name)
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")

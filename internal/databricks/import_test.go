@@ -1,4 +1,4 @@
-package cli
+package databricks
 
 import (
 	"os"
@@ -37,9 +37,9 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(dbxCfgFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	base := []string{"import", "--from", "databrickscfg", "--file", cfg}
+	base := []string{"--file", cfg}
 
-	code, out, _ := captureOutput(t, func() int { return cmdVault(base) })
+	code, out, _ := captureOutput(t, func() int { return importCfg(base) })
 	if code != 0 || !strings.Contains(out, "dry-run") || strings.Contains(out, "secret-value-1") {
 		t.Fatalf("dry-run: %d %q", code, out)
 	}
@@ -48,7 +48,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	}
 
 	args := append(slices.Clone(base), "--apply", "--seal-secrets", "--rename", "pat-one=pat-renamed")
-	code, out, _ = captureOutput(t, func() int { return cmdVault(args) })
+	code, out, _ = captureOutput(t, func() int { return importCfg(args) })
 	if code != 0 || strings.Contains(out, "secret-value-1") || strings.Contains(out, "dapi-token-value") {
 		t.Fatalf("apply: %d %q", code, out)
 	}
@@ -71,7 +71,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 		}
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdVault(append(slices.Clone(base), "--apply")) })
+	code, out, _ = captureOutput(t, func() int { return importCfg(append(slices.Clone(base), "--apply")) })
 	if code != 0 || !strings.Contains(out, "row exists") {
 		t.Errorf("re-import should skip existing: %d %q", code, out)
 	}
