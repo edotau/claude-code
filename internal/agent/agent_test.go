@@ -394,3 +394,50 @@ func TestFallbackChain(t *testing.T) {
 		t.Errorf("claude itself never falls back, got %v", names(c))
 	}
 }
+
+func TestIsText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []byte
+		want bool
+	}{
+		{"empty", nil, true},
+		{"ascii", []byte("hello\n"), true},
+		{"multibyte", []byte("héllo 世界 ✓"), true},
+		{"nul", []byte("a\x00b"), false},
+		{"invalid-utf8", []byte{0xff, 0xfe, 'a'}, false},
+		{"truncated-rune", []byte{0xe4, 0xb8}, false},
+	}
+	for _, c := range cases {
+		if got := IsText(c.in); got != c.want {
+			t.Errorf("%s: IsText = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A binary --attach is rejected with the path named; a text file (multibyte too) is still inlined.
+func TestAttachInlineRejectsBinaryKeepsText(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		p := dir + "/" + name
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for name, data := range map[string][]byte{"nul.bin": []byte("ab\x00cd"), "bad.dat": {0xff, 0xfe, 0x80}} {
+		p := write(name, data)
+		_, err := attachInline("task", []string{p})
+		if err == nil || !strings.Contains(err.Error(), p) || !strings.Contains(err.Error(), "binary") {
+			t.Errorf("%s: err = %v, want a binary-file error naming %s", name, err, p)
+		}
+	}
+	good := write("ok.txt", []byte("héllo 世界"))
+	got, err := attachInline("task", []string{good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "task\n\n<file path=" + `"` + good + `"` + ">\nhéllo 世界\n</file>"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

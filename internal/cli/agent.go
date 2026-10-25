@@ -204,6 +204,12 @@ func (a *attachFlag) Set(s string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("--attach %q: not a regular file", s)
 	}
+	// reject binary up front: it fails the same way on every runner, so it must never reach the fallback chain
+	if data, err := os.ReadFile(abs); err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	} else if !agent.IsText(data) {
+		return fmt.Errorf("--attach %q: binary file; attach text only", s)
+	}
 	*a = append(*a, abs)
 	return nil
 }
