@@ -86,6 +86,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	has, err := settingsHasHooks(SettingsFile())
 	nested := clean.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
+	strayOK, strayDetail := strayClaudeJSON()
+	check(strayOK, false, "claude.json", strayDetail)
 	check(true, false, "audit (7d)", auditSummary())
 	check(true, false, "setup", setupDoctorDetail())
 	check(true, false, "browser", browserDoctorDetail())
