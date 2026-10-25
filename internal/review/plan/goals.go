@@ -319,7 +319,8 @@ func analyze(text, source string) analysis {
 
 // RunGoals is the Go entry point for goal_verifier.py's CLI.
 func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	input, jsonOut, code, handled := parseInputJSONArgs("goal_verifier.py", args, stdout, stderr)
+	input, jsonOut, code, handled := parseInputJSONArgs("goals",
+		"Check every plan step names a verifiable goal and the plan ends on one.", args, stderr)
 	if handled {
 		return code
 	}

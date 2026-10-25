@@ -8,11 +8,11 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"unicode/utf16"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 )
 
 var lineSplitRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\r\n|\r|\n`) })
@@ -39,25 +39,30 @@ func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source st
 	return string(b), input, true
 }
 
-// parseInputJSONArgs accepts the argparse spelling (positional before or after --json) both scripts share.
-func parseInputJSONArgs(prog string, args []string, stdout, stderr io.Writer) (input string, jsonOut bool, exitCode int, handled bool) {
-	input = "-"
-	seen := false
-	for _, a := range args {
-		switch {
-		case a == "--json":
-			jsonOut = true
-		case a == "-h" || a == "--help":
-			helptext.Fprint(stdout, fmt.Sprintf("usage: %s [-h] [--json] [input]\n", prog))
-			return input, jsonOut, 0, true
-		case (strings.HasPrefix(a, "-") && a != "-") || seen:
-			fmt.Fprintf(stderr, "%s: error: unrecognized arguments: %s\n", prog, a)
-			return input, jsonOut, 2, true
-		default:
-			input, seen = a, true
-		}
+// parseInputJSONArgs parses the `review <tool> [<input>] [--json]` shape assumption_linter.py and
+// goal_verifier.py's Go ports share, with a real FlagSet so -h prints the usage page anywhere in args.
+func parseInputJSONArgs(tool, about string, args []string, stderr io.Writer) (input string, jsonOut bool, exitCode int, handled bool) {
+	fs := helptext.NewFlagSet("review "+tool, helptext.Page{
+		Usage: "claude-code review " + tool + " [<input>] [flags]",
+		About: about + " <input> is a file, or - (the default) for stdin.",
+	})
+	fs.SetOutput(stderr)
+	jsonFlag := fs.Bool("json", false, "Output in JSON format")
+	positional, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return "-", false, helptext.ExitCode(err), true
 	}
-	return input, jsonOut, 0, false
+	input = "-"
+	switch len(positional) {
+	case 0:
+	case 1:
+		input = positional[0]
+	default:
+		fmt.Fprintf(stderr, "review %s: unexpected argument %q\n", tool, positional[1])
+		fs.Usage()
+		return "-", false, 2, true
+	}
+	return input, *jsonFlag, 0, false
 }
 
 // pyRound1 replicates Python's round(x, 1) round-half-to-even at the tenths place.

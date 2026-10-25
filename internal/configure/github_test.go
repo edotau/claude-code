@@ -198,7 +198,7 @@ func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 	if strings.Contains(got, "ghp_FAKEtokenlookingvalue1234567890") {
 		t.Errorf("github section leaked a credential:\n%s", got)
 	}
-	for _, want := range []string{"gh CLI", "copilot CLI", "opencode copilot", "route("} {
+	for _, want := range []string{"gh CLI", "copilot CLI", "route("} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}

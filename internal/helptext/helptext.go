@@ -101,6 +101,13 @@ func rowsText(rows [][2]string, lw int) string {
 	return strings.Join(lines, "\n")
 }
 
+// Placeholder is an optional flag.Value hook: a custom Value implementing it names its own FLAGS
+// placeholder (e.g. "KEY") instead of the generic "value" flag.UnquoteUsage falls back to. Backticks
+// are banned in usage strings, so this is the only way to override the placeholder.
+type Placeholder interface {
+	Placeholder() string
+}
+
 // flagRows turns fs's flags into one {label, description} row each, in VisitAll order.
 func flagRows(fs *flag.FlagSet) [][2]string {
 	if fs == nil {
@@ -109,6 +116,9 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 	var rows [][2]string
 	fs.VisitAll(func(f *flag.Flag) {
 		name, usage := flag.UnquoteUsage(f)
+		if p, ok := f.Value.(Placeholder); ok {
+			name = p.Placeholder()
+		}
 		label := "--" + f.Name
 		if len(f.Name) == 1 {
 			label = "-" + f.Name

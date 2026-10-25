@@ -212,8 +212,15 @@ func vaultStoreTailscale(dryRun bool, pairs []vaultPair) int {
 }
 
 func configEdit(args []string) int {
-	if len(args) > 0 {
-		return vaultUsageErr("edit", args)
+	fs := helptext.NewFlagSet("vault edit", helptext.Page{
+		Usage: "claude-code vault edit",
+		About: "Edit pins, env and overlays in $EDITOR, as one transaction.",
+	})
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return vaultUsageErr("edit", fs.Args())
 	}
 	if err := config.Edit(os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "vault edit:", err)

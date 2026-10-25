@@ -56,7 +56,7 @@ func printRoute(d *dialog, ri vendors.RouteInfo) {
 
 // githubStatusRows prints every github section status line and reports which are OK, for both the
 // interactive menu (re-run each loop) and the piped report (run once).
-func githubStatusRows(d *dialog) (ghOK, copilotOK, opencodeOK bool) {
+func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 	gh := ghAuthCheck()
 	switch {
 	case !gh.found:
@@ -79,28 +79,18 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, opencodeOK bool) {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
 	}
 
-	opencodeOK = vendors.OpencodeCopilotLoginPresent()
-	if opencodeOK {
-		d.printf("%-16s present (opencode auth login: github-copilot)\n", "opencode copilot")
-	} else {
-		d.printf("%-16s ABSENT: no github-copilot login stored by opencode\n", "opencode copilot")
-	}
-
 	printRoute(d, vendors.DescribeRoute(d.reg, "opencode"))
 	printRoute(d, vendors.DescribeRoute(d.reg, "copilot"))
 	return
 }
 
 // githubFixCmds is the exact command line for every absent row, printed once on a piped run.
-func githubFixCmds(d *dialog, ghOK, copilotOK, opencodeOK bool) {
+func githubFixCmds(d *dialog, ghOK, copilotOK bool) {
 	if !ghOK {
 		d.println("fix: gh auth login")
 	}
 	if !copilotOK {
 		d.println("fix: copilot login")
-	}
-	if !opencodeOK {
-		d.println("fix: opencode auth login   (choose GitHub Copilot)")
 	}
 }
 
@@ -112,8 +102,8 @@ func runGithub(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return githubMenu(d)
 	}
-	ghOK, copilotOK, opencodeOK := githubStatusRows(d)
-	githubFixCmds(d, ghOK, copilotOK, opencodeOK)
+	ghOK, copilotOK := githubStatusRows(d)
+	githubFixCmds(d, ghOK, copilotOK)
 	if d.o.Check {
 		return vendors.DescribeRoute(d.reg, "opencode").OK && vendors.DescribeRoute(d.reg, "copilot").OK
 	}

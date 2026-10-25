@@ -49,6 +49,23 @@ func TestCmdVault(t *testing.T) {
 	}
 }
 
+// vault edit has no flags or commands of its own; -h must print its own usage-only page, not vaultPage's
+// COMMANDS list (every other vault -h path already covers the parent page itself).
+func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
+	useVaultTest(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"edit", "-h"}) })
+	if code != 0 {
+		t.Fatalf("vault edit -h: exit %d, want 0", code)
+	}
+	got := stdout + stderr
+	if !strings.HasPrefix(got, "usage: claude-code vault edit\n") {
+		t.Errorf("vault edit -h: want its own usage line first:\n%s", got)
+	}
+	if strings.Contains(got, "COMMANDS") || strings.Contains(got, "claude-code vault <command>") {
+		t.Errorf("vault edit -h: leaked the parent vaultPage:\n%s", got)
+	}
+}
+
 func TestVaultVerbsAndMenu(t *testing.T) {
 	useVaultTest(t)
 	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}

@@ -212,7 +212,8 @@ func groupByCategory(findings []Finding) []categoryGroup {
 
 // RunAssumptions is the Go entry point for assumption_linter.py's CLI.
 func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	input, jsonOut, code, handled := parseInputJSONArgs("assumption_linter.py", args, stdout, stderr)
+	input, jsonOut, code, handled := parseInputJSONArgs("assumptions",
+		"Lint a plan for vague actions, unscoped subjects and hopeful steps.", args, stderr)
 	if handled {
 		return code
 	}

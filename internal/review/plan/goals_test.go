@@ -90,6 +90,19 @@ func TestRunGoalsBadFlag(t *testing.T) {
 	}
 }
 
+// -h after a positional input still prints the usage page (a real FlagSet, not a leading-only check).
+func TestRunGoalsHelpAfterPositional(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunGoals([]string{"somefile.md", "-h"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := stdout.String() + stderr.String()
+	if !strings.HasPrefix(got, "usage: claude-code review goals [<input>] [flags]\n") {
+		t.Errorf("want the review goals usage page:\n%s", got)
+	}
+}
+
 func TestRunGoalsFlagsOversizedTasks(t *testing.T) {
 	text := readGoalsGolden(t, "oversized-tasks.md")
 	tasks := findOversizedTasks(text)

@@ -22,6 +22,9 @@ type originFlag map[string]string
 
 func (o originFlag) String() string { return fmt.Sprint(map[string]string(o)) }
 
+// Placeholder names the FLAGS placeholder for originFlag (helptext.Placeholder).
+func (o originFlag) Placeholder() string { return "SLUG=PATH" }
+
 func (o originFlag) Set(v string) error {
 	slug, path, ok := strings.Cut(v, "=")
 	if !ok || slug == "" || path == "" {

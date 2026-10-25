@@ -70,8 +70,24 @@ func TestRunQualityMissingPath(t *testing.T) {
 func TestRunQualityBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunQuality([]string{"--nope", "x.go"}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	if code != 2 {
+		t.Fatalf("exit code = %d for a bad flag, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Errorf("stderr = %q, want the stdlib unknown-flag message", stderr.String())
+	}
+}
+
+// -h after the positional path still prints the usage page (a real FlagSet, not a leading-only check).
+func TestRunQualityHelpAfterPositional(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunQuality([]string{"x.go", "-h"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := stdout.String() + stderr.String()
+	if !strings.HasPrefix(got, "usage: claude-code review quality <path> [flags]\n") {
+		t.Errorf("want the review quality usage page:\n%s", got)
 	}
 }
 

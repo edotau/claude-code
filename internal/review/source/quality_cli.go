@@ -1,12 +1,14 @@
 package source
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 )
 
 type qualityArgs struct {
@@ -16,44 +18,31 @@ type qualityArgs struct {
 	output   string
 }
 
-// parseQualityArgs accepts argparse's interspersed positional/flag order and its -l/-o short aliases.
-func parseQualityArgs(args []string) (qualityArgs, error) {
-	var a qualityArgs
-	var positionals []string
-	for i := 0; i < len(args); i++ {
-		tok := args[i]
-		switch {
-		case tok == "--recursive" || tok == "-r":
-			// store_true with default=True: the flag is inert either way (see report deviation note).
-		case tok == "--json":
-			a.jsonOut = true
-		case tok == "--language" || tok == "-l":
-			i++
-			if i >= len(args) {
-				return a, errors.New("argument --language/-l: expected one argument")
-			}
-			a.language = args[i]
-		case strings.HasPrefix(tok, "--language="):
-			a.language = strings.TrimPrefix(tok, "--language=")
-		case tok == "--output" || tok == "-o":
-			i++
-			if i >= len(args) {
-				return a, errors.New("argument --output/-o: expected one argument")
-			}
-			a.output = args[i]
-		case strings.HasPrefix(tok, "--output="):
-			a.output = strings.TrimPrefix(tok, "--output=")
-		case tok != "-" && strings.HasPrefix(tok, "-"):
-			return a, fmt.Errorf("unrecognized arguments: %s", tok)
-		default:
-			positionals = append(positionals, tok)
-		}
+// parseQualityArgs is a real FlagSet, so -h anywhere in args prints the usage page; -l/-o/-r mirror the
+// former argparse short aliases.
+func parseQualityArgs(args []string, stderr io.Writer) (qualityArgs, int, bool) {
+	fs := helptext.NewFlagSet("review quality", helptext.Page{
+		Usage: "claude-code review quality <path> [flags]",
+		About: "Code smells and SOLID violations in one file, or every file under a directory.",
+	})
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	language := fs.String("language", "", "only this language when <path> is a directory (-l)")
+	fs.StringVar(language, "l", "", "shorthand for --language")
+	output := fs.String("output", "", "with --json: write the report to this file (-o)")
+	fs.StringVar(output, "o", "", "shorthand for --output")
+	recursive := fs.Bool("recursive", true, "accepted for compatibility; directories are always recursive (-r)")
+	fs.BoolVar(recursive, "r", true, "shorthand for --recursive")
+	positional, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return qualityArgs{}, helptext.ExitCode(err), true
 	}
-	if len(positionals) != 1 {
-		return a, fmt.Errorf("expected exactly one path argument, got %d", len(positionals))
+	if len(positional) != 1 {
+		fmt.Fprintf(stderr, "review quality: expected exactly one path argument, got %d\n", len(positional))
+		fs.Usage()
+		return qualityArgs{}, 2, true
 	}
-	a.path = positionals[0]
-	return a, nil
+	return qualityArgs{path: positional[0], language: *language, jsonOut: *jsonOut, output: *output}, 0, false
 }
 
 // resolvePath mirrors Path(...).resolve(): absolute, with symlinks collapsed where possible.
@@ -70,10 +59,9 @@ func resolvePath(p string) string {
 
 // RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a missing path or output write error.
 func RunQuality(args []string, stdout, stderr io.Writer) int {
-	parsed, err := parseQualityArgs(args)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
+	parsed, code, done := parseQualityArgs(args, stderr)
+	if done {
+		return code
 	}
 	target := resolvePath(parsed.path)
 	info, statErr := os.Stat(target)
