@@ -457,10 +457,11 @@ func TestDoctorFlagsLoosePerms(t *testing.T) {
 	}
 }
 
-// Doctor must flag an unknown key as a typo risk but still pass the gate (advisory only).
+// Doctor flags a near miss of a known key as a typo but still passes the gate; an unrelated name is not flagged.
 func TestDoctorPassesOnCleanStore(t *testing.T) {
 	doctorTestVault(t)
-	vaulttest.Secret(t, "UNKNOWN_KEY", "v")
+	vaulttest.Secret(t, "JIRA_TOKEN", "v")
+	vaulttest.Secret(t, "NVIDA_API_KEY", "v")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -469,9 +470,9 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 	if rc != ExitClean {
 		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitClean, detail)
 	}
-	if !strings.Contains(detail, "UNKNOWN_KEY match no provider's auth.env") ||
-		!strings.Contains(detail, "1 secret(s); master key from env") {
-		t.Fatalf("DoctorChecks missing advisory or key source: %s", detail)
+	if !strings.Contains(detail, "NVIDA_API_KEY (did you mean NVIDIA_API_KEY?)") ||
+		strings.Contains(detail, "JIRA_TOKEN (") || !strings.Contains(detail, "2 secret(s); master key from env") {
+		t.Fatalf("DoctorChecks missing typo advisory, flagged JIRA_TOKEN, or lost key source: %s", detail)
 	}
 }
 

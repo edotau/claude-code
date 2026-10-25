@@ -167,16 +167,45 @@ func checkKeyNames(reg *providers.Registry) []Check {
 			known[p.Auth.Env] = true
 		}
 	}
-	var unknown []string
-	for _, k := range Names() {
-		if !known[k] {
-			unknown = append(unknown, k)
+	names := Names()
+	var typos []string
+	for _, k := range names {
+		if known[k] {
+			continue
+		}
+		// Only a near miss of a known name is a likely typo; other names (JIRA_TOKEN, …) are the user's own.
+		for n := range known {
+			if editDistance(k, n) <= 2 {
+				typos = append(typos, k+" (did you mean "+n+"?)")
+				break
+			}
 		}
 	}
-	if len(unknown) == 0 {
-		return nil
+	if len(typos) == 0 {
+		return []Check{{Name: "vault key names", OK: true, Detail: fmt.Sprintf("%d name(s), no likely typos", len(names))}}
 	}
-	return []Check{{Name: "vault key names", Detail: strings.Join(unknown, ", ") + " match no provider's auth.env — typo?"}}
+	return []Check{{Name: "vault key names", Detail: strings.Join(typos, ", ")}}
+}
+
+// editDistance is the Levenshtein distance between a and b.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 
 // checkKeyringTool is informational: without one the master key must come from env or key_command.
