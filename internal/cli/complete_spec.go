@@ -66,7 +66,8 @@ func buildSpecTree() map[string]*compNode {
 			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
-				valuedFlag("exit-node", exitNodeActions), flag("auth-key"), flag("key-env"), boolFlag("advertise-exit"),
+				valuedFlag("exit-node", exitNodeActions), valuedFlag("route", routeTargets), flag("auth-key"),
+				flag("key-env"), boolFlag("advertise-exit"),
 				flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
 				boolFlag("preauthorized"), flag("description")}},
 			"browser":   {flags: []flagInfo{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run")}},
@@ -216,6 +217,9 @@ func memoryPromoteTargets() []string { return memory.PromoteTargets }
 
 // exitNodeActions are the `network tailscale --exit-node` values.
 func exitNodeActions() []string { return []string{"on", "off", "approve"} }
+
+// routeTargets are the `network tailscale --route` values: dispatch hosts or "off" to clear.
+func routeTargets() []string { return append(dispatchHostNames(), "off") }
 
 // statuslineStyles are the `theme statusline --style` values.
 func statuslineStyles() []string {
