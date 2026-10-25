@@ -26,7 +26,7 @@ type Request struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Attach                                              []string // absolute file paths, task text precedes them
 	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
-	Tools, Autonomous, EnableMemory                     bool
+	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: vendor keeps the provider route, skips the router
 	Timeout                                             time.Duration
 }
 
