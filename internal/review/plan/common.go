@@ -41,13 +41,19 @@ func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source st
 
 // parseInputJSONArgs parses the `review <tool> [<input>] [--json]` shape assumption_linter.py and
 // goal_verifier.py's Go ports share, with a real FlagSet so -h prints the usage page anywhere in args.
-func parseInputJSONArgs(tool, about string, args []string, stderr io.Writer) (input string, jsonOut bool, exitCode int, handled bool) {
+// Explicit -h prints to stdout and exits 0; a bad flag stays on stderr, exit 2.
+func parseInputJSONArgs(tool, about string, args []string, stdout, stderr io.Writer) (input string, jsonOut bool, exitCode int, handled bool) {
 	fs := helptext.NewFlagSet("review "+tool, helptext.Page{
 		Usage: "claude-code review " + tool + " [<input>] [flags]",
 		About: about + " <input> is a file, or - (the default) for stdin.",
 	})
-	fs.SetOutput(stderr)
 	jsonFlag := fs.Bool("json", false, "Output in JSON format")
+	if helptext.WantsHelp(args) {
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return "-", false, 0, true
+	}
+	fs.SetOutput(stderr)
 	positional, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return "-", false, helptext.ExitCode(err), true

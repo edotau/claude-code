@@ -108,7 +108,7 @@ func TestPickCopilotModelShowsEffortAndContextRowsFirst(t *testing.T) {
 	if iEffort < 0 || iContext < 0 || iModel < 0 {
 		t.Fatalf("rows = Effort@%d Context@%d model@%d, want rows 1-3 = Effort, Context, stub-model-1:\n%s", iEffort, iContext, iModel, shown)
 	}
-	if !(iEffort < iContext && iContext < iModel) {
+	if iEffort >= iContext || iContext >= iModel {
 		t.Errorf("row order = Effort@%d Context@%d model@%d, want Effort < Context < model", iEffort, iContext, iModel)
 	}
 	effortLine := shown[iEffort : iEffort+strings.Index(shown[iEffort:], "\n")]

@@ -81,6 +81,10 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		return runUsageWorkflows(claudeDir, out, errw, session, days)
 	}
 
+	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of
+	// following them; startQuotaFetch yields an empty result immediately when quotas aren't wanted.
+	quotasCh := startQuotaFetch(*providersFlag && show != "total")
+
 	var files []string
 	var err error
 	if session != "" {
@@ -103,25 +107,15 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	}
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
-	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
-
-	var quotas []quota
-	if *providersFlag && show != "total" {
-		quotas = fetchQuotas()
-		for i := range quotas {
-			quotas[i].LeftPct = 100 - quotas[i].UsedPct
-		}
-		setStates(quotas, warnThreshold())
-		recordQuotaState(quotas)
-	}
-	ledgerEntries, ledgerErr := readLedger()
-	if ledgerErr != nil {
-		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
-	}
-	now := time.Now()
-	aggs := aggregateLedger(ledgerEntries, now)
 
 	if jsonOut {
+		agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
+		quotas := <-quotasCh
+		ledgerEntries, ledgerErr := readLedger()
+		if ledgerErr != nil {
+			fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
+		}
+		aggs := aggregateLedger(ledgerEntries, time.Now())
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(struct {
@@ -136,15 +130,56 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		}
 		return 0
 	}
+
+	// Section 1 (MODEL table) prints the moment the local scan is done, even while quotas are in flight.
 	if len(files) == 0 {
 		fmt.Fprintln(errw, "usage: no matching subagent transcripts found")
 	} else {
 		printUsageTable(out, agg, len(files))
 	}
+
+	// Agents aggregation depends on agg/files above, so it starts here, overlapping the quota fetch too.
+	agentsCh := make(chan []agentUsage, 1)
+	go func() {
+		agentsCh <- buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
+	}()
+
+	// Section 2 (PROVIDER QUOTAS) + section 3 (API KEYS): wait for the quota fetch, then print both.
+	quotas := <-quotasCh
+	ledgerEntries, ledgerErr := readLedger()
+	if ledgerErr != nil {
+		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
+	}
+	aggs := aggregateLedger(ledgerEntries, time.Now())
 	printQuotas(out, quotas, show, aggs, ledgerSince(ledgerEntries))
-	printAgentsSection(out, agents, days)
+
+	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
+	printAgentsSection(out, <-agentsCh, days)
+
+	// Section 5: the warn/exceeded trailer, derived from the same quotas already printed.
 	printQuotaWarnings(errw, quotas)
 	return 0
+}
+
+// startQuotaFetch launches the live provider-quota fetch on its own goroutine so it overlaps the local
+// transcript scan and agent aggregation; the channel is buffered so the caller never blocks on send.
+// When quotas aren't wanted it sends an empty result immediately, so callers never branch on a nil channel.
+func startQuotaFetch(enabled bool) <-chan []quota {
+	ch := make(chan []quota, 1)
+	if !enabled {
+		ch <- nil
+		return ch
+	}
+	go func() {
+		qs := fetchQuotas()
+		for i := range qs {
+			qs[i].LeftPct = 100 - qs[i].UsedPct
+		}
+		setStates(qs, warnThreshold())
+		recordQuotaState(qs)
+		ch <- qs
+	}()
+	return ch
 }
 
 // readLedger is the ledger read seam; a var so tests can stub it without touching the real ledger file.

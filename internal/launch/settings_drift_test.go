@@ -397,7 +397,7 @@ func TestSettingsDriftLinesKeepVerbForLongKey(t *testing.T) {
 func TestSettingsDriftDetailCapsEachLine(t *testing.T) {
 	long := strings.Repeat("k", 200)
 	detail := settingsDriftDetailLabeled(SettingsDrift{Foreign: []string{long}, Differs: []string{long}}, nil, "settings")
-	for _, part := range strings.Split(detail, "; ") {
+	for part := range strings.SplitSeq(detail, "; ") {
 		if n := len([]rune(part)); n > 80 {
 			t.Errorf("detail part is %d runes, want <=80: %q", n, part)
 		}

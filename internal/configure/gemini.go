@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"slices"
 	"syscall"
 	"time"
 
@@ -104,13 +105,7 @@ func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 func waitOrTermDescendants(pids []int) {
 	deadline := time.Now().Add(agyStopGrace)
 	for {
-		alive := false
-		for _, pid := range pids {
-			if proc.Alive(pid) {
-				alive = true
-				break
-			}
-		}
+		alive := slices.ContainsFunc(pids, proc.Alive)
 		if !alive {
 			return
 		}

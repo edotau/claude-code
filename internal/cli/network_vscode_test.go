@@ -30,7 +30,7 @@ func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
 func TestNetworkHelpVSCodeRowFitsEightyColumns(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return cmdNetwork(nil) })
 	found := false
-	for _, l := range strings.Split(stderr, "\n") {
+	for l := range strings.SplitSeq(stderr, "\n") {
 		if strings.HasPrefix(l, "  vscode ") {
 			found = true
 			if n := len([]rune(l)); n > 80 {

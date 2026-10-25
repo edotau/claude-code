@@ -99,7 +99,9 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	}
 
 	// A vault route override on opencode/sonnet must change the rendered model, not just the table's own read.
-	overlay := `{"route":{"opencode":{"sonnet":{"model":"zed/overridden-model"}}}}`
+	// github-copilot/ is a known backend prefix (its billing moves to the copilot account); an unknown
+	// prefix like "zed/" is rejected by routetable.LoadFrom and covered in routetable's own tests.
+	overlay := `{"route":{"opencode":{"sonnet":{"model":"github-copilot/overridden-model"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	_, cfgBody2, _, _, err := OpencodeOverlayRendered()
 	if err != nil {
@@ -109,8 +111,8 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	if err := json.Unmarshal(cfgBody2, &doc2); err != nil {
 		t.Fatal(err)
 	}
-	if doc2["model"] != "zed/overridden-model" {
-		t.Errorf("overridden model = %v, want %q", doc2["model"], "zed/overridden-model")
+	if doc2["model"] != "github-copilot/overridden-model" {
+		t.Errorf("overridden model = %v, want %q", doc2["model"], "github-copilot/overridden-model")
 	}
 	if doc2["small_model"] != haiku.Model {
 		t.Errorf("small_model after an opus/sonnet-only override = %v, want unchanged %q", doc2["small_model"], haiku.Model)

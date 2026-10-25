@@ -319,6 +319,64 @@ func TestIsQuotaAndDemote(t *testing.T) {
 	}
 }
 
+// TestModelDeniedVsIsQuota pins the split: ModelDenied is the narrow "this model is dead on this key, try a
+// lower slot" set; IsQuota is the broader "the account itself is exhausted" superset that also includes the
+// window/plan/credit markers ModelDenied must NOT match (those don't mean a lower slot would fare better).
+func TestModelDeniedVsIsQuota(t *testing.T) {
+	accountOnly := []string{
+		`usage limit reached, try again in 60 seconds`,
+		`HTTP 402 payment required`,
+		`you have exceeded your monthly quota`,
+	}
+	for _, text := range accountOnly {
+		if !IsQuota(text) {
+			t.Errorf("IsQuota(%q) = false, want true (account-exhausted marker)", text)
+		}
+		if ModelDenied(text) {
+			t.Errorf("ModelDenied(%q) = true, want false (account-exhausted, not model-denied)", text)
+		}
+	}
+	modelDenied := []string{
+		`limit: 0`,
+		`insufficient_quota`,
+		`quota exceeded for metric: generate_content_free_tier_requests`,
+	}
+	for _, text := range modelDenied {
+		if !ModelDenied(text) {
+			t.Errorf("ModelDenied(%q) = false, want true (model-denied marker)", text)
+		}
+		if !IsQuota(text) {
+			t.Errorf("IsQuota(%q) = false, want true (model-denied implies account-exhausted via the OR)", text)
+		}
+	}
+}
+
+// TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
+// runner or tier outside RouteRunners/RouteTiers before it ever reaches routetable.LoadFrom.
+func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
+	badTier := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}
+	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {
+		t.Errorf("unknown tier: err = %v, want it to name the rule", err)
+	}
+	badRunner := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}
+	if err := badRunner.Validate(); err == nil || !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("unknown runner: err = %v, want it to name the rule", err)
+	}
+}
+
+// TestValidateRejectsOutOfRangeRouteWeight checks an overlay weight outside [0,1] (or one that doesn't sum
+// to 1 across the dimensions) fails Validate, rather than silently reaching routetable with a bad score.
+func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
+	outOfRange := &Registry{Providers: map[string]*Provider{}, RouteWeights: map[string]float64{"price": 1.5, "headroom": -0.5}}
+	if err := outOfRange.Validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {
+		t.Errorf("out-of-range weight: err = %v, want it to name the rule", err)
+	}
+	doesNotSum := &Registry{Providers: map[string]*Provider{}, RouteWeights: map[string]float64{"price": 0.2, "headroom": 0.2}}
+	if err := doesNotSum.Validate(); err == nil || !strings.Contains(err.Error(), "sum to") {
+		t.Errorf("non-summing weights: err = %v, want it to name the rule", err)
+	}
+}
+
 // TestIsQuotaCoversEveryOldMarker checks the merged classifier still matches every marker either the old
 // providers.HardQuota (the 4 "this key cannot use this model at all" phrasings) or the old route.IsQuota
 // (the broader account-exhausted superset: 402, usage limit, monthly quota, ...) matched, and still

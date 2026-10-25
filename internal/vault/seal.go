@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"strings"
 )
 
@@ -29,7 +29,7 @@ func parseKey(value, vaultID string) (*Key, error) {
 	trimmed := strings.TrimSpace(value)
 	root, err := base64.StdEncoding.DecodeString(trimmed)
 	if err != nil || len(root) != 32 {
-		return nil, fmt.Errorf("vault: master key must be base64-encoded 32 bytes")
+		return nil, errors.New("vault: master key must be base64-encoded 32 bytes")
 	}
 	sub, err := hkdf.Key(sha256.New, root, []byte(vaultID), secretsInfo, 32)
 	if err != nil {

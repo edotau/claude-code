@@ -15,7 +15,7 @@ import (
 // lineCount counts whole lines of s equal to want.
 func lineCount(s, want string) int {
 	n := 0
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		if l == want {
 			n++
 		}
