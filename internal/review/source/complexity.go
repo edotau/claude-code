@@ -266,17 +266,23 @@ type complexityArgs struct {
 }
 
 // parseComplexityArgs is a real FlagSet, so -h anywhere in args prints the usage page; targets (nargs="+")
-// may still be interspersed with flags.
-func parseComplexityArgs(args []string, stderr io.Writer) (complexityArgs, int, bool) {
+// may still be interspersed with flags. Explicit -h prints to stdout and exits 0; a bad flag stays on
+// stderr, exit 2.
+func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArgs, int, bool) {
 	fs := helptext.NewFlagSet("review complexity", helptext.Page{
 		Usage: "claude-code review complexity <targets...> [flags]",
 		About: "Function length, nesting depth and branch counts over files and directories. " +
 			"Findings are advisory.",
 	})
-	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
 	ext := fs.String("ext", "py,ts,tsx,js,jsx,go", "file extensions to scan, comma-separated")
+	if helptext.WantsHelp(args) {
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return complexityArgs{}, 0, true
+	}
+	fs.SetOutput(stderr)
 	targets, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return complexityArgs{}, helptext.ExitCode(err), true
@@ -295,7 +301,7 @@ func parseComplexityArgs(args []string, stderr io.Writer) (complexityArgs, int, 
 
 // RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
-	parsed, code, done := parseComplexityArgs(args, stderr)
+	parsed, code, done := parseComplexityArgs(args, stdout, stderr)
 	if done {
 		return code
 	}

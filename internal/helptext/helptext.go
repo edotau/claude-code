@@ -142,6 +142,20 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 	return rows
 }
 
+// WantsHelp reports a -h/-help/--help token before any literal "--" terminator, so a caller can route
+// explicit help to stdout itself instead of letting fs.Parse's automatic usage call land on stderr.
+func WantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
 // ExitCode maps a FlagSet parse error to the verb's exit code: 0 after -h, 2 for a bad flag.
 func ExitCode(err error) int {
 	if errors.Is(err, flag.ErrHelp) {
