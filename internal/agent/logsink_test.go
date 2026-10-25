@@ -137,15 +137,13 @@ func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
 		for i := range n {
 			want[fmt.Sprintf("%s line %d %s", name, i, strings.Repeat(name[3:], 20))] = true
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range n {
 				l := fmt.Sprintf("%s line %d %s\n", name, i, strings.Repeat(name[3:], 20))
 				_, _ = w.Write([]byte(l[:len(l)/2])) // split each line across two Writes
 				_, _ = w.Write([]byte(l[len(l)/2:]))
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	s.Close()

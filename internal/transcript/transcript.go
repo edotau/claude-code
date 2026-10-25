@@ -181,7 +181,7 @@ func CountEditsFrom(path string, offset int64) (edits int, next int64) {
 // countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted
 // git commits — eachEditLine and eachCommitLine used to each re-unmarshal the same line.
 func countLineEdits(line []byte) (n int) {
-	defer func() { recover() }() // malformed command text must not crash the hook; keep edits counted so far
+	defer func() { _ = recover() }() // malformed command text must not crash the hook; keep edits counted so far
 	if !bytes.Contains(line, toolUseKey) {
 		return 0
 	}
@@ -308,41 +308,50 @@ func commitInText(text string, depth int) bool {
 		if len(toks) == 0 {
 			continue
 		}
-		if depth < maxShellRecursionDepth && shellCNames[shellBaseName(toks[0])] {
-			if inner, ok := findDashCArg(toks[1:]); ok && gitCommitCommandDepth(inner, depth+1) {
-				return true
-			}
-		}
-		if toks[0] != "git" && !strings.HasSuffix(toks[0], "/git") {
-			continue
-		}
-		i := 1
-		shortCircuit := false
-		aliases := map[string]string{}
-		for i < len(toks) && strings.HasPrefix(toks[i], "-") {
-			if gitShortCircuitOpts[toks[i]] {
-				shortCircuit = true
-				break
-			}
-			if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
-				if toks[i] == "-c" && i+1 < len(toks) {
-					if name, val, ok := splitAliasAssign(toks[i+1]); ok && !gitBuiltinVerbs[name] {
-						aliases[name] = val // last -c alias.<name>=<val> for a given name wins
-					}
-				}
-				i += 2
-				continue
-			}
-			i++
-		}
-		if shortCircuit {
-			continue
-		}
-		if i < len(toks) && (toks[i] == "commit" || aliasIsCommit(aliases[toks[i]], depth)) {
+		if commitViaShellC(toks, depth) || isGitCommitInvocation(toks, depth) {
 			return true
 		}
 	}
 	return false
+}
+
+// commitViaShellC reports whether toks is a `bash -c "..."`-style wrapper whose quoted script commits.
+func commitViaShellC(toks []string, depth int) bool {
+	if depth >= maxShellRecursionDepth || !shellCNames[shellBaseName(toks[0])] {
+		return false
+	}
+	inner, ok := findDashCArg(toks[1:])
+	return ok && gitCommitCommandDepth(inner, depth+1)
+}
+
+// isGitCommitInvocation reports whether toks is a `git [global opts] commit` invocation (alias or literal).
+func isGitCommitInvocation(toks []string, depth int) bool {
+	if toks[0] != "git" && !strings.HasSuffix(toks[0], "/git") {
+		return false
+	}
+	i := 1
+	shortCircuit := false
+	aliases := map[string]string{}
+	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
+		if gitShortCircuitOpts[toks[i]] {
+			shortCircuit = true
+			break
+		}
+		if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
+			if toks[i] == "-c" && i+1 < len(toks) {
+				if name, val, ok := splitAliasAssign(toks[i+1]); ok && !gitBuiltinVerbs[name] {
+					aliases[name] = val // last -c alias.<name>=<val> for a given name wins
+				}
+			}
+			i += 2
+			continue
+		}
+		i++
+	}
+	if shortCircuit {
+		return false
+	}
+	return i < len(toks) && (toks[i] == "commit" || aliasIsCommit(aliases[toks[i]], depth))
 }
 
 // shellBaseName strips a leading directory from a `/bin/bash`-style interpreter path.

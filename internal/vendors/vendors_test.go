@@ -627,20 +627,6 @@ func TestOpenCodeModelMenu(t *testing.T) {
 	})
 }
 
-func writeJSON(t *testing.T, path string, v any) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestRedactConfig(t *testing.T) {
 	in := map[string]any{
 		"mcp": map[string]any{
