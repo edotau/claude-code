@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
@@ -222,10 +224,16 @@ func attachInline(prompt string, paths []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("attach %s: %w", p, err)
 		}
+		if !IsText(data) {
+			return "", fmt.Errorf("--attach %s: binary file; attach text only", p)
+		}
 		fmt.Fprintf(&b, "\n\n<file path=%q>\n%s\n</file>", p, data)
 	}
 	return b.String(), nil
 }
+
+// IsText reports whether data can ride inline in a prompt: valid UTF-8 with no NUL byte.
+func IsText(data []byte) bool { return bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) }
 
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
 // is scrubbed of inherited credentials before env (the launch's own additions) is layered on. vendor

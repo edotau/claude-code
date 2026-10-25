@@ -323,3 +323,25 @@ func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 		t.Fatalf("exit %d stderr %q, want 2 and the not-a-fresh-job message", code, stderr)
 	}
 }
+
+// attachFlag.Set rejects binary files up front (NUL, invalid UTF-8) and accepts multibyte UTF-8 text.
+func TestAttachFlagSetRejectsBinary(t *testing.T) {
+	dir := t.TempDir()
+	var a attachFlag
+	for name, data := range map[string]string{"nul.bin": "ab\x00cd", "bad.dat": "\xff\xfe\x80"} {
+		f := filepath.Join(dir, name)
+		writeFixtureFile(t, f, data)
+		err := a.Set(f)
+		if err == nil || !strings.Contains(err.Error(), "binary file") || !strings.Contains(err.Error(), name) {
+			t.Errorf("Set(%s): err = %v, want a binary-file error naming the path", name, err)
+		}
+	}
+	if len(a) != 0 {
+		t.Errorf("a = %q, want nothing recorded for rejected files", a)
+	}
+	f := filepath.Join(dir, "utf8.txt")
+	writeFixtureFile(t, f, "héllo 世界")
+	if err := a.Set(f); err != nil || len(a) != 1 {
+		t.Errorf("Set(multibyte text): err = %v, a = %q, want accepted", err, a)
+	}
+}
