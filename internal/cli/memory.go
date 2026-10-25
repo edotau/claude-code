@@ -41,11 +41,11 @@ var memoryPage = helptext.Page{
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
-// memoryCommandRows lists the public sub-verbs with their args as the page's COMMANDS rows.
+// memoryCommandRows lists the public sub-verbs as the page's COMMANDS rows; args live on each -h page.
 func memoryCommandRows() [][2]string {
 	var rows [][2]string
 	for _, m := range memorySubs {
-		rows = append(rows, [2]string{strings.TrimSpace(m.name + " " + m.args), m.about})
+		rows = append(rows, [2]string{m.name, m.about})
 	}
 	return rows
 }

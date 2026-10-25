@@ -58,7 +58,6 @@ func commands() []command {
 		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
 		{name: "opencode", group: groupVendors, summary: "OpenCode on your Copilot plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
-		{name: "secrets", group: groupAuth, summary: "set, get and scan credentials", run: cmdSecrets},
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},

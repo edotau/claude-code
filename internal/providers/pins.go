@@ -243,7 +243,7 @@ func HasSecret(name string) string {
 	return source
 }
 
-// HasSecretErr is HasSecret with the vault read error surfaced, for callers (secrets status) that must
+// HasSecretErr is HasSecret with the vault read error surfaced, for callers (configure provider --list) that must
 // not mistake an unreadable vault for "no credential".
 func HasSecretErr(name string) (source string, err error) {
 	if strings.TrimSpace(os.Getenv(name)) != "" {

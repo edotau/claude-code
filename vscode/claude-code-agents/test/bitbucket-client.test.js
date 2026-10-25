@@ -266,9 +266,12 @@ test('createClient.dashboard: an explicit state is passed through; omitted state
 // -- resolveToken (execFileImpl is Node callback-style: (binary, args, cb(err, stdout))) --
 
 test('resolveToken: trims the binary\'s stdout', async () => {
-  const execFileImpl = (binary, args, cb) => cb(null, 'tok\n');
+  const execFileImpl = (binary, args, cb) => {
+    assert.deepEqual(args, ['vault', 'get', 'BITBUCKET_TOKEN']);
+    cb(null, 'BITBUCKET_TOKEN=obviously-fake-token\n');
+  };
   const token = await resolveToken({ binary: 'claude-code', env: {}, execFileImpl });
-  assert.equal(token, 'tok');
+  assert.equal(token.replace('obviously-fake-token', '[masked]'), '[masked]');
 });
 
 test('resolveToken: falls back to the env var when the binary fails', async () => {
@@ -280,7 +283,10 @@ test('resolveToken: falls back to the env var when the binary fails', async () =
 test('resolveToken: neither the binary nor the env var rejects with "no token"', async () => {
   const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
   await assert.rejects(
-    () => resolveToken({ binary: 'claude-code', env: {}, execFileImpl }),
+    () => resolveToken({
+      binary: 'claude-code', env: {}, execFileImpl,
+      readFileImpl: () => { throw new Error('missing fixture file'); },
+    }),
     /no token/i
   );
 });

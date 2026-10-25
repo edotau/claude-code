@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# pre-push: run the CI gate (make audit) locally so a push cannot land red. Bypass: git push --no-verify.
+# pre-push: run the CI gate (make audit, incl. doctor --git over the pushed commits) locally. Bypass: --no-verify.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # git exports GIT_DIR/GIT_WORK_TREE to hooks; tests that run git in temp dirs would resolve this repo.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+# stdin: <local ref> <local sha> <remote ref> <remote sha>; the pushed range feeds audit-git's doctor --git.
+zero=0000000000000000000000000000000000000000
+range=""
+while read -r _ lsha _ rsha; do
+	[ "$lsha" = "$zero" ] || [ "$rsha" = "$zero" ] || range="$rsha..$lsha"
+done
 echo "pre-push: running make audit (the ci.yml gate); bypass with --no-verify" >&2
-exec make audit
+exec make audit AUDIT_GIT_RANGE="$range"

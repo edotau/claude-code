@@ -36,25 +36,23 @@ var vendorAbout = map[string]string{
 // vendorPage is the help page for one vendor verb: the shared command roster plus the adapter's extra rows.
 func vendorPage(vendor string) helptext.Page {
 	rows := [][2]string{
-		{"[launch flags] [args…]", "launch " + vendor + "; args forwarded"},
-		{"-- <args…>", "force passthrough to " + vendor},
-		{"ask [flags] <task>", "one-shot run (= ask --agent " + vendor + ")"},
-		{"resume <id> <task>", "continue a session"},
-		{"review [scope] [focus]", "diff review; --adversarial"},
-		{"explore <question>", "scan code + web research → brief"},
-		{"transfer [--source f]", "hand this Claude session to " + vendor},
-		{"status [id] [--all]", "background jobs in this repo"},
-		{"tail [id] [-f]", "a job's output; -f follows live"},
-		{"result [id]", "a finished job's answer + session"},
-		{"cancel [id]", "interrupt a running job"},
-		{"setup [--format json]", "binary, login, route, projection"},
+		{"ask", "one-shot run (= ask --agent " + vendor + ")"},
+		{"resume", "continue a session"},
+		{"review", "diff review; --adversarial"},
+		{"explore", "scan code + web research → brief"},
+		{"transfer", "hand this Claude session to " + vendor + "; --source"},
+		{"status", "background jobs in this repo; --all"},
+		{"tail", "a job's output; -f follows live"},
+		{"result", "a finished job's answer + session"},
+		{"cancel", "interrupt a running job"},
+		{"setup", "binary, login, route, projection; --format json"},
 		{"models", "the vendor's own model catalog"},
 	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
 	}
 	return helptext.Page{
-		Usage:    "claude-code " + vendor + " [<command>] [args…]",
+		Usage:    "claude-code " + vendor + " [<command>|--] [args…]",
 		About:    vendorAbout[vendor],
 		Commands: rows,
 		Hint:     "claude-code " + vendor + " <command> -h lists that command's flags.",
@@ -68,7 +66,7 @@ var vendorSubPages = map[string][2]string{
 	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
 	"tail":     {"tail [id] [flags]", "A job's output (default: the newest). Exits 1 when the job failed or was lost."},
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
-	"cancel":   {"cancel [id]", "Interrupt a running %s job (default: the single running job in this repo)."},
+	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
 	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
 	"models":   {"models", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},

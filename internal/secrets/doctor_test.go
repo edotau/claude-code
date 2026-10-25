@@ -1,7 +1,8 @@
 package secrets
 
 import (
-	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,8 +14,31 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
+func doctorTestVault(t *testing.T) string {
+	t.Helper()
 	dir := vaulttest.Use(t)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
+	return dir
+}
+
+func doctorTestResult(reg *providers.Registry) (int, string) {
+	rc := ExitClean
+	var details []string
+	for _, c := range DoctorChecks(reg) {
+		if c.Gate && !c.OK {
+			rc = ExitFindings
+		}
+		details = append(details, c.Name+": "+c.Detail)
+	}
+	return rc, strings.Join(details, "\n")
+}
+
+func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
+	dir := doctorTestVault(t)
 	noKeyring(t)
 	legacy := filepath.Join(dir, "env.d")
 	if err := os.Mkdir(legacy, 0o700); err != nil {
@@ -25,21 +49,20 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var out bytes.Buffer
-	if rc := Doctor(&out, &providers.Registry{}); rc != ExitClean {
-		t.Fatalf("Doctor = %d, want clean: %s", rc, out.String())
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != ExitClean {
+		t.Fatalf("DoctorChecks = %d, want clean: %s", rc, out)
 	}
 	for _, want := range []string{
 		"no vault yet (nothing to check)",
-		"no keyring tool on PATH",
+		"none on PATH",
 		"set HARNESS_VAULT_KEY or the vault key_command",
-		"secrets doctor: clean.",
 	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("Doctor missing %q: %s", want, out.String())
+		if !strings.Contains(out, want) {
+			t.Errorf("DoctorChecks missing %q: %s", want, out)
 		}
 	}
-	if strings.Contains(out.String(), "legacy ") || strings.Contains(out.String(), "legacy-content-not-to-print") {
+	if strings.Contains(out, "legacy ") || strings.Contains(out, "legacy-content-not-to-print") {
 		t.Fatal("Doctor printed legacy file contents")
 	}
 	if _, err := os.Stat(vault.Path()); !os.IsNotExist(err) {
@@ -53,21 +76,21 @@ func TestDoctorMasterKeySources(t *testing.T) {
 			if source == "keyring" {
 				vaulttest.UseKeyring(t)
 			} else {
-				vaulttest.Use(t)
+				doctorTestVault(t)
 			}
 			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
 			if err := Store("DOCTOR_KEY", value); err != nil {
 				t.Fatal(err)
 			}
-			var out bytes.Buffer
-			if rc := Doctor(&out, &providers.Registry{}); rc != ExitClean {
-				t.Fatalf("Doctor = %d, want clean: %s", rc, out.String())
+			rc, out := doctorTestResult(&providers.Registry{})
+			if rc != ExitClean {
+				t.Fatalf("Doctor = %d, want clean: %s", rc, out)
 			}
-			if !strings.Contains(out.String(), "1 secret(s); master key from "+source) ||
-				!strings.Contains(out.String(), vault.Path()+" is 0600") {
-				t.Fatalf("Doctor missing key source or vault permissions: %s", out.String())
+			if !strings.Contains(out, "1 secret(s); master key from "+source) ||
+				!strings.Contains(out, vault.Path()+" is 0600") {
+				t.Fatalf("Doctor missing key source or vault permissions: %s", out)
 			}
-			if strings.Contains(out.String(), value) {
+			if strings.Contains(out, value) {
 				t.Fatal("Doctor printed a secret")
 			}
 		})
@@ -77,7 +100,7 @@ func TestDoctorMasterKeySources(t *testing.T) {
 func TestDoctorLockedVault(t *testing.T) {
 	for _, mode := range []string{"wrong key", "unavailable keyring"} {
 		t.Run(mode, func(t *testing.T) {
-			vaulttest.Use(t)
+			doctorTestVault(t)
 			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
 			if err := Store("LOCKED", value); err != nil {
 				t.Fatal(err)
@@ -91,15 +114,15 @@ func TestDoctorLockedVault(t *testing.T) {
 				t.Setenv("HARNESS_VAULT_KEY", "")
 				want = "keyring: unavailable"
 			}
-			var out bytes.Buffer
-			if rc := Doctor(&out, &providers.Registry{}); rc != ExitFindings {
-				t.Fatalf("Doctor = %d, want findings: %s", rc, out.String())
+			rc, out := doctorTestResult(&providers.Registry{})
+			if rc != ExitFindings {
+				t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 			}
-			if !strings.Contains(out.String(), "vault holds 1 secret(s) but the master key does not open it:") ||
-				!strings.Contains(out.String(), want) {
-				t.Fatalf("Doctor missing locked-vault diagnostic: %s", out.String())
+			if !strings.Contains(out, "vault holds 1 secret(s) but the master key does not open it:") ||
+				!strings.Contains(out, want) {
+				t.Fatalf("Doctor missing locked-vault diagnostic: %s", out)
 			}
-			if strings.Contains(out.String(), value) {
+			if strings.Contains(out, value) {
 				t.Fatal("Doctor printed a secret")
 			}
 		})
@@ -139,17 +162,17 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	t.Setenv("PATH", dir)
 	t.Setenv("EXPECTED_ACCOUNT", "vault-key/"+id+"."+kid)
 	for _, tc := range []struct{ mode, want string }{
-		{"retained", "✓ retired key " + kid + " retained"},
-		{"missing", "⚠ retired key " + kid + " missing from the keyring"},
-		{"error", "⚠ retired key " + kid + ": keyring: unavailable: lookup-failed"},
+		{"retained", "vault retired key " + kid + ": retained"},
+		{"missing", "vault retired key " + kid + ": missing from the keyring"},
+		{"error", "vault retired key " + kid + ": keyring: unavailable: lookup-failed"},
 	} {
 		t.Setenv("RETIRED_MODE", tc.mode)
-		var out bytes.Buffer
-		if rc := Doctor(&out, &providers.Registry{}); rc != ExitClean {
-			t.Fatalf("Doctor = %d: %s", rc, &out)
+		rc, out := doctorTestResult(&providers.Registry{})
+		if rc != ExitClean {
+			t.Fatalf("Doctor = %d: %s", rc, out)
 		}
-		if !strings.Contains(out.String(), tc.want) {
-			t.Errorf("missing %q: %s", tc.want, &out)
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("missing %q: %s", tc.want, out)
 		}
 	}
 }
@@ -157,21 +180,21 @@ func TestDoctorRetiredKeys(t *testing.T) {
 // TestDoctorUnreadableVaultIsFailure: a vault whose schema the running binary refuses to read must
 // fail the gate, never read as "no credentials stored" (checkMasterKey -> NamesErr).
 func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
-	vaulttest.Use(t)
+	doctorTestVault(t)
 	vaulttest.Put(t, vault.Meta, "schema", "3")
-	var out bytes.Buffer
-	if rc := Doctor(&out, &providers.Registry{}); rc != ExitFindings {
-		t.Fatalf("Doctor = %d, want findings: %s", rc, out.String())
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != ExitFindings {
+		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
-	if !strings.Contains(out.String(), "vault is unreadable:") || !strings.Contains(out.String(), "schema 3") {
-		t.Fatalf("Doctor missing unreadable-vault diagnostic: %s", out.String())
+	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema 3") {
+		t.Fatalf("Doctor missing unreadable-vault diagnostic: %s", out)
 	}
 }
 
 // TestDoctorFlagsArchivePerms: a .rolledback-* vault archive and a manifest-listed .bak file
 // readable/writable by anyone but their owner must each be flagged, a 0600 one must not.
 func TestDoctorFlagsArchivePerms(t *testing.T) {
-	dir := vaulttest.Use(t)
+	dir := doctorTestVault(t)
 	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -196,17 +219,17 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	if err := os.WriteFile(manifest, []byte(manifestJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
-	if rc := Doctor(&out, &providers.Registry{}); rc != ExitFindings {
-		t.Fatalf("Doctor = %d, want findings: %s", rc, out.String())
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != ExitFindings {
+		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
-	if !strings.Contains(out.String(), loose+" is 0644") {
-		t.Errorf("Doctor missing loose archive finding: %s", out.String())
+	if !strings.Contains(out, loose+" is 0644") {
+		t.Errorf("Doctor missing loose archive finding: %s", out)
 	}
-	if strings.Contains(out.String(), tight+" is") {
-		t.Errorf("Doctor flagged a 0600 archive: %s", out.String())
+	if strings.Contains(out, tight+" is") {
+		t.Errorf("Doctor flagged a 0600 archive: %s", out)
 	}
-	if !strings.Contains(out.String(), bak+" is 0644") {
-		t.Errorf("Doctor missing loose manifest backup finding: %s", out.String())
+	if !strings.Contains(out, bak+" is 0644") {
+		t.Errorf("Doctor missing loose manifest backup finding: %s", out)
 	}
 }

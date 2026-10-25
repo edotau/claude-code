@@ -101,7 +101,7 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 	if len(scanner.Findings) != 1 || scanner.Findings[0] != "vault:env → INLINE_KEY holds an inline secret" {
 		t.Fatalf("default findings = %v", scanner.Findings)
 	}
-	want := "secrets scan: 1 finding(s) — move inline values into the vault with `claude-code secrets set`."
+	want := "doctor --scan: 1 finding(s) — move inline values into the vault with `claude-code vault set`."
 	if !strings.Contains(out.String(), path+" — clean") || !strings.Contains(out.String(), want) {
 		t.Fatalf("default scan missing file scan or summary: %s", out.String())
 	}

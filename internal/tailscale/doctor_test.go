@@ -73,7 +73,7 @@ func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
 	}
 }
 
-// A half-set OAuth pair (ID or secret alone, say a truncated `secrets set` name) with no API key is incomplete.
+// A half-set OAuth pair (ID or secret alone, say a truncated `vault set` name) with no API key is incomplete.
 func TestDoctorHalfOAuthWithoutAPIKeyStillIncomplete(t *testing.T) {
 	for _, env := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"} {
 		t.Run(env, func(t *testing.T) {

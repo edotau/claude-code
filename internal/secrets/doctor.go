@@ -3,9 +3,10 @@ package secrets
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
@@ -13,71 +14,63 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Doctor checks vault permissions, master and retired keys, and credential names without printing values.
-func Doctor(out io.Writer, reg *providers.Registry) int {
-	fmt.Fprintln(out, "== secrets doctor ==")
-	fail := false
-	fail = checkVaultPerms(out) || fail
-	fail = checkMasterKey(out) || fail
-	checkRetiredKeys(out)   // advisory only
-	checkKeyNames(out, reg) // advisory only, never fails the gate
-	checkKeyringTool(out)   // informational only
+// Check is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.
+type Check struct {
+	Name   string
+	OK     bool
+	Gate   bool
+	Detail string
+}
 
-	if fail {
-		fmt.Fprintln(out, "secrets doctor: problem(s) found.")
-		return ExitFindings
-	}
-	fmt.Fprintln(out, "secrets doctor: clean.")
-	return ExitClean
+// DoctorChecks checks vault permissions, master and retired keys, and credential names without reading values.
+func DoctorChecks(reg *providers.Registry) []Check {
+	var out []Check
+	out = append(out, checkVaultPerms()...)
+	out = append(out, checkMasterKey()...)
+	out = append(out, checkRetiredKeys()...)
+	out = append(out, checkKeyNames(reg)...)
+	return append(out, checkKeyringTool())
 }
 
 // checkVaultPerms flags a vault.db readable/writable by anyone but its owner.
-func checkVaultPerms(out io.Writer) bool {
+func checkVaultPerms() []Check {
 	file := vault.Path()
 	fi, err := os.Stat(file)
-	if os.IsNotExist(err) {
-		fmt.Fprintln(out, "  ✓ no vault yet (nothing to check)")
-		return checkArchivePerms(out)
+	row := Check{Name: "vault perms", OK: true, Gate: true}
+	switch {
+	case os.IsNotExist(err):
+		row.Detail = "no vault yet (nothing to check)"
+	case err != nil:
+		row.OK, row.Detail = false, fmt.Sprintf("could not stat %s: %v", file, err)
+	case fi.Mode().Perm()&0o077 != 0:
+		row.OK, row.Detail = false, fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)
+	default:
+		row.Detail = file + " is 0600"
 	}
-	if err != nil {
-		fmt.Fprintf(out, "  ⚠ could not stat %s: %v\n", file, err)
-		return true
-	}
-	fail := false
-	if fi.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintf(out, "  ⚠ %s is %04o, want 0600 — run: chmod 600 %s\n", file, fi.Mode().Perm(), file)
-		fail = true
-	} else {
-		fmt.Fprintln(out, "  ✓ "+file+" is 0600")
-	}
-	return checkArchivePerms(out) || fail
+	return append([]Check{row}, checkArchivePerms()...)
 }
 
 // checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
 // state/vault-migration.json) readable/writable by anyone but their owner.
-func checkArchivePerms(out io.Writer) bool {
-	fail := false
+func checkArchivePerms() []Check {
+	var out []Check
 	matches, _ := filepath.Glob(vault.Path() + ".rolledback-*")
-	for _, m := range matches {
-		fail = flagPerm(out, m) || fail
+	for _, m := range append(matches, manifestBackups()...) {
+		if c, bad := flagPerm(m); bad {
+			out = append(out, c)
+		}
 	}
-	for _, bak := range manifestBackups() {
-		fail = flagPerm(out, bak) || fail
-	}
-	return fail
+	return out
 }
 
 // flagPerm reports a mode > 0600 file; a missing file is not a finding.
-func flagPerm(out io.Writer, file string) bool {
+func flagPerm(file string) (Check, bool) {
 	fi, err := os.Stat(file)
-	if err != nil {
-		return false
+	if err != nil || fi.Mode().Perm()&0o077 == 0 {
+		return Check{}, false
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintf(out, "  ⚠ %s is %04o, want 0600 — run: chmod 600 %s\n", file, fi.Mode().Perm(), file)
-		return true
-	}
-	return false
+	return Check{Name: "vault archive perms", Gate: true,
+		Detail: fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)}, true
 }
 
 // manifestBackups reads state/vault-migration.json directly (not internal/config, which imports this
@@ -106,27 +99,28 @@ func manifestBackups() []string {
 
 // checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the
 // vault itself can't be read (locked, wrong key) — an unreadable vault must not read as "no credential".
-func checkMasterKey(out io.Writer) bool {
+func checkMasterKey() []Check {
+	row := Check{Name: "vault master key", OK: true, Gate: true}
 	names, err := NamesErr()
 	if err != nil {
-		fmt.Fprintf(out, "  ⚠ vault is unreadable: %v\n", err)
-		return true
+		row.OK, row.Detail = false, "vault is unreadable: "+keyErrText(err)
+		return []Check{row}
 	}
 	n := len(names)
 	if n == 0 {
-		return false
+		return nil
 	}
 	_, source, err := vault.MasterKey()
 	if err != nil {
-		fmt.Fprintf(out, "  ⚠ vault holds %d secret(s) but the master key does not open it: %v\n", n, err)
-		return true
+		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", n, keyErrText(err))
+		return []Check{row}
 	}
-	fmt.Fprintf(out, "  ✓ %d secret(s); master key from %s\n", n, source)
-	return false
+	row.Detail = fmt.Sprintf("%d secret(s); master key from %s", n, source)
+	return []Check{row}
 }
 
-// checkRetiredKeys reports whether archive keys remain available in the keyring.
-func checkRetiredKeys(out io.Writer) {
+// checkRetiredKeys reports whether archive keys remain available in the keyring (advisory).
+func checkRetiredKeys() []Check {
 	var id string
 	var kids []string
 	if err := vault.View(func(t *vault.Tx) error {
@@ -134,20 +128,23 @@ func checkRetiredKeys(out io.Writer) {
 		kids = vault.Retired(t)
 		return nil
 	}); err != nil {
-		fmt.Fprintf(out, "  ⚠ retired keys: %v\n", err)
-		return
+		return []Check{{Name: "vault retired keys", Detail: err.Error()}}
 	}
+	var out []Check
 	for _, kid := range kids {
+		row := Check{Name: "vault retired key " + kid}
 		_, found, err := keyring.Lookup("vault-key/" + id + "." + kid)
 		switch {
 		case err != nil:
-			fmt.Fprintf(out, "  ⚠ retired key %s: %v\n", kid, err)
+			row.Detail = err.Error()
 		case found:
-			fmt.Fprintf(out, "  ✓ retired key %s retained\n", kid)
+			row.OK, row.Detail = true, "retained"
 		default:
-			fmt.Fprintf(out, "  ⚠ retired key %s missing from the keyring\n", kid)
+			row.Detail = "missing from the keyring"
 		}
+		out = append(out, row)
 	}
+	return out
 }
 
 // TailscaleNames are the Tailscale credentials the harness stores; not provider keys, so checkKeyNames knows them.
@@ -157,7 +154,10 @@ var TailscaleNames = []string{
 
 // checkKeyNames warns about a stored key that matches no provider's auth.env — likely a typo, but
 // not necessarily wrong (a provider not yet in the registry), so this never fails the gate.
-func checkKeyNames(out io.Writer, reg *providers.Registry) {
+func checkKeyNames(reg *providers.Registry) []Check {
+	if reg == nil { // no registry to compare against: every key would read as a typo
+		return nil
+	}
 	known := map[string]bool{providers.OAuthTokenEnv: true}
 	for _, n := range TailscaleNames {
 		known[n] = true
@@ -167,18 +167,30 @@ func checkKeyNames(out io.Writer, reg *providers.Registry) {
 			known[p.Auth.Env] = true
 		}
 	}
+	var unknown []string
 	for _, k := range Names() {
 		if !known[k] {
-			fmt.Fprintf(out, "  ⚠ %s matches no provider's auth.env in the registry — typo?\n", k)
+			unknown = append(unknown, k)
 		}
 	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return []Check{{Name: "vault key names", Detail: strings.Join(unknown, ", ") + " match no provider's auth.env — typo?"}}
 }
 
 // checkKeyringTool is informational: without one the master key must come from env or key_command.
-func checkKeyringTool(out io.Writer) {
+func checkKeyringTool() Check {
 	if keyring.Available() {
-		fmt.Fprintln(out, "  ✓ a keyring tool is on PATH ("+keyring.Tool()+")")
-		return
+		return Check{Name: "keyring tool", OK: true, Detail: keyring.Tool() + " on PATH"}
 	}
-	fmt.Fprintln(out, "  ℹ no keyring tool on PATH — set HARNESS_VAULT_KEY or the vault key_command")
+	return Check{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
+}
+
+// keyCmdStderr matches the key_command stderr tail vault appends to its error; it could echo key material.
+var keyCmdStderr = regexp.MustCompile(`(key_command: [^:]*): .*`)
+
+// keyErrText is err's text with any key_command stderr withheld, safe for doctor text and JSON rows.
+func keyErrText(err error) string {
+	return keyCmdStderr.ReplaceAllString(err.Error(), "$1 (stderr withheld)")
 }

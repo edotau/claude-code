@@ -183,4 +183,4 @@ func warnIfUntrackedDefault(path string) {
 }
 
 // dotenvHeader opens a .env that export creates.
-const dotenvHeader = "# claude-code secrets export — plaintext credentials; keep this file private and out of git.\n"
+const dotenvHeader = "# claude-code vault export — plaintext credentials; keep this file private and out of git.\n"

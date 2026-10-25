@@ -14,7 +14,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/template/`
    (hooks: `internal/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
-2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code secrets set`) or a provider's
+2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
    comes from the OS keyring, `HARNESS_VAULT_KEY`, or `key_command`.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
@@ -57,10 +57,10 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Render settings + vendor configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--vendors]` | hard rule 4; `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
 | See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault show`) |
+| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault list`) |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
-| Set a credential | `claude-code secrets set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `secrets get\|status\|scan\|git\|doctor\|all` | `README.md` → Credentials |
+| Set a credential | `claude-code vault set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `vault list\|get\|delete\|import\|export`, sources in `configure provider --list` | `README.md` → Credentials |
 | Run the model router | `claude-code router start\|status\|stop` (`router serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cost-routing.md` |
 | Search the public web when native search is unavailable | `claude-code network websearch --query "<query>"` | `skills/web-search/SKILL.md` |
@@ -83,7 +83,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Audit / recall / remember / promote / save / consolidate memory | `claude-code memory review\|recall\|remember\|promote\|update\|dream` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex` · `claude-code codex review [--adversarial] [--base <b>]`; vet a brief: `codex ask` + `task-review.md` | `agents/codex.md` |
 | Route a task to the cheapest capable leg | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `claude-code gemini bridge` / `ask --agent <leg>` | `skills/subagent-workflows/references/cost-routing.md` |
-| Scan the config surface / MCP for leaked credentials | `claude-code secrets scan` · `claude-code network mcp` | `rules/standards/security.md` |
+| Scan the config surface / MCP for leaked credentials | `claude-code doctor --scan\|--git\|--secrets` · `claude-code network mcp` | `rules/standards/security.md` |
 | Everything else (configure, VS Code, network, theme, history, …) | `claude-code describe` | `README.md` → Command reference |
 
 ## Where things live
@@ -91,8 +91,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
-- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault show|edit`) and
-  sealed secrets (`secrets`); untracked.
+- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault list|edit`) and
+  sealed secrets (`vault set|get`); untracked.
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file
   stem**.
 - `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.

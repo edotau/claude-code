@@ -107,7 +107,7 @@ func TestCredentialMissHint(t *testing.T) {
 	p := &Provider{Name: "miss", Auth: Auth{Type: AuthBearer, Env: "MISS_KEY", File: "/nonexistent/tok"}}
 	_, err := Credential(context.Background(), p)
 	if err == nil || strings.Contains(err.Error(), "vault:") ||
-		!strings.Contains(err.Error(), "set MISS_KEY with `claude-code secrets set`, or /nonexistent/tok") {
+		!strings.Contains(err.Error(), "set MISS_KEY with `claude-code vault set`, or /nonexistent/tok") {
 		t.Errorf("Credential(miss) err = %v; want the secrets-set hint naming MISS_KEY and auth.file", err)
 	}
 }

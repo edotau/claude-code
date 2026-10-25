@@ -90,7 +90,7 @@ func checkSchema(t *Tx) error {
 	if n < schemaVersion && len(t.Names(Secrets)) > 0 {
 		return fmt.Errorf("vault schema %d: written by an older claude-code (pre-HKDF format); "+
 			"this build cannot read its secrets. Move state/vault.db aside and re-enter secrets with "+
-			"claude-code secrets set, or run the older binary to export them first", n)
+			"claude-code vault set, or run the older binary to export them first", n)
 	}
 	return nil
 }

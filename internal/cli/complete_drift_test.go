@@ -10,7 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // isolateCompletionEnv points every on-disk domain (providers, secrets, memory repos, dispatch
@@ -37,11 +36,10 @@ func TestSpecTreeCoversEveryCommand(t *testing.T) {
 // (grepped from the verb's run func at the time this test was written) — a word added to the
 // switch without a matching specTree entry drifts silently otherwise.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	cases := map[string][]string{
-		"secrets": {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"},
+		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "migrate", "alias", "fmt"},
@@ -140,7 +138,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		{"switch openrouter ⇥", []string{"switch", "openrouter", ""}},
 		{"agents sync --vendor ⇥", []string{"agents", "sync", "--vendor", ""}},
 		{"ask --agent codex ⇥", []string{"ask", "--agent", "codex", ""}},
-		{"secrets set ⇥", []string{"secrets", "set", ""}},
+		{"vault set ⇥", []string{"vault", "set", ""}},
 		{"models --pin ⇥", []string{"models", "--pin", ""}},
 		{"configure ⇥", []string{"configure", ""}},
 		{"network tailscale --exit-node ⇥", []string{"network", "tailscale", "--exit-node", ""}},

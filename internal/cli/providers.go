@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -46,7 +47,11 @@ func configureProviderList(name, format string) int {
 	if p.Auth.Env != "" {
 		fmt.Printf(" (%s)", p.Auth.Env)
 	}
-	fmt.Printf("\ncred      %v\nroutes:\n", providers.CredentialPresent(p))
+	source, note := credSource(p)
+	if note != "" {
+		source += " (" + note + ")"
+	}
+	fmt.Printf("\ncred      %s\nroutes:\n", source)
 	for _, d := range p.Dialects() {
 		r, _ := p.Route(d)
 		fmt.Printf("  %-10s %s\n", d, r)
@@ -73,15 +78,28 @@ func printProviderTable(reg *providers.Registry) {
 		if n == reg.Default {
 			mark = "*"
 		}
-		cred := "cred:missing"
-		if providers.CredentialPresent(p) {
-			cred = "cred:ok"
-		}
+		cred, _ := credSource(p)
 		fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
 	}
 	if len(reg.Fallback) > 0 {
 		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
 	}
+}
+
+// credSource names where p's credential resolves from (vault|env|command|auth.file|passthrough|none|missing).
+func credSource(p *providers.Provider) (source, note string) {
+	st := secrets.Resolve(p)
+	if st.Source == "none" && p.Auth.Type != providers.AuthNone {
+		return "missing", st.Note
+	}
+	return st.Source, st.Note
+}
+
+// providerListEntry is the describe provider view plus where its credential resolves from.
+type providerListEntry struct {
+	DescribeProvider
+	Source string `json:"source"`
+	Note   string `json:"note"`
 }
 
 // providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
@@ -90,18 +108,30 @@ func providerListJSON(reg *providers.Registry, name string) int {
 	if err != nil {
 		return fail("configure provider: %v", err)
 	}
-	if name == "" {
-		_ = outfmt.Write(os.Stdout, d.Providers)
-		return 0
-	}
-	if _, err := reg.Get(name); err != nil {
-		return fail("%v", err)
-	}
-	for _, p := range d.Providers.List {
-		if p.Name == name {
-			_ = outfmt.Write(os.Stdout, p)
+	if name != "" {
+		if _, err := reg.Get(name); err != nil {
+			return fail("%v", err)
 		}
 	}
+	list := make([]providerListEntry, 0, len(d.Providers.List))
+	for _, dp := range d.Providers.List {
+		if name != "" && dp.Name != name {
+			continue
+		}
+		e := providerListEntry{DescribeProvider: dp}
+		e.Source, e.Note = credSource(reg.Providers[dp.Name])
+		list = append(list, e)
+	}
+	if name != "" {
+		_ = outfmt.Write(os.Stdout, list[0])
+		return 0
+	}
+	_ = outfmt.Write(os.Stdout, struct {
+		Session  string              `json:"session"`
+		Default  string              `json:"default"`
+		Fallback []string            `json:"fallback,omitempty"`
+		List     []providerListEntry `json:"list"`
+	}{d.Providers.Session, d.Providers.Default, d.Providers.Fallback, list})
 	return 0
 }
 

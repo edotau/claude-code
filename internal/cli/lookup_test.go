@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// TestCmdSecretsNoArgsPrintsUsageAndExitsZero checks bare secrets displays help without running an op.
-func TestCmdSecretsNoArgsPrintsUsageAndExitsZero(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return cmdSecrets(nil) })
-	if code != 0 {
-		t.Fatalf("cmdSecrets(nil) = %d, want 0; stderr=%q", code, stderr)
+func TestSecretsVerbRemoved(t *testing.T) {
+	useVaultTest(t)
+	if lookup("secrets") != nil {
+		t.Fatal("removed secrets verb is still registered")
 	}
-	if !strings.Contains(stderr, "usage: claude-code secrets") {
-		t.Errorf("stderr = %q, want usage text", stderr)
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "secrets"}) })
+	if code != 2 || !strings.Contains(stderr, `unknown command "secrets"`) {
+		t.Errorf("removed verb: exit %d, stderr=%q", code, stderr)
 	}
 }

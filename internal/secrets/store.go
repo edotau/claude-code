@@ -17,7 +17,7 @@ func Names() []string {
 	return names
 }
 
-// NamesErr is Names with the vault read error surfaced, for callers (secrets doctor) that must not
+// NamesErr is Names with the vault read error surfaced, for callers (doctor --secrets) that must not
 // mistake an unreadable vault for an empty one.
 func NamesErr() ([]string, error) {
 	var names []string

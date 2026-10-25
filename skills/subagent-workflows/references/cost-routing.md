@@ -39,7 +39,7 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
 Three separate mechanisms; only the first is a leg change the report must name:
 
 - **Dispatch ladder** (`ask --fallback all|vendors|none`, default `all`): when the dispatched
-  vendor fails, the rest of the registry ladder runs in order (`claude-code vault show` → `opencodeLadder`, rotated to
+  vendor fails, the rest of the registry ladder runs in order (`claude-code vault list` → `opencodeLadder`, rotated to
   start after that vendor; `internal/agent/hub.go` `HubChain`), then Claude under `all`; `vendors` stops before
   Claude; `none` fails fast. `review` and `transfer` take no flag: `review` always falls back across vendors only,
   never to Claude. `--format json`'s `fallback`/`fallback_reason`

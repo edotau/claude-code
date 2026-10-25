@@ -154,14 +154,14 @@ function tokenFromFiles(env, readFileImpl) {
   return null;
 }
 
-/** Resolves JIRA_TOKEN: `<binary> secrets get`, then env (JIRA_TOKEN, ATLASSIAN_TOKEN), then the token files. */
+/** Resolves JIRA_TOKEN: `<binary> vault get` (NAME=value), then env (JIRA_TOKEN, ATLASSIAN_TOKEN), then the token files. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['secrets', 'get', 'JIRA_TOKEN'], (err, stdout) => {
-      const fromBinary = err ? null : stdout.toString().trim();
+    runExecFile(binary, ['vault', 'get', 'JIRA_TOKEN'], (err, stdout) => {
+      const fromBinary = err ? null : stdout.toString().trim().replace(/^JIRA_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.JIRA_TOKEN) return resolve(environment.JIRA_TOKEN);
       if (environment.ATLASSIAN_TOKEN) return resolve(environment.ATLASSIAN_TOKEN);

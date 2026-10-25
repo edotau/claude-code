@@ -50,10 +50,10 @@ func TestCompletionAliasPrefix(t *testing.T) {
 // matter — they come off a map, not a table); a leaf with no args/sub/flags (router start) offers
 // nothing, so the shell falls back to filenames.
 func TestCompletionSubcommands(t *testing.T) {
-	got := completionCandidates([]string{"secrets", "s"})
+	got := completionCandidates([]string{"vault", "s"})
 	slices.Sort(got)
-	if want := []string{"scan", "set", "status"}; !slices.Equal(got, want) {
-		t.Errorf("secrets s* = %v, want %v", got, want)
+	if want := []string{"set"}; !slices.Equal(got, want) {
+		t.Errorf("vault s* = %v, want %v", got, want)
 	}
 	if got := completionCandidates([]string{"memory", "rev"}); !slices.Equal(got, []string{"review"}) {
 		t.Errorf("memory rev* = %v, want [review]", got)
@@ -87,8 +87,8 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
 		t.Errorf("theme -- = %v, want [--preview]", got)
 	}
-	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format"}) {
-		t.Errorf("doctor -- = %v, want [--audit --days --format]", got)
+	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--range", "--scan", "--secrets", "--since"}) {
+		t.Errorf("doctor -- = %v, want [--audit --days --format --git --range --scan --secrets --since]", got)
 	}
 }
 

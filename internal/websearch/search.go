@@ -39,7 +39,7 @@ const KeyName = "TAVILY_API_KEY"
 const mintHint = "mint one at app.tavily.com → API keys"
 
 func keyHint() string {
-	return fmt.Sprintf("run `claude-code secrets set %s` (%s)", KeyName, mintHint)
+	return fmt.Sprintf("run `claude-code vault set %s` (%s)", KeyName, mintHint)
 }
 
 // resolveKey returns the Tavily API key through the managed ladder (vault -> env). "" when unset.
