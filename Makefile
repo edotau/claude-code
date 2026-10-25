@@ -34,7 +34,8 @@ GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Repo-owned shell scripts (skill scripts included); lint-shell no-ops when the wildcard is empty.
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh)
-# Gate tools are PINNED: `@latest` could change under us between runs. `make install DEV_TOOLS=1` installs all three.
+# Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs all three (DEV_TOOLS=0 skips).
+DEV_TOOLS       ?= 1
 GOVULN_VERSION  ?= v1.8.0
 GOLANGCI_VERSION ?= v2.15.0
 YAMLFMT_VERSION ?= v0.21.0
@@ -58,7 +59,7 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools)
+install: compile mdsmith  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
 	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
@@ -158,7 +159,7 @@ audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
-		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install DEV_TOOLS=1)"; fi
+		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; fi
 	@$(MAKE) --no-print-directory lint-yaml
 	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
@@ -206,7 +207,7 @@ lint-help:  # (folded into `lint`) `make help` rows fit 80 columns or wrap with 
 
 .PHONY: lint-yaml
 lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
-	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install DEV_TOOLS=1)"; \
+	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
 
 .PHONY: mdsmith
