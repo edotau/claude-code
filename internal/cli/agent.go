@@ -50,6 +50,7 @@ func cmdAsk(args []string) int {
 	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	var keepEnv keepEnvFlag
 	fs.Var(&keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
+	direct := fs.Bool("direct", false, "vendor runners: hand the CLI the provider route, skip the router")
 	autonomous := fs.Bool("autonomous", false, "drive the leg without stopping to ask, per runner")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
@@ -74,7 +75,7 @@ func cmdAsk(args []string) int {
 	prompt := strings.Join(fs.Args(), " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
 		session: session, tools: tools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
-		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric}
+		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct}
 	jobRec, rc, done := loadAskJob(*job, state, &prompt)
 	if done {
 		return rc
@@ -116,7 +117,7 @@ func cmdAsk(args []string) int {
 	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
-		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory}
+		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct}
 	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
@@ -177,7 +178,7 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
 type askState struct {
 	name, provider, model, effort, workdir, session, rubric *string
-	tools, autonomous, enableMemory                         *bool
+	tools, autonomous, enableMemory, direct                 *bool
 	timeout                                                 *time.Duration
 	attach                                                  *attachFlag
 	keepEnv                                                 *keepEnvFlag
@@ -188,7 +189,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-	*s.keepEnv = keepEnvFlag(rec.Request.KeepEnv)
+	*s.keepEnv, *s.direct = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.

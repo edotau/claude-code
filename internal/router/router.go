@@ -90,6 +90,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req.Header.Del("X-Api-Key")
 	}
 	req.Header.Del(ClientHeader)
+	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
+		r.passthrough(w, req, prov, dialect, rest)
+		return
+	}
 	session, count, ok := parsePath(req.URL.Path)
 	if !ok || req.Method != http.MethodPost {
 		writeError(w, http.StatusNotFound, "router: unsupported route "+req.Method+" "+req.URL.Path+" (want POST /p/<provider>/v1/messages)")
@@ -483,9 +487,14 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 
 // send POSTs body with the provider's auth; a 401/403 refreshes the credential and replays once.
 func (r *Router) send(in *http.Request, p *providers.Provider, url string, body []byte, hdr func(http.Header)) (*http.Response, error) {
+	return r.sendMethod(in, http.MethodPost, p, url, body, hdr)
+}
+
+// sendMethod is send with an explicit HTTP method (GET passthrough carries no body).
+func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte, hdr func(http.Header)) (*http.Response, error) {
 	ctx := in.Context()
 	do := func(credential string) (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -498,13 +507,7 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 			for k, v := range p.Headers {
 				req.Header.Set(k, v)
 			}
-			req.Header.Del("Authorization")
-			req.Header.Del("X-Api-Key")
-			if p.Auth.Type == providers.AuthAPIKey {
-				req.Header.Set("X-Api-Key", credential)
-			} else {
-				req.Header.Set("Authorization", "Bearer "+credential)
-			}
+			providers.SetCredential(p, req.Header, credential)
 		}
 		resp, err := r.client.Do(req)
 		if err != nil {

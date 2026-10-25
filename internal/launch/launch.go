@@ -34,6 +34,7 @@ type Options struct {
 	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	Router   bool
 	PrintEnv bool
+	Direct   bool     // vendors only: skip the router, hand the CLI the provider route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 }
 
@@ -62,6 +63,8 @@ func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
 			}
 		case a == "--router" && allowRouter:
 			o.Router = true
+		case a == "--direct" && !allowRouter:
+			o.Direct = true
 		case a == "--print-env":
 			o.PrintEnv = true
 		case name == "--keep-env":
@@ -335,6 +338,9 @@ func vendorProfile(name string, o Options) (Options, string) {
 }
 
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
+	if o.Direct {
+		ctx = vendors.WithDirect(ctx)
+	}
 	spec, ok := vendors.Lookup(name)
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
