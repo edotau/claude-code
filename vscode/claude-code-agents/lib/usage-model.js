@@ -51,7 +51,9 @@ function toMs(v) {
   return Number.isNaN(t) ? null : t;
 }
 
-function buildProvider(id, rows) {
+/** One provider card's rows, scoped to a single (provider, account) pair — the CLI's PROVIDER QUOTAS keys on
+ * both, so a provider with two accounts (e.g. two `github` logins) renders as two cards, never merged. */
+function buildProvider(id, account, rows) {
   const meta = PROVIDER_META[id] || { name: id, icon: 'circle-outline' };
   let plan = null;
   let note = null;
@@ -74,6 +76,8 @@ function buildProvider(id, rows) {
       group: row.group || null,
       usedPct: typeof row.used_percent === 'number' ? row.used_percent : 0,
       leftPct: typeof row.left_percent === 'number' ? row.left_percent : 0,
+      usedCredits: typeof row.used_credits === 'number' ? row.used_credits : null,
+      limitCredits: typeof row.limit_credits === 'number' ? row.limit_credits : null,
       resetsAtMs: toMs(row.resets_at) != null ? toMs(row.resets_at) : toMs(row.resets),
       state: row.state || 'ok',
     });
@@ -83,7 +87,7 @@ function buildProvider(id, rows) {
     if (w.resetsAtMs != null && (resetsAtMs == null || w.resetsAtMs < resetsAtMs)) resetsAtMs = w.resetsAtMs;
   }
   const resetLabel = resetsAtMs != null ? formatResetCountdown(resetsAtMs - Date.now()) : null;
-  return { id, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, windows };
+  return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, windows };
 }
 
 /** One `agents[]` model entry → {provider, model, turns, tokens, costUsd}. */
@@ -220,18 +224,25 @@ function buildUsageModel(usageJson, profileJson, nowMs) {
   const billingProvider = billing.provider || null;
   const rows = (usageJson && usageJson.providers) || [];
   const order = [];
-  const byId = new Map();
+  const byKey = new Map();
   for (const row of rows) {
     const id = row.provider;
     if (!id) continue;
-    if (!byId.has(id)) {
-      order.push(id);
-      byId.set(id, []);
+    const account = row.account && row.account !== '-' ? row.account : '';
+    const key = account ? `${id}::${account}` : id;
+    if (!byKey.has(key)) {
+      order.push(key);
+      byKey.set(key, { id, account, rows: [] });
     }
-    byId.get(id).push(row);
+    byKey.get(key).rows.push(row);
   }
-  const ids = order.includes('anthropic') ? ['anthropic', ...order.filter((id) => id !== 'anthropic')] : order;
-  const providers = ids.map((id) => buildProvider(id, byId.get(id)));
+  const keys = order.includes('anthropic')
+    ? ['anthropic', ...order.filter((k) => k !== 'anthropic')]
+    : order;
+  const providers = keys.map((key) => {
+    const g = byKey.get(key);
+    return buildProvider(g.id, g.account, g.rows);
+  });
   const api = ((usageJson && usageJson.api) || []).map((r) => ({
     provider: r.provider,
     model: r.model,
