@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,9 +187,7 @@ func TestCheckSettingsDriftLocalDupNotDrift(t *testing.T) {
 }
 
 // TestCheckSettingsDriftLinesTruncatesLongForeignKey: a foreign key far longer than 80 runes must
-// still render with a <=80-rune embedded key — truncated, not reported at full length (the verb
-// text around it is not truncated and the whole line can still exceed 80 columns; that is known
-// techdebt, not asserted here).
+// still render with a <=80-rune embedded key and a whole line <=80 runes, verb intact.
 func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 	freshConfigDir(t)
 	rendered, err := settings.RenderLive()
@@ -229,6 +228,9 @@ func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 	embedded := strings.TrimSuffix(strings.TrimPrefix(line, "settings: "), " is a foreign key not in the template")
 	if n := len([]rune(embedded)); n > 80 {
 		t.Errorf("embedded key is %d runes, want <=80", n)
+	}
+	if n := len([]rune(line)); n > 80 {
+		t.Errorf("whole line is %d runes, want <=80", n)
 	}
 	if !strings.HasSuffix(embedded, "…") {
 		t.Errorf("embedded key = %q, want it truncated with an ellipsis", embedded)
@@ -340,5 +342,64 @@ func TestCheckSettingsDriftDropListErrorIsNote(t *testing.T) {
 	lines := d.Lines()
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "settings: drop list unavailable:") {
 		t.Errorf("Lines = %q, want one informational drop-list line", lines)
+	}
+}
+
+// Every assembled line, whatever the finding kind, stays within 80 runes.
+func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
+	long := strings.Repeat("x", 200)
+	d := SettingsDrift{
+		File:     "/f/settings.json",
+		Invalid:  errors.New("parse " + long),
+		Foreign:  []string{long},
+		Kept:     []string{long},
+		LocalDup: []string{"settings.local.json " + long + " repeats the template"},
+		Nested:   long,
+		Note:     "drop list unavailable: " + long,
+	}
+	lines := d.Lines()
+	if len(lines) != 6 {
+		t.Fatalf("lines = %d, want 6: %q", len(lines), lines)
+	}
+	for _, l := range lines {
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("line is %d runes, want <=80: %q", n, l)
+		}
+		if !strings.HasPrefix(l, "settings: ") {
+			t.Errorf("line %q lost its prefix", l)
+		}
+	}
+}
+
+// A long key is shortened, never the verb that says what is wrong with it.
+func TestSettingsDriftLinesKeepVerbForLongKey(t *testing.T) {
+	long := strings.Repeat("k", 120)
+	d := SettingsDrift{Differs: []string{long}, Foreign: []string{long}, Kept: []string{long}}
+	want := []string{" differs from the template", " is a foreign key not in the template", " is kept (not in the template)"}
+	lines := d.Lines()
+	if len(lines) != len(want) {
+		t.Fatalf("lines = %q", lines)
+	}
+	for i, l := range lines {
+		if !strings.HasSuffix(l, want[i]) {
+			t.Errorf("line %q lost its verb %q", l, want[i])
+		}
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("line is %d runes, want <=80", n)
+		}
+		if !strings.Contains(l, "…") {
+			t.Errorf("line %q: key not marked truncated", l)
+		}
+	}
+}
+
+// The joined install detail is capped per line, not only per finding kind.
+func TestSettingsDriftDetailCapsEachLine(t *testing.T) {
+	long := strings.Repeat("k", 200)
+	detail := settingsDriftDetailLabeled(SettingsDrift{Foreign: []string{long}, Differs: []string{long}}, nil, "settings")
+	for _, part := range strings.Split(detail, "; ") {
+		if n := len([]rune(part)); n > 80 {
+			t.Errorf("detail part is %d runes, want <=80: %q", n, part)
+		}
 	}
 }

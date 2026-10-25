@@ -164,7 +164,7 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 	if err != nil {
 		return SettingsDrift{File: file}, true, err
 	}
-	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered)
+	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered, "")
 	if dropped, derr := settings.LoadDropped(); derr != nil {
 		d.Note = "drop list unavailable: " + derr.Error()
 	} else {
@@ -175,8 +175,8 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 	return d, true, err
 }
 
-// checkSettingsDriftAt is CheckSettingsDriftWith generalized over which file/local-file pair to check.
-func checkSettingsDriftAt(file, localFile string, rendered []byte) (SettingsDrift, error) {
+// checkSettingsDriftAt is CheckSettingsDriftWith generalized over the file/local-file pair; dupNote suffixes LocalDup lines.
+func checkSettingsDriftAt(file, localFile string, rendered []byte, dupNote string) (SettingsDrift, error) {
 	d := SettingsDrift{File: file}
 	existing, _, rerr := readStrippingBOM(file) // install preserves a BOM; Diff must not see it
 	switch {
@@ -198,7 +198,7 @@ func checkSettingsDriftAt(file, localFile string, rendered []byte) (SettingsDrif
 	if local, lerr := os.ReadFile(localFile); lerr == nil {
 		if dups, derr := settings.LocalDuplicates(local, rendered); derr == nil {
 			for _, k := range dups {
-				d.LocalDup = append(d.LocalDup, fmt.Sprintf("settings.local.json %s repeats the template (only read in $HOME)", k))
+				d.LocalDup = append(d.LocalDup, fmt.Sprintf("settings.local.json %s repeats the template%s", k, dupNote))
 			}
 		}
 	}
