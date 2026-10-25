@@ -1,7 +1,16 @@
 {
   "default": "subscription",
   "fallback": [],
-  "opencodeLadder": ["opencode-go", "github-copilot", "openai"],
+  "routing": {
+    "weights": {"price": 0.5, "headroom": 0.5},
+    "subagents": true,
+    "opencode": {
+      "ladder": ["opencode-go", "github-copilot", "openai"],
+      "workRepoMarkers": [],
+      "freeTiers": ["sonnet", "haiku"],
+      "freeFirstOutput": "90s"
+    }
+  },
   "providers": {
     "anthropic": {
       "kind": "anthropic",

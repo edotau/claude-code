@@ -30,6 +30,7 @@ var configurePage = helptext.Page{
 		{"remote", "tailscale connectivity and dispatch hosts (read-only)"},
 		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
+		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
 		{"doctor", "read-only health checks"},
 	},
 }

@@ -101,7 +101,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	// A vault route override on opencode/sonnet must change the rendered model, not just the table's own read.
 	// github-copilot/ is a known backend prefix (its billing moves to the copilot account); an unknown
 	// prefix like "zed/" is rejected by routetable.LoadFrom and covered in routetable's own tests.
-	overlay := `{"route":{"opencode":{"sonnet":{"model":"github-copilot/overridden-model"}}}}`
+	overlay := `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/overridden-model"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	_, cfgBody2, _, _, err := OpencodeOverlayRendered()
 	if err != nil {
@@ -123,7 +123,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 // unknown cell) leaves the template's own hard-coded model/small_model untouched, the one fallback use.
 func TestApplyOpencodeTableModelsFallsBackOnLoadError(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"route":{"ghost":{"opus":{"model":"m"}}}}`)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"ghost":{"opus":{"model":"m"}}}}}`)
 	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
 	if err != nil {
 		t.Fatal(err)

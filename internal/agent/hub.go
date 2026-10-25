@@ -18,9 +18,24 @@ import (
 // opencodeLogins is a seam over vendors.OpencodeLogins, so tests never shell out to opencode auth.
 var opencodeLogins = vendors.OpencodeLogins
 
-// freeFirstOutput is the first-output deadline for a free-billed hub leg (route.BillFree); a var so tests
-// shrink it. A paid leg carries no deadline (hubLeg.firstOutput stays 0) and relies on AttemptTimeout alone.
-var freeFirstOutput = 90 * time.Second
+// freeFirstOutput overrides the first-output deadline for a free-billed hub leg (route.BillFree); zero (the
+// default) defers to the registry's routing.opencode.freeFirstOutput (providers.OpencodeRouting.FirstOutput,
+// 90s unless the vault overlay sets it). A paid leg carries no deadline (hubLeg.firstOutput stays 0) and
+// relies on AttemptTimeout alone.
+var freeFirstOutput time.Duration
+
+// firstOutputDeadline resolves the free-leg stall deadline: the freeFirstOutput override when tests set
+// one, else the registry's own value (a load error falls back to providers.OpencodeRouting's 90s floor).
+func firstOutputDeadline() time.Duration {
+	if freeFirstOutput > 0 {
+		return freeFirstOutput
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return (providers.OpencodeRouting{}).FirstOutput()
+	}
+	return reg.Routing.Opencode.FirstOutput()
+}
 
 // errStalled is the sentinel a free leg's Run returns when nothing streamed within firstOutput: a fatal,
 // unwrapped failure, so Do never retries it but legUnavailable falls through to the chain's backup leg.
@@ -50,7 +65,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		return p, nil
 	}
 	var first *providers.Provider
-	for _, id := range reg.OpencodeLadder {
+	for _, id := range reg.Routing.Opencode.LadderOrder() {
 		p, err := opencodeLadderProvider(reg, id)
 		if err != nil {
 			continue

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -21,7 +22,7 @@ func hubRegistry() *providers.Registry {
 			Models: map[string]string{models.Opus: id + "-opus", models.Sonnet: id + "-sonnet"}, OpencodeID: id}
 	}
 	reg := &providers.Registry{
-		OpencodeLadder: []string{"chatgpt", "github-copilot", "gemini", "nvidia"},
+		Routing: providers.Routing{Opencode: providers.OpencodeRouting{Ladder: &[]string{"chatgpt", "github-copilot", "gemini", "nvidia"}}},
 		Providers: map[string]*providers.Provider{
 			"chatgpt":        mk("openai"),
 			"github-copilot": mk("github-copilot"),
@@ -65,7 +66,7 @@ func TestHubLegForOpencodeDefault(t *testing.T) {
 // opencode-go provider); an empty ladder errors.
 func TestHubStart(t *testing.T) {
 	reg := hubRegistry()
-	reg.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order: Go, then Copilot, then ChatGPT
+	reg.Routing.Opencode.Ladder = &[]string{"opencode-go", "github-copilot", "openai"} // defaults.json order: Go, then Copilot, then ChatGPT
 	orig := opencodeLogins
 	t.Cleanup(func() { opencodeLogins = orig })
 	opencodeLogins = func() []string { return nil }
@@ -103,7 +104,7 @@ func TestHubStart(t *testing.T) {
 
 	// an empty ladder errors — nothing to fall back to.
 	empty := hubRegistry()
-	empty.OpencodeLadder = nil
+	empty.Routing.Opencode.Ladder = nil
 	if _, err := HubStart(empty, "opencode", ""); err == nil {
 		t.Error("an empty opencodeLadder must error")
 	}
@@ -138,6 +139,29 @@ func TestHubLegRunOversizedPromptRefused(t *testing.T) {
 	var e *Error
 	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
+	}
+}
+
+// TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden checks firstOutputDeadline reads the registry's
+// routing.opencode.freeFirstOutput value when the package-level freeFirstOutput override is zero (unset),
+// and that the override still wins when a test sets one.
+func TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := providers.UpdateRouting(func(r *providers.Routing) error {
+		r.Opencode.FreeFirstOutput = "45s"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := firstOutputDeadline(); got != 45*time.Second {
+		t.Errorf("firstOutputDeadline() = %v, want the registry's 45s", got)
+	}
+
+	orig := freeFirstOutput
+	freeFirstOutput = 10 * time.Second
+	t.Cleanup(func() { freeFirstOutput = orig })
+	if got := firstOutputDeadline(); got != 10*time.Second {
+		t.Errorf("firstOutputDeadline() = %v, want the override (10s) to win over the registry", got)
 	}
 }
 

@@ -109,14 +109,14 @@ func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	t.Setenv(PinProvider, "")
 	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
 		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
-		"opencodeLadder": ["opencode-go"], "opencodePlugins": ["old-plugin"]}`)
-	overlay := []byte(`{"opencodeLadder": ["openai", "opencode-go"], "opencodePlugins": ["new-plugin"]}`)
+		"routing": {"opencode": {"ladder": ["opencode-go"]}}, "opencodePlugins": ["old-plugin"]}`)
+	overlay := []byte(`{"routing": {"opencode": {"ladder": ["openai", "opencode-go"]}}, "opencodePlugins": ["new-plugin"]}`)
 	reg, err := Parse(base, overlay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"openai", "opencode-go"}) {
-		t.Errorf("OpencodeLadder = %v, want overlay's full replacement", reg.OpencodeLadder)
+	if !reflect.DeepEqual(reg.Routing.Opencode.LadderOrder(), []string{"openai", "opencode-go"}) {
+		t.Errorf("OpencodeLadder = %v, want overlay's full replacement", reg.Routing.Opencode.LadderOrder())
 	}
 	if !reflect.DeepEqual(reg.OpencodePlugins, []string{"new-plugin"}) {
 		t.Errorf("OpencodePlugins = %v, want overlay's full replacement", reg.OpencodePlugins)
@@ -133,37 +133,39 @@ func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing
 	base := []byte(`{"providers": {
 		"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"},
 		"github-copilot": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}
-	}, "opencodeLadder": ["opencode-go"]}`)
-	overlay := []byte(`{"opencodeLadder": ["chatgpt", "github-copilot", "chatgpt"]}`)
+	}, "routing": {"opencode": {"ladder": ["opencode-go"]}}}`)
+	overlay := []byte(`{"routing": {"opencode": {"ladder": ["chatgpt", "github-copilot", "chatgpt"]}}}`)
 	reg, err := Parse(base, overlay)
 	if err != nil {
 		t.Fatalf("Parse() = %v, want the legacy provider-name ladder to normalize and validate", err)
 	}
-	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"openai", "github-copilot"}) {
-		t.Errorf("OpencodeLadder = %v, want [\"openai\", \"github-copilot\"] (normalized, deduplicated)", reg.OpencodeLadder)
+	if !reflect.DeepEqual(reg.Routing.Opencode.LadderOrder(), []string{"openai", "github-copilot"}) {
+		t.Errorf("OpencodeLadder = %v, want [\"openai\", \"github-copilot\"] (normalized, deduplicated)", reg.Routing.Opencode.LadderOrder())
 	}
 
 	// an id that names nothing real must still fail validation after normalization.
-	badOverlay := []byte(`{"opencodeLadder": ["ghost"]}`)
+	badOverlay := []byte(`{"routing": {"opencode": {"ladder": ["ghost"]}}}`)
 	if _, err := Parse(base, badOverlay); err == nil {
 		t.Error("an unknown opencodeLadder id must still error after normalization")
 	}
 }
 
 func TestValidateRejectsUnknownOpencodeLadderName(t *testing.T) {
-	reg := &Registry{OpencodeLadder: []string{"ghost"}, Providers: map[string]*Provider{}}
+	ghostLadder := []string{"ghost"}
+	reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &ghostLadder}}, Providers: map[string]*Provider{}}
 	err := reg.Validate()
 	if err == nil {
 		t.Fatal("unknown opencodeLadder name must fail validation")
 	}
-	if !strings.Contains(err.Error(), "opencodeLadder names unknown opencode sub id") {
+	if !strings.Contains(err.Error(), "routing.opencode.ladder names unknown opencode sub id") {
 		t.Errorf("error = %q, want it to name the opencodeLadder rule", err)
 	}
 }
 
 // TestValidateAcceptsOpencodeSubIDsWithoutProviders: ladder entries are opencode sub ids, not registry provider names.
 func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
-	reg := &Registry{OpencodeLadder: []string{"opencode-go", "github-copilot", "openai"}, Providers: map[string]*Provider{}}
+	defaultOrderLadder := []string{"opencode-go", "github-copilot", "openai"}
+	reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &defaultOrderLadder}}, Providers: map[string]*Provider{}}
 	if err := reg.Validate(); err != nil {
 		t.Fatalf("default-order sub ids rejected: %v", err)
 	}
@@ -410,11 +412,11 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 // TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
 // runner or tier outside RouteRunners/RouteTiers before it ever reaches routetable.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
-	badTier := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}
+	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
 	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {
 		t.Errorf("unknown tier: err = %v, want it to name the rule", err)
 	}
-	badRunner := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}
+	badRunner := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}}
 	if err := badRunner.Validate(); err == nil || !strings.Contains(err.Error(), "unknown runner") {
 		t.Errorf("unknown runner: err = %v, want it to name the rule", err)
 	}
@@ -425,27 +427,27 @@ func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
 // derivable billing account, while letting a "copilot:" dynamic key and an off-runner "/" model override
 // (no account-key rule applies outside opencode) through.
 func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
-	badAccount := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+	badAccount := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "opencode-go/y", Account: "nobody:nothing"}},
-	}}
+	}}}
 	if err := badAccount.Validate(); err == nil || !strings.Contains(err.Error(), `account_key "nobody:nothing"`) {
 		t.Errorf("unknown account_key: err = %v, want it to name the rule", err)
 	}
-	badPrefix := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+	badPrefix := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "zed/model"}},
-	}}
+	}}}
 	if err := badPrefix.Validate(); err == nil || !strings.Contains(err.Error(), `model "zed/model" prefix has no known billing account`) {
 		t.Errorf("unknown opencode prefix: err = %v, want it to name the rule", err)
 	}
-	copilotUser := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+	copilotUser := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "github-copilot/x", Account: "copilot:anyuser"}},
-	}}
+	}}}
 	if err := copilotUser.Validate(); err != nil {
 		t.Errorf("copilot:anyuser must pass (dynamic family): %v", err)
 	}
-	offRunnerSlash := &Registry{Providers: map[string]*Provider{}, Route: map[string]map[string]RouteCell{
+	offRunnerSlash := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"codex": {"sonnet": {Model: "openrouter/some-model"}},
-	}}
+	}}}
 	if err := offRunnerSlash.Validate(); err != nil {
 		t.Errorf("a non-opencode \"/\" model with no account_key must pass (rule is opencode-scoped): %v", err)
 	}
@@ -454,11 +456,11 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 // TestValidateRejectsOutOfRangeRouteWeight checks an overlay weight outside [0,1] (or one that doesn't sum
 // to 1 across the dimensions) fails Validate, rather than silently reaching routetable with a bad score.
 func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
-	outOfRange := &Registry{Providers: map[string]*Provider{}, RouteWeights: map[string]float64{"price": 1.5, "headroom": -0.5}}
+	outOfRange := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 1.5, "headroom": -0.5}}}
 	if err := outOfRange.Validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {
 		t.Errorf("out-of-range weight: err = %v, want it to name the rule", err)
 	}
-	doesNotSum := &Registry{Providers: map[string]*Provider{}, RouteWeights: map[string]float64{"price": 0.2, "headroom": 0.2}}
+	doesNotSum := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 0.2, "headroom": 0.2}}}
 	if err := doesNotSum.Validate(); err == nil || !strings.Contains(err.Error(), "sum to") {
 		t.Errorf("non-summing weights: err = %v, want it to name the rule", err)
 	}

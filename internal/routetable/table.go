@@ -57,6 +57,9 @@ type Table struct {
 	// OpencodeLadder is the sub-pick's paid-backend order (set from the registry in LoadFrom, not JSON):
 	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
 	OpencodeLadder []string `json:"-"`
+	// OpencodeRouting is the registry's routing.opencode object (set from the registry in LoadFrom, not
+	// JSON): work-repo markers, which tiers zen-free may serve, and the free leg's stall deadline.
+	OpencodeRouting providers.OpencodeRouting `json:"-"`
 	// OpencodeRowOverridden marks a tier whose Rows["opencode"] cell a route overlay touched directly (set
 	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that tier.
 	OpencodeRowOverridden map[string]bool `json:"-"`
@@ -85,7 +88,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	t.Billing[copilotKey] = t.Billing["copilot"]
 	if reg != nil {
 		t.OpencodeRowOverridden = map[string]bool{}
-		for runner, tiers := range reg.Route {
+		for runner, tiers := range reg.Routing.Cells {
 			for tier, o := range tiers {
 				if err := t.applyRouteOverlayCell(runner, tier, o); err != nil {
 					return nil, err
@@ -96,11 +99,12 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 			}
 		}
 	}
-	if reg != nil && len(reg.RouteWeights) > 0 {
-		t.Weights = reg.RouteWeights // an overlay replaces the weights whole, so they still sum to 1
+	if reg != nil && len(reg.Routing.Weights) > 0 {
+		t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
 	}
 	if reg != nil {
-		t.OpencodeLadder = reg.OpencodeLadder // already normalized to sub ids by providers.Parse
+		t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
+		t.OpencodeRouting = reg.Routing.Opencode
 	}
 	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
 		return nil, fmt.Errorf("routetable: %w", err)

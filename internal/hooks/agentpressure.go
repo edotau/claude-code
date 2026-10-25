@@ -18,11 +18,8 @@ import (
 // OffloadPct is the window share at which a code-worker or Explore dispatch moves to a coworker leaf.
 const OffloadPct = 97.0
 
-// Env knobs: the opt-out (env or vault pin) and a forced reading for live checks.
-const (
-	envRouteSubagents = "HARNESS_ROUTE_SUBAGENTS"
-	envTestPct        = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
-)
+// envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
+const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
 // offloadTypes are the agent types whose work a coworker leaf can carry through a vendor CLI.
 var offloadTypes = map[string]bool{"code-worker": true, "Explore": true}
@@ -55,7 +52,7 @@ var routeHint = func(tier string) (runner, model string) {
 // applyPressure rewrites updated under Anthropic quota pressure and returns the context note ("" = untouched).
 // An explicit dispatch model is never changed; base is the model the dispatch will run (classifier or roster pin).
 func applyPressure(in *Input, updated map[string]any, promptField, base string) (note, systemMessage string) {
-	if strings.TrimSpace(providers.Pin(envRouteSubagents)) == "0" {
+	if on, _ := providers.RouteSubagentsOn(); !on {
 		return "", ""
 	}
 	pct, window, ok := claudePressure()

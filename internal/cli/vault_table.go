@@ -32,6 +32,7 @@ func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, widt
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
+		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
 		"vendors":   func() string { return vaultVendorsText(doc.Vendors, width) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
@@ -209,9 +210,6 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	if len(reg.Fallback) > 0 {
 		lines = append(lines, [2]string{"fallback", strings.Join(reg.Fallback, " → ")})
 	}
-	if len(reg.OpencodeLadder) > 0 {
-		lines = append(lines, [2]string{"opencode ladder", strings.Join(reg.OpencodeLadder, " → ")})
-	}
 	if len(reg.OpencodePlugins) > 0 {
 		lines = append(lines, [2]string{"opencode plugins", strings.Join(reg.OpencodePlugins, ", ")})
 	}
@@ -226,6 +224,47 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	}
 	b.WriteString(strings.Join(blocks, "\n"))
 	return b.String()
+}
+
+// vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
+// opencode's sub-pick knobs) as dotted-path rows, in the style of vaultProvidersText's own flatten.
+func vaultRoutingText(raw json.RawMessage, width int) string {
+	var b strings.Builder
+	b.WriteString("ROUTING\n")
+	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
+		b.WriteString("  (none)\n")
+		return b.String()
+	}
+	var reg providers.Registry
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		b.WriteString(vaultTruncate("  error  "+err.Error(), width) + "\n")
+		return b.String()
+	}
+	rb, err := json.Marshal(reg.Routing)
+	if err != nil {
+		b.WriteString(vaultTruncate("  error  "+err.Error(), width) + "\n")
+		return b.String()
+	}
+	rows := vaultFlattenSection(rb)
+	if len(rows) == 0 {
+		b.WriteString("  (none)\n")
+		return b.String()
+	}
+	b.WriteString(strings.TrimPrefix(vaultSection("", rows, width), "\n"))
+	return b.String()
+}
+
+// vaultRoutingJSON is `vault list --format json`'s "routing" value: the providers overlay's nested
+// routing object, or null when the overlay carries none.
+func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
+	if s := strings.TrimSpace(string(providersRaw)); s == "" || s == "null" {
+		return json.RawMessage("null"), nil
+	}
+	var reg providers.Registry
+	if err := json.Unmarshal(providersRaw, &reg); err != nil {
+		return nil, err
+	}
+	return json.Marshal(reg.Routing)
 }
 
 // vaultTable renders a header plus rows as two-space-indented, column-aligned, width-truncated lines.

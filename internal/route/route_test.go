@@ -13,7 +13,10 @@ import (
 
 func testTable(t *testing.T) *Table {
 	t.Helper()
-	tb, err := load(nil, "work-user")
+	// a bare table.json load carries no registry, so set the defaults.json-shaped opencode free-tier
+	// policy explicitly: zen-free may serve sonnet/haiku, same as production's merged registry.
+	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"sonnet", "haiku"}}}}
+	tb, err := load(reg, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +51,10 @@ func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
 
 func TestOverlayCellAndWeights(t *testing.T) {
 	// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
-	reg := &providers.Registry{Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
-		RouteWeights: map[string]float64{"price": 0.2, "headroom": 0.8}}
+	reg := &providers.Registry{Routing: providers.Routing{
+		Cells:   map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
+		Weights: map[string]float64{"price": 0.2, "headroom": 0.8},
+	}}
 	tb, err := load(reg, "u")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +65,7 @@ func TestOverlayCellAndWeights(t *testing.T) {
 	if tb.Weights["headroom"] != 0.8 {
 		t.Errorf("weights = %v", tb.Weights)
 	}
-	bad := &providers.Registry{Route: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}
+	bad := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}}
 	if _, err := load(bad, "u"); err == nil {
 		t.Error("unknown overlay cell must fail")
 	}
@@ -73,7 +78,7 @@ func TestWeightValidation(t *testing.T) {
 		"extra":   {"price": 0.5, "headroom": 0.5, "latency": 0},
 		"range":   {"price": 1.5, "headroom": -0.5},
 	} {
-		if _, err := load(&providers.Registry{RouteWeights: w}, "u"); err == nil {
+		if _, err := load(&providers.Registry{Routing: providers.Routing{Weights: w}}, "u"); err == nil {
 			t.Errorf("%s: weights %v accepted", name, w)
 		}
 	}
@@ -240,7 +245,7 @@ func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 // own account state.
 func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	reg := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}},
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}}},
 	}
 	tb, err := load(reg, "work-user")
 	if err != nil {

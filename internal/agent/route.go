@@ -100,7 +100,7 @@ func watchFreeLeg(r Runner, billing string) Runner {
 		return r
 	}
 	if hl, ok := r.(hubLeg); ok {
-		hl.firstOutput = freeFirstOutput
+		hl.firstOutput = firstOutputDeadline()
 		return hl
 	}
 	return r
@@ -230,6 +230,6 @@ func noteStall(leg Leg, err error) {
 		return
 	}
 	now := time.Now()
-	reason := fmt.Sprintf("free leg stalled (no output in %s)", freeFirstOutput)
+	reason := fmt.Sprintf("free leg stalled (no output in %s)", firstOutputDeadline())
 	_ = markExhausted(leg.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
 }
