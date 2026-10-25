@@ -49,9 +49,6 @@ Grading finished work (a transcript, a claimed-done diff) is `evaluate-code`'s `
 /problem-solving report       rewrite the pending answer per Step 6
 ```
 
-Grading finished work — audit a transcript or judge a claimed-done piece of work →
-`evaluate-code` skill, `../evaluate-code/references/judge.md`.
-
 ## Gate 1 — Triviality
 
 Trivial only if **all** hold: one file, <~10 changed lines, no new behavior, and you already
@@ -151,13 +148,8 @@ list mid-work is a surprise (Step 2 rule 6): say it, never silently expand.
 
 ## Step 4 — Act surgically
 
-1. **Before any behavior-changing edit, open the README/spec/docstring and write this line in your working
-   notes:** `TASK: code does <X>; the failing check expects <Y>; the spec says <Z>`. This is a forced step,
-   not a judgment call. Y and Z agree while X differs → ordinary bug, fix the code. **Y and Z disagree → do
-   not edit the code to match the check;** fix the side the spec contradicts (usually the check), or stop and
-   report the conflict, saying which side you trust and why. Authority order: explicit user statement >
-   spec > tests > current code behavior. "Make the tests pass" is a task framing, not a statement of
-   intended behavior — it does not promote the tests above the spec. Spec: `references/notes.md`.
+1. Write the forced `TASK:` line (box at the top; spec and authority order: `references/notes.md`). Y and Z
+   disagree → fix the side the spec contradicts or stop and report; never edit code to match the check.
 2. **Recall gate**, before first use of anything you have not opened this session (signature,
    endpoint, config key, price, figure, regulation). Open its source now, or write it and label
    it *memory, unverified* in the report. Discovering ignorance re-opens Step 2.
@@ -176,8 +168,7 @@ list mid-work is a surprise (Step 2 rule 6): say it, never silently expand.
 
 ## Step 5 — Verify by observation
 
-Iron law: run the check in this message, read its output, then claim — stale output, "should
-work", and a subagent's own report are not evidence.
+Iron law and the gate chain: `references/verify.md`.
 
 Two halves, plus a third whenever you fixed a defect:
 
@@ -186,10 +177,8 @@ Two halves, plus a third whenever you fixed a defect:
 - **(b)** the surrounding system still works: tests, build, lint for the touched area. A green
   targeted check with a broken build is a **failed** verification. Gate sequence, bounded loop,
   claims table: `references/verify.md`.
-- **(c) Whenever you fixed a defect, sweep for copies before reporting it fixed.** A bug found in
-  one place is presumed to recur until you have searched for the exact wrong construct across the
-  whole project → `references/notes.md` (`ISSUE:`). This is a forced step, not a judgment call: do
-  the search, then fix or list every site it finds.
+- **(c)** whenever you fixed a defect, write the forced `ISSUE:` sweep before reporting it fixed
+  (`references/notes.md`).
 
 Code instantiation (live first, tests with teeth): `skills/testing-guidelines/references/test-discipline.md`.
 
@@ -207,12 +196,7 @@ that. Never let an unverified claim pass as verified.
 `ISSUE:`/`PENDING:` tags. Each forced note becomes the plain sentence it stands for — see
 `references/notes.md` for the rendering of each.
 
-- **First sentence answers "what happened" / "what did you find".** Detail after.
-- Readable by someone who never saw the code: define jargon at first use, translate numbers into
-  meaning ("about twice as fast", not only "420ms → 210ms"). Technical evidence follows.
-- Quote only load-bearing lines. Never dump whole files or logs.
-- **Caveats are mandatory:** what was skipped, what is weak, what could not be verified. Failed
-  things are reported as failed, with their output (`rules/standards/communication.md`).
+- Outcome-first, caveats mandatory, failures reported with their output: `rules/standards/communication.md`.
 - Delete scratch files and test artifacts you created; note the cleanup. Leftover debris is a
   fraud signal to a judge.
 - **Before reporting, write this line in your working notes:** `PENDING: <a follow-up a README, runbook or

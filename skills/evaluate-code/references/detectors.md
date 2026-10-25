@@ -19,26 +19,7 @@ wrapper that runs them on staged files and prints findings; it takes no `--json`
 
 ---
 
-## Lint & format gate (run before detectors)
-
-Before the discipline detectors, run the project's mechanical format + lint gate —
-deterministic, catches trivial issues no human should review, and a noisy diff from
-unformatted code masks the real change. Unlike the detectors below, **this gate can fail**:
-treat a non-zero exit as a must-fix before review proceeds.
-
-```bash
-# Prefer the project's own gate; fall back to the tools directly.
-if make -n lint >/dev/null 2>&1; then
-  make fmt   && make lint            # the project's own formatter + linter
-else
-  black --check . && ruff check .    # generic Python fallback
-fi
-```
-
-`make fmt` auto-applies formatting; `make lint` is check-only (see the project's `Makefile`). In a
-Go repo that is `gofmt -l` + `go vet`; in a JS/TS repo substitute the
-project's equivalent (`npm run lint`, `prettier --check`). Report formatting/lint failures as
-**should-fix** (or **nit** once auto-fixed) — they precede, not replace, the judgment passes.
+Run the mechanical gate first — `rules/standards/quality.md` → Verification Order (step 1).
 
 ---
 

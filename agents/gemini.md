@@ -47,28 +47,12 @@ if every leg fails, report the failure instead of guessing.
 
 ## Verbs
 
-| Verb | Use it for | Output |
-| --- | --- | --- |
-| `claude-code gemini [flags] [args…]` | launch agy; unknown words pass through | agy CLI |
-| `claude-code gemini -- <args…>` | force passthrough (shadowed names, e.g. `gemini -- models`) | agy CLI |
-| `claude-code gemini ask [flags] <task>` | one-shot run; `--tools` = agy reads, `--background` detaches | answer |
-| `claude-code gemini explore [--no-web] [--background] <question>` | explore + web research, read-only | Codebase Context Brief |
-| `claude-code gemini resume <id> <task>` | continue an agy conversation (= `agy --conversation <id>`) | answer |
-| `claude-code gemini review [scope] [--adversarial] [--background]` | diff review, gemini family | verdict, findings |
-| `claude-code gemini transfer [--source f] [--wait] [note]` | hand this Claude session to agy | job id, or answer |
-| `claude-code gemini status [id] [--all]` | background jobs for gemini in this repo | rows: id, status, elapsed |
-| `claude-code gemini tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
-| `claude-code gemini result [id]` | a finished job's answer | answer + session id + resume cmd |
-| `claude-code gemini cancel [id]` | interrupt a running job | `cancelled <id>` |
-| `claude-code gemini setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
-| `claude-code gemini models` | agy's own model catalog | list |
-| `claude-code gemini bridge …` | 1M-context sweep across many files (unchanged) | answer |
+Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Gemini deltas:
 
-- `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for gemini in this repo.
-- `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.
-- `claude-code ask --agent gemini --tools` still works (saved Workflows use this form) and equals
-  `claude-code gemini ask --tools`.
-- A shadowed native name needs the `--` passthrough: `claude-code gemini -- models`.
+- `claude-code gemini explore [--no-web] [--background] <question>` — explore + web research,
+  read-only → Codebase Context Brief.
+- `claude-code gemini bridge …` — 1M-context sweep across many files → answer.
+- `claude-code ask --agent gemini --tools` equals `claude-code gemini ask --tools`.
 - Resume the underlying agy conversation directly with `agy --conversation <id>`.
 
 ## Hands off to
@@ -83,14 +67,11 @@ if every leg fails, report the failure instead of guessing.
 
 ## Procedure
 
-1. **`claude-code gemini setup`** first. A non-zero exit (binary missing or not logged in) stops you
-   — report it, never fall through to doing the work yourself silently. agy sign-in: run `agy` once.
-2. **Pick the backend and verb** — see "Backend selection" below.
-3. **Run it.** `--background` for long sweeps, then poll with `status`/`result`; `cancel` on a
-   stall.
-4. **Verify the result as a claim** — spot-check one cited `file:line` or URL per answer before
-   relaying it downstream.
-5. **Report** per the contract below.
+Per `vendor-verbs.md` → Procedure skeleton. agy sign-in: run `agy` once. Delta:
+
+- **Pick the backend and verb** — see "Backend selection" below.
+- **Verify the result as a claim** — spot-check one cited `file:line` or URL per answer before
+  relaying it downstream.
 
 ### Explore + research brief
 
@@ -131,8 +112,9 @@ You have **two engines** for scanning:
    - `gemini bridge` if the task says "entire repo", "all files", "map everything", "every package that", "1M context",
      or asks for repo-wide cross-references 2b. **Model and effort**: the default (`gemini-3.8-flash-high`) fits normal
      scans; only for an unusually complex task add `--model gemini-4-argon --effort high`.
-3. Fallback order (built into `ask`): gemini → Copilot (`auto`; Copilot serves no Gemini models) → opencode →
-   Claude on the subscription; Sonnet in-process only if `ask` itself fails. Say in the report who answered.
+3. Fallback ladder: `skills/subagent-workflows/references/cost-routing.md` → Fallback (Copilot serves
+   no Gemini models, so it is skipped in that chain); Sonnet in-process only if `ask` itself fails. Say
+   in the report who answered.
 
 ### Gemini backend — bridge
 
@@ -293,8 +275,9 @@ need to know which engine answered.
 - Exceed ~150 lines of findings — the goal is context for downstream agents, not a novel.
 - Edit files — this is a read-only leg; `--tools` is for agy to read/search, never to write.
 - Answer from model knowledge instead of running a backend.
-- `git stash` / `checkout` / `reset` / `restore` / commit.
-- Invent a verb — the table above is the whole surface; `claude-code gemini -h` lists it.
+- Commit.
+
+Per `vendor-verbs.md` → Don't: don't invent a verb.
 
 Memory proposals:
 [shared discipline and gemini candidates](../skills/subagent-workflows/references/memory-updates.md#gemini).

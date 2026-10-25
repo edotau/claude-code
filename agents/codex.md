@@ -41,25 +41,8 @@ and say so plainly in the report.
 
 ## Verbs
 
-| Verb | Use it for | Output |
-| --- | --- | --- |
-| `claude-code codex [flags] [args…]` | launch the codex CLI; unknown words pass through | codex CLI |
-| `claude-code codex -- <args…>` | force passthrough (shadowed names, e.g. `codex -- review`) | codex CLI |
-| `claude-code codex ask [flags] <task>` | one-shot run; `--tools` edits, `--background` detaches | answer |
-| `claude-code codex resume <id> <task>` | continue a codex session | answer |
-| `claude-code codex review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
-| `claude-code codex transfer [--source f] [--wait] [note]` | hand this Claude session to codex | job id, or answer |
-| `claude-code codex status [id] [--all]` | background jobs for codex in this repo | rows: id, status, elapsed |
-| `claude-code codex tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
-| `claude-code codex result [id]` | a finished job's answer | answer + session id + resume cmd |
-| `claude-code codex cancel [id]` | interrupt a running job | `cancelled <id>` |
-| `claude-code codex setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
-| `claude-code codex models` | codex's own model catalog | list |
+Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Codex deltas:
 
-- `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for codex in this repo.
-- `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.
-- `claude-code ask --agent codex` still works (saved Workflows use this form).
-- A shadowed native name needs the `--` passthrough: `claude-code codex -- review`.
 - Resume the underlying CLI session directly with `codex resume <id>`.
 
 ## Hands off to
@@ -75,26 +58,22 @@ and say so plainly in the report.
 
 ## Procedure
 
-1. **`claude-code codex setup`** first. A non-zero exit (binary missing or not logged in) stops you —
-   report it, never fall through to doing the work yourself silently.
-2. **Pick the verb** from the request:
-   - "ship or block / second opinion on a diff" → `review`
-   - "challenge this plan / vet this task" → `ask` + `task-review.md`
-   - "run the gates / verify before shipping" → `ask --tools` + `verify.md`
-   - "review this skill/plugin" → `ask` + `codex-skill-plugin-review.md`
-   - "take over / do X" → `ask --tools`
-   - "continue session" → `resume`
-   - "hand this session over" → `transfer`
-3. **Run it.** `--background` for anything likely over ~3 minutes, then poll with `status`/`result`;
-   `cancel` on a stall. Default model and effort; add `--model gpt-6.1-sol --effort high` only for an
-   unusually complex task (a cross-package design call, a subtle concurrency or auth bug). `ask` falls
-   back codex → Copilot (same model) → opencode → Claude; `--fallback vendors|none` limits it, and the
-   envelope's `fallback` field says who actually answered. `review` always runs `--fallback vendors` —
-   it never falls back to Claude.
-4. **Verify the result as a claim** — re-run what it claims where you can, spot-check at least one
-   cited `file:line` per answer. Same adversarial stance as `skills/evaluate-code/references/judge.md`:
-   a report is claims, not evidence.
-5. **Report** per the contract below.
+Per `vendor-verbs.md` → Procedure skeleton. Delta:
+
+- **Pick the verb** from the request:
+  - "ship or block / second opinion on a diff" → `review`
+  - "challenge this plan / vet this task" → `ask` + `task-review.md`
+  - "run the gates / verify before shipping" → `ask --tools` + `verify.md`
+  - "review this skill/plugin" → `ask` + `codex-skill-plugin-review.md`
+  - "take over / do X" → `ask --tools`
+  - "continue session" → `resume`
+  - "hand this session over" → `transfer`
+- **Run it** with default model and effort; add `--model gpt-6.1-sol --effort high` only for an
+  unusually complex task (a cross-package design call, a subtle concurrency or auth bug). Fallback
+  ladder: `skills/subagent-workflows/references/cost-routing.md` → Fallback. `review` always runs
+  `--fallback vendors` — it never falls back to Claude.
+- **Verify as a claim**: same adversarial stance as `skills/evaluate-code/references/judge.md` — a
+  report is claims, not evidence.
 
 ### Review
 
@@ -173,9 +152,10 @@ Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
 - Tune the harness — settings/hooks/routing changes go to the owner, not to a codex dispatch.
 - Weaken or delete a check to get a gate green.
 - Touch migrations or generated files.
-- `git stash` / `checkout` / `reset` / `restore` / commit / push.
-- Invent a verb — the table above is the whole surface; `claude-code codex -h` lists it.
+- Commit / push.
 - Hand back before the verb's output is read — one batch, one report: the answer first, then the hand-back.
+
+Per `vendor-verbs.md` → Don't: don't invent a verb.
 
 Memory proposals:
 [shared discipline and codex candidates](../skills/subagent-workflows/references/memory-updates.md#codex).

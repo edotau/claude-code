@@ -32,17 +32,18 @@ and stop. Skip for one-line fixes or when a scan is already warm this session.
 
    Omit `## Refined Briefs` without `--refine`.
 2. Run the stages in order. Each agent's prompt: "Read `<stage doc>` and complete the `<section>` section", plus
-   that stage's instructions. The stage document is the only context passed between stages.
+   that stage's instructions. The stage document is the only context passed between stages. Runners per
+   `rules/workflow/master-workflow.md` → Pipeline Overview.
 
-   | Stage | Runner | Writes |
-   |---|---|---|
-   | explore (Phase 2) | `Explore` ×2–3 | `## Findings` |
-   | plan (Phase 4) | `Plan` (`agents/Plan.md`) — **stop for user approval** | `## Plan` |
-   | refine (Phase 5, `--refine` only) | `general-purpose` | `## Refined Briefs` |
-   | implement (Phase 6) | `code-worker` per sub-task (parallel-safe ones in one message) ‖ `copilot` | `## Implementation Notes` |
-   | simplify (Phase 7) | `Skill(simplify)` over the integrated diff | `## Simplification` |
-   | review | `evaluate-code` ‖ `security-reviewer`; optionally `claude-code codex review --adversarial --base <rev>` | `## Review` (SHIP / FIX REQUIRED / BLOCK) |
-   | verify (Phase 8) | main session: the repo's gates, then the gate chain in `skills/problem-solving/references/verify.md` | `## Verification` |
+   | Stage | Writes |
+   |---|---|
+   | explore (Phase 2) | `## Findings` |
+   | plan (Phase 4) — **stop for user approval** | `## Plan` |
+   | refine (Phase 5, `--refine` only) | `## Refined Briefs` |
+   | implement (Phase 6) | `## Implementation Notes` |
+   | simplify (Phase 7) | `## Simplification` |
+   | review | `## Review` (SHIP / FIX REQUIRED / BLOCK) |
+   | verify (Phase 8) | `## Verification` |
 
    Status per stage follows `../SKILL.md` → Handoff contract.
 3. Set the document's status to `complete` and summarize: what changed, review findings, whether verification

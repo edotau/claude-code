@@ -19,9 +19,9 @@ review-time framing are canonical in `skills/evaluate-code/references/principles
 (#2, #3); CLAUDE.md → Behavioral guidelines states the base rule. This skill's job is
 narrower: *apply* the fix, not just flag it.
 
-Simplifying inverts the usual risk for #3 — the failure mode here is **drive-by cleanup**,
-not over-engineering. Don't reformat/re-quote/re-comment untouched code, don't "while I'm
-here" a refactor, and remove only what *your* simplification made dead.
+Simplifying inverts the usual risk for #3 (`../evaluate-code/references/principles.md` #3): the
+failure mode here is **drive-by cleanup**, not over-engineering — remove only what *your*
+simplification made dead.
 
 The one exception is **extended-scope consolidation**: if the diff duplicates a helper or
 constant that already exists, consolidating at the source removes duplication the diff
@@ -60,16 +60,39 @@ history, and restate-the-code comments; keep only why-comments; prefer a clear n
 
 ## Automated first pass
 
-Run the detectors first. `claude-code review complexity` is the #2 Simplicity detector;
-`claude-code review diff` is the #3 Surgical detector (canonical in `evaluate-code`).
+```bash
+# Multi-commit changes: set BASE_SHA and use "$BASE_SHA..HEAD" in place of HEAD~1 below.
+CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
+# #2 Simplicity — per-function complexity, length, nesting, premature abstractions
+[ -n "$CHANGED" ] && claude-code review complexity $CHANGED --threshold medium
+# #3 Surgical — diff noise that doesn't trace to the task
+claude-code review diff --diff HEAD~1..HEAD
+```
 
-Commands and detector interpretation: [Automated first pass](references/review-process.md#automated-first-pass).
+What each detector checks, languages covered, thresholds, and verdicts: canonical in
+`../evaluate-code/references/detectors.md`. Both are advisory (exit 0) — use findings as
+leads, verify each by reading the code; the detectors locate, you judge.
 
 ## Process
 
 ### Phase 1 — Review
 
-Dispatch and the four review angles: [Phase 1 — Review](references/review-process.md#phase-1--review).
+Launch 4 agents in ONE message (Agent tool, `subagent_type: code-worker`, run in background). Each gets
+the diff (`git diff @{upstream}...HEAD; git diff HEAD`, or the target argument) and one angle, and returns
+findings as file, line, one-line summary, concrete cost. If the Agent tool is unavailable, do all four
+angles yourself in one pass and say so in the summary.
+
+- **Reuse** — flag new code that re-implements something the codebase already has; Grep shared/utility
+  modules and files adjacent to the change, and name the existing helper to call instead.
+- **Simplification** — flag unnecessary complexity the diff adds: redundant or derivable state, copy-paste
+  with slight variation, deep nesting, dead code left behind, single-use abstractions, speculative
+  flexibility, impossible-state error handling, over-long docstrings; name the simpler form.
+- **Efficiency** — flag wasted work the diff introduces: redundant computation or repeated I/O, independent
+  operations run sequentially, blocking work on startup or hot paths, long-lived closures capturing large
+  scopes; name the cheaper form; a cost that needs a measurement before it's a finding →
+  `../evaluate-code/references/performance.md`.
+- **Altitude** — check each change fixes the root cause at the right depth rather than patching a symptom;
+  special cases layered on shared infrastructure mean the fix isn't deep enough; name the more general change.
 
 ### Phase 2 — Apply
 
@@ -77,11 +100,19 @@ Dispatch and the four review angles: [Phase 1 — Review](references/review-proc
 2. For each, name the assumption the cut rests on (section above) — can't finish the sentence → flag, don't cut.
 3. Skip fixes that change behavior or reach well outside the diff (note the skip). For method-level
    extraction see `references/extract-method.md`.
-4. Run the same tests + lint before and after (`make test && make lint`, or the change's targeted tests).
-   Green is the proof behavior held; no covering test is itself a finding — say so before cutting.
+4. Run the change's scoped tests + lint before and after, per `rules/standards/quality.md` →
+   Verification Order (the full suite runs once at wrap-up, with the user's approval). Green is
+   the proof behavior held; no covering test is itself a finding — say so before cutting.
 5. Report what changed in this format:
 
-Output fields: [Report format](references/review-process.md#report-format).
+```text
+[File] path/to/file.py
+[Lines] 42-67
+[Type] inline | consolidate | simplify | remove | docstring
+[Scope] diff | extended   (extended = fix landed outside the diff; name file + blast radius)
+[Impact] high | medium | low
+[Description] What changed and why it's simpler — behavior unchanged.
+```
 
 End with a fixed/skipped summary. If a fix would change behavior or its blast radius is unverifiable,
 **flag it, don't apply it** — leave that call to the human.

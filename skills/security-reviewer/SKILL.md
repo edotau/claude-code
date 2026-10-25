@@ -26,12 +26,8 @@ pass read-only and end with a PASS / FIX REQUIRED / BLOCK verdict.
 
 ## Severity Levels
 
-| Level | Meaning | Action |
-|-------|---------|--------|
-| CRITICAL | Exploitable vulnerability or data-loss risk | **BLOCK** — must fix before merge |
-| HIGH | Likely-exploitable or significant exposure | **FIX REQUIRED** — fix before merge |
-| MEDIUM | Hardening gap, defense-in-depth | **INFO** — consider |
-| LOW | Minor / informational | **NOTE** — optional |
+Severity → action is canonical in `../evaluate-code/references/completion-criteria.md`; the security-label
+deltas are noted there (a security HIGH is fix-required, not warn).
 
 ## Must-Review Triggers
 
@@ -87,12 +83,3 @@ scanner present by default here — probe with `command -v`, install on demand
 `pip-audit` (WITHOUT `--fix`), `npm audit` (WITHOUT `fix`), `pip-licenses`, `pip list --outdated`,
 `npm outdated`. Never run `--fix` / `audit fix`, project-mutating installs, or edits — propose
 upgrades as findings; the user or a write-capable agent applies them.
-
-## Common False Positives
-
-Always verify context before flagging:
-
-- Environment variables in `.env.example` (not actual secrets)
-- Test credentials in test files (if clearly marked)
-- Public API keys (if actually meant to be public)
-- SHA256/MD5 used for checksums (not passwords)

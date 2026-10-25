@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 
 Launcher only. The dispatch shape, gates, and report format live in
 `skills/subagent-workflows/SKILL.md` (`references/dispatching-parallel-agents.md` for parallel,
-`references/subagent-driven-development.md` for sequential).
+`SKILL.md` → Sequential plan for sequential).
 
 Strip an optional leading mode word (`parallel`/`sequential`/`auto`/`team`) from `$ARGUMENTS`; split the
 rest on `|` into the task list. Blank task list: read the most recent

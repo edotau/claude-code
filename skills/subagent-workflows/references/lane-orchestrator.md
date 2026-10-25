@@ -57,20 +57,5 @@ A finding outside the leaf's files becomes a new line in this lane (same package
 
 Red at any step: re-dispatch once with the failure output, or fix a small gap in-lane; still red → report it unticked.
 
-## Failure buckets (2026-10-20 run)
-
-Classify a failed leaf before changing its brief or runner. Buckets from
-[agent-trace-triage](https://github.com/WasayAbid/agent-trace-triage) (WasayAbid), MIT.
-
-- **recovery_policy** — 10 min timeout killed legs → `--timeout 45m` on every `--tools` leaf; a turn cap hit with no
-  report → ≤10 edits per leaf, and `git status` in its worktree rather than a retry.
-- **tool_execution** — Copilot sessions died while polling → test-repair leaves start after the implementer's exit;
-  `/tmp` (tmpfs) filled → per-leaf scratch, deleted when done.
-- **tool_selection** — one whole-branch review leaf → narrow review leaves; a safety-guard change judged by reading
-  the diff → execute the payloads against the old and new binaries.
-- **tool_arguments** — `configure --reset` with a non-default config dir wrote live vendor configs → read `--vendors`
-  and `--dry-run` first; a test wrote the real `~/.claude/skills` → `HOME`/`CLAUDE_CONFIG_DIR` = `t.TempDir()`;
-  `isolate.sh` given `/tmp/claude-1000` as the copy dir wiped every session's scratch → a fresh `mktemp -d` root.
-- **state_orchestration** — opencode ignored `--workdir` and wrote the live tree → compare
-  `git -C ~/.claude status --short` before and after; Copilot reports omit exit codes → rerun every command in the
-  copy and gate on its exit code.
+Failure-bucket classification from a past run (recovery_policy, tool_execution, tool_selection, tool_arguments,
+state_orchestration): `memory/claude-code/decisionLog.md` → "Lane-orchestrator failure buckets".

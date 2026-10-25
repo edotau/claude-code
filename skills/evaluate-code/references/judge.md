@@ -131,10 +131,8 @@ adapters, MIT).
 
 ## Scoring (audit and judge)
 
-Mechanical first pass, advisory (exit 0): pipe the report through `claude-code review goals - --json`
-(verification quality) and `claude-code review assumptions - --json` (hidden assumptions) —
-`skills/evaluate-code/references/detectors.md`. Then score 0–2 each, the rubric upstream's judges
-use, so an audit here is comparable to its published rounds:
+Detector output from `../SKILL.md` → Audit a transcript step 1; do not re-run. Then score 0–2 each,
+the rubric upstream's judges use, so an audit here is comparable to its published rounds:
 
 1 is partial credit: the right action behind a stated, unverified assumption; evidence for most but
 not all claims; a re-run claimed but its output not shown; outcome present but buried.
