@@ -23,7 +23,7 @@ const notAVendor = "zzz-not-a-vendor"
 func TestVendorUsageFits80(t *testing.T) {
 	for _, vendor := range vendorNames() {
 		usage := renderHelpPage(vendorPage(vendor))
-		for _, line := range strings.Split(strings.TrimRight(usage, "\n"), "\n") {
+		for line := range strings.SplitSeq(strings.TrimRight(usage, "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); n > 80 {
 				t.Errorf("vendorUsage(%q) line %q is %d runes, want <= 80", vendor, line, n)
 			}

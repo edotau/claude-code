@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -148,12 +149,7 @@ func equalStrings(a, b []string) bool {
 }
 
 func containsString(s []string, want string) bool {
-	for _, v := range s {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, want)
 }
 
 // --- tailscale serve status --json parsing -----------------------------------------------------

@@ -80,7 +80,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 	}
 	table := body[tableStart : tableStart+tableEnd]
 	seen := map[string]bool{}
-	for _, line := range strings.Split(table, "\n") {
+	for line := range strings.SplitSeq(table, "\n") {
 		cells := strings.Split(line, "|")
 		if len(cells) < 2 {
 			continue

@@ -3,6 +3,7 @@ package vendoragent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -99,7 +100,7 @@ func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (age
 			return r, nil
 		}
 	}
-	return agent.Record{}, fmt.Errorf("no matching dispatch found (see claude-code <agent> status)")
+	return agent.Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
 }
 
 // Alive reports a running record whose PID is still alive.
@@ -124,7 +125,7 @@ func procArgv(pid int) ([]string, error) {
 func jobArgvSettled(pid int, id string) ([]string, error) {
 	var argv []string
 	var err error
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if argv, err = procArgv(pid); err != nil || isJobArgv(argv, id) {
 			return argv, err
 		}

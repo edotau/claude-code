@@ -17,7 +17,7 @@ var docRowName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompil
 // documentedWorkflows returns the backticked first-cell names of the doc's table rows (header/separator rows have none).
 func documentedWorkflows(doc string) []string {
 	var names []string
-	for _, l := range strings.Split(doc, "\n") {
+	for l := range strings.SplitSeq(doc, "\n") {
 		if m := docRowName().FindStringSubmatch(strings.TrimSpace(l)); m != nil {
 			names = append(names, m[1])
 		}

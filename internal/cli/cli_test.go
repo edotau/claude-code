@@ -42,7 +42,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("help exit = %d, stderr = %q", code, stderr)
 	}
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "claude" {
 			t.Errorf("usage advertises hidden claude verb: %q", line)
 		}
@@ -89,7 +89,7 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
 	_, out, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
 	col := 2 + nameWidth
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if utf8.RuneCountInString(line) > menuWidth && len(strings.Fields(line)) > 2 {
 			t.Errorf("line over %d cols: %q", menuWidth, line)
 		}

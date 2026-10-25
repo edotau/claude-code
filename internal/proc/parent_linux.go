@@ -17,11 +17,11 @@ func Parent(pid int) int {
 
 // parseStatPPID extracts field 4 (ppid) after the LAST ')' of the parenthesised comm.
 func parseStatPPID(stat string) int {
-	i := strings.LastIndex(stat, ") ")
-	if i < 0 {
+	_, after, ok := strings.CutLast(stat, ") ")
+	if !ok {
 		return 0
 	}
-	f := strings.Fields(stat[i+2:])
+	f := strings.Fields(after)
 	if len(f) < 2 {
 		return 0
 	}

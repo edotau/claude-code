@@ -20,10 +20,8 @@ func attributionFooterBlocked(cmd string) bool {
 // gitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`.
 func gitCommitInvocation(cmd string) bool {
 	masked, subs := extractSubstitutions(cmd)
-	for _, sub := range subs {
-		if gitCommitInvocation(sub) {
-			return true
-		}
+	if slices.ContainsFunc(subs, gitCommitInvocation) {
+		return true
 	}
 	for _, seg := range shellSegments(masked) {
 		toks := shellTokens(seg)

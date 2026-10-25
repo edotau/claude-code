@@ -50,7 +50,7 @@ func TestVaultListSections(t *testing.T) {
 				return
 			}
 			var headings []string
-			for _, line := range strings.Split(bare, "\n") {
+			for line := range strings.SplitSeq(bare, "\n") {
 				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"}, line) {
 					headings = append(headings, line)
 				}

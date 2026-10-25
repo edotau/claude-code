@@ -105,7 +105,7 @@ func readTurns(source string) ([]string, error) {
 	if n <= maxTurns {
 		start = 0
 	}
-	for i := 0; i < kept; i++ {
+	for i := range kept {
 		turns[i] = ring[(start+i)%maxTurns]
 	}
 	return turns, nil
