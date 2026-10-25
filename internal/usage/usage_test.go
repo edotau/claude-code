@@ -548,8 +548,8 @@ func TestUsageShowModesRendering(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"left", []string{"LEFT", "75%", "5250 of 7000 credits left"}, []string{"USED"}},
-		{"used", []string{"USED", "25%", "1750 / 7000 credits"}, []string{"LEFT"}},
+		{"left", []string{"LEFT", "75%", "5250 of 7000 credits left"}, []string{"USAGE"}},
+		{"used", []string{"USAGE", "25%", "1750 / 7000 credits"}, []string{"LEFT"}},
 		{"total", nil, []string{"PROVIDER QUOTAS"}},
 	}
 	for _, c := range cases {
