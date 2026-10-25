@@ -83,12 +83,12 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{
 		"providers":{"fake":{"kind":"openai","auth":{"type":"none"},"models":{"sonnet":"fake-sonnet"}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]},
-		"opencodeLadder":["one","two"]}`)
+		"routing":{"opencode":{"ladder":["one","two"]}}}`)
 	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"opencode":{
 		"_comment":"omit-this-comment","launch":{"env":{"FAKE_ENV":"enabled"},"args":["--fake"]},
 		"future":{"enabled":true}}}}`)
 	code, stdout, _ := captureOutput(t, func() int {
-		return cmdVault([]string{"list", "providers", "vendors", "--format", "text"})
+		return cmdVault([]string{"list", "providers", "routing", "vendors", "--format", "text"})
 	})
 	if code != 0 {
 		t.Fatalf("list tables exit %d", code)
@@ -96,7 +96,8 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	normalized := strings.Join(strings.Fields(stdout), " ")
 	for _, want := range []string{
 		"PROVIDER KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK", "fake openai none fake-sonnet",
-		"PLANS", "AGENT TIER ID", "copilot standard fake-plan", "opencode ladder one → two",
+		"PLANS", "AGENT TIER ID", "copilot standard fake-plan",
+		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
 		"VENDORS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
 	} {
 		if !strings.Contains(normalized, want) {

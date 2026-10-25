@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
@@ -60,25 +61,56 @@ func cmdRoute(args []string) int {
 	}
 	res := tb.Pick(context.Background(), t, *want, route.LoadState(),
 		route.Opts{Fallback: *fallback, Refresh: routeRefresh})
+	src := routeSources{Weights: routeWeightsSource()}
+	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	if *format == outfmt.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(res); err != nil {
+		if err := enc.Encode(routeJSON{Result: res, Sources: src}); err != nil {
 			return 1
 		}
 		return 0
 	}
-	printRoute(res)
+	printRoute(res, src)
 	return 0
 }
 
-// printRoute renders the pick: weights, one scored row per candidate, then each skip's gate and reason.
-func printRoute(res route.Result) {
+// routeSources names where each routing knob printed by `route` came from.
+type routeSources struct {
+	Weights   string `json:"weights"` // "default" or "vault"
+	Subagents struct {
+		On     bool   `json:"on"`
+		Source string `json:"source"` // "env", "vault" or "default"
+	} `json:"subagents"`
+}
+
+// routeJSON is `route --format json`'s payload: the pick plus where its knobs came from.
+type routeJSON struct {
+	route.Result
+	Sources routeSources `json:"sources"`
+}
+
+// routeWeightsSource reports "vault" when the vault overlay's own routing object sets weights, else
+// "default" — derived from presence in the overlay (providers.RoutingOverlay), never from comparing the
+// resolved weights to the registry's default.
+func routeWeightsSource() string {
+	overlay, err := providers.RoutingOverlay()
+	if err != nil || overlay.Weights == nil {
+		return "default"
+	}
+	return "vault"
+}
+
+// printRoute renders the pick: weights (and their source), one scored row per candidate, then each
+// skip's gate and reason, then the subagents switch and its source.
+func printRoute(res route.Result, src routeSources) {
 	var ws []string
 	for _, d := range route.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
-	fmt.Printf("tier %s  weights %s\n", res.Tier, strings.Join(ws, " "))
+	fmt.Printf("tier %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
+	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
+	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
 	if len(res.Candidates) == 0 {
 		fmt.Println("no runner passes the gates")
 	} else {

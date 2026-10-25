@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // TestIsWorkRepoMarkers exercises the gitRemoteURLs seam directly: multiple remotes, no remotes, and a
@@ -16,18 +18,21 @@ import (
 func TestIsWorkRepoMarkers(t *testing.T) {
 	orig := gitRemoteURLs
 	t.Cleanup(func() { gitRemoteURLs = orig })
+	origMarkers := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil } // test-only stand-in markers
+	t.Cleanup(func() { workRepoMarkers = origMarkers })
 	cases := []struct {
 		name string
 		urls []string
 		err  error
 		want bool
 	}{
-		{"bitbucket biscrum", []string{"ssh://bitbucket.biscrum.com:7999/digitalbtd/x.git"}, nil, true},
-		{"github boehringer org", []string{"https://github.com/Boehringer-Ingelheim/tool.git"}, nil, true},
+		{"bitbucket corp", []string{"ssh://git.corp.example:7999/digitalbtd/x.git"}, nil, true},
+		{"github corp-widgets org", []string{"https://github.com/corp-widgets/tool.git"}, nil, true},
 		{"personal github", []string{"https://github.com/edotau/claude-code.git"}, nil, false},
 		{"no remotes", nil, nil, false},
-		{"personal origin, biscrum upstream (any url in the list is enough)", []string{
-			"https://github.com/edotau/claude-code.git", "https://bitbucket.biscrum.com/digitalbtd/x.git",
+		{"personal origin, corp upstream (any url in the list is enough)", []string{
+			"https://github.com/edotau/claude-code.git", "https://git.corp.example/digitalbtd/x.git",
 		}, nil, true},
 		{"seam error fails closed", nil, errors.New("git: corrupt config"), true},
 	}
@@ -38,6 +43,36 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 				t.Errorf("IsWorkRepo() = %v, want %v (urls=%v, err=%v)", got, c.want, c.urls, c.err)
 			}
 		})
+	}
+}
+
+// TestIsWorkRepoMarkersLoadErrorFailsClosed checks a workRepoMarkers load error (the registry itself,
+// not the git seam) makes IsWorkRepo report true — never fail open on the free gate.
+func TestIsWorkRepoMarkersLoadErrorFailsClosed(t *testing.T) {
+	origMarkers := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return nil, errors.New("vault: locked") }
+	t.Cleanup(func() { workRepoMarkers = origMarkers })
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	if !IsWorkRepo(dir) {
+		t.Error("a markers load error must fail closed (work), not open")
+	}
+}
+
+// TestIsWorkRepoEmptyMarkersIsPersonal checks no markers configured (and no load error) reports personal
+// with no git call at all — zen-free stays allowed when the owner has never set a work-repo marker.
+func TestIsWorkRepoEmptyMarkersIsPersonal(t *testing.T) {
+	origMarkers := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return nil, nil }
+	t.Cleanup(func() { workRepoMarkers = origMarkers })
+	orig := gitRemoteURLs
+	gitRemoteURLs = func(string) ([]string, error) {
+		t.Fatal("empty markers must short-circuit before any git call")
+		return nil, nil
+	}
+	t.Cleanup(func() { gitRemoteURLs = orig })
+	if IsWorkRepo(t.TempDir()) {
+		t.Error("empty markers must report personal, so zen-free stays allowed")
 	}
 }
 
@@ -62,23 +97,26 @@ func runGit(t *testing.T, dir string, args ...string) {
 // TestIsWorkRepoRealGitRemotes exercises IsWorkRepo end to end against real scratch git repos (no seam
 // stub), so the actual `git remote -v` parsing in gitRemoteURLs is proven, not just the stub above.
 func TestIsWorkRepoRealGitRemotes(t *testing.T) {
-	t.Run("personal origin plus biscrum upstream is work", func(t *testing.T) {
+	origMarkers := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil } // test-only stand-in markers
+	t.Cleanup(func() { workRepoMarkers = origMarkers })
+	t.Run("personal origin plus corp upstream is work", func(t *testing.T) {
 		dir := t.TempDir()
 		runGit(t, dir, "init", "-q")
 		runGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
-		runGit(t, dir, "remote", "add", "upstream", "https://bitbucket.biscrum.com/digitalbtd/x.git")
+		runGit(t, dir, "remote", "add", "upstream", "https://git.corp.example/digitalbtd/x.git")
 		if !IsWorkRepo(dir) {
-			t.Error("want work: upstream remote names a biscrum host")
+			t.Error("want work: upstream remote names a corp host")
 		}
 	})
 
-	t.Run("biscrum pushurl only is work", func(t *testing.T) {
+	t.Run("corp pushurl only is work", func(t *testing.T) {
 		dir := t.TempDir()
 		runGit(t, dir, "init", "-q")
 		runGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
-		runGit(t, dir, "remote", "set-url", "--push", "origin", "https://bitbucket.biscrum.com/digitalbtd/x.git")
+		runGit(t, dir, "remote", "set-url", "--push", "origin", "https://git.corp.example/digitalbtd/x.git")
 		if !IsWorkRepo(dir) {
-			t.Error("want work: origin's pushurl names a biscrum host, even though its fetch url doesn't")
+			t.Error("want work: origin's pushurl names a corp host, even though its fetch url doesn't")
 		}
 	})
 
@@ -230,6 +268,25 @@ func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	}
 	if reasons == 0 {
 		t.Errorf("skipped = %+v, want opencode sub-candidates reported not-configured", r.Skipped)
+	}
+}
+
+// TestFreeTierOKGateBlocksSonnetAllowsHaiku checks the FreeTierOK gate directly: a registry that only
+// enables zen-free at haiku must block the free leg at sonnet (falling to the paid opencode:go leg) while
+// still serving the free leg at haiku.
+func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
+	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"haiku"}}}}
+	tb, err := load(reg, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sonnet := opencodeCand(t, pickRepo(tb, "sonnet", State{}, false))
+	if sonnet.Billing == BillFree {
+		t.Errorf("sonnet pick = %s (%s), want the free leg blocked (freeTiers = [haiku] only)", sonnet.Account, sonnet.Billing)
+	}
+	haiku := opencodeCand(t, pickRepo(tb, "haiku", State{}, false))
+	if haiku.Account != "opencode:zen-free" || haiku.Billing != BillFree {
+		t.Errorf("haiku pick = %s (%s), want the free Zen leg (freeTiers includes haiku)", haiku.Account, haiku.Billing)
 	}
 }
 

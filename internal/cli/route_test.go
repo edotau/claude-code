@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 )
 
@@ -75,5 +76,71 @@ func TestRouteVerbJSON(t *testing.T) {
 	}
 	if code := cmdRoute([]string{"--tier", "fable"}); code == 0 {
 		t.Error("an unrouted tier must fail")
+	}
+}
+
+// TestRouteVerbSourcesNameWhereEachKnobCameFrom checks `route`'s header names weights' and subagents'
+// provenance: default when the vault overlay never set them, vault/env once it does.
+func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(providers.EnvRouteSubagents, "")
+
+	out, code := captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var withDefaults struct {
+		Sources struct {
+			Weights   string `json:"weights"`
+			Subagents struct {
+				On     bool
+				Source string
+			} `json:"subagents"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal([]byte(out), &withDefaults); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if withDefaults.Sources.Weights != "default" || withDefaults.Sources.Subagents.Source != "default" || !withDefaults.Sources.Subagents.On {
+		t.Errorf("sources (no overlay) = %+v, want weights/subagents default, subagents on", withDefaults.Sources)
+	}
+
+	if err := providers.UpdateRouting(func(r *providers.Routing) error {
+		r.Weights = map[string]float64{"price": 0.5, "headroom": 0.5} // equal to the default: provenance is still "vault"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(providers.EnvRouteSubagents, "0")
+
+	out, code = captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var withOverlay struct {
+		Sources struct {
+			Weights   string `json:"weights"`
+			Subagents struct {
+				On     bool
+				Source string
+			} `json:"subagents"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal([]byte(out), &withOverlay); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if withOverlay.Sources.Weights != "vault" {
+		t.Errorf("weights source = %q, want vault even though the value equals the default", withOverlay.Sources.Weights)
+	}
+	if withOverlay.Sources.Subagents.Source != "env" || withOverlay.Sources.Subagents.On {
+		t.Errorf("subagents = %+v, want off/env (the process env beats the vault)", withOverlay.Sources.Subagents)
+	}
+
+	textOut, code := captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, textOut)
+	}
+	if !strings.Contains(textOut, "(vault)") || !strings.Contains(textOut, "subagents off (env)") {
+		t.Errorf("text output = %q, want it to name the vault weights source and env subagents source", textOut)
 	}
 }

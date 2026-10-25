@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/vendorsettings"
 )
 
 // Options are the harness flags consumed before passthrough.
@@ -378,7 +379,39 @@ func envMap(env []string) map[string]string {
 
 // Env applies the plan to base (KEY=VALUE list).
 func (p Plan) Env(base []string) []string {
-	return p.envWith(base, customEnv())
+	merged, locked := moduleEnv(base)
+	return p.envWith(merged, customEnv(), locked)
+}
+
+// moduleEnv appends every vendorsettings module's export onto base, skipping any key base (the process
+// environment) already sets — process env wins, pins-style. The returned locked set names every
+// module-owned key the process environment already set: envWith must not let a vault custom-env entry
+// override those, so the full precedence is process env > vault custom env > module env. A registry load
+// error exports nothing and locks nothing.
+func moduleEnv(base []string) ([]string, map[string]bool) {
+	present := map[string]bool{}
+	for _, kv := range base {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			present[k] = true
+		}
+	}
+	locked := map[string]bool{}
+	reg, err := providers.Load()
+	if err != nil {
+		return base, locked
+	}
+	out := base
+	for _, m := range vendorsettings.Modules() {
+		for k, v := range m.Env(reg.Routing) {
+			if present[k] {
+				locked[k] = true // process env already set this module-owned key: protect it from custom env too
+				continue
+			}
+			out = append(out, k+"="+v)
+			present[k] = true
+		}
+	}
+	return out, locked
 }
 
 // customEnv is the vault env bucket resolved (@secret refs via secrets.Lookup); an unresolved ref is warned, not
@@ -407,7 +440,9 @@ var customEnv = func() map[string]string {
 }
 
 // envWith layers base, then custom (user vars), then Set; Unset and Set keys always beat a custom var.
-func (p Plan) envWith(base []string, custom map[string]string) []string {
+// locked names module-owned keys the process environment already set: those stay out of the custom
+// merge entirely, so process always beats a vault custom-env entry for them.
+func (p Plan) envWith(base []string, custom map[string]string, locked map[string]bool) []string {
 	unset := map[string]bool{}
 	for _, k := range p.Unset {
 		unset[k] = true
@@ -418,7 +453,7 @@ func (p Plan) envWith(base []string, custom map[string]string) []string {
 	}
 	for k, v := range custom {
 		_, harness := p.Set[k]
-		if !harness && !unset[k] {
+		if !harness && !unset[k] && !locked[k] {
 			merged[k] = v
 		}
 	}

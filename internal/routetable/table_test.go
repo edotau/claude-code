@@ -35,8 +35,10 @@ func TestLoadEveryCellResolves(t *testing.T) {
 func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	reg := &providers.Registry{
 		// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
-		Route:        map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
-		RouteWeights: map[string]float64{"price": 0.2, "headroom": 0.8},
+		Routing: providers.Routing{
+			Cells:   map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
+			Weights: map[string]float64{"price": 0.2, "headroom": 0.8},
+		},
 	}
 	tb, err := LoadFrom(reg, "u")
 	if err != nil {
@@ -48,7 +50,7 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	if tb.Weights["headroom"] != 0.8 {
 		t.Errorf("weights = %v", tb.Weights)
 	}
-	bad := &providers.Registry{Route: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}
+	bad := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}}
 	if _, err := LoadFrom(bad, "u"); err == nil {
 		t.Error("unknown overlay cell must fail")
 	}
@@ -61,7 +63,7 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 // quota to an account that never made the call.
 func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	toCopilot := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}},
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}}},
 	}
 	tb, err := LoadFrom(toCopilot, "work-user")
 	if err != nil {
@@ -71,15 +73,15 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 		t.Errorf("account = %q, want opencode's own copilot login account, not the pinned gh user's", c.Account)
 	}
 	unknown := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "zed/overridden-model"}}},
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "zed/overridden-model"}}}},
 	}
 	if _, err := LoadFrom(unknown, "u"); err == nil {
 		t.Error("an opencode override to an unknown backend prefix must fail, not silently keep opencode:go billing")
 	}
 	explicit := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
 			"opencode": {"sonnet": {Model: "zed/overridden-model", Account: "opencode:go"}},
-		},
+		}},
 	}
 	tb, err = LoadFrom(explicit, "u")
 	if err != nil {
@@ -89,9 +91,9 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 		t.Errorf("account = %q, want the explicit override honored", c.Account)
 	}
 	badAccount := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
 			"opencode": {"sonnet": {Model: "opencode-go/y", Account: "nobody:nothing"}},
-		},
+		}},
 	}
 	if _, err := LoadFrom(badAccount, "u"); err == nil {
 		t.Error("an explicit account_key naming no known billing entry must fail")
@@ -103,7 +105,7 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 // opencodeOverrideAccount at all, and the cell keeps the table's own billing account unchanged.
 func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	reg := &providers.Registry{
-		Route: map[string]map[string]providers.RouteCell{"codex": {"sonnet": {Model: "openrouter/some-model"}}},
+		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"codex": {"sonnet": {Model: "openrouter/some-model"}}}},
 	}
 	tb, err := LoadFrom(reg, "u")
 	if err != nil {

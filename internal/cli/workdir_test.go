@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/base64"
 	"os/exec"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -37,12 +39,20 @@ func setupWorkdirFixture(t *testing.T) {
 }
 
 // TestResolveAskChainWorkRepoFromWorkdirNotCwd is the wiring's teeth: cwd is a personal repo (would pick
-// the free Zen leg on its own) but --workdir names a work repo (bitbucket.biscrum.com) — the opencode
-// sub-pick must see the work repo and skip straight to the paid opencode:go leg, never zen-free.
+// the free Zen leg on its own) but --workdir names a work repo (its remote matches a configured
+// workRepoMarkers entry) — the opencode sub-pick must see the work repo and skip straight to the paid
+// opencode:go leg, never zen-free. workRepoMarkers defaults to none, so this test configures one.
 func TestResolveAskChainWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	setupWorkdirFixture(t)
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err := providers.UpdateRouting(func(r *providers.Routing) error {
+		r.Opencode.WorkRepoMarkers = &[]string{"git.corp.example"}
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateRouting() = %v", err)
+	}
 	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
-	work := scratchRepo(t, "https://bitbucket.biscrum.com/scm/x/y.git")
+	work := scratchRepo(t, "https://git.corp.example/scm/x/y.git")
 	t.Chdir(personal)
 
 	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackVendors, false, work)

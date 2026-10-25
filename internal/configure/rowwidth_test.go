@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vendorsettings"
 )
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.
@@ -96,6 +98,34 @@ func TestSettingRowFitsEightyColumns(t *testing.T) {
 		row := settingRow(f, tmpl, ov, live)
 		if w := rowRenderedWidth(labels, row[1]); w > 80 {
 			t.Errorf("settingRow(%s) = %d cols, want <=80: %q", f.Key, w, row[1])
+		}
+	}
+}
+
+// TestRoutingRowFitsEightyColumns: the widest "routing" page row — the longest field key, its longest
+// value, plus the "default"/"vault" source suffix — stays <=80 cols.
+func TestRoutingRowFitsEightyColumns(t *testing.T) {
+	var labels []string
+	for _, m := range vendorsettings.Modules() {
+		for _, f := range m.Fields() {
+			labels = append(labels, f.Key)
+		}
+	}
+	worst := providers.Routing{
+		Weights: map[string]float64{"price": 0.123456789, "headroom": 0.876543211},
+		Opencode: providers.OpencodeRouting{
+			Ladder:          &providers.RouteOpencodeSubIDs,
+			WorkRepoMarkers: &[]string{"gitlab.example.com", "github.example.net"},
+			FreeTiers:       &[]string{"sonnet", "haiku"},
+			FreeFirstOutput: "90s",
+		},
+	}
+	for _, m := range vendorsettings.Modules() {
+		for _, f := range m.Fields() {
+			detail := f.Get(worst) + "  " + routingSource(f, worst)
+			if w := rowRenderedWidth(labels, detail); w > 80 {
+				t.Errorf("routing field %s = %d cols, want <=80: %q", f.Key, w, detail)
+			}
 		}
 	}
 }

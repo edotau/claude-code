@@ -64,9 +64,9 @@ type Opts struct {
 	// Refresh re-fetches one stale account and records it; the pick then rereads that entry.
 	Refresh func(ctx context.Context, account string) bool
 	Now     func() time.Time
-	// WorkRepo reports whether the current repo is Boehringer's, so the opencode sub-pick never offers a
-	// free Zen candidate there; nil defaults to IsWorkRepo("") (the cwd's git remote), so callers that
-	// never heard of this rule still get it for free.
+	// WorkRepo reports whether the current repo is a configured work repo, so the opencode sub-pick never
+	// offers a free Zen candidate there; nil defaults to IsWorkRepo("") (the cwd's git remote), so callers
+	// that never heard of this rule still get it for free.
 	WorkRepo func() bool
 }
 
@@ -214,6 +214,10 @@ func (t *Table) gateOpencodeCandidate(
 		billing := t.Billing[c.Account]
 		if billing == routetable.BillFree && workRepo() {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
+			continue
+		}
+		if billing == routetable.BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
+			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + tier})
 			continue
 		}
 		if err := configured("opencode", c); err != nil {

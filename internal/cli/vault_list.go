@@ -16,7 +16,7 @@ import (
 )
 
 // vaultSections is every `vault list` section, in print order.
-var vaultSections = []string{"secrets", "pins", "env", "providers", "vendors", "settings", "vault"}
+var vaultSections = []string{"secrets", "pins", "env", "providers", "routing", "vendors", "settings", "vault"}
 
 // vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
 func vaultList(args []string) int {
@@ -129,8 +129,15 @@ func vaultListJSON(raw []byte, stored []secrets.Stored, sel []string) ([]byte, e
 	b.WriteString("{")
 	for i, s := range sel {
 		val := doc[s]
-		if s == "secrets" {
+		switch s {
+		case "secrets":
 			v, err := json.Marshal(rows)
+			if err != nil {
+				return nil, err
+			}
+			val = v
+		case "routing":
+			v, err := vaultRoutingJSON(doc["providers"])
 			if err != nil {
 				return nil, err
 			}

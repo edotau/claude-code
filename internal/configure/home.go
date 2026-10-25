@@ -44,6 +44,7 @@ func settingsRows(d *dialog) []homeRow {
 	return []homeRow{
 		{"secrets", "vault", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
 		claudeSettingsRow(d),
+		routingRow(d),
 		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
 	}
 }

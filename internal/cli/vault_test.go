@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
@@ -414,6 +415,15 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 	var rows []map[string]json.RawMessage
 	if err := json.Unmarshal(got["secrets"], &rows); err != nil || len(rows) != 1 {
 		t.Fatal("expected one masked secret row")
+	}
+	// "routing" is derived from the providers overlay's nested routing object, not one of config.Export's
+	// own top-level sections; just check it decodes, then drop it before the section-by-section compare.
+	if r, ok := got["routing"]; ok {
+		var routing providers.Routing
+		if err := json.Unmarshal(r, &routing); err != nil {
+			t.Fatalf("routing section: %v", err)
+		}
+		delete(got, "routing")
 	}
 	for _, row := range rows {
 		if len(row) != 3 || row["name"] == nil || row["masked"] == nil || row["length"] == nil {

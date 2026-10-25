@@ -129,20 +129,15 @@ type Registry struct {
 	Default   string               `json:"default"`
 	Fallback  []string             `json:"fallback,omitempty"`
 	Providers map[string]*Provider `json:"providers"`
-	// OpencodeLadder orders opencode's own paid backends (sub ids, RouteOpencodeSubIDs) for the hub's
-	// sub-pick: the free Zen catalog always runs first regardless of this order (haiku/sonnet, never on a
-	// work repo), then this ladder. A user overlay replaces it whole.
-	OpencodeLadder []string `json:"opencodeLadder,omitempty"`
 	// OpencodePlugins renders opencode's own `plugin` config key; empty (the default) leaves it untouched.
 	OpencodePlugins []string `json:"opencodePlugins,omitempty"`
 	// AgentPlans names each agent's sign-in plans for configure's mode column, keyed by agent name.
 	AgentPlans map[string][]Plan `json:"agentPlans,omitempty"`
 	// AgentPlanFormat renders a plan's mode column from {provider} {mode} {tier} {id}; empty = lowercase default.
 	AgentPlanFormat string `json:"agentPlanFormat,omitempty"`
-	// Route overrides internal/route's table cells, keyed runner → tier; an empty field keeps the table's value.
-	Route map[string]map[string]RouteCell `json:"route,omitempty"`
-	// RouteWeights replaces internal/route's composite-score weights whole (dimension → weight, summing to 1).
-	RouteWeights map[string]float64 `json:"routeWeights,omitempty"`
+	// Routing is the one routing object: weights, cell overrides, subagent offload and opencode's sub-pick
+	// knobs (was top-level route, routeWeights, opencodeLadder — internal/providers/routing.go).
+	Routing Routing `json:"routing,omitzero"`
 }
 
 // RouteCell is one overlay cell for internal/route's table.
@@ -253,26 +248,7 @@ func (r *Registry) Validate() error {
 		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
 	errs = append(errs, validateNameRefs(r)...)
-	for runner, tiers := range r.Route {
-		if !slices.Contains(RouteRunners, runner) {
-			errs = append(errs, fmt.Sprintf("route names unknown runner %q", runner))
-		}
-		for tier, cell := range tiers {
-			if !slices.Contains(RouteTiers, tier) {
-				errs = append(errs, fmt.Sprintf("route %s/%s names unknown tier", runner, tier))
-			}
-			switch {
-			case cell.Account != "" && !validRouteAccountKey(cell.Account):
-				errs = append(errs, fmt.Sprintf("route %s/%s names account_key %q with no known billing entry", runner, tier, cell.Account))
-			case cell.Account == "" && runner == "opencode" && cell.Model != "" &&
-				!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
-				errs = append(errs, fmt.Sprintf("route opencode/%s model %q prefix has no known billing account; set account_key explicitly", tier, cell.Model))
-			}
-		}
-	}
-	if err := ValidateRouteWeights(r.RouteWeights); err != nil {
-		errs = append(errs, err.Error())
-	}
+	errs = append(errs, validateRouting(r.Routing)...)
 	if len(errs) > 0 {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}
@@ -307,39 +283,13 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	return errs
 }
 
-// NormalizeOpencodeLadder maps each OpencodeLadder entry that names a registry provider (e.g. a legacy
-// "chatgpt") to that provider's own OpencodeID (e.g. "openai"), so the ladder always carries sub ids; an
-// entry that is already a sub id, or names nothing in r.Providers, passes through unchanged (Validate
-// catches a truly unknown id). Duplicates after mapping are dropped, first occurrence wins. Called from
-// Parse before Validate, so a legacy provider-name entry normalizes before it is checked.
-func NormalizeOpencodeLadder(r *Registry) []string {
-	seen := make(map[string]bool, len(r.OpencodeLadder))
-	out := make([]string, 0, len(r.OpencodeLadder))
-	for _, id := range r.OpencodeLadder {
-		if p, ok := r.Providers[id]; ok && p.OpencodeID != "" {
-			id = p.OpencodeID
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	return out
-}
-
-// validateNameRefs checks default/fallback names against known providers, and opencodeLadder names
-// against the known opencode sub ids (RouteOpencodeSubIDs) — opencode-go has no registry provider.
+// validateNameRefs checks default/fallback names against known providers (opencode ladder names are
+// checked by validateRouting, in routing.go).
 func validateNameRefs(r *Registry) []string {
 	var errs []string
 	for _, n := range append([]string{r.Default}, r.Fallback...) {
 		if _, ok := r.Providers[n]; n != "" && !ok {
 			errs = append(errs, fmt.Sprintf("default/fallback names unknown provider %q", n))
-		}
-	}
-	for _, n := range r.OpencodeLadder {
-		if !slices.Contains(RouteOpencodeSubIDs, n) {
-			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown opencode sub id %q (%s)", n, strings.Join(RouteOpencodeSubIDs, ", ")))
 		}
 	}
 	return errs
