@@ -128,8 +128,15 @@ func TestPlanTable(t *testing.T) {
 	}
 }
 
+// allEnvTwins defines a preset plus an -oai twin for each env, so the plan tests never read the real vault.
+const allEnvTwins = `{"providers":{` +
+	`"databricks-dev":{"preset":"databricks",` + dbxHost + `},"databricks-dev-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}},` +
+	`"databricks-qa":{"preset":"databricks",` + dbxHost + `},"databricks-qa-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}},` +
+	`"databricks-prod":{"preset":"databricks",` + dbxHost + `},"databricks-prod-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}}}}`
+
 // TestPlanRouting pins which model ids take the Anthropic passthrough versus the -oai router.
 func TestPlanRouting(t *testing.T) {
+	seedOverlay(t, allEnvTwins)
 	passthrough := []string{"opus", "sonnet", "haiku", "databricks-claude-3-5-sonnet", "databricks-claude-opus-5-5[1m]"}
 	router := []string{"databricks-kimi-k3", "glm-4", "gpt-4", "gemini-2.0"}
 	for _, m := range passthrough {
@@ -158,6 +165,7 @@ func TestPlanRouting(t *testing.T) {
 
 // TestPlanCheckAndBig pins the leading check token and the --1m flag, which is consumed on every path.
 func TestPlanCheckAndBig(t *testing.T) {
+	seedOverlay(t, allEnvTwins)
 	tests := []struct {
 		name      string
 		args      []string
@@ -422,5 +430,16 @@ func TestNeedleProbeShape(t *testing.T) {
 	}
 	if n := strings.Count(body, needleWord); n != 1 {
 		t.Errorf("needle appears %d times, want 1", n)
+	}
+}
+
+func TestIsClaudeModel(t *testing.T) {
+	for m, want := range map[string]bool{
+		"opus": true, "databricks-claude-opus-5-5": true, "claude-opus-5-5": true, "claude-opus-5-5[1m]": true,
+		"gpt-5.5": false, "databricks-gpt-5-5": false, "my-opus": false, "": false,
+	} {
+		if got := isClaudeModel(m); got != want {
+			t.Errorf("isClaudeModel(%q) = %v, want %v", m, got, want)
+		}
 	}
 }
