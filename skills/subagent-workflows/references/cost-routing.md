@@ -31,7 +31,7 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
    unusually complex step (premium multipliers scale). `claude-code models --live --provider github-copilot` lists
    what the seat serves.
 4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude. Alternatives, by hand:
-   codex limited → `copilot --model gpt-6-astra`; copilot down → opencode; agy down → copilot; Claude last.
+   codex limited → `copilot --model gpt-6.1-sol`; copilot down → opencode; agy down → copilot; Claude last.
 5. A vendor leg in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
    `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
 
