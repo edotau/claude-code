@@ -51,7 +51,7 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 | Principle | As a review finding | Severity |
 |---|---|---|
 | **1 Think Before Coding** | silently picked one reading of an ambiguous requirement — that's a **question**, not a decision | should-fix |
-| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; the fix belongs to the cleanup pass that follows review | should-fix |
+| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; the fix is the simplify pass's, which ran before this review — send it back there | should-fix |
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 
@@ -98,8 +98,7 @@ REQUIRED**, never a warn; MEDIUM is INFO, LOW is NOTE.
 ## Detectors
 
 `claude-code review <sub>` verbs, all support `--json`, all exit 0 (advisory signal — never a
-hard gate). Run the mechanical gate first; non-zero is must-fix (`rules/standards/quality.md` →
-Verification Order). Full CLI reference: `references/detectors.md`.
+hard gate). Full CLI reference: `references/detectors.md`.
 
 Verb selection: [Detector index](references/detectors.md#detector-index).
 
@@ -118,9 +117,8 @@ Mechanical gate first: `rules/standards/quality.md` → Verification Order.
 1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
 2. Apply the lenses to the diff range + changed files, not the session history; verify every finding by
    reading the code.
-3. Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping: `rules/standards/quality.md`
-   (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no CRITICAL/HIGH,
-   block on either.
+3. Pre-approval checklist: `rules/standards/quality.md` → Code Quality Checklist; severity:
+   `references/completion-criteria.md`; the call: [Verdicts](#verdicts).
 4. A change on the must-review list (`rules/standards/security.md` → Must-review) gets the [Security](#security)
    lens as well — mandatory, not a judgment call.
 

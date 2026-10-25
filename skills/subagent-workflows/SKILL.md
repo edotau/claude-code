@@ -12,7 +12,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | One small or tightly coupled task | TRIVIAL/LOW | Work inline | — |
 | Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
 | Ordered plan, review gate per task | MEDIUM | One implementer at a time, spec → simplify → quality | [Sequential plan](#sequential-plan) |
-| Review a diff | any | One read-only `evaluate-code` leaf (quality + security lenses), or two on a large diff — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
+| Review a diff | any | One read-only `evaluate-code` leaf (quality + security lenses), or two on a large diff — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`../problem-solving/references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
 | Many leaf tasks across packages | HIGH/EPIC | One Claude lane orchestrator per lane, vendor leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
 | One objective, several phases and owners | HIGH/EPIC | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |
 | Same measurable task, several approaches | any | N isolated attempts, re-measure, merge one | [competition-tournament.md](references/competition-tournament.md) |
@@ -85,10 +85,10 @@ change reports the Status below.
 - Parallelize only independent work.
 - **Simplify before review, every time code changed**: `Skill(simplify)` over the diff, or a leaf briefed with
   [prompts.md#simplifier](references/prompts.md#simplifier). Never an ad hoc "clean this up" brief.
-- Detectors (`claude-code review *`) and the lint gate run once per pipeline — the stage that owns them runs
-  them (simplify: `complexity`+`diff`; quality review: the rest); a later stage reads the earlier stage's output
-  instead of re-running. The mechanical `make fmt && make lint` gate runs after each code change per
-  `rules/standards/quality.md` → Verification Order.
+- Advisory detectors (`claude-code review *`) run once per pipeline: the simplifier runs `complexity`+`diff`; the
+  manager runs the rest and pastes the output into the quality reviewer's brief; no later stage re-runs them. The
+  mechanical `make fmt && make lint` gate is separate and runs after every code change (`rules/standards/quality.md`
+  → Verification Order).
 
 ## Sequential plan
 

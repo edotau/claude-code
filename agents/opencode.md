@@ -42,9 +42,6 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 
 Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Opencode deltas:
 
-- `claude-code opencode models` is the harness's own model catalog for opencode (not the vendor's).
-- Shadowed native name: `claude-code opencode -- models` runs the vendor's own `models`, while
-  `claude-code opencode models` (no `--`) is the harness catalog verb above.
 - Resume the underlying CLI session directly with `opencode run --session <id>`.
 
 ## Hands off to

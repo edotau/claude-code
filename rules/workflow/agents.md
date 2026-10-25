@@ -52,8 +52,7 @@ ALWAYS use parallel Agent calls for independent operations — launch in a **sin
 - **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
   An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
   parent's tier — dispatch fan-out leaves as `code-worker` (frontmatter `model: sonnet`),
-  NOT as `inherit` managers. Reserve `model: 'opus'` for a single leaf that demonstrably
-  failed on Sonnet (capability escalation), counted against the ≤8 tier.
+  NOT as `inherit` managers (Opus only by escalation — below).
 - A provider with its own rate limit may throttle a wide fan-out before either cap bites —
   `claude-code doctor` reports provider/router health; drop to sequential if a shared
   provider starts throwing sustained errors.

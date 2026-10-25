@@ -186,17 +186,15 @@ that. Never let an unverified claim pass as verified.
 
 ## Step 6 — Report outcome-first
 
-**No method scaffolding in the report:** no step numbers, no step names, no raw `TASK:`/`AUTH:`/
-`ISSUE:`/`PENDING:` tags. Each forced note becomes the plain sentence it stands for — see
-`references/notes.md` for the rendering of each.
+No method scaffolding in the report (the rule above the steps); each forced note becomes the plain sentence it
+stands for — `references/notes.md` renders each.
 
 - Outcome-first, caveats mandatory, failures reported with their output: `rules/standards/communication.md`.
 - Delete scratch files and test artifacts you created; note the cleanup. Leftover debris is a
   fraud signal to a judge.
-- **Before reporting, write this line in your working notes:** `PENDING: <a follow-up a README, runbook or
-  installed skill prescribed — deploy, push, ship, restart, regenerate — that you did not take, or "none">`.
-  Forced every time, even when the answer is "none": absence is invisible unless you force the check. Any
-  named follow-up goes in the report as a next step awaiting the user's go, naming who prescribed it.
+- Write the forced `PENDING:` line (box at the top) before reporting — every time, even when the answer is "none":
+  absence is invisible unless you force the check. A named follow-up goes in the report as a next step awaiting
+  the user's go, naming who prescribed it.
 - Follow-ups only if they emerged from this task (a caveat, a surprise, cut scope). Otherwise end
   without them.
 - **Hostile-reviewer reread**, then the **artifact gate** — the last check before sending: behavior
