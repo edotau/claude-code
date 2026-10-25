@@ -65,3 +65,42 @@ func TestRepoSlugConfigDirIsWorktree(t *testing.T) {
 		t.Errorf("RepoSlug(config dir worktree) = %q, want empty", got)
 	}
 }
+
+func TestCheckoutOf(t *testing.T) {
+	base := t.TempDir()
+	main := filepath.Join(base, "repo")
+	sub := filepath.Join(main, "internal", "pkg")
+	wt := filepath.Join(base, "worktrees", "x")
+	subm := filepath.Join(base, "subm")
+	lone := filepath.Join(base, "lone")
+	dirs := []string{filepath.Join(main, ".git", "worktrees", "x"), sub, filepath.Join(wt, "cmd"), filepath.Join(subm, "pkg"), lone}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(dir, ptr string) {
+		if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(ptr), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(wt, "gitdir: "+filepath.Join(main, ".git", "worktrees", "x")+"\n")
+	write(subm, "gitdir: "+filepath.Join(main, ".git", "modules", "subm")+"\n")
+	for _, tc := range []struct{ name, dir, top, main string }{
+		{"main root", main, main, main},
+		{"main subdir", sub, main, main},
+		{"linked worktree", wt, wt, main},
+		{"worktree subdir", filepath.Join(wt, "cmd"), wt, main},
+		{"submodule gitfile", filepath.Join(subm, "pkg"), subm, subm},
+	} {
+		if top, m := CheckoutOf(tc.dir); top != tc.top || m != tc.main {
+			t.Errorf("%s: CheckoutOf(%q) = %q, %q; want %q, %q", tc.name, tc.dir, top, m, tc.top, tc.main)
+		}
+	}
+	// the temp tree may itself sit under a repo, so only assert "no repo" when none encloses it
+	if _, err := os.Stat("/.git"); err != nil {
+		if top, m := CheckoutOf(lone); top != "" || m != "" {
+			t.Errorf("no repo: CheckoutOf = %q, %q; want empty", top, m)
+		}
+	}
+}

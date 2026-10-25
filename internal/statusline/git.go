@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // gitBranch reads .git/HEAD directly (a per-render fork costs more than the render); falls back to git.
@@ -62,29 +64,14 @@ func gitBranchFast(cwd string) (string, bool) {
 // checkoutOf finds cwd's checkout: root is the main checkout (a subdir or linked worktree maps to the repo it
 // belongs to; no repo → cwd) and worktree is the linked worktree's top dir, "" in the main checkout.
 func checkoutOf(cwd string) (root, worktree string) {
-	dir, err := filepath.Abs(cwd)
-	if err != nil {
+	top, main := paths.CheckoutOf(cwd)
+	switch {
+	case top == "":
 		return cwd, ""
+	case main != top:
+		return main, top
 	}
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if fi, err := os.Stat(gitPath); err == nil {
-			if fi.IsDir() {
-				return dir, ""
-			}
-			target, ok := gitfileTarget(gitPath)
-			sep := string(filepath.Separator)
-			if main, _, linked := strings.Cut(target, sep+".git"+sep+"worktrees"+sep); ok && linked {
-				return main, dir
-			}
-			return dir, "" // a submodule or a gitfile we can't map: its own checkout
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return cwd, ""
-		}
-		dir = parent
-	}
+	return top, ""
 }
 
 func gitfileTarget(path string) (string, bool) {
