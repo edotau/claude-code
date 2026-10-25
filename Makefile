@@ -217,7 +217,7 @@ lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell sc
 
 .PHONY: lint-settings
 lint-settings: compile  # (folded into `lint`) vendor-config render drift, against THIS checkout
-	CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) generate --check
+	CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --reset --check
 
 .PHONY: verify
 verify: audit  ## audit + doctor + router status
@@ -238,7 +238,7 @@ router: compile  ## Router daemon status (UP=1 starts it)
 .PHONY: statusline
 statusline: compile  ## Render a sample statusline (COLS=…)
 	@echo '{"model":{"id":"claude-sonnet-5","display_name":"Sonnet 5"},"workspace":{"current_dir":"'$(CURDIR)'"},"transcript_path":"/tmp/x","context_window":{"context_window_size":1000000,"used_percentage":42}}' \
-		| COLUMNS=$${COLS:-120} $(BIN) statusline
+		| COLUMNS=$${COLS:-120} $(BIN) theme statusline
 
 ##@ Quick Reference
 .PHONY: help

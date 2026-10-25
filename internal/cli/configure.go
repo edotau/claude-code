@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/tui"
@@ -17,7 +18,13 @@ import (
 
 // configureUsage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
 var configureUsage = "usage: claude-code configure [--provider p] [--agent CLI] [--dry-run] [--check]\n       [--drop k[,k…]] [--keep k[,k…]]\n       [" +
-	strings.Join(configure.Sections, "|") + "]"
+	strings.Join(configure.Sections, "|") + "]\n" + `       claude-code configure --reset [--check|--dry-run] [--agent a,b] [--out f]
+                                     [--vendors]
+       claude-code configure --restore [--agent a,b] [--dry-run]
+
+--reset re-renders settings.json and the vendor configs from the templates;
+settings.local.json is never touched. --check reports drift, exit 1.
+--restore puts vendor configs back from their timestamped backups.`
 
 // keyList is a repeatable comma-separated flag: splits, trims, skips empties, dedupes in first-seen order.
 type keyList []string
@@ -40,12 +47,16 @@ func cmdConfigure(args []string) int {
 	vendor := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
 	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
+	reset := fs.Bool("reset", false, "re-render settings.json and the vendor configs from the templates")
+	restore := fs.Bool("restore", false, "put vendor configs back from their timestamped backups")
+	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
+	vendors := fs.Bool("vendors", false, "with --reset: render vendor configs even off the default ~/.claude")
 	var drop, keep keyList
-	fs.Var(&drop, "drop", "remove these top-level settings.json keys on every render (comma or repeat)")
+	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
 	fs.Var(&keep, "keep", "stop dropping these keys")
 	fs.Usage = func() {
-		helptext.Fprint(os.Stderr, configureUsage+"\n")
-		fs.PrintDefaults()
+		helptext.Fprint(fs.Output(), configureUsage+"\n")
+		helptext.Defaults(fs)
 	}
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
@@ -61,9 +72,40 @@ func cmdConfigure(args []string) int {
 	if section == "" && fs.NArg() > 0 {
 		section = fs.Arg(0)
 	}
+	if *reset || *restore {
+		return configureRender(*reset, *restore, section, *vendor, *out, *check, *dryRun, *vendors)
+	}
+	if *out != "" || *vendors {
+		return fail("configure: --out and --vendors need --reset")
+	}
 	return configure.Run(configure.Options{
 		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
 	}, section)
+}
+
+// configureRender runs --reset / --restore; the agent flag is a comma list there.
+func configureRender(reset, restore bool, section, agents, out string, check, dryRun, vendors bool) int {
+	switch {
+	case reset && restore:
+		return fail("configure: --reset and --restore are mutually exclusive")
+	case section != "":
+		return fail("configure: --reset/--restore take no page (got %q)", section)
+	case restore && (check || out != "" || vendors):
+		return fail("configure: --restore takes only --agent and --dry-run")
+	}
+	// the engine skips unknown names silently, so a typo would render nothing; reject it here
+	for _, a := range strings.Split(agents, ",") {
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(generate.DefaultAgents, a) {
+			return fail("configure: unknown --agent %q (%s)", a, strings.Join(generate.DefaultAgents, "|"))
+		}
+	}
+	if restore {
+		return cmdRestore(agents, dryRun)
+	}
+	if check && dryRun {
+		return fail("configure: --check and --dry-run are mutually exclusive")
+	}
+	return cmdReset(agents, out, check, dryRun, vendors)
 }
 
 // isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).

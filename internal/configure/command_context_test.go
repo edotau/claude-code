@@ -272,7 +272,7 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 
 func TestRegisterClaudeMCPContext(t *testing.T) {
 	remove := []string{"mcp", "remove", "-s", "user", "web_search"}
-	add := []string{"mcp", "add", "-s", "user", "web_search", "--", "/custom path/claude-code", "web", "search"}
+	add := []string{"mcp", "add", "-s", "user", "web_search", "--", "/custom path/claude-code", "network", "websearch"}
 	for _, mode := range []string{"normal", "remove-fail", "add-fail", "cancel-remove", "cancel-add"} {
 		t.Run(mode, func(t *testing.T) {
 			_, log, ready := configureCommandEnv(t, mode)

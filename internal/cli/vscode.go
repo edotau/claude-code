@@ -16,19 +16,15 @@ import (
 	"github.com/edotau/claude-code/internal/vscodeserve"
 )
 
-// cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json,
-// or — under the `serve` subcommand — publishes its web UI to the phone over the tailnet.
+// cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json.
 // Machine scope is per-box and is NOT Settings-Synced, so the merge is what seeds a fresh box instead.
 func cmdVSCode(args []string) int {
-	if len(args) > 0 && args[0] == "serve" {
-		return cmdVSCodeServe(args[1:])
-	}
 	fs := flag.NewFlagSet("vscode", flag.ContinueOnError)
 	fs.Usage = func() {
-		helptext.Fprint(os.Stderr, `usage: claude-code vscode [--check] [--dry-run] [--dest <settings.json>]
-                          [--template <file>] [--keybindings-dest <file>]
-                          [--keybindings-template <file>]
-                          [--extensions-dir <dir>]
+		helptext.Fprint(os.Stderr, `usage: claude-code theme vscode [--check] [--dry-run] [--dest <settings.json>]
+                                [--template <file>] [--keybindings-dest <file>]
+                                [--keybindings-template <file>]
+                                [--extensions-dir <dir>]
 
 Merge embedded templates into VS Code's Machine settings and local keybindings.
 Machine settings are per-box and excluded from Settings Sync.
@@ -51,8 +47,11 @@ Link the Claude Code Agents extension into the detected extensions directory.
 		}
 		return 2
 	}
+	if fs.NArg() > 0 { // a stray word (the retired `serve`) must not fall through to a merge
+		return fail("theme vscode: unexpected argument %q (serving moved to `network vscode`)", fs.Arg(0))
+	}
 	if *check && *dryRun {
-		fmt.Fprintln(os.Stderr, "claude-code: vscode --check and --dry-run are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "claude-code: theme vscode --check and --dry-run are mutually exclusive")
 		return 2
 	}
 	destPath, err := resolveVSCodeDest(*dest)
@@ -180,25 +179,28 @@ func reportDryRun(label, dest string, changed bool) {
 	}
 }
 
-// cmdVSCodeServe runs `code serve-web` as a detached daemon and maps it onto the tailnet.
-func cmdVSCodeServe(args []string) int {
-	fs := flag.NewFlagSet("vscode serve", flag.ContinueOnError)
+// cmdNetworkVSCode runs `code serve-web` as a detached daemon and maps it onto the tailnet.
+func cmdNetworkVSCode(args []string) int {
+	fs := flag.NewFlagSet("network vscode", flag.ContinueOnError)
 	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), `usage: claude-code vscode serve [--port N] [--stop] [--status] [--no-tailscale] [--funnel]
-                                [--folder <dir>] [--format text|json]
+		helptext.Fprint(fs.Output(), `usage: claude-code network vscode [--port N] [--stop] [--status]
+                                  [--no-tailscale] [--funnel]
+                                  [--folder <dir>] [--format text|json]
 
 Publish VS Code's web UI (code serve-web) to the phone over the tailnet.
-The browser opens --folder (default: the current directory) with the desktop's extensions.
---funnel maps it on the public internet instead of the tailnet (still token-gated).
+The browser opens --folder (default: the current directory) with the
+desktop's extensions.
+--funnel maps it on the public internet instead of the tailnet (still
+token-gated).
 
 `)
 		helptext.Defaults(fs)
 	}
-	port := fs.Int("port", vscodeserve.DefaultPort, "serve-web port (falls back to the next free port when busy)")
+	port := fs.Int("port", vscodeserve.DefaultPort, "serve-web port; falls back to the next free one when busy")
 	stop := fs.Bool("stop", false, "stop the daemon and remove any tailscale/funnel mapping")
 	status := fs.Bool("status", false, "report the daemon and tailscale mapping, then exit")
 	noTailscale := fs.Bool("no-tailscale", false, "serve on 127.0.0.1 only; skip the tailscale mapping")
-	funnel := fs.Bool("funnel", false, "use `tailscale funnel` instead of `tailscale serve` (public internet, token-gated)")
+	funnel := fs.Bool("funnel", false, "use tailscale funnel, not serve (public internet, token-gated)")
 	folder := fs.String("folder", ".", "folder the browser opens by default")
 	format := fs.String("format", "text", "output format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -216,7 +218,7 @@ The browser opens --folder (default: the current directory) with the desktop's e
 	default:
 		abs, err := filepath.Abs(*folder)
 		if err != nil {
-			return fail("vscode serve: %v", err)
+			return fail("network vscode: %v", err)
 		}
 		return vscodeServeStart(ctx, vscodeserve.Options{Port: *port, NoTailscale: *noTailscale, Funnel: *funnel, Folder: abs}, *format)
 	}
@@ -225,17 +227,17 @@ The browser opens --folder (default: the current directory) with the desktop's e
 func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format string) int {
 	res, err := vscodeserve.Start(ctx, opts)
 	if err != nil {
-		return fail("vscode serve: %v", err)
+		return fail("network vscode: %v", err)
 	}
 	for _, n := range res.Notes {
-		fmt.Fprintln(os.Stderr, "claude-code: vscode serve: "+n)
+		fmt.Fprintln(os.Stderr, "claude-code: network vscode: "+n)
 	}
 	if format == "json" {
 		b, _ := json.MarshalIndent(res.State, "", "  ")
 		fmt.Println(string(b))
 		return 0
 	}
-	fmt.Printf("claude-code: vscode serve running pid %d port %d\n", res.State.PID, res.State.Port)
+	fmt.Printf("claude-code: network vscode running pid %d port %d\n", res.State.PID, res.State.Port)
 	fmt.Println(res.State.URL)
 	printQR(res.State.URL)
 	return 0
@@ -248,12 +250,12 @@ func vscodeServeStop(format string) int {
 		if format == "json" {
 			fmt.Println(`{"running":false}`)
 		} else {
-			fmt.Println("claude-code: vscode serve: not running")
+			fmt.Println("claude-code: network vscode: not running")
 		}
 		return 0
 	}
 	if err != nil {
-		return fail("vscode serve: %v", err)
+		return fail("network vscode: %v", err)
 	}
 	if format == "json" {
 		b, _ := json.Marshal(struct {
@@ -263,7 +265,7 @@ func vscodeServeStop(format string) int {
 		fmt.Println(string(b))
 		return 0
 	}
-	fmt.Printf("claude-code: vscode serve: stopped pid %d\n", st.PID)
+	fmt.Printf("claude-code: network vscode: stopped pid %d\n", st.PID)
 	return 0
 }
 
@@ -285,10 +287,10 @@ func vscodeServeStatus(ctx context.Context, format string) int {
 		return 0
 	}
 	if !running {
-		fmt.Println("claude-code: vscode serve: not running")
+		fmt.Println("claude-code: network vscode: not running")
 		return 1
 	}
-	fmt.Printf("claude-code: vscode serve running pid %d port %d tailscale=%v funnel=%v mapped=%v\n",
+	fmt.Printf("claude-code: network vscode running pid %d port %d tailscale=%v funnel=%v mapped=%v\n",
 		st.PID, st.Port, st.Tailscale, st.Funnel, mapped)
 	fmt.Println(st.URL)
 	return 0
@@ -298,7 +300,7 @@ func vscodeServeStatus(ctx context.Context, format string) int {
 func printQR(url string) {
 	bin, err := exec.LookPath("qrencode")
 	if err != nil {
-		fmt.Println("claude-code: vscode serve: install `qrencode` for a QR code (e.g. `brew install qrencode`)")
+		fmt.Println("claude-code: network vscode: install `qrencode` for a QR code (e.g. `brew install qrencode`)")
 		return
 	}
 	cmd := exec.Command(bin, "-t", "ANSIUTF8", url) //nolint:noctx // one-shot presentation helper, not a daemon.

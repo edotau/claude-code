@@ -19,48 +19,124 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 )
 
-const tailscaleUsage = "usage: claude-code tailscale status|machines|connect|key|exit-node"
+const tailscaleUsage = `usage: claude-code network tailscale [--format text|json]
+       claude-code network tailscale --machines [--format text|json]
+       claude-code network tailscale --connect [--auth-key k|-] [--key-env NAME]
+                                     [--advertise-exit]
+       claude-code network tailscale --key [--expiry 90d] [--tags t,…] [--save]
+                                     [--reusable] [--ephemeral]
+                                     [--preauthorized] [--description d]
+       claude-code network tailscale --exit-node on|off|approve
+`
 
-func cmdTailscale(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, tailscaleUsage+"\n")
-		return 1
-	}
-	ctx := context.Background()
-	switch args[0] {
-	case "status":
-		return tailscaleStatus(ctx, args[1:])
-	case "machines":
-		return tailscaleMachines(ctx, args[1:])
-	case "connect":
-		return tailscaleConnect(ctx, args[1:])
-	case "key":
-		return tailscaleKey(ctx, args[1:])
-	case "exit-node":
-		return tailscaleExitNode(ctx, args[1:])
-	}
-	return fail("tailscale: unknown subcommand %q (status|machines|connect|key|exit-node)", args[0])
+// tsFlagMode maps each mode-specific flag to the mode flag that owns it ("" = status or machines).
+var tsFlagMode = map[string]string{
+	"auth-key": "connect", "key-env": "connect", "advertise-exit": "connect",
+	"expiry": "key", "tags": "key", "save": "key", "reusable": "key", "ephemeral": "key",
+	"preauthorized": "key", "description": "key",
 }
 
-func tailscaleStatus(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("tailscale status", flag.ContinueOnError)
+// cmdNetworkTailscale: one flag set; a mode flag picks the action and bare means status.
+func cmdNetworkTailscale(args []string) int {
+	fs := flag.NewFlagSet("network tailscale", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of tailscale status:\n")
+		helptext.Fprint(fs.Output(), tailscaleUsage+"\n")
 		helptext.Defaults(fs)
 	}
+	machines := fs.Bool("machines", false, "list tailnet machines")
+	connect := fs.Bool("connect", false, "join the tailnet")
+	mint := fs.Bool("key", false, "mint a Tailscale auth key")
+	exitNode := fs.String("exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
 	format := outfmt.Flag(fs)
+	var o tsOpts
+	fs.StringVar(&o.authKey, "auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
+	fs.StringVar(&o.keyEnv, "key-env", "", "read the auth key from this env var instead")
+	fs.BoolVar(&o.advertise, "advertise-exit", false, "also advertise this box as an exit node")
+	fs.BoolVar(&o.ephemeral, "ephemeral", false, "the key's device is removed on logout/offline")
+	fs.BoolVar(&o.preauth, "preauthorized", false, "new devices skip admin approval")
+	fs.BoolVar(&o.reusable, "reusable", false, "the key can register more than one device")
+	fs.StringVar(&o.tags, "tags", "", "comma-separated ACL tags (tag:a,tag:b)")
+	fs.StringVar(&o.expiry, "expiry", "90d", "key lifetime: a Go duration, or Nd for N days")
+	fs.StringVar(&o.desc, "description", "", "a note shown in the admin console")
+	fs.BoolVar(&o.save, "save", false, "also seal the key as TAILSCALE_AUTHKEY in the vault")
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if fs.NArg() > 0 {
+		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))
+	}
+	exitNodeSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "exit-node" {
+			exitNodeSet = true
+		}
+	})
+	var modes []string
+	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": exitNodeSet} {
+		if on {
+			modes = append(modes, "--"+name)
+		}
+	}
+	slices.Sort(modes)
+	if len(modes) > 1 {
+		return failUsage("network tailscale: %s are mutually exclusive; pick one mode", strings.Join(modes, " and "))
+	}
+	mode := ""
+	if len(modes) == 1 {
+		mode = strings.TrimPrefix(modes[0], "--")
+	}
+	var wrong error
+	fs.Visit(func(f *flag.Flag) {
+		owner, ok := tsFlagMode[f.Name]
+		if ok && owner != mode && wrong == nil {
+			wrong = fmt.Errorf("--%s belongs to --%s", f.Name, owner)
+		}
+		if f.Name == "format" && mode != "" && mode != "machines" && wrong == nil {
+			wrong = fmt.Errorf("--format applies to status and --machines only")
+		}
+	})
+	if wrong != nil {
+		return failUsage("network tailscale: %v", wrong)
+	}
+	ctx := context.Background()
+	switch mode {
+	case "machines":
+		return tailscaleMachines(ctx, *format)
+	case "connect":
+		return tailscaleConnect(ctx, o)
+	case "key":
+		return tailscaleKey(ctx, o)
+	case "exit-node":
+		if !slices.Contains([]string{"on", "off", "approve"}, *exitNode) {
+			return failUsage("network tailscale: --exit-node must be on, off or approve, got %q", *exitNode)
+		}
+		return tailscaleExitNode(ctx, *exitNode)
+	}
+	return tailscaleStatus(ctx, *format)
+}
+
+// tsOpts carries the connect and key mode flags.
+type tsOpts struct {
+	authKey, keyEnv, tags, expiry, desc string
+	advertise, ephemeral, preauth       bool
+	reusable, save                      bool
+}
+
+func failUsage(format string, a ...any) int {
+	fail(format, a...)
+	return 2
+}
+
+func tailscaleStatus(ctx context.Context, format string) int {
+	if err := outfmt.Check(format); err != nil {
 		return fail("%v", err)
 	}
 	st, err := tailscale.Status(ctx)
 	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
-		return fail("tailscale status: %v", err)
+		return fail("network tailscale status: %v", err)
 	}
-	if *format == outfmt.JSON {
+	if format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, st)
 		return 0
 	}
@@ -74,30 +150,20 @@ func tailscaleStatus(ctx context.Context, args []string) int {
 	return 0
 }
 
-func tailscaleMachines(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("tailscale machines", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of tailscale machines:\n")
-		helptext.Defaults(fs)
-	}
-	format := outfmt.Flag(fs)
-	if fs.Parse(args) != nil {
-		return 2
-	}
-	if err := outfmt.Check(*format); err != nil {
+func tailscaleMachines(ctx context.Context, format string) int {
+	if err := outfmt.Check(format); err != nil {
 		return fail("%v", err)
 	}
 	machines, err := tailscale.Machines(ctx)
 	if err != nil {
-		return fail("tailscale machines: %v", err)
+		return fail("network tailscale machines: %v", err)
 	}
 	names := make([]string, 0, len(machines))
 	for _, m := range machines {
 		names = append(names, m.Name)
 	}
 	writeDispatchCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
-	if *format == outfmt.JSON {
+	if format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, machines)
 		return 0
 	}
@@ -107,32 +173,20 @@ func tailscaleMachines(ctx context.Context, args []string) int {
 	return 0
 }
 
-func tailscaleConnect(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("tailscale connect", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of tailscale connect:\n")
-		helptext.Defaults(fs)
-	}
-	authKey := fs.String("auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
-	keyEnv := fs.String("key-env", "", "read the auth key from this env var instead")
-	exitNode := fs.Bool("exit-node", false, "also advertise this box as an exit node")
-	if fs.Parse(args) != nil {
-		return 2
-	}
-	key := *authKey
+func tailscaleConnect(ctx context.Context, o tsOpts) int {
+	key := o.authKey
 	if key == "-" {
 		in, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			return fail("tailscale connect: reading --auth-key from stdin: %v", err)
+			return fail("network tailscale connect: reading --auth-key from stdin: %v", err)
 		}
 		key = strings.TrimSpace(string(in))
 	} else if key != "" {
 		fmt.Fprintln(os.Stderr, "tailscale connect: a literal --auth-key is visible in shell "+
 			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
 	}
-	if key == "" && *keyEnv != "" {
-		key = strings.TrimSpace(os.Getenv(*keyEnv))
+	if key == "" && o.keyEnv != "" {
+		key = strings.TrimSpace(os.Getenv(o.keyEnv))
 	}
 	if key == "" {
 		key, _, _ = secrets.Get("TAILSCALE_AUTHKEY")
@@ -142,11 +196,11 @@ func tailscaleConnect(ctx context.Context, args []string) int {
 			fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
 			return 0
 		}
-		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `tailscale key --save`")
+		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
 		return 2
 	}
-	if err := tailscale.Connect(ctx, key, *exitNode); err != nil {
-		return fail("tailscale connect: %v", err)
+	if err := tailscale.Connect(ctx, key, o.advertise); err != nil {
+		return fail("network tailscale connect: %v", err)
 	}
 	st, _ := tailscale.Status(ctx)
 	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
@@ -154,50 +208,34 @@ func tailscaleConnect(ctx context.Context, args []string) int {
 	return 0
 }
 
-func tailscaleKey(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("tailscale key", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of tailscale key:\n")
-		helptext.Defaults(fs)
-	}
-	ephemeral := fs.Bool("ephemeral", false, "the key's device is removed on logout/offline")
-	preauth := fs.Bool("preauthorized", false, "new devices skip admin approval")
-	reusable := fs.Bool("reusable", false, "the key can register more than one device")
-	tags := fs.String("tags", "", "comma-separated ACL tags (tag:a,tag:b)")
-	expiry := fs.String("expiry", "90d", "key lifetime: a Go duration, or Nd for N days")
-	desc := fs.String("description", "", "a note shown in the admin console")
-	save := fs.Bool("save", false, "also seal the key as TAILSCALE_AUTHKEY in the vault")
-	if fs.Parse(args) != nil {
-		return 2
-	}
-	exp, err := parseKeyExpiry(*expiry)
+func tailscaleKey(ctx context.Context, o tsOpts) int {
+	exp, err := parseKeyExpiry(o.expiry)
 	if err != nil {
-		return fail("tailscale key: --expiry: %v", err)
+		return fail("network tailscale key: --expiry: %v", err)
 	}
 	client, err := tailscale.NewClient()
 	if err != nil {
-		return fail("tailscale key: %v", err)
+		return fail("network tailscale key: %v", err)
 	}
 	var tagList []string
-	if *tags != "" {
-		tagList = strings.Split(*tags, ",")
+	if o.tags != "" {
+		tagList = strings.Split(o.tags, ",")
 	}
 	key, err := client.CreateAuthKey(ctx, tailscale.KeyOpts{
-		Ephemeral: *ephemeral, Preauthorized: *preauth, Reusable: *reusable,
-		Tags: tagList, Expiry: exp, Description: *desc,
+		Ephemeral: o.ephemeral, Preauthorized: o.preauth, Reusable: o.reusable,
+		Tags: tagList, Expiry: exp, Description: o.desc,
 	})
 	if err != nil {
 		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
 		if strings.Contains(err.Error(), "HTTP 404") {
-			return fail("tailscale key: %v\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
+			return fail("network tailscale key: %v\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
 				"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
 		}
-		return fail("tailscale key: %v", err)
+		return fail("network tailscale key: %v", err)
 	}
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
 	fmt.Println(key.Key) // the only thing on stdout, so it can be piped
-	if *save {
+	if o.save {
 		if err := secrets.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
 			fmt.Fprintf(os.Stderr, "tailscale key: --save: %v\n", err)
 			return 1
@@ -219,45 +257,22 @@ func parseKeyExpiry(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-func tailscaleExitNode(ctx context.Context, args []string) int {
-	fs := flag.NewFlagSet("tailscale exit-node", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of tailscale exit-node:\n")
-		helptext.Defaults(fs)
-	}
-	enable := fs.Bool("enable", false, "advertise this box as an exit node")
-	disable := fs.Bool("disable", false, "stop advertising this box as an exit node")
-	approve := fs.Bool("approve", false, "approve this box's exit-node routes via the admin API")
-	if fs.Parse(args) != nil {
-		return 2
-	}
-	if *enable && *disable {
-		return fail("tailscale exit-node: --enable and --disable are mutually exclusive")
-	}
-	switch {
-	case *enable:
+func tailscaleExitNode(ctx context.Context, action string) int {
+	switch action {
+	case "on":
 		if err := tailscale.AdvertiseExitNode(ctx, true); err != nil {
-			return fail("tailscale exit-node: %v", err)
+			return fail("network tailscale exit-node: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "enable")
 		fmt.Println("tailscale: advertising as an exit node")
-	case *disable:
+	case "off":
 		if err := tailscale.AdvertiseExitNode(ctx, false); err != nil {
-			return fail("tailscale exit-node: %v", err)
+			return fail("network tailscale exit-node: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "disable")
 		fmt.Println("tailscale: no longer advertising as an exit node")
-	}
-	if *approve {
+	case "approve":
 		return tailscaleApproveExitNode(ctx)
-	}
-	if !*enable && !*disable {
-		st, err := tailscale.Status(ctx)
-		if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
-			return fail("tailscale exit-node: %v", err)
-		}
-		fmt.Printf("option=%v approved=%v\n", st.ExitNodeOption, st.ExitNodeApproved)
 	}
 	return 0
 }
@@ -270,11 +285,11 @@ func tailscaleApproveExitNode(ctx context.Context) int {
 	}
 	st, err := tailscale.Status(ctx)
 	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
-		return fail("tailscale exit-node: %v", err)
+		return fail("network tailscale exit-node: %v", err)
 	}
 	devices, err := client.Devices(ctx)
 	if err != nil {
-		return fail("tailscale exit-node: %v", err)
+		return fail("network tailscale exit-node: %v", err)
 	}
 	var id string
 	for _, d := range devices {
@@ -284,10 +299,10 @@ func tailscaleApproveExitNode(ctx context.Context) int {
 		}
 	}
 	if id == "" {
-		return fail("tailscale exit-node: could not match this node's address to a device (is it connected?)")
+		return fail("network tailscale exit-node: could not match this node's address to a device (is it connected?)")
 	}
 	if err := client.ApproveExitNode(ctx, id); err != nil {
-		return fail("tailscale exit-node: %v", err)
+		return fail("network tailscale exit-node: %v", err)
 	}
 	audit.Log(audit.TailscaleExitNode, st.DNSName, "approve")
 	fmt.Println("tailscale: exit-node routes approved")

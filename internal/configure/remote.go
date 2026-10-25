@@ -13,7 +13,7 @@ import (
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.
 var cgnatRemote = func() *net.IPNet { _, n, _ := net.ParseCIDR("100.64.0.0/10"); return n }()
 
-// runRemote reports tailscale connectivity, dispatch hosts, and whether `claude-code web` has a
+// runRemote reports tailscale connectivity, dispatch hosts, and whether `claude-code network page` has a
 // tailnet address to bind — read-only, never fails --check.
 func runRemote(d *dialog) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -23,7 +23,7 @@ func runRemote(d *dialog) bool {
 	case nil:
 		d.printf("tailscale   running (%s)\n", strings.TrimSuffix(st.DNSName, "."))
 	default:
-		d.printf("tailscale   not connected → claude-code tailscale connect\n")
+		d.printf("tailscale   not connected → claude-code network tailscale --connect\n")
 	}
 	switch {
 	case hasAdminCredential():
@@ -44,9 +44,9 @@ func runRemote(d *dialog) bool {
 		d.printf("dispatch    no online tailnet machines found\n")
 	}
 	if ip := tailnetIPv4(st); ip != "" {
-		d.printf("web         %s available for claude-code web\n", ip)
+		d.printf("web         %s available for claude-code network page\n", ip)
 	} else {
-		d.printf("web         no tailnet IPv4 address; claude-code web binds loopback only\n")
+		d.printf("web         no tailnet IPv4 address; claude-code network page binds loopback only\n")
 	}
 	return true
 }

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -64,7 +63,7 @@ func vaultUsageErr(sub string, args []string) int {
 }
 
 func configShow(args []string) int {
-	fs := flag.NewFlagSet("vault show", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("vault show", "usage: claude-code vault show [--tailscale] [--format text|json]\n\n")
 	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
 	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
 	if err := fs.Parse(args); err != nil {
@@ -138,7 +137,7 @@ func tailscaleAPIVerdict(cs []tailscale.CredState) string {
 
 // cmdVaultSet adds a Tailscale credential; no other use is supported (use claude-code secrets set).
 func cmdVaultSet(args []string) int {
-	fs := flag.NewFlagSet("vault set", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("vault set", "usage: claude-code vault set [--tailscale [--api-key]] [--dry-run]\n\n")
 	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key)")
 	apiKey := fs.Bool("api-key", false, "piped stdin is one TAILSCALE_API_KEY value")
 	dryRun := fs.Bool("dry-run", false, "report what would be written; change nothing")
@@ -248,7 +247,7 @@ func configEdit(args []string) int {
 }
 
 func configRotateKey(args []string) int {
-	fs := flag.NewFlagSet("vault rotate-key", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("vault rotate-key", "usage: claude-code vault rotate-key [--force]\n\n")
 	force := fs.Bool("force", false, "rotate even if HARNESS_VAULT_KEY or key_command is set")
 	if err := fs.Parse(args); err != nil {
 		return 2

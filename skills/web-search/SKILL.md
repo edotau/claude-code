@@ -1,13 +1,13 @@
 ---
 name: web-search
-description: Search the public web for current/real-time information when the built-in WebSearch is unavailable (e.g. on a non-Anthropic provider). Trigger on "search the web", "look this up online", "what's the latest", "current/recent news", "find recent info", or any question needing facts beyond training data. Backed by Tavily via `claude-code web search`.
+description: Search the public web for current/real-time information when the built-in WebSearch is unavailable (e.g. on a non-Anthropic provider). Trigger on "search the web", "look this up online", "what's the latest", "current/recent news", "find recent info", or any question needing facts beyond training data. Backed by Tavily via `claude-code network websearch`.
 allowed-tools: Bash, mcp__web_search__web_search
 ---
 
 # Web Search
 
 Restores web search on providers where the built-in `WebSearch` tool is unavailable. Backed by Tavily
-through `claude-code web search` (`internal/websearch`). Two ways to call it — pick by what the agent
+through `claude-code network websearch` (`internal/websearch`). Two ways to call it — pick by what the agent
 already has:
 
 ## Which path
@@ -15,7 +15,7 @@ already has:
 | You have | Use | How |
 |---|---|---|
 | The MCP tool (`mcp__web_search__web_search`) | **Prefer this** — structured, least-privilege | Call the tool with `{query, max_results?}` |
-| Only `Bash` (e.g. gemini, gemini-driving agents) | One-shot CLI | `claude-code web search --query "<query>" [--max-results N]` |
+| Only `Bash` (e.g. gemini, gemini-driving agents) | One-shot CLI | `claude-code network websearch --query "<query>" [--max-results N]` |
 
 Both hit the same Tavily backend. The CLI prints an answer + ranked results to stdout and exits;
 the MCP tool returns the same text as a tool result.
@@ -24,8 +24,8 @@ the MCP tool returns the same text as a tool result.
 
 ```bash
 # One-shot from any agent with Bash:
-claude-code web search --query "Databricks Asset Bundles latest schema changes"
-claude-code web search --query "OpenShift 4.16 release notes" --max-results 3
+claude-code network websearch --query "Databricks Asset Bundles latest schema changes"
+claude-code network websearch --query "OpenShift 4.16 release notes" --max-results 3
 ```
 
 MCP tool call (interactive sessions / agents granted the tool):

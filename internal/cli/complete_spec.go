@@ -46,25 +46,39 @@ func buildSpecTree() map[string]*compNode {
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"profile":  {args: []func() []string{providerNames}, flags: []flagInfo{formatFlag()}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
-		"generate": {flags: []flagInfo{flag("out"), flag("agents"), boolFlag("dry-run"), boolFlag("check"), boolFlag("vendors"), boolFlag("revert")}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},
-		"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),
-			flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")},
-			sub: map[string]*compNode{"serve": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"),
-				boolFlag("no-tailscale"), boolFlag("funnel"), formatFlag()}}}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
 		"ask":      {flags: askFlags},
 		"theme": {args: []func() []string{statusline.GradientNames}, flags: []flagInfo{boolFlag("preview")},
-			sub: map[string]*compNode{"apply": {flags: []flagInfo{boolFlag("dry-run")}}}},
+			sub: map[string]*compNode{
+				"apply":      {flags: []flagInfo{boolFlag("dry-run")}},
+				"statusline": {flags: []flagInfo{valuedFlag("style", statuslineStyles)}},
+				"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),
+					flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
+			}},
 		"configure": {args: []func() []string{configureSections}, flags: []flagInfo{
-			valuedFlag("provider", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check")}},
+			valuedFlag("provider", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
+			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors")}},
+		"network": {sub: map[string]*compNode{
+			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
+				valuedFlag("exit-node", exitNodeActions), flag("auth-key"), flag("key-env"), boolFlag("advertise-exit"),
+				flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
+				boolFlag("preauthorized"), flag("description")}},
+			"browser":   {flags: []flagInfo{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run")}},
+			"websearch": {flags: []flagInfo{flag("query"), flag("max-results")}},
+			"mcp":       {flags: []flagInfo{formatFlag()}},
+			"page":      {flags: []flagInfo{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}},
+			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),
+				flag("n"), boolFlag("follow"), formatFlag()}},
+			"vscode": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"), boolFlag("no-tailscale"),
+				boolFlag("funnel"), flag("folder"), formatFlag()}},
+		}},
 		"models": {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
 		"router": {sub: map[string]*compNode{
 			"serve": {flags: []flagInfo{flag("port")}}, "start": {}, "stop": {}, "status": {}}},
-		"mcp": {sub: map[string]*compNode{"doctor": {flags: []flagInfo{formatFlag()}}}},
 		"workflow": {sub: map[string]*compNode{
 			"skeleton": {args: []func() []string{workflowPatterns}, flags: []flagInfo{flag("name")}},
 			"lint":     {},
@@ -102,14 +116,6 @@ func buildSpecTree() map[string]*compNode {
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
 		}},
-		"tailscale": {sub: map[string]*compNode{
-			"status":   {flags: []flagInfo{formatFlag()}},
-			"machines": {flags: []flagInfo{formatFlag()}},
-			"connect":  {flags: []flagInfo{flag("auth-key"), flag("key-env"), boolFlag("exit-node")}},
-			"key": {flags: []flagInfo{boolFlag("ephemeral"), boolFlag("preauthorized"), boolFlag("reusable"),
-				flag("tags"), flag("expiry"), flag("description"), boolFlag("save")}},
-			"exit-node": {flags: []flagInfo{boolFlag("enable"), boolFlag("disable"), boolFlag("approve")}},
-		}},
 		"install": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
 			"adopt":     {flags: []flagInfo{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 			"nuke":      {flags: []flagInfo{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
@@ -117,13 +123,6 @@ func buildSpecTree() map[string]*compNode {
 		}}}},
 		"dispatch": {flags: []flagInfo{valuedFlag("host", dispatchHostNames), flag("dir"), valuedFlag("agent", dispatchAgentNames),
 			flag("name"), boolFlag("dry-run"), boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
-		"web": {flags: []flagInfo{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}, sub: map[string]*compNode{
-			"browsers": {flags: []flagInfo{formatFlag()}},
-			"setup":    {flags: []flagInfo{valuedFlag("browser", browserNames), boolFlag("dry-run"), formatFlag()}},
-			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),
-				flag("n"), boolFlag("follow"), formatFlag()}},
-			"search": {flags: []flagInfo{flag("query"), flag("max-results")}},
-		}},
 		"worktree": {sub: map[string]*compNode{
 			"list":   {flags: []flagInfo{formatFlag()}},
 			"create": {flags: []flagInfo{flag("branch")}},
@@ -221,3 +220,11 @@ func memoryRememberTypes() []string { return []string{"user", "feedback", "proje
 
 // memoryPromoteTargets mirrors memory.PromoteTargets for `memory promote --to` completion.
 func memoryPromoteTargets() []string { return memory.PromoteTargets }
+
+// exitNodeActions are the `network tailscale --exit-node` values.
+func exitNodeActions() []string { return []string{"on", "off", "approve"} }
+
+// statuslineStyles are the `theme statusline --style` values.
+func statuslineStyles() []string {
+	return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"}
+}

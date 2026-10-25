@@ -93,7 +93,7 @@ func cmdMemoryRecall(args []string) int {
 	fs, repo := memoryRepoFlagSet("recall")
 	k := fs.Int("k", 3, "maximum hits")
 	all := fs.Bool("all", false, "search the home tier and every repo store")
-	load := fs.Int("load", 0, "append `show` bodies of the top N hits (4KB cap)")
+	load := fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
 	format := outfmt.Flag(fs)
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {

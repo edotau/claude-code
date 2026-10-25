@@ -59,20 +59,20 @@ test('attachCommandLine: full "ssh -t host tmux attach -t session" text', () => 
   );
 });
 
-test('vscodeServeArgv: "<binary> vscode serve"', () => {
-  assert.deepEqual(vscodeServeArgv('claude-code'), ['claude-code', 'vscode', 'serve']);
+test('vscodeServeArgv: "<binary> network vscode"', () => {
+  assert.deepEqual(vscodeServeArgv('claude-code'), ['claude-code', 'network', 'vscode']);
 });
 
 test('vscodeServeArgv: {stop: true} appends --stop', () => {
   assert.deepEqual(
     vscodeServeArgv('claude-code', { stop: true }),
-    ['claude-code', 'vscode', 'serve', '--stop']
+    ['claude-code', 'network', 'vscode', '--stop']
   );
 });
 
 test('vscodeServeArgv: {stop: false} omits --stop entirely', () => {
   assert.deepEqual(
     vscodeServeArgv('claude-code', { stop: false }),
-    ['claude-code', 'vscode', 'serve']
+    ['claude-code', 'network', 'vscode']
   );
 });

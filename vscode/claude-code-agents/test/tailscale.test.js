@@ -37,7 +37,7 @@ const fake = (answers) => {
 };
 
 test('argv: harness list, CLI status, set --exit-node keeps LAN access, empty clears', () => {
-  assert.deepEqual(ts.harnessStatusArgs(), ['tailscale', 'status', '--format', 'json']);
+  assert.deepEqual(ts.harnessStatusArgs(), ['network', 'tailscale', '--format', 'json']);
   assert.deepEqual(ts.cliStatusArgs(), ['status', '--json']);
   assert.deepEqual(ts.setExitNodeArgs('100.112.103.4'), ['set', '--exit-node=100.112.103.4', '--exit-node-allow-lan-access=true']);
   assert.deepEqual(ts.setExitNodeArgs(''), ['set', '--exit-node=']);
@@ -60,7 +60,7 @@ test('status(): merges the harness list with CLI selection; the harness binary i
   const f = fake({ 'claude-code': HARNESS, tailscale: CLI });
   const s = await ts.status({ binary: 'claude-code', tailscaleBinary: 'tailscale', execFileImpl: f.execFileImpl });
   assert.equal(s.ok, true);
-  assert.deepEqual(f.calls[0], ['claude-code', 'tailscale', 'status', '--format', 'json']);
+  assert.deepEqual(f.calls[0], ['claude-code', 'network', 'tailscale', '--format', 'json']);
   assert.equal(s.exitNode.ip, '100.112.103.4');
   assert.deepEqual(s.options.map((o) => [o.hostName, o.selected]), [['wks0003289670', true], ['relay', false]]);
 });

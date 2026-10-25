@@ -261,10 +261,10 @@ func browserDoctorDetail() string {
 	rep := browser.Detect(browser.NewEnv())
 	for _, b := range rep.Browsers {
 		if b.Default {
-			return b.Name + " default, extension=" + b.Paths.Extension + " cdp=" + b.Paths.CDP + " (claude-code web browsers)"
+			return b.Name + " default, extension=" + b.Paths.Extension + " cdp=" + b.Paths.CDP + " (claude-code network browser)"
 		}
 	}
-	return "no Chromium-family default (claude-code web browsers)"
+	return "no Chromium-family default (claude-code network browser)"
 }
 
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
@@ -284,7 +284,7 @@ func setupDoctorDetail() string {
 	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 }
 
-// opencodeRouteDetail reports the opencode route `claude-code generate` would render: provider,
+// opencodeRouteDetail reports the opencode route `claude-code configure --reset` would render: provider,
 // model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
 // never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {

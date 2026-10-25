@@ -73,7 +73,7 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 			t.Errorf("group %s has no rows", g)
 		}
 	}
-	for _, name := range []string{"token", "providers", "use", "settings"} {
+	for _, name := range []string{"token", "providers", "use"} {
 		if lookup(name) == nil {
 			t.Errorf("legacy name %s no longer dispatches", name)
 		}
@@ -98,6 +98,48 @@ func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
 		}
 		if !regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(c.name) + ` +\S`).MatchString(out) {
 			t.Errorf("row for %s missing or misaligned", c.name)
+		}
+	}
+}
+
+func menuGroup(out, group string) string {
+	i := strings.Index(out, "\n"+group+"\n")
+	if i < 0 {
+		return ""
+	}
+	rest := out[i+len(group)+2:]
+	if j := strings.Index(rest, "\n\n"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest
+}
+
+func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
+	_, out, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
+	if !regexp.MustCompile(`(?m)^  network +\S`).MatchString(menuGroup(out, "AUTH")) {
+		t.Errorf("network row missing from AUTH:\n%s", out)
+	}
+	if !regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SESSION")) {
+		t.Errorf("memory row missing from SESSION:\n%s", out)
+	}
+	if regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SETTINGS")) {
+		t.Errorf("memory still listed under SETTINGS")
+	}
+	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline"} {
+		if regexp.MustCompile(`(?m)^  ` + old + ` +\S`).MatchString(out) {
+			t.Errorf("old verb %q still in the menu", old)
+		}
+	}
+}
+
+func TestOldVerbsAreUnknownCommands(t *testing.T) {
+	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline"} {
+		if lookup(old) != nil {
+			t.Errorf("lookup(%q) still resolves", old)
+		}
+		code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", old}) })
+		if code != 2 || !strings.Contains(stderr, "unknown command") {
+			t.Errorf("%s: exit %d, stderr %q, want exit 2 unknown command", old, code, stderr)
 		}
 	}
 }

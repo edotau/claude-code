@@ -17,14 +17,40 @@ import (
 	"github.com/edotau/claude-code/internal/theme"
 )
 
+const themeStatuslineUsage = `usage: claude-code theme statusline [--style gradient|powerline|capsule|
+                                    minimal|dashboard]
+
+Renders the status line from Claude Code's JSON on stdin (settings.json runs it)
+
+`
+
+const themeUsage = `usage: claude-code theme [<palette>|--preview]
+       claude-code theme apply [--dry-run]
+       claude-code theme statusline [--style gradient|powerline|capsule|
+                                    minimal|dashboard]
+       claude-code theme vscode [--check] [--dry-run] [--dest f] [--template f]
+                                [--keybindings-dest f]
+                                [--keybindings-template f]
+                                [--extensions-dir d]
+
+bare lists every palette; a name sets it. apply merges theme/<tool>.json into
+each tool. statusline renders the status line (settings.json runs it).
+`
+
 // cmdTheme picks the statusline's gradient palette persistently. No argument (or --preview) lists
 // every palette, painted in its own gradient on a terminal; a name sets it; an unknown name exits 2.
 func cmdTheme(args []string) int {
-	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of theme:\n")
-		helptext.Defaults(fs)
+	if len(args) > 0 {
+		switch args[0] {
+		case "statusline":
+			fs := helptext.NewFlagSet("theme statusline", themeStatuslineUsage)
+			return statusline.Run(fs, args[1:], os.Stdin, os.Stdout)
+		case "vscode":
+			return cmdVSCode(args[1:])
+		}
 	}
+	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
+	fs.Usage = func() { helptext.Fprint(os.Stderr, themeUsage) }
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

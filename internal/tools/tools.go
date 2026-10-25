@@ -40,7 +40,7 @@ var Tools = []Tool{
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
 	{Name: "agy", Binary: "agy", Update: updateAgy, Hint: "no known install URL; claude-code configure signs it in"},
 	{Name: "tailscale", Binary: "tailscale", Hint: "system install: make tailscale-cli"},
-	{Name: "browser", Install: installBrowser, Hint: "claude-code web setup; CDP + chrome-devtools-mcp on WSL"},
+	{Name: "browser", Install: installBrowser, Hint: "claude-code network browser --setup; CDP + chrome-devtools-mcp on WSL"},
 	{Name: "clipboard", Install: installClipboard, Hint: "WSL only: wl-paste proxy for image paste"},
 }
 
@@ -257,15 +257,16 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 	}
 }
 
-// installBrowser: on WSL it runs `web setup` (start the Windows browser with CDP, register chrome-devtools-mcp);
-// elsewhere it only reports — the Claude in Chrome page opens on an explicit `web setup`, never on install.
+// installBrowser: on WSL it runs `network browser --setup` (start the Windows browser with CDP, register
+// chrome-devtools-mcp); elsewhere it only reports — the Claude in Chrome page opens on an explicit
+// `network browser --setup`, never on install.
 func installBrowser(_ context.Context, w io.Writer, dir string, dryRun bool) error {
 	env := browser.NewEnv()
 	env.DryRun = dryRun
 	if !env.WSL {
 		def, _ := browser.Default(env)
 		fmt.Fprintf(w, "  %-17s %s\n", "report", cmp.Or(def.DisplayName, "no default browser")+
-			" — run `claude-code web setup` to connect Claude in Chrome")
+			" — run `claude-code network browser --setup` to connect Claude in Chrome")
 		return nil
 	}
 	acts, err := browser.Setup(env, "default")

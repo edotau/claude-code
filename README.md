@@ -44,9 +44,9 @@ claude-code configure                 # interactive menu: providers, logins/keys
 claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|claude|doctor)
 claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
 claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code generate [--out f|--check|--dry-run]   # render settings + vendor configs
-claude-code generate --revert [--agents a,b]       # restore vendor configs from backup
-claude-code vscode [--check|--dry-run]             # merge VS Code settings + keybindings
+claude-code configure --reset [--out f|--check|--dry-run]   # render settings + vendor configs
+claude-code configure --restore [--agent a,b]       # restore vendor configs from backup
+claude-code theme vscode [--check|--dry-run]             # merge VS Code settings + keybindings
 ```
 
 - `configure` reuses what already exists (env, vault, vendor logins) and prompts only for what is missing.
@@ -55,10 +55,11 @@ claude-code vscode [--check|--dry-run]             # merge VS Code settings + ke
 - Vendor configs are merged, never replaced: `~/.codex/config.toml`, `~/.config/opencode/opencode.json`,
   `~/.gemini/antigravity-cli/settings.json`, Codex/Copilot hooks. Keys are referenced by env var, exported only by a
   routed launch.
-- On a terminal, `generate` prompts before overwriting hand-edited lines it would otherwise lose; a
+- On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
-  timestamped backups; `generate --revert` steps a vendor file back one version at a time.
-- From a worktree, render only that checkout: `CLAUDE_CONFIG_DIR="$PWD" claude-code generate --out "$PWD/settings.json"`
+  timestamped backups; `configure --restore` steps a vendor file back one version at a time.
+- From a worktree, render only that checkout:
+  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"`
   (vendor homes are skipped unless `--vendors`).
 
 ### Setup modes: adopt, nuke, workspace
@@ -180,13 +181,13 @@ claude-code --router                    # force the router for one launch
 ## Tailscale
 
 ```bash
-claude-code tailscale status|machines|connect|key [--save]|exit-node
+claude-code network tailscale [--machines|--connect|--key [--save]|--exit-node on|off|approve]
 ```
 
 `status`/`machines`/`connect` use the installed CLI. `key` and `exit-node --approve` need
 `TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` (preferred) or `TAILSCALE_API_KEY` in the vault. `make tailscale-cli` installs it.
 
-`claude-code vscode serve [--port N] [--stop] [--status] [--no-tailscale] [--funnel]` runs
+`claude-code network vscode [--port N] [--stop] [--status] [--no-tailscale] [--funnel]` runs
 `code serve-web` as a detached daemon and maps it onto the tailnet (or the public internet with
 `--funnel`), printing a token-gated URL and a terminal QR code for your phone.
 
@@ -197,11 +198,11 @@ claude-code worktree list|create <name>|clean <name>|clean-all   # ~/worktrees/<
 claude-code agents tree [--watch]          # sessions → subagents → workflows, with vendor legs and fallbacks
 claude-code agents tree --running          # only what runs now, machine-wide: sessions, subagents, dispatch jobs
 claude-code agents reap [--dry-run]        # mark lost dispatch jobs `error`, drop dead agent-inflight markers
-claude-code web view <agentId> [--follow]  # one agent's snapshot or live events
-claude-code web [--addr ip:port]           # dashboard over loopback or the tailnet
+claude-code network view <agentId> [--follow]  # one agent's snapshot or live events
+claude-code network page [--addr ip:port]           # dashboard over loopback or the tailnet
 claude-code dispatch --host <h> --agent <a> "<task>"   # detached agent TUI on another box (tmux)
-claude-code web browsers | setup --browser edge         # browser control paths; Claude in Chrome install
-claude-code web search --query q           # Tavily one-shot (bare = stdio MCP server)
+claude-code network browser [--setup --browser edge]      # browser control paths; Claude in Chrome install
+claude-code network websearch --query q           # Tavily one-shot (bare = stdio MCP server)
 ```
 
 ## Agents
@@ -284,15 +285,16 @@ claude-code memory migrate|alias                     # one-time cutover; fold a 
 claude-code clean [--list|--dry-run] [--target projections|sessions]   # sweep caches, run dirs, backups
 claude-code history snapshot|log|diff     # shadow history of config (never secrets)
 claude-code doctor --audit [--days 7]     # provider switches, pins, secret sets, guard blocks, failovers
-claude-code mcp doctor                    # MCP health, scope drift, inline secrets
+claude-code network mcp                    # MCP health, scope drift, inline secrets
 claude-code theme [--preview] | apply     # statusline palette; whole look across tools
 ```
 
 ## Status line
 
-`claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router, context
-%, tokens, duration and git state, plus the 5h/weekly rate limits (`5h:N% 7d:N%`); `segments.agents` adds `N ◉` agents
-running (main thread + subagents + this session's dispatch legs), and `gradientEase` (<1) reaches the ramp's end sooner.
+`claude-code theme statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router,
+context %, tokens, duration and git state, plus the 5h/weekly rate limits (`5h:N% 7d:N%`);
+`segments.agents` adds `N ◉` agents running (main thread + subagents + this session's dispatch legs), and
+`gradientEase` (<1) reaches the ramp's end sooner.
 Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout
@@ -316,23 +318,23 @@ Rows `CLAUDE.md` points here for.
 | --- | --- |
 | Set up a box end to end | `claude-code configure [section] [--agent a] [--check]` · `make bootstrap` |
 | Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
-| Sync VS Code settings | `claude-code vscode [--check\|--dry-run]` |
+| Sync VS Code settings | `claude-code theme vscode [--check\|--dry-run]` |
 | Bash tab completion | `claude-code completion --install` |
 | Add a gateway provider | `claude-code vault edit` → `providers.providers` |
 | Edit pins, env, overlays | `claude-code vault show\|edit\|migrate\|finalize\|rollback\|rotate-key` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
 | Project agents into vendors | `claude-code agents sync [--vendor v] [--dry-run\|--check]` |
 | Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |
-| Watch agents from a phone | `claude-code web [--addr ip:port]` |
-| Subagent status and legs | `claude-code agents tree [--watch\|--running]` · `agents reap` · `claude-code web view <id>` |
-| Browsers Claude in Chrome can drive | `claude-code web browsers` · `web setup --browser <b>` |
+| Watch agents from a phone | `claude-code network page [--addr ip:port]` |
+| Subagent status and legs | `claude-code agents tree [--watch\|--running]` · `agents reap` · `claude-code network view <id>` |
+| Browsers Claude in Chrome can drive | `claude-code network browser` · `network browser --setup --browser <b>` |
 | Audit what acted | `claude-code doctor --audit` |
 | Config history | `claude-code history snapshot\|log\|diff` · memory: `git -C ~/.claude/memory log` |
 | Theme | `claude-code theme [--preview] [<palette>]` · `theme apply` |
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Tailnet | `claude-code tailscale status\|machines\|connect\|key\|exit-node` |
-| VS Code on your phone | `claude-code vscode serve [--stop\|--status] [--funnel]` |
+| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node on\|off\|approve]` |
+| VS Code on your phone | `claude-code network vscode [--stop\|--status] [--funnel]` |
 
 ## Development
 

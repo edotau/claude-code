@@ -97,7 +97,7 @@ func cmpOr(s, def string) string {
 }
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.
-var webSearchArgs = []string{"web", "search"}
+var webSearchArgs = []string{"network", "websearch"}
 
 // webSearchKey is the Tavily key the web_search MCP server reads.
 const webSearchKey = "TAVILY_API_KEY"
@@ -133,7 +133,7 @@ func webSearchClients() []mcpClient {
 	}
 }
 
-// claudeJSONWired: ~/.claude.json's user-scope web_search runs `claude-code web search`.
+// claudeJSONWired: ~/.claude.json's user-scope web_search runs `claude-code network websearch`.
 func claudeJSONWired(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -161,7 +161,7 @@ func codexWired(path string) bool {
 		return false
 	}
 	b := codexMCPBlock.Find(raw)
-	return b != nil && strings.Contains(string(b), "claude-code") && strings.Contains(string(b), `args = ["web", "search"]`)
+	return b != nil && strings.Contains(string(b), "claude-code") && strings.Contains(string(b), `args = ["network", "websearch"]`)
 }
 
 func registerClaudeMCP(bin string) error {
@@ -184,7 +184,7 @@ func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	if err := ctxErr(ctx, "claude mcp remove"); err != nil {
 		return err
 	}
-	out, err := exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "web", "search").CombinedOutput()
+	out, err := exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "network", "websearch").CombinedOutput()
 	if cerr := ctxErr(ctx, "claude mcp add"); cerr != nil {
 		return cerr
 	}
@@ -200,7 +200,7 @@ func registerCodexMCP(path, bin string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"web\", \"search\"]\n\n", bin)
+	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"network\", \"websearch\"]\n\n", bin)
 	next := codexMCPBlock.ReplaceAllLiteral(raw, []byte(block))
 	if !codexMCPBlock.Match(raw) {
 		next = append(append(raw, '\n'), block...)
@@ -219,6 +219,9 @@ func registerCodexMCP(path, bin string) error {
 
 // runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
 func runWebSearch(d *dialog) {
+	if err := MigrateWebSearchArgs(false, d.out); err != nil {
+		d.printf("web search: migrate: %v\n", err)
+	}
 	if _, _, ok := secrets.Get(webSearchKey); !ok {
 		val, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
 		if err != nil || strings.TrimSpace(val) == "" {
@@ -232,14 +235,14 @@ func runWebSearch(d *dialog) {
 	bin := filepath.Join(paths.BinDir(), "claude-code")
 	for _, c := range webSearchClients() {
 		if c.wired() {
-			d.printf("web search: %s already runs claude-code web search\n", c.name)
+			d.printf("web search: %s already runs claude-code network websearch\n", c.name)
 			continue
 		}
 		if err := c.register(bin); err != nil {
 			d.printf("web search: %s: %v\n", c.name, err)
 			continue
 		}
-		d.printf("web search: %s now runs %s web search\n", c.name, bin)
+		d.printf("web search: %s now runs %s network websearch\n", c.name, bin)
 	}
 	d.changed = true // opencode inherits Claude's MCP list on the re-render below
 }

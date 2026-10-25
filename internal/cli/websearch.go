@@ -11,12 +11,12 @@ import (
 	"github.com/edotau/claude-code/internal/websearch"
 )
 
-// cmdWebSearch: bare `web search` runs the stdio MCP server (Claude Code invokes this); `web search <query>`
+// cmdNetworkWebsearch: bare `network websearch` runs the stdio MCP server (Claude Code invokes this); `network websearch <query>`
 // or --query is a one-shot Tavily print for Bash/skill use. Both Tavily-backed (internal/websearch).
-func cmdWebSearch(args []string) int {
-	fs := flag.NewFlagSet("web search", flag.ContinueOnError)
+func cmdNetworkWebsearch(args []string) int {
+	fs := flag.NewFlagSet("network websearch", flag.ContinueOnError)
 	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of web search [<query>]:\n")
+		helptext.Fprint(fs.Output(), "Usage of network websearch [<query>]:\n")
 		helptext.Defaults(fs)
 	}
 	query := fs.String("query", "", "run one search and exit (skip the MCP server loop)")
@@ -26,7 +26,7 @@ func cmdWebSearch(args []string) int {
 	}
 	if fs.NArg() > 0 {
 		if *query != "" {
-			fmt.Fprintln(os.Stderr, "web search: give the query either positionally or via --query, not both")
+			fmt.Fprintln(os.Stderr, "network websearch: give the query either positionally or via --query, not both")
 			return 2
 		}
 		*query = strings.Join(fs.Args(), " ")

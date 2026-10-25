@@ -31,10 +31,10 @@ function profileArgv(binary) {
   return [binary, 'profile', '--format', 'json'];
 }
 
-/** argv for `<binary> vscode serve` or, with opts.stop, `<binary> vscode serve --stop`. */
+/** argv for `<binary> network vscode` or, with opts.stop, `<binary> network vscode --stop`. */
 function vscodeServeArgv(binary, opts) {
   const { stop } = opts || {};
-  const argv = [binary, 'vscode', 'serve'];
+  const argv = [binary, 'network', 'vscode'];
   if (stop) argv.push('--stop');
   return argv;
 }

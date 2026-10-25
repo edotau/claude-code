@@ -1,7 +1,7 @@
 {
   "statusLine": {
     "type": "command",
-    "command": "${HOOK_BIN} statusline",
+    "command": "${HOOK_BIN} theme statusline",
     "padding": 0
   }
 }

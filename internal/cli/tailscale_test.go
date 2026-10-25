@@ -70,7 +70,7 @@ func hermeticTailscaleSecrets(t *testing.T) {
 func TestTailscaleStatusNoCLI(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	t.Setenv("PATH", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"status"}) })
+	code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale(nil) })
 	if code == 0 {
 		t.Errorf("status with no CLI on PATH: code = 0, want nonzero; stderr=%q", stderr)
 	}
@@ -79,7 +79,7 @@ func TestTailscaleStatusNoCLI(t *testing.T) {
 func TestTailscaleStatusRunningTextAndJSON(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Running")
-	code, out, _ := captureOutput(t, func() int { return cmdTailscale([]string{"status"}) })
+	code, out, _ := captureOutput(t, func() int { return cmdNetworkTailscale(nil) })
 	if code != 0 {
 		t.Fatalf("status exit %d", code)
 	}
@@ -87,7 +87,7 @@ func TestTailscaleStatusRunningTextAndJSON(t *testing.T) {
 		t.Errorf("status text output missing node name:\n%s", out)
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdTailscale([]string{"status", "--format", "json"}) })
+	code, out, _ = captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--format", "json"}) })
 	if code != 0 || !strings.Contains(out, "test-mac.tailxxxxx.ts.net.") {
 		t.Errorf("status --format json: code=%d out=%q", code, out)
 	}
@@ -96,7 +96,7 @@ func TestTailscaleStatusRunningTextAndJSON(t *testing.T) {
 func TestTailscaleConnectWithoutKeyAlreadyRunningExitsZero(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Running")
-	code, out, _ := captureOutput(t, func() int { return cmdTailscale([]string{"connect"}) })
+	code, out, _ := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--connect"}) })
 	if code != 0 {
 		t.Errorf("connect (already running, no key) exit %d, want 0", code)
 	}
@@ -108,7 +108,7 @@ func TestTailscaleConnectWithoutKeyAlreadyRunningExitsZero(t *testing.T) {
 func TestTailscaleConnectWithoutKeyNotRunningExitsTwo(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Stopped")
-	code, _, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"connect"}) })
+	code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--connect"}) })
 	if code != 2 {
 		t.Errorf("connect (not running, no key) exit %d, want 2; stderr=%q", code, stderr)
 	}
@@ -123,13 +123,13 @@ func TestTailscaleConnectUsesVaultAuthKey(t *testing.T) {
 	if err := secrets.Store("TAILSCALE_AUTHKEY", "tskey-auth-fake"); err != nil {
 		t.Fatal(err)
 	}
-	_, out, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"connect"}) })
+	_, out, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--connect"}) })
 	if strings.Contains(out+stderr, "no auth key given") {
 		t.Errorf("connect did not use the vault auth key: stdout=%q stderr=%q", out, stderr)
 	}
 }
 
-// TestTailscaleConnectAuthKeyDashReadsStdin: `connect --auth-key -` reads the key from stdin and the
+// TestTailscaleConnectAuthKeyDashReadsStdin: `--connect --auth-key -` reads the key from stdin and the
 // underlying `tailscale up` never sees it on argv (it goes through tailscale.Connect's --auth-key=file:).
 func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
 	hermeticTailscaleSecrets(t)
@@ -149,7 +149,7 @@ func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
 	os.Stdin = r
 	t.Cleanup(func() { os.Stdin = oldStdin })
 
-	code, out, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"connect", "--auth-key", "-"}) })
+	code, out, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--connect", "--auth-key", "-"}) })
 	if code != 0 {
 		t.Fatalf("connect --auth-key - exit %d; out=%q stderr=%q", code, out, stderr)
 	}
@@ -175,7 +175,7 @@ func TestTailscaleConnectLiteralAuthKeyWarns(t *testing.T) {
 	fakeTailscaleUpOnPATH(t, argvFile)
 
 	code, _, stderr := captureOutput(t, func() int {
-		return cmdTailscale([]string{"connect", "--auth-key", "tskey-auth-literal"})
+		return cmdNetworkTailscale([]string{"--connect", "--auth-key", "tskey-auth-literal"})
 	})
 	if code != 0 {
 		t.Fatalf("connect exit %d; stderr=%q", code, stderr)
@@ -223,11 +223,11 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 				req.URL.Host = strings.TrimPrefix(ts.URL, "http://")
 				return ts.Client().Do(req)
 			})}
-			args := []string{"key"}
+			args := []string{"--key"}
 			if save {
 				args = append(args, "--save")
 			}
-			code, out, stderr := captureOutput(t, func() int { return cmdTailscale(args) })
+			code, out, stderr := captureOutput(t, func() int { return cmdNetworkTailscale(args) })
 			if code != 0 {
 				t.Fatalf("key exit %d, want 0; stderr=%q", code, stderr)
 			}
@@ -258,7 +258,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 func TestTailscaleKeyWithoutCredentialFails(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Running")
-	code, out, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"key"}) })
+	code, out, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--key"}) })
 	if code == 0 {
 		t.Fatalf("key with no admin credential: exit 0, want nonzero; stdout=%q", out)
 	}
@@ -273,7 +273,7 @@ func TestTailscaleKeyWithoutCredentialFails(t *testing.T) {
 func TestTailscaleExitNodeApproveWithoutCredentialPrintsAdminURL(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Running")
-	code, out, _ := captureOutput(t, func() int { return cmdTailscale([]string{"exit-node", "--approve"}) })
+	code, out, _ := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--exit-node", "approve"}) })
 	if code != 2 {
 		t.Errorf("exit-node --approve (no credential) exit %d, want 2", code)
 	}
@@ -282,13 +282,55 @@ func TestTailscaleExitNodeApproveWithoutCredentialPrintsAdminURL(t *testing.T) {
 	}
 }
 
-func TestTailscaleUnknownSubcommand(t *testing.T) {
-	hermeticTailscaleSecrets(t)
-	code, _, stderr := captureOutput(t, func() int { return cmdTailscale([]string{"bogus"}) })
-	if code == 0 {
-		t.Error("unknown subcommand must not exit 0")
+func TestNetworkTailscaleModeParsing(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"two modes", []string{"--machines", "--connect"}, "mutually exclusive"},
+		{"key and exit-node", []string{"--key", "--exit-node", "on"}, "mutually exclusive"},
+		{"empty exit-node value", []string{"--exit-node", ""}, `must be on, off or approve, got ""`},
+		{"machines with empty exit-node", []string{"--machines", "--exit-node", ""}, "mutually exclusive"},
+		{"bad exit-node value", []string{"--exit-node", "sideways"}, "must be on, off or approve"},
+		{"key flag with connect", []string{"--connect", "--expiry", "1d"}, "--expiry belongs to --key"},
+		{"key flag with no mode", []string{"--expiry", "1d"}, "--expiry belongs to --key"},
+		{"connect flag with key", []string{"--key", "--auth-key", "x"}, "belongs to --connect"},
+		{"advertise-exit with no mode", []string{"--advertise-exit"}, "belongs to --connect"},
 	}
-	if !strings.Contains(stderr, "bogus") {
-		t.Errorf("stderr = %q, want it to name the bad subcommand", stderr)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale(tc.args) })
+			if code != 2 {
+				t.Errorf("exit %d, want 2; stderr=%q", code, stderr)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Errorf("stderr %q lacks %q", stderr, tc.want)
+			}
+		})
+	}
+}
+
+func TestNetworkTailscaleExitNodeValuesAccepted(t *testing.T) {
+	for _, v := range []string{"on", "off"} {
+		t.Run(v, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			_, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--exit-node", v}) })
+			if strings.Contains(stderr, "must be on, off or approve") || strings.Contains(stderr, "mutually exclusive") {
+				t.Errorf("--exit-node %s rejected by validation: %q", v, stderr)
+			}
+		})
+	}
+}
+
+func TestNetworkTailscaleMachinesIsAMode(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	fakeTailscaleOnPATH(t, "Running")
+	_, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--machines"}) })
+	if strings.Contains(stderr, "belongs to") || strings.Contains(stderr, "mutually exclusive") {
+		t.Errorf("--machines alone is a valid mode: %q", stderr)
 	}
 }

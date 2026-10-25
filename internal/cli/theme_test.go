@@ -204,3 +204,57 @@ func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {
 		t.Error("-h/--help must not write config.json")
 	}
 }
+
+func TestThemeStatuslineRendersFromStdin(t *testing.T) {
+	hermeticTheme(t)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString(`{"model":{"display_name":"Probe-Model-9"},"workspace":{"current_dir":"/tmp/probe"}}`); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = old }()
+	code, out, _ := captureOutput(t, func() int { return cmdTheme([]string{"statusline", "--style", "minimal"}) })
+	if code != 0 {
+		t.Fatalf("theme statusline exit %d", code)
+	}
+	if !strings.Contains(out, "Probe-Model-9") {
+		t.Errorf("theme statusline output lacks the stdin model name: %q", out)
+	}
+}
+
+func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
+	hermeticTheme(t)
+	code, _, _ := captureOutput(t, func() int { return cmdTheme([]string{"statusline", "--nope"}) })
+	if code != 2 {
+		t.Errorf("exit %d, want 2", code)
+	}
+}
+
+func TestThemeHelpListsNewSubVerbs(t *testing.T) {
+	hermeticTheme(t)
+	code, _, stderr := captureOutput(t, func() int { return cmdTheme([]string{"-h"}) })
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{"theme apply", "theme statusline", "theme vscode"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("theme -h lacks %q: %q", want, stderr)
+		}
+	}
+}
+
+func TestThemeVSCodeDispatchesToVSCode(t *testing.T) {
+	hermeticTheme(t)
+	code, _, stderr := captureOutput(t, func() int { return cmdTheme([]string{"vscode", "--bogus-flag"}) })
+	if code != 2 {
+		t.Errorf("exit %d, want 2 (flag parse error from cmdVSCode)", code)
+	}
+	if strings.Contains(stderr, "claude-code vscode") {
+		t.Errorf("stale old verb name in help/errors: %q", stderr)
+	}
+}
