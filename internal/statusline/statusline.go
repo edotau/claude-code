@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,11 +184,11 @@ func collect(in Input, cfg Config) values {
 	v := values{userHost: promptUser(), path: collapsePath(shortenDir(root), root, cfg.PathMax)}
 	var provider string
 	var routed bool
-	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) {
+	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) || cfg.seg("limits", true) {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
-		v.provider = provider
+		v.provider = providerLabel(provider)
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
@@ -204,7 +205,7 @@ func collect(in Input, cfg Config) values {
 		v.agents = runningSegment(in)
 	}
 	if cfg.seg("limits", true) {
-		v.limits = limitsSegment(in)
+		v.limits = limitsSegment(in, provider)
 	}
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)
@@ -244,6 +245,17 @@ func sessionProvider() (name string, routed bool) {
 	return "", false
 }
 
+// envSuffixRE splits "<family>-<env>[-anything]" where env names a deployment tier.
+var envSuffixRE = regexp.MustCompile(`^(.+?)-(dev|qa|test|stage|staging|prod)(-.*)?$`)
+
+// providerLabel renders "databricks-qa" as "databricks·qa"; any other name is returned unchanged.
+func providerLabel(name string) string {
+	if m := envSuffixRE.FindStringSubmatch(name); m != nil {
+		return m[1] + "·" + m[2]
+	}
+	return name
+}
+
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
 func modelSegment(in Input, session string) string {
 	name := in.Model.DisplayName
@@ -258,13 +270,23 @@ func modelSegment(in Input, session string) string {
 			if name == "" || models.Strip1M(name) == id {
 				name = model
 			}
-			return name + " ⇄" + prov
+			return tag1M(in, name) + " ⇄" + prov
 		}
 	}
 	if name == "" {
 		name = in.Model.ID
 	}
-	return name
+	return tag1M(in, name)
+}
+
+// tag1M marks a 1M session whose display name lacks Claude Code's "(1M context)" (custom ids, e.g. Databricks).
+func tag1M(in Input, name string) string {
+	oneM := strings.HasSuffix(strings.TrimSpace(in.Model.ID), "[1m]") ||
+		(in.ContextWindow != nil && in.ContextWindow.Size >= models.ContextWindow1M)
+	if !oneM || strings.HasSuffix(name, "[1m]") {
+		return name
+	}
+	return name + " [1m]"
 }
 
 // routerTTL caps health probes at one per 5s across renders.

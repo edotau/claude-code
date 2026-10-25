@@ -211,10 +211,24 @@ func TestProviderAndModelSegments(t *testing.T) {
 		{"qwen3:30b", "qwen3:30b", "qwen3:30b"}, // an ollama tag, not a provider prefix
 		{"anthropic:claude-haiku-5", "Haiku 5", "Haiku 5"},
 		{"claude-sonnet-5", "", "claude-sonnet-5"},
+		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5 [1m]"},
+		{"databricks-claude-opus-5-5[1m]", "", "databricks-claude-opus-5-5[1m]"},
+		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
 	} {
 		if got := model(c[0], c[1]); got != c[2] {
 			t.Errorf("model(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
 		}
+	}
+	var in Input
+	in.Model.ID, in.Model.DisplayName = "custom-model", "Custom"
+	in.ContextWindow = &struct {
+		Size           int      `json:"context_window_size"`
+		TotalInput     int      `json:"total_input_tokens"`
+		TotalOutput    int      `json:"total_output_tokens"`
+		UsedPercentage *float64 `json:"used_percentage"`
+	}{Size: 1_000_000}
+	if got := modelSegment(in, "anthropic"); got != "Custom [1m]" {
+		t.Errorf("reported 1M window: %q", got)
 	}
 }
 
@@ -311,7 +325,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  "+registryDefault(t)+"  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -346,6 +360,25 @@ func TestApproxTokens(t *testing.T) {
 	for n, want := range map[int]string{0: "", 950: "~950 tok", 12_345: "~12k tok", 999_400: "~999k tok", 1_234_567: "~1.2M tok"} {
 		if got := approxTokens(n); got != want {
 			t.Errorf("approxTokens(%d)=%q want %q", n, got, want)
+		}
+	}
+}
+
+// The provider label shows "family·env" for a deployment tier suffix; any other name is unchanged.
+func TestProviderLabelEnvTable(t *testing.T) {
+	for name, want := range map[string]string{
+		"databricks-qa":       "databricks·qa",
+		"databricks-prod-oai": "databricks·prod",
+		"databricks-stage":    "databricks·stage",
+		"my-app-staging":      "my-app·staging",
+		"anthropic":           "anthropic",
+		"github-copilot":      "github-copilot",
+		"openai":              "openai",
+		"databricks-prodx":    "databricks-prodx",
+		"databricks":          "databricks",
+	} {
+		if got := providerLabel(name); got != want {
+			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
 		}
 	}
 }

@@ -79,6 +79,7 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 	if v == "" {
 		return "", fmt.Errorf("%s: auth command printed nothing", p.Name)
 	}
+	recordTokenExpiry(p.Name, v)
 	ttl := time.Duration(p.Auth.TTL) * time.Second
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
