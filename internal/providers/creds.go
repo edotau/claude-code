@@ -69,9 +69,46 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 	if c, ok := cmdCache.Load(p.Name); ok && !force && time.Now().Before(c.(cached).until) {
 		return c.(cached).value, nil
 	}
+	cmd := p.Auth.Command
+	if force && p.Auth.RefreshCommand != "" {
+		cmd = p.Auth.RefreshCommand
+	}
+	v, err := runAuthCommand(ctx, p, cmd)
+	if err != nil {
+		return "", err
+	}
+	if exp, ok := jwtExp(v); ok && p.Auth.RefreshCommand != "" && cmd != p.Auth.RefreshCommand &&
+		time.Until(time.Unix(exp, 0)) < expiryMargin {
+		if v, err = runAuthCommand(ctx, p, p.Auth.RefreshCommand); err != nil {
+			return "", err
+		}
+	}
+	if err := checkIssuer(p, v); err != nil {
+		return "", err
+	}
+	recordTokenExpiry(p.Name, v)
+	ttl := time.Duration(p.Auth.TTL) * time.Second
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	until := time.Now().Add(ttl)
+	if exp, ok := jwtExp(v); ok {
+		if e := time.Unix(exp, 0).Add(-expiryMargin); e.Before(until) {
+			until = e
+		}
+	}
+	cmdCache.Store(p.Name, cached{value: v, until: until})
+	return v, nil
+}
+
+// expiryMargin is how close to exp a command token is refreshed, and how early its cache entry ends.
+const expiryMargin = 10 * time.Minute
+
+// runAuthCommand runs one auth shell command and returns its trimmed output; errors never carry the value.
+func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "sh", "-c", p.Auth.Command).Output()
+	out, err := exec.CommandContext(ctx, "sh", "-c", cmd).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s: auth command failed: %w", p.Name, err)
 	}
@@ -79,12 +116,6 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 	if v == "" {
 		return "", fmt.Errorf("%s: auth command printed nothing", p.Name)
 	}
-	recordTokenExpiry(p.Name, v)
-	ttl := time.Duration(p.Auth.TTL) * time.Second
-	if ttl <= 0 {
-		ttl = 5 * time.Minute
-	}
-	cmdCache.Store(p.Name, cached{value: v, until: time.Now().Add(ttl)})
 	return v, nil
 }
 

@@ -92,6 +92,7 @@ func cmdAsk(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	applyProfileRow(*name, provider, model, effort)
 	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native, *workdir)
 	if err != nil {
 		return fail("ask: %v", err)
@@ -314,6 +315,20 @@ func resolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
+// applyProfileRow fills the unset provider/model/effort from the active profile's row for the agent; explicit
+// flags win, and with no active profile (or no row) nothing changes.
+func applyProfileRow(name string, provider, model, effort *string) {
+	reg, err := providers.Load()
+	if err != nil {
+		return
+	}
+	b := reg.ResolveAgent(providers.AgentRequest{Agent: name, Provider: *provider, Model: *model, Effort: *effort})
+	if *provider != "" || !strings.Contains(*model, ":") {
+		*provider = b.Provider // a provider:model flag stays unsplit for the explicit-backend path
+	}
+	*model, *effort = b.Model, b.Effort
+}
+
 // resolveAskChain looks up the named runner and routes it: an explicit backend (--provider, provider:model) or the
 // api runner runs alone; otherwise the tier comes from --model, else the task classifier, and route picks the legs.
 // workDir is the request's own --workdir ("" means the process cwd), so the opencode free-Zen gate checks the
@@ -331,6 +346,9 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 		reg, err := providers.Load()
 		if err != nil {
 			return nil, agent.Chain{}, err
+		}
+		if p, perr := reg.Get(provider); perr == nil && p.OpencodeID == "" {
+			return r, agent.ExplicitChain(r, req), nil // no opencode id: the hub can't route it; run native
 		}
 		start, err := agent.HubStart(reg, name, provider)
 		if err != nil {

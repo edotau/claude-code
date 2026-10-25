@@ -23,18 +23,48 @@ func SetProviderFields(name string, fields map[string]any) error {
 	})
 }
 
-func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	return vault.Update(func(tx *vault.Tx) error {
+// UpdateOverlayDoc runs fn on the raw overlay/providers doc, returning it before and after; apply=false writes nothing.
+func UpdateOverlayDoc(apply bool, fn func(top map[string]json.RawMessage, tx *vault.Tx) error) (oldDoc, newDoc []byte, err error) {
+	run := vault.View
+	if apply {
+		run = vault.Update
+	}
+	err = run(func(tx *vault.Tx) error {
 		old, _ := tx.Get(vault.Overlay, "providers")
-		doc := map[string]json.RawMessage{}
-		if len(old) > 0 {
-			if err := json.Unmarshal([]byte(old), &doc); err != nil {
+		oldDoc = []byte(old)
+		top := map[string]json.RawMessage{}
+		if old != "" {
+			if err := json.Unmarshal(oldDoc, &top); err != nil {
 				return fmt.Errorf("vault overlay/providers: %w", err)
 			}
 		}
-		if doc == nil {
-			doc = map[string]json.RawMessage{}
+		if top == nil {
+			top = map[string]json.RawMessage{}
 		}
+		if err := fn(top, tx); err != nil {
+			return err
+		}
+		nd, err := json.MarshalIndent(top, "", "  ")
+		if err != nil {
+			return err
+		}
+		newDoc = append(nd, '\n')
+		if err := Validate(newDoc); err != nil {
+			return err
+		}
+		if !apply {
+			return nil
+		}
+		if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
+			return err
+		}
+		return tx.Put(vault.Overlay, "providers", string(newDoc))
+	})
+	return oldDoc, newDoc, err
+}
+
+func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
+	_, _, err := UpdateOverlayDoc(true, func(doc map[string]json.RawMessage, _ *vault.Tx) error {
 		provs := map[string]map[string]json.RawMessage{}
 		if b, ok := doc["providers"]; ok {
 			if err := json.Unmarshal(b, &provs); err != nil {
@@ -55,22 +85,10 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 			return err
 		}
 		provs[name] = entry
-		if doc["providers"], err = json.Marshal(provs); err != nil {
-			return err
-		}
-		newDoc, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
-			return err
-		}
-		newDoc = append(newDoc, '\n')
-		if err := Validate(newDoc); err != nil {
-			return err
-		}
-		if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
-			return err
-		}
-		return tx.Put(vault.Overlay, "providers", string(newDoc))
+		doc["providers"], err = json.Marshal(provs)
+		return err
 	})
+	return err
 }
 
 // SetProviderModel sets one slot's model id for name, keeping its other slots.

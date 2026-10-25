@@ -25,21 +25,23 @@ func tokenExpiryPath(name string) string {
 
 // jwtExp returns the numeric exp claim of a JWT-shaped credential; false for anything else.
 func jwtExp(v string) (int64, bool) {
-	parts := strings.Split(v, ".")
-	if len(parts) != 3 {
-		return 0, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	if err != nil {
-		return 0, false
-	}
 	var claims struct {
 		Exp *float64 `json:"exp"`
 	}
-	if json.Unmarshal(payload, &claims) != nil || claims.Exp == nil {
+	if !jwtClaims(v, &claims) || claims.Exp == nil {
 		return 0, false
 	}
 	return int64(*claims.Exp), true
+}
+
+// jwtClaims decodes the payload of a three-part JWT-shaped string into into; false for anything else.
+func jwtClaims(v string, into any) bool {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	return err == nil && json.Unmarshal(payload, into) == nil
 }
 
 // recordTokenExpiry stores only the exp claim of a JWT credential; every error is ignored.

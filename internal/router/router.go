@@ -298,7 +298,7 @@ func (r *Router) markDead(t providers.Target) {
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
-	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok {
+	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok && !providers.PrefersOpenAI(t.Provider, t.Model) {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
 	if count {

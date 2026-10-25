@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 const (
@@ -23,7 +24,8 @@ const (
 	needleText   = "\nThe secret word is ZEBRAFINCH.\n"
 	filler       = "The quick brown fox jumps over the lazy dog near riverbank.\n"
 	fillerBytes  = 1_200_000
-	betaOff      = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1"
+	betaKey      = providers.BetaOffKey
+	betaOff      = betaKey + "=1"
 )
 
 // Plan is one parsed invocation: the provider and model the child launches with, plus pass-through args.
@@ -32,6 +34,7 @@ type Plan struct {
 	Big      bool
 	Provider string
 	Model    string
+	NoBeta   bool // the provider's own Env carries the beta opt-out, so the verb does not inject it
 	Rest     []string
 }
 
@@ -60,6 +63,9 @@ func Run(args []string) int {
 	if len(head) > 0 && helptext.WantsHelp(head[:1]) {
 		usage()
 		return 0
+	}
+	if len(args) > 0 && args[0] == "agents" {
+		return agents(args[1:])
 	}
 	p, err := plan(args)
 	if err != nil {
@@ -105,14 +111,109 @@ func plan(args []string) (Plan, error) {
 			p.Rest = append(p.Rest, arg)
 		}
 	}
-	if !slices.Contains([]string{"dev", "qa", "prod"}, env) {
+	if !slices.Contains(providers.DatabricksEnvs, env) {
 		return Plan{}, fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
 	}
+	reg, _ := providers.Load() // a load error leaves reg nil: no twin is found and the beta opt-out is injected
 	p.Provider = "databricks-" + env
-	if !isClaudeModel(p.Model) {
+	if !isClaudeModel(p.Model) && hasProvider(reg, p.Provider+"-oai") {
 		p.Provider += "-oai"
 	}
+	p.NoBeta = providerHasBetaOff(reg, p.Provider)
 	return p, nil
+}
+
+// hasProvider reports whether reg defines the named provider.
+func hasProvider(reg *providers.Registry, name string) bool {
+	if reg == nil {
+		return false
+	}
+	_, ok := reg.Providers[name]
+	return ok
+}
+
+// providerHasBetaOff reports whether the provider's Env already sets the experimental-beta opt-out.
+func providerHasBetaOff(reg *providers.Registry, name string) bool {
+	if reg == nil {
+		return false
+	}
+	pr, ok := reg.Providers[name]
+	if !ok || pr == nil {
+		return false
+	}
+	_, ok = pr.Env[providers.BetaOffKey]
+	return ok
+}
+
+// agents is `databricks agents on|off|status`: aliases for the profile verbs, run through this binary.
+func agents(args []string) int {
+	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
+		usage()
+		return 0
+	}
+	var argv []string
+	switch args[0] {
+	case "on":
+		env, err := agentsEnv(args[1:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
+			return 2
+		}
+		argv = []string{"profile", "use", "databricks-" + env}
+	case "off":
+		argv = []string{"profile", "off"}
+	case "status":
+		argv = []string{"profile", "show"}
+	default:
+		fmt.Fprintf(os.Stderr, "claude-code databricks: agents wants on, off or status (got %q)\n", args[0])
+		return 2
+	}
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: cannot locate the binary: %v\n", err)
+		return 2
+	}
+	code, err := spawn(self, argv, os.Environ(), os.Stdin, os.Stdout, os.Stderr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: exec failed: %v\n", err)
+		return 2
+	}
+	return code
+}
+
+// agentsEnv picks the env: --env, else the one in HARNESS_PROVIDER (databricks-<env>[-oai]), else the default.
+func agentsEnv(args []string) (string, error) {
+	env := ""
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--env" && i+1 < len(args):
+			env = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--env="):
+			env = strings.TrimPrefix(a, "--env=")
+		default:
+			return "", fmt.Errorf("unexpected argument %q", a)
+		}
+	}
+	if env == "" {
+		env = envFromProvider(os.Getenv("HARNESS_PROVIDER"))
+	}
+	if env == "" {
+		env = defaultEnv
+	}
+	if !slices.Contains(providers.DatabricksEnvs, env) {
+		return "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
+	}
+	return env, nil
+}
+
+// envFromProvider returns <env> from databricks-<env>[-oai], else "".
+func envFromProvider(name string) string {
+	env := strings.TrimSuffix(strings.TrimPrefix(name, "databricks-"), "-oai")
+	if env == name || !slices.Contains(providers.DatabricksEnvs, env) {
+		return ""
+	}
+	return env
 }
 
 // isClaudeModel reports whether model takes the Anthropic passthrough (else it goes via the router).
@@ -120,15 +221,18 @@ func isClaudeModel(model string) bool {
 	return slices.Contains([]string{"opus", "sonnet", "haiku"}, model) || strings.HasPrefix(model, "databricks-claude-")
 }
 
-// childEnv is the parent environment plus the experimental-beta opt-out the passthrough needs.
-func childEnv() []string {
+// childEnv is the parent environment plus the beta opt-out, unless the provider's own Env already carries it.
+func childEnv(p Plan) []string {
+	if p.NoBeta {
+		return os.Environ()
+	}
 	return append(os.Environ(), betaOff)
 }
 
 // launch execs this binary as `--provider P --model M rest...` with the parent's stdio.
 func launch(self string, p Plan) int {
 	argv := append([]string{"--provider", p.Provider, "--model", p.Model}, p.Rest...)
-	code, err := spawn(self, argv, childEnv(), os.Stdin, os.Stdout, os.Stderr)
+	code, err := spawn(self, argv, childEnv(p), os.Stdin, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: exec failed: %v\n", err)
 		return 2
@@ -140,7 +244,7 @@ func launch(self string, p Plan) int {
 func capture(self string, p Plan, prompt string, stdin io.Reader) string {
 	var buf bytes.Buffer
 	argv := []string{"--provider", p.Provider, "--model", p.Model, "-p", prompt}
-	if _, err := spawn(self, argv, childEnv(), stdin, &buf, &buf); err != nil {
+	if _, err := spawn(self, argv, childEnv(p), stdin, &buf, &buf); err != nil {
 		fmt.Fprint(&buf, err)
 	}
 	return buf.String()
@@ -193,10 +297,11 @@ func tail(s string, n int) string {
 
 // page is the `-h` text; its FLAGS rows come from the FlagSet built in usage.
 var page = helptext.Page{
-	Usage: "claude-code databricks [check] [MODEL] [flags] [claude args...]",
+	Usage: "claude-code databricks [check|agents] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on Databricks model serving. MODEL defaults to databricks-claude-opus-5-5[1m]. " +
 		"opus, sonnet, haiku and databricks-claude-* use the Anthropic passthrough (databricks-<env>); " +
-		"other endpoints go through the router (databricks-<env>-oai). " +
+		"other endpoints go through the router (databricks-<env>-oai twin, else databricks-<env> via its openai route). " +
+		"agents on [--env E] = profile use databricks-<env>; agents off = profile off; agents status = profile show. " +
 		"check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
 }
 

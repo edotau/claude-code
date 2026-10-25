@@ -91,6 +91,7 @@ type Plan struct {
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
+	Profile     string // active profile whose session row applied ("" = none)
 }
 
 // Seams for tests.
@@ -114,21 +115,42 @@ const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 
 // selection loads the registry and applies the per-launch provider/model flags.
 func selection(o Options) (*providers.Registry, providers.Selection, error) {
+	reg, sel, _, err := sessionSelection(o, false)
+	return reg, sel, err
+}
+
+// sessionSelection is selection plus, when session is set, the active profile's session row:
+// --provider/--model > row > pins > defaults. The returned name is the profile that applied ("" = none).
+func sessionSelection(o Options, session bool) (*providers.Registry, providers.Selection, string, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return nil, providers.Selection{}, err
+		return nil, providers.Selection{}, "", err
+	}
+	var applied string
+	var slots map[string]string
+	if session {
+		bd := reg.ResolveAgent(providers.AgentRequest{Agent: "session", Provider: o.Provider, Model: o.Model})
+		applied, slots, o.Provider = bd.Profile, bd.Slots, bd.Provider
 	}
 	sel, err := providers.Select(reg, o.Provider)
+	if applied != "" && sel.Provider != nil {
+		for slot, spec := range slots {
+			sel.Slots[slot] = providers.ParseTarget(reg, spec, sel.Provider)
+		}
+		if _, ok := sel.Slots[models.Opus]; ok {
+			err = nil
+		}
+	}
 	if o.Model != "" && sel.Provider != nil {
 		sel.Slots[models.Opus] = providers.ParseTarget(reg, o.Model, sel.Provider)
 		err = nil
 	}
-	return reg, sel, err
+	return reg, sel, applied, err
 }
 
 // Claude resolves a Claude Code launch.
 func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
-	reg, sel, err := selection(o)
+	reg, sel, profile, err := sessionSelection(o, true)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -145,7 +167,7 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if p.Auth.Login != "" {
 		return Plan{}, fmt.Errorf("provider %s is the %s sign-in and cannot back Claude Code; use claude-code run %s --provider %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
-	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
+	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...), Profile: profile}
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
@@ -165,7 +187,7 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	applyOverlay(&plan, passthrough, args, helper)
+	applyOverlay(&plan, passthrough, args, helper, p.Env)
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	return plan, nil
@@ -243,7 +265,13 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(plan *Plan, passthrough bool, args []string, helper string) {
+func applyOverlay(plan *Plan, passthrough bool, args []string, helper string, env map[string]string) {
+	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
+	for k, v := range providerEnv(env) {
+		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
+			plan.Set[k] = v
+		}
+	}
 	if passthrough {
 		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
 		if !headless(args) {
@@ -262,6 +290,22 @@ func applyOverlay(plan *Plan, passthrough bool, args []string, helper string) {
 	plan.Argv = []string{"--settings", plan.OverlayPath}
 }
 
+// providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.
+func providerEnv(env map[string]string) map[string]string {
+	if len(env) == 0 {
+		return nil
+	}
+	custom := customEnv()
+	out := map[string]string{}
+	for k, v := range env {
+		if _, ok := custom[k]; ok || os.Getenv(k) != "" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // headless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
 func headless(args []string) bool {
 	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
@@ -276,6 +320,20 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	return plan, err
 }
 
+// vendorProfile applies the active profile's row for the vendor to o (flags win) and names the profile.
+func vendorProfile(name string, o Options) (Options, string) {
+	reg, err := providers.Load()
+	if err != nil {
+		return o, ""
+	}
+	b := reg.ResolveAgent(providers.AgentRequest{Agent: name, Provider: o.Provider, Model: o.Model})
+	if b.Profile == "" {
+		return o, ""
+	}
+	o.Provider, o.Model = b.Provider, b.Model
+	return o, b.Profile
+}
+
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	spec, ok := vendors.Lookup(name)
 	if !ok {
@@ -284,6 +342,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if authVendorArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
 	}
+	o, profile := vendorProfile(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
 		return Plan{}, err
@@ -330,7 +389,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
+	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...), Profile: profile}, nil
 }
 
 func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
@@ -511,6 +570,9 @@ func (p Plan) Print(w io.Writer) {
 			fmt.Fprintf(w, "custom   %s (vault env)\n", k)
 		}
 	}
+	if p.Profile != "" {
+		fmt.Fprintf(w, "profile  %s (session row applied)\n", p.Profile)
+	}
 	if len(p.Overlay) > 0 {
 		fmt.Fprintf(w, "overlay  %s\n%s\n", p.OverlayPath, p.Overlay)
 	}
@@ -561,13 +623,11 @@ func (p Plan) Exec() error {
 }
 
 func secretKey(k string) bool {
-	for _, suf := range []string{"_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_HEADERS"} {
-		if strings.HasSuffix(k, suf) {
-			return true
-		}
-	}
-	return false
+	return secretKeyRE.MatchString(k)
 }
+
+// secretKeyRE matches the same credential-shaped name segments as providers' validateEnv.
+var secretKeyRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 
 // quotedRE is one double-quoted string; codex -c TOML and opencode JSON carry static provider headers in them.
 var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
