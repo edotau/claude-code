@@ -38,7 +38,7 @@ func Spawn(rec *agent.Record, extra []string) error {
 	defer logFile.Close()
 
 	argv := append([]string{"ask", "--job", rec.ID}, extra...)
-	cmd := exec.Command(exe, argv...)
+	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
@@ -113,7 +113,7 @@ func procArgv(pid int) ([]string, error) {
 	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
 		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
 	}
-	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return nil, err
 	}

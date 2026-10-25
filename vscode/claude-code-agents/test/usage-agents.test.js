@@ -136,6 +136,31 @@ test('renderUsageHtml: an Agents section lists each agent name with its "N sessi
   assert.ok(html.includes('6 sessions'), 'expected the OpenCode row\'s session count in the Agents section');
 });
 
+test('renderUsageHtml: one .agent-model-row per models[] entry, carrying its cost when present', () => {
+  const model = buildUsageModel(subscriptionFixture(), {}, Date.now());
+  const html = renderUsageHtml(model, { detailed: true, show: 'used' });
+  const rows = [...html.matchAll(/<div class="agent-model-row">/g)];
+  // one models[] row per agent that has one: codex, opencode, copilot (claude has none in the fixture).
+  assert.equal(rows.length, 3, 'expected one .agent-model-row per priced agent');
+  assert.ok(html.includes('github-copilot/mai-code-1.1-flash'), 'expected the opencode model label');
+  assert.ok(/\$0\.08/.test(html), 'expected the opencode model row to carry its cost');
+  assert.ok(html.includes('openai/gpt-6-astra'), 'expected the codex model label');
+});
+
+test('renderUsageHtml: an agent with an empty models[] array renders no .agent-models block', () => {
+  const json = subscriptionFixture();
+  const claude = json.agents.find((a) => a.agent === 'claude');
+  claude.tokens = 10; // keep it non-muted (tokens>0) so renderAgentCard takes the normal branch
+  // claude has no `models` key -> buildAgent folds it to models: []; this is the empty-models case under test.
+  const model = buildUsageModel(json, {}, Date.now());
+  const html = renderUsageHtml(model, { detailed: true, show: 'used' });
+  const claudeIdx = html.indexOf('<div class="agent-name card-head">Claude</div>');
+  assert.ok(claudeIdx !== -1, 'expected a Claude agent-card');
+  const nextCardIdx = html.indexOf('<div class="agent-card">', claudeIdx + 1);
+  const claudeCard = html.slice(claudeIdx, nextCardIdx === -1 ? html.length : nextCardIdx);
+  assert.ok(!claudeCard.includes('class="agent-models"'), 'an agent with no models[] must render no .agent-models block');
+});
+
 test('renderUsageHtml: no agents array produces no Agents section and never throws', () => {
   const json = subscriptionFixture();
   delete json.agents;

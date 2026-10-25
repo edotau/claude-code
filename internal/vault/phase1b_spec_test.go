@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/keyring"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 func phase1bRing(t *testing.T) *specKeyring {
@@ -530,7 +531,7 @@ func TestNestedOpenErrors(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("nested open hung well beyond bbolt's own timeout")
 			}
-			if !errors.Is(nested, bbolt.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
+			if !errors.Is(nested, bolterrors.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
 				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
 			}
 		})

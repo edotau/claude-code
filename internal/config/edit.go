@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ func Edit(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }() // best-effort cleanup of the temp file
 	defer f.Close()
 	if err := f.Chmod(0600); err != nil {
 		return err
@@ -51,7 +52,7 @@ func Edit(stdout, stderr io.Writer) error {
 		}
 	}
 	for {
-		cmd := exec.Command(argv[0], append(argv[1:], f.Name())...)
+		cmd := exec.CommandContext(context.Background(), argv[0], append(argv[1:], f.Name())...) // top-level: interactive editor, no caller ctx
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		signal.Ignore(os.Interrupt)
 		err := cmd.Run()

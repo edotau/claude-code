@@ -144,7 +144,7 @@ func Connect(ctx context.Context, authKey string, exitNode bool) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(keyFile)
+	defer func() { _ = os.Remove(keyFile) }() // best-effort cleanup of the auth-key temp file
 	args := []string{"up", "--auth-key=file:" + keyFile}
 	if exitNode {
 		args = append(args, "--advertise-exit-node")
@@ -168,11 +168,11 @@ func writeAuthKeyFile(authKey string) (string, error) {
 	}
 	defer f.Close()
 	if err := f.Chmod(0o600); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name()) // best-effort cleanup; the Chmod error is already being returned
 		return "", err
 	}
 	if _, err := f.WriteString(authKey); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name()) // best-effort cleanup; the write error is already being returned
 		return "", err
 	}
 	return f.Name(), nil

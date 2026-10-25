@@ -257,3 +257,61 @@ test('renderUsageHtml: the QUOTAS header carries a Used/Left toggle reflecting o
   // Claude 5h: 24% used in the fixture, so Left renders 76%.
   assert.ok(used.includes('>24%<') && left.includes('>76%<'));
 });
+
+test('renderUsageHtml (detailed): two github accounts render as two .provider-card entries, one per account', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  const cards = providerCardSlices(html);
+  assert.equal(cards.length, model.providers.length, 'cards.length must equal providers.length with the 2-account fixture');
+
+  const githubCards = cards.filter((c) => c.includes('>GitHub Copilot'));
+  assert.equal(githubCards.length, 2, 'expected two GitHub Copilot cards, one per account');
+});
+
+test('renderUsageHtml: the account suffix ("· <account>") appears only on a provider-card whose account is set', (t) => {
+  const model = buildFrozenModel(t);
+  const html = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  const cards = providerCardSlices(html);
+
+  const edotauCard = cards.find((c) => c.includes('· edotau'));
+  assert.ok(edotauCard, 'expected a provider-card suffixed with the edotau account');
+  const workCard = cards.find((c) => c.includes('· work-account'));
+  assert.ok(workCard, 'expected a provider-card suffixed with the work-account account');
+
+  const claudeCard = cards.find((c) => c.includes('>Claude<'));
+  assert.ok(claudeCard, 'expected the Claude card');
+  assert.ok(!claudeCard.includes('provider-account'), 'Claude has no account set, so no account suffix must render');
+
+  const antigravityCard = cards.find((c) => c.includes('>Antigravity<'));
+  assert.ok(antigravityCard, 'expected the Antigravity card');
+  assert.ok(!antigravityCard.includes('provider-account'), 'google account "-" must not render as a suffix');
+});
+
+test('renderUsageHtml: credits-note text in both show modes, absent for a window without credits figures', (t) => {
+  const model = buildFrozenModel(t);
+  const used = renderUsageHtml(model, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  const left = renderUsageHtml(model, { detailed: true, show: 'left', nonce: 'n', cspSource: 'c' });
+
+  // edotau: used_credits 2009 / limit_credits 7000.
+  assert.ok(used.includes('2009 / 7000 credits'), 'expected the used-mode credits-note text');
+  assert.ok(left.includes('4991 of 7000 credits left'), 'expected the left-mode credits-note text');
+
+  const usedCards = providerCardSlices(used);
+  const claudeCard = usedCards.find((c) => c.includes('>Claude<'));
+  assert.ok(!claudeCard.includes('credits-note'), 'Claude windows carry no credits figures, so no credits-note must render');
+});
+
+test('renderUsageHtml: API KEYS section always renders, in both subscription and api billing mode', (t) => {
+  const subModel = buildFrozenModel(t);
+  const subHtml = renderUsageHtml(subModel, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  assert.ok(subHtml.includes('API KEYS'), 'expected the API KEYS header in subscription mode');
+  assert.ok(subHtml.includes('class="api-table"'), 'expected the .api-table element in subscription mode');
+  assert.ok(subHtml.includes('No token usage yet'), 'subscription-mode fixture has no api[] rows, so the empty state must show');
+
+  const apiJson = fixture('usage-api.fixture.json');
+  const apiModel = buildUsageModel(apiJson, {}, Date.now());
+  const apiHtml = renderUsageHtml(apiModel, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
+  assert.ok(apiHtml.includes('API KEYS'), 'expected the API KEYS header in api mode');
+  assert.ok(apiHtml.includes('class="api-table"'), 'expected the .api-table element in api mode');
+  assert.ok(!apiHtml.includes('No token usage yet'), 'api-mode fixture has api[] rows, so the empty state must not show');
+});

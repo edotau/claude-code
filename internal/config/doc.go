@@ -70,21 +70,26 @@ func Export() ([]byte, error) {
 	return render(d)
 }
 
-// Import validates edited, then compares against orig and writes the changed sections in one transaction (R11).
-func Import(orig, edited []byte) error {
+// decodeDoc strictly decodes edited as a single Doc value, rejecting unknown fields and trailing data.
+func decodeDoc(edited []byte) (Doc, error) {
 	var d Doc
 	dec := json.NewDecoder(bytes.NewReader(edited))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&d); err != nil {
-		return sectionError("config", err)
+		return Doc{}, sectionError("config", err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return errors.New("config: trailing data")
+			return Doc{}, errors.New("config: trailing data")
 		}
-		return sectionError("config", err)
+		return Doc{}, sectionError("config", err)
 	}
+	return d, nil
+}
+
+// validatePinsEnv enforces the shell-identifier name rule and single-line, non-empty values.
+func validatePinsEnv(d Doc) error {
 	for section, values := range map[string]map[string]string{"pins": d.Pins, "env": d.Env} {
 		for name, value := range values {
 			if !namePattern.MatchString(name) {
@@ -95,6 +100,11 @@ func Import(orig, edited []byte) error {
 			}
 		}
 	}
+	return nil
+}
+
+// validateOverlaySections normalizes null overlay sections to absent and validates each one present.
+func validateOverlaySections(d *Doc) error {
 	d.Providers = presentJSON(d.Providers)
 	d.Vendors = presentJSON(d.Vendors)
 	d.Settings = presentJSON(d.Settings)
@@ -126,8 +136,99 @@ func Import(orig, edited []byte) error {
 			return errors.New("vault.key_command: must be a JSON array of strings with non-empty argv[0]")
 		}
 	}
+	return nil
+}
+
+// applyPinsEnv diffs cur against d for the pins and env buckets and writes the changes; it returns the pin diff.
+func applyPinsEnv(t *vault.Tx, cur, d Doc) (map[string]string, error) {
 	changedPins := map[string]string{}
-	err := vault.Update(func(t *vault.Tx) error {
+	for _, section := range []struct {
+		bucket    string
+		old, next map[string]string
+	}{
+		{vault.Pins, cur.Pins, d.Pins}, {vault.Env, cur.Env, d.Env},
+	} {
+		changes := map[string]string{}
+		for k, v := range section.next {
+			if section.old[k] != v {
+				changes[k] = v
+			}
+		}
+		for k := range section.old {
+			if _, ok := section.next[k]; !ok {
+				changes[k] = ""
+			}
+		}
+		for k, v := range changes {
+			if err := t.Put(section.bucket, k, v); err != nil {
+				return nil, err
+			}
+		}
+		if section.bucket == vault.Pins {
+			changedPins = changes
+		}
+	}
+	return changedPins, nil
+}
+
+// applyOverlaySections writes each changed providers/vendors/settings overlay section, backing up providers first.
+func applyOverlaySections(t *vault.Tx, cur, d Doc) error {
+	for _, section := range []struct {
+		name      string
+		old, next json.RawMessage
+	}{
+		{"providers", cur.Providers, d.Providers}, {"vendors", cur.Vendors, d.Vendors},
+		{"settings", cur.Settings, d.Settings},
+	} {
+		var old, next bytes.Buffer
+		if raw := presentJSON(section.old); len(raw) != 0 {
+			if err := json.Compact(&old, raw); err != nil {
+				return err
+			}
+		}
+		if len(section.next) != 0 {
+			if err := json.Compact(&next, section.next); err != nil {
+				return err
+			}
+		}
+		if bytes.Equal(old.Bytes(), next.Bytes()) {
+			continue
+		}
+		if section.name == "providers" {
+			stored, _ := t.Get(vault.Overlay, section.name)
+			if err := t.Put(vault.Overlay, "providers.prev", stored); err != nil {
+				return err
+			}
+		}
+		var stored string
+		if len(section.next) != 0 {
+			var indented bytes.Buffer
+			if err := json.Indent(&indented, next.Bytes(), "", "  "); err != nil {
+				return err
+			}
+			stored = indented.String() + "\n"
+		}
+		if err := t.Put(vault.Overlay, section.name, stored); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Import validates edited, then compares against orig and writes the changed sections in one transaction (R11).
+func Import(orig, edited []byte) error {
+	d, err := decodeDoc(edited)
+	if err != nil {
+		return err
+	}
+	if err := validatePinsEnv(d); err != nil {
+		return err
+	}
+	if err := validateOverlaySections(&d); err != nil {
+		return err
+	}
+	var changedPins map[string]string
+	err = vault.Update(func(t *vault.Tx) error {
 		cur, err := docFrom(t)
 		if err != nil {
 			return err
@@ -139,70 +240,12 @@ func Import(orig, edited []byte) error {
 		if !bytes.Equal(raw, orig) {
 			return ErrChanged
 		}
-		for _, section := range []struct {
-			bucket    string
-			old, next map[string]string
-		}{
-			{vault.Pins, cur.Pins, d.Pins}, {vault.Env, cur.Env, d.Env},
-		} {
-			changes := map[string]string{}
-			for k, v := range section.next {
-				if section.old[k] != v {
-					changes[k] = v
-				}
-			}
-			for k := range section.old {
-				if _, ok := section.next[k]; !ok {
-					changes[k] = ""
-				}
-			}
-			for k, v := range changes {
-				if err := t.Put(section.bucket, k, v); err != nil {
-					return err
-				}
-			}
-			if section.bucket == vault.Pins {
-				changedPins = changes
-			}
+		changedPins, err = applyPinsEnv(t, cur, d)
+		if err != nil {
+			return err
 		}
-		for _, section := range []struct {
-			name      string
-			old, next json.RawMessage
-		}{
-			{"providers", cur.Providers, d.Providers}, {"vendors", cur.Vendors, d.Vendors},
-			{"settings", cur.Settings, d.Settings},
-		} {
-			var old, next bytes.Buffer
-			if raw := presentJSON(section.old); len(raw) != 0 {
-				if err := json.Compact(&old, raw); err != nil {
-					return err
-				}
-			}
-			if len(section.next) != 0 {
-				if err := json.Compact(&next, section.next); err != nil {
-					return err
-				}
-			}
-			if bytes.Equal(old.Bytes(), next.Bytes()) {
-				continue
-			}
-			if section.name == "providers" {
-				stored, _ := t.Get(vault.Overlay, section.name)
-				if err := t.Put(vault.Overlay, "providers.prev", stored); err != nil {
-					return err
-				}
-			}
-			var stored string
-			if len(section.next) != 0 {
-				var indented bytes.Buffer
-				if err := json.Indent(&indented, next.Bytes(), "", "  "); err != nil {
-					return err
-				}
-				stored = indented.String() + "\n"
-			}
-			if err := t.Put(vault.Overlay, section.name, stored); err != nil {
-				return err
-			}
+		if err := applyOverlaySections(t, cur, d); err != nil {
+			return err
 		}
 		if cur.Vault.KeyCommand != d.Vault.KeyCommand {
 			return t.Put(vault.Meta, "key_command", d.Vault.KeyCommand)
