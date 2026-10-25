@@ -45,14 +45,14 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		return err
 	}
 	settingsErr := installSettings(w, dryRun)
-	if settingsErr != nil {
-		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
-	}
 	if werr := InstallWindowsSettings(w, dryRun); werr != nil {
 		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
 	}
 	syncVendors(w, dryRun)
 	installGitHooks(w, dryRun)
+	if settingsErr != nil {
+		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
+	}
 	return settingsErr
 }
 
@@ -81,13 +81,15 @@ func installCompact(w io.Writer) error {
 		if settingsLine != "" {
 			fmt.Fprintln(w, settingsLine)
 		}
-		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	} else {
 		fmt.Fprintln(w, settingsLine)
 	}
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
 	installGitHooks(w, false)
+	if settingsErr != nil {
+		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
+	}
 	return settingsErr
 }
 
