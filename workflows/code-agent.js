@@ -12,16 +12,31 @@ const LEGS = ['codex', 'gemini', 'opencode', 'copilot']
 if (!a0.task) return { error: 'code-agent needs args.task' }
 const TIERS = ['opus', 'sonnet', 'haiku']
 if (a0.tier && !TIERS.includes(a0.tier)) return { error: 'code-agent: args.tier must be ' + TIERS.join('|') }
-const ROUTE_PICK = { type: 'object', additionalProperties: false, required: ['leg'], properties: { leg: { type: 'string' } } }
+const ROUTE_PICK = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['leg', 'claudeState'],
+  properties: { leg: { type: 'string' }, claudeState: { type: 'string' } },
+}
 // No leg: the router's first vendor candidate at the tier (gated on availability, pinned account and quota).
+// Same call also reads the Claude account's own pressure state, so the sonnet fallback below can step down.
 const routed = a0.leg
   ? null
   : await agent(
       `Run exactly: cd ${a0.cwd || '.'} && claude-code route --format json --fallback vendors --tier ${a0.tier || 'sonnet'}. ` +
-        `It prints one JSON object; leg = candidates[0].runner, or leg = "" when candidates is empty. Never run anything else.`,
+        `It prints one JSON object; leg = candidates[0].runner, or leg = "" when candidates is empty. ` +
+        `Also run exactly: cd ${a0.cwd || '.'} && claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+        `claudeState = that result's candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
+        `is "claude" and its gate value, else "unknown". Never run anything else.`,
       { label: 'route', phase: 'Leg', schema: ROUTE_PICK, model: 'haiku', effort: 'low' }
     )
 const a = routed ? { ...a0, leg: routed.leg } : a0
+// Router pressure: low/exhausted Claude account steps the sonnet fallback below down one tier.
+const TIER_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
+const PRESSURE = !!(routed && (routed.claudeState === 'low' || routed.claudeState === 'exhausted'))
+const routeTier = m => (PRESSURE && TIER_DOWN[m]) ? TIER_DOWN[m] : m
+if (PRESSURE) log(`router: claude account ${routed.claudeState} — stepping the sonnet fallback down one tier`)
+else if (!routed) log('router: no route read (explicit leg) — no downshift (fail open)')
 if (!LEGS.includes(a.leg)) return { error: 'code-agent needs args.leg in ' + LEGS.join('|') + (routed ? ' (route picked none)' : '') }
 if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
 const CWD = a.cwd || '.'
@@ -64,7 +79,7 @@ if (a.fallback === false || TOOLS) return { ...res, leg: a.leg, skipped: true }
 const fb = await agent(`${a.task}\n\n(Work in ${CWD}; prefix every shell command with cd ${CWD} &&. Read-only unless the task says otherwise.)`, {
   label: 'fallback:' + a.leg,
   phase: 'Leg',
-  model: 'sonnet',
+  model: routeTier('sonnet'),
   effort: 'medium',
 })
 return { ok: !!fb, leg: a.leg, answer: typeof fb === 'string' ? fb : JSON.stringify(fb || ''), error: res.error, fallback: true }
