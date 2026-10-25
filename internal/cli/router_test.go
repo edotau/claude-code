@@ -14,8 +14,8 @@ func TestRouterStartHelpDoesNotStart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"start", "-h"}, {"stop", "--help"}, {"status", "-h"}} {
 		code, _, stderr := captureOutput(t, func() int { return cmdRouter(args) })
-		if code != 1 || !strings.Contains(stderr, "usage: claude-code router") {
-			t.Errorf("router %v: want usage + exit 1, got exit %d stderr %q", args, code, stderr)
+		if code != 0 || !strings.Contains(stderr, "usage: claude-code router") {
+			t.Errorf("router %v: want usage + exit 0, got exit %d stderr %q", args, code, stderr)
 		}
 	}
 	if _, ok := router.Running(context.Background()); ok {
@@ -38,8 +38,8 @@ func TestSecretsOpHelpPrintsUsage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"status", "-h"}, {"scan", "--help"}, {"doctor", "-h"}} {
 		code, stdout, stderr := captureOutput(t, func() int { return cmdSecrets(args) })
-		if code != 2 || !strings.Contains(stderr, "usage: claude-code secrets") || stdout != "" {
-			t.Errorf("secrets %v: want usage + exit 2 and no op output, got exit %d stdout %q", args, code, stdout)
+		if code != 0 || !strings.Contains(stderr, "usage: claude-code secrets") || stdout != "" {
+			t.Errorf("secrets %v: want usage + exit 0 and no op output, got exit %d stdout %q", args, code, stdout)
 		}
 	}
 }

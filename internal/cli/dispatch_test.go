@@ -294,8 +294,8 @@ func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
 
 func TestDispatchHelp(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int { return cmdDispatch(nil) })
-	if code != 2 {
-		t.Fatalf("no args: code = %d, want 2", code)
+	if code != 0 {
+		t.Fatalf("no args: code = %d, want 0", code)
 	}
 	if !strings.Contains(stderr, "usage: claude-code dispatch") {
 		t.Errorf("stderr = %q, want usage text", stderr)

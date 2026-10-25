@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,28 +16,19 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// dispatchUsage documents the three modes: start, --list, --attach.
-const dispatchUsage = `usage: claude-code dispatch --host <name> [--dir <path>] [--agent <a>]
-                           [--name <n>] [--dry-run] "<task>"
-       claude-code dispatch --list --host <name> [--status] [--interval <dur>]
-                           [--format text|json]
-       claude-code dispatch --attach --host <name> <session>
-`
+// dispatchPage documents the three modes: start, --list, --attach.
+var dispatchPage = helptext.Page{
+	Usage: "claude-code dispatch --host <name> [flags] \"<task>\"\n" +
+		"claude-code dispatch --host <name> --list|--attach [flags] [<session>]",
+	About: "Start an agent CLI in a detached tmux session on a tailnet host over ssh, then\n" +
+		"list its cc-* sessions (--list) or attach to one (--attach <session>).",
+}
 
 // sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
 const sshTimeout = 20 * time.Second
 
 func cmdDispatch(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, dispatchUsage)
-		return 2
-	}
-	fs := flag.NewFlagSet("dispatch", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
-	fs.SetOutput(os.Stderr)
+	fs := helptext.NewFlagSet("dispatch", dispatchPage)
 	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	dir := fs.String("dir", "", "remote working directory (default ~)")
 	agentName := fs.String("agent", "claude", "agent CLI: "+strings.Join(dispatch.Agents, "|"))
@@ -50,9 +40,13 @@ func cmdDispatch(args []string) int {
 	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
 	format := fs.String("format", outfmt.Text, "--list output format: text|json")
 	// Interspersed: a trailing --dry-run must not join the task and run it for real.
+	if len(args) == 0 || args[0] == "help" {
+		fs.Usage()
+		return 0
+	}
 	rest, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if *host == "" {
 		return fail("dispatch: --host is required")

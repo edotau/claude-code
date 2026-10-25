@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// Usage and arity errors exit 2 before any filesystem work; a bad root exits 1 from the engine.
+// Bare help exits 0; arity errors exit 2 before filesystem work, and a bad root exits 1 from the engine.
 func TestSetupWorkspaceUsageExits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := []struct {
 		args []string
 		want int
 	}{
-		{nil, 2},
+		{nil, 0},
 		{[]string{"bogus"}, 2},
 		{[]string{"link", "agents"}, 2},
 		{[]string{"init", "a", "b"}, 2},

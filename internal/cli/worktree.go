@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,36 +17,41 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-const worktreeUsage = `usage: claude-code worktree list [--format text|json]
-       claude-code worktree create <name> [--branch <b>]
-       claude-code worktree merge [--dry-run] [--target <ref>] [--no-clean]
-                                 [--verify "<cmd>"|--no-verify]
-                                 [--resolve-agent claude|codex] <name>
-       claude-code worktree merge --resume [--target <ref>] [--no-clean]
-                                 [--verify "<cmd>"|--no-verify] <name>
-       claude-code worktree clean [--dry-run] [--force] <name>
-       claude-code worktree clean-all [--dry-run|--yes]
+var worktreePage = helptext.Page{
+	Usage: "claude-code worktree <command> [flags] [<name>]",
+	About: "Linked worktrees of the current repo under ~/worktrees/<repo>/: create one\n" +
+		"per task, then merge it back with a verified fast-forward and clean it up.",
+	Commands: [][2]string{
+		{"list", "every worktree with status, reopen and cleanup commands"},
+		{"create <name>", "new worktree on branch worktree-<name> (--branch)"},
+		{"merge <name>", "verified fast-forward merge; --dry-run previews, --resume"},
+		{"clean <name>", "remove one merged worktree (--force, --dry-run)"},
+		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
+	},
+	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
+}
 
-Verify inside the worktree after integration, before promotion.
+// worktreeVerifyNote explains merge's verification gate; it trails both the verb and the merge page.
+const worktreeVerifyNote = `Verify inside the worktree after integration, before promotion.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
 package.json, or Cargo.toml. Without a gate, promotion is refused.
-Only --no-verify skips the gate.
-`
+Only --no-verify skips the gate.`
 
 func cmdWorktree(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, worktreeUsage)
-		return 2
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		worktreePage.Fprint(os.Stderr)
+		return 0
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fail("worktree: %v", err)
 	}
+	sub, rest := args[0], args[1:]
 	repo, err := worktree.ResolveRepo(cwd)
-	if err != nil {
+	// a leading -h returns from the sub-verb's flag parse before repo is touched, so help works outside a repo
+	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
 		return fail("worktree: %v", err)
 	}
-	sub, rest := args[0], args[1:]
 	switch sub {
 	case "list":
 		return cmdWorktreeList(repo, rest)
@@ -60,21 +64,17 @@ func cmdWorktree(args []string) int {
 	case "clean-all":
 		return cmdWorktreeCleanAll(repo, rest)
 	default:
-		helptext.Fprint(os.Stderr, worktreeUsage)
+		fail("worktree: unknown subcommand %q", sub)
+		worktreePage.Fprint(os.Stderr)
 		return 2
 	}
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
-	fs := flag.NewFlagSet("worktree list", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of worktree list:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("worktree list", helptext.Page{Usage: "claude-code worktree list [flags]"})
 	format := outfmt.Flag(fs)
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		return fail("%v", err)
@@ -138,15 +138,10 @@ func eligibleForClean(e worktree.Entry) bool {
 }
 
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
-	fs := flag.NewFlagSet("worktree create", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of worktree create:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("worktree create", helptext.Page{Usage: "claude-code worktree create [flags] <name>"})
 	branch := fs.String("branch", "", "branch to use (default worktree-<name>; reused if it already exists)")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
@@ -169,12 +164,7 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 // untouched. The whole non-dry-run apply (resolve-or-plan -> verify gate -> integrate -> verify ->
 // promote -> clean) runs under one worktree.WithWorktreeLease hold, so nothing else can interleave.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
-	fs := flag.NewFlagSet("worktree merge", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of worktree merge:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>", Hint: worktreeVerifyNote})
 	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
 	target := fs.String("target", "", "require this main branch (default: current branch)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
@@ -182,8 +172,8 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with claude|codex")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *resolveAgent != "" && *resolveAgent != "claude" && *resolveAgent != "codex" {
 		return fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
@@ -504,16 +494,11 @@ func oidSuffix(oid string) string {
 }
 
 func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
-	fs := flag.NewFlagSet("worktree clean", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of worktree clean:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("worktree clean", helptext.Page{Usage: "claude-code worktree clean [flags] <name>"})
 	dryRun := fs.Bool("dry-run", false, "preview the recheck without removing anything")
 	force := fs.Bool("force", false, "discard uncommitted and unmerged work")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
@@ -550,16 +535,11 @@ func printDiscardSummary(s worktree.DiscardSummary, dryRun bool) {
 }
 
 func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
-	fs := flag.NewFlagSet("worktree clean-all", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of worktree clean-all:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("worktree clean-all", helptext.Page{Usage: "claude-code worktree clean-all [flags]"})
 	dryRun := fs.Bool("dry-run", false, "preview without removing anything")
 	yes := fs.Bool("yes", false, "required to actually remove every eligible worktree")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	apply := *yes && !*dryRun
 	results, err := worktree.CleanAll(repo, apply)

@@ -5,7 +5,6 @@ package diff
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -249,17 +248,16 @@ func printDiffReport(w io.Writer, result diffSurgeonResult) {
 // RunDiff ports diff_surgeon.py's CLI. Findings are advisory (exit 0); a bad flag or a missing
 // --file is a real usage error (exit 2 / 1 respectively).
 func RunDiff(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("diff", helptext.Page{
+		Usage: "claude-code review diff [flags]",
+		About: "Flag diff lines that don't trace to the task (noise, drive-by edits). Findings are advisory.",
+	})
 	fs.SetOutput(stderr)
 	diffRange := fs.String("diff", "", "Git diff range (e.g. HEAD~1..HEAD). Default: staged.")
 	file := fs.String("file", "", "Read diff from a file instead of git")
-	jsonOut := fs.Bool("json", false, "")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 
 	diffText, exitCode := getDiff(*diffRange, *file, stderr)

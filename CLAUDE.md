@@ -55,8 +55,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | --- | --- | --- |
 | Build and install (`claude-code` + vendor links in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
 | Render settings + vendor configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--vendors]` | hard rule 4; `README.md` → Setup |
-| Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, profile, usage, history log, network mcp, memory search) |
-| See providers and credential state | `claude-code profile` (alias: `providers`) · `claude-code profile <name>` | `README.md` → Providers |
+| Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
+| See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
 | Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault show`) |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |

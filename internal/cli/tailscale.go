@@ -19,15 +19,14 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 )
 
-const tailscaleUsage = `usage: claude-code network tailscale [--format text|json]
-       claude-code network tailscale --machines [--format text|json]
-       claude-code network tailscale --connect [--auth-key k|-] [--key-env NAME]
-                                     [--advertise-exit]
-       claude-code network tailscale --key [--expiry 90d] [--tags t,…] [--save]
-                                     [--reusable] [--ephemeral]
-                                     [--preauthorized] [--description d]
-       claude-code network tailscale --exit-node on|off|approve
-`
+var tailscalePage = helptext.Page{
+	Usage: "claude-code network tailscale [<mode flag>] [flags]",
+	About: "Bare prints this box's tailnet status; one mode flag (--machines, --connect,\n" +
+		"--key, --exit-node on|off|approve) picks another action.",
+	Hint: "--connect takes --auth-key k|-, --key-env NAME and --advertise-exit.\n" +
+		"--key takes --expiry, --tags, --save, --reusable, --ephemeral, --preauthorized\n" +
+		"and --description. Status and --machines take --format text|json.",
+}
 
 // tsFlagMode maps each mode-specific flag to the mode flag that owns it ("" = status or machines).
 var tsFlagMode = map[string]string{
@@ -38,12 +37,7 @@ var tsFlagMode = map[string]string{
 
 // cmdNetworkTailscale: one flag set; a mode flag picks the action and bare means status.
 func cmdNetworkTailscale(args []string) int {
-	fs := flag.NewFlagSet("network tailscale", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), tailscaleUsage+"\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network tailscale", tailscalePage)
 	machines := fs.Bool("machines", false, "list tailnet machines")
 	connect := fs.Bool("connect", false, "join the tailnet")
 	mint := fs.Bool("key", false, "mint a Tailscale auth key")
@@ -60,8 +54,8 @@ func cmdNetworkTailscale(args []string) int {
 	fs.StringVar(&o.expiry, "expiry", "90d", "key lifetime: a Go duration, or Nd for N days")
 	fs.StringVar(&o.desc, "description", "", "a note shown in the admin console")
 	fs.BoolVar(&o.save, "save", false, "also seal the key as TAILSCALE_AUTHKEY in the vault")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))

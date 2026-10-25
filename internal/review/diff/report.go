@@ -3,7 +3,6 @@ package diff
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -551,25 +550,24 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 
 // RunReport ports review_report_generator.py's CLI.
 func RunReport(args []string, stdout, stderr io.Writer) int {
-	positional, flagArgs := splitPositional(args, map[string]bool{"json": true})
-	fs := flag.NewFlagSet("report", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	positional, flagArgs := splitPositional(args, map[string]bool{"json": true, "h": true, "help": true})
+	fs := helptext.NewFlagSet("report", helptext.Page{
+		Usage: "claude-code review report [<repo>] [flags]",
+		About: "Combine the PR analysis and code-quality findings into one review report.",
+	})
 	fs.SetOutput(stderr)
-	base := fs.String("base", "main", "")
-	fs.StringVar(base, "b", "main", "")
-	head := fs.String("head", "HEAD", "")
-	prAnalysisPath := fs.String("pr-analysis", "", "")
-	qualityAnalysisPath := fs.String("quality-analysis", "", "")
-	format := fs.String("format", "text", "")
-	fs.StringVar(format, "f", "text", "")
-	output := fs.String("output", "", "")
-	fs.StringVar(output, "o", "", "")
-	jsonOut := fs.Bool("json", false, "")
-	if err := fs.Parse(flagArgs); err != nil {
-		return 2
+	base := fs.String("base", "main", "Base branch for comparison")
+	fs.StringVar(base, "b", "main", "shorthand for --base")
+	head := fs.String("head", "HEAD", "Head branch/commit for comparison")
+	prAnalysisPath := fs.String("pr-analysis", "", "load the PR analysis from this JSON file instead of running it")
+	qualityAnalysisPath := fs.String("quality-analysis", "", "load the quality analysis from this JSON file")
+	format := fs.String("format", "text", "text|markdown|json")
+	fs.StringVar(format, "f", "text", "shorthand for --format")
+	output := fs.String("output", "", "Write output to file")
+	fs.StringVar(output, "o", "", "shorthand for --output")
+	jsonOut := fs.Bool("json", false, "Output in JSON format (same as --format json)")
+	if code, done := helptext.Parse(fs, flagArgs); done {
+		return code
 	}
 
 	repoArg := "."

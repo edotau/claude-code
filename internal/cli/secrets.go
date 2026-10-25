@@ -18,34 +18,36 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-const secretsUsage = `usage: claude-code secrets <op> [flags]
-  set [<NAME>]            store a secret (sealed in the vault)
-                          NAME: prompts for the value; no NAME: guided dialog
-  get <NAME> [--export]   print a secret (vault -> env)
-  delete <NAME>           remove a secret from the vault
-  import <file>|-         store each NAME=value line of a .env (# lines skipped)
-                          -: read stdin (needs --yes; refused on a terminal)
-  export [NAME...]        append stored secrets to ./.env, or --out f (0600)
-                          --out -: stream NAME=value lines to stdout instead
-  list [NAME...]          stored secrets: name, vault, masked value
-  status                  credential source per provider (never the value)
-  scan [paths...]         find plaintext secrets in config files and the vault
-  git [--since N]         find secret-shaped additions in git history
-  doctor                  vault perms, master key, key names, keyring tool
-  all                     scan + git + doctor
-`
+var secretsPage = helptext.Page{
+	Usage: "claude-code secrets <op> [flags]",
+	Commands: [][2]string{
+		{"set [<NAME>]", "store a secret (sealed in the vault); NAME: prompts for the value; no NAME: guided dialog"},
+		{"get <NAME> [--export]", "print a secret (vault -> env)"},
+		{"delete <NAME>", "remove a secret from the vault"},
+		{"import <file>|-", "store each NAME=value line of a .env (# lines skipped); " +
+			"-: read stdin (needs --yes; refused on a terminal)"},
+		{"export [NAME...]", "append stored secrets to ./.env, or --out f (0600); " +
+			"--out -: stream NAME=value lines to stdout instead"},
+		{"list [NAME...]", "stored secrets: name, vault, masked value"},
+		{"status", "credential source per provider (never the value)"},
+		{"scan [paths...]", "find plaintext secrets in config files and the vault"},
+		{"git [--since N]", "find secret-shaped additions in git history"},
+		{"doctor", "vault perms, master key, key names, keyring tool"},
+		{"all", "scan + git + doctor"},
+	},
+}
 
 // cmdSecrets dispatches the `secrets` verb.
 func cmdSecrets(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, secretsUsage)
-		return 2
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		secretsPage.Fprint(os.Stderr)
+		return 0
 	}
 	op, rest := args[0], args[1:]
 	// -h after any op prints usage; read-only ops used to ignore it and just run (the router start -h twin).
 	if slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
-		helptext.Fprint(os.Stderr, secretsUsage)
-		return 2
+		secretsPage.Fprint(os.Stderr)
+		return 0
 	}
 	switch op {
 	case "set":
@@ -71,7 +73,7 @@ func cmdSecrets(args []string) int {
 	case "all":
 		return cmdSecretsAll(rest)
 	}
-	helptext.Fprint(os.Stderr, secretsUsage)
+	secretsPage.Fprint(os.Stderr)
 	return fail("secrets: unknown op %q", op)
 }
 
@@ -144,8 +146,8 @@ func extractInt(args []string, name string, def int) (int, []string, error) {
 func cmdSecretsSet(args []string) int {
 	dryRun, rest := extractBool(args, "dry-run")
 	if slices.Contains(rest, "--help") || slices.Contains(rest, "-h") {
-		helptext.Fprint(os.Stderr, secretsUsage)
-		return 2
+		secretsPage.Fprint(os.Stderr)
+		return 0
 	}
 	if len(rest) == 0 && !dryRun && tui.StdinIsTerminal() {
 		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})

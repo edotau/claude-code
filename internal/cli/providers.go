@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -22,48 +21,24 @@ import (
 // githubCopilotProvider is the registry name ListModels and pin validation key off.
 const githubCopilotProvider = "github-copilot"
 
-func cmdProviders(args []string) int {
-	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of profile:\n")
-		helptext.Defaults(fs)
-	}
-	format := outfmt.Flag(fs)
-	args, err := outfmt.Parse(fs, args)
-	if err != nil {
+// configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
+func configureProviderList(name, format string) int {
+	if err := outfmt.Check(format); err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: configure provider:", err)
 		return 2
 	}
-	if err := outfmt.Check(*format); err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: profile:", err)
-		return 2
-	}
-	var reg *providers.Registry
-	reg, err = providers.Load()
+	reg, err := providers.Load()
 	if err != nil {
 		return fail("%v", err)
 	}
-	if *format == outfmt.JSON {
-		return profileJSON(reg, args)
+	if format == outfmt.JSON {
+		return providerListJSON(reg, name)
 	}
-	if len(args) == 0 {
-		for _, n := range reg.Names() {
-			p := reg.Providers[n]
-			mark := " "
-			if n == reg.Default {
-				mark = "*"
-			}
-			cred := "cred:missing"
-			if providers.CredentialPresent(p) {
-				cred = "cred:ok"
-			}
-			fmt.Printf("%s %-13s %-10s %-12s %s\n", mark, n, p.Kind, cred, strings.Join(p.Dialects(), ","))
-		}
-		if len(reg.Fallback) > 0 {
-			fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
-		}
+	if name == "" {
+		printProviderTable(reg)
 		return 0
 	}
-	p, err := reg.Get(args[0])
+	p, err := reg.Get(name)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -85,33 +60,61 @@ func cmdProviders(args []string) int {
 	return 0
 }
 
-// profileJSON emits the describe provider view: all providers, or the one named, never a credential.
-func profileJSON(reg *providers.Registry, args []string) int {
+// printProviderTable prints one row per provider, columns sized to the widest name and kind.
+func printProviderTable(reg *providers.Registry) {
+	nameW, kindW := 0, 0
+	for _, n := range reg.Names() {
+		nameW = max(nameW, len(n))
+		kindW = max(kindW, len(reg.Providers[n].Kind))
+	}
+	for _, n := range reg.Names() {
+		p := reg.Providers[n]
+		mark := " "
+		if n == reg.Default {
+			mark = "*"
+		}
+		cred := "cred:missing"
+		if providers.CredentialPresent(p) {
+			cred = "cred:ok"
+		}
+		fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
+	}
+	if len(reg.Fallback) > 0 {
+		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
+	}
+}
+
+// providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
+func providerListJSON(reg *providers.Registry, name string) int {
 	d, err := describe(reg)
 	if err != nil {
-		return fail("profile: %v", err)
+		return fail("configure provider: %v", err)
 	}
-	if len(args) == 0 {
+	if name == "" {
 		_ = outfmt.Write(os.Stdout, d.Providers)
 		return 0
 	}
-	if _, err := reg.Get(args[0]); err != nil {
+	if _, err := reg.Get(name); err != nil {
 		return fail("%v", err)
 	}
 	for _, p := range d.Providers.List {
-		if p.Name == args[0] {
+		if p.Name == name {
 			_ = outfmt.Write(os.Stdout, p)
 		}
 	}
 	return 0
 }
 
+var modelsPage = helptext.Page{
+	Usage: "claude-code models [flags]",
+	About: "Shows which model each tier slot (opus, sonnet, haiku, fable) resolves to on\n" +
+		"the session provider. --pin and --unpin write the vault pins; --live lists the\n" +
+		"provider's catalog.",
+	Hint: "A HARNESS_<SLOT>_MODEL env var beats the vault pin.",
+}
+
 func cmdModels(args []string) int {
-	fs := flag.NewFlagSet("models", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of models:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("models", modelsPage)
 	provider := fs.String("provider", "", "provider to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the provider serves (GET /models)")
@@ -124,7 +127,7 @@ func cmdModels(args []string) int {
 	})
 	args, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if len(args) > 0 {
 		fmt.Fprintf(os.Stderr, "claude-code: models: unexpected argument %q\n", args[0])
@@ -360,11 +363,22 @@ func printModelTable(infos []providers.ModelInfo) {
 	}
 }
 
+var switchPage = helptext.Page{
+	Usage: "claude-code switch <provider> [flags]",
+	About: "Pins the session provider in the vault; relaunch to apply. One launch only:\n" +
+		"claude-code --provider <p>.",
+	Hint: "claude-code configure provider --list shows each provider's credential state.",
+}
+
 func cmdUse(args []string) int {
 	dryRun, args := extractBool(args, "dry-run")
-	if len(args) != 1 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, "usage: claude-code switch <provider> [--dry-run]\n")
-		return 1
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		switchUsage()
+		return 0
+	}
+	if len(args) != 1 {
+		switchUsage()
+		return 2
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -383,17 +397,26 @@ func cmdUse(args []string) int {
 	return 0
 }
 
+// switchUsage prints switch's page; its one flag is pulled out by extractBool, so this FlagSet only renders it.
+func switchUsage() {
+	fs := helptext.NewFlagSet("switch", switchPage)
+	fs.Bool("dry-run", false, "print the vault pins change, write nothing")
+	fs.Usage()
+}
+
+var resolvePage = helptext.Page{
+	Usage: "claude-code resolve [flags]",
+	About: "Resolves and prints the session provider's credential: the apiKeyHelper\n" +
+		"Claude Code calls. --router prints the loopback router's client secret instead.",
+}
+
 // cmdToken is the apiKeyHelper: --router prints the loopback router's client secret instead.
 func cmdToken(args []string) int {
-	fs := flag.NewFlagSet("token", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of token:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("resolve", resolvePage)
 	provider := fs.String("provider", "", "provider name")
 	viaRouter := fs.Bool("router", false, "print the loopback router client secret")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *viaRouter {
 		s, err := router.ClientSecret()

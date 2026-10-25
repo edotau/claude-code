@@ -142,11 +142,11 @@ func TestConfigureResetAgentCommaListScopesVendors(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	if !strings.Contains(out, "codex") || !strings.Contains(out, "opencode") {
+	if !strings.Contains(out, " (codex) ---") || !strings.Contains(out, " (opencode) ---") {
 		t.Errorf("comma list did not render both vendors:\n%s", out)
 	}
 	for _, other := range []string{"copilot", "gemini"} {
-		if strings.Contains(out, other) {
+		if strings.Contains(out, " ("+other+") ---") {
 			t.Errorf("--agent codex,opencode also rendered %s:\n%s", other, out)
 		}
 	}

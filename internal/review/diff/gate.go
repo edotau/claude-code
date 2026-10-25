@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gitexec"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -66,11 +67,9 @@ func filterLines(text string, re *regexp.Regexp) (string, bool) {
 
 // RunGate ports code-review-gate.sh: advisory pre-commit summary — ALWAYS returns 0.
 func RunGate(args []string, stdout, stderr io.Writer) int {
-	repo := "."
-	for i, a := range args {
-		if a == "--repo" && i+1 < len(args) {
-			repo = args[i+1]
-		}
+	repo, help := gateRepo(args, stderr)
+	if help {
+		return 0
 	}
 
 	staged := gateStagedFiles(repo)
@@ -109,6 +108,40 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintln(stdout, "--- /code-review gate ---")
 	return 0
+}
+
+// gateRepo parses RunGate's flags; a bad flag must not block a commit, so it falls back to scanning for --repo.
+func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
+	fs := helptext.NewFlagSet("gate", helptext.Page{
+		Usage: "claude-code review gate [flags]",
+		About: "Advisory pre-commit summary of the staged change: complexity and diff-noise\n" +
+			"findings. Always exits 0, so it never blocks a commit.",
+	})
+	fs.SetOutput(stderr)
+	repoFlag := fs.String("repo", ".", "the git repo whose staged change to check")
+	if _, done := helptext.Parse(fs, args); !done {
+		return *repoFlag, false
+	}
+	if wantsHelp(args) {
+		return "", true
+	}
+	repo = "."
+	for i, a := range args {
+		if a == "--repo" && i+1 < len(args) {
+			repo = args[i+1]
+		}
+	}
+	return repo, false
+}
+
+// wantsHelp reports a -h/--help flag in args.
+func wantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
 }
 
 func indentLines(w io.Writer, text string) {

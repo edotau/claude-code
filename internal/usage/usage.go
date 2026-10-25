@@ -7,7 +7,6 @@ package usage
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -49,23 +48,20 @@ func resolveBilling() *billing {
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
-	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("usage", helptext.Page{
+		Usage: "claude-code usage [flags]",
+		About: "Token totals and peak rate across Claude Code sessions plus the codex, opencode\n" +
+			"and copilot stores, then live plan quotas per provider.",
+	})
 	fs.SetOutput(errw)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of usage:\n")
-		helptext.Defaults(fs)
-	}
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
 	formatFlag := outfmt.Flag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*formatFlag); err != nil {
 		fmt.Fprintln(errw, "usage:", err)

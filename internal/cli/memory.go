@@ -18,16 +18,67 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-const memoryUsage = `usage: claude-code memory recall [--repo R|--all] [-k 3] [--load N] <terms>
-       claude-code memory remember [--repo R] [--type T] <fact>
-       claude-code memory init [--repo R]
-       claude-code memory review [--repo R] [--stale-days 90] [--brief|--candidates]
-       claude-code memory promote <id> --to home|rules|skill|claude-md
-                                   [--repo R] [--dry-run]
-       claude-code memory update [--transcript T --cwd C --session S]
-       claude-code memory dream [--cwd C] [--force|--dry-run]
-plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,
-          migrate, alias — dispatchable, off the menu above`
+// memorySub is one sub-verb's synopsis args and blurb; public ones are the memory page's COMMANDS rows.
+type memorySub struct{ name, args, about string }
+
+var memorySubs = []memorySub{
+	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
+	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
+	{"init", "", "create the repo's bank"},
+	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
+	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
+	{"update", "", "harvest a finished session (--transcript); bare prints the procedure"},
+	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
+}
+
+var memoryPage = helptext.Page{
+	Usage: "claude-code memory <command> [flags] [args]",
+	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
+		"harvest writes them. Recall and save facts, then promote the ones that hold up.",
+	Commands: memoryCommandRows(),
+	Hint: "plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,\n" +
+		"          migrate, alias — dispatchable, off the menu above\n" +
+		"claude-code memory <command> -h lists that command's flags.",
+}
+
+// memoryCommandRows lists the public sub-verbs with their args as the page's COMMANDS rows.
+func memoryCommandRows() [][2]string {
+	var rows [][2]string
+	for _, m := range memorySubs {
+		rows = append(rows, [2]string{strings.TrimSpace(m.name + " " + m.args), m.about})
+	}
+	return rows
+}
+
+// memoryPlumbing is the off-menu sub-verbs' {args, blurb} for their own -h pages.
+var memoryPlumbing = map[string][2]string{
+	"search":   {"<terms>", "rank blocks for terms, with scores"},
+	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
+	"index":    {"", "settle the bank: rotate, promote and archive over caps"},
+	"path":     {"", "print the bank directory"},
+	"digest":   {"", "write the bank digest"},
+	"fmt":      {"", "wrap the bank files"},
+	"timeline": {"", "recent bank entries and sessionHistory"},
+}
+
+// memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
+func memorySubPage(sub string) helptext.Page {
+	m := memoryPlumbing[sub]
+	for _, s := range memorySubs {
+		if s.name == sub {
+			m = [2]string{s.args, s.about}
+		}
+	}
+	return helptext.Page{Usage: memorySynopsis(sub, m[0]), About: m[1]}
+}
+
+// memorySynopsis is `claude-code memory <sub> [flags] <args>`, the usage line of sub's page and its errors.
+func memorySynopsis(sub, args string) string {
+	if strings.HasPrefix(args, "<id> --to") { // promote: the id and --to target lead
+		return "claude-code memory " + sub + " " + args + " [flags]"
+	}
+	return strings.TrimSpace("claude-code memory " + sub + " [flags] " + args)
+}
 
 // memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
 func memoryAgent() memory.AgentFunc {
@@ -50,12 +101,7 @@ func memoryAgent() memory.AgentFunc {
 
 // memoryFlagSet builds the per-subcommand flag.FlagSet shared by every handler below.
 func memoryFlagSet(sub string) *flag.FlagSet {
-	fs := flag.NewFlagSet("memory "+sub, flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
-	return fs
+	return helptext.NewFlagSet("memory "+sub, memorySubPage(sub))
 }
 
 // memoryRepoFlagSet adds --repo; only handlers that resolve a bank root take it, so it is never silently ignored.
@@ -66,8 +112,8 @@ func memoryRepoFlagSet(sub string) (*flag.FlagSet, *string) {
 
 func cmdMemoryInit(args []string) int {
 	fs, repo := memoryRepoFlagSet("init")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	root := memoryRoot(*repo)
 	dir, err := memory.Init(root)
@@ -97,14 +143,14 @@ func cmdMemoryRecall(args []string) int {
 	format := outfmt.Flag(fs)
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("memory recall: %v", err)
 		return 2
 	}
 	if len(terms) == 0 {
-		return fail("memory recall: no query (%s)", memoryUsage)
+		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
 	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
@@ -150,13 +196,13 @@ func recallLoad(hits []memory.SearchHit, n int) {
 func cmdMemoryRemember(args []string) int {
 	fs, repo := memoryRepoFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
-		"reads like a rule? `memory promote --to rules` instead")
+		"reads like a rule? use memory promote --to rules instead")
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if len(terms) == 0 {
-		return fail("memory remember: no fact text (%s)", memoryUsage)
+		return fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
 	root := memoryRoot(*repo)
 	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
@@ -190,14 +236,14 @@ func cmdMemorySearch(args []string) int {
 	format := outfmt.Flag(fs)
 	terms, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("memory search: %v", err)
 		return 2
 	}
 	if len(terms) == 0 {
-		return fail("memory search: no query (%s)", memoryUsage)
+		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
 	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
@@ -219,7 +265,10 @@ func cmdMemorySearch(args []string) int {
 
 func cmdMemoryShow(args []string) int {
 	fs := memoryFlagSet("show")
-	if fs.Parse(args) != nil || fs.NArg() != 1 {
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() != 1 {
 		fail("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 		return 2
 	}
@@ -233,8 +282,8 @@ func cmdMemoryShow(args []string) int {
 
 func cmdMemoryIndex(args []string) int {
 	fs, repo := memoryRepoFlagSet("index")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	root := memoryRoot(*repo)
 	s, err := memory.SettleBank(root, time.Now())
@@ -257,8 +306,8 @@ func cmdMemoryIndex(args []string) int {
 
 func cmdMemoryPath(args []string) int {
 	fs, repo := memoryRepoFlagSet("path")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	fmt.Println(memory.Dir(memoryRoot(*repo)))
 	return 0
@@ -269,8 +318,8 @@ func cmdMemoryUpdate(args []string) int {
 	transcript := fs.String("transcript", "", "finished session's transcript")
 	cwd := fs.String("cwd", "", "project root whose bank to harvest (default: cwd)")
 	session := fs.String("session", "", "finished session's id (outcome recorded under state/harvest/memory)")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *transcript == "" { // a live session: print the narrative procedure instead of refusing outright
 		ref, err := memory.Reference("update")
@@ -296,8 +345,8 @@ func cmdMemoryDream(args []string) int {
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
 	force := fs.Bool("force", false, "run even when not due")
 	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, promotable/archivable blocks; no writes")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	root := *cwd
 	if root == "" {
@@ -319,8 +368,8 @@ func cmdMemoryDream(args []string) int {
 
 func cmdMemoryDigest(args []string) int {
 	fs, repo := memoryRepoFlagSet("digest")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	claude, _ := launch.ClaudeBinary()
 	path, err := memory.Digest(memory.Dir(memoryRoot(*repo)), claude)
@@ -338,8 +387,8 @@ func cmdMemoryWatch(args []string) int {
 func cmdMemoryFmt(args []string) int {
 	fs := memoryFlagSet("fmt")
 	check := fs.Bool("check", false, "report would-change files; write nothing")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	changed, err := memory.FormatBank(*check)
 	if err != nil {
@@ -367,8 +416,8 @@ func cmdMemoryReview(args []string) int {
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
 	candidates := fs.Bool("candidates", false, "print today's stats, then the ranking procedure")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *notice {
 		if err := memory.WriteDoctorNotice(memoryRoot(*repo), *staleDays, time.Now()); err != nil {
@@ -402,8 +451,8 @@ func cmdMemoryReview(args []string) int {
 func cmdMemoryTimeline(args []string) int {
 	fs, repo := memoryRepoFlagSet("timeline")
 	n := fs.Int("n", 20, "max entries")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	entries, sessions := memory.Timeline(memoryRoot(*repo), *n)
 	for _, e := range entries {
@@ -427,10 +476,10 @@ func cmdMemoryPromote(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "print the move without writing")
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if len(pos) != 1 || *to == "" {
-		fail("memory promote: %s", memoryUsage)
+		fail("memory promote: usage: %s", memorySubPage("promote").Usage)
 		return 2
 	}
 	out, err := memory.Promote(memoryRoot(*repo), pos[0], *to, *dryRun, time.Now())
@@ -442,7 +491,7 @@ func cmdMemoryPromote(args []string) int {
 }
 
 // memorySubcommands follows the top-level verb table in internal/cli/cli.go: public verbs are
-// listed in memoryUsage, private ones dispatch here but only appear in its trailing "plumbing:" line.
+// memoryPage's COMMANDS rows, private ones dispatch here but only appear in its trailing "plumbing:" line.
 var memorySubcommands = map[string]func([]string) int{
 	// public
 	"recall":   cmdMemoryRecall,
@@ -467,9 +516,9 @@ var memorySubcommands = map[string]func([]string) int{
 }
 
 func cmdMemory(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, memoryUsage+"\n")
-		return 2
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		memoryPage.Fprint(os.Stderr)
+		return 0
 	}
 	sub := args[0]
 	switch sub {
@@ -480,7 +529,7 @@ func cmdMemory(args []string) int {
 	}
 	h, ok := memorySubcommands[sub]
 	if !ok {
-		return fail("memory: unknown subcommand %q (%s)", sub, memoryUsage)
+		return fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
 	return h(args[1:])
 }

@@ -1,7 +1,6 @@
 package agenttree
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"time"
@@ -13,14 +12,17 @@ import (
 // clearScreen re-homes the cursor and wipes the terminal between --watch redraws.
 const clearScreen = "\x1b[H\x1b[2J"
 
+// page is `agents tree -h`.
+var page = helptext.Page{
+	Usage: "claude-code agents tree [flags]",
+	About: "Live tree of Claude sessions, their subagents and dispatched vendor legs. " +
+		"Idle sessions with nothing dispatched are hidden unless --all.",
+}
+
 // Run is `claude-code agents tree`; claudeDir is injectable so tests never touch the real
 // ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
-	fs := flag.NewFlagSet("agents tree", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("agents tree", page)
 	fs.SetOutput(errw)
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
@@ -29,11 +31,8 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	format := outfmt.Flag(fs)
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fmt.Fprintln(errw, "agents tree:", err)

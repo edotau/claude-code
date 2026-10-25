@@ -19,18 +19,15 @@ import (
 
 // cmdNetworkBrowser lists every installed browser's control paths and the system default; --setup repairs one.
 func cmdNetworkBrowser(args []string) int {
-	fs := flag.NewFlagSet("network browser", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of network browser:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
+		About: "List every installed browser's control paths and the system default; --setup\n" +
+			"repairs what the harness owns for one and opens its extension page."})
 	setup := fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
 	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
 	format := outfmt.Flag(fs)
 	if _, err := outfmt.Parse(fs, args); err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("network browser: %v", err)
@@ -91,14 +88,12 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	return 0
 }
 
+var networkViewPage = helptext.Page{Usage: "claude-code network view [flags] <agentId|prefix>",
+	About: "Print one subagent's transcript snapshot; --follow then streams its live events."}
+
 // cmdNetworkView is the drill-down into one subagent: a snapshot, then with --follow its live event stream.
 func cmdNetworkView(args []string) int {
-	fs := flag.NewFlagSet("network view", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of network view:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network view", networkViewPage)
 	session := fs.String("session", "", "session id to search (default: every session in --days)")
 	days := fs.Int("days", 1, "session scope in days")
 	n := fs.Int("n", 40, "trailing events in the snapshot")
@@ -106,15 +101,14 @@ func cmdNetworkView(args []string) int {
 	format := outfmt.Flag(fs)
 	rest, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("network view: %v", err)
 		return 2
 	}
 	if len(rest) != 1 {
-		helptext.Fprint(os.Stderr, "usage: claude-code network view <agentId|prefix> [--session id] [--days N]\n"+
-			"                            [--n 40] [--follow] [--format text|json]\n")
+		fs.Usage()
 		return 2
 	}
 	opts := agenttree.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
@@ -141,18 +135,14 @@ func cmdNetworkView(args []string) int {
 }
 
 func cmdNetworkPage(args []string) int {
-	fs := flag.NewFlagSet("network page", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of network page:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network page", helptext.Page{Usage: "claude-code network page [flags]",
+		About: "Serve the agent page and dashboard on the tailnet."})
 	addr := fs.String("addr", "", "bind address (default: this node's tailnet IPv4 on port 7777)")
 	hosts := fs.String("hosts", "", "comma-separated dispatch hosts (default: tailnet machines)")
 	days := fs.Int("days", 1, "agent-tree scope in days")
 	dryRun := fs.Bool("dry-run-dispatch", false, "POST /api/dispatch returns the ssh argv instead of running it")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	var hostList []string
 	if *hosts != "" {

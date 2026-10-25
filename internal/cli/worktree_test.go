@@ -54,8 +54,8 @@ func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	if got := cmdWorktree(nil); got != 2 {
-		t.Fatalf("no args: got %d, want 2", got)
+	if got := cmdWorktree(nil); got != 0 {
+		t.Fatalf("no args: got %d, want 0", got)
 	}
 	if got := cmdWorktree([]string{"bogus"}); got != 2 {
 		t.Fatalf("unknown sub: got %d, want 2", got)

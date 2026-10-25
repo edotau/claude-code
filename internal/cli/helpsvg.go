@@ -84,11 +84,14 @@ func hexOf(c ansi.RGB) string { return fmt.Sprintf("#%02x%02x%02x", c[0], c[1], 
 
 // cmdMenuSVG prints the menu SVG, writes it (--out), or fails when a file has drifted from it (--check).
 func cmdMenuSVG(args []string) int {
-	fs := helptext.NewFlagSet("help-svg", "usage: claude-code help-svg [--out f] [--check f]\n\nFLAGS\n")
+	fs := helptext.NewFlagSet("help-svg", helptext.Page{
+		Usage: "claude-code help-svg [flags]",
+		About: "Render the claude-code menu as the README's SVG; bare prints it to stdout.",
+	})
 	out := fs.String("out", "", "write the SVG to this file")
 	check := fs.String("check", "", "exit 1 if this file differs from the render")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	svg := menuSVG()
 	switch {

@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -13,8 +12,11 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 )
 
-const memoryArchiveUsage = `usage: claude-code memory archive [--repo R] [--dupes] [--split N]
-       claude-code memory archive [--restore] [--apply] [<topic>...]`
+var memoryArchivePage = helptext.Page{
+	Usage: "claude-code memory archive [flags] [<topic>...]",
+	About: "Audit the native MEMORY.md store's injected cost (no writes); --apply moves named\n" +
+		"topics to or from the archive, or --split N trims MEMORY.md to N pointer lines.",
+}
 
 // dupeThreshold is the Jaccard overlap at which two topic files are reported as near-duplicates.
 const dupeThreshold = 0.45
@@ -57,8 +59,7 @@ func hoistArchiveFlags(args []string) ([]string, error) {
 // cmdMemoryArchive audits the native store's injected cost by default (names + stats, no writes);
 // --apply moves named topics to/from the archive, or --split N trims MEMORY.md to N pointer lines.
 func cmdMemoryArchive(args []string) int {
-	fs := flag.NewFlagSet("memory archive", flag.ContinueOnError)
-	fs.Usage = func() { helptext.Fprint(os.Stderr, memoryArchiveUsage+"\n") }
+	fs := helptext.NewFlagSet("memory archive", memoryArchivePage)
 	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 	apply := fs.Bool("apply", false, "perform the moves/split (default: dry run)")
 	restore := fs.Bool("restore", false, "move the named topics back out of the archive")
@@ -69,8 +70,8 @@ func cmdMemoryArchive(args []string) int {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)
 		return 2
 	}
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	dir := memory.NativeDir(memoryRoot(*repo))
 	names := fs.Args()

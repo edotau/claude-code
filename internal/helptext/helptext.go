@@ -3,7 +3,7 @@
 package helptext
 
 import (
-	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -51,27 +51,110 @@ func Paint(text string) string {
 	return strings.Join(lines, "\n")
 }
 
-// singleDash matches PrintDefaults' leading "-name" so it can be widened to "--name".
-var singleDash = regexp.MustCompile(`(?m)^(\s+)-([^-\s])`)
-
-// Defaults prints fs's flag defaults through Fprint, so `-h` on a FlagSet verb matches the menu.
-func Defaults(fs *flag.FlagSet) {
-	var b bytes.Buffer
-	out := fs.Output()
-	fs.SetOutput(&b)
-	fs.PrintDefaults()
-	fs.SetOutput(out)
-	text := singleDash.ReplaceAllString(b.String(), "$1--$2")
-	Fprint(out, text)
+// Page is a verb's help: synopsis, blurb, command rows, flags and an optional trailing hint.
+type Page struct {
+	Usage, About string
+	Commands     [][2]string
+	Flags        *flag.FlagSet
+	Hint         string
 }
 
-// NewFlagSet builds a FlagSet whose -h prints usage then Defaults, painted like the rest of the help palette.
-func NewFlagSet(name, usage string) *flag.FlagSet {
+// Fprint renders p to w in the shared help layout, painted on a terminal.
+func (p Page) Fprint(w io.Writer) {
+	var secs []string
+	if p.Usage != "" {
+		secs = append(secs, "usage: "+strings.ReplaceAll(p.Usage, "\n", "\n       "))
+	}
+	if p.About != "" {
+		var about []string
+		for _, para := range strings.Split(p.About, "\n") {
+			about = append(about, WrapRow("", para, 0, 80)...)
+		}
+		secs = append(secs, strings.Join(about, "\n"))
+	}
+	flags := flagRows(p.Flags)
+	lw := 0
+	for _, r := range append(append([][2]string{}, p.Commands...), flags...) {
+		lw = max(lw, utf8.RuneCountInString(r[0])+4)
+	}
+	lw = min(lw, 30)
+	if len(p.Commands) > 0 {
+		secs = append(secs, "COMMANDS\n"+rowsText(p.Commands, lw))
+	}
+	if len(flags) > 0 {
+		secs = append(secs, "FLAGS\n"+rowsText(flags, lw))
+	}
+	if p.Hint != "" {
+		secs = append(secs, strings.TrimSuffix(p.Hint, "\n"))
+	}
+	Fprint(w, strings.Join(secs, "\n\n")+"\n")
+}
+
+// rowsText lays out rows under a shared label column, keeping 2+ spaces after an over-wide label.
+func rowsText(rows [][2]string, lw int) string {
+	var lines []string
+	for _, r := range rows {
+		label := "  " + r[0]
+		w := max(lw, utf8.RuneCountInString(label)+2)
+		lines = append(lines, WrapRow(label, r[1], w, 80)...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// flagRows turns fs's flags into one {label, description} row each, in VisitAll order.
+func flagRows(fs *flag.FlagSet) [][2]string {
+	if fs == nil {
+		return nil
+	}
+	var rows [][2]string
+	fs.VisitAll(func(f *flag.Flag) {
+		name, usage := flag.UnquoteUsage(f)
+		label := "--" + f.Name
+		if len(f.Name) == 1 {
+			label = "-" + f.Name
+		}
+		if name != "" {
+			label += " " + name
+		}
+		switch f.DefValue {
+		case "", "0", "false", "0s", "[]":
+		default:
+			if !strings.Contains(usage, "(default") {
+				if fmt.Sprintf("%T", f.Value) == "*flag.stringValue" {
+					usage += fmt.Sprintf(" (default %q)", f.DefValue)
+				} else {
+					usage += fmt.Sprintf(" (default %v)", f.DefValue)
+				}
+			}
+		}
+		rows = append(rows, [2]string{label, usage})
+	})
+	return rows
+}
+
+// ExitCode maps a FlagSet parse error to the verb's exit code: 0 after -h, 2 for a bad flag.
+func ExitCode(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	return 2
+}
+
+// Parse parses args into fs: (0,false) to continue, (0,true) after -h, (2,true) on a bad flag.
+func Parse(fs *flag.FlagSet, args []string) (code int, done bool) {
+	if err := fs.Parse(args); err != nil {
+		return ExitCode(err), true
+	}
+	return 0, false
+}
+
+// NewFlagSet builds a ContinueOnError FlagSet on stderr whose -h renders p with p.Flags set to it.
+func NewFlagSet(name string, p Page) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		Fprint(fs.Output(), usage)
-		Defaults(fs)
+		p.Flags = fs
+		p.Fprint(fs.Output())
 	}
 	return fs
 }

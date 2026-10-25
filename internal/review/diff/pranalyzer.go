@@ -2,7 +2,6 @@ package diff
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -425,21 +424,20 @@ func printPRReport(w io.Writer, r PRReport) {
 
 // RunPR ports pr_analyzer.py's CLI.
 func RunPR(args []string, stdout, stderr io.Writer) int {
-	positional, flagArgs := splitPositional(args, map[string]bool{"json": true})
-	fs := flag.NewFlagSet("pr", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	positional, flagArgs := splitPositional(args, map[string]bool{"json": true, "h": true, "help": true})
+	fs := helptext.NewFlagSet("pr", helptext.Page{
+		Usage: "claude-code review pr [<repo>] [flags]",
+		About: "Summarize a branch's changes against a base: files by category, risk, review order.",
+	})
 	fs.SetOutput(stderr)
 	base := fs.String("base", "main", "Base branch for comparison (default: main)")
-	fs.StringVar(base, "b", "main", "Base branch for comparison (default: main)")
+	fs.StringVar(base, "b", "main", "shorthand for --base")
 	head := fs.String("head", "HEAD", "Head branch/commit for comparison (default: HEAD)")
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	output := fs.String("output", "", "Write output to file")
-	fs.StringVar(output, "o", "", "Write output to file")
-	if err := fs.Parse(flagArgs); err != nil {
-		return 2
+	fs.StringVar(output, "o", "", "shorthand for --output")
+	if code, done := helptext.Parse(fs, flagArgs); done {
+		return code
 	}
 
 	repoArg := "."

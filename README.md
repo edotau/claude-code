@@ -103,7 +103,7 @@ replaces the built-in; `null` removes it).
 | `headers` | sent on every upstream request |
 
 ```bash
-claude-code profile [name]                          # providers, credential state, fallback ladder
+claude-code configure provider --list [name]        # providers, credential state, fallback ladder
 claude-code switch gateway                          # pin the session provider
 claude-code models --pin haiku=openai:gpt-5-nano    # pin a slot; provider:model crosses providers
 claude-code models --unpin | --live --provider p    # clear pins | list what upstream serves

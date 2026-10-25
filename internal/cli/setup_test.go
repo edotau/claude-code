@@ -8,8 +8,8 @@ import (
 )
 
 func TestCmdSetupNoArgs(t *testing.T) {
-	if got := cmdSetup(nil); got != 2 {
-		t.Fatalf("no-args exit = %d, want 2", got)
+	if got := cmdSetup(nil); got != 0 {
+		t.Fatalf("no-args exit = %d, want 0", got)
 	}
 }
 

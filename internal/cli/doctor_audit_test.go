@@ -74,8 +74,8 @@ func TestDoctorAuditRejectsNonPositiveDays(t *testing.T) {
 	if code != 2 {
 		t.Errorf("doctor --audit --days 0 = %d, want 2", code)
 	}
-	if !strings.Contains(stderr, "usage: claude-code doctor --audit") {
-		t.Errorf("stderr = %q, want the doctor --audit usage line", stderr)
+	if !strings.Contains(stderr, "usage: claude-code doctor") || !strings.Contains(stderr, "--audit") {
+		t.Errorf("stderr = %q, want the doctor usage and --audit flag", stderr)
 	}
 }
 

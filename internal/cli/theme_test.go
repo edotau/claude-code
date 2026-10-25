@@ -245,8 +245,8 @@ func TestThemeHelpListsNewSubVerbs(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"theme apply", "theme statusline", "theme vscode"} {
-		if !strings.Contains(stderr, want) {
+	for _, want := range []string{"apply", "statusline", "vscode"} {
+		if !strings.Contains(stderr, "\n  "+want+" ") {
 			t.Errorf("theme -h lacks %q: %q", want, stderr)
 		}
 	}

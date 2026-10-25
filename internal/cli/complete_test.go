@@ -120,8 +120,8 @@ func TestCompletionPositionals(t *testing.T) {
 	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
 		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())
 	}
-	if got := completionCandidates([]string{"profile", ""}); !slices.Equal(got, providerNames()) {
-		t.Errorf("profile values = %v, want %v", got, providerNames())
+	if got := completionCandidates([]string{"configure", ""}); !slices.Equal(got, configureSections()) {
+		t.Errorf("configure values = %v, want %v", got, configureSections())
 	}
 }
 
@@ -304,11 +304,12 @@ func TestCompletionHelpExitsZeroWithoutInstalling(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", dir)
 	for _, flagArg := range []string{"-h", "--help"} {
-		code, out, _ := captureOutput(t, func() int { return cmdCompletion([]string{flagArg}) })
+		code, stdout, stderr := captureOutput(t, func() int { return cmdCompletion([]string{flagArg}) })
+		out := stdout + stderr
 		if code != 0 {
 			t.Errorf("completion %s exit %d, want 0", flagArg, code)
 		}
-		if !strings.Contains(out, completionUsage) {
+		if !strings.Contains(out, "usage: "+completionPage.Usage) {
 			t.Errorf("completion %s missing usage line:\n%s", flagArg, out)
 		}
 	}

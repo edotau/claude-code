@@ -2,8 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -17,27 +15,22 @@ import (
 	"github.com/edotau/claude-code/internal/theme"
 )
 
-const themeStatuslineUsage = `usage: claude-code theme statusline [--style gradient|powerline|capsule|
-                                    minimal|dashboard]
+var themeStatuslinePage = helptext.Page{
+	Usage: "claude-code theme statusline [flags] < payload.json",
+	About: "Renders the status line from Claude Code's JSON on stdin (settings.json runs it).",
+}
 
-Renders the status line from Claude Code's JSON on stdin (settings.json runs it)
-
-`
-
-const themeUsage = `usage: claude-code theme [<palette>|--preview]
-       claude-code theme apply [--dry-run]
-       claude-code theme statusline [--style gradient|powerline|capsule|
-                                    minimal|dashboard]
-       claude-code theme vscode [--check] [--dry-run] [--dest f] [--template f]
-                                [--keybindings-dest f]
-                                [--keybindings-template f]
-                                [--extensions-dir d]
-
-bare shows this help and every palette; a name sets it. apply merges
-theme/<tool>.json into each tool. statusline renders the status line
-(settings.json runs it).
-
-`
+var themePage = helptext.Page{
+	Usage: "claude-code theme [<palette>|<command>] [flags]",
+	About: "Pick the status line's gradient palette and theme the tools around it. Bare shows this help " +
+		"and every palette; a palette name sets it.",
+	Commands: [][2]string{
+		{"apply", "merge theme/<tool>.json into each tool's config"},
+		{"statusline", "render the status line (settings.json runs it)"},
+		{"vscode", "merge the VS Code Machine settings + keybindings templates"},
+	},
+	Hint: "claude-code theme <command> -h lists that command's flags.",
+}
 
 // cmdTheme picks the statusline's gradient palette persistently. No argument (or --preview) lists
 // every palette, painted in its own gradient on a terminal; a name sets it; an unknown name exits 2.
@@ -45,23 +38,23 @@ func cmdTheme(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "statusline":
-			fs := helptext.NewFlagSet("theme statusline", themeStatuslineUsage)
+			fs := helptext.NewFlagSet("theme statusline", themeStatuslinePage)
 			return statusline.Run(fs, args[1:], os.Stdin, os.Stdout)
 		case "vscode":
 			return cmdVSCode(args[1:])
 		}
 	}
-	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("theme", themePage)
 	fs.Usage = func() { // help and the palettes it chooses from, so bare `theme` and `-h` show both
-		helptext.Fprint(os.Stderr, themeUsage)
+		p := themePage
+		p.Flags = fs
+		p.Fprint(os.Stderr)
+		fmt.Fprintln(os.Stderr)
 		printPalettes(os.Stderr, colorOK(os.Stderr))
 	}
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if len(fs.Args()) == 0 && !*preview {
 		fs.Usage()
@@ -151,14 +144,13 @@ func setGradient(name string) error {
 
 // themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json into that tool's config.
 func themeApply(args []string) int {
-	fs := flag.NewFlagSet("theme apply", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of theme apply:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("theme apply", helptext.Page{
+		Usage: "claude-code theme apply [flags]",
+		About: "Merge every theme/<tool>.json into that tool's config.",
+	})
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

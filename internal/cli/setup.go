@@ -4,7 +4,6 @@ package cli
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 
@@ -13,15 +12,21 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 )
 
-const setupUsage = `usage: claude-code install --setup <mode> [flags]
-  adopt --from DIR [--into DIR] [--dry-run] [--label S]
-  nuke [--dir DIR] [--apply] [--keep-memory] [--account] [--cli]
-  workspace init|link|status ...`
+var setupPage = helptext.Page{
+	Usage: "claude-code install --setup <mode> [flags]",
+	About: "Move a harness checkout in or out: adopt a staged clone, remove one, or scope a project's own .claude/.",
+	Commands: [][2]string{
+		{"adopt --from DIR", "adopt a staged clone into an existing ~/.claude"},
+		{"nuke", "remove the harness directory (dry-run without --apply)"},
+		{"workspace init|link|status", "scaffold, link into, or report a project .claude/"},
+	},
+	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
+}
 
 func cmdSetup(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, setupUsage+"\n")
-		return 2
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		setupPage.Fprint(os.Stderr)
+		return 0
 	}
 	switch args[0] {
 	case "adopt":
@@ -35,18 +40,16 @@ func cmdSetup(args []string) int {
 }
 
 func cmdSetupAdopt(args []string) int {
-	fs := flag.NewFlagSet("setup adopt", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of setup adopt:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("setup adopt", helptext.Page{
+		Usage: "claude-code install --setup adopt --from DIR [flags]",
+		About: "Adopt a staged clone into an existing ~/.claude, backing up what it replaces.",
+	})
 	from := fs.String("from", "", "the staged clone to adopt from")
 	into := fs.String("into", paths.ConfigDir(), "existing ~/.claude to adopt into")
 	dryRun := fs.Bool("dry-run", false, "report clashes and stop")
 	label := fs.String("label", "adopt", "backup directory label")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *from == "" {
 		fmt.Fprintln(os.Stderr, "claude-code: setup adopt: --from is required")
@@ -57,19 +60,18 @@ func cmdSetupAdopt(args []string) int {
 }
 
 func cmdSetupNuke(args []string) int {
-	fs := flag.NewFlagSet("setup nuke", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of setup nuke:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("setup nuke", helptext.Page{
+		Usage: "claude-code install --setup nuke [flags]",
+		About: "Remove the harness directory for a fresh start; a dry run unless --apply, " +
+			"which asks you to type the path to confirm.",
+	})
 	dir := fs.String("dir", paths.ConfigDir(), "the harness directory to remove")
 	apply := fs.Bool("apply", false, "actually remove it (dry-run without this flag)")
 	keepMemory := fs.Bool("keep-memory", false, "archive memory/, plans/, and any legacy memory dirs before removing")
 	account := fs.Bool("account", false, "report what removing the Claude Code account state would take")
 	removeCLI := fs.Bool("cli", false, "report what removing the Claude Code CLI install would take")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *account {
 		fmt.Printf("setup nuke --account is informational only; would remove %s\nreinstall: log in again with `claude-code configure`\n", paths.ClaudeJSON())

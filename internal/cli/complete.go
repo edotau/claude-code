@@ -241,7 +241,12 @@ func cmdComplete(args []string) int {
 	return 0
 }
 
-const completionUsage = "usage: claude-code completion [bash] [--install]"
+// completionPage: bare prints the script; zsh can source it after bashcompinit.
+var completionPage = helptext.Page{
+	Usage: "claude-code completion [bash] [flags]",
+	About: "Print the bash tab-completion script (eval or source it). zsh: run " +
+		"'autoload -U bashcompinit && bashcompinit', then source it.",
+}
 
 // cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
 // bash-completion user dir (internal/completion.Install).
@@ -252,11 +257,11 @@ func cmdCompletion(args []string) int {
 		case "bash": // the only shell; accepted for the conventional `completion bash` spelling
 		case "--install":
 			install = true
-		case "-h", "--help":
-			helptext.Fprint(os.Stdout, completionUsage+"\n")
-			helptext.Fprint(os.Stdout, "  (no flag)   print the bash completion script (eval or source it)\n")
-			helptext.Fprint(os.Stdout, "  --install   install bash completion for new shells\n")
-			helptext.Fprint(os.Stdout, "  zsh: run 'autoload -U bashcompinit && bashcompinit', then source it\n")
+		case "-h", "--help", "help":
+			fs := helptext.NewFlagSet("completion", completionPage)
+			fs.SetOutput(os.Stdout)
+			fs.Bool("install", false, "install bash completion for new shells")
+			fs.Usage()
 			return 0
 		default:
 			fmt.Fprintf(os.Stderr, "completion: unknown argument %q (try -h)\n", a)

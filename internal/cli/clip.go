@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 
@@ -13,17 +11,13 @@ import (
 // cmdClip saves the Windows clipboard image as a PNG and prints its WSL path, for @-reference when
 // WSL2 Ctrl+V image paste fails on the bridged BMP.
 func cmdClip(args []string) int {
-	fs := flag.NewFlagSet("clip", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage: claude-code clip\n"+
-			"  Saves the Windows clipboard image to a PNG and prints its WSL path.\n"+
-			"  Fallback for WSL2 Ctrl+V image paste.\n")
-	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	fs := helptext.NewFlagSet("clip", helptext.Page{
+		Usage: "claude-code clip",
+		About: "Saves the Windows clipboard image to a PNG and prints its WSL path. " +
+			"Fallback for WSL2 Ctrl+V image paste.",
+	})
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	path, dim, err := clipboard.Grab()
 	if err != nil {
@@ -37,17 +31,14 @@ func cmdClip(args []string) int {
 // cmdBMPTranscode pipes a WSLg-bridged BMP (stdin) to a decodable 24bpp BMP, or PNG with --png
 // (stdout); the wl-paste proxy calls it so native image paste can decode what WSLg hands over.
 func cmdBMPTranscode(args []string) int {
-	fs := flag.NewFlagSet("bmp-transcode", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of bmp-transcode (stdin BMP → stdout):\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("bmp-transcode", helptext.Page{
+		Usage: "claude-code bmp-transcode [flags] < in.bmp > out",
+		About: "Re-encode a WSLg-bridged BMP on stdin as a decodable 24bpp BMP on stdout; " +
+			"the wl-paste proxy calls it so native image paste works.",
+	})
 	asPNG := fs.Bool("png", false, "emit PNG instead of BMP (the image/png paste leg)")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	transcode := clipboard.Transcode
 	if *asPNG {

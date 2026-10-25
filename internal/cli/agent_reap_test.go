@@ -152,12 +152,17 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 }
 
 func TestAgentsUsageFits80(t *testing.T) {
-	for _, line := range strings.Split(agentsUsage, "\n") {
+	usage := renderHelpPage(agentsPage)
+	for _, line := range strings.Split(usage, "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("agentsUsage row is %d runes (>80): %q", n, line)
 		}
 	}
-	if !strings.Contains(agentsUsage, "agents reap") || !strings.Contains(agentsUsage, "--dry-run") {
-		t.Error("agentsUsage must document agents reap [--dry-run]")
+	if !strings.Contains(usage, "  reap") {
+		t.Error("agentsPage must document reap")
+	}
+	code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap", "-h"}) })
+	if code != 0 || !strings.Contains(stderr, "--dry-run") {
+		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
 	}
 }
