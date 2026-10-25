@@ -5,6 +5,7 @@ package hooks
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -49,10 +50,33 @@ var routeHint = func(tier string) (runner, model string) {
 	return res.Candidates[0].Runner, res.Candidates[0].Model
 }
 
+// billsSubscription is false only when the session provider is known and not passthrough (Databricks, an API key):
+// the cached claude.ai windows then describe a plan this session does not spend.
+func billsSubscription() bool {
+	name := providers.Pin(providers.PinProvider)
+	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
+		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
+			name, _, _ = strings.Cut(rest, "/")
+		}
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return true
+	}
+	if name == "" {
+		name = reg.Default
+	}
+	p := reg.Providers[name]
+	return p == nil || p.Auth.Type == providers.AuthPassthrough
+}
+
 // applyPressure rewrites updated under Anthropic quota pressure and returns the context note ("" = untouched).
 // An explicit dispatch model is never changed; base is the model the dispatch will run (classifier or roster pin).
 func applyPressure(in *Input, updated map[string]any, promptField, base string) (note, systemMessage string) {
 	if on, _ := providers.RouteSubagentsOn(); !on {
+		return "", ""
+	}
+	if os.Getenv(envTestPct) == "" && !billsSubscription() {
 		return "", ""
 	}
 	pct, window, ok := claudePressure()
