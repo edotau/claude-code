@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
@@ -233,8 +234,20 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 	if err != nil {
 		return env, argv, err
 	}
-	env, argv = applyLaunch(name, env, argv, h == nil)
-	return env, argv, nil
+	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect a vendor.
+	launchEnv, argv := applyLaunch(name, nil, argv, h == nil)
+	routeKeys := map[string]bool{}
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		routeKeys[k] = true
+	}
+	var out []string
+	for _, kv := range launchEnv {
+		if k, _, _ := strings.Cut(kv, "="); !routeKeys[k] {
+			out = append(out, kv)
+		}
+	}
+	return append(out, env...), argv, nil
 }
 
 // applyLaunch appends vendor's spec Launch.Env (always) and Launch.Args (only when args is true) to
@@ -288,22 +301,69 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 		return nil, nil, fmt.Errorf("%s: provider %s serves no %s route (it has %s)", name, p.Name,
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
-	cred, err := providers.Credential(ctx, p)
-	if errors.Is(err, providers.ErrPassthrough) {
+	if p.Auth.Type == providers.AuthPassthrough {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
-	if err != nil {
+	model := models.Strip1M(t.Model)
+	var cred string
+	var err error
+	routed := false
+	if p.Auth.Type != providers.AuthNone && !isDirect(ctx) {
+		// Keyed provider: the vendor gets the router base + router secret; the real credential stays in the router.
+		if p, base, cred, err = routerRoute(ctx, name, p, dialect); err != nil {
+			return nil, nil, err
+		}
+		routed = true
+	} else if cred, err = providers.Credential(ctx, p); err != nil {
 		return nil, nil, err
 	}
-	model := models.Strip1M(t.Model)
 	switch name {
 	case "codex":
 		return codex(p, base, model, cred, h)
 	case "opencode":
-		return opencode(p, dialect, base, model, cred, h)
+		return opencode(p, dialect, base, model, cred, routed, h)
 	default:
 		return copilot(p, dialect, base, model, cred, h)
 	}
+}
+
+// Router seams (tests stub these so no daemon is spawned).
+var (
+	ensureRouter = router.Ensure
+	routerSecret = router.ClientSecret
+)
+
+type directKey struct{}
+
+// WithDirect makes configure skip the router and hand the vendor the provider's own route and credential.
+func WithDirect(ctx context.Context) context.Context {
+	return context.WithValue(ctx, directKey{}, true)
+}
+
+func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
+
+// routerRoute ensures the router daemon and returns a header-free copy of p, the vendor's base for dialect
+// (shaped so the vendor's own path suffix lands on a router route), and the router secret as the vendor key.
+func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+	rb, err := ensureRouter(ctx)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%s: router: %w", vendor, err)
+	}
+	secret, err := routerSecret()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%s: router secret: %w", vendor, err)
+	}
+	sess := router.SessionBase(rb, p.Name)
+	base := sess
+	switch {
+	case vendor == "codex": // codex appends /responses to base_url
+		base = sess + "/" + providers.DialectResponses
+	case dialect == providers.DialectOpenAI, dialect == providers.DialectGemini:
+		base = sess + "/" + dialect
+	}
+	rp := *p
+	rp.Headers = nil // the router adds the provider's headers upstream
+	return &rp, base, secret, nil
 }
 
 // ownedID namespaces the provider entry so it never overwrites a user's own block of the same name.
@@ -489,7 +549,7 @@ func geminiLogin(model string, h *Headless) ([]string, []string, error) {
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
 // Interactive runs also list every tier model and import the caller's Claude permissions + MCP servers.
-func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
+func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *Headless) ([]string, []string, error) {
 	id, err := ownedID(p)
 	if err != nil {
 		return nil, nil, err
@@ -521,6 +581,14 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 		options["headers"] = headers
 	}
 	menu := opencodeModels(p, model, h)
+	if routed && dialect == providers.DialectAnthropic {
+		for id, m := range menu { // the router cannot relay fine-grained tool streaming
+			if entry, ok := m.(map[string]any); ok {
+				entry["options"] = map[string]any{"toolStreaming": false}
+				menu[id] = entry
+			}
+		}
+	}
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   id + "/" + model,
