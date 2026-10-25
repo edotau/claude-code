@@ -74,6 +74,7 @@ func renderOnce(claudeDir string, opts Options, format string, showAll bool, out
 	}
 	if opts.Running {
 		tree.Dispatches = RunningDispatches(now)
+		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
 	if format == outfmt.JSON {
 		return boolToExit(outfmt.Write(out, tree) == nil)

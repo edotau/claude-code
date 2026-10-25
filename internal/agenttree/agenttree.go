@@ -78,6 +78,11 @@ type Leg struct {
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
+
+	sessionID string    // dispatch record's session id; matches a duplicate session row
+	cwd       string    // dispatch workdir (repo fallback); matches a duplicate session row
+	started   time.Time // dispatch start; a matching session must be updated at or after it
+	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 }
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
