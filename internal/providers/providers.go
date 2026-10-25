@@ -51,6 +51,14 @@ type Provider struct {
 	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
 	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
 	OpencodeID string `json:"opencodeID,omitempty"`
+	// Preset names an expansion ("databricks") that derives kind/base_url/routes/auth/models/env at load.
+	Preset string `json:"preset,omitempty"`
+	// Host is the one workspace URL a preset derives from (https, no path).
+	Host string `json:"host,omitempty"`
+	// CLIProfile is the ~/.databrickscfg profile a databricks preset's auth commands use.
+	CLIProfile string `json:"cliProfile,omitempty"`
+	// Env is the non-secret launch env for sessions on this provider.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
@@ -73,6 +81,8 @@ type Auth struct {
 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
 	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
+	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
+	RefreshCommand string `json:"refreshCommand,omitempty"`
 }
 
 // APIKeyAuth reports whether p bills per token on a harness-held key, not a subscription login (ledger gate).
@@ -138,6 +148,8 @@ type Registry struct {
 	// Routing is the one routing object: weights, cell overrides, subagent offload and opencode's sub-pick
 	// knobs (was top-level route, routeWeights, opencodeLadder — internal/providers/routing.go).
 	Routing Routing `json:"routing,omitzero"`
+	// Profiles is the per-agent account/model/effort table (profiles.go); the zero value changes nothing.
+	Profiles Profiles `json:"profiles,omitzero"`
 }
 
 // RouteCell is one overlay cell for internal/route's table.
@@ -249,6 +261,7 @@ func (r *Registry) Validate() error {
 	}
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
+	errs = append(errs, validateProfiles(r)...)
 	if len(errs) > 0 {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}
@@ -277,6 +290,8 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
 		errs = append(errs, n+": auth.login needs auth.type passthrough")
 	}
+	errs = append(errs, validatePreset(n, p)...)
+	errs = append(errs, validateEnv(n, p.Env)...)
 	if p.OpencodeFallback == "auto" {
 		errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
 	}

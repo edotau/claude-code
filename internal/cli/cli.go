@@ -68,6 +68,7 @@ func commands() []command {
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
 		{name: "dispatch", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
+		{name: "profile", group: groupSession, summary: "per-agent account profiles: list, use, save, migrate", run: cmdProfile},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS
