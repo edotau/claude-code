@@ -143,6 +143,15 @@ func pick(tb *Table, tier, want string, st State, mode string) Result {
 	return tb.Pick(context.Background(), tier, want, st, Opts{Fallback: mode, Configured: allConfigured, Now: func() time.Time { return now0 }})
 }
 
+// pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
+func pickRepo(tb *Table, tier string, st State, work bool) Result {
+	if len(tb.OpencodeLadder) == 0 {
+		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; load(nil) has none
+	}
+	return tb.Pick(context.Background(), tier, "", st, Opts{Fallback: FallbackVendors, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
+}
+
 func runners(r Result) string {
 	var s []string
 	for _, c := range r.Candidates {
@@ -184,7 +193,7 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 		"gemini:antigravity": {UsedPct: 60, Seen: now0},
 		"opencode:go":        {UsedPct: 20, Seen: now0},
 	}
-	r := pick(tb, "sonnet", "", st, FallbackVendors)
+	r := pickRepo(tb, "sonnet", st, true) // work repo: no free leg, so opencode lands on its Go account
 	if got := runners(r); got != "codex,opencode,copilot,gemini" {
 		t.Errorf("order = %s (scores %+v)", got, r.Candidates)
 	}
@@ -193,7 +202,7 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 		t.Errorf("codex scores = %+v total %v", c.Scores, c.Total)
 	}
 	st["codex:chatgpt"] = Entry{UsedPct: 95, Seen: now0}
-	if got := runners(pick(tb, "sonnet", "", st, FallbackVendors)); !strings.HasSuffix(got, ",codex") {
+	if got := runners(pickRepo(tb, "sonnet", st, true)); !strings.HasSuffix(got, ",codex") {
 		t.Errorf("low codex must sort after every non-low runner: %s", got)
 	}
 	out, _ := json.Marshal(r)

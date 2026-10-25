@@ -74,7 +74,7 @@ func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error)
 		return Result{}, err
 	}
 	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream)
+	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream, nil)
 }
 
 // agyEvent mirrors agy's stream-json schema: one JSON object per line.
@@ -105,7 +105,8 @@ type agyEvent struct {
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
 // An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
-func parseAgyStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
+// onMeaningful is unused here (agy carries no stall watchdog); it only matches runEventStream's parse type.
+func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (Result, error) {
 	var res Result
 	lg := pickLog(logs)
 	var answer, pending strings.Builder

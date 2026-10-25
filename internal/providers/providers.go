@@ -129,7 +129,9 @@ type Registry struct {
 	Default   string               `json:"default"`
 	Fallback  []string             `json:"fallback,omitempty"`
 	Providers map[string]*Provider `json:"providers"`
-	// OpencodeLadder is the opencode hub's account order (provider names); a user overlay replaces it whole.
+	// OpencodeLadder orders opencode's own paid backends (sub ids, RouteOpencodeSubIDs) for the hub's
+	// sub-pick: the free Zen catalog always runs first regardless of this order (haiku/sonnet, never on a
+	// work repo), then this ladder. A user overlay replaces it whole.
 	OpencodeLadder []string `json:"opencodeLadder,omitempty"`
 	// OpencodePlugins renders opencode's own `plugin` config key; empty (the default) leaves it untouched.
 	OpencodePlugins []string `json:"opencodePlugins,omitempty"`
@@ -165,13 +167,20 @@ var RouteWeightNames = []string{"price", "headroom"}
 // also passes an overlay cell's account_key, since routetable adds the pinned gh user's key
 // (copilot:<user>, or CopilotUnpinned = "copilot:unpinned") dynamically at load, before any pin is known
 // here.
-var RouteBillingKeys = []string{"claude:max", "codex:chatgpt", "gemini:antigravity", "opencode:go", "opencode:github-copilot"}
+var RouteBillingKeys = []string{"claude:max", "codex:chatgpt", "gemini:antigravity", "opencode:go",
+	"opencode:github-copilot", "opencode:openai", "opencode:nvidia", "opencode:zen-free"}
 
 // RouteOpencodeModelPrefixes are the model prefixes an opencode override cell may carry without an explicit
 // account_key: opencode-go/opencode keep the table's own opencode:go account, github-copilot bills
-// opencode's own Copilot login (opencode:github-copilot) — kept in sync with internal/routetable's
-// opencodeOverrideAccount, which owns the actual account-key mapping.
-var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot"}
+// opencode's own Copilot login (opencode:github-copilot), openai/nvidia bill their own opencode logins —
+// kept in sync with internal/routetable's opencodeOverrideAccount, which owns the actual account-key mapping.
+var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
+
+// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name: opencode's own plan (opencode-go) has
+// no registry provider, every other id matches some provider's opencodeID (github-copilot, openai, nvidia).
+// zen-free is not here — it always runs first and is never ladder-ordered. Kept in sync with
+// internal/routetable's table.json opencode_sub keys (minus zen-free).
+var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
 // validRouteAccountKey reports whether key is a known static billing key or the "copilot:" dynamic family.
 func validRouteAccountKey(key string) bool {
@@ -298,7 +307,29 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	return errs
 }
 
-// validateNameRefs checks default/fallback/opencodeLadder names against known providers.
+// NormalizeOpencodeLadder maps each OpencodeLadder entry that names a registry provider (e.g. a legacy
+// "chatgpt") to that provider's own OpencodeID (e.g. "openai"), so the ladder always carries sub ids; an
+// entry that is already a sub id, or names nothing in r.Providers, passes through unchanged (Validate
+// catches a truly unknown id). Duplicates after mapping are dropped, first occurrence wins. Called from
+// Parse before Validate, so a legacy provider-name entry normalizes before it is checked.
+func NormalizeOpencodeLadder(r *Registry) []string {
+	seen := make(map[string]bool, len(r.OpencodeLadder))
+	out := make([]string, 0, len(r.OpencodeLadder))
+	for _, id := range r.OpencodeLadder {
+		if p, ok := r.Providers[id]; ok && p.OpencodeID != "" {
+			id = p.OpencodeID
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// validateNameRefs checks default/fallback names against known providers, and opencodeLadder names
+// against the known opencode sub ids (RouteOpencodeSubIDs) — opencode-go has no registry provider.
 func validateNameRefs(r *Registry) []string {
 	var errs []string
 	for _, n := range append([]string{r.Default}, r.Fallback...) {
@@ -307,8 +338,8 @@ func validateNameRefs(r *Registry) []string {
 		}
 	}
 	for _, n := range r.OpencodeLadder {
-		if _, ok := r.Providers[n]; !ok {
-			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown provider %q", n))
+		if !slices.Contains(RouteOpencodeSubIDs, n) {
+			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown opencode sub id %q (%s)", n, strings.Join(RouteOpencodeSubIDs, ", ")))
 		}
 	}
 	return errs

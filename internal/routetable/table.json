@@ -1,5 +1,5 @@
 {
-  "_source": "prices per 1M tokens, USD. copilot seeded 2026-10-25 from docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing (claude-opus-5.5 4.00/0.20/20.00, claude-sonnet-5.5 2.00/0.10/10.00, claude-haiku-5.5 0.10/0.01/0.50). The four subscription runners (claude:max, codex:chatgpt, gemini:antigravity, opencode:go) stay 0 by design: their cost is window share, already captured by the headroom dimension, not a missing price. Every other 0 is not yet seeded from the vendor's published price page (anthropic.com/pricing, openai.com/api/pricing, ai.google.dev/pricing).",
+  "_source": "prices per 1M tokens, USD. copilot seeded 2026-10-25 from docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing (claude-opus-5.5 4.00/0.20/20.00, claude-sonnet-5.5 2.00/0.10/10.00, claude-haiku-5.5 0.10/0.01/0.50); opencode_sub.github-copilot mirrors it (same billing account, opencode's own Copilot login). The subscription runners (claude:max, codex:chatgpt, gemini:antigravity, opencode:go, opencode:openai) stay 0 by design: their cost is window share, already captured by the headroom dimension, not a missing price. opencode:zen-free is a free third-party endpoint (billing \"free\", never a work-repo prompt, never opus). Every other 0 (opencode:nvidia) is not yet seeded from the vendor's published price page (anthropic.com/pricing, openai.com/api/pricing, ai.google.dev/pricing, build.nvidia.com).",
   "weights": {"price": 0.5, "headroom": 0.5},
   "billing": {
     "claude:max": "subscription",
@@ -7,7 +7,10 @@
     "gemini:antigravity": "subscription",
     "copilot": "credits",
     "opencode:go": "subscription",
-    "opencode:github-copilot": "credits"
+    "opencode:github-copilot": "credits",
+    "opencode:openai": "subscription",
+    "opencode:nvidia": "credits",
+    "opencode:zen-free": "free"
   },
   "rows": {
     "claude": {
@@ -34,6 +37,32 @@
       "opus": {"model": "gemini-4-argon", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "sonnet": {"model": "gemini-3.8-flash", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "haiku": {"model": "gemini-3.5-flash-lite", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    }
+  },
+  "opencode_sub": {
+    "zen-free": {
+      "sonnet": {"model": "opencode/deepseek-v4.1-flash-free", "account_key": "opencode:zen-free", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "opencode/glm-5.3-flash-free", "account_key": "opencode:zen-free", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "opencode-go": {
+      "opus": {"model": "opencode-go/kimi-k3.1-pro", "effort": "max", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "opencode-go/kimi-k3.1-pro", "effort": "high", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "opencode-go/qwen3.8-flash", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "github-copilot": {
+      "opus": {"model": "github-copilot/claude-opus-5.5", "account_key": "opencode:github-copilot", "price": {"in": 4.00, "cached_in": 0.20, "out": 20.00}},
+      "sonnet": {"model": "github-copilot/claude-sonnet-5.5", "account_key": "opencode:github-copilot", "price": {"in": 2.00, "cached_in": 0.10, "out": 10.00}},
+      "haiku": {"model": "github-copilot/claude-haiku-5.5", "account_key": "opencode:github-copilot", "price": {"in": 0.10, "cached_in": 0.01, "out": 0.50}}
+    },
+    "openai": {
+      "opus": {"model": "openai/gpt-6.1-sol", "effort": "high", "account_key": "opencode:openai", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "openai/gpt-6.1-sol", "account_key": "opencode:openai", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "openai/gpt-6-luna", "account_key": "opencode:openai", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "nvidia": {
+      "opus": {"model": "nvidia/z-ai/glm-5.3", "account_key": "opencode:nvidia", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "nvidia/z-ai/glm-5.3", "account_key": "opencode:nvidia", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "nvidia/z-ai/glm-5.3", "account_key": "opencode:nvidia", "price": {"in": 0, "cached_in": 0, "out": 0}}
     }
   }
 }

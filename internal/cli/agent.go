@@ -92,7 +92,7 @@ func cmdAsk(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native)
+	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native, *workdir)
 	if err != nil {
 		return fail("ask: %v", err)
 	}
@@ -316,7 +316,9 @@ func resolveAskPrompt(prompt string) (string, error) {
 
 // resolveAskChain looks up the named runner and routes it: an explicit backend (--provider, provider:model) or the
 // api runner runs alone; otherwise the tier comes from --model, else the task classifier, and route picks the legs.
-func resolveAskChain(name, provider, model, prompt, fallback string, native bool) (agent.Runner, agent.Chain, error) {
+// workDir is the request's own --workdir ("" means the process cwd), so the opencode free-Zen gate checks the
+// repo the leg will actually run in, not the harness's own cwd.
+func resolveAskChain(name, provider, model, prompt, fallback string, native bool, workDir string) (agent.Runner, agent.Chain, error) {
 	r, err := agent.Lookup(name)
 	if err != nil {
 		return nil, agent.Chain{}, err
@@ -345,7 +347,7 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 		tier = hooks.RuleClassifier{}.Tier(prompt)
 	}
 	chain, _, err := agent.RouteChain(context.Background(), name, tier, fallback, model != "", native,
-		route.Opts{Refresh: routeRefresh})
+		route.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return route.IsWorkRepo(workDir) }})
 	return r, chain, err
 }
 

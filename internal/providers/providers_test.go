@@ -109,17 +109,44 @@ func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	t.Setenv(PinProvider, "")
 	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
 		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
-		"opencodeLadder": ["a"], "opencodePlugins": ["old-plugin"]}`)
-	overlay := []byte(`{"opencodeLadder": ["b", "a"], "opencodePlugins": ["new-plugin"]}`)
+		"opencodeLadder": ["opencode-go"], "opencodePlugins": ["old-plugin"]}`)
+	overlay := []byte(`{"opencodeLadder": ["openai", "opencode-go"], "opencodePlugins": ["new-plugin"]}`)
 	reg, err := Parse(base, overlay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"b", "a"}) {
+	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"openai", "opencode-go"}) {
 		t.Errorf("OpencodeLadder = %v, want overlay's full replacement", reg.OpencodeLadder)
 	}
 	if !reflect.DeepEqual(reg.OpencodePlugins, []string{"new-plugin"}) {
 		t.Errorf("OpencodePlugins = %v, want overlay's full replacement", reg.OpencodePlugins)
+	}
+}
+
+// TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates: an overlay ladder may still name a
+// registry provider ("chatgpt") instead of its opencode sub id ("openai") — Parse must map it through
+// NormalizeOpencodeLadder before Validate ever sees it, and a duplicate that only appears after normalizing
+// (two "chatgpt" entries, or a "chatgpt"/"openai" collision) must collapse to one, first occurrence wins.
+func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv(PinProvider, "")
+	base := []byte(`{"providers": {
+		"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"},
+		"github-copilot": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}
+	}, "opencodeLadder": ["opencode-go"]}`)
+	overlay := []byte(`{"opencodeLadder": ["chatgpt", "github-copilot", "chatgpt"]}`)
+	reg, err := Parse(base, overlay)
+	if err != nil {
+		t.Fatalf("Parse() = %v, want the legacy provider-name ladder to normalize and validate", err)
+	}
+	if !reflect.DeepEqual(reg.OpencodeLadder, []string{"openai", "github-copilot"}) {
+		t.Errorf("OpencodeLadder = %v, want [\"openai\", \"github-copilot\"] (normalized, deduplicated)", reg.OpencodeLadder)
+	}
+
+	// an id that names nothing real must still fail validation after normalization.
+	badOverlay := []byte(`{"opencodeLadder": ["ghost"]}`)
+	if _, err := Parse(base, badOverlay); err == nil {
+		t.Error("an unknown opencodeLadder id must still error after normalization")
 	}
 }
 
@@ -129,8 +156,16 @@ func TestValidateRejectsUnknownOpencodeLadderName(t *testing.T) {
 	if err == nil {
 		t.Fatal("unknown opencodeLadder name must fail validation")
 	}
-	if !strings.Contains(err.Error(), "opencodeLadder names unknown provider") {
+	if !strings.Contains(err.Error(), "opencodeLadder names unknown opencode sub id") {
 		t.Errorf("error = %q, want it to name the opencodeLadder rule", err)
+	}
+}
+
+// TestValidateAcceptsOpencodeSubIDsWithoutProviders: ladder entries are opencode sub ids, not registry provider names.
+func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
+	reg := &Registry{OpencodeLadder: []string{"opencode-go", "github-copilot", "openai"}, Providers: map[string]*Provider{}}
+	if err := reg.Validate(); err != nil {
+		t.Fatalf("default-order sub ids rejected: %v", err)
 	}
 }
 

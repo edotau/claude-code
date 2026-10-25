@@ -61,6 +61,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
+	reg.OpencodeLadder = NormalizeOpencodeLadder(&reg) // legacy provider-name ladder entries, before Validate
 	return &reg, reg.Validate()
 }
 

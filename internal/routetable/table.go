@@ -24,10 +24,11 @@ var Tiers = providers.RouteTiers
 // Runners are the table's columns in roster order; ties in a pick's cost score keep this order.
 var Runners = providers.RouteRunners
 
-// Billing types: a plan window already paid for, or per-use credits.
+// Billing types: a plan window already paid for, per-use credits, or a free third-party endpoint.
 const (
 	BillSubscription = "subscription"
 	BillCredits      = "credits"
+	BillFree         = "free"
 )
 
 // Price is USD per 1M tokens.
@@ -50,6 +51,15 @@ type Table struct {
 	Billing map[string]string          `json:"billing"`
 	Weights map[string]float64         `json:"weights"`
 	Rows    map[string]map[string]Cell `json:"rows"`
+	// OpencodeSub are opencode's own sub-candidates, keyed by sub id (opencode-go, github-copilot, openai,
+	// nvidia, zen-free) then tier; a missing tier (zen-free has no "opus") means that id never serves it.
+	OpencodeSub map[string]map[string]Cell `json:"opencode_sub,omitempty"`
+	// OpencodeLadder is the sub-pick's paid-backend order (set from the registry in LoadFrom, not JSON):
+	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
+	OpencodeLadder []string `json:"-"`
+	// OpencodeRowOverridden marks a tier whose Rows["opencode"] cell a route overlay touched directly (set
+	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that tier.
+	OpencodeRowOverridden map[string]bool `json:"-"`
 }
 
 // CopilotUnpinned is the copilot account key when no gh user is pinned; route's account gate drops it.
@@ -74,16 +84,23 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	}
 	t.Billing[copilotKey] = t.Billing["copilot"]
 	if reg != nil {
+		t.OpencodeRowOverridden = map[string]bool{}
 		for runner, tiers := range reg.Route {
 			for tier, o := range tiers {
 				if err := t.applyRouteOverlayCell(runner, tier, o); err != nil {
 					return nil, err
+				}
+				if runner == "opencode" {
+					t.OpencodeRowOverridden[tier] = true
 				}
 			}
 		}
 	}
 	if reg != nil && len(reg.RouteWeights) > 0 {
 		t.Weights = reg.RouteWeights // an overlay replaces the weights whole, so they still sum to 1
+	}
+	if reg != nil {
+		t.OpencodeLadder = reg.OpencodeLadder // already normalized to sub ids by providers.Parse
 	}
 	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
 		return nil, fmt.Errorf("routetable: %w", err)
@@ -155,6 +172,10 @@ func opencodeOverrideAccount(prefix string) (string, error) {
 		return "opencode:go", nil
 	case "github-copilot":
 		return "opencode:github-copilot", nil
+	case "openai":
+		return "opencode:openai", nil
+	case "nvidia":
+		return "opencode:nvidia", nil
 	default:
 		return "", fmt.Errorf("model prefix %q has no known billing account; set account_key explicitly", prefix)
 	}
@@ -163,6 +184,13 @@ func opencodeOverrideAccount(prefix string) (string, error) {
 // Cell returns the runner's row at tier; ok is false for an unknown runner or tier.
 func (t *Table) Cell(runner, tier string) (Cell, bool) {
 	c, ok := t.Rows[runner][tier]
+	return c, ok
+}
+
+// OpencodeSubCell returns opencode's sub-candidate id's row at tier; ok is false when id serves no row at
+// that tier (zen-free has no "opus" row — that is how it stays out of the opus tier, not a tier check).
+func (t *Table) OpencodeSubCell(id, tier string) (Cell, bool) {
+	c, ok := t.OpencodeSub[id][tier]
 	return c, ok
 }
 

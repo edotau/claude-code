@@ -1,7 +1,7 @@
 {
   "default": "subscription",
   "fallback": [],
-  "opencodeLadder": ["chatgpt", "github-copilot", "nvidia"],
+  "opencodeLadder": ["opencode-go", "github-copilot", "openai"],
   "providers": {
     "anthropic": {
       "kind": "anthropic",

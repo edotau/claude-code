@@ -328,6 +328,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		}
 		res, err = Run(ctx, leg.Runner, legRequest(req, leg, i == 0 && leg.Runner.Name() == c.Want), stream, notify)
 		noteQuota(leg, err)
+		noteStall(leg, err)
 		prev = leg.Runner
 		if i == 0 && ExplicitBackend(req) {
 			break

@@ -198,8 +198,8 @@ func emptyAnswer(name string) error {
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
-	parse func(io.Reader, io.Writer, ...eventLog) (Result, error)) (Result, error) {
-	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse)
+	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error)) (Result, error) {
+	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse, nil)
 	res.Answer, res.Usage = out.Answer, out.Usage
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
@@ -209,8 +209,11 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 
 // runEventStream runs cmd to completion, decoding its stdout via parse while streaming text live;
 // shared by vendorRunner.runStream (opencode) and RunAgy (agy's own exec, no vendors.Configure argv).
+// onMeaningful, when non-nil, is passed through to parse, which calls it once on the stream's first
+// meaningful model event (never on raw bytes, so bookkeeping-only events can't disarm it) — the free-leg
+// stall watchdog's cue.
 func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, stream io.Writer,
-	parse func(io.Reader, io.Writer, ...eventLog) (Result, error)) (Result, error) {
+	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -219,7 +222,8 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
-	out, perr := parse(stdout, stream, eventLogFor(ctx)) // the parser writes formatted event lines to the dispatch log
+	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
+	out, perr := parse(stdout, stream, onMeaningful, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID = out.Answer, out.Usage, out.SessionID
@@ -236,7 +240,11 @@ type openCodeEvent struct {
 	Type      string `json:"type"`
 	SessionID string `json:"sessionID"`
 	Part      struct {
-		Text   string `json:"text"`
+		Text  string `json:"text"`
+		Tool  string `json:"tool"`
+		State struct {
+			Status string `json:"status"`
+		} `json:"state"`
 		Tokens struct {
 			Input, Output, Reasoning int
 			Cache                    struct{ Read, Write int }
@@ -250,12 +258,31 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
+// isMeaningfulOpenCodeEvent reports whether ev is real model output, not stream bookkeeping (step_start)
+// or an empty placeholder part. text/reasoning need non-empty trimmed Part.Text; tool needs a non-empty
+// Part.Tool name or Part.State.Status; any type counts if it carries output tokens (step_finish).
+func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
+	switch ev.Type {
+	case "text", "reasoning":
+		if strings.TrimSpace(ev.Part.Text) != "" {
+			return true
+		}
+	case "tool":
+		if ev.Part.Tool != "" || ev.Part.State.Status != "" {
+			return true
+		}
+	}
+	return ev.Part.Tokens.Output > 0
+}
+
 // parseOpenCodeStream streams the root session's text parts (opencode filters subagents); error events go to stdout.
-// An optional eventLog gets one line per text part, step_finish usage and error.
-func parseOpenCodeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
+// An optional eventLog gets one line per text part, step_finish usage and error. onMeaningful, when non-nil,
+// fires once on the stream's first meaningful event (isMeaningfulOpenCodeEvent) — never on step_start alone.
+func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (Result, error) {
 	var res Result
 	lg := pickLog(logs)
 	var texts, errs []string
+	fired := false
 	dec := json.NewDecoder(r)
 	for {
 		var ev openCodeEvent
@@ -266,6 +293,10 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, er
 		}
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
+		}
+		if !fired && onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
+			fired = true
+			onMeaningful()
 		}
 		switch ev.Type {
 		case "text":

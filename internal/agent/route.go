@@ -81,7 +81,7 @@ func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, nat
 				c.Skipped = append(c.Skipped, "opencode: "+err.Error())
 				continue
 			}
-			leg.Runner, leg.Model = r, model
+			leg.Runner, leg.Model = watchFreeLeg(r, cand.Billing), model
 		default:
 			r, err := Lookup(cand.Runner)
 			if err != nil {
@@ -92,6 +92,18 @@ func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, nat
 		c.Legs = append(c.Legs, leg)
 	}
 	return c, pick, nil
+}
+
+// watchFreeLeg sets the stall watchdog on r when billing is free; any other runner (or billing) passes through.
+func watchFreeLeg(r Runner, billing string) Runner {
+	if billing != route.BillFree {
+		return r
+	}
+	if hl, ok := r.(hubLeg); ok {
+		hl.firstOutput = freeFirstOutput
+		return hl
+	}
+	return r
 }
 
 // resolveAccount is the account a runner's leg actually bills: "" keeps the table's key (the runner's own login or
@@ -210,4 +222,14 @@ func noteQuota(leg Leg, err error) {
 	now := time.Now()
 	until := route.ResetFor(err.Error(), leg.Billing, loadState()[leg.Account], now)
 	_ = markExhausted(leg.Account, until, now, fallbackReason(err)) // best-effort: the run's own error still reports it
+}
+
+// noteStall remembers a stalled free leg for 15 minutes, so the sub-pick skips it instead of hanging again.
+func noteStall(leg Leg, err error) {
+	if leg.Account == "" || !errors.Is(err, errStalled) {
+		return
+	}
+	now := time.Now()
+	reason := fmt.Sprintf("free leg stalled (no output in %s)", freeFirstOutput)
+	_ = markExhausted(leg.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
 }
