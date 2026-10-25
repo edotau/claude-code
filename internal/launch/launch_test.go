@@ -111,6 +111,18 @@ func TestParseArgsKeepEnv(t *testing.T) {
 	}
 }
 
+func TestConfigDirIsDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for dir, want := range map[string]bool{"": false, filepath.Join(home, ".claude"): true,
+		filepath.Join(home, ".claude") + "/": true, filepath.Join(home, "wt"): false} {
+		t.Setenv("CLAUDE_CONFIG_DIR", dir)
+		if got := configDirIsDefault(); got != want {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q: got %v, want %v", dir, got, want)
+		}
+	}
+}
+
 func TestClaudeDirect(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},

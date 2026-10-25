@@ -148,6 +148,9 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
+	if configDirIsDefault() {
+		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
+	}
 	setModelSlotEnv(&plan, sel)
 	main := models.Opus
 	if o.Tier != "" {
@@ -165,6 +168,13 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	return plan, nil
+}
+
+// configDirIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.
+func configDirIsDefault() bool {
+	home, err := os.UserHomeDir()
+	d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
+	return err == nil && d != "" && filepath.Clean(d) == filepath.Join(home, ".claude")
 }
 
 // setModelSlotEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every slot the selection resolved.
