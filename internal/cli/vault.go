@@ -25,6 +25,7 @@ var vaultPage = helptext.Page{
 	Commands: [][2]string{
 		{"list", "everything stored, secrets first (masked); --format json"},
 		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
+		{"login", "sign in (u2m provider rows) and seal the refresh token"},
 		{"get", "print secret values; --export for shell, --key for master"},
 		{"delete", "remove a secret"},
 		{"import", "seal every NAME=value line of a .env file"},
@@ -37,7 +38,7 @@ var vaultPage = helptext.Page{
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
-	"list": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
+	"list": vaultList, "set": cmdVaultSet, "login": cmdVaultLogin, "get": cmdVaultGet, "delete": cmdVaultDelete,
 	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
 }
 

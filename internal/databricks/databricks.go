@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
@@ -46,7 +48,21 @@ var spawn = func(bin string, argv, env []string, stdin io.Reader, stdout, stderr
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	// The tty already delivers SIGINT to the child; the parent only survives it and forwards SIGTERM.
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	go func() {
+		for s := range sigs {
+			if s == syscall.SIGTERM {
+				_ = cmd.Process.Signal(s)
+			}
+		}
+	}()
+	err := cmd.Wait()
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		return ee.ExitCode(), nil
 	}
@@ -66,6 +82,12 @@ func Run(args []string) int {
 	}
 	if len(args) > 0 && args[0] == "agents" {
 		return agents(args[1:])
+	}
+	if len(args) > 0 && args[0] == "config" {
+		return config(args[1:])
+	}
+	if len(args) > 0 && args[0] == "rescue" {
+		return rescue(args[1:])
 	}
 	p, err := plan(args)
 	if err != nil {
@@ -195,16 +217,22 @@ func agentsEnv(args []string) (string, error) {
 			return "", fmt.Errorf("unexpected argument %q", a)
 		}
 	}
+	env = envOrDefault(env)
+	if !slices.Contains(providers.DatabricksEnvs, env) {
+		return "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
+	}
+	return env, nil
+}
+
+// envOrDefault is env, else the env of HARNESS_PROVIDER (the only var read) when it is databricks-<env>, else qa.
+func envOrDefault(env string) string {
 	if env == "" {
 		env = envFromProvider(os.Getenv("HARNESS_PROVIDER"))
 	}
 	if env == "" {
 		env = defaultEnv
 	}
-	if !slices.Contains(providers.DatabricksEnvs, env) {
-		return "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
-	}
-	return env, nil
+	return env
 }
 
 // envFromProvider returns <env> from databricks-<env>[-oai], else "".
@@ -302,6 +330,7 @@ var page = helptext.Page{
 	About: "Launch Claude Code on Databricks model serving. MODEL defaults to databricks-claude-opus-5-5[1m]. " +
 		"opus, sonnet, haiku and databricks-claude-* use the Anthropic passthrough (databricks-<env>); " +
 		"other endpoints go through the router (databricks-<env>-oai twin, else databricks-<env> via its openai route). " +
+		"config <claude|codex> renders a ready-to-use config; rescue runs claude on a scratch one. " +
 		"agents on [--env E] = profile use databricks-<env>; agents off = profile off; agents status = profile show. " +
 		"check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
 }

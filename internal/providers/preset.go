@@ -70,16 +70,10 @@ func expandDatabricks(p *Provider) {
 	if p.Kind == "" {
 		p.Kind = DialectAnthropic
 	}
-	if p.BaseURL == "" {
-		p.BaseURL = host + "/serving-endpoints/anthropic"
-	}
-	for _, d := range []string{DialectOpenAI, DialectResponses} {
-		if p.Routes[d] == "" {
-			p.Routes = withKey(p.Routes, d, host+"/serving-endpoints")
-		}
-	}
-	if p.ModelPrefix == "" {
-		p.ModelPrefix = databricksModelPrefix
+	if p.isGateway() {
+		expandGateway(p, host)
+	} else {
+		expandServing(p, host)
 	}
 	if p.Auth.Type == "" {
 		p.Auth.Type = AuthBearer
@@ -98,12 +92,51 @@ func expandDatabricks(p *Provider) {
 	if p.CLIProfile == "" || !cliProfileRE.MatchString(p.CLIProfile) {
 		return
 	}
-	mint := "databricks auth token -p " + p.CLIProfile
+	cmd, refresh := DatabricksCLICommands(p.CLIProfile)
 	if p.Auth.Command == "" {
-		p.Auth.Command = mint + " -o json | jq -r .access_token"
+		p.Auth.Command = cmd
 	}
 	if p.Auth.RefreshCommand == "" {
-		p.Auth.RefreshCommand = mint + " --force-refresh -o json | jq -r .access_token"
+		p.Auth.RefreshCommand = refresh
+	}
+}
+
+// DatabricksCLICommands are the auth.command / auth.refreshCommand a cliProfile derives.
+func DatabricksCLICommands(profile string) (command, refresh string) {
+	mint := "databricks auth token -p " + profile
+	return mint + " -o json | jq -r .access_token", mint + " --force-refresh -o json | jq -r .access_token"
+}
+
+// ValidID reports whether s is a legal provider row id / cliProfile name.
+func ValidID(s string) bool { return cliProfileRE.MatchString(s) }
+
+func expandServing(p *Provider, host string) {
+	if p.BaseURL == "" {
+		p.BaseURL = host + "/serving-endpoints/anthropic"
+	}
+	for _, d := range []string{DialectOpenAI, DialectResponses} {
+		if p.Routes[d] == "" {
+			p.Routes = withKey(p.Routes, d, host+"/serving-endpoints")
+		}
+	}
+	if p.ModelPrefix == "" {
+		p.ModelPrefix = databricksModelPrefix
+	}
+}
+
+// expandGateway derives the AI Gateway wire: Claude on /ai-gateway/anthropic, responses on /ai-gateway/codex/v1.
+func expandGateway(p *Provider, host string) {
+	if p.BaseURL == "" {
+		p.BaseURL = host + "/ai-gateway/anthropic"
+	}
+	if p.Routes[DialectResponses] == "" {
+		p.Routes = withKey(p.Routes, DialectResponses, host+"/ai-gateway/codex/v1")
+	}
+	if p.ModelPrefix == "" {
+		p.ModelPrefix = gatewayModelPrefix
+	}
+	if p.Headers[gatewayModeHeader] == "" {
+		p.Headers = withKey(p.Headers, gatewayModeHeader, "true")
 	}
 }
 
@@ -132,6 +165,9 @@ func validatePreset(n string, p *Provider) []string {
 	}
 	if p.CLIProfile != "" && !cliProfileRE.MatchString(p.CLIProfile) {
 		errs = append(errs, fmt.Sprintf("%s: cliProfile %q must match [A-Za-z0-9_-]+", n, p.CLIProfile))
+	}
+	if w := p.Options.Wire; w != "" && w != WireServing && w != WireGateway {
+		errs = append(errs, fmt.Sprintf("%s: options.wire %q must be %s or %s", n, w, WireServing, WireGateway))
 	}
 	return errs
 }

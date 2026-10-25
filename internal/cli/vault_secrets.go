@@ -157,6 +157,9 @@ func cmdVaultDelete(args []string) int {
 // cmdVaultImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
 // "-" reads stdin: no confirm prompt can read the data stream, so it needs --yes and refuses a terminal.
 func cmdVaultImport(args []string) int {
+	if wantsDBXImport(args) {
+		return cmdVaultImportDBX(args)
+	}
 	fs := helptext.NewFlagSet("vault import", helptext.Page{
 		Usage: "claude-code vault import FILE|- [flags]",
 		About: "Store each NAME=value line of a .env (# lines skipped); - reads stdin.",

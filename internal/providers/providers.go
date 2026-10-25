@@ -61,6 +61,8 @@ type Provider struct {
 	Env map[string]string `json:"env,omitempty"`
 	// ModelPrefix decorates canonical model ids to this provider's wire ids (databricks preset: "databricks-").
 	ModelPrefix string `json:"modelPrefix,omitempty"`
+	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
+	Options Options `json:"options,omitzero"`
 }
 
 const oneMMarker = "[1m]"
@@ -79,9 +81,7 @@ func (p Provider) WireModel(id string) string {
 		return id
 	}
 	base = p.ModelPrefix + base
-	if p.Preset == PresetDatabricks {
-		base = strings.ReplaceAll(base, ".", "-")
-	}
+	base = p.presetWireID(base)
 	if oneM {
 		base += oneMMarker
 	}
@@ -123,6 +123,12 @@ type Auth struct {
 	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
+	// AuthType picks the mint path (Databricks SDK names): databricks-cli | oauth-m2m | pat; "" keeps env/file/command.
+	AuthType string `json:"authType,omitempty"`
+	ClientID string `json:"clientId,omitempty"` // oauth-m2m service-principal client id (not secret)
+	// AccountID and WorkspaceID are non-secret Databricks ids; stored and shown in --list json, no behavior uses them yet.
+	AccountID   string `json:"accountId,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
 }
 
 // APIKeyAuth reports whether p bills per token on a harness-held key, not a subscription login (ledger gate).
@@ -299,6 +305,7 @@ func (r *Registry) Validate() error {
 	for _, n := range r.Names() {
 		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
+	errs = append(errs, validateSecretNames(r)...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
 	errs = append(errs, validateProfiles(r)...)
@@ -306,6 +313,24 @@ func (r *Registry) Validate() error {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateSecretNames rejects two sealed-authType providers whose derived secret names collide.
+func validateSecretNames(r *Registry) []string {
+	var errs []string
+	owner := map[string]string{}
+	for _, n := range r.Names() {
+		name := authSecretName(r.Providers[n])
+		if name == "" {
+			continue
+		}
+		if o, ok := owner[name]; ok {
+			errs = append(errs, fmt.Sprintf("%s and %s would share sealed secret %s; rename one", o, n, name))
+			continue
+		}
+		owner[name] = n
+	}
+	return errs
 }
 
 // validateProvider checks one provider's dialect, routes, and auth shape.
@@ -330,6 +355,7 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
 		errs = append(errs, n+": auth.login needs auth.type passthrough")
 	}
+	errs = append(errs, validateAuthType(n, p)...)
 	errs = append(errs, validatePreset(n, p)...)
 	errs = append(errs, validateEnv(n, p.Env)...)
 	if p.OpencodeFallback == "auto" {

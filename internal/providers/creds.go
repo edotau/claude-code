@@ -33,6 +33,9 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	case AuthPassthrough:
 		return "", ErrPassthrough
 	}
+	if sealedAuth(p.Auth.AuthType) {
+		return authCredential(ctx, p, false)
+	}
 	var vaultErr error
 	if p.Auth.Env != "" {
 		v, _, err := EffectiveSecret(p.Auth.Env)
@@ -59,6 +62,9 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 
 // Refresh drops a cached command credential and re-runs it; used after an upstream 401.
 func Refresh(ctx context.Context, p *Provider) (string, error) {
+	if sealedAuth(p.Auth.AuthType) {
+		return authCredential(ctx, p, true)
+	}
 	if p.Auth.Command == "" {
 		return Credential(ctx, p)
 	}
@@ -83,8 +89,20 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 			return "", err
 		}
 	}
-	if err := checkIssuer(p, v); err != nil {
+	exp := time.Time{}
+	if e, ok := jwtExp(v); ok {
+		exp = time.Unix(e, 0)
+	}
+	if err := finishCredential(p, v, exp); err != nil {
 		return "", err
+	}
+	return v, nil
+}
+
+// finishCredential is the shared tail of every mint: issuer check, expiry record, cache until min(ttl, exp-10m).
+func finishCredential(p *Provider, v string, exp time.Time) error {
+	if err := checkIssuer(p, v); err != nil {
+		return err
 	}
 	recordTokenExpiry(p.Name, v)
 	ttl := time.Duration(p.Auth.TTL) * time.Second
@@ -92,13 +110,18 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 		ttl = 5 * time.Minute
 	}
 	until := time.Now().Add(ttl)
-	if exp, ok := jwtExp(v); ok {
-		if e := time.Unix(exp, 0).Add(-expiryMargin); e.Before(until) {
+	if exp.IsZero() {
+		if e, ok := jwtExp(v); ok {
+			exp = time.Unix(e, 0)
+		}
+	}
+	if !exp.IsZero() {
+		if e := exp.Add(-expiryMargin); e.Before(until) {
 			until = e
 		}
 	}
 	cmdCache.Store(p.Name, cached{value: v, until: until})
-	return v, nil
+	return nil
 }
 
 // expiryMargin is how close to exp a command token is refreshed, and how early its cache entry ends.
@@ -124,6 +147,9 @@ func CredentialPresent(p *Provider) bool {
 	switch p.Auth.Type {
 	case AuthNone, AuthPassthrough:
 		return true
+	}
+	if sealedAuth(p.Auth.AuthType) {
+		return HasSecret(authSecretName(p)) != ""
 	}
 	if p.Auth.Command != "" {
 		return true
