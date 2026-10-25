@@ -19,13 +19,12 @@ type qualityArgs struct {
 }
 
 // parseQualityArgs is a real FlagSet, so -h anywhere in args prints the usage page; -l/-o/-r mirror the
-// former argparse short aliases.
-func parseQualityArgs(args []string, stderr io.Writer) (qualityArgs, int, bool) {
+// former argparse short aliases. Explicit -h prints to stdout and exits 0; a bad flag stays on stderr, exit 2.
+func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int, bool) {
 	fs := helptext.NewFlagSet("review quality", helptext.Page{
 		Usage: "claude-code review quality <path> [flags]",
 		About: "Code smells and SOLID violations in one file, or every file under a directory.",
 	})
-	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	language := fs.String("language", "", "only this language when <path> is a directory (-l)")
 	fs.StringVar(language, "l", "", "shorthand for --language")
@@ -33,6 +32,12 @@ func parseQualityArgs(args []string, stderr io.Writer) (qualityArgs, int, bool) 
 	fs.StringVar(output, "o", "", "shorthand for --output")
 	recursive := fs.Bool("recursive", true, "accepted for compatibility; directories are always recursive (-r)")
 	fs.BoolVar(recursive, "r", true, "shorthand for --recursive")
+	if helptext.WantsHelp(args) {
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return qualityArgs{}, 0, true
+	}
+	fs.SetOutput(stderr)
 	positional, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return qualityArgs{}, helptext.ExitCode(err), true
@@ -59,7 +64,7 @@ func resolvePath(p string) string {
 
 // RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a missing path or output write error.
 func RunQuality(args []string, stdout, stderr io.Writer) int {
-	parsed, code, done := parseQualityArgs(args, stderr)
+	parsed, code, done := parseQualityArgs(args, stdout, stderr)
 	if done {
 		return code
 	}

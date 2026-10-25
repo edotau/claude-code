@@ -15,9 +15,11 @@ func TestWorkflowLintDrift(t *testing.T) {
 	const okBody = "export const meta = { name: 'x' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n"
 	table := func(names ...string) string {
 		s := "| Workflow | Use |\n| --- | --- |\n"
+		var sSb18 strings.Builder
 		for _, n := range names {
-			s += "| `" + n + "` | does " + n + " |\n"
+			sSb18.WriteString("| `" + n + "` | does " + n + " |\n")
 		}
+		s += sSb18.String()
 		return s
 	}
 	cases := []struct {
@@ -28,10 +30,10 @@ func TestWorkflowLintDrift(t *testing.T) {
 		wantOut string
 		wantErr []string
 	}{
-		{"in sync", []string{"a", "b"}, ptr(table("a", "b")), 0, "workflow lint: 2 script(s) clean", nil},
-		{"undocumented script", []string{"a", "b"}, ptr(table("a")), 1, "",
+		{"in sync", []string{"a", "b"}, new(table("a", "b")), 0, "workflow lint: 2 script(s) clean", nil},
+		{"undocumented script", []string{"a", "b"}, new(table("a")), 1, "",
 			[]string{filepath.Join("workflows", "b.js") + ": not documented in " + driftDocRel}},
-		{"documented but missing", []string{"a"}, ptr(table("a", "ghost")), 1, "",
+		{"documented but missing", []string{"a"}, new(table("a", "ghost")), 1, "",
 			[]string{"saved-workflows.md: ghost has no workflows/ghost.js"}},
 		{"no doc skips check", []string{"a", "b"}, nil, 0, "workflow lint: 2 script(s) clean", nil},
 	}
@@ -74,4 +76,5 @@ func TestWorkflowLintDrift(t *testing.T) {
 	}
 }
 
-func ptr(s string) *string { return &s }
+//go:fix inline
+func ptr(s string) *string { return new(s) }

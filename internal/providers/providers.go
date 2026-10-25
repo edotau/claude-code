@@ -5,7 +5,9 @@ package providers
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -143,8 +145,42 @@ type Registry struct {
 
 // RouteCell is one overlay cell for internal/route's table.
 type RouteCell struct {
-	Model  string `json:"model,omitempty"`
-	Effort string `json:"effort,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Account string `json:"account_key,omitempty"`
+}
+
+// RouteRunners are the routing table's columns, in roster order; internal/routetable embeds the same list.
+var RouteRunners = []string{"claude", "copilot", "codex", "opencode", "gemini"}
+
+// RouteTiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
+var RouteTiers = []string{models.Opus, models.Sonnet, models.Haiku}
+
+// RouteWeightNames are the dimension names a route weights map must sum to 1 over (internal/route's
+// Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
+var RouteWeightNames = []string{"price", "headroom"}
+
+// ValidateRouteWeights requires one weight per RouteWeightNames entry, each in [0,1], summing to 1; an
+// empty map is skipped (an overlay that does not touch weights leaves the table's own weights alone).
+func ValidateRouteWeights(weights map[string]float64) error {
+	if len(weights) == 0 {
+		return nil
+	}
+	sum := 0.0
+	for _, name := range RouteWeightNames {
+		w, ok := weights[name]
+		if !ok || w < 0 || w > 1 {
+			return fmt.Errorf("route weight %q missing or outside [0,1]", name)
+		}
+		sum += w
+	}
+	if len(weights) != len(RouteWeightNames) {
+		return fmt.Errorf("route weights name %d dimensions, want %d", len(weights), len(RouteWeightNames))
+	}
+	if math.Abs(sum-1) > 1e-9 {
+		return fmt.Errorf("route weights sum to %g, want 1", sum)
+	}
+	return nil
 }
 
 // Plan is one sign-in plan: ID matches the raw plan ID the login reports (* globs); Tier and Provider override
@@ -211,6 +247,19 @@ func (r *Registry) Validate() error {
 		if _, ok := r.Providers[n]; !ok {
 			errs = append(errs, fmt.Sprintf("opencodeLadder names unknown provider %q", n))
 		}
+	}
+	for runner, tiers := range r.Route {
+		if !slices.Contains(RouteRunners, runner) {
+			errs = append(errs, fmt.Sprintf("route names unknown runner %q", runner))
+		}
+		for tier := range tiers {
+			if !slices.Contains(RouteTiers, tier) {
+				errs = append(errs, fmt.Sprintf("route %s/%s names unknown tier", runner, tier))
+			}
+		}
+	}
+	if err := ValidateRouteWeights(r.RouteWeights); err != nil {
+		errs = append(errs, err.Error())
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))

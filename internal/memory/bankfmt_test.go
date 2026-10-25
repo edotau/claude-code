@@ -112,7 +112,7 @@ func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 	if !strings.Contains(out, longCode) {
 		t.Fatalf("code span split or altered:\n%s", out)
 	}
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if l == longCode && utf8RuneCount(l) <= BankFmtMaxLine {
 			t.Errorf("expected the lone code-span line to stay over-width (unsplit), got %d runes", utf8RuneCount(l))
 		}
@@ -210,7 +210,7 @@ func TestFormatBankMarkdownIdempotent(t *testing.T) {
 	if once != twice {
 		t.Fatalf("not idempotent on an indented paragraph:\nonce:\n%s\ntwice:\n%s", once, twice)
 	}
-	for _, l := range strings.Split(once, "\n") {
+	for l := range strings.SplitSeq(once, "\n") {
 		if !strings.HasPrefix(l, "   ") {
 			t.Errorf("continuation line lost its original indent: %q", l)
 		}
@@ -332,7 +332,7 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		if utf8RuneCount(l) > BankFmtMaxLine {
 			t.Errorf("rewritten file still has an over-width line: %q", l)
 		}

@@ -100,7 +100,7 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	}
 	var b strings.Builder
 	total, skipped := 0, 0
-	for _, rel := range strings.Split(listing, "\n") {
+	for rel := range strings.SplitSeq(listing, "\n") {
 		if rel == "" {
 			continue
 		}

@@ -73,21 +73,38 @@ func TestRunQualityBadFlag(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit code = %d for a bad flag, want 2", code)
 	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty on a bad flag", stdout.String())
+	}
 	if !strings.Contains(stderr.String(), "flag provided but not defined") {
 		t.Errorf("stderr = %q, want the stdlib unknown-flag message", stderr.String())
 	}
 }
 
-// -h after the positional path still prints the usage page (a real FlagSet, not a leading-only check).
+// -h after the positional path prints the usage page to stdout, exit 0, stderr empty.
 func TestRunQualityHelpAfterPositional(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunQuality([]string{"x.go", "-h"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := stdout.String() + stderr.String()
-	if !strings.HasPrefix(got, "usage: claude-code review quality <path> [flags]\n") {
-		t.Errorf("want the review quality usage page:\n%s", got)
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code review quality <path> [flags]\n") {
+		t.Errorf("stdout = %q, want the review quality usage page", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty on -h", stderr.String())
+	}
+}
+
+// "--" before -h scans the path literally instead of printing help.
+func TestRunQualityHelpAfterDoubleDashIsPositional(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunQuality([]string{"--", "nonexistent-h-named-dir"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (missing path, not help)", code)
+	}
+	if strings.Contains(stdout.String(), "usage:") || strings.Contains(stderr.String(), "usage:") {
+		t.Errorf("printed the usage page instead of scanning: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
