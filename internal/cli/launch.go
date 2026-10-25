@@ -86,6 +86,9 @@ func cmdHook(args []string) int {
 
 // cmdReset is `configure --reset`: render settings.json and the vendor configs from the templates.
 func cmdReset(agents, out string, check, dryRun, vendors bool) int {
+	if out == "" && !check && !dryRun { // bare --reset writes the live settings.json
+		out = launch.SettingsFile()
+	}
 	data, err := settings.RenderLive()
 	if err != nil {
 		return fail("%v", err)
@@ -186,8 +189,7 @@ func checkLiveSettings(rendered []byte) (bool, error) {
 	return drift.Drifted(), nil
 }
 
-// renderVendorConfigs prepares the vendor configs; without --out the settings render is a preview,
-// so the vendor configs preview too: nothing is written.
+// renderVendorConfigs prepares the vendor configs; they preview whenever the settings render does.
 func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*generate.Prepared, bool, error) {
 	var vendorAgents []string
 	if agents != "" {

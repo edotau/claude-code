@@ -9,7 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // TestKeyListSplitsTrimsDedupes: repeatable --drop a,b --drop c parses to [a b c]; duplicates collapse.
@@ -146,5 +149,64 @@ func TestConfigureResetAgentCommaListScopesVendors(t *testing.T) {
 		if strings.Contains(out, other) {
 			t.Errorf("--agent codex,opencode also rendered %s:\n%s", other, out)
 		}
+	}
+}
+
+func TestConfigureResetBareWritesLiveSettings(t *testing.T) {
+	live := filepath.Join(resetEnv(t), "settings.json")
+	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want, err := settings.RenderLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset"}) })
+	if code != 0 {
+		t.Fatalf("bare --reset exit %d: %s", code, stderr)
+	}
+	got, err := os.ReadFile(live)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
+	}
+	i := strings.Index(stdout, "(backup ")
+	if i < 0 {
+		t.Fatalf("no backup reported:\n%s", stdout)
+	}
+	bk := strings.TrimSuffix(strings.SplitN(stdout[i+len("(backup "):], ")", 2)[0], " ")
+	if old, err := os.ReadFile(bk); err != nil || string(old) != `{"stale":true}` {
+		t.Errorf("backup %q missing or wrong (err %v): %s", bk, err, old)
+	}
+}
+
+func TestConfigureResetDryRunLeavesLiveUntouched(t *testing.T) {
+	live := filepath.Join(resetEnv(t), "settings.json")
+	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(live, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--dry-run"}) }); code != 0 {
+		t.Fatalf("--reset --dry-run exit %d: %s", code, stderr)
+	}
+	got, _ := os.ReadFile(live)
+	fi, err := os.Stat(live)
+	if err != nil || string(got) != `{"stale":true}` || !fi.ModTime().Equal(past) {
+		t.Errorf("dry-run touched live settings: %s mtime %v (want %v)", got, fi.ModTime(), past)
+	}
+}
+
+func TestConfigureResetBareCheckDoesNotWrite(t *testing.T) {
+	live := filepath.Join(resetEnv(t), "settings.json")
+	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--check"}) }); code != 1 {
+		t.Errorf("--reset --check on a stale file exit %d, want 1", code)
+	}
+	if got, _ := os.ReadFile(live); string(got) != `{"stale":true}` {
+		t.Errorf("--check wrote the file: %s", got)
 	}
 }
