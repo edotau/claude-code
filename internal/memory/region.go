@@ -106,7 +106,7 @@ func BuildCatalog(now time.Time) (string, error) {
 			if filepath.Base(f) == "README.md" {
 				continue
 			}
-			rows = append(rows, "- "+label+"/"+filepath.Base(f)+" — "+storeHookFile(f))
+			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
 	}
 	collectKnowledge("home", HomeBankDir())
