@@ -25,21 +25,15 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Done criteria, gate chain, claim discipline | `references/verify.md` |
 | Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
-| Parallel evidence fan-out, attacker subagents | `subagent-workflows`, Workflow `code-analyzer {fix: false}` |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
-| Diff review, scope creep, detectors | `evaluate-code`, `simplify`, `security-reviewer` |
-| Task-brief vetting or the final gate run on another model family | `codex` (`claude-code codex ask`, `codex review`) |
 | A recurring missing procedure | `claude-code memory promote --to skill` |
 | Assumption/goal detectors over a plan | `claude-code review goals\|assumptions` |
 
-References: `references/notes.md` (the four forced notes — read before any report),
-`../evaluate-code/references/failure-modes.md` (19 symptoms → step), `../evaluate-code/references/eval.md`
-(the trap-suite fixture a rule change must pass).
+References: `references/notes.md` (the four forced notes — read before any report).
 
 The steps structure your work, never your output. **Never put step numbers or step names in
 anything the user reads.** The only method artifacts allowed in a report are `TASK:`, `AUTH:`,
 `ISSUE:`, and `PENDING:` — and only as the plain-prose fact they stand for, never the raw tag.
-Grading finished work (a transcript, a claimed-done diff) is `evaluate-code`'s `judge.md`, not this skill.
 
 ## Usage
 
@@ -113,7 +107,7 @@ question first. Claim discipline: `references/verify.md`.
    DOC-LOOKUP mode, Context7 MCP, `web-search`, or the installed package source); say so if none
    is reachable. Locate the section, read that section; never re-fetch what's already in context.
 3. **Parallelize the independent and expensive.** Web fetches, doc lookups, and multi-area
-   explorations go out in **one** batch — see `subagent-workflows`. Chain small local reads only
+   explorations go out in **one** batch. Chain small local reads only
    when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 8).
 4. **Time-box.** One round plus one follow-up covers most tasks; a third needs a stated reason.
    Two consecutive lookups that taught you nothing = stop.
@@ -180,7 +174,7 @@ Two halves, plus a third whenever you fixed a defect:
 - **(c)** whenever you fixed a defect, write the forced `ISSUE:` sweep before reporting it fixed
   (`references/notes.md`).
 
-Code instantiation (live first, tests with teeth): `skills/testing-guidelines/references/test-discipline.md`.
+Code instantiation: live first, then tests with teeth (`rules/standards/quality.md` → Testing).
 
 On failure, route: a mechanical mistake → Step 4; a surprise or contradiction → Step 2. **Hard
 bound:** after 3 failed fix-verify cycles on the same issue, or when blocked by anything outside

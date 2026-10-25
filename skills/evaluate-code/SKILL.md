@@ -9,18 +9,13 @@ metadata:
 # Evaluate Code
 
 **Investigating and auditing existing work** — code **quality** review plus the discipline lens
-that catches how LLM-written code characteristically fails. **Security is a separate, parallel
-pass** — the `security-reviewer` skill owns it. Doing the work, rather than checking it, is
-`problem-solving`'s job.
+that catches how LLM-written code characteristically fails. Read-only: findings and a verdict, never edits.
 
 ## Pick your path
 
-- **Audit a change set end to end (find → refute → fix → gate)** → `Workflow code-analyzer` (only when the
-  user asks; lenses live in the script;
-  `../subagent-workflows/references/saved-workflows.md`).
-- **Review a diff/PR** → [Dispatch a review](#dispatch-a-review) (fan out both reviewers).
-- **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the problem-solving
-  loop against what actually happened).
+- **Review a diff/PR** → [Review a diff](#review-a-diff).
+- **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the evidence loop the work
+  claimed to follow against what actually happened).
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
 - **Scan tech debt** → `references/techdebt.md`.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
@@ -31,12 +26,12 @@ pass** — the `security-reviewer` skill owns it. Doing the work, rather than ch
 
 ## Audit a transcript
 
-Grade the most recent completed work against `../problem-solving/SKILL.md`'s loop: each step
-marked **followed**, **skipped**, or **faked** (claimed without observation).
+Grade the most recent completed work against the method its brief named (`Method:`), step by step: each
+step marked **followed**, **skipped**, or **faked** (claimed without observation).
 
 1. Run the detectors first (mechanical pass) — [Detectors](#detectors).
 2. For every skip or fake, name the concrete risk it created, via `references/failure-modes.md`
-   (symptom → which problem-solving step prevents it).
+   (symptom → the loop step that prevents it).
 3. Score the work on the 0–2 rubric in `references/judge.md`.
 4. Deliver a short table plus the single highest-value fix. Apply it only if asked.
 
@@ -55,12 +50,11 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 | Principle | As a review finding | Severity |
 |---|---|---|
 | **1 Think Before Coding** | silently picked one reading of an ambiguous requirement — that's a **question**, not a decision | should-fix |
-| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; `simplify` owns the fix | should-fix |
+| **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; the fix belongs to the cleanup pass that follows review | should-fix |
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 
-Full treatment, attribution, worked examples: `references/principles.md` (the #2 fixes are simplify's
-`../simplify/references/simplification-patterns.md`).
+Full treatment, attribution, worked examples: `references/principles.md`.
 
 ### Performance
 
@@ -92,11 +86,11 @@ Verification Order). Full CLI reference: `references/detectors.md`.
 
 Verb selection: [Detector index](references/detectors.md#detector-index).
 
-## Dispatch a review
+## Review a diff
 
 This skill is what the built-in `/code-review`'s quality reviewer loads.
 
-Determine scope, then fan out **both** reviewers in parallel.
+Determine scope:
 
 ```bash
 BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
@@ -105,53 +99,38 @@ BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
 Mechanical gate first: `rules/standards/quality.md` → Verification Order.
 
 1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
-2. In a **single message**, launch two subagents concurrently:
-   - a **general-purpose** subagent that loads this skill — quality, correctness, the discipline lens.
-   - a **general-purpose** subagent that loads the **`security-reviewer` skill** (or run
-     `/security-reviewer`) — OWASP Top 10, secrets, injection, auth. Read-only (findings only).
-3. Scope each agent to the diff range + changed files, NOT your session history — keeps them on
-   the work product and preserves your context. A ready-to-paste dispatch prompt:
-   `../subagent-workflows/references/prompts.md#code-quality-reviewer`.
-
-Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping are canonical in
-`rules/standards/quality.md` (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no
-CRITICAL/HIGH, block on either.
-
-**Escalate to the security pass** on the must-review triggers (`rules/standards/security.md` →
-Must-review) — `security-reviewer` territory, not a quality nit.
+2. Apply the lenses to the diff range + changed files, not the session history; verify every finding by
+   reading the code.
+3. Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping: `rules/standards/quality.md`
+   (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no CRITICAL/HIGH,
+   block on either.
+4. A change on the must-review list (`rules/standards/security.md` → Must-review) also needs a security
+   pass — record that as a finding; the security pass is not this skill's.
 
 ## Verdicts
 
-The harness's one verdict registry. Shared discipline across every verdict-bearing mode: the
-verdict word comes first, alone, from a closed vocabulary; evidence follows. Unre-runnable claims
+The verdict word comes first, alone, from a closed vocabulary; evidence follows. Unre-runnable claims
 are UNVERIFIABLE, never assumed. Never soften a failing verdict or inflate a caveat.
 
 This skill's own verdict, for "is the code good": **SHIP / FIX REQUIRED / BLOCK**.
 
 | Verdict | Condition |
 |---|---|
-| **SHIP** | No CRITICAL or HIGH from either pass |
+| **SHIP** | No CRITICAL or HIGH |
 | **FIX REQUIRED** | HIGH present, no CRITICAL |
 | **BLOCK** | Any CRITICAL |
 
 A different question — **is the claim true** — gets a different vocabulary: `references/judge.md`'s
 VERIFIED / VERIFIED WITH CAVEATS / REFUTED.
 
-Per mode:
+Per mode in this skill:
 
 | Mode | Vocabulary |
 |---|---|
-| review (this skill) | `SHIP \| FIX REQUIRED \| BLOCK` |
+| review (this file) | `SHIP \| FIX REQUIRED \| BLOCK` |
 | judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
-| gate loop (`../problem-solving/references/verify.md`) | `PASS \| FAIL` |
 | task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
-| spec review (`../subagent-workflows/references/prompts.md#spec-reviewer`) | `SPEC_COMPLIANT \| SPEC_ISSUES` |
 | vendor diff review (`claude-code <v> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
-| work report (`../subagent-workflows/SKILL.md` → Handoff contract) | `DONE \| DONE_WITH_CONCERNS \| NEEDS_CONTEXT \| BLOCKED` |
-
-## Receive feedback
-
-Acting on a review is doing the work, not checking it: `../problem-solving/references/feedback.md`.
 
 ## Enforcement
 

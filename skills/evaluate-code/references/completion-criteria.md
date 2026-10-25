@@ -13,6 +13,3 @@ Completion Criteria. This is this skill's severity scale.
 | LOW | Style, minor | **NOTE** — optional | nit |
 
 Approve when no CRITICAL/HIGH. Block on CRITICAL/HIGH.
-
-`security-reviewer` (`skills/security-reviewer/SKILL.md` → Severity Levels) keeps a security HIGH as
-fix-required (not warn); MEDIUM → INFO and LOW → NOTE match this table already.

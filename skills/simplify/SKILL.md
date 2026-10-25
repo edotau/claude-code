@@ -6,22 +6,18 @@ description: 'Behavior-preserving cleanup of changed code — overrides the buil
 # Simplify
 
 The **apply-the-fix** lens for two code-discipline principles — **Simplicity First (#2)** and
-**Surgical Changes (#3)** — and the skill behind the simplify stage of orchestrate.
-It overrides the built-in `/simplify`. Use it directly in place, or hand it to a subagent over a diff.
+**Surgical Changes (#3)**. It overrides the built-in `/simplify`. Use it directly in place, or hand it to a
+subagent over a diff.
 
-**The lane:** behavior is preserved — you change *how* code is structured, never *what* it does.
-Bug-hunting is `evaluate-code`'s job; security is `security-reviewer`'s.
+**The lane:** behavior is preserved — you change *how* code is structured, never *what* it does. Bugs and
+security findings are reported, not fixed here.
 
 ## Simplicity First (#2) and Surgical Changes (#3)
 
-The two principles this skill applies the fix for. Definitions, attribution, and the
-review-time framing are canonical in `skills/evaluate-code/references/principles.md`
-(#2, #3); CLAUDE.md → Behavioral guidelines states the base rule. This skill's job is
-narrower: *apply* the fix, not just flag it.
+CLAUDE.md → Behavioral guidelines 2 and 3 state the rules; this skill *applies* the fix, not just flags it.
 
-Simplifying inverts the usual risk for #3 (`../evaluate-code/references/principles.md` #3): the
-failure mode here is **drive-by cleanup**, not over-engineering — remove only what *your*
-simplification made dead.
+Simplifying inverts the usual risk for #3: the failure mode here is **drive-by cleanup**, not
+over-engineering — remove only what *your* simplification made dead.
 
 The one exception is **extended-scope consolidation**: if the diff duplicates a helper or
 constant that already exists, consolidating at the source removes duplication the diff
@@ -69,9 +65,9 @@ CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
 claude-code review diff --diff HEAD~1..HEAD
 ```
 
-What each detector checks, languages covered, thresholds, and verdicts: canonical in
-`../evaluate-code/references/detectors.md`. Both are advisory (exit 0) — use findings as
-leads, verify each by reading the code; the detectors locate, you judge.
+What each detector checks, languages covered, thresholds: `claude-code review complexity -h`,
+`claude-code review diff -h`. Both are advisory (exit 0) — use findings as leads, verify each by reading
+the code; the detectors locate, you judge.
 
 ## Process
 
@@ -89,8 +85,8 @@ angles yourself in one pass and say so in the summary.
   flexibility, impossible-state error handling, over-long docstrings; name the simpler form.
 - **Efficiency** — flag wasted work the diff introduces: redundant computation or repeated I/O, independent
   operations run sequentially, blocking work on startup or hot paths, long-lived closures capturing large
-  scopes; name the cheaper form; a cost that needs a measurement before it's a finding →
-  `../evaluate-code/references/performance.md`.
+  scopes; name the cheaper form; a cost is a finding only with a measurement behind it — otherwise it is a
+  hypothesis, say so.
 - **Altitude** — check each change fixes the root cause at the right depth rather than patching a symptom;
   special cases layered on shared infrastructure mean the fix isn't deep enough; name the more general change.
 
@@ -119,15 +115,6 @@ End with a fixed/skipped summary. If a fix would change behavior or its blast ra
 
 ## References
 
-Local to this skill:
-
 - `references/docstring-style.md` — the ≤120-char / 2-line rule, rationale, before/after.
 - `references/simplification-patterns.md` — recurring wins: inline, consolidate, de-nest.
 - `references/extract-method.md` — reduce a method's cognitive complexity by extracting focused helpers.
-
-A leaf without the `Skill` tool is briefed with `skills/subagent-workflows/references/prompts.md#simplifier`.
-
-Shared with `evaluate-code` (canonical owner — read from `skills/evaluate-code/references/`):
-
-- `principles.md` — the four principles, attribution, and the #1/#3/#4 worked examples.
-- `detectors.md` — full CLI reference for all detectors (incl. `claude-code review complexity`).
