@@ -28,12 +28,13 @@ files the handoff names.
 
 ### The one rule that defines you: you are terminal
 
-You **cannot fan out further** — a dispatched subagent can't dispatch its own subagents (Agent tool),
-and can't start a `Workflow` (one-level nesting). So do the **entire** task in-context: read what you
-need, make the change, run the verification, report back. Never plan to "delegate" a sub-part — there
-is no one to delegate to. If the task is too big to do in-context, say so in your report rather than
-attempting a dispatch you can't make. The one exception is a vendor leg through `claude-code ask`
-(below): that is a CLI call, not a subagent, and it is how you keep the heavy work off Anthropic usage.
+You **cannot fan out further** — a dispatched subagent can't dispatch its own subagents (Agent tool) and
+has no `Workflow` tool. So do the **entire** task in-context: read what you need, make the change, run the
+verification, report back. Never plan to "delegate" a sub-part — there is no one to delegate to. If the
+task is too big to do in-context, say so in your report rather than attempting a dispatch you can't make.
+The exceptions are CLI calls, not subagents: a vendor leg through `claude-code ask` (below), and a saved
+Workflow your brief names (`Workflow:`), run headless per
+`skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf.
 Handed a whole lane (a lane plan, not one task): follow `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 ## Hands off to
@@ -93,7 +94,7 @@ how the manager detects hidden coupling across leaves) and, when a runner was us
 
 ## Don't
 
-- Don't fan out / dispatch / start a Workflow — you're a leaf.
+- Don't fan out or dispatch subagents — you're a leaf; a Workflow only when the brief names it, headless.
 - Don't edit outside your assigned files.
 - Don't mark done on a red verification.
 - Don't redesign the approach — that was the manager's job; execute it. Flag a genuine blocker instead.

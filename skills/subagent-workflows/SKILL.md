@@ -37,6 +37,8 @@ The one definition of what passes manager → leaf → manager. Agent files poin
   ([cost-routing.md](references/cost-routing.md)).
 - `Owns:` the exact files, plus "Do NOT edit <others> — agents are in this package concurrently".
 - `Method:` the skill to follow, as a file path for a leaf without the `Skill` tool.
+- `Workflow:` (optional) a saved Workflow the leaf may run, with its args — the only way a leaf starts one
+  ([saved-workflows.md](references/saved-workflows.md) → Run from a leaf).
 - `Context:` paths with line numbers, prior decisions, the upstream artifact (stage doc, `--attach` lane plan,
   plan path).
 - `Constraints:` the CLAUDE.md rules that apply, plus the shared-tree line below.
@@ -67,7 +69,9 @@ change reports the Status below.
 - One writer per file. Same package parallelizes when each agent owns a new file and the manager alone makes the
   integration edit.
 - The manager owns decisions, integration and final verification; commits are the manager's, a lane orchestrator's
-  (pathspec), or `copilot` LAST-MILE's. Leaves never dispatch, start a Workflow, commit or run the suite.
+  (pathspec), or `copilot` LAST-MILE's. Leaves never dispatch subagents, commit or run the suite; a leaf runs a saved
+  Workflow only when its brief names one (`Workflow:`), headless per
+  [saved-workflows.md](references/saved-workflows.md) → Run from a leaf.
 - Before fanning out more, the manager checks the load with `claude-code agents tree --running`, follows a vendor leg
   with `claude-code <vendor> tail -f <job>`, and clears dead entries with `claude-code agents reap`.
 - Every code dispatch includes `copilot` in the same message; it waits for the manager's "landed" `SendMessage`
