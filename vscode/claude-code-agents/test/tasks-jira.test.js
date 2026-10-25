@@ -12,7 +12,7 @@ function fixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, `${name}.json`), 'utf8'));
 }
 
-const BASE = 'https://jira.biscrum.com';
+const BASE = 'https://jira.corp.example';
 
 function emptyQuery(overrides) {
   return { assignee: null, author: null, state: 'open', labels: [], freeText: '', ...overrides };
@@ -45,14 +45,14 @@ test('toJql: labels become labels in ("a", "b")', () => {
   assert.match(jql, /labels in \("a", "b"\)/);
 });
 
-test('toJql: freeText "project:digitalbtd" maps to project = DIGITALBTD (uppercased)', () => {
-  const jql = toJql(emptyQuery({ freeText: 'project:digitalbtd' }));
-  assert.match(jql, /project = DIGITALBTD/);
+test('toJql: freeText "project:acme" maps to project = ACME (uppercased)', () => {
+  const jql = toJql(emptyQuery({ freeText: 'project:acme' }));
+  assert.match(jql, /project = ACME/);
 });
 
-test('toJql: freeText that is a bare issue key maps to key = DIGITALBTD-8139', () => {
-  const jql = toJql(emptyQuery({ freeText: 'DIGITALBTD-8139' }));
-  assert.match(jql, /key = DIGITALBTD-8139/);
+test('toJql: freeText that is a bare issue key maps to key = ACME-8139', () => {
+  const jql = toJql(emptyQuery({ freeText: 'ACME-8139' }));
+  assert.match(jql, /key = ACME-8139/);
 });
 
 test('toJql: other free text maps to text ~ "…", joining tokenized words', () => {
@@ -95,31 +95,31 @@ test('mapIssue: #0 (In Progress / indeterminate) maps source/type/id/number/stat
   const row = mapIssue(ISSUES[0], { baseUrl: BASE });
   assert.equal(row.source, 'jira');
   assert.equal(row.type, 'issue');
-  assert.equal(row.id, 'jira:DIGITALBTD-8139');
-  assert.equal(row.number, 'DIGITALBTD-8139');
+  assert.equal(row.id, 'jira:ACME-8139');
+  assert.equal(row.number, 'ACME-8139');
   assert.equal(row.state, 'open');
-  assert.equal(row.url, `${BASE}/browse/DIGITALBTD-8139`);
+  assert.equal(row.url, `${BASE}/browse/ACME-8139`);
   assert.deepEqual(row.assignees, ['User One']); // displayName, matching tasks-github.js's loginOf-style mapper
   assert.equal(row.status.category, 'indeterminate');
 });
 
 test('mapIssue: #1 (To Do / new) maps state open and category new', () => {
   const row = mapIssue(ISSUES[1], { baseUrl: BASE });
-  assert.equal(row.id, 'jira:DIGITALBTD-9901');
-  assert.equal(row.number, 'DIGITALBTD-9901');
+  assert.equal(row.id, 'jira:ACME-9901');
+  assert.equal(row.number, 'ACME-9901');
   assert.equal(row.state, 'open');
   assert.equal(row.status.category, 'new');
-  assert.equal(row.url, `${BASE}/browse/DIGITALBTD-9901`);
+  assert.equal(row.url, `${BASE}/browse/ACME-9901`);
 });
 
 test('mapIssue: #2 (Done / done, null assignee) maps state closed and assignees []', () => {
   const row = mapIssue(ISSUES[2], { baseUrl: BASE });
-  assert.equal(row.id, 'jira:DIGITALBTD-9685');
-  assert.equal(row.number, 'DIGITALBTD-9685');
+  assert.equal(row.id, 'jira:ACME-9685');
+  assert.equal(row.number, 'ACME-9685');
   assert.equal(row.state, 'closed');
   assert.equal(row.status.category, 'done');
   assert.deepEqual(row.assignees, []);
-  assert.equal(row.url, `${BASE}/browse/DIGITALBTD-9685`);
+  assert.equal(row.url, `${BASE}/browse/ACME-9685`);
 });
 
 test('mapIssue: state is "closed" only for the done category, across every fixture issue', () => {
@@ -163,6 +163,6 @@ test('list: page 1 limit 5 with total 21 computes totalPages = ceil(21/5) = 5', 
 test('list: maps every returned issue through mapIssue with the given baseUrl', async () => {
   const client = fakeClient(3, ISSUES);
   const result = await list({ client, query: emptyQuery(), page: 1, limit: 50, baseUrl: BASE });
-  assert.deepEqual(result.items.map((r) => r.id), ['jira:DIGITALBTD-8139', 'jira:DIGITALBTD-9901', 'jira:DIGITALBTD-9685']);
+  assert.deepEqual(result.items.map((r) => r.id), ['jira:ACME-8139', 'jira:ACME-9901', 'jira:ACME-9685']);
   assert.ok(result.items.every((r) => r.url.startsWith(BASE)));
 });

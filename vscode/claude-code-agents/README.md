@@ -197,8 +197,8 @@ Disconnected pill (`gh api user` / the DC doctor / Jira `/myself`; the login is 
 last visible source cannot be hidden), the default source, the repo list — with "Edit repos and defaults in Settings"
 and "Re-check connections". Settings: `claudeCodeAgents.tasksDefaultSource` (default `jira`), `tasksVisibleSources`,
 `tasksDefaultQuery.jira` / `.github` / `.bitbucket`, `tasksGitHubRepos`, `tasksBitbucketRepos`, `tasksJiraProjects`,
-`tasksPageSize`, `bitbucketUrl` (default `https://bitbucket.biscrum.com`), `tasksJiraBaseUrl` (default
-`https://jira.biscrum.com`), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
+`tasksPageSize`, `bitbucketUrl` and `tasksJiraBaseUrl` (no default: set your
+Data Center servers), `tasksRefreshSeconds` (default `120`, polls while the page is visible).
 
 On activation, the extension installs the "GitHub Pull Requests and Issues" extension
 (`github.vscode-pull-request-github`, also listed as an `extensionPack` dependency for a

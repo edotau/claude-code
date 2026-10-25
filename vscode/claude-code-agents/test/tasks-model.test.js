@@ -7,31 +7,31 @@ const { detectJiraIssueKey } = require('../lib/tasks-model');
 
 test('detectJiraIssueKey: branch wins over title', () => {
   assert.equal(
-    detectJiraIssueKey({ branch: 'feature/ABC-1-x', title: 'DIGITALBTD-2 other' }),
+    detectJiraIssueKey({ branch: 'feature/ABC-1-x', title: 'ACME-2 other' }),
     'ABC-1'
   );
 });
 
 test('detectJiraIssueKey: falls back to the title when the branch has no key', () => {
   assert.equal(
-    detectJiraIssueKey({ branch: 'bugfix/rapidr-scan', title: 'Feature/DIGITALBTD-9679 mmseqs pathogen mimicry' }),
-    'DIGITALBTD-9679'
+    detectJiraIssueKey({ branch: 'bugfix/rapidr-scan', title: 'Feature/ACME-9679 mmseqs pathogen mimicry' }),
+    'ACME-9679'
   );
 });
 
 test('detectJiraIssueKey: reads the key out of a feature branch', () => {
   assert.equal(
-    detectJiraIssueKey({ branch: 'feature/DIGITALBTD-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau' }),
-    'DIGITALBTD-9679'
+    detectJiraIssueKey({ branch: 'feature/ACME-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau' }),
+    'ACME-9679'
   );
 });
 
 test('detectJiraIssueKey: strips refs/heads/ before matching', () => {
-  assert.equal(detectJiraIssueKey({ branch: 'refs/heads/DIGITALBTD-6318/frontend' }), 'DIGITALBTD-6318');
+  assert.equal(detectJiraIssueKey({ branch: 'refs/heads/ACME-6318/frontend' }), 'ACME-6318');
 });
 
 test('detectJiraIssueKey: uppercases a lowercase project', () => {
-  assert.equal(detectJiraIssueKey({ branch: 'bugfix/digitalbtd-42-lowercase' }), 'DIGITALBTD-42');
+  assert.equal(detectJiraIssueKey({ branch: 'bugfix/acme-42-lowercase' }), 'ACME-42');
 });
 
 test('detectJiraIssueKey: no key-shaped token returns null', () => {
@@ -45,14 +45,14 @@ for (const branch of ['fix/utf-8-decoding', 'chore/iso-8859-cleanup', 'build/es-
 }
 
 test('detectJiraIssueKey: skips a rejected token and keeps the next key', () => {
-  assert.equal(detectJiraIssueKey({ branch: 'fix/utf-8-in-DIGITALBTD-7' }), 'DIGITALBTD-7');
+  assert.equal(detectJiraIssueKey({ branch: 'fix/utf-8-in-ACME-7' }), 'ACME-7');
 });
 
 test('detectJiraIssueKey: only accepts known projects when provided', () => {
-  assert.equal(detectJiraIssueKey({ branch: 'feature/ABC-12-x', knownProjectKeys: ['digitalbtd'] }), null);
+  assert.equal(detectJiraIssueKey({ branch: 'feature/ABC-12-x', knownProjectKeys: ['acme'] }), null);
   assert.equal(
-    detectJiraIssueKey({ branch: 'feature/ABC-12-DIGITALBTD-5', knownProjectKeys: ['digitalbtd'] }),
-    'DIGITALBTD-5'
+    detectJiraIssueKey({ branch: 'feature/ABC-12-ACME-5', knownProjectKeys: ['acme'] }),
+    'ACME-5'
   );
 });
 

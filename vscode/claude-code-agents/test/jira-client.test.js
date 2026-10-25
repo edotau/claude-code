@@ -30,7 +30,7 @@ function fakeFetch(routes) {
   return { fetchImpl, calls };
 }
 
-const BASE = 'https://jira.biscrum.com';
+const BASE = 'https://jira.corp.example';
 const TOKEN = 'T';
 
 function assertCommonHeaders(init) {
@@ -57,14 +57,14 @@ test('search: POST /rest/api/2/search with the exact JSON body', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, fixture('search'))]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
   const fields = ['summary', 'status'];
-  await client.search('project = DIGITALBTD', { startAt: 20, maxResults: 10, fields });
+  await client.search('project = ACME', { startAt: 20, maxResults: 10, fields });
 
   const url = new URL(calls[0].url);
   assert.equal(url.pathname, '/rest/api/2/search');
   assert.equal(calls[0].init.method, 'POST');
   assertCommonHeaders(calls[0].init);
   assert.deepEqual(JSON.parse(calls[0].init.body), {
-    jql: 'project = DIGITALBTD',
+    jql: 'project = ACME',
     startAt: 20,
     maxResults: 10,
     fields,
@@ -74,7 +74,7 @@ test('search: POST /rest/api/2/search with the exact JSON body', async () => {
 test('search: omitted fields falls back to a default field list (not undefined)', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, fixture('search'))]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.search('project = DIGITALBTD');
+  await client.search('project = ACME');
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.startAt, 0);
   assert.ok(Array.isArray(body.fields) && body.fields.length > 0);
@@ -86,10 +86,10 @@ test('issue: GET /rest/api/2/issue/KEY with fields + expand=renderedFields', asy
   const raw = fixture('search').issues[0];
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, raw)]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.issue('DIGITALBTD-8139');
+  await client.issue('ACME-8139');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139');
   assert.ok(url.searchParams.get('fields').length > 0);
   assert.equal(url.searchParams.get('expand'), 'renderedFields');
   assert.ok(calls[0].init.method === undefined || calls[0].init.method === 'GET');
@@ -101,10 +101,10 @@ test('issue: GET /rest/api/2/issue/KEY with fields + expand=renderedFields', asy
 test('comments: GET …/comment?orderBy=created&maxResults=50&expand=renderedBody', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, { comments: [] })]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.comments('DIGITALBTD-8139');
+  await client.comments('ACME-8139');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/comment');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139/comment');
   assert.equal(url.searchParams.get('orderBy'), 'created');
   assert.equal(url.searchParams.get('maxResults'), '50');
   assert.equal(url.searchParams.get('expand'), 'renderedBody');
@@ -116,10 +116,10 @@ test('comments: GET …/comment?orderBy=created&maxResults=50&expand=renderedBod
 test('addComment: POST …/comment with {body: text} as plain text, never ADF', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, { id: '1' })]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.addComment('DIGITALBTD-8139', 'plain text comment');
+  await client.addComment('ACME-8139', 'plain text comment');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/comment');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139/comment');
   assert.equal(calls[0].init.method, 'POST');
   const parsedBody = JSON.parse(calls[0].init.body);
   assert.deepEqual(parsedBody, { body: 'plain text comment' });
@@ -130,7 +130,7 @@ test('addComment: POST …/comment with {body: text} as plain text, never ADF', 
 test('addComment TEETH: the recorded request body is plain text (not ADF) and carries the Bearer header', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, { id: '1' })]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.addComment('DIGITALBTD-8139', 'hello');
+  await client.addComment('ACME-8139', 'hello');
 
   const parsedBody = JSON.parse(calls[0].init.body);
   assert.equal(typeof parsedBody.body, 'string');
@@ -144,10 +144,10 @@ test('addComment TEETH: the recorded request body is plain text (not ADF) and ca
 test('transitions: GET …/transitions, unwrapped to the transitions array', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, fixture('transitions'))]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  const result = await client.transitions('DIGITALBTD-8139');
+  const result = await client.transitions('ACME-8139');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/transitions');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139/transitions');
   assert.equal(url.searchParams.get('expand'), 'transitions.fields');
   assert.deepEqual(result, fixture('transitions').transitions);
 });
@@ -157,10 +157,10 @@ test('transitions: GET …/transitions, unwrapped to the transitions array', asy
 test('transition: POST …/transitions with {transition:{id}}, no comment', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(204, {})]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.transition('DIGITALBTD-8139', '696880827');
+  await client.transition('ACME-8139', '696880827');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/transitions');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139/transitions');
   assert.equal(calls[0].init.method, 'POST');
   assert.deepEqual(JSON.parse(calls[0].init.body), { transition: { id: '696880827' } });
 });
@@ -168,7 +168,7 @@ test('transition: POST …/transitions with {transition:{id}}, no comment', asyn
 test('transition: with a comment, POST body adds update.comment[0].add.body', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(204, {})]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.transition('DIGITALBTD-8139', '696880827', 'closing this out');
+  await client.transition('ACME-8139', '696880827', 'closing this out');
 
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     transition: { id: '696880827' },
@@ -181,10 +181,10 @@ test('transition: with a comment, POST body adds update.comment[0].add.body', as
 test('assign: PUT …/assignee with {name}', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(204, {})]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.assign('DIGITALBTD-8139', 'user.one@example.com');
+  await client.assign('ACME-8139', 'user.one@example.com');
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/2/issue/DIGITALBTD-8139/assignee');
+  assert.equal(url.pathname, '/rest/api/2/issue/ACME-8139/assignee');
   assert.equal(calls[0].init.method, 'PUT');
   assert.deepEqual(JSON.parse(calls[0].init.body), { name: 'user.one@example.com' });
 });
@@ -194,7 +194,7 @@ test('assign: PUT …/assignee with {name}', async () => {
 test('assignable: GET /rest/api/2/user/assignable/search (or equivalent) carries the auth headers', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, [fixture('myself')])]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  await client.assignable('DIGITALBTD-8139');
+  await client.assignable('ACME-8139');
 
   assertCommonHeaders(calls[0].init);
   assert.equal(calls.length, 1);
@@ -241,7 +241,7 @@ test('a non-2xx response throws an Error with .status and errorMessages[0] in th
   ]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
   await assert.rejects(
-    () => client.issue('DIGITALBTD-0001'),
+    () => client.issue('ACME-0001'),
     (err) => {
       assert.equal(err.status, 400);
       assert.match(err.message, /Field summary is required\./);

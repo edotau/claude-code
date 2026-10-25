@@ -20,41 +20,41 @@ function fixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, `${name}.json`), 'utf8'));
 }
 
-const HOST = 'bitbucket.biscrum.com';
+const HOST = 'bitbucket.corp.example';
 
 // -- parseRepoRef --
 
 test('parseRepoRef: ssh URL with an explicit port', () => {
   assert.deepEqual(
-    parseRepoRef('ssh://git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git', HOST),
-    { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' }
+    parseRepoRef('ssh://git@bitbucket.corp.example:7999/acme/acme-portal-frontend.git', HOST),
+    { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' }
   );
 });
 
 test('parseRepoRef: https /scm/ clone URL with .git suffix', () => {
   assert.deepEqual(
-    parseRepoRef('https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git', HOST),
-    { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' }
+    parseRepoRef('https://bitbucket.corp.example/scm/acme/acme-portal-frontend.git', HOST),
+    { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' }
   );
 });
 
 test('parseRepoRef: scp-like git@host:port/project/repo.git (no scheme)', () => {
   assert.deepEqual(
-    parseRepoRef('git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git', HOST),
-    { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' }
+    parseRepoRef('git@bitbucket.corp.example:7999/acme/acme-portal-frontend.git', HOST),
+    { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' }
   );
 });
 
 test('parseRepoRef: scp-like git@host:project/repo.git (no port, no scheme)', () => {
   assert.deepEqual(
-    parseRepoRef('git@bitbucket.biscrum.com:digitalbtd/digitalbtd-portal-frontend.git', HOST),
-    { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' }
+    parseRepoRef('git@bitbucket.corp.example:acme/acme-portal-frontend.git', HOST),
+    { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' }
   );
 });
 
 test('parseRepoRef: http (no s) /scm/ clone URL requires /scm/ too', () => {
   assert.equal(
-    parseRepoRef('http://bitbucket.biscrum.com/digitalbtd/digitalbtd-portal-frontend.git', HOST),
+    parseRepoRef('http://bitbucket.corp.example/acme/acme-portal-frontend.git', HOST),
     null
   );
 });
@@ -71,7 +71,7 @@ test('mapPullRequest: an open PR maps id/title/state/branches/reviewers/updated,
   assert.equal(row.id, 1662);
   assert.equal(row.title, 'add excel for gdb mart dl');
   assert.equal(row.state, 'open');
-  assert.equal(row.from_branch, 'DIGITALBTD-10051/frontend');
+  assert.equal(row.from_branch, 'ACME-10051/frontend');
   assert.equal(row.to_branch, 'master');
   assert.equal(row.author, 'Dev 1');
   assert.deepEqual(row.reviewers, [
@@ -167,12 +167,12 @@ test('createClient.pullRequestForBranch: exact path + query on the pull-requests
     [(u) => u.pathname.includes(`/commits/${OPEN_SHA}`), () => jsonResponse(200, fixture('build-status-open'))],
   ]);
   const client = createClient({ baseUrl: `https://${HOST}`, token: 'tok', fetchImpl });
-  const ref = { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' };
-  const pr = await client.pullRequestForBranch(ref, 'DIGITALBTD-10051/frontend');
+  const ref = { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' };
+  const pr = await client.pullRequestForBranch(ref, 'ACME-10051/frontend');
 
   const prCall = new URL(calls[0].url);
-  assert.equal(prCall.pathname, '/rest/api/1.0/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests');
-  assert.equal(prCall.searchParams.get('at'), 'refs/heads/DIGITALBTD-10051/frontend');
+  assert.equal(prCall.pathname, '/rest/api/1.0/projects/ACME/repos/acme-portal-frontend/pull-requests');
+  assert.equal(prCall.searchParams.get('at'), 'refs/heads/ACME-10051/frontend');
   assert.equal(prCall.searchParams.get('direction'), 'OUTGOING');
   assert.equal(prCall.searchParams.get('state'), 'ALL');
   assert.equal(calls[0].opts.headers.Authorization, 'Bearer tok');
@@ -187,7 +187,7 @@ test('createClient.pullRequestForBranch: an empty page returns null without a bu
     [(u) => u.pathname.endsWith('/pull-requests'), () => jsonResponse(200, fixture('pr-for-branch-none'))],
   ]);
   const client = createClient({ baseUrl: `https://${HOST}`, token: 'tok', fetchImpl });
-  const pr = await client.pullRequestForBranch({ host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' }, 'no-such-branch');
+  const pr = await client.pullRequestForBranch({ host: HOST, project: 'ACME', repo: 'acme-portal-frontend' }, 'no-such-branch');
   assert.equal(pr, null);
   assert.equal(calls.length, 1);
 });
@@ -241,11 +241,11 @@ test('createClient.pullRequests: GET {repoApiPath}/pull-requests with state=OPEN
     [(u) => u.pathname.endsWith('/pull-requests'), () => jsonResponse(200, { values: [rawOpen], size: 1 })],
   ]);
   const client = createClient({ baseUrl: `https://${HOST}`, token: 'tok', fetchImpl });
-  const ref = { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' };
+  const ref = { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' };
   const rows = await client.pullRequests(ref);
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, '/rest/api/1.0/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests');
+  assert.equal(url.pathname, '/rest/api/1.0/projects/ACME/repos/acme-portal-frontend/pull-requests');
   assert.equal(url.searchParams.get('state'), 'OPEN');
   assert.equal(url.searchParams.get('limit'), '50');
   assert.equal(calls[0].opts.headers.Authorization, 'Bearer ' + 'tok');
@@ -300,9 +300,9 @@ test('resolveToken: an empty binary stdout falls through to the env var, not an 
 // -- repoRefFromDir --
 
 test('repoRefFromDir: resolves the ref from `git remote get-url origin`\'s stdout', async () => {
-  const execFileImpl = (bin, args, opts, cb) => cb(null, 'https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git\n');
+  const execFileImpl = (bin, args, opts, cb) => cb(null, 'https://bitbucket.corp.example/scm/acme/acme-portal-frontend.git\n');
   const ref = await repoRefFromDir('/some/dir', HOST, execFileImpl);
-  assert.deepEqual(ref, { host: HOST, project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' });
+  assert.deepEqual(ref, { host: HOST, project: 'ACME', repo: 'acme-portal-frontend' });
 });
 
 test('repoRefFromDir: a failing git command resolves null, not a rejection', async () => {

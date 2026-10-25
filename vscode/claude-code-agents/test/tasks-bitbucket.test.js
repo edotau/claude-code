@@ -51,17 +51,17 @@ test('endpointFor: review-requested:@me wins over author:@me (checked first)', (
 // -- repoFromUrl --
 
 test('repoFromUrl: parses the fixture row\'s DC PR URL', () => {
-  assert.deepEqual(repoFromUrl(FIXTURE_ROW.url), { project: 'DIGITALBTD', repo: 'digitalbtd-portal-frontend' });
+  assert.deepEqual(repoFromUrl(FIXTURE_ROW.url), { project: 'ACME', repo: 'acme-portal-frontend' });
 });
 
 test('repoFromUrl: a URL without the /projects/.../repos/.../ shape is null', () => {
-  assert.equal(repoFromUrl('https://bitbucket.biscrum.com/dashboard'), null);
+  assert.equal(repoFromUrl('https://bitbucket.corp.example/dashboard'), null);
   assert.equal(repoFromUrl(''), null);
 });
 
 test('repoFromUrl: percent-encoded segments are decoded and the project uppercased', () => {
   assert.deepEqual(
-    repoFromUrl('https://bitbucket.biscrum.com/projects/my%20proj/repos/my%20repo/pull-requests/1'),
+    repoFromUrl('https://bitbucket.corp.example/projects/my%20proj/repos/my%20repo/pull-requests/1'),
     { project: 'MY PROJ', repo: 'my repo' }
   );
 });
@@ -72,12 +72,12 @@ test('mapRow: the fixture row maps to the row contract', () => {
   const row = mapRow(FIXTURE_ROW);
   const jiraKey = detectJiraIssueKey({ branch: FIXTURE_ROW.from_branch, title: FIXTURE_ROW.title });
   assert.equal(row.source, 'bitbucket');
-  assert.equal(row.id, 'bitbucket:DIGITALBTD/digitalbtd-portal-frontend:pr:1662');
+  assert.equal(row.id, 'bitbucket:ACME/acme-portal-frontend:pr:1662');
   assert.equal(row.number, 1662);
   assert.equal(row.type, 'pr');
   // The fixture's state is the literal 'OPEN'; mapRow only lowercases 'merged'/'declined', so this is 'open'.
   assert.equal(row.state, 'open');
-  assert.deepEqual(row.repo, { owner: 'DIGITALBTD', name: 'digitalbtd-portal-frontend', label: 'DIGITALBTD/digitalbtd-portal-frontend' });
+  assert.deepEqual(row.repo, { owner: 'ACME', name: 'acme-portal-frontend', label: 'ACME/acme-portal-frontend' });
   assert.deepEqual(row.reviewers, [
     { name: 'Dev 2', status: 'APPROVED' },
     { name: 'Dev 3', status: 'PENDING' },
@@ -86,7 +86,7 @@ test('mapRow: the fixture row maps to the row contract', () => {
   // Fixture build is {url, state:'success'} with no `successful` count, so the label falls back to 0.
   assert.equal(row.checks.state, 'success');
   assert.equal(row.checks.label, '0 passed');
-  assert.equal(row.checks.url, 'https://jenkins.example.com/job/digitalbtd-cd/job/digitalbtd-cd-portal-frontend-10051/1/');
+  assert.equal(row.checks.url, 'https://jenkins.example.com/job/acme-cd/job/acme-cd-portal-frontend-10051/1/');
   assert.deepEqual(row.merge, { state: 'unknown', label: 'Open in Bitbucket' });
   assert.equal(row.jiraKey, jiraKey);
   assert.equal(row.jiraUrl, null);
@@ -136,10 +136,10 @@ test('filterRows: a non-@me reviewRequested filters on reviewer name, case-insen
 
 test('filterRows: freeText requires ALL words to match across title/branch/#number/jiraKey/author', () => {
   const rows = [
-    miniRow({ title: 'Add Excel export', branch: 'DIGITALBTD-10051/frontend', number: 1662, author: 'dev-1', jiraKey: 'DIGITALBTD-10051' }),
+    miniRow({ title: 'Add Excel export', branch: 'ACME-10051/frontend', number: 1662, author: 'dev-1', jiraKey: 'ACME-10051' }),
     miniRow({ title: 'Excel chart', branch: 'feature/chart', number: 2, author: 'bob' }),
   ];
-  assert.equal(filterRows(rows, { freeText: 'excel digitalbtd-10051' }).length, 1);
+  assert.equal(filterRows(rows, { freeText: 'excel acme-10051' }).length, 1);
   assert.equal(filterRows(rows, { freeText: 'excel bob' }).length, 1);
   assert.equal(filterRows(rows, { freeText: '#1662 excel' }).length, 1);
   assert.equal(filterRows(rows, { freeText: 'excel nosuchword' }).length, 0);

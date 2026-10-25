@@ -858,7 +858,7 @@ class TasksViewProvider {
     const visible = (cfg.get('tasksVisibleSources', TASK_SOURCES) || []).filter((s) => TASK_SOURCES.includes(s));
     return {
       binary: cfg.get('binary') || 'claude-code',
-      baseUrl: cfg.get('bitbucketUrl') || 'https://bitbucket.biscrum.com',
+      baseUrl: cfg.get('bitbucketUrl') || '',
       jiraBaseUrl: cfg.get('tasksJiraBaseUrl') || '',
       visible: visible.length ? visible : TASK_SOURCES,
       defaultSource: cfg.get('tasksDefaultSource', 'jira') || 'jira',
