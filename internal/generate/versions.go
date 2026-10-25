@@ -122,11 +122,6 @@ func vendorLabelPaths(vendor, home string) []labelPath {
 	switch vendor {
 	case "codex":
 		return []labelPath{{"codex", filepath.Join(home, ".codex", "config.toml")}}
-	case "opencode":
-		return []labelPath{
-			{"opencode", opencodeJSONPath(home)},
-			{"opencode-tui", filepath.Join(home, ".config", "opencode", "tui.json")},
-		}
 	case "gemini":
 		return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}
 	case "copilot":

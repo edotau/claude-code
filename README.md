@@ -52,9 +52,10 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
 - `configure` reuses what already exists (env, vault, vendor logins) and prompts only for what is missing.
 - **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
-- Vendor configs are merged, never replaced: `~/.codex/config.toml`, `~/.config/opencode/opencode.json`,
-  `~/.gemini/antigravity-cli/settings.json`, Codex/Copilot hooks. Keys are referenced by env var, exported only by a
-  routed launch.
+- Vendor configs are merged, never replaced: `~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
+  Codex/Copilot hooks. Keys are referenced by env var, exported only by a routed launch. opencode's own
+  `~/.config/opencode/` is never written (its model/MCP/theme come from a tracked overlay, `OPENCODE_CONFIG` /
+  `OPENCODE_TUI_CONFIG`, injected at launch — `internal/vendors/template/`).
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --restore` steps a vendor file back one version at a time.
@@ -122,7 +123,7 @@ sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets
   "pins": {"HARNESS_PROVIDER": "anthropic", "HARNESS_HAIKU_MODEL": "openai:gpt-5-nano"},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "gateway"},
-  "vendors": {"vendors": {"opencode": {"mcp": {"allow": ["github"]}}}},
+  "vendors": {"vendors": {"codex": {"permission": {"approvalPolicy": "on-failure"}}}},
   "vault": {"key_command": ""}
 }
 ```

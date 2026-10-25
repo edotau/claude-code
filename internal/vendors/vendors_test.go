@@ -10,12 +10,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/vendorconfig"
 	"strconv"
 )
 
@@ -462,6 +460,64 @@ func TestOpenCodeDirArgv(t *testing.T) {
 	})
 }
 
+// TestOpenCodeOverlayEnvOnEveryRoute: applyLaunch wires OPENCODE_CONFIG/OPENCODE_TUI_CONFIG into every
+// opencode launch path — own login (LaunchSpec), the BYOK/gateway route (Configure) and the hub ladder's
+// own builder (OpencodeRunArgv) — not just the applyLaunch unit the overlay's own test already covers.
+func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	hasOverlayEnv := func(t *testing.T, env []string) {
+		t.Helper()
+		m := envMap(env)
+		if m["OPENCODE_CONFIG"] == "" || m["OPENCODE_TUI_CONFIG"] == "" {
+			t.Errorf("env = %v, want both OPENCODE_CONFIG and OPENCODE_TUI_CONFIG set", env)
+		}
+	}
+
+	t.Run("own login (LaunchSpec)", func(t *testing.T) {
+		env, _ := LaunchSpec("opencode")
+		hasOverlayEnv(t, env)
+	})
+
+	t.Run("BYOK/gateway (Configure)", func(t *testing.T) {
+		tg := target(t, "gateway", "anthropic/claude-opus-5")
+		env, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hasOverlayEnv(t, env)
+	})
+
+	t.Run("hub ladder (OpencodeRunArgv)", func(t *testing.T) {
+		env, _ := OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
+		hasOverlayEnv(t, env)
+	})
+}
+
+// TestOpenCodeOwnLoginHeadlessToolsOffDeny: opencode's own-login headless leg (OwnLoginHeadless) still
+// rides OPENCODE_CONFIG_CONTENT={"permission":"deny"} when tools are off, alongside the new overlay env.
+func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	env, _, err := OwnLoginHeadless("opencode", Headless{Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := envMap(env)
+	if m["OPENCODE_CONFIG_CONTENT"] != `{"permission":"deny"}` {
+		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the tools-off deny", m["OPENCODE_CONFIG_CONTENT"])
+	}
+	if m["OPENCODE_CONFIG"] == "" || m["OPENCODE_TUI_CONFIG"] == "" {
+		t.Errorf("env = %v, want both overlay paths alongside the deny", env)
+	}
+
+	env, _, err = OwnLoginHeadless("opencode", Headless{Prompt: "hi", Tools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := envMap(env)["OPENCODE_CONFIG_CONTENT"]; ok {
+		t.Errorf("tools=true must carry no OPENCODE_CONFIG_CONTENT deny: %v", env)
+	}
+}
+
 // agy has no custom base URL, so a gateway provider for the gemini vendor must fail fast with a clear error.
 func TestGeminiGateway(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -571,232 +627,6 @@ func TestOpenCodeModelMenu(t *testing.T) {
 	})
 }
 
-func TestPermissionBlock(t *testing.T) {
-	cases := []struct {
-		name             string
-		allow, deny, ask []string
-		want             map[string]any // nil means permissionBlock must return nil
-	}{
-		{
-			name:  "mixed",
-			allow: []string{"Bash(*)", "Bash(go test:*)", "Bash(make:*)", "Edit(*)", "WebFetch(*)", "Read(*)", "Agent", "mcp__databricks__*"},
-			deny:  []string{"Bash(rm -rf:*)"},
-			ask:   []string{"Bash(git push:*)", "Bash(go test:*)"},
-			want: map[string]any{
-				"bash": map[string]any{"go test *": "ask", "make *": "allow", "git push *": "ask", "rm -rf *": "deny"},
-				"edit": "allow", "webfetch": "allow",
-			},
-		},
-		{
-			name:  "lone blanket allow",
-			allow: []string{"Bash(*)"},
-			want:  map[string]any{"bash": map[string]any{"*": "allow"}},
-		},
-		{
-			name: "global deny beats ask",
-			deny: []string{"Bash(*)"},
-			ask:  []string{"Bash(*)"},
-			want: map[string]any{"bash": map[string]any{"*": "deny"}},
-		},
-		{
-			name: "exact command without :*",
-			deny: []string{"Bash(rm -rf /)"},
-			want: map[string]any{"bash": map[string]any{"rm -rf /": "deny"}},
-		},
-		{
-			name:  "unknown rules only",
-			allow: []string{"Read(*)", "mcp__x__*", "Agent"},
-			want:  nil,
-		},
-		{
-			name: "all empty",
-			want: nil,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := permissionBlock(c.allow, c.deny, c.ask)
-			if c.want == nil {
-				if got != nil {
-					t.Fatalf("got %v, want nil", got)
-				}
-				return
-			}
-			gotBash, _ := got["bash"].(map[string]any)
-			wantBash, _ := c.want["bash"].(map[string]any)
-			if len(gotBash) != len(wantBash) {
-				t.Fatalf("bash = %v, want %v", gotBash, wantBash)
-			}
-			for k, v := range wantBash {
-				if gotBash[k] != v {
-					t.Errorf("bash[%q] = %v, want %v", k, gotBash[k], v)
-				}
-			}
-			for _, cat := range []string{"edit", "webfetch"} {
-				if want, ok := c.want[cat]; ok && got[cat] != want {
-					t.Errorf("%s = %v, want %v", cat, got[cat], want)
-				}
-			}
-		})
-	}
-}
-
-func TestMCPBlock(t *testing.T) {
-	servers := map[string]any{
-		"stdio-full": map[string]any{"command": "bash", "args": []any{"x.sh"}, "env": map[string]any{"K": "v"}},
-		"stdio-bare": map[string]any{"command": "cmd"},
-		"http":       map[string]any{"url": "https://h.example", "headers": map[string]any{"X-A": "b"}},
-		"unknown":    map[string]any{"transport": "pigeon"},
-		"junk":       "not-a-map",
-	}
-	got := mcpBlock(servers)
-
-	full, ok := got["stdio-full"].(map[string]any)
-	if !ok {
-		t.Fatalf("stdio-full missing: %v", got)
-	}
-	if full["type"] != "local" {
-		t.Errorf("stdio-full.type = %v, want local", full["type"])
-	}
-	if cmd, _ := full["command"].([]any); len(cmd) != 2 || cmd[0] != "bash" || cmd[1] != "x.sh" {
-		t.Errorf("stdio-full.command = %v, want [bash x.sh]", full["command"])
-	}
-	env, _ := full["environment"].(map[string]any)
-	if env["K"] != "v" {
-		t.Errorf("stdio-full.environment = %v, want {K: v}", full["environment"])
-	}
-	if full["enabled"] != true {
-		t.Errorf("stdio-full.enabled = %v, want true", full["enabled"])
-	}
-
-	bare, ok := got["stdio-bare"].(map[string]any)
-	if !ok {
-		t.Fatalf("stdio-bare missing: %v", got)
-	}
-	if _, has := bare["environment"]; has {
-		t.Errorf("stdio-bare must carry no environment key: %v", bare)
-	}
-
-	remote, ok := got["http"].(map[string]any)
-	if !ok {
-		t.Fatalf("http missing: %v", got)
-	}
-	if remote["type"] != "remote" {
-		t.Errorf("http.type = %v, want remote", remote["type"])
-	}
-	headers, _ := remote["headers"].(map[string]any)
-	if headers["X-A"] != "b" {
-		t.Errorf("http.headers = %v, want {X-A: b}", remote["headers"])
-	}
-
-	if _, ok := got["unknown"]; ok {
-		t.Errorf("unknown transport must be absent: %v", got["unknown"])
-	}
-	if _, ok := got["junk"]; ok {
-		t.Errorf("non-object value must be absent: %v", got["junk"])
-	}
-}
-
-// TestFilterAllowedMCPDropsUnlisted: a server not named in the vendor's MCP.Allow spec is dropped and
-// reported, mirroring the project-MCP-approval skip path (HARNESS_OPENCODE_MCP_SKIPPED).
-func TestFilterAllowedMCPDropsUnlisted(t *testing.T) {
-	servers := map[string]any{
-		"shared": map[string]any{"command": "global"},
-		"other":  map[string]any{"command": "nope"},
-	}
-	kept, dropped := filterAllowedMCP(servers, []string{"shared"})
-	if len(kept) != 1 {
-		t.Fatalf("kept = %v, want exactly {shared: ...}", kept)
-	}
-	if _, ok := kept["shared"]; !ok {
-		t.Errorf("kept missing shared: %v", kept)
-	}
-	if _, ok := kept["other"]; ok {
-		t.Errorf("kept must not contain other: %v", kept)
-	}
-	if !slices.Contains(dropped, "other") {
-		t.Errorf("dropped = %v, want to contain other", dropped)
-	}
-	if slices.Contains(dropped, "shared") {
-		t.Errorf("dropped = %v, must not contain the allowed server shared", dropped)
-	}
-
-	// No overlay / empty allowlist => nothing is wired, every server reported dropped.
-	kept, dropped = filterAllowedMCP(servers, nil)
-	if len(kept) != 0 {
-		t.Errorf("kept with empty allowlist = %v, want empty", kept)
-	}
-	if len(dropped) != len(servers) {
-		t.Errorf("dropped with empty allowlist = %v, want all %d servers", dropped, len(servers))
-	}
-}
-
-// TestGuardPermissionAppliesGuardRulesOnlyWhenOptedIn: a vendor not opted into UseGuardRules gets plain
-// "allow"; opted-in carries the deny `rm -rf /` and ask `git reset --hard *` through permissionBlock.
-func TestGuardPermissionAppliesGuardRulesOnlyWhenOptedIn(t *testing.T) {
-	vc, err := vendorconfig.Parse(nil, nil) // embedded defaults: deny rm -rf /, ask git reset --hard:*
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	plain := vendorconfig.Vendor{}
-	if got := guardPermission(vc, plain); got != "allow" {
-		t.Errorf("not opted in: guardPermission = %v, want \"allow\"", got)
-	}
-
-	guarded := vendorconfig.Vendor{Permission: vendorconfig.Permission{UseGuardRules: true}}
-	got, ok := guardPermission(vc, guarded).(map[string]any)
-	if !ok {
-		t.Fatalf("opted in: guardPermission = %v (%T), want a map", got, got)
-	}
-	bash, _ := got["bash"].(map[string]any)
-	if bash["rm -rf /"] != "deny" {
-		t.Errorf("bash[rm -rf /] = %v, want deny", bash["rm -rf /"])
-	}
-	if bash["git reset --hard *"] != "ask" {
-		t.Errorf("bash[git reset --hard *] = %v, want ask", bash["git reset --hard *"])
-	}
-	// template-only ask (not in the old hand-copied defaults.json guardRules) proves the guard
-	// list now comes from settings.Render(), not a hand-maintained subset.
-	if bash["git push --force origin main *"] != "ask" {
-		t.Errorf("bash[git push --force origin main *] = %v, want ask", bash["git push --force origin main *"])
-	}
-}
-
-func TestJSONField(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-
-	if got := jsonField(filepath.Join(dir, "missing.json"), "field"); got != nil {
-		t.Errorf("missing file = %v, want nil", got)
-	}
-	if got := jsonField(write("malformed.json", "{not json"), "field"); got != nil {
-		t.Errorf("malformed json = %v, want nil", got)
-	}
-	if got := jsonField(write("absent.json", `{"other": {"a": 1}}`), "field"); got != nil {
-		t.Errorf("absent field = %v, want nil", got)
-	}
-	if got := jsonField(write("nonobject.json", `{"field": "a string"}`), "field"); got != nil {
-		t.Errorf("non-object field = %v, want nil", got)
-	}
-	got := jsonField(write("happy.json", `{"field": {"a": 1}}`), "field")
-	if a, ok := got["a"].(float64); !ok || a != 1 {
-		t.Errorf("happy path = %v, want {a: 1}", got)
-	}
-}
-
-// writeVendorOverlay uses the CLAUDE_CONFIG_DIR the calling test already set via target().
-func writeVendorOverlay(t *testing.T, body string) {
-	t.Helper()
-	vaulttest.Put(t, vault.Overlay, "vendors", body)
-}
-
 func writeJSON(t *testing.T, path string, v any) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -808,151 +638,6 @@ func writeJSON(t *testing.T, path string, v any) {
 	}
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestOpenCodeInteractiveImports: Claude's project/global permissions are no longer imported wholesale
-// (guardPermission owns opencode's permission block instead); MCP servers Claude approves are still
-// read, but then gated by the vendorconfig MCP.Allow spec — no overlay wires nothing in, and an
-// overlay allowing one name wires only that one, every other name landing on the skipped channel.
-func TestOpenCodeInteractiveImports(t *testing.T) {
-	tg := target(t, "anthropic", "claude-sonnet-5")
-
-	proj := t.TempDir()
-	t.Chdir(proj)
-	cwd, err := os.Getwd() // t.TempDir() may be under a /var -> /private/var symlink on macOS
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writeJSON(t, filepath.Join(paths.ConfigDir(), ".claude.json"), map[string]any{
-		"mcpServers": map[string]any{
-			"shared": map[string]any{"command": "global"},
-			"g":      map[string]any{"url": "https://g"},
-		},
-		"projects": map[string]any{
-			cwd: map[string]any{"enabledMcpjsonServers": []string{"shared"}},
-		},
-	})
-	writeJSON(t, filepath.Join(proj, ".mcp.json"), map[string]any{"mcpServers": map[string]any{
-		"shared":     map[string]any{"command": "project"},
-		"unapproved": map[string]any{"command": "nope"},
-	}})
-
-	cfgOf := func(t *testing.T) (permission any, mcp map[string]struct {
-		Type    string   `json:"type"`
-		Command []string `json:"command"`
-	}, skipped string) {
-		t.Helper()
-		env, _, err := Configure(context.Background(), "opencode", tg, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var cfg struct {
-			Permission any `json:"permission"`
-			MCP        map[string]struct {
-				Type    string   `json:"type"`
-				Command []string `json:"command"`
-			} `json:"mcp"`
-		}
-		if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
-			t.Fatal(err)
-		}
-		return cfg.Permission, cfg.MCP, envMap(env)["HARNESS_OPENCODE_MCP_SKIPPED"]
-	}
-
-	// No vault overlay/vendors: opencode's default MCP.Allow is empty, so Claude's approved
-	// servers ("shared", "g") are read but every one of them is wired in nowhere, not even partially.
-	// guardPermission, not the Claude-settings import, owns the permission block on this same (no
-	// overlay, built-in defaults) call: the default vendor spec opts into UseGuardRules, so the
-	// harness's own guard deny/ask rules surface.
-	permission, mcp, skipped := cfgOf(t)
-	if len(mcp) != 0 {
-		t.Errorf("no overlay: mcp = %v, want empty (nothing on the default allowlist)", mcp)
-	}
-	for _, name := range []string{"shared", "g"} {
-		if !strings.Contains(skipped, name) {
-			t.Errorf("no overlay: HARNESS_OPENCODE_MCP_SKIPPED = %q, want it to contain %q", skipped, name)
-		}
-	}
-	perm, ok := permission.(map[string]any)
-	if !ok {
-		t.Fatalf("permission = %v (%T), want a guard-rule map", permission, permission)
-	}
-	bash, _ := perm["bash"].(map[string]any)
-	if bash["rm -rf /"] != "deny" {
-		t.Errorf("permission.bash[rm -rf /] = %v, want deny", bash["rm -rf /"])
-	}
-	if bash["git reset --hard *"] != "ask" {
-		t.Errorf("permission.bash[git reset --hard *] = %v, want ask", bash["git reset --hard *"])
-	}
-	// template-only ask, absent from the old hand-copied defaults.json guardRules: proves the
-	// guard list rendered here comes from settings.Render(), not a stale local copy.
-	if bash["git push --force origin main *"] != "ask" {
-		t.Errorf("permission.bash[git push --force origin main *] = %v, want ask", bash["git push --force origin main *"])
-	}
-	if perm["edit"] != "allow" {
-		t.Errorf("permission.edit = %v, want allow", perm["edit"])
-	}
-
-	// An overlay allowing only "shared" wires in just that one server (project wins over global), and
-	// still drops "g" and the project-unapproved "unapproved" onto the skipped channel.
-	writeVendorOverlay(t, `{"vendors":{"opencode":{"mcp":{"allow":["shared"]}}}}`)
-	_, mcp, skipped = cfgOf(t)
-	if len(mcp) != 1 {
-		t.Fatalf("overlay allows [shared]: mcp = %v, want exactly {shared: ...}", mcp)
-	}
-	if got := mcp["shared"].Command; len(got) != 1 || got[0] != "project" {
-		t.Errorf("mcp.shared.command = %v, want [project] (project wins)", got)
-	}
-	if _, ok := mcp["g"]; ok {
-		t.Errorf("mcp.g must be absent (not on the overlay's allowlist): %v", mcp["g"])
-	}
-	for _, name := range []string{"g", "unapproved"} {
-		if !strings.Contains(skipped, name) {
-			t.Errorf("HARNESS_OPENCODE_MCP_SKIPPED = %q, want it to contain %q", skipped, name)
-		}
-	}
-	if strings.Contains(skipped, "shared") {
-		t.Errorf("HARNESS_OPENCODE_MCP_SKIPPED = %q, must not contain the allowed server shared", skipped)
-	}
-
-	// A malformed .mcp.json must not fail the launch.
-	if err := os.WriteFile(filepath.Join(proj, ".mcp.json"), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := Configure(context.Background(), "opencode", tg, ""); err != nil {
-		t.Fatalf("malformed .mcp.json must not fail the launch: %v", err)
-	}
-
-	headlessEnv, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var headlessCfg map[string]any
-	if err := json.Unmarshal([]byte(envMap(headlessEnv)["OPENCODE_CONFIG_CONTENT"]), &headlessCfg); err != nil {
-		t.Fatal(err)
-	}
-	if headlessCfg["permission"] != "deny" {
-		t.Errorf("headless permission = %v, want deny", headlessCfg["permission"])
-	}
-	if _, ok := headlessCfg["mcp"]; ok {
-		t.Errorf("headless must carry no mcp key: %v", headlessCfg["mcp"])
-	}
-
-	toolsEnv, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", Tools: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var toolsCfg map[string]any
-	if err := json.Unmarshal([]byte(envMap(toolsEnv)["OPENCODE_CONFIG_CONTENT"]), &toolsCfg); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := toolsCfg["permission"]; ok {
-		t.Errorf("headless tools=true must carry no permission key: %v", toolsCfg["permission"])
-	}
-	if _, ok := toolsCfg["mcp"]; ok {
-		t.Errorf("headless tools=true must carry no mcp key: %v", toolsCfg["mcp"])
 	}
 }
 
@@ -1080,81 +765,6 @@ func TestRedactConfigCommandAndURL(t *testing.T) {
 	}
 	if url := mcp["y"].(map[string]any)["url"]; url != "https://h/p?<redacted>" {
 		t.Errorf("url = %v, want https://h/p?<redacted>", url)
-	}
-}
-
-// TestProjectMCPApprovalGate pins projectMCPApproval's four outcomes for a project .mcp.json server, plus
-// the invariant that a global ~/.claude.json mcpServers entry is imported regardless of project approval.
-func TestProjectMCPApprovalGate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	proj := t.TempDir()
-	t.Chdir(proj)
-	cwd, err := os.Getwd() // t.TempDir() may be under a /var -> /private/var symlink on macOS
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeJSON(t, filepath.Join(proj, ".mcp.json"), map[string]any{"mcpServers": map[string]any{
-		"srv": map[string]any{"command": "proj-srv"},
-	}})
-
-	cases := []struct {
-		name        string
-		doc         map[string]any
-		wantImport  bool
-		wantSkipped bool
-	}{
-		{
-			name:        "no projects entry",
-			doc:         map[string]any{"mcpServers": map[string]any{"g": map[string]any{"command": "global"}}},
-			wantImport:  false,
-			wantSkipped: true,
-		},
-		{
-			name: "enabledMcpjsonServers lists it",
-			doc: map[string]any{
-				"mcpServers": map[string]any{"g": map[string]any{"command": "global"}},
-				"projects":   map[string]any{cwd: map[string]any{"enabledMcpjsonServers": []string{"srv"}}},
-			},
-			wantImport:  true,
-			wantSkipped: false,
-		},
-		{
-			name: "enableAllProjectMcpServers true",
-			doc: map[string]any{
-				"mcpServers":                 map[string]any{"g": map[string]any{"command": "global"}},
-				"enableAllProjectMcpServers": true,
-			},
-			wantImport:  true,
-			wantSkipped: false,
-		},
-		{
-			name: "listed in both enabled and disabled",
-			doc: map[string]any{
-				"mcpServers": map[string]any{"g": map[string]any{"command": "global"}},
-				"projects": map[string]any{cwd: map[string]any{
-					"enabledMcpjsonServers":  []string{"srv"},
-					"disabledMcpjsonServers": []string{"srv"},
-				}},
-			},
-			wantImport:  false,
-			wantSkipped: true,
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			writeJSON(t, paths.ClaudeJSON(), c.doc)
-			imp := readClaudeImport(cwd)
-			if _, imported := imp.mcp["srv"]; imported != c.wantImport {
-				t.Errorf("srv imported = %v, want %v", imported, c.wantImport)
-			}
-			if skipped := slices.Contains(imp.skippedMCP, "srv"); skipped != c.wantSkipped {
-				t.Errorf("srv skipped = %v, want %v (skippedMCP=%v)", skipped, c.wantSkipped, imp.skippedMCP)
-			}
-			if _, ok := imp.mcp["g"]; !ok {
-				t.Errorf("global ~/.claude.json mcpServers entry g must always be imported")
-			}
-		})
 	}
 }
 

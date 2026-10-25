@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -80,14 +79,11 @@ func scratch(t *testing.T) string {
 func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 	home := scratch(t)
 	hooksPath := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
-	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
-	for path, body := range map[string]string{hooksPath: "{not valid json", jsoncPath: "{}\n"} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	_, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
@@ -95,77 +91,45 @@ func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
 	}
 	for _, rel := range []string{
-		".codex/config.toml", ".codex/hooks.json", ".config/opencode/opencode.json",
-		".config/opencode/tui.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
+		".codex/config.toml", ".codex/hooks.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
 	} {
 		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
 			t.Errorf("%s must not be written after a render error: %v", rel, err)
 		}
 	}
-	if raw, err := os.ReadFile(jsoncPath); err != nil || string(raw) != "{}\n" {
-		t.Errorf("JSONC must not be retired after a render error: %q, %v", raw, err)
+	// opencode's staged overlay write (ahead of copilot's in DefaultAgents order) must not apply either.
+	for _, rel := range []string{"opencode.json", "tui.json"} {
+		if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", rel)); !os.IsNotExist(err) {
+			t.Errorf("opencode overlay %s must not be written after a later render error: %v", rel, err)
+		}
 	}
 	if strings.Contains(out.String(), ": wrote ") || strings.Contains(out.String(), ": moved ") {
 		t.Errorf("reported unapplied writes:\n%s", out.String())
 	}
 }
 
-func TestPrepareDefersWritesAndJSONCRetirement(t *testing.T) {
+// TestPrepareDefersOpencodeOverlayWrite: Prepare validates and reports drift without writing the
+// overlay files; only Apply (the staged write queue) puts them on disk. opencode.jsonc retirement is
+// gone — opencode owns ~/.config/opencode/opencode.jsonc now, the harness never reads or moves it.
+func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	home := scratch(t)
-	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
-	if err := os.MkdirAll(filepath.Dir(jsoncPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(jsoncPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	overlayPath := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
 	var out bytes.Buffer
 	p, drift, err := Prepare(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}})
 	if err != nil || !drift || p == nil {
 		t.Fatalf("Prepare = %v, %v, %v", p, drift, err)
 	}
-	if _, err := os.Stat(opencodeJSONPath(home)); !os.IsNotExist(err) {
-		t.Fatalf("Prepare wrote opencode.json: %v", err)
-	}
-	if _, err := os.Stat(jsoncPath); err != nil {
-		t.Fatalf("Prepare retired opencode.jsonc: %v", err)
+	if _, err := os.Stat(overlayPath); !os.IsNotExist(err) {
+		t.Fatalf("Prepare wrote the overlay before Apply: %v", err)
 	}
 	if err := p.Apply(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(opencodeJSONPath(home)); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(overlayPath); err != nil {
+		t.Fatalf("Apply did not write the overlay: %v", err)
 	}
-	if _, err := os.Stat(jsoncPath); !os.IsNotExist(err) {
-		t.Fatalf("Apply did not retire opencode.jsonc: %v", err)
-	}
-	if entries, err := os.ReadDir(filepath.Dir(jsoncPath)); err != nil {
-		t.Fatal(err)
-	} else {
-		for _, e := range entries {
-			if strings.Contains(e.Name(), ".bak-") {
-				t.Errorf("no backup must land beside the original jsonc, got %v", e.Name())
-			}
-		}
-	}
-	bakDir := filepath.Join(paths.CacheDir(), "backups")
-	var backups []string
-	if err := filepath.WalkDir(bakDir, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "opencode.jsonc.bak-") {
-			backups = append(backups, path)
-		}
-		return nil
-	}); err != nil || len(backups) != 1 {
-		t.Fatalf("JSONC backups under %s = %v, %v", bakDir, backups, err)
-	}
-	stamp := strings.TrimPrefix(filepath.Base(backups[0]), "opencode.jsonc.bak-")
-	if _, err := time.Parse("20060102-150405.000000000", stamp); err != nil {
-		t.Fatalf("backup timestamp lacks nanosecond precision: %q: %v", stamp, err)
-	}
-	moved := strings.Index(out.String(), "opencode: moved ")
-	wrote := strings.Index(out.String(), "opencode: wrote ")
-	if moved < 0 || wrote < moved {
-		t.Fatalf("JSONC must be retired before writing opencode.json:\n%s", out.String())
+	if !strings.Contains(out.String(), "opencode: wrote "+overlayPath) {
+		t.Fatalf("expected a wrote line for the overlay, got:\n%s", out.String())
 	}
 }
 
@@ -204,16 +168,21 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 		t.Errorf("cli_auth_credentials_store occurs %d times, want 1:\n%s", n, codexCfg)
 	}
 
-	ocRaw, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	// opencode's overlay is a tracked, owner-authored template, not a per-provider render: it carries no
+	// provider block for the session's selected provider (openai here), just the pinned model/variant.
+	ocRaw, err := os.ReadFile(filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
 	if err != nil {
-		t.Fatalf("read opencode config: %v", err)
+		t.Fatalf("read opencode overlay: %v", err)
 	}
 	var oc map[string]any
 	if err := json.Unmarshal(ocRaw, &oc); err != nil {
 		t.Fatalf("opencode.json not valid JSON: %v", err)
 	}
-	if _, ok := oc["provider"].(map[string]any)["harness-openai"]; !ok {
-		t.Errorf("opencode.json missing harness-openai provider entry: %s", ocRaw)
+	if _, ok := oc["model"]; !ok {
+		t.Errorf("opencode.json missing a model key: %s", ocRaw)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "opencode.json")); !os.IsNotExist(err) {
+		t.Errorf("opencode's own ~/.config/opencode/opencode.json must not be written, stat err = %v", err)
 	}
 
 	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
@@ -245,6 +214,8 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(foreign), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// opencode's own config is never touched: write foreign content there and confirm it survives
+	// byte-for-byte (the harness overlay lands at state/harness/opencode instead).
 	ocPath := filepath.Join(home, ".config", "opencode", "opencode.json")
 	if err := os.MkdirAll(filepath.Dir(ocPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -290,15 +261,11 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var oc map[string]any
-	if err := json.Unmarshal(ocGot, &oc); err != nil {
-		t.Fatalf("opencode.json not valid JSON: %v", err)
+	if string(ocGot) != foreignOC {
+		t.Errorf("opencode's own config was touched: got %q, want untouched %q", ocGot, foreignOC)
 	}
-	if _, ok := oc["provider"].(map[string]any)["myown"]; !ok {
-		t.Errorf("foreign opencode provider entry was dropped: %s", ocGot)
-	}
-	if oc["someForeignKey"] != true {
-		t.Errorf("foreign top-level opencode key was dropped: %s", ocGot)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", "opencode.json")); err != nil {
+		t.Errorf("overlay was not written to state/harness/opencode: %v", err)
 	}
 }
 
@@ -656,19 +623,32 @@ func TestDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+// TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme: the overlay's tui.json lands at state/harness/opencode
+// (never opencode's own ~/.config/opencode) with the template's default theme (gemini-plum); a theme
+// `theme apply` already wrote into the on-disk file survives a later render untouched and drift-free.
 func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	home := scratch(t)
-	path := filepath.Join(home, ".config", "opencode", "tui.json")
+	path := filepath.Join(paths.StateDir(), "opencode", "tui.json")
 	if _, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var cfg map[string]any
 	raw, err := os.ReadFile(path)
-	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg["theme"] != "system" {
-		t.Fatalf("tui.json = %s (err %v), want theme system", raw, err)
+	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg["theme"] != "gemini-plum" {
+		t.Fatalf("tui.json = %s (err %v), want theme gemini-plum", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "tui.json")); !os.IsNotExist(err) {
+		t.Errorf("opencode's own ~/.config/opencode/tui.json must not be written, stat err = %v", err)
 	}
 
-	if err := os.WriteFile(path, []byte(`{"theme":"tokyonight","keybinds":{"leader":"ctrl+x"}}`), 0o644); err != nil {
+	// Swap only the theme value in the rendered file (as `theme apply` would), keeping the template's own
+	// formatting: preserveAppliedTheme re-renders onto the template, so only a theme-field edit round-trips
+	// byte-identical; a reformat or keybind edit would (correctly) show as drift.
+	edited := strings.Replace(string(raw), `"gemini-plum"`, `"tokyonight"`, 1)
+	if edited == string(raw) {
+		t.Fatal("tamper anchor not found")
+	}
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	drift, err := Run(Options{Home: home, Vendors: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
@@ -745,6 +725,9 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(vendorHome, ".config", "opencode")); !os.IsNotExist(err) {
 		t.Fatalf("expected no opencode config under the scratch HOME, stat err = %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode")); !os.IsNotExist(err) {
+		t.Fatalf("expected no opencode overlay under state/harness, stat err = %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot")); !os.IsNotExist(err) {
 		t.Fatalf("expected no .copilot under the scratch HOME, stat err = %v", err)
 	}
@@ -756,8 +739,8 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(vendorHome, ".codex", "config.toml")); err != nil {
 		t.Fatalf("--vendors must still write codex config: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".config", "opencode", "opencode.json")); err != nil {
-		t.Fatalf("--vendors must still write opencode config: %v", err)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", "opencode.json")); err != nil {
+		t.Fatalf("--vendors must still write the opencode overlay: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json")); err != nil {
 		t.Fatalf("--vendors must still write copilot hooks: %v", err)

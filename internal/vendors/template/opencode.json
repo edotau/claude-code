@@ -1,0 +1,34 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "mcp": {
+    "chrome-devtools": {
+      "command": ["npx", "-y", "chrome-devtools-mcp@1.11.0", "--browserUrl", "http://localhost:9222"],
+      "enabled": true,
+      "type": "local"
+    },
+    "web_search": {
+      "command": ["claude-code", "network", "websearch"],
+      "enabled": true,
+      "type": "local"
+    }
+  },
+  "model": "github-copilot/kimi-k3",
+  "permission": "allow",
+  "provider": {
+    "github-copilot": {
+      "models": {
+        "claude-opus-5.5": {
+          "options": {
+            "effort": "medium",
+            "thinking": {
+              "display": "summarized",
+              "type": "adaptive"
+            }
+          }
+        }
+      }
+    }
+  },
+  "small_model": "github-copilot/claude-haiku-5.5"
+}

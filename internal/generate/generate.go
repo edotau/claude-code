@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
@@ -111,12 +109,7 @@ func Prepare(o Options) (*Prepared, bool, error) {
 		case "codex":
 			d, err = renderCodex(reg, sel, home, o, out)
 		case "opencode":
-			d, err = renderOpenCode(reg, sel, home, o, out)
-			if err == nil {
-				var td bool
-				td, err = renderOpenCodeTUI(home, o, out)
-				d = d || td
-			}
+			d, err = renderOpenCodeOverlay(o, out)
 		case "gemini":
 			d, err = reportGemini(sel, out)
 			if err == nil {
@@ -340,46 +333,53 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 	return nil
 }
 
-// --- opencode: ~/.config/opencode/opencode.json, reusing vendors.Configure's own render ---
+// --- opencode: a tracked overlay (state/harness/opencode/{opencode,tui}.json), never opencode's own
+// ~/.config/opencode files; the harness only writes those for the custom theme (see internal/theme). ---
 
-// openCodeOwnedKeys are the top-level keys this tool sets; "x-claude-code-managed" names them in the
-// file itself (JSON has no comment syntax, so this key IS the banner).
-var openCodeOwnedKeys = []string{"$schema", "model", "permission", "mcp"}
-
-// openCodeCopilotOwnedKeys is openCodeOwnedKeys for the github-copilot route: model/small_model instead
-// of a provider block, since that login is opencode's own, not a harness-authored one.
-var openCodeCopilotOwnedKeys = []string{"$schema", "model", "small_model", "permission", "mcp"}
-
-// opencodeJSONPath is ~/.config/opencode/opencode.json, the file every opencode render below writes.
-func opencodeJSONPath(home string) string {
-	return filepath.Join(home, ".config", "opencode", "opencode.json")
+// renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
+func renderOpenCodeOverlay(o Options, out io.Writer) (bool, error) {
+	cfgPath, cfgBody, tuiPath, tuiBody, err := vendors.OpencodeOverlayRendered()
+	if err != nil {
+		return false, fmt.Errorf("opencode: %w", err)
+	}
+	cfgRaw, _ := os.ReadFile(cfgPath)
+	tuiRaw, _ := os.ReadFile(tuiPath)
+	cfgChanged, err := commitOverlayFile(cfgPath, cfgRaw, cfgBody, o, out, "opencode")
+	if err != nil {
+		return false, err
+	}
+	tuiChanged, err := commitOverlayFile(tuiPath, tuiRaw, tuiBody, o, out, "opencode-tui")
+	if err != nil {
+		return false, err
+	}
+	return cfgChanged || tuiChanged, nil
 }
 
-// retireStaleOpenCodeJSONC moves a conflicting opencode.jsonc out of the way before writing
-// opencode.json: opencode prefers the .jsonc form when both exist, so a config this tool writes to
-// .json would otherwise be silently ignored. Never deletes; --dry-run/--check report without moving.
-func retireStaleOpenCodeJSONC(home string, o Options, out io.Writer) error {
-	jsoncPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
-	if _, err := os.Stat(jsoncPath); err != nil {
-		return nil
-	}
-	bak := paths.BackupPath(jsoncPath, time.Now())
-	if o.DryRun || o.Check {
-		fmt.Fprintf(out, "opencode: would move %s -> %s (conflicts with opencode.json)\n", jsoncPath, bak)
-		return nil
+// commitOverlayFile is commitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
+// check and baseline tracking: the overlay is never hand-edited, so there is nothing to lose.
+func commitOverlayFile(path string, raw, next []byte, o Options, out io.Writer, label string) (bool, error) {
+	changed := !bytes.Equal(raw, next)
+	switch {
+	case o.DryRun:
+		fmt.Fprintf(out, "--- %s (%s) ---\n%s\n", path, label, next)
+		return changed, nil
+	case o.Check:
+		if changed {
+			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
+		}
+		return changed, nil
+	case !changed:
+		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
+		return false, nil
 	}
 	*o.staged = append(*o.staged, func() error {
-		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
-			return fmt.Errorf("opencode: %w", err)
+		if _, err := paths.WriteIfChanged(path, next, 0o600); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
 		}
-		backup, err := moveBackup(jsoncPath, bak)
-		if err != nil {
-			return fmt.Errorf("opencode: %w", err)
-		}
-		fmt.Fprintf(out, "opencode: moved %s -> %s (conflicts with opencode.json)\n", jsoncPath, backup)
+		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
 		return nil
 	})
-	return nil
+	return true, nil
 }
 
 func moveBackup(path, base string) (string, error) {
@@ -403,186 +403,6 @@ func moveBackup(path, base string) (string, error) {
 		}
 		return dest, nil
 	}
-}
-
-func renderOpenCode(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
-	ctx := context.Background()
-	target, note, err := vendors.ResolveTarget(reg, "opencode", sel, false)
-	if err != nil {
-		fmt.Fprintf(out, "opencode: skipped: %v\n", err)
-		return false, nil
-	}
-	if note != "" {
-		fmt.Fprintln(out, note)
-	}
-	if err := retireStaleOpenCodeJSONC(home, o, out); err != nil {
-		return false, err
-	}
-	if target.Provider != nil && target.Provider.Name == "github-copilot" {
-		return renderOpenCodeCopilot(reg, home, o, out)
-	}
-	env, _, err := vendors.Configure(ctx, "opencode", target, "")
-	if err != nil {
-		fmt.Fprintf(out, "opencode: skipped: %v\n", err)
-		return false, nil
-	}
-	var content string
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok && k == "OPENCODE_CONFIG_CONTENT" {
-			content = v
-		}
-	}
-	if content == "" {
-		fmt.Fprintln(out, "opencode: skipped: no config content resolved")
-		return false, nil
-	}
-	var rendered map[string]any
-	if err := json.Unmarshal([]byte(content), &rendered); err != nil {
-		return false, fmt.Errorf("opencode: %w", err)
-	}
-	path := opencodeJSONPath(home)
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	var existing map[string]any
-	if existed {
-		_ = json.Unmarshal(raw, &existing) // a hand-broken file is treated as empty; the write below fixes it
-	}
-	next := map[string]any{}
-	maps.Copy(next, existing)
-	for _, k := range openCodeOwnedKeys {
-		if v, ok := rendered[k]; ok {
-			next[k] = v
-		} else {
-			delete(next, k)
-		}
-	}
-	// provider is merged key-by-key so a foreign provider id the user configured by hand survives.
-	merged := map[string]any{}
-	if ep, ok := existing["provider"].(map[string]any); ok {
-		maps.Copy(merged, ep)
-	}
-	if rp, ok := rendered["provider"].(map[string]any); ok {
-		maps.Copy(merged, rp)
-	}
-	next["provider"] = merged
-	managed := append(append([]string{}, openCodeOwnedKeys...), "provider")
-	next["x-claude-code-managed"] = applyOpenCodePlugin(reg, existing, next, managed)
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("opencode: %w", err)
-	}
-	body = append(body, '\n')
-	return commitFile(path, raw, body, existed, o, out, "opencode")
-}
-
-// renderOpenCodeCopilot renders opencode.json for opencode's own GitHub Copilot login: opencode already
-// owns that provider block (it wrote it via `opencode auth login`), so this writes only model/small_model
-// (sonnet/haiku) plus permission/mcp, drops any apiKey/provider wiring, and clears a stale harness-*
-// provider entry a previous (pre-login) run of this tool left behind.
-func renderOpenCodeCopilot(reg *providers.Registry, home string, o Options, out io.Writer) (bool, error) {
-	mainID, smallID, ok := vendors.OpencodeCopilotModelIDs(reg)
-	if !ok {
-		fmt.Fprintln(out, "opencode: skipped: github-copilot has no sonnet/haiku model configured")
-		return false, nil
-	}
-	path := opencodeJSONPath(home)
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	var existing map[string]any
-	if existed {
-		_ = json.Unmarshal(raw, &existing)
-	}
-	next := map[string]any{}
-	maps.Copy(next, existing)
-	next["$schema"] = "https://opencode.ai/config.json"
-	model := "github-copilot/" + mainID
-	if p, ok := reg.Providers["github-copilot"]; ok && p.OpencodeVariant != "" {
-		model += "#" + p.OpencodeVariant
-	}
-	next["model"] = model
-	next["small_model"] = "github-copilot/" + smallID
-	if pm, ok := next["provider"].(map[string]any); ok {
-		for k := range pm {
-			if strings.HasPrefix(k, "harness-") {
-				delete(pm, k)
-			}
-		}
-		if len(pm) == 0 {
-			delete(next, "provider")
-		} else {
-			next["provider"] = pm
-		}
-	}
-	permission, mcp, _ := vendors.OpenCodePermissionMCP() // mcpSkipped has no env channel on this render path
-	next["permission"] = permission
-	if len(mcp) > 0 {
-		next["mcp"] = mcp
-	} else {
-		delete(next, "mcp")
-	}
-	managed := append([]string{}, openCodeCopilotOwnedKeys...)
-	next["x-claude-code-managed"] = applyOpenCodePlugin(reg, existing, next, managed)
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("opencode: %w", err)
-	}
-	body = append(body, '\n')
-	return commitFile(path, raw, body, existed, o, out, "opencode")
-}
-
-// applyOpenCodePlugin sets next["plugin"] from reg.OpencodePlugins and appends "plugin" to managed when
-// non-empty. Empty leaves any existing plugin key untouched and unclaimed, except: if this tool wrote it
-// on a previous run (named in existing's own x-claude-code-managed), the list going empty means drop it,
-// the same way every other managed key is retired here.
-func applyOpenCodePlugin(reg *providers.Registry, existing, next map[string]any, managed []string) []string {
-	if len(reg.OpencodePlugins) > 0 {
-		next["plugin"] = append([]string{}, reg.OpencodePlugins...)
-		return append(managed, "plugin")
-	}
-	if wasManagedKey(existing, "plugin") {
-		delete(next, "plugin")
-	}
-	return managed
-}
-
-// wasManagedKey reports whether key was named in existing's own x-claude-code-managed list.
-func wasManagedKey(existing map[string]any, key string) bool {
-	list, _ := existing["x-claude-code-managed"].([]any)
-	for _, v := range list {
-		if s, ok := v.(string); ok && s == key {
-			return true
-		}
-	}
-	return false
-}
-
-// openCodeDefaultTheme draws on the terminal's own colors, so opencode inherits the VS Code terminal background.
-const openCodeDefaultTheme = "system"
-
-// renderOpenCodeTUI seeds theme in ~/.config/opencode/tui.json (1.18+ moves it out of opencode.json); a set theme is kept.
-func renderOpenCodeTUI(home string, o Options, out io.Writer) (bool, error) {
-	path := filepath.Join(home, ".config", "opencode", "tui.json")
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	cfg := map[string]any{}
-	if existed {
-		if err := json.Unmarshal(raw, &cfg); err != nil {
-			fmt.Fprintf(out, "opencode-tui: skipped: %s is not plain JSON: %v\n", path, err)
-			return false, nil
-		}
-	}
-	if _, ok := cfg["theme"]; ok {
-		fmt.Fprintf(out, "opencode-tui: %s unchanged (theme already set)\n", path)
-		return false, nil
-	}
-	next := map[string]any{"$schema": "https://opencode.ai/tui.json"}
-	maps.Copy(next, cfg)
-	next["theme"] = openCodeDefaultTheme
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("opencode-tui: %w", err)
-	}
-	return commitFile(path, raw, append(body, '\n'), existed, o, out, "opencode-tui")
 }
 
 // --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
