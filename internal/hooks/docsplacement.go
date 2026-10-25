@@ -87,10 +87,10 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	if rootAnchors[strings.ToLower(base)] {
 		return ExitProceed
 	}
-	// The harness's own docs/ holds only images, templates + tracked knowledge; anything else there is a retired home.
+	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
 	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
-		for _, tier := range []string{"knowledge", "images", "templates"} {
+		for _, tier := range []string{"images", "templates"} {
 			if underDir(filepath.Join(harnessDocs, tier), abs) {
 				return ExitProceed
 			}
@@ -142,7 +142,7 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"  plan             -> %s/YYYY-MM-DD-<slug>.md\n"+
 		"  report/review    -> %s/YYYY-MM-DD-%s\n"+
 		"  handoff          -> %s/YYYY-MM-DD-<topic>.md\n"+
-		"  promoted, public-safe knowledge -> %s (tracked)\n"+
+		"  promoted knowledge -> %s/knowledge/<topic>.md (local-only)\n"+
 		"Re-issue the write at one of those paths. A genuine repo doc the user asked for: create it with\n"+
 		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
 		"by setting %s=0.\n"+
@@ -151,7 +151,7 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		filepath.Join(plans, slug),
 		memory.ReportsDir(store), base,
 		memory.HandoffsDir(store),
-		filepath.Join(paths.ConfigDir(), "docs", "knowledge"),
+		store,
 		docsPlacementDisableEnv)
 	return ExitBlock
 }
@@ -177,7 +177,7 @@ func repoRootOf(dir string) string {
 }
 
 // canonDeep resolves p's deepest existing ancestor and re-joins the missing tail, so a nested target
-// under a dir that does not exist yet (docs/knowledge/x/) still compares equal to the realpath git reports.
+// under a dir that does not exist yet (docs/reports/x/) still compares equal to the realpath git reports.
 func canonDeep(p string) string {
 	if a, err := filepath.Abs(p); err == nil {
 		p = a
