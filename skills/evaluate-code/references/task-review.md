@@ -23,7 +23,7 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 3. **Constraint awareness** — read CLAUDE.md's hard rules + behavioral guidelines; flag any
    violations.
 4. **Security surface** — auth/tokens, user input, filesystem, external APIs? If yes,
-   flag for a `security-reviewer`-skill pass (via `/security-reviewer`) post-implementation.
+   flag for the Security lens (`../SKILL.md` → Security) post-implementation.
 5. **Testing expectations** — unit/integration/E2E? Coverage target (default 80%)?
    Existing fixtures?
 6. **Missing context** — what does the implementer need that isn't in the request? Prior

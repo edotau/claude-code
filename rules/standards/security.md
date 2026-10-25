@@ -21,5 +21,5 @@ queries, sanitized output, CSRF on web; authentication/authorization verified on
 and audited.
 
 **Must-review:** auth, input, database, file-system, external-API, crypto and payment code gets the
-**security-reviewer** skill (`/security-reviewer`) before merge; a found issue follows its response protocol
-(`skills/security-reviewer/references/owasp-checklist.md` → Response Protocol).
+**evaluate-code** Security lens (`skills/evaluate-code/SKILL.md` → Security) before merge; a found issue follows its
+response protocol (`skills/evaluate-code/references/security/owasp-checklist.md` → Response Protocol).

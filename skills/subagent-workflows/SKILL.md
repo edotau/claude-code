@@ -12,7 +12,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | One small or tightly coupled task | TRIVIAL/LOW | Work inline | — |
 | Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
 | Ordered plan, review gate per task | MEDIUM | One implementer at a time, spec → simplify → quality | [Sequential plan](#sequential-plan) |
-| Review a diff | any | Quality leaf (`evaluate-code`) ‖ security leaf (`security-reviewer`), one message — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
+| Review a diff | any | One read-only `evaluate-code` leaf (quality + security lenses), or two on a large diff — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
 | Many leaf tasks across packages | HIGH/EPIC | One Claude lane orchestrator per lane, vendor leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
 | One objective, several phases and owners | HIGH/EPIC | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |
 | Same measurable task, several approaches | any | N isolated attempts, re-measure, merge one | [competition-tournament.md](references/competition-tournament.md) |
@@ -49,10 +49,10 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 **Report (out)** — lead with the outcome: the verdict word for a review, the status word for a change, the findings
 for a read-only research leg. Verdict words come first and alone, one closed vocabulary per mode: review
 `SHIP | FIX REQUIRED | BLOCK`, judge `VERIFIED | VERIFIED WITH CAVEATS | REFUTED`, task-brief/plan review
-`READY | NEEDS CLARIFICATION` (`evaluate-code` → Verdicts); security `PASS | FIX REQUIRED | BLOCK`
-(`security-reviewer`); gate loop `PASS | FAIL` (`problem-solving/references/verify.md`); spec review
-`SPEC_COMPLIANT | SPEC_ISSUES` ([prompts.md#spec-reviewer](references/prompts.md#spec-reviewer)); vendor diff review
-`SHIP IT | NEEDS WORK | BLOCK`; a change reports the Status below.
+`READY | NEEDS CLARIFICATION` (`evaluate-code` → Verdicts); gate loop `PASS | FAIL`
+(`problem-solving/references/verify.md`); spec review `SPEC_COMPLIANT | SPEC_ISSUES`
+([prompts.md#spec-reviewer](references/prompts.md#spec-reviewer)); vendor diff review `SHIP IT | NEEDS WORK | BLOCK`; a
+change reports the Status below.
 
 - Status: `DONE` | `DONE_WITH_CONCERNS` | `NEEDS_CONTEXT` | `BLOCKED`.
 - `Ran on:` runner (model) · job · session · fallback <none|who> — a stand-in is reported, never hidden.

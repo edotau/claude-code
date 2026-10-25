@@ -1,7 +1,7 @@
 # Dependency Auditor
 
 Audit a project's dependencies for **known vulnerabilities (CVEs)**, **license compliance**,
-and **safe upgrade planning**. This is Mode 3 of the security-reviewer skill.
+and **safe upgrade planning**. This is the Dependencies mode of `evaluate-code`'s Security lens.
 
 > **Use live-feed scanners, never a hardcoded CVE list.** Vulnerability data goes stale in
 > days — a scanner matching against a baked-in list reports "clean" on a project full of real

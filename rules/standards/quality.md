@@ -95,9 +95,9 @@ Genuinely out of scope: [exceptions][discipline].
 
 ## Completion Criteria (all tasks)
 
-Acceptance criteria verified by observation, not assertion; review done (`/code-review`; `/security-reviewer`
-for auth/input/API/crypto); automated tests green and manual checks for user-facing changes; docs and links
-current. Full checklist and the severity scale (CRITICAL → LOW; approve when no CRITICAL/HIGH):
+Acceptance criteria verified by observation, not assertion; review done (`/code-review`, with the security lens
+for auth/input/API/crypto); automated tests green and manual checks for user-facing changes; docs and links current.
+Full checklist and the severity scale (CRITICAL → LOW; approve when no CRITICAL/HIGH):
 `skills/evaluate-code/references/completion-criteria.md`.
 
 Fixture discipline and mutation (injection) proofs: the `testing-guidelines` skill.

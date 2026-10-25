@@ -20,9 +20,8 @@ baseline; weakest guarantee.
 
 ## Level 2 — Active (`/code-review`)
 
-Run `/code-review` before committing. It scopes the diff, runs the detectors, fans out a
-quality reviewer + a subagent running the `security-reviewer` skill in
-parallel, and synthesizes a SHIP / FIX REQUIRED / BLOCK verdict. This is the recommended
+Run `/code-review` before committing. It scopes the diff, runs the detectors, runs the
+quality and security lenses, and synthesizes a SHIP / FIX REQUIRED / BLOCK verdict. This is the recommended
 default — explicit, on demand, no standing config.
 
 ## Level 3 — Opt-in gate (`claude-code review gate`)
