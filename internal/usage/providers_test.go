@@ -75,8 +75,8 @@ func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
 	if strings.Contains(s, "<synthetic>") {
 		t.Errorf("zero-token row printed:\n%s", s)
 	}
-	// default --show is "left": LEFT column + "N of M credits left" detail, not the old USED format.
-	for _, want := range []string{"claude-opus-5", "PROVIDER QUOTAS", "6250 of 7000 credits left", "agy not logged in (run agy login)", "API KEYS"} {
+	// default --show is "used": USAGE column + "N / M credits" detail.
+	for _, want := range []string{"claude-opus-5", "PROVIDER QUOTAS", "USAGE", "750 / 7000 credits", "agy not logged in (run agy login)", "API KEYS"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output missing %q:\n%s", want, s)
 		}
@@ -278,5 +278,74 @@ func TestUsageQuotasWithoutTranscripts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "PROVIDER QUOTAS") {
 		t.Errorf("no quota block:\n%s", out.String())
+	}
+}
+
+func quotaRows(t *testing.T, show string, qs []quota) []string {
+	t.Helper()
+	var buf bytes.Buffer
+	printSubscriptionQuotas(&buf, qs, show)
+	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+}
+
+func TestQuotaDefaultShowIsUsageHeader(t *testing.T) {
+	claudeDir := t.TempDir()
+	orig := fetchQuotas
+	fetchQuotas = func() []quota {
+		return []quota{{Provider: "github", Window: "monthly", UsedPct: 11, Used: 750, Limit: 7000}}
+	}
+	t.Cleanup(func() { fetchQuotas = orig })
+	var out, errw bytes.Buffer
+	if code := Run(nil, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("exit %d: %s", code, errw.String())
+	}
+	s := out.String()
+	if !strings.Contains(s, " USAGE ") || strings.Contains(s, " LEFT ") {
+		t.Errorf("default header must be USAGE, not LEFT:\n%s", s)
+	}
+}
+
+func TestQuotaBarPrecedesPercent(t *testing.T) {
+	rows := quotaRows(t, "used", []quota{{Provider: "github", Window: "monthly", UsedPct: 50, Limit: 10, Used: 5}})
+	row := rows[len(rows)-1]
+	b, p := strings.Index(row, "█"), strings.Index(row, "50%")
+	if b < 0 || p < 0 || b > p {
+		t.Errorf("bar must precede percent (bar@%d pct@%d): %q", b, p, row)
+	}
+}
+
+func TestQuotaPercentsRightAligned(t *testing.T) {
+	for _, show := range []string{"used", "left"} {
+		qs := []quota{
+			{Provider: "a", UsedPct: 2, LeftPct: 2, Limit: 1},
+			{Provider: "b", UsedPct: 16, LeftPct: 16, Limit: 1},
+			{Provider: "c", UsedPct: 100, LeftPct: 100, Limit: 1},
+		}
+		rows := quotaRows(t, show, qs)[3:]
+		ends := map[int]bool{}
+		for i, pct := range []string{"2%", "16%", "100%"} {
+			if !strings.Contains(rows[i], pct) {
+				t.Fatalf("%s: row %d lacks %s: %q", show, i, pct, rows[i])
+			}
+			ends[len([]rune(rows[i][:strings.Index(rows[i], pct)+len(pct)]))] = true
+		}
+		if len(ends) != 1 {
+			t.Errorf("%s: percents end at different columns: %q", show, rows)
+		}
+	}
+}
+
+func TestQuotaShowLeftHeaderAndComplement(t *testing.T) {
+	q := quota{Provider: "github", Window: "monthly", UsedPct: 25, LeftPct: 75, Used: 1750, Limit: 7000}
+	rows := quotaRows(t, "left", []quota{q})
+	if !strings.Contains(rows[2], "LEFT") || strings.Contains(rows[2], "USAGE") {
+		t.Errorf("left header: %q", rows[2])
+	}
+	if r := rows[3]; !strings.Contains(r, "75%") || !strings.Contains(r, "5250 of 7000 credits left") {
+		t.Errorf("left row: %q", r)
+	}
+	u := quotaRows(t, "used", []quota{q})
+	if r := u[3]; !strings.Contains(r, "25%") || !strings.Contains(r, "1750 / 7000 credits") {
+		t.Errorf("used row: %q", r)
 	}
 }

@@ -60,7 +60,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	formatFlag := outfmt.Flag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
-	showFlag := fs.String("show", "left", "quota column: left (default), used, or total")
+	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0

@@ -258,7 +258,7 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 	}
 	col := "LEFT"
 	if show == "used" {
-		col = "USED"
+		col = "USAGE"
 	}
 	fmt.Fprintf(out, "\nPROVIDER QUOTAS (live, account-wide)\n")
 	fmt.Fprintf(out, "%-9s %-22s %-12s %-8s %-15s %8s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", col, "STATE", "RESETS", "DETAIL")
@@ -270,7 +270,7 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 		if show != "used" {
 			pct = q.LeftPct
 		}
-		val, state := fmt.Sprintf("%.0f%% %s", pct, bar(pct)), q.State
+		val, state := bar(pct)+" "+fmt.Sprintf("%4s", fmt.Sprintf("%.0f%%", pct)), q.State
 		if q.Note != "" && q.Limit == 0 {
 			val, state = "-", "-"
 		}
