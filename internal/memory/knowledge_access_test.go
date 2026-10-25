@@ -35,12 +35,12 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	}
 }
 
-// TestKnowledgeIsSearchedAndCataloged: docs/knowledge notes (not its README) are search hits and catalog rows.
+// TestKnowledgeIsSearchedAndCataloged: memory/<bank>/knowledge notes (not its README) are search hits and catalog rows.
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	migrateConfig(t)
 	cutover(t)
-	write(t, filepath.Join(KnowledgeDir(), "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, filepath.Join(KnowledgeDir(), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
 	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
@@ -51,8 +51,31 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 		}
 	}
 	c, err := BuildCatalog(time.Now())
-	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
+	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
 		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
+	}
+}
+
+// TestRepoBankKnowledgeIsCatalogedAndSearched: a repo bank's knowledge/*.md shows under its own key in the
+// catalog and is reachable by search, same as the home-bank tier.
+func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
+	migrateConfig(t)
+	cutover(t)
+	root := gitRepo(t, t.TempDir(), "narwhal")
+	dir, err := EnsureRepoDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(KnowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
+	write(t, filepath.Join(KnowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
+	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
+	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
+		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
+	}
+	key := filepath.Base(dir)
+	c, err := BuildCatalog(time.Now())
+	if err != nil || !strings.Contains(c, key+"/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
+		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
 	}
 }
 

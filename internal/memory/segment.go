@@ -45,7 +45,7 @@ func corpusFiles(root string) []corpusFile {
 		}
 	}
 	if CutOver() {
-		for _, path := range knowledgeFiles(filepath.Base(Dir(root))) {
+		for _, path := range knowledgeFiles(root) {
 			out = append(out, corpusFile{"knowledge", path, segKnowledge})
 		}
 	}
