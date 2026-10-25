@@ -43,8 +43,8 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 - `Context:` paths with line numbers, prior decisions, the upstream artifact (stage doc, `--attach` lane plan,
   plan path).
 - `Constraints:` the CLAUDE.md rules that apply, plus the shared-tree line below.
-- `Acceptance:` an observable outcome. `Verify:` the scoped command and live check — never the full suite (`make test`,
-  `go test ./...`, bare `pytest`), which runs once at wrap-up with the user's approval.
+- `Acceptance:` an observable outcome. `Verify:` the scoped command and live check — never the full suite
+  (`rules/standards/quality.md` → Verification Order).
 - A code-changing leaf also gets the forced `TASK:`/`ISSUE:` lines verbatim — action-point lines transfer only in the
   prompt.
 - `Return:` the report below. Size the model to the task (Sonnet leaf by default; raise effort before model).
