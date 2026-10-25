@@ -33,8 +33,10 @@ const themeUsage = `usage: claude-code theme [<palette>|--preview]
                                 [--keybindings-template f]
                                 [--extensions-dir d]
 
-bare lists every palette; a name sets it. apply merges theme/<tool>.json into
-each tool. statusline renders the status line (settings.json runs it).
+bare shows this help and every palette; a name sets it. apply merges
+theme/<tool>.json into each tool. statusline renders the status line
+(settings.json runs it).
+
 `
 
 // cmdTheme picks the statusline's gradient palette persistently. No argument (or --preview) lists
@@ -50,7 +52,10 @@ func cmdTheme(args []string) int {
 		}
 	}
 	fs := flag.NewFlagSet("theme", flag.ContinueOnError)
-	fs.Usage = func() { helptext.Fprint(os.Stderr, themeUsage) }
+	fs.Usage = func() { // help and the palettes it chooses from, so bare `theme` and `-h` show both
+		helptext.Fprint(os.Stderr, themeUsage)
+		printPalettes(os.Stderr, colorOK(os.Stderr))
+	}
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -58,7 +63,11 @@ func cmdTheme(args []string) int {
 		}
 		return 2
 	}
-	if *preview || len(fs.Args()) == 0 {
+	if len(fs.Args()) == 0 && !*preview {
+		fs.Usage()
+		return 0
+	}
+	if *preview {
 		printPalettes(os.Stdout, colorOK(os.Stdout))
 		return 0
 	}
@@ -80,16 +89,34 @@ func cmdTheme(args []string) int {
 
 // printPalettes writes one line per gradient palette name, swept across its own stops when colored.
 func printPalettes(w io.Writer, colored bool) {
-	fmt.Fprintln(w, `Statusline palettes — state/statusline/config.json "gradient"`)
-	fmt.Fprintln(w)
+	fmt.Fprintln(w, `PALETTES (state/statusline/config.json "gradient"; ● current)`)
 	mode, _, _ := statusline.Theme()
+	current := currentGradient()
 	for _, name := range statusline.GradientNames() {
+		mark := " "
+		if name == current {
+			mark = "●"
+		}
 		if colored {
-			fmt.Fprintf(w, "  %s\n", sweep(mode, statusline.GradientStops(name), name))
+			fmt.Fprintf(w, "  %s %s\n", mark, sweep(mode, statusline.GradientStops(name), name))
 			continue
 		}
-		fmt.Fprintf(w, "  %s\n", name)
+		fmt.Fprintf(w, "  %s %s\n", mark, name)
 	}
+}
+
+// currentGradient is the palette the status line uses now: the user config's "gradient", else the default's.
+func currentGradient() string {
+	var cfg struct {
+		Gradient string `json:"gradient"`
+	}
+	if raw, err := os.ReadFile(filepath.Join(statusline.ConfigDir(), "config.json")); err == nil {
+		if json.Unmarshal(raw, &cfg) == nil && cfg.Gradient != "" {
+			return cfg.Gradient
+		}
+	}
+	_ = json.Unmarshal(statusline.DefaultConfigJSON(), &cfg)
+	return cfg.Gradient
 }
 
 // setGradient merges "gradient":name into state/statusline/config.json, creating it from the
