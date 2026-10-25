@@ -468,3 +468,37 @@ func TestInstallVerboseFlagMatchesInstallVerboseDirectly(t *testing.T) {
 		t.Errorf("Install(verbose=true) diverges from installVerbose called directly:\nA:\n%s\nB:\n%s", normA, normB)
 	}
 }
+
+// The "still ran" settings error must print only after the steps it claims ran, in both output modes.
+func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
+	for _, verbose := range []bool{true, false} {
+		name := "compact"
+		if verbose {
+			name = "verbose"
+		}
+		t.Run(name, func(t *testing.T) {
+			setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
+			if err := os.MkdirAll(SettingsFile(), 0o755); err != nil { // settings.json as a directory: read fails
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			if err := Install(&out, false, verbose); err == nil {
+				t.Fatal("Install with an unreadable settings.json returned nil error")
+			}
+			s := out.String()
+			skip := strings.Index(s, "still ran")
+			agents := strings.Index(s, "agents")
+			if skip < 0 || agents < 0 {
+				t.Fatalf("missing skip or agents line:\n%s", s)
+			}
+			if skip < agents {
+				t.Errorf("settings skip printed before the agents step:\n%s", s)
+			}
+			if verbose {
+				if g := strings.Index(s, "tmux"); g < 0 || skip < g {
+					t.Errorf("settings skip printed before the git-hooks/extras steps:\n%s", s)
+				}
+			}
+		})
+	}
+}
