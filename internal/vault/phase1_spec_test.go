@@ -159,7 +159,7 @@ func TestConcurrentUpdatePreservesEightKeys(t *testing.T) {
 	const writers = 8
 	start := make(chan struct{})
 	results := make(chan error, writers)
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		go func(i int) {
 			<-start
 			results <- vault.Update(func(tx *vault.Tx) error {
@@ -168,7 +168,7 @@ func TestConcurrentUpdatePreservesEightKeys(t *testing.T) {
 		}(i)
 	}
 	close(start)
-	for i := 0; i < writers; i++ {
+	for range writers {
 		select {
 		case err := <-results:
 			if err != nil {
@@ -183,7 +183,7 @@ func TestConcurrentUpdatePreservesEightKeys(t *testing.T) {
 		if len(all) != writers {
 			t.Errorf("got %d keys, want %d: %v", len(all), writers, all)
 		}
-		for i := 0; i < writers; i++ {
+		for i := range writers {
 			name, want := fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i)
 			if got, ok := tx.Get(vault.Pins, name); !ok || got != want {
 				t.Errorf("Get(%q) = %q, %t; want %q, true", name, got, ok, want)

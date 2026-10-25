@@ -249,7 +249,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		if len([]rune(l)) > memory.BankFmtMaxLine {
 			t.Errorf("rewritten decisionLog.md still has an over-width line: %q", l)
 		}
@@ -375,7 +375,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 		t.Errorf("an unstamped hit printed the old bare-dash format: %q", out)
 	}
 	var contentRef string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if ref, _, ok := strings.Cut(line, " — "); ok && ref != "deadbeef" {
 			contentRef = ref
 		}

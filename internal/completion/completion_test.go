@@ -12,7 +12,7 @@ func TestScriptRegistersOnlyBinary(t *testing.T) {
 		t.Run(bin, func(t *testing.T) {
 			script := Script(bin)
 			var registrations []string
-			for _, line := range strings.Split(script, "\n") {
+			for line := range strings.SplitSeq(script, "\n") {
 				if strings.HasPrefix(line, "complete ") {
 					registrations = append(registrations, line)
 				}

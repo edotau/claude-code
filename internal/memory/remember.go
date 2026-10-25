@@ -75,7 +75,7 @@ func lastStampedID(path, line string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, ln := range strings.Split(string(data), "\n") {
+	for ln := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(ln, line) {
 			if id := BlockID(ln); id != "" {
 				return id, nil

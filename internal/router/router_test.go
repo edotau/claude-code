@@ -669,6 +669,34 @@ func TestTransientRateLimitDoesNotDemote(t *testing.T) {
 	}
 }
 
+// A window-exhaustion 429 ("usage limit ... try again in Ns") is IsQuota-true but ModelDenied-false: the
+// account is temporarily out of window, not the model denied outright. failover must cool the provider (so
+// the next request sinks it to the end of the ladder) without marking the model dead, since a lower slot
+// on the same account would hit the very same exhausted window.
+func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
+	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
+	target := providers.Target{Provider: p, Model: "m1-opus"}
+	r := newRouter("s")
+	resp := &http.Response{
+		StatusCode: 429,
+		Header:     http.Header{"Retry-After": []string{"60"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"usage limit reached, try again in 60 seconds"}}`)),
+	}
+	moveOn, hard := r.failover(resp, target, false)
+	if hard {
+		t.Error("a window-exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
+	}
+	if !moveOn {
+		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
+	}
+	if r.isDead(target) {
+		t.Error("failover must not mark the model dead on a window-exhaustion 429")
+	}
+	if _, cooling := r.cool[p.Name]; !cooling {
+		t.Error("failover must cool the provider on a window-exhaustion 429")
+	}
+}
+
 // bumpMtime forces path's mtime to an exact, test-controlled value instead of relying on wall-clock
 // drift between calls (which registry()'s second-granularity mtime comparison could mask).
 func bumpMtime(t *testing.T, path string, when time.Time) {

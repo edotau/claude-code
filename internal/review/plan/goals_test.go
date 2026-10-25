@@ -85,21 +85,26 @@ func TestRunGoalsMissingFile(t *testing.T) {
 func TestRunGoalsBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunGoals([]string{"--nope"}, strings.NewReader(""), &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	if code != 2 {
+		t.Fatalf("exit code = %d for a bad flag, want 2", code)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty on a bad flag", stdout.String())
 	}
 }
 
-// -h after a positional input still prints the usage page (a real FlagSet, not a leading-only check).
+// -h after a positional input prints the usage page to stdout, exit 0, stderr empty.
 func TestRunGoalsHelpAfterPositional(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunGoals([]string{"somefile.md", "-h"}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := stdout.String() + stderr.String()
-	if !strings.HasPrefix(got, "usage: claude-code review goals [<input>] [flags]\n") {
-		t.Errorf("want the review goals usage page:\n%s", got)
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code review goals [<input>] [flags]\n") {
+		t.Errorf("stdout = %q, want the review goals usage page", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty on -h", stderr.String())
 	}
 }
 

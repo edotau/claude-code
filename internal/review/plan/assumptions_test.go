@@ -86,20 +86,25 @@ func TestRunAssumptionsMissingFile(t *testing.T) {
 func TestRunAssumptionsBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunAssumptions([]string{"--nope"}, strings.NewReader(""), &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+	if code != 2 {
+		t.Fatalf("exit code = %d for a bad flag, want 2", code)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty on a bad flag", stdout.String())
 	}
 }
 
-// -h after a positional input still prints the usage page (a real FlagSet, not a leading-only check).
+// -h after a positional input prints the usage page to stdout, exit 0, stderr empty.
 func TestRunAssumptionsHelpAfterPositional(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunAssumptions([]string{"somefile.md", "-h"}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := stdout.String() + stderr.String()
-	if !strings.HasPrefix(got, "usage: claude-code review assumptions [<input>] [flags]\n") {
-		t.Errorf("want the review assumptions usage page:\n%s", got)
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty on -h", stderr.String())
+	}
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code review assumptions [<input>] [flags]\n") {
+		t.Errorf("want the review assumptions usage page:\n%s", stdout.String())
 	}
 }

@@ -43,7 +43,7 @@ func (k *keyList) String() string { return strings.Join(*k, ",") }
 func (k *keyList) Placeholder() string { return "KEY,KEY" }
 
 func (k *keyList) Set(v string) error {
-	for _, p := range strings.Split(v, ",") {
+	for p := range strings.SplitSeq(v, ",") {
 		if p = strings.TrimSpace(p); p != "" && !slices.Contains(*k, p) {
 			*k = append(*k, p)
 		}
@@ -111,7 +111,7 @@ func configureRender(reset, restore bool, section, agents, out string, check, dr
 		return fail("configure: --restore takes only --agent and --dry-run")
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
-	for _, a := range strings.Split(agents, ",") {
+	for a := range strings.SplitSeq(agents, ",") {
 		if a = strings.TrimSpace(a); a != "" && !slices.Contains(generate.DefaultAgents, a) {
 			return fail("configure: unknown --agent %q (%s)", a, strings.Join(generate.DefaultAgents, "|"))
 		}

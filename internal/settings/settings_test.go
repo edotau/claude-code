@@ -328,3 +328,21 @@ func TestMergeDropsListedForeignKey(t *testing.T) {
 		t.Errorf("Summary.Dropped = %v, want it to list the foreign key", sum.Dropped)
 	}
 }
+
+func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
+	rendered, _ := Render()
+	live := `{"modelSettings":{"claude-fable-5-1":{"effortLevel":"high"}},"someForeign":1}`
+	merged, sum, err := Merge([]byte(live), rendered, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), `"effortLevel": "high"`) && !strings.Contains(string(merged), `"effortLevel":"high"`) {
+		t.Errorf("modelSettings not kept:\n%s", merged)
+	}
+	if slices.Contains(sum.Kept, "modelSettings") {
+		t.Errorf("runtime key reported as foreign: %v", sum.Kept)
+	}
+	if !slices.Contains(sum.Kept, "someForeign") {
+		t.Errorf("a real foreign key must still be reported: %v", sum.Kept)
+	}
+}

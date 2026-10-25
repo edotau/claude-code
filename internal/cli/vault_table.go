@@ -239,12 +239,14 @@ func vaultTable(head []string, rows [][]string, width int) string {
 	var b strings.Builder
 	for _, r := range append([][]string{head}, rows...) {
 		line := " "
+		var lineSb242 strings.Builder
 		for i, c := range r {
-			line += " " + c
+			lineSb242.WriteString(" " + c)
 			if i < len(r)-1 {
-				line += strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+1)
+				lineSb242.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+1))
 			}
 		}
+		line += lineSb242.String()
 		b.WriteString(vaultTruncate(strings.TrimRight(line, " "), width) + "\n")
 	}
 	return b.String()

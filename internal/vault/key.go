@@ -145,10 +145,10 @@ func parseKeyCommandArgv(raw string) ([]string, error) {
 		return nil, fmt.Errorf("vault: key_command must be a JSON array of strings: %w", err)
 	}
 	if len(argv) == 0 {
-		return nil, fmt.Errorf("vault: key_command must not be an empty argv array")
+		return nil, errors.New("vault: key_command must not be an empty argv array")
 	}
 	if argv[0] == "" {
-		return nil, fmt.Errorf("vault: key_command argv[0] (the executable) must not be empty")
+		return nil, errors.New("vault: key_command argv[0] (the executable) must not be empty")
 	}
 	return argv, nil
 }
@@ -169,8 +169,7 @@ func runKeyCommand(raw, vaultID string) (*Key, error) {
 		return nil, fmt.Errorf("vault: key_command: %w", ctx.Err())
 	}
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 			stderr := strings.TrimSpace(string(exit.Stderr))
 			if len(stderr) > 200 {
 				stderr = stderr[:200]
@@ -367,7 +366,7 @@ func RotateKey(opts ...RotateKeyOption) (oldKid, newKid string, err error) {
 			return e
 		}
 		if source != "keyring" {
-			return fmt.Errorf("vault: rotation requires a keyring-held master key")
+			return errors.New("vault: rotation requires a keyring-held master key")
 		}
 		oldKid = old.Kid
 		id, kid, command, e := keyMeta()
@@ -448,10 +447,10 @@ func rotateGuard(force bool, command string) error {
 	case force:
 		return nil
 	case os.Getenv("HARNESS_VAULT_KEY") != "":
-		return fmt.Errorf("vault: HARNESS_VAULT_KEY is set; rotating would silently break it — " +
+		return errors.New("vault: HARNESS_VAULT_KEY is set; rotating would silently break it — " +
 			"update the env var with the new key right after, or pass --force")
 	case command != "":
-		return fmt.Errorf("vault: meta/key_command is set; rotating would silently break it — " +
+		return errors.New("vault: meta/key_command is set; rotating would silently break it — " +
 			"update that command's output with the new key right after, or pass --force")
 	}
 	return nil
@@ -480,7 +479,7 @@ func retireKid(t *Tx, kid string) error {
 // rotation landed between selection and commit) is refreshed and retried, bounded at 3 attempts.
 func UpdateSealed(fn func(*Tx, *Key) error) error {
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		var k *Key
 		k, err = EnsureKey()
 		if err != nil {
@@ -513,7 +512,7 @@ func UpdateSealed(fn func(*Tx, *Key) error) error {
 // ReadSecret reads one record and its kid in a single coherent View, then opens it with the key
 // for that exact kid, retrying once if a concurrent rotation invalidated the key mid-read (R3).
 func ReadSecret(name string) (value string, found bool, err error) {
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := range 2 {
 		var id, kid, command string
 		var record Record
 		var ok bool
