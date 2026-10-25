@@ -13,10 +13,11 @@ var Tiers = routetable.Tiers
 // Runners are the table's columns in roster order; ties in the cost score keep this order.
 var Runners = routetable.Runners
 
-// Billing types: a plan window already paid for, or per-use credits.
+// Billing types: a plan window already paid for, per-use credits, or a free third-party endpoint.
 const (
 	BillSubscription = routetable.BillSubscription
 	BillCredits      = routetable.BillCredits
+	BillFree         = routetable.BillFree
 )
 
 // Cell is one runner × tier row; an alias for routetable.Cell, the package both route and vendors load from.

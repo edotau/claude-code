@@ -2,16 +2,29 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
 )
+
+// opencodeLogins is a seam over vendors.OpencodeLogins, so tests never shell out to opencode auth.
+var opencodeLogins = vendors.OpencodeLogins
+
+// freeFirstOutput is the first-output deadline for a free-billed hub leg (route.BillFree); a var so tests
+// shrink it. A paid leg carries no deadline (hubLeg.firstOutput stays 0) and relies on AttemptTimeout alone.
+var freeFirstOutput = 90 * time.Second
+
+// errStalled is the sentinel a free leg's Run returns when nothing streamed within firstOutput: a fatal,
+// unwrapped failure, so Do never retries it but legUnavailable falls through to the chain's backup leg.
+var errStalled = errors.New("free leg stalled: no output within the first-output deadline")
 
 // HubAgents are the agent names `ask` routes through the opencode hub by default; --native skips it. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
@@ -21,23 +34,53 @@ var HubAgents = []string{"opencode"}
 func IsHubAgent(name string) bool { return slices.Contains(HubAgents, name) }
 
 // HubStart resolves the provider a hub agent's first leg targets: explicitProvider when the caller set
-// one, else the registry's ladder[0]. The provider must carry an OpencodeID — the hub has no route to one that doesn't.
+// one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
+// falling back to the ladder's first entry at all so the page stays editable with no login anywhere.
+// The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, tier- and
+// work-repo-gated) is the per-tier sub-pick's concern (route.Table.Pick), not this cross-tier provider page.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
-	name := explicitProvider
-	if name == "" && len(reg.OpencodeLadder) > 0 {
-		name = reg.OpencodeLadder[0]
+	if explicitProvider != "" {
+		p, err := reg.Get(explicitProvider)
+		if err != nil {
+			return nil, err
+		}
+		if p.OpencodeID == "" {
+			return nil, fmt.Errorf("%s: provider %s has no opencodeID, so the hub cannot route to it", agentName, p.Name)
+		}
+		return p, nil
 	}
-	if name == "" {
-		return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
+	var first *providers.Provider
+	for _, id := range reg.OpencodeLadder {
+		p, err := opencodeLadderProvider(reg, id)
+		if err != nil {
+			continue
+		}
+		if first == nil {
+			first = p
+		}
+		if slices.Contains(opencodeLogins(), vendors.OpencodeCredID(p.OpencodeID)) {
+			return p, nil
+		}
 	}
-	p, err := reg.Get(name)
-	if err != nil {
-		return nil, err
+	if first != nil {
+		return first, nil
 	}
-	if p.OpencodeID == "" {
-		return nil, fmt.Errorf("%s: provider %s has no opencodeID, so the hub cannot route to it", agentName, p.Name)
+	return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
+}
+
+// opencodeLadderProvider resolves one opencodeLadder id to its registry provider: a provider whose
+// opencodeID matches directly (github-copilot, openai, nvidia, ...), else a synthetic provider for
+// opencode's own plan (opencode-go), which carries no registry entry.
+func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Provider, error) {
+	for _, name := range reg.Names() {
+		if p := reg.Providers[name]; p.OpencodeID == id {
+			return p, nil
+		}
 	}
-	return p, nil
+	if vendors.OpencodeCredID(id) == "opencode" {
+		return &providers.Provider{Name: id, OpencodeID: id}, nil
+	}
+	return nil, fmt.Errorf("opencode ladder id %q: no provider has opencodeID %q", id, id)
 }
 
 // hubLeg is one opencode-routed ladder step: `opencode run -m <opencodeID>/<model>` on provider, under
@@ -47,6 +90,8 @@ type hubLeg struct {
 	agent    string
 	provider *providers.Provider
 	reg      *providers.Registry
+	// firstOutput, when non-zero, fails the leg if nothing streams within it — the free Zen leg's stall guard.
+	firstOutput time.Duration
 }
 
 // NewHubLeg builds a hub leg Runner for agentName on provider; reg resolves a provider:model override.
@@ -92,11 +137,26 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	}
 	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
 	env = append(env, cred...)
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
-	out, runErr := runEventStream(ctx, l.agent, cmd, tail, stream, parseOpenCodeStream)
+	cctx := ctx
+	var onFirstByte func()
+	var cancel context.CancelFunc
+	if l.firstOutput > 0 {
+		var cc context.CancelCauseFunc
+		cctx, cc = context.WithCancelCause(ctx)
+		cancel = func() { cc(nil) }
+		timer := time.AfterFunc(l.firstOutput, func() { cc(errStalled) })
+		onFirstByte = func() { timer.Stop() }
+		defer timer.Stop()
+		defer cancel()
+	}
+	cmd, tail := childCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
+	out, runErr := runEventStream(cctx, l.agent, cmd, tail, stream, parseOpenCodeStream, onFirstByte)
 	res.Answer, res.Usage = out.Answer, out.Usage
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
+	}
+	if l.firstOutput > 0 && errors.Is(context.Cause(cctx), errStalled) {
+		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: errStalled}
 	}
 	return res, runErr
 }

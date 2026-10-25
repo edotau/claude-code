@@ -26,6 +26,7 @@ const (
 	GateAvailable = "available"
 	GateAccount   = "account"
 	GateExhausted = "exhausted"
+	GateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
 )
 
 // Candidate is one runnable leg: the runner, its cell at the tier, its account's state and its composite score.
@@ -63,6 +64,10 @@ type Opts struct {
 	// Refresh re-fetches one stale account and records it; the pick then rereads that entry.
 	Refresh func(ctx context.Context, account string) bool
 	Now     func() time.Time
+	// WorkRepo reports whether the current repo is Boehringer's, so the opencode sub-pick never offers a
+	// free Zen candidate there; nil defaults to IsWorkRepo("") (the cwd's git remote), so callers that
+	// never heard of this rule still get it for free.
+	WorkRepo func() bool
 }
 
 // Scope is what a Dimension may read: the account states and every candidate scored together.
@@ -95,33 +100,55 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 		st = State{}
 	}
 	res := Result{Tier: tier, Want: want, Weights: t.Weights}
-	gate := func(runner string) (Candidate, bool) {
+	gate := func(runner string) ([]Candidate, bool) {
 		return t.gateCandidate(ctx, tier, runner, st, o, now, configured, &res)
 	}
-	first, rest, last := t.gatherCandidates(want, o, gate)
-	all := t.score(slices.Concat(first, rest, last), st)
-	nf, nr := len(first), len(rest)
-	first, rest, last = all[:nf], all[nf:nf+nr], all[nf+nr:]
-	slices.SortStableFunc(rest, func(a, b Candidate) int {
-		return cmp.Or(cmp.Compare(lowRank(a.State), lowRank(b.State)), cmp.Compare(b.Total, a.Total))
+	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
+	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
+	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st)
+	nf, nr := len(flatFirst), len(flatRest)
+	firstG = regroup(firstG, all[:nf])
+	restG = regroup(restG, all[nf:nf+nr])
+	lastG = regroup(lastG, all[nf+nr:])
+	// groups sort together (not their individual candidates), so a free winner keeps its paid backup adjacent.
+	slices.SortStableFunc(restG, func(a, b []Candidate) int {
+		return cmp.Or(cmp.Compare(lowRank(a[0].State), lowRank(b[0].State)), cmp.Compare(b[0].Total, a[0].Total))
 	})
-	res.Candidates = slices.Concat(first, rest, last)
+	res.Candidates = slices.Concat(flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG))
 	return res
 }
 
+// flattenGroups concatenates each gate's candidate group, in group order.
+func flattenGroups(groups [][]Candidate) []Candidate {
+	return slices.Concat(groups...)
+}
+
+// regroup reslices a flat, scored candidate list back into groups sized like the originals.
+func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
+	out := make([][]Candidate, len(groups))
+	for i, g := range groups {
+		out[i], flat = flat[:len(g)], flat[len(g):]
+	}
+	return out
+}
+
 // gateCandidate runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
+// It returns a group of candidates from this one runner — one, unless it's opencode's free+backup pair.
 func (t *Table) gateCandidate(
 	ctx context.Context, tier, runner string, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
-) (Candidate, bool) {
+) ([]Candidate, bool) {
+	if runner == "opencode" && !t.OpencodeRowOverridden[tier] {
+		return t.gateOpencodeCandidate(ctx, tier, st, o, now, configured, res)
+	}
 	c, ok := t.Cell(runner, tier)
 	if !ok {
 		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
-		return Candidate{}, false
+		return nil, false
 	}
 	if err := configured(runner, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
-		return Candidate{}, false
+		return nil, false
 	}
 	billing := t.Billing[c.Account]
 	if o.Account != nil {
@@ -131,7 +158,7 @@ func (t *Table) gateCandidate(
 	}
 	if c.Account == routetable.CopilotUnpinned {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
-		return Candidate{}, false
+		return nil, false
 	}
 	e := st[c.Account]
 	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
@@ -141,16 +168,95 @@ func (t *Table) gateCandidate(
 	s := e.Status(now)
 	if s == StateExhausted {
 		res.Skipped = append(res.Skipped, Skip{runner, GateExhausted, ExhaustedReason(c.Account, e, now)})
-		return Candidate{}, false
+		return nil, false
 	}
-	return Candidate{Runner: runner, Cell: c, State: s, Billing: billing}, true
+	return []Candidate{{Runner: runner, Cell: c, State: s, Billing: billing}}, true
 }
 
-// gatherCandidates runs the wanted runner, then (unless suppressed) the other vendors, then claude under FallbackAll.
-func (t *Table) gatherCandidates(want string, o Opts, gate func(string) (Candidate, bool)) (first, rest, last []Candidate) {
+// opencodeOrder is the sub-pick's fixed order: the free Zen catalog first, then the ladder's paid backends
+// (defaults.json opencodeLadder, vault-overridable) — owner decision, not the composite score, picks the
+// backend; price/headroom only break a tie between sub-candidates sharing one order position.
+func (t *Table) opencodeOrder() []string {
+	return slices.Concat([]string{"zen-free"}, t.OpencodeLadder)
+}
+
+// gateOpencodeCandidate runs the opencode sub-pick at tier: zen-free first (skipped at opus or on a work
+// repo, routetable.BillFree), then each ladder id in order, every one gated on its own login (configured,
+// which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
+// after the non-low ones while otherwise keeping this order. ok is false when every sub-candidate was skipped.
+// When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
+// free leg has a ready backup without a second opencode pick.
+func (t *Table) gateOpencodeCandidate(
+	ctx context.Context, tier string, st State, o Opts, now time.Time,
+	configured func(runner string, c Cell) error, res *Result,
+) ([]Candidate, bool) {
+	type sub struct {
+		id      string
+		c       Cell
+		billing string
+		state   string
+	}
+	workRepo := o.WorkRepo
+	if workRepo == nil {
+		workRepo = func() bool { return IsWorkRepo("") }
+	}
+	var ok []sub
+	for _, id := range t.opencodeOrder() {
+		name := "opencode:" + id
+		if _, known := t.OpencodeSub[id]; !known {
+			res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
+			continue
+		}
+		c, has := t.OpencodeSubCell(id, tier)
+		if !has {
+			continue // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not a tier check
+		}
+		billing := t.Billing[c.Account]
+		if billing == routetable.BillFree && workRepo() {
+			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
+			continue
+		}
+		if err := configured("opencode", c); err != nil {
+			res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
+			continue
+		}
+		e := st[c.Account]
+		if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
+			e = LoadState()[c.Account]
+			st[c.Account] = e
+		}
+		s := e.Status(now)
+		if s == StateExhausted {
+			res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
+			continue
+		}
+		ok = append(ok, sub{id, c, billing, s})
+	}
+	if len(ok) == 0 {
+		res.Skipped = append(res.Skipped, Skip{"opencode", GateAvailable, "no opencode sub-candidate passed (no login, exhausted, or free blocked)"})
+		return nil, false
+	}
+	slices.SortStableFunc(ok, func(a, b sub) int { return cmp.Compare(lowRank(a.state), lowRank(b.state)) })
+	w := ok[0]
+	group := []Candidate{{Runner: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
+	if w.billing == routetable.BillFree {
+		for _, s := range ok[1:] {
+			if s.billing != routetable.BillFree {
+				group = append(group, Candidate{Runner: "opencode", Cell: s.c, State: s.state, Billing: s.billing})
+				break
+			}
+		}
+	}
+	return group, true
+}
+
+// gatherCandidates runs the wanted runner, then (unless suppressed) the other vendors, then claude under
+// FallbackAll. Each gate call's group (usually one candidate, two for a free opencode winner + its paid
+// backup) stays together as one element, so a later sort over groups never splits the pair.
+func (t *Table) gatherCandidates(want string, o Opts, gate func(string) ([]Candidate, bool)) (first, rest, last [][]Candidate) {
 	if want != "" {
-		if c, ok := gate(want); ok {
-			first = append(first, c)
+		if cs, ok := gate(want); ok {
+			first = append(first, cs)
 		}
 	}
 	if want != "claude" && o.Fallback != FallbackNone {
@@ -158,13 +264,13 @@ func (t *Table) gatherCandidates(want string, o Opts, gate func(string) (Candida
 			if r == want || r == "claude" {
 				continue
 			}
-			if c, ok := gate(r); ok {
-				rest = append(rest, c)
+			if cs, ok := gate(r); ok {
+				rest = append(rest, cs)
 			}
 		}
 		if o.Fallback == FallbackAll || o.Fallback == "" {
-			if c, ok := gate("claude"); ok {
-				last = append(last, c)
+			if cs, ok := gate("claude"); ok {
+				last = append(last, cs)
 			}
 		}
 	}
@@ -200,6 +306,9 @@ type priceDim struct{}
 func (priceDim) Name() string { return "price" }
 
 func (priceDim) Score(c Candidate, s Scope) float64 {
+	if c.Billing == BillFree {
+		return 1
+	}
 	if c.Billing == BillSubscription {
 		return headroom(s.State[c.Account])
 	}
