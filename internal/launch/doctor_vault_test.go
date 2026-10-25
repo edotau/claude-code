@@ -43,4 +43,19 @@ func TestVaultDoctorChecks(t *testing.T) {
 			t.Error("doctor printed a secret")
 		}
 	})
+	t.Run("one vault row, not two", func(t *testing.T) {
+		hermetic(t, "")
+		t.Setenv("HARNESS_VAULT_KEY", "")
+		vaulttest.Keyring(t)
+		vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
+		n := 0
+		for _, c := range vaultDoctorChecks() {
+			if c.Name == "vault" || c.Name == "vault master key" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("vaultDoctorChecks has %d vault/master-key row(s), want exactly 1 (the \"vault\" row carries the master-key status)", n)
+		}
+	})
 }
