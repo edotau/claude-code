@@ -100,18 +100,22 @@ func BuildCatalog(now time.Time) (string, error) {
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
 	var rows []string
-	collectKnowledge := func(label, dir string) {
-		m, _ := filepath.Glob(filepath.Join(KnowledgeDir(dir), "*.md"))
-		for _, f := range m {
-			if filepath.Base(f) == "README.md" {
-				continue
+	// collectKnowledge lists dir's own knowledge/*.md plus legacyDir's leftover docs/knowledge/*.md,
+	// marking the latter (legacy) so a catalog reader knows which tier it still needs to migrate.
+	collectKnowledge := func(label, dir, legacyDir string) {
+		for _, d := range []struct{ dir, suffix string }{{KnowledgeDir(dir), ""}, {legacyDir, " (legacy)"}} {
+			m, _ := filepath.Glob(filepath.Join(d.dir, "*.md"))
+			for _, f := range m {
+				if filepath.Base(f) == "README.md" {
+					continue
+				}
+				rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f)+d.suffix)
 			}
-			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
 	}
-	collectKnowledge("home", HomeBankDir())
+	collectKnowledge("home", HomeBankDir(), legacyKnowledgeDir())
 	for _, e := range entries {
-		collectKnowledge(e.Key, e.Dir)
+		collectKnowledge(e.Key, e.Dir, filepath.Join(legacyKnowledgeDir(), e.Key))
 	}
 	if len(rows) > 0 {
 		b.WriteString("\n## Knowledge (local, memory/<bank>/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
@@ -271,12 +275,18 @@ func newestMarkdown(dir string) time.Time {
 	return newest
 }
 
+// legacyKnowledgeDir is the retired docs/knowledge/ tier (commit 44aab60); a compat read only — the
+// docs-placement hook still blocks new writes there, so nothing moves back into it.
+func legacyKnowledgeDir() string { return filepath.Join(paths.ConfigDir(), "docs", "knowledge") }
+
 // knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
-// (repo-specific); README.md is the tier's own doc.
+// (repo-specific), plus any leftover docs/knowledge/*.md and docs/knowledge/<key>/*.md a machine never
+// migrated off the retired tier; README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
-	dirs := []string{KnowledgeDir(HomeBankDir())}
+	dirs := []string{KnowledgeDir(HomeBankDir()), legacyKnowledgeDir()}
 	if !IsHomeBank(root) {
-		dirs = append(dirs, KnowledgeDir(Dir(root)))
+		key := filepath.Base(Dir(root))
+		dirs = append(dirs, KnowledgeDir(Dir(root)), filepath.Join(legacyKnowledgeDir(), key))
 	}
 	var out []string
 	for _, d := range dirs {
