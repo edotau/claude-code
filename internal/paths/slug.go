@@ -65,6 +65,25 @@ func MainCheckout(root string) string {
 	return root
 }
 
+// CheckoutOf walks up from dir to the nearest directory holding .git: top is that dir, main its MainCheckout.
+// ("", "") when dir is not inside a repo; a linked worktree is top != "" && main != top.
+func CheckoutOf(dir string) (top, main string) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir, MainCheckout(dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", ""
+		}
+		dir = parent
+	}
+}
+
 // SamePath compares two paths after Clean and symlink resolution (unresolvable paths compare cleaned).
 func SamePath(a, b string) bool {
 	return canon(a) == canon(b)

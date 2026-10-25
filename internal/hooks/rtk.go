@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // rtkBinaryEnv overrides the proxy binary. Exists for tests, which cannot rely on rtk being
@@ -58,6 +60,9 @@ func rtkWrap(in *Input, stdout io.Writer) int {
 	if !rtkEligible(cmd, os.Getenv(rtkBinaryEnv)) {
 		return ExitProceed
 	}
+	if rtkGitInLinkedWorktree(cmd, in.CWD) {
+		return ExitProceed // Claude Code's worktree-isolation check cannot verify an rtk-wrapped git
+	}
 	bin := rtkBinary()
 	if bin == "" {
 		return ExitProceed
@@ -81,6 +86,16 @@ func rtkWrap(in *Input, stdout io.Writer) int {
 	}
 	fmt.Fprintln(stdout, string(out))
 	return ExitProceed
+}
+
+// rtkGitInLinkedWorktree reports whether cmd is a git command run from inside a linked worktree.
+func rtkGitInLinkedWorktree(cmd, cwd string) bool {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 || fields[0] != "git" || cwd == "" {
+		return false
+	}
+	top, main := paths.CheckoutOf(cwd)
+	return top != "" && main != top
 }
 
 // RTKBinary reports the resolved rtk binary for the CLI's status line, or "".

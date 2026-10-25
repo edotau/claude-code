@@ -3,6 +3,8 @@ package hooks
 import (
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -271,5 +273,42 @@ func TestRTKIgnoresNonBashTools(t *testing.T) {
 func TestRTKCommandList(t *testing.T) {
 	if got, want := RTKCommandList(), "cargo docker git kubectl npm pytest"; got != want {
 		t.Errorf("RTKCommandList() = %q, want %q", got, want)
+	}
+}
+
+// rtkCwdIn builds a Bash payload carrying the hook input cwd.
+func rtkCwdIn(cmd, cwd string) string {
+	b, _ := json.Marshal(map[string]any{
+		"tool_name": "Bash", "cwd": cwd, "tool_input": map[string]any{"command": cmd},
+	})
+	return string(b)
+}
+
+func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
+	t.Setenv(rtkBinaryEnv, "echo")
+	base := t.TempDir()
+	main, wt := filepath.Join(base, "main"), filepath.Join(base, "wt")
+	for _, d := range []string{filepath.Join(main, ".git", "worktrees", "x"), filepath.Join(wt, "sub")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ptr := "gitdir: " + filepath.Join(main, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(ptr), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, cwd := range []string{wt, filepath.Join(wt, "sub")} {
+		if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", cwd)); ok {
+			t.Errorf("git in worktree %q rewritten to %q", cwd, got)
+		}
+	}
+	if got, ok := rtkOut(t, rtkCwdIn("npm ls", wt)); !ok || got != "echo npm ls" {
+		t.Errorf("npm in worktree = %q (emitted=%v), want wrapped", got, ok)
+	}
+	if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", main)); !ok || got != "echo git log --oneline -5" {
+		t.Errorf("git in main checkout = %q (emitted=%v), want wrapped", got, ok)
+	}
+	if got, ok := rtkOut(t, rtkCwdIn("git log -1 && ls", main)); ok {
+		t.Errorf("chain rewritten to %q", got)
 	}
 }
