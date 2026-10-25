@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 )
 
 const (
@@ -39,10 +40,13 @@ func Write(w io.Writer, v any) error {
 // "--" it meets mid-stream, so a second "--"-check after the fact (on its own) misses "-h" two tokens later.
 func Parse(fs *flag.FlagSet, args []string) ([]string, error) {
 	head, tail := args, []string(nil)
-	for i, a := range args {
-		if a == "--" {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
 			head, tail = args[:i], args[i+1:]
 			break
+		}
+		if consumesValue(fs, args[i]) {
+			i++ // the next token is this flag's value, e.g. "--output --"; it can't be the terminator
 		}
 	}
 	var pos []string
@@ -56,4 +60,24 @@ func Parse(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		pos, head = append(pos, head[0]), head[1:]
 	}
+}
+
+// consumesValue reports whether a is a registered, non-bool flag given without "=": fs.Parse consumes the
+// very next token as its value, so the terminator scan above must skip that token too.
+func consumesValue(fs *flag.FlagSet, a string) bool {
+	if len(a) < 2 || a[0] != '-' {
+		return false
+	}
+	name := strings.TrimLeft(a, "-")
+	if name == "" || strings.Contains(name, "=") {
+		return false
+	}
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+		return false
+	}
+	return true
 }
