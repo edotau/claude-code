@@ -218,7 +218,7 @@ func wrapBankLine(line string) []string {
 	if utf8.RuneCountInString(line) <= BankFmtMaxLine {
 		return []string{line}
 	}
-	indent, marker, rest := "", "", line
+	var indent, marker, rest string
 	contentCol := 0
 	switch {
 	case bankFmtBullet.MatchString(line):

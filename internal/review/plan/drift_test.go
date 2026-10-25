@@ -75,6 +75,3 @@ func TestWorkflowLintDrift(t *testing.T) {
 		})
 	}
 }
-
-//go:fix inline
-func ptr(s string) *string { return new(s) }

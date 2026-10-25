@@ -196,38 +196,55 @@ func harnessGitBlocked(cmd, cwd string) bool {
 	}
 	var harness, worktrees string
 	for _, seg := range shellSegments(masked) {
-		toks := shellTokens(seg)
-		if len(toks) == 0 {
-			continue
-		}
-		if next, ok := cdTarget(toks, cwd); ok {
-			cwd = next
-			continue
-		}
-		if nested, ok := nestedShellCommand(toks); ok && harnessGitBlocked(nested, cwd) {
+		if gitSegmentBlocked(seg, &cwd, &harness, &worktrees) {
 			return true
-		}
-		for i, t := range toks {
-			if t != "git" { // any token: wrappers (env, command, timeout N) need no modelling
-				continue
-			}
-			target, verb, args := gitInvocation(toks[i+1:], cwd)
-			if !bannedGitVerbs[verb] || (verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")) {
-				continue
-			}
-			if harness == "" {
-				harness = canonPath(paths.ConfigDir())
-				worktrees = canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
-			}
-			if tp := canonPath(target); tp == harness || strings.HasPrefix(tp, harness+string(filepath.Separator)) {
-				if strings.HasPrefix(tp, worktrees+string(filepath.Separator)) {
-					continue // inside a linked worktree: its own checkout, the live tree is untouched
-				}
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// gitSegmentBlocked processes one shell segment: follows a `cd`'s cwd change and checks any git invocation.
+func gitSegmentBlocked(seg string, cwd, harness, worktrees *string) bool {
+	toks := shellTokens(seg)
+	if len(toks) == 0 {
+		return false
+	}
+	if next, ok := cdTarget(toks, *cwd); ok {
+		*cwd = next
+		return false
+	}
+	if nested, ok := nestedShellCommand(toks); ok && harnessGitBlocked(nested, *cwd) {
+		return true
+	}
+	for i, t := range toks {
+		if t != "git" { // any token: wrappers (env, command, timeout N) need no modelling
+			continue
+		}
+		if gitTokenBlocked(toks[i+1:], *cwd, harness, worktrees) {
+			return true
+		}
+	}
+	return false
+}
+
+// gitTokenBlocked reports whether one `git <rest>` invocation targets a banned verb under the harness tree.
+func gitTokenBlocked(rest []string, cwd string, harness, worktrees *string) bool {
+	target, verb, args := gitInvocation(rest, cwd)
+	if !bannedGitVerbs[verb] || (verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")) {
+		return false
+	}
+	if *harness == "" {
+		*harness = canonPath(paths.ConfigDir())
+		*worktrees = canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
+	}
+	tp := canonPath(target)
+	if tp != *harness && !strings.HasPrefix(tp, *harness+string(filepath.Separator)) {
+		return false
+	}
+	if strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) {
+		return false // inside a linked worktree: its own checkout, the live tree is untouched
+	}
+	return true
 }
 
 // gitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.

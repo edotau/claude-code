@@ -268,7 +268,7 @@ type headingSpan struct {
 func level2Headings(body []byte) []headingSpan {
 	var out []headingSpan
 	root := markdown.ParseContext(body, parser.NewContext())
-	mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
+	_ = mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
 		if !entering {
 			return mdast.WalkContinue, nil
 		}

@@ -54,7 +54,7 @@ func writeVersion(path string, oldRaw []byte) error {
 	}
 	const keep = 5
 	for _, v := range versions[min(keep, len(versions)):] {
-		os.Remove(v) // best-effort prune; a leftover old version is harmless
+		_ = os.Remove(v) // best-effort prune; a leftover old version is harmless
 	}
 	return nil
 }
@@ -189,7 +189,7 @@ func revertOne(label, path string, dryRun bool, out io.Writer) error {
 		return fmt.Errorf("%s: %w", label, err)
 	}
 	if stepBack {
-		os.Remove(src) // consumed: the next revert falls through to the next-newest version
+		_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
 	}
 	fmt.Fprintf(out, "%s: restored %s from %s\n", label, path, src)
 	return nil

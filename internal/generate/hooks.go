@@ -350,43 +350,69 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 	path = codexHookSourcePath(path)
 	entries := map[string]string{}
 	for event, groups := range config.Hooks {
-		var name string
-		var checked bool
-		for gi, group := range groups {
-			for hi, hook := range group.Hooks {
-				if !hookspec.IsHarness(hook.Command) {
-					continue
-				}
-				if !checked {
-					n, ok := events[event]
-					if !ok {
-						return nil, fmt.Errorf("codex: unsupported hook event %q", event)
-					}
-					name, checked = n, true
-				}
-				handler := map[string]any{
-					"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async,
-				}
-				if hook.StatusMessage != "" {
-					handler["statusMessage"] = hook.StatusMessage
-				}
-				identity := map[string]any{"event_name": name, "hooks": []any{handler}}
-				if event != hookspec.EventUserPromptSubmit && group.Matcher != "" {
-					identity["matcher"] = group.Matcher
-				}
-				var canonical bytes.Buffer
-				enc := json.NewEncoder(&canonical)
-				enc.SetEscapeHTML(false)
-				if err := enc.Encode(identity); err != nil {
-					return nil, err
-				}
-				digest := sha256.Sum256(bytes.TrimSuffix(canonical.Bytes(), []byte{'\n'}))
-				key := fmt.Sprintf("%s:%s:%d:%d", path, name, gi, hi)
-				entries[key] = fmt.Sprintf("sha256:%x", digest)
-			}
+		if !anyHarnessHook(groups) {
+			continue
+		}
+		name, ok := events[event]
+		if !ok {
+			return nil, fmt.Errorf("codex: unsupported hook event %q", event)
+		}
+		if err := addCodexTrustEntries(entries, path, event, name, groups); err != nil {
+			return nil, err
 		}
 	}
 	return entries, nil
+}
+
+// anyHarnessHook reports whether groups contains at least one harness-owned hook.
+func anyHarnessHook(groups []hookspec.Group) bool {
+	for _, group := range groups {
+		for _, hook := range group.Hooks {
+			if hookspec.IsHarness(hook.Command) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// addCodexTrustEntries fills entries with one digest per harness-owned hook in groups.
+func addCodexTrustEntries(entries map[string]string, path, event, name string, groups []hookspec.Group) error {
+	for gi, group := range groups {
+		for hi, hook := range group.Hooks {
+			if !hookspec.IsHarness(hook.Command) {
+				continue
+			}
+			digest, err := codexTrustDigest(event, name, group, hook)
+			if err != nil {
+				return err
+			}
+			entries[fmt.Sprintf("%s:%s:%d:%d", path, name, gi, hi)] = digest
+		}
+	}
+	return nil
+}
+
+// codexTrustDigest computes Codex's trust digest for one harness hook identity.
+func codexTrustDigest(event, name string, group hookspec.Group, hook hookspec.Hook) (string, error) {
+	handler := map[string]any{
+		"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async,
+	}
+	if hook.StatusMessage != "" {
+		handler["statusMessage"] = hook.StatusMessage
+	}
+	identity := map[string]any{"event_name": name, "hooks": []any{handler}}
+	if event != hookspec.EventUserPromptSubmit && group.Matcher != "" {
+		identity["matcher"] = group.Matcher
+	}
+	var canonical bytes.Buffer
+	enc := json.NewEncoder(&canonical)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(identity); err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(bytes.TrimSuffix(canonical.Bytes(), []byte{'\n'}))
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 // Codex resolves the source directory through symlinks but retains the hooks.json leaf.

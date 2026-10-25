@@ -72,46 +72,17 @@ func cmdAsk(args []string) int {
 		return printDispatchLog(*format)
 	}
 	prompt := strings.Join(fs.Args(), " ")
-	var jobRec *agent.Record
-	if *job != "" {
-		rec, err := agent.LoadRecord(*job)
-		if err != nil {
-			return fail("ask: %v", err)
+	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
+		session: session, tools: tools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
+		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric}
+	jobRec, rc, done := loadAskJob(*job, state, &prompt)
+	if done {
+		return rc
+	}
+	if jobRec == nil {
+		if rc, done := loadAskRetry(fs, args, *retry, state, &prompt); done {
+			return rc
 		}
-		if rec.Status != "running" || rec.PID != 0 {
-			fail("ask --job %s: record is %s (pid %d), not a fresh background job", *job, rec.Status, rec.PID)
-			return 2
-		}
-		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
-		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
-		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-		keepEnv = keepEnvFlag(rec.Request.KeepEnv)
-		prompt, *rubric = rec.Request.Prompt, ""
-		rec.PID = os.Getpid()
-		jobRec = &rec
-	} else if *retry != "" {
-		rec, err := agent.LoadRecord(*retry)
-		if err != nil {
-			return fail("ask: %v", err)
-		}
-		// The logged request wins; only flags typed on this command line override it.
-		*name, *provider, *model, *effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
-		*workdir, *session, *tools, *timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
-		attach, *autonomous, *enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-		keepEnv = keepEnvFlag(rec.Request.KeepEnv)
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "attach" {
-				attach = nil
-			}
-			if f.Name == "keep-env" {
-				keepEnv = nil
-			}
-		})
-		if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
-			return 2
-		}
-		prompt, *rubric = rec.Request.Prompt, ""
-		fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	}
 	prompt, err := resolveAskPrompt(prompt)
 	if err != nil {
@@ -145,21 +116,7 @@ func cmdAsk(args []string) int {
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory}
-	rec := agent.NewRecord(r.Name(), req, time.Now())
-	if jobRec != nil {
-		rec = *jobRec // same id: a job run continues the record it was spawned from
-	} else {
-		cwd := *workdir
-		if cwd == "" {
-			cwd, _ = os.Getwd()
-		}
-		rec.Repo = vendoragent.RepoRoot(ctx, cwd)
-		rec.Owner = inflight.SessionOwner()
-		rec.Log = rec.LogPath()
-		if !*background {
-			rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
-		}
-	}
+	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
 		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
@@ -168,6 +125,31 @@ func cmdAsk(args []string) int {
 		reportBackgroundStart(*format, rec)
 		return 0
 	}
+	return runAskAndReport(ctx, &rec, chain, req, stream, jobRec, *format)
+}
+
+// buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
+func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobRec *agent.Record, workdir string, background bool) agent.Record {
+	rec := agent.NewRecord(r.Name(), req, time.Now())
+	if jobRec != nil {
+		return *jobRec // same id: a job run continues the record it was spawned from
+	}
+	cwd := workdir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	rec.Repo = vendoragent.RepoRoot(ctx, cwd)
+	rec.Owner = inflight.SessionOwner()
+	rec.Log = rec.LogPath()
+	if !background {
+		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
+	}
+	return rec
+}
+
+// runAskAndReport runs chain in the foreground, logs the result into rec, and reports it.
+func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, req agent.Request,
+	stream io.Writer, jobRec *agent.Record, format string) int {
 	start := time.Now()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
 	sink := agent.NewLogSink(rec.LogPath())
@@ -178,17 +160,80 @@ func cmdAsk(args []string) int {
 	}
 	res, err := agent.RunWithFallback(runCtx, chain, req, stream, notify)
 	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
-	if jobRec != nil && res.Answer != "" && *format != "json" {
+	if jobRec != nil && res.Answer != "" && format != "json" {
 		fmt.Print(res.Answer) // `<vendor> result` reads the log; ▸ lines are capped, so the answer goes in whole
 	}
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
-	reportAskResult(*format, res, err)
+	reportAskResult(format, res, err)
 	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
 	}
 	return 0
+}
+
+// askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
+type askState struct {
+	name, provider, model, effort, workdir, session, rubric *string
+	tools, autonomous, enableMemory                         *bool
+	timeout                                                 *time.Duration
+	attach                                                  *attachFlag
+	keepEnv                                                 *keepEnvFlag
+}
+
+// applyRecord copies a logged dispatch's request onto this ask invocation's flags.
+func (s *askState) applyRecord(rec agent.Record) {
+	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
+	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
+	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
+	*s.keepEnv = keepEnvFlag(rec.Request.KeepEnv)
+}
+
+// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
+func loadAskJob(job string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
+	if job == "" {
+		return nil, 0, false
+	}
+	r, err := agent.LoadRecord(job)
+	if err != nil {
+		return nil, fail("ask: %v", err), true
+	}
+	if r.Status != "running" || r.PID != 0 {
+		fail("ask --job %s: record is %s (pid %d), not a fresh background job", job, r.Status, r.PID)
+		return nil, 2, true
+	}
+	s.applyRecord(r)
+	*prompt, *s.rubric = r.Request.Prompt, ""
+	r.PID = os.Getpid()
+	return &r, 0, false
+}
+
+// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
+func loadAskRetry(fs *flag.FlagSet, args []string, retry string, s *askState, prompt *string) (rc int, done bool) {
+	if retry == "" {
+		return 0, false
+	}
+	rec, err := agent.LoadRecord(retry)
+	if err != nil {
+		return fail("ask: %v", err), true
+	}
+	// The logged request wins; only flags typed on this command line override it.
+	s.applyRecord(rec)
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "attach" {
+			*s.attach = nil
+		}
+		if f.Name == "keep-env" {
+			*s.keepEnv = nil
+		}
+	})
+	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+		return 2, true
+	}
+	*prompt, *s.rubric = rec.Request.Prompt, ""
+	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	return 0, false
 }
 
 // attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
