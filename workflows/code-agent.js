@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-agent',
   description: 'One non-Claude leg (codex|gemini|opencode|copilot) as a workflow stage: smoke ask, JSON envelope relay, sonnet fallback',
   whenToUse:
-    'Inline from another script: workflow("code-agent", {leg, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
+    'Inline from another script: workflow("code-agent", {leg, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling — an explicit smoke:true runs it and caps each call at 4 min; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
   phases: [{ title: 'Leg', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
@@ -13,10 +13,11 @@ if (!LEGS.includes(a.leg)) return { error: 'code-agent needs args.leg in ' + LEG
 if (!a.task) return { error: 'code-agent needs args.task' }
 if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
 const CWD = a.cwd || '.'
-const CAP = a.leg === 'gemini' ? 8 : 3
+const SMOKE = a.leg === 'gemini' ? a.smoke === true : a.smoke !== false
+// gemini's opt-in smoke halves its per-call cap, so smoke + task stay within 8 minutes
+const CAP = a.leg === 'gemini' ? (SMOKE ? 4 : 8) : 3
 const MIN = Number.isInteger(a.timeoutMin) && a.timeoutMin > 0 && a.timeoutMin <= CAP ? a.timeoutMin : CAP
 const TOOLS = a.leg === 'gemini' ? a.tools !== false : a.tools === true
-const SMOKE = a.leg === 'gemini' ? false : a.smoke !== false
 const ENVELOPE = {
   type: 'object',
   additionalProperties: false,
