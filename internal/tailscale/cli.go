@@ -195,6 +195,24 @@ func AdvertiseExitNode(ctx context.Context, on bool) error {
 	return cmd.Run()
 }
 
+// UseExitNode routes this box's traffic through a peer exit node via `tailscale set --exit-node=<peer>`.
+func UseExitNode(ctx context.Context, peer string) error {
+	bin, err := tailscaleBin()
+	if err != nil {
+		return err
+	}
+	flag := "--exit-node=" + peer
+	args := []string{"set", flag}
+	if peer != "" {
+		args = append(args, "--exit-node-allow-lan-access=true")
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
+	defer cancel()
+	cmd := execCommandContext(ctx, bin, args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
 // Machine is one tailnet node, merged from the admin API and/or the local CLI status.
 type Machine struct {
 	Name               string
