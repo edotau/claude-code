@@ -49,8 +49,8 @@ from `--model`, else the task classifier), including the Claude leg.
     drops it (never another account; `claude-code configure github` changes it).
   - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
 - **Scoring**: `total = 0.5 * price + 0.5 * headroom` (0–1 each); a subscription's price is its window share left,
-  and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`). Low accounts (>=90% of window used) sort after
-  all non-low accounts. Exhausted accounts are never picked.
+  and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`).
+  Low accounts (>=90% of window used) sort after all non-low accounts. Exhausted accounts are never picked.
 - **Quota state**: `state/harness/quota.json`, written by `claude-code usage`, by a leg's quota failure (resets
   parsed from error message, else window end), and a 15-min targeted refresh. `claude-code doctor` displays a row
   per exhausted or low account.
