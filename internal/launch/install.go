@@ -196,6 +196,12 @@ func altAuth(reg *providers.Registry, name string) string {
 // Doctor prints DoctorChecks as ✓/✗ lines and reports whether every hard check passed.
 func Doctor(w io.Writer) bool {
 	checks, ok := DoctorChecks()
+	printChecks(w, checks)
+	return ok
+}
+
+// printChecks writes checks as ✓/✗ lines, shared by Doctor and VaultDoctor so both print one format.
+func printChecks(w io.Writer, checks []Check) {
 	color := ansi.Enabled(w)
 	for _, c := range checks {
 		mark := ansi.Style(color, ansi.Green, "✓")
@@ -204,7 +210,6 @@ func Doctor(w io.Writer) bool {
 		}
 		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, ansi.Status(color, c.Detail))
 	}
-	return ok
 }
 
 // nestedDetail says whether <config dir>/.claude exists and what keeps clean from removing it.

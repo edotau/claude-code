@@ -99,18 +99,22 @@ func BuildCatalog(now time.Time) (string, error) {
 		}
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
-	top, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*.md"))
-	nested, _ := filepath.Glob(filepath.Join(KnowledgeDir(), "*", "*.md"))
 	var rows []string
-	for _, f := range append(top, nested...) {
-		if filepath.Base(f) == "README.md" {
-			continue
+	collectKnowledge := func(label, dir string) {
+		m, _ := filepath.Glob(filepath.Join(KnowledgeDir(dir), "*.md"))
+		for _, f := range m {
+			if filepath.Base(f) == "README.md" {
+				continue
+			}
+			rows = append(rows, "- "+label+"/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
-		rel, _ := filepath.Rel(KnowledgeDir(), f)
-		rows = append(rows, "- "+rel+" — "+storeHookFile(f))
+	}
+	collectKnowledge("home", HomeBankDir())
+	for _, e := range entries {
+		collectKnowledge(e.Key, e.Dir)
 	}
 	if len(rows) > 0 {
-		b.WriteString("\n## Knowledge (tracked, docs/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
+		b.WriteString("\n## Knowledge (local, memory/<bank>/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
 	}
 	homeIdx := BuildBankIndex(HomeBankDir(), now)
 	if homeIdx != "" {
@@ -267,11 +271,16 @@ func newestMarkdown(dir string) time.Time {
 	return newest
 }
 
-// knowledgeFiles are docs/knowledge/*.md (cross-repo) plus docs/knowledge/<key>/*.md; README.md is the tier's own doc.
-func knowledgeFiles(key string) []string {
+// knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
+// (repo-specific); README.md is the tier's own doc.
+func knowledgeFiles(root string) []string {
+	dirs := []string{KnowledgeDir(HomeBankDir())}
+	if !IsHomeBank(root) {
+		dirs = append(dirs, KnowledgeDir(Dir(root)))
+	}
 	var out []string
-	for _, pat := range []string{filepath.Join(KnowledgeDir(), "*.md"), filepath.Join(KnowledgeDir(), key, "*.md")} {
-		m, _ := filepath.Glob(pat)
+	for _, d := range dirs {
+		m, _ := filepath.Glob(filepath.Join(d, "*.md"))
 		for _, f := range m {
 			if filepath.Base(f) != "README.md" {
 				out = append(out, f)

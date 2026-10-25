@@ -176,7 +176,7 @@ func TestStorePathsAndInsideStore(t *testing.T) {
 	if ReceiptsDir() != filepath.Join(StoreDir(), "receipts") || JournalDir() != filepath.Join(StateDir(), "journal") {
 		t.Fatal("receipts/journal paths moved")
 	}
-	if MigrateStateDir() != filepath.Join(StateDir(), "migrate") || KnowledgeDir() != filepath.Join(cfg, "docs", "knowledge") {
+	if MigrateStateDir() != filepath.Join(StateDir(), "migrate") || KnowledgeDir("/x") != "/x/knowledge" {
 		t.Fatal("migrate/knowledge paths moved")
 	}
 	if ArchiveDir("/x") != "/x/archive" || HandoffsDir("/x") != "/x/handoffs" {

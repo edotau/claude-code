@@ -6,8 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"slices"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
@@ -15,21 +15,23 @@ import (
 
 func vaultDoctorChecks() []Check {
 	row := Check{Name: "vault", OK: true}
-	count, retired := 0, 0
+	retired := 0
 	_, err := os.Stat(vault.Path())
 	if errors.Is(err, fs.ErrNotExist) {
 		row.Detail = "not created yet"
 	} else {
 		if err == nil {
 			err = vault.View(func(t *vault.Tx) error {
-				count = len(t.Names(vault.Secrets))
 				retired = len(vault.Retired(t))
 				return nil
 			})
 		}
-		source := "not needed"
-		if err == nil && count > 0 {
-			_, source, err = vault.MasterKey()
+		count, source := 0, "not needed"
+		if err == nil {
+			// Shares the "vault master key" row's resolution instead of re-resolving the master key here.
+			var kerr error
+			count, source, kerr = secrets.MasterKeyStatus()
+			err = kerr
 		}
 		row.Detail = fmt.Sprintf("%s · key %s · %d secret(s) · %d retired", vault.Path(), source, count, retired)
 		if err != nil {
@@ -37,7 +39,10 @@ func vaultDoctorChecks() []Check {
 			row.Detail += ": " + err.Error()
 		}
 	}
+	// "vault master key" repeats this row's own count/source/error; drop it here, where "vault" already
+	// shows it, but keep it in secretsDoctorChecks for VaultDoctor (doctor --secrets never prints "vault").
 	checks, _ := secretsDoctorChecks()
+	checks = slices.DeleteFunc(checks, func(c Check) bool { return c.Name == "vault master key" })
 	return append([]Check{row}, checks...)
 }
 
@@ -57,14 +62,7 @@ func secretsDoctorChecks() (checks []Check, gateOK bool) {
 // VaultDoctor prints the vault rows as ✓/✗ lines for doctor --secrets; false when a gating row failed.
 func VaultDoctor(w io.Writer) bool {
 	checks, ok := secretsDoctorChecks()
-	color := ansi.Enabled(w)
 	fmt.Fprintln(w, "== vault checks ==")
-	for _, c := range checks {
-		mark := ansi.Style(color, ansi.Green, "✓")
-		if !c.OK {
-			mark = ansi.Style(color, ansi.Red, "✗")
-		}
-		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, c.Detail)
-	}
+	printChecks(w, checks)
 	return ok
 }
