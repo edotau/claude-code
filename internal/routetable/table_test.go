@@ -56,6 +56,9 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 
 // TestLoadFromOpencodeOverrideAccountKey checks moving an opencode cell to a different backend derives the
 // right billing account instead of keeping the table's opencode:go key (the HIGH quota-attribution finding).
+// A github-copilot override bills opencode's own Copilot login (opencode:github-copilot), not the pinned gh
+// user's copilot:<user> key — opencode authenticates independently, so conflating the two would misattribute
+// quota to an account that never made the call.
 func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	toCopilot := &providers.Registry{
 		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}},
@@ -64,8 +67,8 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "copilot:work-user" {
-		t.Errorf("account = %q, want the pinned copilot account", c.Account)
+	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "opencode:github-copilot" {
+		t.Errorf("account = %q, want opencode's own copilot login account, not the pinned gh user's", c.Account)
 	}
 	unknown := &providers.Registry{
 		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "zed/overridden-model"}}},

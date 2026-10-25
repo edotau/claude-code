@@ -160,6 +160,33 @@ var RouteTiers = []string{models.Opus, models.Sonnet, models.Haiku}
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
 var RouteWeightNames = []string{"price", "headroom"}
 
+// RouteBillingKeys are the routing table's static account_key values (internal/routetable's own Billing
+// map mirrors this list, since routetable can't import providers' validator back); a "copilot:" prefix
+// also passes an overlay cell's account_key, since routetable adds the pinned gh user's key
+// (copilot:<user>, or CopilotUnpinned = "copilot:unpinned") dynamically at load, before any pin is known
+// here.
+var RouteBillingKeys = []string{"claude:max", "codex:chatgpt", "gemini:antigravity", "opencode:go", "opencode:github-copilot"}
+
+// RouteOpencodeModelPrefixes are the model prefixes an opencode override cell may carry without an explicit
+// account_key: opencode-go/opencode keep the table's own opencode:go account, github-copilot bills
+// opencode's own Copilot login (opencode:github-copilot) — kept in sync with internal/routetable's
+// opencodeOverrideAccount, which owns the actual account-key mapping.
+var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot"}
+
+// validRouteAccountKey reports whether key is a known static billing key or the "copilot:" dynamic family.
+func validRouteAccountKey(key string) bool {
+	return strings.HasPrefix(key, "copilot:") || slices.Contains(RouteBillingKeys, key)
+}
+
+// routeModelPrefix returns the provider prefix of a "prefix/model" id ("" when model carries no prefix).
+func routeModelPrefix(model string) string {
+	prefix, _, ok := strings.Cut(model, "/")
+	if !ok {
+		return ""
+	}
+	return prefix
+}
+
 // ValidateRouteWeights requires one weight per RouteWeightNames entry, each in [0,1], summing to 1; an
 // empty map is skipped (an overlay that does not touch weights leaves the table's own weights alone).
 func ValidateRouteWeights(weights map[string]float64) error {
@@ -221,9 +248,16 @@ func (r *Registry) Validate() error {
 		if !slices.Contains(RouteRunners, runner) {
 			errs = append(errs, fmt.Sprintf("route names unknown runner %q", runner))
 		}
-		for tier := range tiers {
+		for tier, cell := range tiers {
 			if !slices.Contains(RouteTiers, tier) {
 				errs = append(errs, fmt.Sprintf("route %s/%s names unknown tier", runner, tier))
+			}
+			switch {
+			case cell.Account != "" && !validRouteAccountKey(cell.Account):
+				errs = append(errs, fmt.Sprintf("route %s/%s names account_key %q with no known billing entry", runner, tier, cell.Account))
+			case cell.Account == "" && runner == "opencode" && cell.Model != "" &&
+				!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
+				errs = append(errs, fmt.Sprintf("route opencode/%s model %q prefix has no known billing account; set account_key explicitly", tier, cell.Model))
 			}
 		}
 	}

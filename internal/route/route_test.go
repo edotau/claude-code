@@ -225,6 +225,40 @@ func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	}
 }
 
+// TestPickOpencodeGithubCopilotOverrideHeadroomUnknown checks an opencode override to github-copilot bills
+// opencode:github-copilot (not the pinned gh user's copilot:<user> key) and, with no remembered state for
+// that never-seen account, reads as StateUnknown with headroom 0.5 — never conflated with the copilot row's
+// own account state.
+func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
+	reg := &providers.Registry{
+		Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}},
+	}
+	tb, err := load(reg, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pick(tb, "sonnet", "opencode", State{}, FallbackNone)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want exactly the wanted opencode leg", r.Candidates)
+	}
+	c := r.Candidates[0]
+	if c.Account != "opencode:github-copilot" {
+		t.Errorf("account = %q, want opencode's own copilot login, not the pinned gh user's", c.Account)
+	}
+	if c.State != StateUnknown {
+		t.Errorf("state = %q, want unknown (never-seen account)", c.State)
+	}
+	if c.Scores["headroom"] != 0.5 {
+		t.Errorf("headroom = %v, want 0.5 for an unseen account", c.Scores["headroom"])
+	}
+	// A reading on the pinned gh user's own copilot account must not leak into the derived one.
+	st := State{"copilot:work-user": {UsedPct: 90, Seen: now0}}
+	r = pick(tb, "sonnet", "opencode", st, FallbackNone)
+	if got := r.Candidates[0].Scores["headroom"]; got != 0.5 {
+		t.Errorf("headroom = %v, want 0.5 still — copilot:work-user's state must not apply to opencode:github-copilot", got)
+	}
+}
+
 func TestStateRoundTripScopedToConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

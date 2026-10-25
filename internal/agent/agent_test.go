@@ -202,6 +202,23 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	if len(notes) != 0 {
 		t.Errorf("account exhaustion must not announce a slot demotion: %v", notes)
 	}
+
+	// A body carrying BOTH the 402/payment-required account marker AND a model-denied marker
+	// ("insufficient_quota") is still account-exhausted: hardAccountRE vetoes ModelDenied, so Run must not
+	// demote off a dead account on the strength of the model-denied marker alone.
+	both := errors.New("402 payment required: insufficient_quota")
+	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{both}}
+	var bothNotes []string
+	_, err = Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { bothNotes = append(bothNotes, s) })
+	if !errors.As(err, &e) || e.Kind != KindQuota {
+		t.Fatalf("err = %v, want a KindQuota error", err)
+	}
+	if len(f.seen) != 1 || f.seen[0].Model != "" {
+		t.Fatalf("seen = %+v, want one attempt with the model never demoted off \"\"", f.seen)
+	}
+	if len(bothNotes) != 0 {
+		t.Errorf("402+insufficient_quota must not announce a slot demotion: %v", bothNotes)
+	}
 }
 
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no

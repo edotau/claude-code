@@ -6,7 +6,8 @@
     "codex:chatgpt": "subscription",
     "gemini:antigravity": "subscription",
     "copilot": "credits",
-    "opencode:go": "subscription"
+    "opencode:go": "subscription",
+    "opencode:github-copilot": "credits"
   },
   "rows": {
     "claude": {
