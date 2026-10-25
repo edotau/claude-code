@@ -278,12 +278,12 @@ func catalogOrigins() map[string]Origin {
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
-		i := strings.LastIndex(rest, catalogOriginTag)
-		if !ok || !strings.HasPrefix(line, "- ") || i < 0 || !strings.HasSuffix(rest, " -->") {
+		_, after, ok0 := strings.CutLast(rest, catalogOriginTag)
+		if !ok || !strings.HasPrefix(line, "- ") || !ok0 || !strings.HasSuffix(rest, " -->") {
 			continue
 		}
 		var c catalogOrigin
-		if json.Unmarshal([]byte(strings.TrimSuffix(rest[i+len(catalogOriginTag):], " -->")), &c) == nil {
+		if json.Unmarshal([]byte(strings.TrimSuffix(after, " -->")), &c) == nil {
 			out[key] = Origin{Version: OriginVersion, Key: key, Origin: c.Origin, Aliases: cleanAliases(c.Aliases)}
 		}
 	}
@@ -294,8 +294,8 @@ func catalogOrigins() map[string]Origin {
 func stripCatalogOrigins(text string) string {
 	lines := strings.Split(text, "\n")
 	for n, l := range lines {
-		if i := strings.LastIndex(l, catalogOriginTag); i >= 0 && strings.HasSuffix(l, " -->") {
-			lines[n] = l[:i]
+		if before, _, ok := strings.CutLast(l, catalogOriginTag); ok && strings.HasSuffix(l, " -->") {
+			lines[n] = before
 		}
 	}
 	return strings.Join(lines, "\n")

@@ -50,7 +50,7 @@ func TestPageLayout(t *testing.T) {
 		if utf8.RuneCountInString(f.Name) == 1 {
 			label = "-" + f.Name
 		}
-		for _, line := range strings.Split(got, "\n") {
+		for line := range strings.SplitSeq(got, "\n") {
 			words := strings.Fields(line)
 			if len(words) > 0 && words[0] == label {
 				count++
@@ -66,7 +66,7 @@ func TestPageLayout(t *testing.T) {
 	if !strings.Contains(got, "--very-long-flag-name-for-the-label string  long label description") {
 		t.Errorf("overlong label lacks two-space separator:\n%s", got)
 	}
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("line has %d columns: %q", n, line)
 		}

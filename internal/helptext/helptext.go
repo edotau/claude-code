@@ -67,7 +67,7 @@ func (p Page) Fprint(w io.Writer) {
 	}
 	if p.About != "" {
 		var about []string
-		for _, para := range strings.Split(p.About, "\n") {
+		for para := range strings.SplitSeq(p.About, "\n") {
 			about = append(about, WrapRow("", para, 0, 80)...)
 		}
 		secs = append(secs, strings.Join(about, "\n"))
@@ -207,7 +207,7 @@ func WrapRow(label, desc string, labelWidth, width int) []string {
 	var lines []string
 	cur := first
 	empty := true
-	for _, w := range strings.Fields(desc) {
+	for w := range strings.FieldsSeq(desc) {
 		if !empty && utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width {
 			lines = append(lines, cur)
 			cur, empty = strings.Repeat(" ", col), true

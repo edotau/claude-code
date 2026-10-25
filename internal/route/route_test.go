@@ -209,8 +209,8 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 // the pricier one in the composite total.
 func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	tb := testTable(t)
-	cheap := Candidate{Runner: "codex", Billing: BillCredits, Cell: Cell{Account: "codex:chatgpt", Price: routetable.Price{In: 1, Out: 1}}}
-	pricey := Candidate{Runner: "gemini", Billing: BillCredits, Cell: Cell{Account: "gemini:antigravity", Price: routetable.Price{In: 4, Out: 4}}}
+	cheap := Candidate{Runner: "codex", Billing: BillCredits, Account: "codex:chatgpt", Price: routetable.Price{In: 1, Out: 1}}
+	pricey := Candidate{Runner: "gemini", Billing: BillCredits, Account: "gemini:antigravity", Price: routetable.Price{In: 4, Out: 4}}
 	st := State{} // both accounts unseen: headroom ties at 0.5 for each
 	scored := tb.score([]Candidate{cheap, pricey}, st)
 	a, b := scored[0], scored[1]

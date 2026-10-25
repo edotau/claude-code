@@ -377,7 +377,7 @@ func TestUntrackedBlockTotalCap(t *testing.T) {
 	dir := initRepo(t)
 	chunk := bytes.Repeat([]byte("a"), untrackedCap)
 	n := untrackedTotalCap/untrackedCap + 3
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := os.WriteFile(filepath.Join(dir, "f"+string(rune('a'+i))+".txt"), chunk, 0o644); err != nil {
 			t.Fatal(err)
 		}

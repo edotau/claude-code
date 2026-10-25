@@ -69,8 +69,7 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 		}
 		return nil, "" // empty value reads as nothing stored
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 		switch runtime.GOOS {
 		case "darwin":
 			if exit.ExitCode() == 44 { // errSecItemNotFound

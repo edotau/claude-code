@@ -92,8 +92,8 @@ func mergeSections(fsys fs.FS) (*object, error) {
 // sectionName strips the numeric prefix and extension: "10-ui.json" -> "ui".
 func sectionName(fileName string) string {
 	stem := strings.TrimSuffix(fileName, ".json")
-	if i := strings.IndexByte(stem, '-'); i >= 0 {
-		return stem[i+1:]
+	if _, after, ok := strings.Cut(stem, "-"); ok {
+		return after
 	}
 	return stem
 }

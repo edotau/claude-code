@@ -241,13 +241,13 @@ type geminiModelInfo struct {
 
 // geminiEffortSuffix splits id into (base, effort); ok is false when id's trailing segment isn't an effort word.
 func geminiEffortSuffix(id string) (base, effort string, ok bool) {
-	i := strings.LastIndexByte(id, '-')
-	if i < 0 {
+	before, after, ok := strings.CutLast(id, "-")
+	if !ok {
 		return id, "", false
 	}
-	suffix := id[i+1:]
+	suffix := after
 	if slices.Contains(geminiEfforts, suffix) {
-		return id[:i], suffix, true
+		return before, suffix, true
 	}
 	return id, "", false
 }

@@ -85,7 +85,7 @@ func lostLinesFor(label, path string, theirs, next []byte) []string {
 func lostLines(theirs, base, next []byte) []string {
 	in := func(b []byte) map[string]bool {
 		m := map[string]bool{}
-		for _, l := range strings.Split(string(b), "\n") {
+		for l := range strings.SplitSeq(string(b), "\n") {
 			if l = strings.TrimRight(l, " \t\r"); l != "" {
 				m[l] = true
 			}

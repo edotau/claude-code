@@ -1,6 +1,7 @@
 package vendoragent
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -83,10 +84,5 @@ func TestExploreArgsShape(t *testing.T) {
 }
 
 func argvContains(args []string, flag string) bool {
-	for _, a := range args {
-		if a == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
