@@ -152,7 +152,7 @@ func TestHandoffTrimsOver40Turns(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "session.jsonl")
 	var lines []string
-	for i := 0; i < 45; i++ {
+	for i := range 45 {
 		lines = append(lines, userLine("turn-"+strconv.Itoa(i)))
 	}
 	writeJSONL(t, source, strings.Join(lines, "\n")+"\n")
@@ -180,7 +180,7 @@ func TestHandoffTrimsToSizeCap(t *testing.T) {
 	source := filepath.Join(dir, "session.jsonl")
 	big := strings.Repeat("x", 3000)
 	var lines []string
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		lines = append(lines, userLine("turn-"+strconv.Itoa(i)+"-"+big))
 	}
 	writeJSONL(t, source, strings.Join(lines, "\n")+"\n")
@@ -225,7 +225,7 @@ func TestProjectSessionsDirUsesPaths(t *testing.T) {
 func TestHandoffKeepsLast40InOrderSkippingToolResults(t *testing.T) {
 	// Given 45 turns with tool_result-only turns mixed in; When handed off; Then the last 40 appear oldest first
 	var lines []string
-	for i := 0; i < 45; i++ {
+	for i := range 45 {
 		lines = append(lines, userLine("turn-"+strconv.Itoa(i)+"-end"))
 		lines = append(lines, `{"type":"user","message":{"content":[{"type":"tool_result","content":"RESULT-NOISE"}]}}`)
 	}

@@ -852,7 +852,7 @@ func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
 	if prefix == nil {
 		return "", "", "", false // an absent or unclosed block is body text, not frontmatter
 	}
-	for _, line := range strings.Split(string(prefix), "\n") {
+	for line := range strings.SplitSeq(string(prefix), "\n") {
 		if v, found := strings.CutPrefix(line, "name:"); found {
 			name = strings.Trim(strings.TrimSpace(v), `"'`)
 		} else if v, found := strings.CutPrefix(line, "description:"); found {

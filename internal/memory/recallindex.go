@@ -54,7 +54,7 @@ func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
 	count := u32(data[24:])
 	data = data[28:]
 	m := empty()
-	for i := uint32(0); i < count; i++ {
+	for range count {
 		if len(data) < 4 {
 			return empty()
 		}

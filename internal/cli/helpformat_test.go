@@ -80,7 +80,7 @@ func checkCommandRows(t *testing.T, text string) {
 	t.Helper()
 	inCommands := false
 	label, row := "", ""
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if line == "COMMANDS" {
 			inCommands = true
 			continue
@@ -122,7 +122,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	}
 	checkCommandRows(t, text)
 	first := ""
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if strings.TrimSpace(line) != "" {
 			first = line
 			break
@@ -141,7 +141,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	var subs []string
 	seenCommands, seenFlags := map[string]bool{}, map[string]bool{}
 	section, rows := "", 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if n := termWidth(line); n > 80 {
 			t.Errorf("line has %d columns (tabs expanded), want <=80: %q", n, line)
 		}

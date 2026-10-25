@@ -17,7 +17,7 @@ import (
 // the --force guard actually has to catch.
 func mismatchedEnvForKeyring(t *testing.T, k *vault.Key) string {
 	t.Helper()
-	for b := byte(0); b < 255; b++ {
+	for b := range byte(255) {
 		raw := make([]byte, 32)
 		for i := range raw {
 			raw[i] = b

@@ -59,7 +59,7 @@ func TestConfigureHelpFitsEightyColumns(t *testing.T) {
 	if !strings.Contains(stderr, "--drop") || !strings.Contains(stderr, "--keep") {
 		t.Fatalf("help lacks --drop/--keep:\n%s", stderr)
 	}
-	for _, l := range strings.Split(stderr, "\n") {
+	for l := range strings.SplitSeq(stderr, "\n") {
 		if n := utf8.RuneCountInString(l); n > 80 {
 			t.Errorf("help line is %d cols: %q", n, l)
 		}
@@ -169,11 +169,11 @@ func TestConfigureResetBareWritesLiveSettings(t *testing.T) {
 	if err != nil || string(got) != string(want) {
 		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
 	}
-	i := strings.Index(stdout, "(backup ")
-	if i < 0 {
+	_, after, ok := strings.Cut(stdout, "(backup ")
+	if !ok {
 		t.Fatalf("no backup reported:\n%s", stdout)
 	}
-	bk := strings.TrimSuffix(strings.SplitN(stdout[i+len("(backup "):], ")", 2)[0], " ")
+	bk := strings.TrimSuffix(strings.SplitN(after, ")", 2)[0], " ")
 	if old, err := os.ReadFile(bk); err != nil || string(old) != `{"stale":true}` {
 		t.Errorf("backup %q missing or wrong (err %v): %s", bk, err, old)
 	}

@@ -87,7 +87,7 @@ func cmdNetworkTailscale(args []string) int {
 			wrong = fmt.Errorf("--%s belongs to --%s", f.Name, owner)
 		}
 		if f.Name == "format" && mode != "" && mode != "machines" && wrong == nil {
-			wrong = fmt.Errorf("--format applies to status and --machines only")
+			wrong = errors.New("--format applies to status and --machines only")
 		}
 	})
 	if wrong != nil {

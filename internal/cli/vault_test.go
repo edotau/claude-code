@@ -542,13 +542,13 @@ func TestVaultListTextTruncatesToWidth(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
 	}
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		if n := utf8.RuneCountInString(line); n > 40 {
 			t.Errorf("line %q is %d runes, want <= 40 (COLUMNS)", line, n)
 		}
 	}
 	found := false
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		if strings.Contains(line, "LONG_ENV_NAME_FOR_WIDTH_TEST") && strings.HasSuffix(line, "…") {
 			found = true
 		}
