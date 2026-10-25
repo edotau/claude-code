@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -30,9 +31,42 @@ func RunningDispatches(now time.Time) []Leg {
 		}
 		leg := legFromRecord(rec, "", now)
 		leg.Repo = rec.Repo
+		leg.sessionID, leg.cwd, leg.started, leg.prompt = rec.SessionID, rec.Request.WorkDir, rec.Time, rec.Request.Prompt
+		if leg.cwd == "" {
+			leg.cwd = rec.Repo
+		}
 		legs = append(legs, leg)
 	}
 	return legs
+}
+
+// dropDispatchSessions returns sessions minus bare rows that duplicate a running headless claude dispatch.
+func dropDispatchSessions(sessions []Session, legs []Leg) []Session {
+	out := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
+		if len(s.Subagents) == 0 && len(s.Workflows) == 0 && matchesClaudeLeg(s, legs) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// matchesClaudeLeg reports whether s is the session a running claude dispatch spawned (by id, else by cwd+time).
+func matchesClaudeLeg(s Session, legs []Leg) bool {
+	for _, l := range legs {
+		if l.Agent != "claude" {
+			continue
+		}
+		if l.sessionID != "" && l.sessionID == s.ID {
+			return true
+		}
+		if l.cwd != "" && l.cwd == s.Cwd && !s.Updated.Before(l.started) && s.Title != "" &&
+			strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…")) {
+			return true
+		}
+	}
+	return false
 }
 
 // Reap marks dispatch records that say running but whose job is gone as error, and removes dead or stale
