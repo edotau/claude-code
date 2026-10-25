@@ -10,7 +10,7 @@ description: |
   </example>
 model: sonnet
 effort: medium
-color: red
+color: pink
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 ---
 
