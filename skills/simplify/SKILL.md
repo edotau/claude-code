@@ -47,7 +47,7 @@ is to not change behavior, so it earns no license to guess.
 
 ## Docstring brevity
 
-The ≤120-char / ≤2-line cap is canonical in `rules/standards/communication.md`; a bloated
+The 1-line / ≤120-char cap is canonical in `rules/standards/communication.md`; a bloated
 docstring is over-engineering in prose, so it's in this lane. Say what the caller can't read
 from the signature. Before/after pairs + the public-API exception: `references/docstring-style.md`.
 
@@ -115,6 +115,6 @@ End with a fixed/skipped summary. If a fix would change behavior or its blast ra
 
 ## References
 
-- `references/docstring-style.md` — the ≤120-char / 2-line rule, rationale, before/after.
+- `references/docstring-style.md` — the 1-line / ≤120-char rule, rationale, before/after.
 - `references/simplification-patterns.md` — recurring wins: inline, consolidate, de-nest.
 - `references/extract-method.md` — reduce a method's cognitive complexity by extracting focused helpers.
