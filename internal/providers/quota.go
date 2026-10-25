@@ -1,26 +1,22 @@
 package providers
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
 )
 
-// hardQuotaMarkers are the upstream phrasings for "this key cannot use this model at all" (plan/quota exhausted),
-// as opposed to a transient rate limit worth waiting out: Gemini free tier ("limit: 0"), OpenAI ("insufficient_quota").
-var hardQuotaMarkers = []string{"limit: 0", "exceeded your current quota", "insufficient_quota", "quota exceeded for metric"}
+// quotaRE covers every upstream phrasing for "this key cannot use this model/account at all" (plan/quota
+// exhausted or a hard 402), as opposed to a transient rate limit worth waiting out: Gemini free tier
+// ("limit: 0"), OpenAI ("insufficient_quota"), a 402 body, or "usage limit ... try again at <time>".
+var quotaRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` +
+	`usage limit|insufficient_quota|limit: 0|quota exceeded for metric|out of (?:premium )?(?:credits|requests)|monthly quota`)
 
-// HardQuota reports whether a 429 body or error text denies the model outright; the caller should demote to
-// the provider's next slot instead of retrying the same model.
-func HardQuota(text string) bool {
-	low := strings.ToLower(text)
-	for _, m := range hardQuotaMarkers {
-		if strings.Contains(low, m) {
-			return true
-		}
-	}
-	return false
-}
+// IsQuota reports whether a 429 body or error text denies the model/account outright (credits, plan window,
+// zero quota), not a transient rate limit worth waiting out; the caller should demote to the provider's next
+// slot, or mark the account exhausted, instead of retrying.
+func IsQuota(text string) bool { return quotaRE.MatchString(strings.ToLower(text)) }
 
 // Demote returns p's next lower slot target below model (opus → sonnet → haiku); ok is false at the bottom
 // or when p has no distinct model there. Skipping models the caller already knows are dead is its job.
