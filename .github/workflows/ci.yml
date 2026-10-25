@@ -40,14 +40,28 @@ jobs:
         id: range
         run: |
           zero="0000000000000000000000000000000000000000"
+          default_branch="${{ github.event.repository.default_branch }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             before="${{ github.event.before }}"
+            full_scan=0
             if [ -z "$before" ] || [ "$before" = "$zero" ]; then
-              range=""  # new branch: no before sha, fall back to audit-git's own --since path
+              full_scan=1  # new branch: no before sha to diff against
+            elif ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+              echo "::notice::before sha $before is unreachable (force-push?) — scanning full history instead"
+              full_scan=1
             else
               range="${before}..${{ github.sha }}"
+            fi
+            if [ "$full_scan" = 1 ]; then
+              range="HEAD"  # scan every commit reachable from HEAD
+              if [ "${{ github.ref_name }}" != "$default_branch" ]; then
+                mb="$(git merge-base "origin/$default_branch" HEAD 2>/dev/null || true)"
+                if [ -n "$mb" ]; then
+                  range="${mb}..HEAD"  # not the default branch and it has a merge-base: scan only its own commits
+                fi
+              fi
             fi
           else
             range=""
