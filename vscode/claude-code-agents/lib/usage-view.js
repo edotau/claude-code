@@ -111,6 +111,21 @@ function renderUngroupedGrid(windows, show) {
   return `<div class="ungrouped-grid">${rows}</div>`;
 }
 
+/** "5219 / 7000 credits" (used) or "1781 of 7000 credits left" \u2014 the CLI's DETAIL column for a credits-metered
+ * window (`used_credits`/`limit_credits`); `null` when the window carries no credits figures. */
+function creditsLabel(w, show) {
+  if (w.limitCredits == null) return null;
+  const used = w.usedCredits || 0;
+  if (show === 'left') return `${Math.round(w.limitCredits - used)} of ${Math.round(w.limitCredits)} credits left`;
+  return `${Math.round(used)} / ${Math.round(w.limitCredits)} credits`;
+}
+
+/** One muted line per window carrying credits figures, below the bars \u2014 the CLI's per-row DETAIL text. */
+function renderCreditsNotes(windows, show) {
+  const lines = windows.map((w) => creditsLabel(w, show)).filter(Boolean);
+  return lines.map((l) => `<div class="credits-note muted">${esc(l)}</div>`).join('');
+}
+
 function renderProvider(p, show, detailed) {
   const resets = p.resetsAtMs != null ? formatResetCountdown(p.resetsAtMs - Date.now()) : '';
   const body = p.windows.length
@@ -120,19 +135,33 @@ function renderProvider(p, show, detailed) {
         : renderUngroupedGrid(p.windows, show)
       : `<div class="windows windows-compact">${p.windows.map((w) => renderWindow(w, show, false)).join('')}</div>`
     : `<div class="provider-note">${esc(p.note || 'no data')}</div>`;
+  const credits = p.windows.length ? renderCreditsNotes(p.windows, show) : '';
   const muted = p.windows.length ? '' : ' provider-card-muted';
+  const name = p.account ? `${esc(p.name)} <span class="provider-account muted">\u00B7 ${esc(p.account)}</span>` : esc(p.name);
   return `<div class="provider-card${muted}">
     <div class="provider-head card-head">
       ${GLYPHS[p.id] || '<span class="glyph">\u25CF</span>'}
-      <span class="provider-name">${esc(p.name)}</span>
+      <span class="provider-name">${name}</span>
       <span class="provider-resets">${esc(resets)}</span>
     </div>
-    <div class="card-body">${body}</div>
+    <div class="card-body">${body}${credits}</div>
   </div>`;
 }
 
-/** One agent card: bold name, muted provider/model, a "tokens · sessions · turns · $cost" line, and a share bar
- * of this agent's tokens against `totalTokens`. A note-only agent (no sessions in window) renders muted, no bar. */
+/** One "<provider>/<model>  <tokens> · <turns> turns[ · $cost]" line — the CLI's indented per-model AGENTS row. */
+function renderAgentModelRow(m) {
+  const parts = [`${formatCount(m.tokens)}`, `${m.turns} turn${m.turns === 1 ? '' : 's'}`];
+  if (m.costUsd != null) parts.push(`$${m.costUsd.toFixed(2)}`);
+  const label = m.provider && m.model ? `${m.provider}/${m.model}` : m.model || m.provider || '';
+  return `<div class="agent-model-row">
+    <span class="agent-model-name muted" title="${esc(label)}">${esc(label)}</span>
+    <span class="agent-model-stats muted">${esc(parts.join(' · '))}</span>
+  </div>`;
+}
+
+/** One agent card: bold name, a "tokens · sessions · turns · $cost" total line, every `models[]` row beneath it
+ * (provider/model · tokens · turns · cost, mirroring the CLI's indented AGENTS rows), and a share bar of this
+ * agent's tokens against `totalTokens`. A note-only agent (no sessions in window) renders muted, no bar. */
 function renderAgentCard(a, totalTokens) {
   if (!a.tokens && !a.sessions) {
     return `<div class="agent-card agent-card-muted">
@@ -147,11 +176,12 @@ function renderAgentCard(a, totalTokens) {
   if (a.costUsd != null) parts.push(`$${a.costUsd.toFixed(2)}`);
   const statsText = parts.join(' · ');
   const share = totalTokens > 0 ? Math.min(100, (a.tokens / totalTokens) * 100) : 0;
+  const models = a.models && a.models.length ? `<div class="agent-models">${a.models.map(renderAgentModelRow).join('')}</div>` : '';
   return `<div class="agent-card">
     <div class="agent-name card-head">${esc(a.name)}</div>
     <div class="card-body">
-    ${a.topModel ? `<div class="agent-model muted">${esc(a.topModel)}</div>` : ''}
     <div class="agent-stats muted" title="${esc(statsText)}">${esc(statsText)}</div>
+    ${models}
     <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
     </div>
   </div>`;
@@ -186,6 +216,8 @@ function renderAgentsBody(model, detailed) {
   return `<div class="agents-section">${body}</div>`;
 }
 
+/** The CLI's "API KEYS (per-token, accumulated via harness)" ledger table — printed in every billing mode,
+ * never conditioned on `model.mode`, so a per-token key used alongside a subscription plan still shows here. */
 function renderApiTable(model) {
   const rows = (model.api || [])
     .map(
@@ -323,10 +355,9 @@ function renderStatsSection(stats) {
 function renderUsageHtml(model, opts) {
   const { detailed = true, show = 'used', nonce = '', cspSource = '', days = 1 } = opts || {};
   const overviewBody = detailed ? renderStatsSection(model.stats) : '';
-  const quotasBody =
-    model.mode === 'api'
-      ? renderApiTable(model)
-      : model.providers.map((p) => renderProvider(p, show, detailed)).join('');
+  // The CLI prints PROVIDER QUOTAS and API KEYS as two always-present sections — never either/or on billing mode.
+  const quotasBody = model.providers.map((p) => renderProvider(p, show, detailed)).join('');
+  const apiKeysBody = renderApiTable(model);
   const agentsBody = renderAgentsBody(model, detailed);
   const agentsHeader = `AGENTS · ${agentsWindowLabel(model, days)}`;
   return `<!DOCTYPE html>
@@ -382,12 +413,18 @@ function renderUsageHtml(model, opts) {
   .chip-bar { width: 24px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
   .chip-fill { display: block; height: 100%; }
   .provider-note { margin-top: 0; color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .provider-account { font-weight: 400; }
+  .credits-note { margin-top: 4px; font-size: 11px; }
   .agents-section { padding: 0 12px; }
   .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .agent-card-muted { opacity: 0.7; }
   .agent-name { font-weight: 600; }
   .agent-model, .agent-stats, .agent-note { font-size: 12px; }
   .agent-stats { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-models { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+  .agent-model-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 11px; }
+  .agent-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-model-stats { flex: none; white-space: nowrap; }
   .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
   .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .agent-compact { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; padding: 2px 0; }
@@ -434,14 +471,10 @@ function renderUsageHtml(model, opts) {
       <button class="icon-btn" id="refresh" title="Refresh">\u21BB</button>
     </div>
   </div>
-  ${
-    model.mode === 'api'
-      ? ''
-      : `<div class="segmented">
+  <div class="segmented">
     <button id="detailed" class="${detailed ? 'active' : ''}">Detailed</button>
     <button id="compact" class="${!detailed ? 'active' : ''}">Compact</button>
-  </div>`
-  }
+  </div>
   <div class="section-header">OVERVIEW</div>
   ${overviewBody}
   <div class="section-header section-header-row"><span>QUOTAS</span>
@@ -450,6 +483,8 @@ function renderUsageHtml(model, opts) {
       <button id="show-left" class="${show === 'left' ? 'active' : ''}" title="Show percentage remaining">Remaining</button>
     </span></div>
   <div class="quotas-grid">${quotasBody}</div>
+  <div class="section-header">API KEYS</div>
+  ${apiKeysBody}
   <div class="section-header">${esc(agentsHeader)}</div>
   ${agentsBody}
   <script nonce="${nonce}">

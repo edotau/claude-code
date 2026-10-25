@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -176,7 +177,7 @@ func warnIfUntrackedDefault(path string) {
 	}
 	// Exit 1 alone means "not ignored"; 0 is ignored and 128 is not a work tree (or another git failure).
 	var exit *exec.ExitError
-	if err := exec.Command("git", "check-ignore", "-q", path).Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
+	if err := exec.CommandContext(context.Background(), "git", "check-ignore", "-q", path).Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: warning: %s is not covered by .gitignore here; it holds plaintext secrets\n", path)
