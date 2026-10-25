@@ -357,11 +357,12 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, data)
 }
 
-// keepMemoryPaths lists every regular file under memory/ (incl. .git), docs/knowledge/, plans/, an unmigrated legacy
-// docs/memory/bank/ and real projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
+// keepMemoryPaths lists every regular file under memory/ (incl. .git, so per-bank knowledge/ rides along),
+// plans/, an unmigrated legacy docs/memory/bank/ and real projects/*/memory dirs, dir-relative. A symlinked
+// native dir is the store's own duplicate: skipped, never followed.
 // A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
 func keepMemoryPaths(dir string) ([]string, error) {
-	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), filepath.Join("docs", "knowledge"), "plans"}
+	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), "plans"}
 	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
 		for _, m := range matches {
 			if rel, err := filepath.Rel(dir, m); err == nil {

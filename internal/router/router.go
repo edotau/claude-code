@@ -543,7 +543,7 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 			io.Reader
 			io.Closer
 		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
-		if hard = providers.HardQuota(string(peek)); hard {
+		if hard = providers.IsQuota(string(peek)); hard {
 			r.markDead(t)
 			if _, ok := r.demotion(t); ok {
 				drain(resp)

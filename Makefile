@@ -217,7 +217,12 @@ mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 .PHONY: lint-docs
 lint-docs: compile mdsmith  # (folded into `lint`) mdsmith over .mdsmith.yml files, then memory fmt; CHECK=1 only reports
 	@$(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix)
-	@$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check)
+	@live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
+		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
+			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
+		else \
+			echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; \
+		fi
 
 .PHONY: lint-shell
 lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist

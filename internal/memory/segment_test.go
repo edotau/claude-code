@@ -42,7 +42,7 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 		"---\nname: native recall\ndescription: router context\n---\nNative recall preserves retry details.\n")
 	write(t, filepath.Join(local, "bank-topic.md"),
 		"---\nname: excludedbanktoken\ndescription: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n")
-	write(t, filepath.Join(KnowledgeDir(), "invariant.md"),
+	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"),
 		"---\nname: strippedmetadata\n---\n# knowledge invariant\nRouter retry requires bounded latency.\n")
 	write(t, filepath.Join(routed, "decisionLog.md"),
 		"# Decisions\n\n## saturn deploy\nRetry deployment after rate limits.\n")

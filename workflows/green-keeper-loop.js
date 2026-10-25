@@ -22,6 +22,19 @@ const RULES = a.rules ||
   'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. ' +
   'Edit only inside scope; re-run only the gate.'
 
+// ── Router pressure: Claude account state read once; low/exhausted steps every Claude stage down one tier ──
+const routeState = await agent(
+  `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
+    `is "claude" and its gate value, else "unknown". Never run anything else.`,
+  { label: 'route-state', phase: 'Detect', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
+).catch(() => null)
+const TIER_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
+const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
+const routeTier = m => (PRESSURE && TIER_DOWN[m]) ? TIER_DOWN[m] : m
+if (PRESSURE) log(`router: claude account ${routeState.state} — stepping Claude stages down one tier`)
+else if (!routeState) log('router: route read failed — no downshift (fail open)')
+
 const GATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -57,7 +70,7 @@ if (!GATE) {
     `(3) package.json → "npm run lint && npm test" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test". ` +
     `If a Makefile has a lint (or fmt/vet) target, return "make lint && " + that command and source "Makefile"; never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
     `(5) Makefile only, no toolchain file → its fastest test/check target. Nothing matches → gate "" and source "none".`,
-    { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: 'haiku', effort: 'low' }
+    { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: routeTier('haiku'), effort: 'low' }
   )
   GATE = (d && d.gate) || ''
   GATE_SOURCE = (d && d.source) || 'none'
@@ -81,7 +94,7 @@ for (let i = 1; i <= MAX_ITER; i++) {
     `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; ` +
     `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
     `A failure outside scope goes into residual verbatim.`,
-    { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: 'sonnet', effort: 'medium' }
+    { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }
   )
   if (!last) { last = { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' } }
   history.push({ iteration: i, ...last })

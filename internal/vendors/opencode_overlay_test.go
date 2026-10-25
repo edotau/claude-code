@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestOpencodeOverlayTemplatesParse pins the embedded templates as valid JSON.
@@ -21,7 +25,8 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 }
 
 // TestWriteOpencodeOverlayWritesBothFiles checks the two overlay files land at state/harness/opencode
-// with mode 0600, and that the cfg file's content matches the embedded template verbatim.
+// with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
+// field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cfg, tui, err := WriteOpencodeOverlay()
@@ -37,16 +42,96 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 			t.Errorf("%s mode = %v, want 0600", p, fi.Mode().Perm())
 		}
 	}
-	want, err := opencodeOverlayFS.ReadFile("template/opencode.json")
+	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(cfg)
+	var want map[string]any
+	if err := json.Unmarshal(tmpl, &want); err != nil {
+		t.Fatal(err)
+	}
+	tb, err := routetable.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(want) {
-		t.Errorf("opencode.json = %s, want the embedded template verbatim", got)
+	sonnet, _ := tb.Cell("opencode", "sonnet")
+	haiku, _ := tb.Cell("opencode", "haiku")
+	want["model"], want["small_model"] = sonnet.Model, haiku.Model
+
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("opencode.json: not valid JSON: %v", err)
+	}
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("opencode.json = %s, want %s (model/small_model from the table, rest from the template)", gotJSON, wantJSON)
+	}
+}
+
+// TestOpencodeOverlayModelComesFromTable checks the rendered overlay's model/small_model equal the
+// routing table's opencode sonnet/haiku cells, both with no overlay and with a vault route override.
+func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
+	vaulttest.Use(t)
+	_, cfgBody, _, _, err := OpencodeOverlayRendered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(cfgBody, &doc); err != nil {
+		t.Fatal(err)
+	}
+	tb, err := routetable.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sonnet, _ := tb.Cell("opencode", "sonnet")
+	haiku, _ := tb.Cell("opencode", "haiku")
+	if doc["model"] != sonnet.Model {
+		t.Errorf("model = %v, want %q (routetable's opencode/sonnet cell)", doc["model"], sonnet.Model)
+	}
+	if doc["small_model"] != haiku.Model {
+		t.Errorf("small_model = %v, want %q (routetable's opencode/haiku cell)", doc["small_model"], haiku.Model)
+	}
+
+	// A vault route override on opencode/sonnet must change the rendered model, not just the table's own read.
+	overlay := `{"route":{"opencode":{"sonnet":{"model":"zed/overridden-model"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+	_, cfgBody2, _, _, err := OpencodeOverlayRendered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc2 map[string]any
+	if err := json.Unmarshal(cfgBody2, &doc2); err != nil {
+		t.Fatal(err)
+	}
+	if doc2["model"] != "zed/overridden-model" {
+		t.Errorf("overridden model = %v, want %q", doc2["model"], "zed/overridden-model")
+	}
+	if doc2["small_model"] != haiku.Model {
+		t.Errorf("small_model after an opus/sonnet-only override = %v, want unchanged %q", doc2["small_model"], haiku.Model)
+	}
+}
+
+// TestApplyOpencodeTableModelsFallsBackOnLoadError checks a routetable load failure (an overlay naming an
+// unknown cell) leaves the template's own hard-coded model/small_model untouched, the one fallback use.
+func TestApplyOpencodeTableModelsFallsBackOnLoadError(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"route":{"ghost":{"opus":{"model":"m"}}}}`)
+	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routetable.Load(); err == nil {
+		t.Fatal("precondition: the unknown overlay cell must make routetable.Load fail")
+	}
+	got := applyOpencodeTableModels(tmpl)
+	if string(got) != string(tmpl) {
+		t.Errorf("applyOpencodeTableModels on a load error = %s, want the template unchanged", got)
 	}
 }
 

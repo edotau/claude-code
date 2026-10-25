@@ -25,9 +25,6 @@ func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
 // HarnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
 func HarnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
 
-// KnowledgeDir is the tracked, public-safe near-rules tier in the outer repo (plan C.2).
-func KnowledgeDir() string { return filepath.Join(paths.ConfigDir(), "docs", "knowledge") }
-
 // ArchiveDir is dir's cold tier for rotated entries and prior revisions.
 func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
 
@@ -36,6 +33,9 @@ func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
 
 // ReportsDir is dir's command/agent reports (reviews, audits, research briefs).
 func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
+
+// KnowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule (plan C.2, post-T10).
+func KnowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
 
 // ReceiptsDir holds applied-batch receipts, tracked in memory Git as the authority for cursor recovery.
 func ReceiptsDir() string { return filepath.Join(StoreDir(), "receipts") }
