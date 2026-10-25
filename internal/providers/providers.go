@@ -59,6 +59,46 @@ type Provider struct {
 	CLIProfile string `json:"cliProfile,omitempty"`
 	// Env is the non-secret launch env for sessions on this provider.
 	Env map[string]string `json:"env,omitempty"`
+	// ModelPrefix decorates canonical model ids to this provider's wire ids (databricks preset: "databricks-").
+	ModelPrefix string `json:"modelPrefix,omitempty"`
+}
+
+const oneMMarker = "[1m]"
+
+// canonicalFamilies are the first-party id families WireModel decorates.
+var canonicalFamilies = []string{"claude-", "gpt-", "gemini-"}
+
+// WireModel decorates a canonical model id to p's wire id; idempotent, keeps a trailing [1m], leaves qualified ids.
+func (p Provider) WireModel(id string) string {
+	base, oneM := strings.CutSuffix(id, oneMMarker)
+	if base == "" || p.ModelPrefix == "" || strings.HasPrefix(base, p.ModelPrefix) || strings.ContainsAny(base, "/:") {
+		return id
+	}
+	// Only first-party canonical families are decorated; a custom endpoint name stays exactly as written.
+	if !slices.ContainsFunc(canonicalFamilies, func(f string) bool { return strings.HasPrefix(base, f) }) {
+		return id
+	}
+	base = p.ModelPrefix + base
+	if p.Preset == PresetDatabricks {
+		base = strings.ReplaceAll(base, ".", "-")
+	}
+	if oneM {
+		base += oneMMarker
+	}
+	return base
+}
+
+// CanonicalModel is the inverse of WireModel: it strips p's prefix and keeps a trailing [1m].
+func (p Provider) CanonicalModel(id string) string {
+	if p.ModelPrefix == "" {
+		return id
+	}
+	base, oneM := strings.CutSuffix(id, oneMMarker)
+	base = strings.TrimPrefix(base, p.ModelPrefix)
+	if oneM {
+		base += oneMMarker
+	}
+	return base
 }
 
 // MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and

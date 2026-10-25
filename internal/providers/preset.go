@@ -24,9 +24,12 @@ var DatabricksEnvs = []string{"dev", "qa", "prod"}
 // BetaOffKey is the launch env key that disables Claude Code's experimental betas.
 const BetaOffKey = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"
 
-// databricksModels are the serving-endpoint ids a databricks preset seeds into empty slots.
+// databricksModelPrefix turns a canonical id into a serving-endpoint id (see Provider.WireModel).
+const databricksModelPrefix = "databricks-"
+
+// databricksModels are the canonical ids a databricks preset seeds into empty slots.
 var databricksModels = map[string]string{
-	"opus": "databricks-claude-opus-5-5", "sonnet": "databricks-claude-sonnet-5-5", "haiku": "databricks-claude-haiku-5-5",
+	"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
 }
 
 // expandPresets fills each preset provider's empty fields; load-only. Invalid presets are left for Validate.
@@ -36,6 +39,20 @@ func expandPresets(r *Registry) {
 			continue
 		}
 		expandDatabricks(p)
+	}
+}
+
+// decorateModels rewrites every provider's slot ids to wire ids in memory; load-only, never persisted.
+func decorateModels(r *Registry) {
+	for _, p := range r.Providers {
+		if p == nil || len(p.Models) == 0 || p.ModelPrefix == "" {
+			continue
+		}
+		out := make(map[string]string, len(p.Models))
+		for slot, id := range p.Models {
+			out[slot] = p.WireModel(id)
+		}
+		p.Models = out
 	}
 }
 
@@ -60,6 +77,9 @@ func expandDatabricks(p *Provider) {
 		if p.Routes[d] == "" {
 			p.Routes = withKey(p.Routes, d, host+"/serving-endpoints")
 		}
+	}
+	if p.ModelPrefix == "" {
+		p.ModelPrefix = databricksModelPrefix
 	}
 	if p.Auth.Type == "" {
 		p.Auth.Type = AuthBearer

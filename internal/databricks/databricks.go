@@ -218,7 +218,8 @@ func envFromProvider(name string) string {
 
 // isClaudeModel reports whether model takes the Anthropic passthrough (else it goes via the router).
 func isClaudeModel(model string) bool {
-	return slices.Contains([]string{"opus", "sonnet", "haiku"}, model) || strings.HasPrefix(model, "databricks-claude-")
+	return slices.Contains([]string{"opus", "sonnet", "haiku"}, model) || strings.HasPrefix(model, "databricks-claude-") ||
+		strings.HasPrefix(model, "claude-")
 }
 
 // childEnv is the parent environment plus the beta opt-out, unless the provider's own Env already carries it.

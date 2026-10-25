@@ -93,6 +93,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	}
 	// Load-only: derived preset fields are never written back to the overlay.
 	expandPresets(&reg)
+	decorateModels(&reg)
 	reg.Routing.Opencode.Ladder = NormalizeOpencodeLadder(&reg) // legacy provider-name ladder entries, before Validate
 	if legacyErr != nil {
 		return &reg, legacyErr
