@@ -39,7 +39,8 @@ only its own deltas (vendor-specific rows, flags, and sections).
    cited `file:line` per answer.
 5. **Report** per `../SKILL.md` → Handoff contract.
 
-Fallback ladders (built-in `ask` chain and by-hand reassignment): `cost-routing.md` → Fallback.
+Fallback ladders (built-in `ask` chain and by-hand reassignment): `cost-routing.md` → Fallback. A saved Workflow
+named in the brief (`Workflow:`) runs headless per `saved-workflows.md` → Run from a leaf.
 
 ## Don't
 

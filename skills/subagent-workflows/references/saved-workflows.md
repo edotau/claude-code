@@ -28,3 +28,16 @@ tool runs no TypeScript); `claude-code workflow lint` checks all of the above an
 
 A skill-owned script runs by `scriptPath` only, never by name: the A/B eval is
 `skills/evaluate-code/scripts/code-evaluator.js` (`skills/evaluate-code/references/eval.md`).
+
+## Run from a leaf
+
+A leaf has no `Workflow` tool, but a headless Claude session does — so a leaf runs a saved Workflow through one:
+
+```bash
+claude-code ask --agent claude --tools --timeout 20m \
+  "Run Workflow({name: \"<name>\", args: {…}}) and print the result"   # skill-owned script: scriptPath, not name
+```
+
+Only when the brief names it (`Workflow:` field, with args); `--background` past ~3 minutes, then `status`/`result`;
+from a scratch cwd when the script writes files (the eval: `skills/evaluate-code/references/eval.md`). The job id goes
+on the leaf's `Ran on:` line, and the Workflow's result is reported as a claim, never as the leaf's own verification.
