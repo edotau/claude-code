@@ -97,25 +97,40 @@ func manifestBackups() []string {
 	return out
 }
 
+// MasterKeyStatus resolves the vault's secret count and master-key source in one place, shared by the
+// "vault master key" doctor row and launch's "vault" summary row so both describe the same check.
+// count is 0 and err is non-nil when NamesErr itself failed (vault unreadable); count is 0 and err is
+// nil when the vault holds no secrets (no master key needed); count > 0 and err non-nil when the
+// resolved master key cannot open the vault.
+func MasterKeyStatus() (count int, source string, err error) {
+	names, err := NamesErr()
+	if err != nil {
+		return 0, "", err
+	}
+	count = len(names)
+	if count == 0 {
+		return 0, "not needed", nil
+	}
+	_, source, err = vault.MasterKey()
+	return count, source, err
+}
+
 // checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the
 // vault itself can't be read (locked, wrong key) — an unreadable vault must not read as "no credential".
 func checkMasterKey() []Check {
 	row := Check{Name: "vault master key", OK: true, Gate: true}
-	names, err := NamesErr()
-	if err != nil {
+	count, source, err := MasterKeyStatus()
+	switch {
+	case err != nil && count == 0:
 		row.OK, row.Detail = false, "vault is unreadable: "+keyErrText(err)
 		return []Check{row}
-	}
-	n := len(names)
-	if n == 0 {
+	case err != nil:
+		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", count, keyErrText(err))
+		return []Check{row}
+	case count == 0:
 		return nil
 	}
-	_, source, err := vault.MasterKey()
-	if err != nil {
-		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", n, keyErrText(err))
-		return []Check{row}
-	}
-	row.Detail = fmt.Sprintf("%d secret(s); master key from %s", n, source)
+	row.Detail = fmt.Sprintf("%d secret(s); master key from %s", count, source)
 	return []Check{row}
 }
 
