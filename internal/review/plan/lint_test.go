@@ -226,6 +226,26 @@ func TestLintPinsBytes(t *testing.T) {
 	}
 }
 
+// routeTier('<tier>') wraps the literal in a call (the router-pressure helper added to the saved
+// workflows); it still counts as pinned, and the wrapped tier literal is still validated against the
+// allow-list. routeTier(cfg.x) — no literal at all — is accepted today: badPinValues finds no quoted
+// literal to check, so it takes no position; this test pins that current (lenient) behavior down.
+func TestRouteTierWrappedModelPin(t *testing.T) {
+	good := []byte("agent('a', { model: routeTier('sonnet'), effort: 'low' })\n")
+	if hits := LintPins("inline", good); len(hits) != 0 {
+		t.Fatalf("LintPins(routeTier('sonnet')) = %v, want none — the wrapped literal is a valid pin", hits)
+	}
+	bad := []byte("agent('a', { model: routeTier('gpt-5'), effort: 'low' })\n")
+	if hits := LintPins("inline", bad); len(hits) != 1 || !strings.Contains(hits[0], `"gpt-5"`) {
+		t.Fatalf("LintPins(routeTier('gpt-5')) = %v, want one hit naming value gpt-5", hits)
+	}
+	noLiteral := []byte("agent('a', { model: routeTier(cfg.x), effort: 'low' })\n")
+	if hits := LintPins("inline", noLiteral); len(hits) != 0 {
+		t.Fatalf("LintPins(routeTier(cfg.x)) = %v, want none — current behavior accepts an unchecked"+
+			" identifier argument silently (no literal to validate, and model: text alone pins it)", hits)
+	}
+}
+
 // D1: lint:opus-ok exempts only the effort axis — a marked call missing model: is still a model hit.
 func TestOpusOKExemptsEffortOnly(t *testing.T) {
 	hits := LintPins("inline", []byte("await agent('x', { label: 'l' }) // lint:opus-ok\n"))

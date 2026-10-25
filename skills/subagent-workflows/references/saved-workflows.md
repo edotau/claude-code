@@ -19,6 +19,11 @@ tier; a call that deliberately omits `effort:` carries `// lint:opus-ok` on its 
 and nothing throws at top level, or the registry skips the script silently. Scripts are plain JavaScript (the Workflow
 tool runs no TypeScript); `claude-code workflow lint` checks all of the above and `make test` gates the shipped scripts.
 
+All four scripts read the Claude account's own router state once at start (`claude-code route --format json --agent
+claude --fallback none`, a haiku leaf); `low`/`exhausted` steps every Claude-stage `model:` pin down one tier through
+an inline `routeTier()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a `log()` line on a
+failed or null read — pins stay explicit literals so `workflow-lint` still passes.
+
 | Workflow | Owner skill | Shape | Phases | args |
 |----------|-------------|-------|--------|------|
 | `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (verify.md caps the whole task at 5). Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
