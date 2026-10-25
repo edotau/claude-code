@@ -51,7 +51,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 		}
 	}
 	c, err := BuildCatalog(time.Now())
-	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
+	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/knowledge/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
 		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
 	}
 }
@@ -74,7 +74,7 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	}
 	key := filepath.Base(dir)
 	c, err := BuildCatalog(time.Now())
-	if err != nil || !strings.Contains(c, key+"/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
+	if err != nil || !strings.Contains(c, key+"/knowledge/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
 		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
 	}
 }
