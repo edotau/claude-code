@@ -8,12 +8,6 @@
       "launch": {}
     },
     "opencode": {
-      "permission": {
-        "useGuardRules": true
-      },
-      "mcp": {
-        "allow": []
-      },
       "launch": {
         "env": [
           "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"

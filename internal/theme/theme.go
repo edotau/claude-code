@@ -38,7 +38,8 @@ func Targets(home string) []Target {
 	return []Target{
 		{"vscode", vs},
 		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json")},
-		{"opencode", filepath.Join(cfg, "opencode", "tui.json")},
+		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json")},
+		{"opencode-themes/gemini-plum", filepath.Join(cfg, "opencode", "themes", "gemini-plum.json")},
 		{"copilot", filepath.Join(home, ".copilot", "settings.json")},
 		{"gemini", filepath.Join(home, ".gemini", "settings.json")},
 	}

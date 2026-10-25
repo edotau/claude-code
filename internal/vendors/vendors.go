@@ -235,6 +235,13 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 // applyLaunch appends vendor's spec Launch.Env (always) and Launch.Args (only when args is true) to
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
 func applyLaunch(name string, env, argv []string, args bool) ([]string, []string) {
+	if name == "opencode" {
+		// Every opencode launch (own login, BYOK, headless) points at the tracked overlay; a failed
+		// write is best-effort — opencode still runs on its own global config without it.
+		if cfg, tui, err := WriteOpencodeOverlay(); err == nil {
+			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
+		}
+	}
 	vc, err := vendorconfig.Load()
 	if err != nil {
 		return env, argv
@@ -516,20 +523,6 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, h *Headl
 			"npm": npm, "name": p.Name + " (claude-code)", "options": options,
 			"models": menu,
 		}},
-	}
-	if h == nil {
-		cwd, _ := os.Getwd()
-		imp := readClaudeImport(cwd)
-		vc, _ := vendorconfig.Load()
-		vendor := vc.Vendor("opencode")
-		cfg["permission"] = guardPermission(vc, vendor)
-		kept, dropped := filterAllowedMCP(imp.mcp, vendor.MCP.Allow)
-		if mcp := mcpBlock(kept); len(mcp) > 0 {
-			cfg["mcp"] = mcp
-		}
-		if skipped := append(imp.skippedMCP, dropped...); len(skipped) > 0 {
-			env = append(env, "HARNESS_OPENCODE_MCP_SKIPPED="+strings.Join(skipped, ","))
-		}
 	}
 	if h != nil && !h.Tools {
 		cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
@@ -928,17 +921,4 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 		return p.OpencodeFallback
 	}
 	return id
-}
-
-// OpenCodePermissionMCP renders the permission/mcp blocks opencode's interactive config normally imports
-// from the caller's Claude settings (cwd-rooted) — reused by render paths in internal/generate that build
-// their own opencode.json directly instead of going through Configure/opencode (the github-copilot route,
-// which Configure cannot drive: a login provider's Auth.Login names "copilot", not "opencode").
-func OpenCodePermissionMCP() (permission any, mcp map[string]any, mcpSkipped []string) {
-	cwd, _ := os.Getwd()
-	imp := readClaudeImport(cwd)
-	vc, _ := vendorconfig.Load()
-	vendor := vc.Vendor("opencode")
-	kept, dropped := filterAllowedMCP(imp.mcp, vendor.MCP.Allow)
-	return guardPermission(vc, vendor), mcpBlock(kept), append(imp.skippedMCP, dropped...)
 }
