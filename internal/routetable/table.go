@@ -8,7 +8,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 
@@ -20,21 +19,16 @@ import (
 var tableJSON []byte
 
 // Tiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
-var Tiers = []string{models.Opus, models.Sonnet, models.Haiku}
+var Tiers = providers.RouteTiers
 
 // Runners are the table's columns in roster order; ties in a pick's cost score keep this order.
-var Runners = []string{"claude", "copilot", "codex", "opencode", "gemini"}
+var Runners = providers.RouteRunners
 
 // Billing types: a plan window already paid for, or per-use credits.
 const (
 	BillSubscription = "subscription"
 	BillCredits      = "credits"
 )
-
-// weightNames are the dimension names table.json's weights must sum to 1 over; they must match the Name()
-// of every internal/route.Dimension (today: "price", "headroom") — route owns the scoring, this package only
-// validates the shape of what it loads.
-var weightNames = []string{"price", "headroom"}
 
 // Price is USD per 1M tokens.
 type Price struct {
@@ -74,6 +68,11 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	if err := json.Unmarshal(tableJSON, &t); err != nil {
 		return nil, fmt.Errorf("routetable: table.json: %w", err)
 	}
+	copilotKey := CopilotUnpinned
+	if ghUser != "" {
+		copilotKey = "copilot:" + ghUser
+	}
+	t.Billing[copilotKey] = t.Billing["copilot"]
 	if reg != nil {
 		for runner, tiers := range reg.Route {
 			for tier, o := range tiers {
@@ -81,11 +80,25 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 					return nil, fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, tier)
 				}
 				c := t.Rows[runner][tier]
+				if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+					key, err := opencodeOverrideAccount(prefixOf(o.Model), copilotKey)
+					if err != nil {
+						return nil, fmt.Errorf("routetable: overlay %s/%s: %w", runner, tier, err)
+					}
+					c.Account = key
+				}
 				if o.Model != "" {
 					c.Model = o.Model
 				}
 				if o.Effort != "" {
 					c.Effort = o.Effort
+				}
+				if o.Account != "" {
+					if _, ok := t.Billing[o.Account]; !ok {
+						return nil, fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry",
+							runner, tier, o.Account)
+					}
+					c.Account = o.Account
 				}
 				t.Rows[runner][tier] = c
 			}
@@ -94,14 +107,9 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	if reg != nil && len(reg.RouteWeights) > 0 {
 		t.Weights = reg.RouteWeights // an overlay replaces the weights whole, so they still sum to 1
 	}
-	if err := t.validateWeights(); err != nil {
-		return nil, err
+	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
+		return nil, fmt.Errorf("routetable: %w", err)
 	}
-	copilotKey := CopilotUnpinned
-	if ghUser != "" {
-		copilotKey = "copilot:" + ghUser
-	}
-	t.Billing[copilotKey] = t.Billing["copilot"]
 	for _, tier := range Tiers {
 		c := t.Rows["copilot"][tier]
 		c.Account = copilotKey
@@ -118,23 +126,28 @@ func CopilotUser() string {
 	return ""
 }
 
-// validateWeights requires one weight per dimension name, each in [0,1], summing to 1.
-func (t *Table) validateWeights() error {
-	sum := 0.0
-	for _, name := range weightNames {
-		w, ok := t.Weights[name]
-		if !ok || w < 0 || w > 1 {
-			return fmt.Errorf("routetable: weight %q missing or outside [0,1]", name)
-		}
-		sum += w
+// prefixOf returns the provider prefix of a "prefix/model" id ("" when model carries no prefix).
+func prefixOf(model string) string {
+	prefix, _, ok := strings.Cut(model, "/")
+	if !ok {
+		return ""
 	}
-	if len(t.Weights) != len(weightNames) {
-		return fmt.Errorf("routetable: weights name %d dimensions, want %d", len(t.Weights), len(weightNames))
+	return prefix
+}
+
+// opencodeOverrideAccount derives the billing account for an opencode cell whose override model prefix moves
+// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode:go, github-copilot
+// bills the pinned Copilot account (same key the copilot row uses); any other prefix is rejected outright,
+// since the cell would keep charging quota to opencode:go for a model that account never serves.
+func opencodeOverrideAccount(prefix, copilotKey string) (string, error) {
+	switch prefix {
+	case "opencode-go", "opencode":
+		return "opencode:go", nil
+	case "github-copilot":
+		return copilotKey, nil
+	default:
+		return "", fmt.Errorf("model prefix %q has no known billing account; set account_key explicitly", prefix)
 	}
-	if math.Abs(sum-1) > 1e-9 {
-		return fmt.Errorf("routetable: weights sum to %g, want 1", sum)
-	}
-	return nil
 }
 
 // Cell returns the runner's row at tier; ok is false for an unknown runner or tier.

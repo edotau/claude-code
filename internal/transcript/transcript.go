@@ -347,8 +347,8 @@ func commitInText(text string, depth int) bool {
 
 // shellBaseName strips a leading directory from a `/bin/bash`-style interpreter path.
 func shellBaseName(tok string) string {
-	if idx := strings.LastIndexByte(tok, '/'); idx >= 0 {
-		return tok[idx+1:]
+	if _, after, ok := strings.CutLast(tok, "/"); ok {
+		return after
 	}
 	return tok
 }
@@ -607,11 +607,11 @@ func commitShellSegments(cmd string) []string {
 			}
 			continue
 		}
-		switch {
-		case c == '\'' || c == '"':
+		switch c {
+		case '\'', '"':
 			quote = c
 			b.WriteByte(c)
-		case c == ';' || c == '|' || c == '&' || c == '\n':
+		case ';', '|', '&', '\n':
 			if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
 				i++
 			}
@@ -660,11 +660,11 @@ func commitShellTokens(seg string) []string {
 			}
 			continue
 		}
-		switch {
-		case c == '\'' || c == '"':
+		switch c {
+		case '\'', '"':
 			quote = c
 			started = true
-		case c == ' ' || c == '\t':
+		case ' ', '\t':
 			if started {
 				out = append(out, b.String())
 				b.Reset()

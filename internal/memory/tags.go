@@ -89,8 +89,8 @@ func parseTagLine(ln string) (Tag, bool) {
 	ln = strings.TrimSpace(ln)
 	ln = strings.TrimPrefix(strings.TrimPrefix(ln, "- "), "* ")
 	for _, kind := range tagKinds {
-		if strings.HasPrefix(ln, kind) {
-			text := strings.TrimSpace(strings.TrimPrefix(ln, kind))
+		if after, ok := strings.CutPrefix(ln, kind); ok {
+			text := strings.TrimSpace(after)
 			if len(text) > tagMaxLen {
 				text = text[:tagMaxLen]
 			}

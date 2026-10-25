@@ -375,7 +375,7 @@ func shortenHome(p string) string {
 // splitNonEmpty splits s on newlines, dropping the trailing blank line and any other empty lines.
 func splitNonEmpty(s string) []string {
 	var out []string
-	for _, l := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimRight(s, "\n"), "\n") {
 		if l != "" {
 			out = append(out, l)
 		}

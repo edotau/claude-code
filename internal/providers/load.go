@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -80,9 +81,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 			if reg.Route[runner] == nil {
 				reg.Route[runner] = map[string]RouteCell{}
 			}
-			for tier, c := range tiers {
-				reg.Route[runner][tier] = c
-			}
+			maps.Copy(reg.Route[runner], tiers)
 		}
 		if o.RouteWeights != nil {
 			reg.RouteWeights = o.RouteWeights // an overlay replaces the weights whole, per its docstring

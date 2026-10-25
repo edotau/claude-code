@@ -231,7 +231,7 @@ func (s segView) valid() bool {
 	}
 	blobLen := size - blobStart
 	var sumdl uint64
-	for i := uint64(0); i < ndocs; i++ {
+	for i := range ndocs {
 		off := 12 + i*12
 		dl := u32(off)
 		if dl == 0 || u32(off+4)+u32(off+8) > blobLen {
@@ -243,7 +243,7 @@ func (s segView) valid() bool {
 		return false
 	}
 	var previous []byte
-	for i := uint64(0); i < nterms; i++ {
+	for i := range nterms {
 		off := termStart + 4 + i*16
 		start, length := u32(off), u32(off+4)
 		postOff, count := u32(off+8), u32(off+12)
@@ -256,7 +256,7 @@ func (s segView) valid() bool {
 		}
 		previous = term
 	}
-	for i := uint64(0); i < nposts; i++ {
+	for i := range nposts {
 		off := postStart + 4 + i*8
 		if u32(off) >= ndocs || u32(off+4) == 0 {
 			return false
@@ -278,7 +278,7 @@ func (s segView) lookupWeighted(term string) map[int]float64 {
 	out := map[int]float64{}
 	add := func(t string, weight float64) {
 		posts, n := s.lookup(t)
-		for p := 0; p < n; p++ {
+		for p := range n {
 			doc := int(binary.LittleEndian.Uint32(posts[p*8:]))
 			tf := float64(binary.LittleEndian.Uint32(posts[p*8+4:])) * weight
 			if cur, ok := out[doc]; !ok || tf > cur {
@@ -304,7 +304,7 @@ func (s segView) terms() []string {
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
 	out := make([]string, nterms)
-	for i := 0; i < nterms; i++ {
+	for i := range nterms {
 		off := termStart + 4 + i*16
 		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
 		end := start + int(binary.LittleEndian.Uint32(s[off+4:]))

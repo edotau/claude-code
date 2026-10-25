@@ -92,7 +92,7 @@ func isWorkflowScript(f string) bool {
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" || strings.HasPrefix(t, "//") {
 			continue

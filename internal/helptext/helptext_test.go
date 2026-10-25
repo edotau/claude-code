@@ -50,7 +50,7 @@ func TestPageLayout(t *testing.T) {
 		if utf8.RuneCountInString(f.Name) == 1 {
 			label = "-" + f.Name
 		}
-		for _, line := range strings.Split(got, "\n") {
+		for line := range strings.SplitSeq(got, "\n") {
 			words := strings.Fields(line)
 			if len(words) > 0 && words[0] == label {
 				count++
@@ -66,7 +66,7 @@ func TestPageLayout(t *testing.T) {
 	if !strings.Contains(got, "--very-long-flag-name-for-the-label string  long label description") {
 		t.Errorf("overlong label lacks two-space separator:\n%s", got)
 	}
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("line has %d columns: %q", n, line)
 		}
@@ -172,6 +172,31 @@ func TestExitCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ExitCode(tc.err); got != tc.want {
 				t.Errorf("ExitCode(%v) = %d, want %d", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// WantsHelp sees only tokens before a literal "--"; anything after is positional, never help.
+func TestWantsHelp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"empty", nil, false},
+		{"bare -h", []string{"-h"}, true},
+		{"bare -help", []string{"-help"}, true},
+		{"bare --help", []string{"--help"}, true},
+		{"after a positional", []string{"x.go", "-h"}, true},
+		{"no help flag", []string{"x.go", "--json"}, false},
+		{"-h after --", []string{"--", "-h"}, false},
+		{"-h after -- with more tokens", []string{"file.py", "--", "-h", "b"}, false},
+		{"-- itself with nothing before it and nothing after", []string{"--"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WantsHelp(tc.args); got != tc.want {
+				t.Errorf("WantsHelp(%v) = %v, want %v", tc.args, got, tc.want)
 			}
 		})
 	}
