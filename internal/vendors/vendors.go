@@ -89,6 +89,9 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 	// session provider) is preferred whenever it is present, ahead of a session provider that could
 	// otherwise already serve opencode; an explicit --provider still wins.
 	if name == "opencode" && !explicit {
+		if OpencodeOwnLoginPresent() { // opencode's own Go/Zen credential: launch plain on its own config
+			return providers.Target{}, "", ErrOwnLogin
+		}
 		if gt, gnote, ok := opencodeCopilotTarget(reg); ok {
 			return gt, gnote, nil
 		}
@@ -194,8 +197,10 @@ func ConfigureHint(name string) string {
 	switch name {
 	case "codex":
 		return "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key"
-	case "copilot", "opencode":
+	case "copilot":
 		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
+	case "opencode":
+		return "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)"
 	case "gemini":
 		return "sign in with `agy` (Google login)"
 	default:
@@ -581,6 +586,9 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
 	}
 	env, argv = opencodeRun("", h)
+	if cred, err := OpencodeCredential("opencode"); err == nil {
+		env = append(env, cred...) // the vault key when opencode stores no login of its own
+	}
 	env, argv = applyLaunch("opencode", env, argv, false) // headless: never Launch.Args
 	return env, argv, nil
 }
@@ -633,7 +641,11 @@ func copilotLogin(model string, h *Headless) ([]string, []string, error) {
 		model = ""
 	}
 	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
-	if tok := CopilotLaunchToken(); tok != "" { // the harness's chosen account beats any inherited token
+	tok, err := CopilotLaunchToken()
+	if err != nil {
+		return nil, nil, err
+	}
+	if tok != "" { // the harness's chosen account beats any inherited token
 		env = append(env, CopilotTokenEnv+"="+tok)
 	}
 	if h == nil {

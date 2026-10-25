@@ -26,25 +26,31 @@ const ownLoginProvider = "own-login"
 // vendor's own login or first keyed provider. Only --provider (or a provider:model) is the caller's provider
 // choice; a slot name or model id is re-applied to the fallback provider. own is true when the vendor runs
 // on its own stored login and no harness route is injected.
-func vendorTarget(req Request, name string) (t providers.Target, own bool, err error) {
-	reg, t, err := resolveTarget(req)
-	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
-		return t, false, err
-	}
-	sel, err := providers.Select(reg, "")
-	if err != nil {
-		return t, false, err
-	}
-	ft, note, err := vendors.ResolveTarget(reg, name, sel, false)
+func vendorTarget(req Request, name string) (providers.Target, bool, error) {
+	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
 		fmt.Fprintln(os.Stderr, note)
 	}
+	return t, own, err
+}
+
+// vendorTargetNote is vendorTarget without printing: the router resolves every candidate's backend through it.
+func vendorTargetNote(req Request, name string) (t providers.Target, own bool, note string, err error) {
+	reg, t, err := resolveTarget(req)
+	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
+		return t, false, "", err
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		return t, false, "", err
+	}
+	ft, note, err := vendors.ResolveTarget(reg, name, sel, false)
 	own = errors.Is(err, vendors.ErrOwnLogin)
 	if own {
 		err = nil
 	}
 	if err != nil || (!own && ft.Provider == t.Provider) {
-		return t, false, err // no fallback: the caller's slot or model id stands
+		return t, false, note, err // no fallback: the caller's slot or model id stands
 	}
 	switch {
 	case req.Model == "":
@@ -56,7 +62,7 @@ func vendorTarget(req Request, name string) (t providers.Target, own bool, err e
 	default:
 		ft.Model = req.Model
 	}
-	return ft, own, nil
+	return ft, own, note, nil
 }
 
 // namesProvider is true for the provider:model form, where the prefix is a registered provider.
@@ -359,7 +365,11 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		SessionID: req.SessionID,
 	}
 	if own {
-		if tok := vendors.CopilotLaunchToken(); tok != "" {
+		tok, err := vendors.CopilotLaunchToken()
+		if err != nil {
+			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+		}
+		if tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}

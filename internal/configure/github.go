@@ -176,7 +176,12 @@ func pickCopilotModels(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	opts := copilotCatalogOptions(bin)
-	if tok := vendors.CopilotLaunchToken(); tok != "" {
+	tok, err := vendors.CopilotLaunchToken()
+	if err != nil {
+		d.printf("copilot models: %v\n", err)
+		return
+	}
+	if tok != "" {
 		opts.GitHubToken, opts.UseLoggedInUser = tok, false
 	}
 	list, err := copilotsdk.ListModels(ctx, opts)

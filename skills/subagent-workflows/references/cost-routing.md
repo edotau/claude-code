@@ -10,15 +10,16 @@ adds real coverage (independent review, broad-context sweep). Stay inline for sm
 |---|---|---|---|
 | `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code gemini explore "<question>"`; targeted: `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
 | `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"`; a diff: `claude-code codex review --adversarial [--base <b>]` |
-| `mechanical` | one-liner, lookup, mechanical edit | `copilot` `--model claude-haiku-5.5` | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
-| `standard` | everything else (the default) | rotate `claude` · `copilot` (`claude-sonnet-5.5`) · `codex` · `opencode` | as above, `--agent <runner>` |
-| `reasoning` | explicitly flagged hard reasoning | Claude `opus` | stays in session; never by default |
+| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku` tier: `internal/route/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
+| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet` tier: `internal/route/table.json`) | as above, `--agent <runner>` |
+| `reasoning` | explicitly flagged hard reasoning | Claude (`opus` tier: `internal/route/table.json`) | stays in session; never by default |
 
-Docs drafting goes to `opencode`. Architecture, judgement, integration and final verification never leave Claude.
-`--kind` from a caller is a hint: route by judgement and say so when you disagree.
+Docs and implementation edits rotate across vendors including `opencode` (default `opencode-go/kimi-k3.1-pro` at high
+effort). Architecture, judgement, integration and final verification never leave Claude. `--kind` from a caller is
+a hint: route by judgement and say so when you disagree.
 
-Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. `gemini-4-argon` is its
-`opus` tier (second-opinion review, hard sweeps); `flash-high` is the default.
+Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. Tier cell mappings
+follow `internal/route/table.json` as the single source.
 
 ## Run the leg
 
@@ -27,29 +28,47 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
 2. Assign runners round-robin across implementation steps and name it in the brief as `runner: <name>`; keep the
    split even across the session. Assign `runner: claude` when the brief would cost more than the work, the step
    needs context only this session holds, or the runner failed its smoke test.
-3. Size the model: Copilot `claude-haiku-5.5` mechanical, `claude-sonnet-5.5` default, `claude-opus-5.5` only for an
-   unusually complex step (premium multipliers scale). `claude-code models --live --provider github-copilot` lists
-   what the seat serves.
+3. Size the tier (`opus`, `sonnet`, `haiku`): `internal/route/table.json` is the single source for runner × tier model,
+   effort, account and price. Each leg runs the requested tier's cell, including Claude.
 4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude — see Fallback below.
 5. A vendor leg in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
    `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
 
 ## Fallback
 
-Three separate mechanisms; only the first is a leg change the report must name:
+The router (`internal/route`) dynamically picks and ranks runner + model for every `claude-code ask` leg.
+Table: `internal/route/table.json` defines runner × tier (`claude`, `copilot`, `codex`, `opencode`, `gemini` ×
+`opus`, `sonnet`, `haiku`) mapping to model, effort, account_key, and price. Default weights are `price=0.5`
+`headroom=0.5` (vault-overridable via `route` and `routeWeights`). Each leg runs the SAME tier's cell (tier
+from `--model`, else the task classifier), including the Claude leg.
 
-- **Dispatch ladder** (`ask --fallback all|vendors|none`, default `all`): when the dispatched
-  vendor fails, the rest of the registry ladder runs in order (`claude-code vault list` → `opencodeLadder`, rotated to
-  start after that vendor; `internal/agent/hub.go` `HubChain`), then Claude under `all`; `vendors` stops before
-  Claude; `none` fails fast. `review` and `transfer` take no flag: `review` always falls back across vendors only,
-  never to Claude. `--format json`'s `fallback`/`fallback_reason`
-  name the leg that answered — a non-empty `fallback` goes on the `Ran on:` line (Handoff contract), never hidden.
-- **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode tries its own GitHub
-  Copilot login, then the registry's `anthropic` key; copilot its own GitHub login, then BYOK `ANTHROPIC_API_KEY`;
-  codex, gemini and claude resolve or fail. A `<vendor>: session provider … cannot serve …; using <x>` line is this
-  route, not a fallback leg — report `fallback: none`.
-- **By hand** (runner reassignment on rate limit, not a credential route): codex limited → `copilot --model
-  gpt-6.1-sol`; copilot down → opencode; agy down → copilot; Claude last.
+- **Gates** (drop candidate before scoring, with reason):
+  - `row` — no configured row for the requested tier.
+  - `available` — runner binary or login credentials missing.
+  - `account` — Copilot runs on the pinned `COPILOT_GITHUB_USER` only: unpinned, or a pin that is not a gh login,
+    drops it (never another account; `claude-code configure github` changes it).
+  - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
+- **Scoring**: `total = 0.5 * price + 0.5 * headroom` (0–1 each); a subscription's price is its window share left,
+  and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`). Low accounts (>=90% of window used) sort after
+  all non-low accounts. Exhausted accounts are never picked.
+- **Quota state**: `state/harness/quota.json`, written by `claude-code usage`, by a leg's quota failure (resets
+  parsed from error message, else window end), and a 15-min targeted refresh. `claude-code doctor` displays a row
+  per exhausted or low account.
+- **Dispatch ladder** (`ask --fallback all|vendors|none`, default `all`): the wanted runner (`--agent`) leads if it
+  passes gates; other vendor candidates follow sorted by score; Claude runs last under `all`. `vendors` stops
+  before Claude; `none` fails fast. `review` always falls back across vendors only, never to Claude. `--format json`
+  reports `fallback`/`fallback_reason`; non-empty `fallback` goes on the `Ran on:` line, never hidden.
+- **Inspection verb**: `claude-code route [--tier T] [--agent a] [--task "<text>"] [--fallback all|vendors|none]`
+  `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
+- **Pressure hooks & workflows**: `agent-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
+  an unset subagent model one tier; >=97% moves code-worker/Explore to `coworker` at haiku with routed runner
+  prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.leg` picks via
+  `claude-code route --format json`.
+- **Explicit backend** (`--provider`, `provider:model`): one leg, no fallback, but gated and marked on its own account.
+- **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode uses its own `opencode`
+  login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub login,
+  then BYOK `ANTHROPIC_API_KEY`. A `<vendor>: session provider … cannot serve …; using <x>` line is this route, not
+  a fallback leg — report `fallback: none`.
 
 Independent read-only legs run in parallel (one backgrounded Bash call each); a writer then its reviewer run in
 sequence. Legs on one provider share its rate limit — reduce concurrency on persistent `429`s.

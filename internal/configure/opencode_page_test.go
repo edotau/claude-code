@@ -108,7 +108,7 @@ func TestOpencodePageRows1x(t *testing.T) {
 	}
 	want := []tui.ListRow{
 		{Label: "Databricks", Detail: "API key", OK: true, Section: "accounts"},
-		{Label: "GitHub Copilot", Detail: "OAuth", Status: "used by claude-code routes", OK: true, Section: "accounts"},
+		{Label: "GitHub Copilot", Detail: "OAuth", OK: true, Section: "accounts"},
 		{Label: "Nvidia", Detail: "API key", OK: true, Section: "accounts"},
 		{Label: "OpenAI", Detail: "OAuth", OK: true, Section: "accounts"},
 		{Label: "zed", Detail: "API key", OK: true, Section: "accounts"},
@@ -132,8 +132,8 @@ func TestOpencodePageRows2x(t *testing.T) {
 	}
 	got := rowsOfPage(p)
 	want := []tui.ListRow{
-		{Label: "GitHub Copilot", Detail: "work", Status: "active · used by claude-code routes", OK: true, Section: "accounts"},
-		{Label: "GitHub Copilot", Detail: "personal", Status: "used by claude-code routes", OK: true, Section: "accounts"},
+		{Label: "GitHub Copilot", Detail: "work", Status: "active", OK: true, Section: "accounts"},
+		{Label: "GitHub Copilot", Detail: "personal", OK: true, Section: "accounts"},
 		{Label: "GitHub Copilot", Detail: "$GITHUB_TOKEN", Status: "environment · unset $GITHUB_TOKEN to disconnect", OK: true, Section: "accounts"},
 		{Label: "OpenAI", Detail: "OAuth", Status: "sign in required", OK: false, Section: "accounts"},
 	}
@@ -358,7 +358,7 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	for _, r := range f.specs[0].Rows {
 		labels = append(labels, r.Label)
 	}
-	if got := strings.Join(labels, ","); !strings.HasPrefix(got, "not connected,+ Add account,API key") {
+	if got := strings.Join(labels, ","); !strings.HasPrefix(got, "not connected,+ Add account,Model") || strings.Contains(got, "API key") {
 		t.Errorf("page rows = %s", got)
 	}
 }

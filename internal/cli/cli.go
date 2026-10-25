@@ -70,6 +70,7 @@ func commands() []command {
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
+		{name: "route", group: groupDiagnostics, summary: "which runner + model a tier routes to, and why", run: cmdRoute},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, provider quotas", run: cmdUsage},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS

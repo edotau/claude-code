@@ -135,6 +135,16 @@ type Registry struct {
 	AgentPlans map[string][]Plan `json:"agentPlans,omitempty"`
 	// AgentPlanFormat renders a plan's mode column from {provider} {mode} {tier} {id}; empty = lowercase default.
 	AgentPlanFormat string `json:"agentPlanFormat,omitempty"`
+	// Route overrides internal/route's table cells, keyed runner → tier; an empty field keeps the table's value.
+	Route map[string]map[string]RouteCell `json:"route,omitempty"`
+	// RouteWeights replaces internal/route's composite-score weights whole (dimension → weight, summing to 1).
+	RouteWeights map[string]float64 `json:"routeWeights,omitempty"`
+}
+
+// RouteCell is one overlay cell for internal/route's table.
+type RouteCell struct {
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 }
 
 // Plan is one sign-in plan: ID matches the raw plan ID the login reports (* globs); Tier and Provider override

@@ -71,7 +71,7 @@ func ocDetail(c vendors.OpencodeConn) string {
 func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
 	for _, in := range ints {
-		copilot := in.ID == "github-copilot" && len(in.Conns) > 0 // same rule as vendors.OpencodeCopilotLoginPresent
+		routed := in.ID == vendors.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed legs use
 		for i := range in.Conns {
 			c := in.Conns[i]
 			var status []string
@@ -83,7 +83,7 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 			case c.Active:
 				status = append(status, "active")
 			}
-			if copilot && c.Kind != "env" {
+			if routed && c.Kind != "env" {
 				status = append(status, "used by claude-code routes")
 			}
 			p.rows = append(p.rows, ocRow{row: tui.ListRow{
@@ -99,7 +99,7 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "opencode auth login · browser sign-in",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
-		for _, r := range []*billingRow{new(byokRow(d, "opencode")), modelRow(d, "opencode")} {
+		for _, r := range []*billingRow{modelRow(d, "opencode")} {
 			if r == nil {
 				continue
 			}

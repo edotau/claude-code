@@ -87,7 +87,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("OPENCODE_API_KEY", "test-key")
 	var out strings.Builder
 	log := loggedRun(t, false, func(ctx context.Context) {
 		pathstest.FakeVendor(t, "opencode", emitScript(

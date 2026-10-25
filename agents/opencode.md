@@ -64,9 +64,9 @@ the vendor binary; skip setup and go straight to the `memory` verb. Delta:
   PERSIST; "ship or block on opencode's diff" → `review`; "continue session" → `resume`; "hand this
   session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
 - **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`. Default model and
-  effort fit normal drafting; only `--effort high` for an unusually complex pass. Fallback ladder:
-  `skills/subagent-workflows/references/cost-routing.md` → Fallback. Reflection modes run the matching
-  `claude-code memory` verb directly.
+  effort fit normal drafting; only `--effort high` for an unusually complex pass.
+  Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+  Reflection modes run the matching `claude-code memory` verb directly.
 - **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
   the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.
 
@@ -109,11 +109,12 @@ If current sources are unavailable, answer from knowledge and say explicitly tha
 ### Large drafts run on the OpenCode CLI
 
 A small DOC-UPDATE (a section or two) you may edit yourself (say so in `Ran on:`). A large one — several files
-or a restructure — is drafted on the OpenCode CLI (the user's GitHub Copilot plan):
+or a restructure — is drafted on the OpenCode CLI (the user's opencode Go plan):
 `claude-code opencode ask --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
 Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
-restructuring) add `--effort high`. Fallback ladder: `skills/subagent-workflows/references/cost-routing.md` →
-Fallback. Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
+restructuring) add `--effort high`.
+Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
 ANALYZE/EXTRACT/PERSIST stay with you. `--workdir` has been known to be ignored, writing the live tree instead —
 brief the drafting run on a copy
 (`skills/subagent-workflows/scripts/isolate.sh`) and verify with `git diff --stat` that the diff lands where

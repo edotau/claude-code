@@ -69,9 +69,9 @@ Per `vendor-verbs.md` → Procedure skeleton. Delta:
   - "continue session" → `resume`
   - "hand this session over" → `transfer`
 - **Run it** with default model and effort; add `--model gpt-6.1-sol --effort high` only for an
-  unusually complex task (a cross-package design call, a subtle concurrency or auth bug). Fallback
-  ladder: `skills/subagent-workflows/references/cost-routing.md` → Fallback. `review` always runs
-  `--fallback vendors` — it never falls back to Claude.
+  unusually complex task (a cross-package design call, a subtle concurrency or auth bug).
+  Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+  `review` always runs `--fallback vendors` — it never falls back to Claude.
 - **Verify as a claim**: same adversarial stance as `skills/evaluate-code/references/judge.md` — a
   report is claims, not evidence.
 

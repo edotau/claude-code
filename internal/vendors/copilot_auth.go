@@ -62,8 +62,11 @@ const (
 // copilotAuthSource (no network): the pinned gh user (COPILOT_GITHUB_USER), a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
-	if pin := providers.Pin(providers.PinGitHubUser); pin != "" && slices.Contains(GHAccounts(), pin) {
-		return CopilotAuth{Account: pin, Source: srcPinned}, true
+	if pin := providers.Pin(providers.PinGitHubUser); pin != "" {
+		if slices.Contains(GHAccounts(), pin) {
+			return CopilotAuth{Account: pin, Source: srcPinned}, true
+		}
+		return CopilotAuth{}, false // a pinned account that can't be used never falls back to another one
 	}
 	if tok, src, ok := secrets.Get(CopilotTokenEnv); ok && src != "env" {
 		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
@@ -84,15 +87,32 @@ func copilotAuthSource() (CopilotAuth, bool) {
 
 // CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
 // the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
-func CopilotLaunchToken() string {
+func CopilotLaunchToken() (string, error) {
+	if err := CopilotPinError(); err != nil {
+		return "", err
+	}
 	a, ok := copilotAuthSource()
 	if !ok {
-		return ""
+		return "", nil
 	}
 	tok, how := copilotToken(a)
+	if a.Source == srcPinned && tok == "" {
+		return "", fmt.Errorf("copilot: no gh token for pinned GitHub user %s; run `claude-code configure github`", a.Account)
+	}
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
 	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
-	return tok
+	return tok, nil
+}
+
+// CopilotPinError is non-nil when COPILOT_GITHUB_USER is pinned but that user is not a gh login: the harness
+// fails rather than run copilot on a stored token or another account.
+func CopilotPinError() error {
+	pin := providers.Pin(providers.PinGitHubUser)
+	if pin == "" || slices.Contains(GHAccounts(), pin) {
+		return nil
+	}
+	return fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure github` "+
+		"(no other account is used)", pin)
 }
 
 // ResolveCopilotAuth is copilotAuthSource plus a GitHub /user lookup (3 s) naming a token's account.

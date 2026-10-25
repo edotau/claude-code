@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="746" viewBox="0 0 640 746" role="img" aria-label="claude-code help menu">
-<rect width="640" height="746" rx="10" fill="#1d1a22"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="765" viewBox="0 0 640 765" role="img" aria-label="claude-code help menu">
+<rect width="640" height="765" rx="10" fill="#1d1a22"/>
 <circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>
 <text x="320.0" y="22" fill="#8a7e90" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">$ claude-code</text>
 <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14" xml:space="preserve">
@@ -10,71 +10,74 @@
 <text x="38.8" y="122" fill="#4796e4" font-weight="bold">opus            </text>
 <text x="173.2" y="122" fill="#d7d4dc">high reasoning: deep architecture · $$$</text>
 <text x="22.0" y="141" fill="#d7d4dc">  </text>
-<text x="38.8" y="141" fill="#4a94e3" font-weight="bold">sonnet          </text>
+<text x="38.8" y="141" fill="#4a95e3" font-weight="bold">sonnet          </text>
 <text x="173.2" y="141" fill="#d7d4dc">everyday coding, reviews, subagents · $$</text>
 <text x="22.0" y="160" fill="#d7d4dc">  </text>
-<text x="38.8" y="160" fill="#5390e0" font-weight="bold">haiku           </text>
+<text x="38.8" y="160" fill="#5291e0" font-weight="bold">haiku           </text>
 <text x="173.2" y="160" fill="#d7d4dc">quick lookups, mechanical edits · $ fastest</text>
 <text x="22.0" y="179" fill="#d7d4dc">  </text>
-<text x="38.8" y="179" fill="#5f8bdb" font-weight="bold">fable           </text>
+<text x="38.8" y="179" fill="#5d8cdc" font-weight="bold">fable           </text>
 <text x="173.2" y="179" fill="#d7d4dc">separate frontier family; main-session default · $$$$</text>
 <text x="22.0" y="198" fill="#d7d4dc">  </text>
-<text x="38.8" y="198" fill="#6c85d7" font-weight="bold">science         </text>
+<text x="38.8" y="198" fill="#6a86d8" font-weight="bold">science         </text>
 <text x="173.2" y="198" fill="#d7d4dc">Claude for Life Sciences, own login (--print-env)</text>
 <text x="22.0" y="236" fill="#8a7e90" font-weight="bold">AGENTS</text>
 <text x="22.0" y="255" fill="#d7d4dc">  </text>
-<text x="38.8" y="255" fill="#7880d2" font-weight="bold">copilot         </text>
+<text x="38.8" y="255" fill="#7581d3" font-weight="bold">copilot         </text>
 <text x="173.2" y="255" fill="#d7d4dc">Copilot CLI on your Copilot plan</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
-<text x="38.8" y="274" fill="#817ccf" font-weight="bold">codex           </text>
+<text x="38.8" y="274" fill="#7f7cd0" font-weight="bold">codex           </text>
 <text x="173.2" y="274" fill="#d7d4dc">Codex on your ChatGPT login; reviews</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
 <text x="38.8" y="293" fill="#847ace" font-weight="bold">gemini          </text>
 <text x="173.2" y="293" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (bridge)</text>
 <text x="22.0" y="312" fill="#d7d4dc">  </text>
-<text x="38.8" y="312" fill="#8779ca" font-weight="bold">opencode        </text>
+<text x="38.8" y="312" fill="#857acc" font-weight="bold">opencode        </text>
 <text x="173.2" y="312" fill="#d7d4dc">OpenCode on your Copilot plan; docs and drafting</text>
 <text x="22.0" y="350" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="369" fill="#d7d4dc">  </text>
-<text x="38.8" y="369" fill="#9076be" font-weight="bold">network         </text>
+<text x="38.8" y="369" fill="#8c78c4" font-weight="bold">network         </text>
 <text x="173.2" y="369" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
 <text x="22.0" y="388" fill="#d7d4dc">  </text>
-<text x="38.8" y="388" fill="#9d73af" font-weight="bold">vault           </text>
+<text x="38.8" y="388" fill="#9774b6" font-weight="bold">vault           </text>
 <text x="173.2" y="388" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>
 <text x="22.0" y="426" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="445" fill="#d7d4dc">  </text>
-<text x="38.8" y="445" fill="#aa6e9e" font-weight="bold">clean           </text>
+<text x="38.8" y="445" fill="#a471a7" font-weight="bold">clean           </text>
 <text x="173.2" y="445" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
 <text x="22.0" y="464" fill="#d7d4dc">  </text>
-<text x="38.8" y="464" fill="#b76b8f" font-weight="bold">dispatch        </text>
+<text x="38.8" y="464" fill="#b06d97" font-weight="bold">dispatch        </text>
 <text x="173.2" y="464" fill="#d7d4dc">run an agent on a tailnet host in tmux</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
-<text x="38.8" y="483" fill="#c06883" font-weight="bold">history         </text>
+<text x="38.8" y="483" fill="#bb6989" font-weight="bold">history         </text>
 <text x="173.2" y="483" fill="#d7d4dc">shadow git history of config + memory</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#c3677f" font-weight="bold">memory          </text>
+<text x="38.8" y="502" fill="#c26781" font-weight="bold">memory          </text>
 <text x="173.2" y="502" fill="#d7d4dc">session memory bank: recall, save, promote</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
-<text x="38.8" y="521" fill="#c66781" font-weight="bold">worktree        </text>
+<text x="38.8" y="521" fill="#c3677f" font-weight="bold">worktree        </text>
 <text x="173.2" y="521" fill="#d7d4dc">manage worktrees in ~/worktrees/&lt;repo&gt;</text>
 <text x="22.0" y="559" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
 <text x="22.0" y="578" fill="#d7d4dc">  </text>
-<text x="38.8" y="578" fill="#cf6885" font-weight="bold">describe        </text>
+<text x="38.8" y="578" fill="#c86782" font-weight="bold">describe        </text>
 <text x="173.2" y="578" fill="#d7d4dc">machine-readable map of the harness</text>
 <text x="22.0" y="597" fill="#d7d4dc">  </text>
-<text x="38.8" y="597" fill="#db698b" font-weight="bold">doctor          </text>
+<text x="38.8" y="597" fill="#d16886" font-weight="bold">doctor          </text>
 <text x="173.2" y="597" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
-<text x="38.8" y="616" fill="#e76991" font-weight="bold">usage           </text>
-<text x="173.2" y="616" fill="#d7d4dc">token totals, peak rate, provider quotas</text>
-<text x="22.0" y="654" fill="#8a7e90" font-weight="bold">SETTINGS</text>
-<text x="22.0" y="673" fill="#d7d4dc">  </text>
-<text x="38.8" y="673" fill="#f36a97" font-weight="bold">configure       </text>
-<text x="173.2" y="673" fill="#d7d4dc">guided setup; --reset re-renders from the templates</text>
+<text x="38.8" y="616" fill="#dd698c" font-weight="bold">route           </text>
+<text x="173.2" y="616" fill="#d7d4dc">which runner + model a tier routes to, and why</text>
+<text x="22.0" y="635" fill="#d7d4dc">  </text>
+<text x="38.8" y="635" fill="#e96a92" font-weight="bold">usage           </text>
+<text x="173.2" y="635" fill="#d7d4dc">token totals, peak rate, provider quotas</text>
+<text x="22.0" y="673" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="692" fill="#d7d4dc">  </text>
-<text x="38.8" y="692" fill="#fc6b9b" font-weight="bold">install         </text>
-<text x="173.2" y="692" fill="#d7d4dc">install Claude Code + write settings.json</text>
+<text x="38.8" y="692" fill="#f46a98" font-weight="bold">configure       </text>
+<text x="173.2" y="692" fill="#d7d4dc">guided setup; --reset re-renders from the templates</text>
 <text x="22.0" y="711" fill="#d7d4dc">  </text>
-<text x="38.8" y="711" fill="#ff6b9d" font-weight="bold">theme           </text>
-<text x="173.2" y="711" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>
+<text x="38.8" y="711" fill="#fc6b9b" font-weight="bold">install         </text>
+<text x="173.2" y="711" fill="#d7d4dc">install Claude Code + write settings.json</text>
+<text x="22.0" y="730" fill="#d7d4dc">  </text>
+<text x="38.8" y="730" fill="#ff6b9d" font-weight="bold">theme           </text>
+<text x="173.2" y="730" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>
 </g></svg>

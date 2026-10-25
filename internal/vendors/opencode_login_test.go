@@ -83,9 +83,8 @@ func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 	}
 }
 
-// DescribeRoute's opencode chain in priority order: copilot-login, then anthropic-key, then none —
-// each leg layered on top of the last so a higher leg is proven to outrank a lower one, and the
-// subscription provider is never selected at any point in the chain.
+// DescribeRoute's opencode chain in priority order: own-login (opencode Go/Zen), then copilot-login, then none —
+// an ANTHROPIC_API_KEY alone is no route (the BYOK fallback is gone), and the subscription provider is never picked.
 func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	reg, err := providers.Load()
@@ -98,8 +97,8 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", secret)
-	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegAnthropicKey || ri.Provider != "anthropic" {
-		t.Fatalf("with only ANTHROPIC_API_KEY, want anthropic-key; got %+v", ri)
+	if ri := DescribeRoute(reg, "opencode"); ri.OK || ri.Leg != LegNone {
+		t.Fatalf("an ANTHROPIC_API_KEY alone must not route opencode; got %+v", ri)
 	}
 
 	data := t.TempDir()
@@ -111,7 +110,14 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
-		t.Fatalf("opencode's own copilot login must outrank both keys; got %+v", ri)
+		t.Fatalf("opencode's own copilot login must route; got %+v", ri)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"),
+		[]byte(`{"github-copilot":{"type":"oauth"},"opencode":{"type":"api"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegOwnLogin || ri.Provider != "opencode-go" {
+		t.Fatalf("opencode's own opencode login must outrank the copilot login; got %+v", ri)
 	}
 
 	// ResolveTarget on the LegNone case returns exactly DescribeRoute's reason as the error.

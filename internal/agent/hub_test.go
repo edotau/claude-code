@@ -1,15 +1,17 @@
 package agent
 
 import (
-	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // hubRegistry builds a minimal registry for hub tests: a ladder of four providers, one without an
-// OpencodeID (so HubChain/HubStart must skip or reject it).
+// OpencodeID (so HubStart must reject it).
 func hubRegistry() *providers.Registry {
 	mk := func(id string) *providers.Provider {
 		return &providers.Provider{Kind: providers.DialectOpenAI, BaseURL: "https://x",
@@ -30,49 +32,27 @@ func hubRegistry() *providers.Registry {
 	return reg
 }
 
-func TestRotateLadder(t *testing.T) {
-	ladder := []string{"a", "b", "c", "d"}
-	if got := rotateLadder(ladder, "b"); !reflect.DeepEqual(got, []string{"b", "c", "d", "a"}) {
-		t.Errorf("start in middle: got %v", got)
-	}
-	if got := rotateLadder(ladder, "zzz"); !reflect.DeepEqual(got, ladder) {
-		t.Errorf("absent start must return ladder unchanged: got %v", got)
-	}
-	if got := rotateLadder(ladder, "a"); !reflect.DeepEqual(got, ladder) {
-		t.Errorf("start already first (wrap of zero): got %v", got)
-	}
-	if got := rotateLadder(ladder, "d"); !reflect.DeepEqual(got, []string{"d", "a", "b", "c"}) {
-		t.Errorf("start at end wraps to front: got %v", got)
-	}
-}
-
-func TestHubChain(t *testing.T) {
+// TestHubLegForOpencodeDefault: the opencode sonnet cell maps to the opencode-go hub leg, argv kimi-k3.1-pro at high.
+func TestHubLegForOpencodeDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	reg := hubRegistry()
-	start, err := reg.Get("chatgpt")
+	tb, err := route.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	chain := HubChain(reg, "codex", start, FallbackVendors)
-	var names []string
-	for _, r := range chain {
-		names = append(names, legLabel(r))
+	cell := tb.Rows["opencode"]["sonnet"]
+	r, model, err := hubLegFor(reg, cell.Model)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// start ("chatgpt") is skipped; "nvidia" has no OpencodeID so it's skipped too; no claude under FallbackVendors.
-	if want := []string{"github-copilot", "gemini"}; !reflect.DeepEqual(names, want) {
-		t.Errorf("HubChain(vendors) legs = %v, want %v", names, want)
+	l := r.(hubLeg)
+	_, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), vendors.Headless{Prompt: "p", Effort: cell.Effort})
+	got := strings.Join(argv, " ")
+	if !strings.Contains(got, "-m opencode-go/kimi-k3.1-pro") || !strings.Contains(got, "--variant high") {
+		t.Errorf("opencode default argv = %q, want -m opencode-go/kimi-k3.1-pro --variant high", got)
 	}
-
-	all := HubChain(reg, "codex", start, FallbackAll)
-	if len(all) != len(chain)+1 {
-		t.Fatalf("FallbackAll must append exactly one more leg: got %d, want %d", len(all), len(chain)+1)
-	}
-	if _, ok := all[len(all)-1].(claudeRunner); !ok {
-		t.Errorf("FallbackAll's last leg must be claudeRunner, got %T", all[len(all)-1])
-	}
-
-	if got := HubChain(reg, "codex", start, FallbackNone); got != nil {
-		t.Errorf("FallbackNone must return nil, got %v", got)
+	if _, _, err := hubLegFor(reg, "ghost/x"); err == nil {
+		t.Error("an unknown opencodeID must fail")
 	}
 }
 

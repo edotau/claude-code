@@ -78,6 +78,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
+	for _, q := range quotaDoctorRows(time.Now()) {
+		check(true, false, q.Name, q.Detail)
+	}
 	check(true, false, "router", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
@@ -290,8 +293,12 @@ func setupDoctorDetail() string {
 // model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
 // never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
-	opencodeLogin := vendors.OpencodeCopilotLoginPresent()
+	own := vendors.OpencodeOwnLoginPresent()
+	opencodeLogin := own || vendors.OpencodeCopilotLoginPresent()
 	copilotCLILogin := vendors.CopilotLoginPresent()
+	if own { // opencode's own Go/Zen credential serves the routed opencode legs, whatever the session provider
+		return fmt.Sprintf("provider=opencode-go leg=%s opencode_login=true copilot_cli_login=%v", vendors.LegOwnLogin, copilotCLILogin)
+	}
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
