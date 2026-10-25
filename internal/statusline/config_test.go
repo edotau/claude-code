@@ -26,3 +26,11 @@ func TestDefaultConfigOrder(t *testing.T) {
 		t.Errorf("PathMax = %d, want 24", cfg.PathMax)
 	}
 }
+
+// The provider segment is on by default; the statusline shows which provider the session is on.
+func TestDefaultConfigProviderOn(t *testing.T) {
+	hermetic(t)
+	if !loadConfig().seg("provider", false) {
+		t.Error("segments.provider should default to true")
+	}
+}
