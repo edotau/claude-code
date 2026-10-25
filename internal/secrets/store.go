@@ -11,6 +11,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// init routes providers.SealSecret through Store so login-sealed secrets match `vault set` (prefix + audit).
+func init() { providers.RegisterSealer(Store) }
+
 // Names returns sorted vault secret names without resolving a key; an unreadable vault yields nil.
 func Names() []string {
 	names, _ := NamesErr()

@@ -24,7 +24,13 @@ func SetProviderFields(name string, fields map[string]any) error {
 }
 
 // UpdateOverlayDoc runs fn on the raw overlay/providers doc, returning it before and after; apply=false writes nothing.
+// A write that changes an existing row's auth.authType is refused; use UpdateOverlayDocForce to allow it.
 func UpdateOverlayDoc(apply bool, fn func(top map[string]json.RawMessage, tx *vault.Tx) error) (oldDoc, newDoc []byte, err error) {
+	return UpdateOverlayDocForce(apply, false, fn)
+}
+
+// UpdateOverlayDocForce is UpdateOverlayDoc with the auth.authType guard lifted when force is set.
+func UpdateOverlayDocForce(apply, force bool, fn func(top map[string]json.RawMessage, tx *vault.Tx) error) (oldDoc, newDoc []byte, err error) {
 	run := vault.View
 	if apply {
 		run = vault.Update
@@ -51,6 +57,11 @@ func UpdateOverlayDoc(apply bool, fn func(top map[string]json.RawMessage, tx *va
 		newDoc = append(nd, '\n')
 		if err := Validate(newDoc); err != nil {
 			return err
+		}
+		if !force {
+			if err := checkAuthTypeChange(oldDoc, newDoc); err != nil {
+				return err
+			}
 		}
 		if !apply {
 			return nil
@@ -125,4 +136,34 @@ func builtinEntry(name string) (map[string]json.RawMessage, error) {
 		return e, nil
 	}
 	return map[string]json.RawMessage{}, nil
+}
+
+// overlayAuthTypes maps each overlay row to its auth.authType; rows without one map to "".
+func overlayAuthTypes(doc []byte) map[string]string {
+	var d struct {
+		Providers map[string]struct {
+			Auth struct {
+				AuthType string `json:"authType"`
+			} `json:"auth"`
+		} `json:"providers"`
+	}
+	out := map[string]string{}
+	if json.Unmarshal(doc, &d) != nil {
+		return out
+	}
+	for n, p := range d.Providers {
+		out[n] = p.Auth.AuthType
+	}
+	return out
+}
+
+// checkAuthTypeChange refuses a write that changes an existing row's auth.authType (add/drop of a row is fine).
+func checkAuthTypeChange(oldDoc, newDoc []byte) error {
+	oldK, newK := overlayAuthTypes(oldDoc), overlayAuthTypes(newDoc)
+	for n, was := range oldK {
+		if now, ok := newK[n]; ok && now != was {
+			return fmt.Errorf("provider %s: auth.authType %q -> %q refused without force (changes how its credential is minted)", n, was, now)
+		}
+	}
+	return nil
 }

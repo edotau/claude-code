@@ -98,8 +98,11 @@ func credSource(p *providers.Provider) (source, note string) {
 // providerListEntry is the describe provider view plus where its credential resolves from.
 type providerListEntry struct {
 	DescribeProvider
-	Source string `json:"source"`
-	Note   string `json:"note"`
+	Source      string `json:"source"`
+	Note        string `json:"note"`
+	Host        string `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
+	AccountID   string `json:"accountId,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
 }
 
 // providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
@@ -119,7 +122,9 @@ func providerListJSON(reg *providers.Registry, name string) int {
 			continue
 		}
 		e := providerListEntry{DescribeProvider: dp}
-		e.Source, e.Note = credSource(reg.Providers[dp.Name])
+		p := reg.Providers[dp.Name]
+		e.Source, e.Note = credSource(p)
+		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
 	}
 	if name != "" {

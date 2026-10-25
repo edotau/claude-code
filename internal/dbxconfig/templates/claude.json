@@ -1,0 +1,11 @@
+{
+    "env": {
+        "ANTHROPIC_MODEL": "system.ai.claude-opus-5-5",
+        "ANTHROPIC_BASE_URL": "https://example.cloud.databricks.com/ai-gateway/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "<your_token_will_appear_here>",
+        "ANTHROPIC_CUSTOM_HEADERS": "x-databricks-use-coding-agent-mode: true",
+        "CLAUDE_CODE_USE_GATEWAY": "1",
+        "ENABLE_PROMPT_CACHING_1H": "1",
+        "ENABLE_TOOL_SEARCH": "1"
+    }
+}
