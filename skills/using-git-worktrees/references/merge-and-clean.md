@@ -29,7 +29,7 @@ tree unless `CLAUDE_CONFIG_DIR` points at it.
 ## list
 
 `claude-code worktree list` unions git's registration with the directories on disk and inspects each live
-(dirty / merged / stale / orphaned / prunable / locked). Present its `cd` and `clean` lines verbatim.
+(dirty / merged / stale / orphaned / prunable / locked). Present its `reopen:` and `cleanup:` lines verbatim.
 
 ## merge
 
@@ -54,7 +54,8 @@ crash without re-invoking the agent.
 ## clean / clean-all
 
 `claude-code worktree clean --dry-run "$SLUG"`, confirm with the user, then `clean "$SLUG"`: it rechecks clean,
-merged, unlocked and owned state live and never forces (there is no force flag); the branch is deleted only
-when a plain `branch -d` succeeds. `clean-all --dry-run` lists `eligible:` / `refused: … (reason)`; confirm
-"Remove N worktrees?", then `clean-all --yes`. Unregistered directories and git's `prunable` entries are
-reported, never auto-removed.
+merged, unlocked and owned state live; the branch is deleted only when a plain `branch -d` succeeds.
+`clean --force "$SLUG"` discards uncommitted and unmerged work instead of refusing — pass it only with the
+user's explicit go, after showing what it is about to throw away. `clean-all --dry-run` lists `eligible:` /
+`refused: … (reason)`; confirm "Remove N worktrees?", then `clean-all --yes`. Unregistered directories and
+git's `prunable` entries are reported, never auto-removed.

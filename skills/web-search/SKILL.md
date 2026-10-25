@@ -29,7 +29,7 @@ claude-code network websearch --query "OpenShift 4.16 release notes" --max-resul
 ```
 
 MCP tool call (interactive sessions / agents granted the tool):
-`web_search({"query": "who founded Databricks", "max_results": 5})`
+`mcp__web_search__web_search({"query": "who founded Databricks", "max_results": 5})`
 
 ## When to use / not
 
