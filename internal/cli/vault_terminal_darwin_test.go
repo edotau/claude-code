@@ -10,9 +10,11 @@ import (
 )
 
 // ptyIoctl is the raw TIOCPTY* ioctl darwin has no golang.org/x/sys/unix wrapper for (unlike Linux's
-// IoctlGetInt/IoctlSetPointerInt); arg is a pointer for TIOCPTYGNAME, 0 for TIOCPTYGRANT/TIOCPTYUNLK.
-func ptyIoctl(fd uintptr, req uint, arg uintptr) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(req), arg)
+// IoctlGetInt/IoctlSetPointerInt); arg is a pointer for TIOCPTYGNAME, nil for TIOCPTYGRANT/TIOCPTYUNLK.
+// The Pointer->uintptr conversion stays inline in the Syscall call so the compiler keeps arg alive
+// until the call completes; a stack-moved buffer would otherwise invalidate the address first.
+func ptyIoctl(fd uintptr, req uint, arg unsafe.Pointer) error {
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(req), uintptr(arg))
 	if errno != 0 {
 		return errno
 	}
@@ -27,13 +29,13 @@ func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	}
 	defer master.Close()
 	var nameBuf [128]byte
-	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGNAME, uintptr(unsafe.Pointer(&nameBuf[0]))); err != nil {
+	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGNAME, unsafe.Pointer(&nameBuf[0])); err != nil {
 		t.Fatal(err)
 	}
-	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGRANT, 0); err != nil {
+	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGRANT, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := ptyIoctl(master.Fd(), unix.TIOCPTYUNLK, 0); err != nil {
+	if err := ptyIoctl(master.Fd(), unix.TIOCPTYUNLK, nil); err != nil {
 		t.Fatal(err)
 	}
 	name := string(nameBuf[:])

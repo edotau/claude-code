@@ -177,6 +177,31 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
+// WantsHelp sees only tokens before a literal "--"; anything after is positional, never help.
+func TestWantsHelp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"empty", nil, false},
+		{"bare -h", []string{"-h"}, true},
+		{"bare -help", []string{"-help"}, true},
+		{"bare --help", []string{"--help"}, true},
+		{"after a positional", []string{"x.go", "-h"}, true},
+		{"no help flag", []string{"x.go", "--json"}, false},
+		{"-h after --", []string{"--", "-h"}, false},
+		{"-h after -- with more tokens", []string{"file.py", "--", "-h", "b"}, false},
+		{"-- itself with nothing before it and nothing after", []string{"--"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WantsHelp(tc.args); got != tc.want {
+				t.Errorf("WantsHelp(%v) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
 // Fprint paints only on a terminal; Paint is the forced path NewFlagSet's Usage goes through.
 func TestPaintColorsDoubleDashFlagRows(t *testing.T) {
 	painted := Paint("FLAGS\n  --quiet\n    \tless output\n")
