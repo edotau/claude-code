@@ -1,15 +1,16 @@
-package cli
+package databricks
 
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dbxoauth"
+	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/profile"
@@ -20,15 +21,23 @@ import (
 // loginU2M is the browser login, a var so tests never open a browser.
 var loginU2M = providers.LoginU2M
 
-// cmdVaultLogin runs the databricks-cli browser login for a provider row and seals its refresh token.
-func cmdVaultLogin(args []string) int {
-	fs := helptext.NewFlagSet("vault login", helptext.Page{
-		Usage: "claude-code vault login <provider> [flags]",
-		About: "Sign in through the browser for a provider row with auth.authType databricks-cli;\n" +
-			"the refresh token is sealed in the vault.",
-	})
+// fail prints one error line for the verb and returns exit code 1.
+func fail(format string, a ...any) int {
+	fmt.Fprintf(os.Stderr, "claude-code databricks "+format+"\n", a...)
+	return 1
+}
+
+var loginPage = helptext.Page{
+	Usage: "claude-code databricks login <provider> [flags]",
+	About: "Sign in through the browser for a provider row with auth.authType u2m;\n" +
+		"the refresh token is sealed in the vault.",
+}
+
+// login runs the u2m browser login for a provider row and seals its refresh token.
+func login(args []string) int {
+	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
-	authType := fs.String("auth-type", "", "switch the row's auth.authType first (only databricks-cli)")
+	authType := fs.String("auth-type", providers.AuthU2M, "switch the row's auth.authType first (only u2m)")
 	names, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -37,36 +46,37 @@ func cmdVaultLogin(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if *authType != "" && *authType != providers.AuthDatabricksCLI {
-		fail("vault login: --auth-type %q does not sign in through the browser; "+
-			"oauth-m2m and pat secrets come from `vault set` or `vault import --seal-secrets`", *authType)
+	if *authType != providers.AuthU2M {
+		fail("login: --auth-type %q does not sign in through the browser; "+
+			"oauth-m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", *authType)
 		return 2
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("vault login: %v", err)
+		return fail("login: %v", err)
 	}
 	p, err := reg.Get(names[0])
 	if err != nil {
-		return fail("vault login: %v", err)
+		return fail("login: %v", err)
+	}
+	explicit := false
+	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" })
+	if t := p.Auth.AuthType; t != "" && t != providers.AuthU2M && !explicit {
+		return fail("login: %s has auth.authType %q; pass --auth-type u2m to switch it to a browser login", p.Name, t)
 	}
 	switched := false
-	if *authType == providers.AuthDatabricksCLI && p.Auth.AuthType != providers.AuthDatabricksCLI {
+	if p.Auth.AuthType != providers.AuthU2M {
 		was := p.Auth.AuthType
-		if err := switchToDatabricksCLI(p, *dryRun); err != nil {
-			return fail("vault login: %v", err)
+		if err := switchToU2M(p, *dryRun); err != nil {
+			return fail("login: %v", err)
 		}
 		if *dryRun {
 			fmt.Printf("would log in to %s\n", loginHost(p))
 			return 0
 		}
 		switched = true
-		p.Auth.AuthType = providers.AuthDatabricksCLI
+		p.Auth.AuthType = providers.AuthU2M
 		defer func() { rollbackHint(p.Name, was, switched) }()
-	}
-	if p.Auth.AuthType != providers.AuthDatabricksCLI {
-		return fail("vault login: %s has auth.authType %q; only databricks-cli rows sign in through the browser",
-			p.Name, p.Auth.AuthType)
 	}
 	if *dryRun {
 		fmt.Printf("would open a browser login for %s and seal the refresh token as %s; nothing written\n",
@@ -75,9 +85,9 @@ func cmdVaultLogin(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	ttl, err := loginU2M(ctx, p, dbxoauth.LoginOptions{Open: openLoginURL, Out: os.Stderr})
+	ttl, err := loginU2M(ctx, p, sdkport.LoginOptions{Open: openLoginURL, Out: os.Stderr})
 	if err != nil {
-		return fail("vault login: %v", err)
+		return fail("login: %v", err)
 	}
 	switched = false
 	fmt.Printf("logged in · token expires in %dm\n", int(ttl.Minutes()))
@@ -106,13 +116,13 @@ func rollbackHint(id, was string, switched bool) {
 	if !switched {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "auth.authType of %s is now databricks-cli (was %q); to undo, run `claude-code vault edit` and set "+
+	fmt.Fprintf(os.Stderr, "auth.authType of %s is now u2m (was %q); to undo, run `claude-code vault edit` and set "+
 		"providers.%s.auth.authType back, or copy overlay/providers.prev (the previous generation) over overlay/providers\n",
 		id, was, id)
 }
 
-// switchToDatabricksCLI sets providers.<id>.auth.authType to databricks-cli through the force path and prints the overlay diff.
-func switchToDatabricksCLI(p *providers.Provider, dryRun bool) error {
+// switchToU2M sets providers.<id>.auth.authType to u2m through the force path and prints the overlay diff.
+func switchToU2M(p *providers.Provider, dryRun bool) error {
 	var kept []string
 	oldDoc, newDoc, err := providers.UpdateOverlayDocForce(!dryRun, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 		provs := map[string]map[string]json.RawMessage{}
@@ -131,7 +141,7 @@ func switchToDatabricksCLI(p *providers.Provider, dryRun bool) error {
 				return fmt.Errorf("%s: auth: %w", p.Name, err)
 			}
 		}
-		auth["authType"] = json.RawMessage(`"` + providers.AuthDatabricksCLI + `"`)
+		auth["authType"] = json.RawMessage(`"` + providers.AuthU2M + `"`)
 		kept = dropDerivedCommands(p, auth)
 		b, err := json.Marshal(auth)
 		if err != nil {

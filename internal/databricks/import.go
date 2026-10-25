@@ -1,4 +1,4 @@
-package cli
+package databricks
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/dbximport"
+	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/profile"
@@ -33,24 +33,16 @@ func (r renameFlag) Set(s string) error {
 	return nil
 }
 
-// wantsDBXImport reports a `vault import --from databrickscfg` invocation.
-func wantsDBXImport(args []string) bool {
-	for i, a := range args {
-		if a == "--from=databrickscfg" || (a == "--from" && i+1 < len(args) && args[i+1] == "databrickscfg") {
-			return true
-		}
-	}
-	return false
+var importPage = helptext.Page{
+	Usage: "claude-code databricks import [flags]",
+	About: "Create databricks provider rows from a CLI config, read once. Dry-run unless --apply.",
 }
 
-// cmdVaultImportDBX reads a databrickscfg once and creates vault provider rows; dry-run unless --apply.
-func cmdVaultImportDBX(args []string) int {
-	fs := helptext.NewFlagSet("vault import", helptext.Page{
-		Usage: "claude-code vault import --from databrickscfg [flags]",
-		About: "Create databricks provider rows from a CLI config, read once. Dry-run unless --apply.",
-	})
-	fs.String("from", "", "source format: databrickscfg")
-	file := fs.String("file", "", "config path (default ~/.databrickscfg)")
+// importCfg reads a databrickscfg once and creates vault provider rows; dry-run unless --apply.
+func importCfg(args []string) int {
+	fs := helptext.NewFlagSet("databricks import", importPage)
+	file := fs.String("file", "", "config path (default $DATABRICKS_CONFIG_FILE, else ~/.databrickscfg)")
+	only := fs.String("profile", "", "import only this profile (default $DATABRICKS_CONFIG_PROFILE)")
 	pick := fs.Bool("pick", false, "choose profiles in a picker (default: all)")
 	apply := fs.Bool("apply", false, "write the rows (default: print the diff)")
 	seal := fs.Bool("seal-secrets", false, "seal client secrets and PATs in the vault")
@@ -65,27 +57,30 @@ func cmdVaultImportDBX(args []string) int {
 	}
 	path := *file
 	if path == "" {
-		path = dbximport.DefaultPath()
+		path = dbxcfg.DefaultPath()
 	}
-	cands, err := dbximport.Candidates(path)
+	cands, err := dbxcfg.Candidates(path)
 	if err != nil {
-		return fail("vault import: %v", err)
+		return fail("import: %v", err)
+	}
+	if cands, err = onlyProfile(cands, *only); err != nil {
+		return fail("import: %v", err)
 	}
 	if len(cands) == 0 {
-		return fail("vault import: no profiles in %s", path)
+		return fail("import: no profiles in %s", path)
 	}
 	if *pick {
 		if cands, err = pickCandidates(cands); err != nil {
-			return fail("vault import: %v", err)
+			return fail("import: %v", err)
 		}
 	}
-	var rows []dbximport.Row
+	var rows []dbxcfg.Row
 	oldDoc, newDoc, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		rows = dbximport.Plan(cands, dbximport.Existing(top), dbximport.Options{Rename: rename, Replace: *replace})
-		return dbximport.Apply(top, rows)
+		rows = dbxcfg.Plan(cands, dbxcfg.Existing(top), dbxcfg.Options{Rename: rename, Replace: *replace})
+		return dbxcfg.Apply(top, rows)
 	})
 	if err != nil {
-		return fail("vault import: %v", err)
+		return fail("import: %v", err)
 	}
 	printImportTable(rows)
 	if !profile.PrintDiff(os.Stdout, oldDoc, newDoc) {
@@ -96,9 +91,9 @@ func cmdVaultImportDBX(args []string) int {
 		return 0
 	}
 	if _, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		return dbximport.Apply(top, rows)
+		return dbxcfg.Apply(top, rows)
 	}); err != nil {
-		return fail("vault import: %v", err)
+		return fail("import: %v", err)
 	}
 	fmt.Println("wrote provider rows")
 	if *seal {
@@ -107,15 +102,31 @@ func cmdVaultImportDBX(args []string) int {
 	return 0
 }
 
+// onlyProfile narrows cands to the named profile (flag, else $DATABRICKS_CONFIG_PROFILE); "" keeps all.
+func onlyProfile(cands []dbxcfg.Candidate, name string) ([]dbxcfg.Candidate, error) {
+	if name == "" {
+		name = dbxcfg.DefaultProfile()
+	}
+	if name == "" {
+		return cands, nil
+	}
+	for _, c := range cands {
+		if c.Name == name {
+			return []dbxcfg.Candidate{c}, nil
+		}
+	}
+	return nil, fmt.Errorf("no profile %q in the config", name)
+}
+
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.
-func sealImported(path string, rows []dbximport.Row) int {
+func sealImported(path string, rows []dbxcfg.Row) int {
 	code := 0
 	for _, r := range rows {
-		name := dbximport.SecretNameOf(r)
+		name := dbxcfg.SecretNameOf(r)
 		if r.Action == "skip" || name == "" || !r.HasSecret {
 			continue
 		}
-		s, err := dbximport.ReadSecrets(path, r.Name)
+		s, err := dbxcfg.ReadSecrets(path, r.Name)
 		val := s.ClientSecret
 		if r.Auth == providers.AuthPAT {
 			val = s.Token
@@ -133,8 +144,8 @@ func sealImported(path string, rows []dbximport.Row) int {
 	return code
 }
 
-func printImportTable(rows []dbximport.Row) {
-	fmt.Printf("%-32s %-16s %-46s %-6s %-7s %s\n", "PROFILE", "AUTHTYPE", "HOST", "SECRET", "ACTION", "NOTE")
+func printImportTable(rows []dbxcfg.Row) {
+	fmt.Printf("%-32s %-10s %-46s %-6s %-7s %s\n", "PROFILE", "AUTHTYPE", "HOST", "SECRET", "ACTION", "NOTE")
 	for _, r := range rows {
 		kind, has := r.Auth, "no"
 		if kind == "" {
@@ -147,42 +158,55 @@ func printImportTable(rows []dbximport.Row) {
 		if r.ID != r.Name {
 			id += "->" + r.ID
 		}
-		fmt.Printf("%-32s %-16s %-46s %-6s %-7s %s\n", id, kind, r.Host, has, r.Action, r.Reason)
+		fmt.Printf("%-32s %-10s %-46s %-6s %-7s %s\n", id, kind, r.Host, has, r.Action, r.Reason)
 	}
 }
 
 // pickCandidates toggles candidates in the arrow-key picker until Done; Esc cancels.
-func pickCandidates(cands []dbximport.Candidate) ([]dbximport.Candidate, error) {
-	on := make([]bool, len(cands))
+func pickCandidates(cands []dbxcfg.Candidate) ([]dbxcfg.Candidate, error) {
+	labels := make([][2]string, len(cands))
+	for i, c := range cands {
+		labels[i] = [2]string{c.Name, c.Host}
+	}
+	on, err := pickToggle("Import profiles (Enter toggles)", "import the checked profiles", labels)
+	if err != nil {
+		return nil, err
+	}
+	var out []dbxcfg.Candidate
+	for i, c := range cands {
+		if on[i] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// pickToggle is a checklist in the arrow-key picker (all checked at start); Done returns the marks, Esc cancels.
+func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
+	on := make([]bool, len(labels))
 	for i := range on {
 		on[i] = true
 	}
 	at := 0
 	for {
-		rows := make([][2]string, 0, len(cands)+1)
-		for i, c := range cands {
+		rows := make([][2]string, 0, len(labels)+1)
+		for i, l := range labels {
 			mark := "[ ]"
 			if on[i] {
 				mark = "[x]"
 			}
-			rows = append(rows, [2]string{mark + " " + c.Name, c.Host})
+			rows = append(rows, [2]string{mark + " " + l[0], l[1]})
 		}
-		rows = append(rows, [2]string{"Done", "import the checked profiles"})
-		i, err := tui.Pick("Import profiles (Enter toggles)", rows, at)
+		rows = append(rows, [2]string{"Done", doneNote})
+		i, err := tui.Pick(title, rows, at)
 		if err != nil {
 			return nil, err
 		}
 		switch {
 		case i < 0:
 			return nil, fmt.Errorf("cancelled")
-		case i == len(cands):
-			var out []dbximport.Candidate
-			for j, c := range cands {
-				if on[j] {
-					out = append(out, c)
-				}
-			}
-			return out, nil
+		case i == len(labels):
+			return on, nil
 		}
 		on[i], at = !on[i], i
 	}

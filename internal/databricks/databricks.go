@@ -80,14 +80,13 @@ func Run(args []string) int {
 		usage()
 		return 0
 	}
-	if len(args) > 0 && args[0] == "agents" {
-		return agents(args[1:])
+	if len(args) > 0 {
+		if run, ok := subverbs[args[0]]; ok {
+			return run(args[1:])
+		}
 	}
-	if len(args) > 0 && args[0] == "config" {
-		return config(args[1:])
-	}
-	if len(args) > 0 && args[0] == "rescue" {
-		return rescue(args[1:])
+	if len(args) > 1 && args[0] == "check" && args[1] == "--all" {
+		return checkAll(args[2:])
 	}
 	p, err := plan(args)
 	if err != nil {
@@ -103,6 +102,21 @@ func Run(args []string) int {
 		return check(self, p)
 	}
 	return launch(self, p)
+}
+
+// subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
+var subverbs = map[string]func([]string) int{
+	"agents": agents, "config": config, "rescue": rescue, "login": login, "import": importCfg, "export": export,
+}
+
+// rowName is the provider row for env: the migrated <env> preset row, else the legacy databricks-<env>.
+func rowName(reg *providers.Registry, env string) string {
+	if reg != nil {
+		if p := reg.Providers[env]; p != nil && p.Preset == providers.PresetDatabricks {
+			return env
+		}
+	}
+	return "databricks-" + env
 }
 
 // plan parses args: optional leading check, optional MODEL, --env, --1m; everything else passes through.
@@ -137,7 +151,7 @@ func plan(args []string) (Plan, error) {
 		return Plan{}, fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
 	}
 	reg, _ := providers.Load() // a load error leaves reg nil: no twin is found and the beta opt-out is injected
-	p.Provider = "databricks-" + env
+	p.Provider = rowName(reg, env)
 	if !isClaudeModel(p.Model) && hasProvider(reg, p.Provider+"-oai") {
 		p.Provider += "-oai"
 	}
@@ -181,7 +195,8 @@ func agents(args []string) int {
 			fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
 			return 2
 		}
-		argv = []string{"profile", "use", "databricks-" + env}
+		reg, _ := providers.Load()
+		argv = []string{"profile", "use", agentsSet(reg, env)}
 	case "off":
 		argv = []string{"profile", "off"}
 	case "status":
@@ -203,7 +218,17 @@ func agents(args []string) int {
 	return code
 }
 
-// agentsEnv picks the env: --env, else the one in HARNESS_PROVIDER (databricks-<env>[-oai]), else the default.
+// agentsSet is the profile set `agents on` uses: a legacy databricks-<env> set when present, else DEFAULT.
+func agentsSet(reg *providers.Registry, env string) string {
+	if reg != nil {
+		if _, ok := reg.Profiles.Sets["databricks-"+env]; ok {
+			return "databricks-" + env
+		}
+	}
+	return "DEFAULT"
+}
+
+// agentsEnv picks the env: --env, else the one in HARNESS_PROVIDER (<env> or databricks-<env>[-oai]), else the default.
 func agentsEnv(args []string) (string, error) {
 	env := ""
 	for i := 0; i < len(args); i++ {
@@ -224,7 +249,7 @@ func agentsEnv(args []string) (string, error) {
 	return env, nil
 }
 
-// envOrDefault is env, else the env of HARNESS_PROVIDER (the only var read) when it is databricks-<env>, else qa.
+// envOrDefault is env, else HARNESS_PROVIDER's env (the only var read; <env> or databricks-<env>), else qa.
 func envOrDefault(env string) string {
 	if env == "" {
 		env = envFromProvider(os.Getenv("HARNESS_PROVIDER"))
@@ -235,10 +260,13 @@ func envOrDefault(env string) string {
 	return env
 }
 
-// envFromProvider returns <env> from databricks-<env>[-oai], else "".
+// envFromProvider returns <env> from <env> or the legacy databricks-<env>[-oai], else "".
 func envFromProvider(name string) string {
-	env := strings.TrimSuffix(strings.TrimPrefix(name, "databricks-"), "-oai")
-	if env == name || !slices.Contains(providers.DatabricksEnvs, env) {
+	env := name
+	if rest, ok := strings.CutPrefix(name, "databricks-"); ok {
+		env = strings.TrimSuffix(rest, "-oai")
+	}
+	if !slices.Contains(providers.DatabricksEnvs, env) {
 		return ""
 	}
 	return env
@@ -326,13 +354,21 @@ func tail(s string, n int) string {
 
 // page is the `-h` text; its FLAGS rows come from the FlagSet built in usage.
 var page = helptext.Page{
-	Usage: "claude-code databricks [check|agents] [MODEL] [flags] [args...]",
+	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on Databricks model serving. MODEL defaults to databricks-claude-opus-5-5[1m]. " +
-		"opus, sonnet, haiku and databricks-claude-* use the Anthropic passthrough (databricks-<env>); " +
-		"other endpoints go through the router (databricks-<env>-oai twin, else databricks-<env> via its openai route). " +
-		"config <claude|codex> renders a ready-to-use config; rescue runs claude on a scratch one. " +
-		"agents on [--env E] = profile use databricks-<env>; agents off = profile off; agents status = profile show. " +
-		"check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
+		"opus, sonnet, haiku and databricks-claude-* use the Anthropic passthrough (row <env>, or a legacy " +
+		"databricks-<env>); other endpoints go through the router (a databricks-<env>-oai twin, else the row's " +
+		"openai route). check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
+	Commands: [][2]string{
+		{"check", "--all: one tiny call per env x wire (serving/gateway)"},
+		{"login", "<id>: browser sign-in for a u2m row; seals the refresh token"},
+		{"import", "create rows from ~/.databrickscfg (dry-run unless --apply)"},
+		{"export", "write u2m/m2m/pat rows as .databrickscfg sections, no secrets"},
+		{"config", "<target>: render a claude or codex config (never a token)"},
+		{"rescue", "break-glass: run claude on a scratch settings file"},
+		{"agents", "on|off|status: profile use DEFAULT / profile off / show"},
+	},
+	Hint: "claude-code databricks <command> -h lists that command's flags.",
 }
 
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.

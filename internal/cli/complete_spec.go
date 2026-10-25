@@ -91,13 +91,23 @@ func buildSpecTree() map[string]*compNode {
 			"list": {args: []func() []string{vaultSections}, flags: []flagInfo{boolFlag("tailscale"), formatFlag()}},
 			"set": {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"),
 				boolFlag("dry-run")}},
-			"get":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export"), boolFlag("key")}},
-			"delete": {args: []func() []string{secretNames}},
-			"import": {flags: []flagInfo{boolFlag("yes"), flag("from"), flag("file"), boolFlag("pick"), boolFlag("apply"),
-				boolFlag("seal-secrets"), boolFlag("replace"), flag("rename")}},
+			"get":           {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export"), boolFlag("key")}},
+			"delete":        {args: []func() []string{secretNames}},
+			"import":        {flags: []flagInfo{boolFlag("yes")}},
 			"export":        {args: []func() []string{secretNames}, flags: []flagInfo{flag("out")}},
 			"edit":          {},
 			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
+		}},
+		"databricks": {sub: map[string]*compNode{
+			"check": {flags: []flagInfo{boolFlag("all"), flag("env"), boolFlag("1m"), flag("model")}},
+			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run")}},
+			"import": {flags: []flagInfo{flag("file"), flag("profile"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
+				boolFlag("seal-secrets"), boolFlag("apply")}},
+			"export": {flags: []flagInfo{boolFlag("pick"), flag("rename"), flag("out"), boolFlag("merge"), boolFlag("force")}},
+			"config": {args: []func() []string{func() []string { return []string{"claude", "codex"} }}, flags: dbxCfgFlags(true)},
+			"rescue": {flags: append(dbxCfgFlags(false), boolFlag("print"))},
+			"agents": {args: []func() []string{func() []string { return []string{"on", "off", "status"} }},
+				flags: []flagInfo{flag("env")}},
 		}},
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},
@@ -173,6 +183,16 @@ func buildSpecTree() map[string]*compNode {
 	}
 	tree["hook"] = &compNode{args: []func() []string{hookNames}}
 	return tree
+}
+
+// dbxCfgFlags are the flags `databricks config` (withOut) and `databricks rescue` share.
+func dbxCfgFlags(withOut bool) []flagInfo {
+	fs := []flagInfo{{name: "env"}, {name: "provider", values: providerNames}, {name: "host"}, {name: "wire"},
+		{name: "model"}, {name: "auth"}, {name: "set"}, {name: "unset"}}
+	if withOut {
+		fs = append(fs, flagInfo{name: "out"}, flagInfo{name: "force", isBool: true})
+	}
+	return fs
 }
 
 // vendorSubNodes is the one builder for every vendor agent's completion subtree (codex, copilot,

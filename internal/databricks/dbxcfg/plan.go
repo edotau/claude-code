@@ -1,4 +1,4 @@
-package dbximport
+package dbxcfg
 
 import (
 	"encoding/json"
@@ -43,7 +43,7 @@ func Plan(cands []Candidate, existing map[string]json.RawMessage, o Options) []R
 		case exists && !o.Replace:
 			r.Action, r.Reason = "skip", "row exists (use --replace)"
 		case exists && ek == "":
-			r.Action, r.Reason = "skip", "existing row has no authType; switch it with `claude-code vault login "+r.ID+" --auth-type databricks-cli`"
+			r.Action, r.Reason = "skip", "existing row has no authType; switch it with `claude-code databricks login "+r.ID+" --auth-type u2m`"
 		case exists && ek != "" && ek != c.Auth:
 			r.Action, r.Reason = "skip", "existing auth.authType "+ek+" is never changed"
 		case collides(names, r):

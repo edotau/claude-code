@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dbxoauth"
+	"github.com/edotau/claude-code/internal/databricks/sdkport"
 )
 
 // rotatingIdP is a strict OIDC token endpoint: each refresh token works once, a reused one is invalid_grant.
@@ -59,7 +59,7 @@ func (s *rotatingIdP) handle(_ *http.Request, f url.Values) (int, map[string]any
 func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-u2m", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "race-u2m", AuthU2M, "", srv.URL)
 	name := authSecretName(p)
 	if err := SealSecret(name, idp.rotate()); err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-xproc", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "race-xproc", AuthU2M, "", srv.URL)
 	name := authSecretName(p)
 	if err := SealSecret(name, idp.rotate()); err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-login", AuthDatabricksCLI, "", srv.URL)
+	p := mintRow(t, "race-login", AuthU2M, "", srv.URL)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -171,7 +171,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 		}()
 		return nil
 	}
-	d, err := LoginU2M(context.Background(), p, dbxoauth.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second})
+	d, err := LoginU2M(context.Background(), p, sdkport.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

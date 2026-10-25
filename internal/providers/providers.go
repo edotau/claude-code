@@ -123,7 +123,7 @@ type Auth struct {
 	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
-	// AuthType picks the mint path (Databricks SDK names): databricks-cli | oauth-m2m | pat; "" keeps env/file/command.
+	// AuthType picks the mint path (Databricks SDK names): u2m | oauth-m2m | pat; "" keeps env/file/command.
 	AuthType string `json:"authType,omitempty"`
 	ClientID string `json:"clientId,omitempty"` // oauth-m2m service-principal client id (not secret)
 	// AccountID and WorkspaceID are non-secret Databricks ids; stored and shown in --list json, no behavior uses them yet.

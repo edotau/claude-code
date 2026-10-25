@@ -1,4 +1,4 @@
-package dbximport
+package dbxcfg
 
 import (
 	"encoding/json"
@@ -60,7 +60,7 @@ func TestCandidates(t *testing.T) {
 		t.Fatalf("DEFAULT/__settings__ leaked: %v", got)
 	}
 	want := map[string][3]string{
-		"alpha": {providers.AuthDatabricksCLI, "https://alpha.example.cloud.databricks.com", ""},
+		"alpha": {providers.AuthU2M, "https://alpha.example.cloud.databricks.com", ""},
 		"beta":  {providers.AuthOAuthM2M, "https://beta.example.cloud.databricks.com", ""},
 		"gamma": {providers.AuthPAT, "https://gamma.example.cloud.databricks.com", ""},
 	}
@@ -94,7 +94,7 @@ func TestReadSecrets(t *testing.T) {
 func TestPlan(t *testing.T) {
 	cs, _ := Candidates(writeCfg(t))
 	existing := map[string]json.RawMessage{
-		"alpha": json.RawMessage(`{"auth":{"authType":"databricks-cli"}}`),
+		"alpha": json.RawMessage(`{"auth":{"authType":"u2m"}}`),
 		"beta":  json.RawMessage(`{"auth":{"authType":"pat"}}`),
 	}
 	byID := func(o Options) map[string]Row {

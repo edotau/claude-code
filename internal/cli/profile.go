@@ -20,7 +20,7 @@ var profilePage = helptext.Page{
 		{"use", "make a set active (relaunch to apply)"},
 		{"off", "deactivate; sets are kept"},
 		{"save", "snapshot today's bindings as a set (--force)"},
-		{"migrate", "fold databricks-<env>[-oai] into presets (--apply)"},
+		{"migrate", "fold databricks-<env> rows into <env>, sets into DEFAULT"},
 	},
 	Hint: "claude-code profile <command> -h lists that command's flags.",
 }
@@ -183,8 +183,8 @@ func profileSave(args []string) int {
 func profileMigrate(args []string) int {
 	fs := helptext.NewFlagSet("profile migrate", helptext.Page{
 		Usage: "claude-code profile migrate [flags]",
-		About: "Rewrites databricks-<env> as a preset row, drops databricks-<env>-oai,\n" +
-			"adds sets databricks-<env> and own. Dry run unless --apply.",
+		About: "Folds databricks-<env>[-oai] into a preset row named <env>, replaces the\n" +
+			"databricks-<env> sets with DEFAULT, keeps own. Dry run unless --apply.",
 	})
 	apply := fs.Bool("apply", false, "write the vault overlay (default: print the diff)")
 	if _, code, done := parseNamed(fs, args); done {

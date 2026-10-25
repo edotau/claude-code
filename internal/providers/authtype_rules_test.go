@@ -6,9 +6,9 @@ import (
 )
 
 func TestRetiredAuthTypesRejected(t *testing.T) {
-	for _, old := range []string{"u2m", "m2m", "cli-profile", "external-browser", "SAML"} {
+	for _, old := range []string{"databricks-cli", "m2m", "cli-profile", "external-browser", "SAML"} {
 		errs := strings.Join(validateAuthType("x", kindRow(old, "", AuthBearer)), ";")
-		want := `authType "` + old + `" not supported (supported: databricks-cli, oauth-m2m, pat)`
+		want := `authType "` + old + `" not supported (supported: u2m, oauth-m2m, pat)`
 		if !strings.Contains(errs, want) {
 			t.Errorf("%s: errs %q, want %q", old, errs, want)
 		}
