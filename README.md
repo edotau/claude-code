@@ -18,7 +18,7 @@ Every verb takes `--help`; `claude-code describe` maps the whole harness.
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link vendor CLIs into bin/, render settings.json (DEV_TOOLS=1 adds linters)
+make install                  # build, link vendor CLIs into bin/, render settings.json, add linters (DEV_TOOLS=0 skips)
 claude-code doctor            # check binaries, providers, credentials, router
 ```
 

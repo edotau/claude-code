@@ -34,7 +34,8 @@ GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Repo-owned shell scripts (skill scripts included); lint-shell no-ops when the wildcard is empty.
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh)
-# Gate tools are PINNED: `@latest` could change under us between runs. `make install DEV_TOOLS=1` installs all three.
+# Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs all three (DEV_TOOLS=0 skips).
+DEV_TOOLS       ?= 1
 GOVULN_VERSION  ?= v1.8.0
 GOLANGCI_VERSION ?= v2.15.0
 YAMLFMT_VERSION ?= v0.21.0
@@ -58,7 +59,7 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools)
+install: compile mdsmith  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
 	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
@@ -158,7 +159,7 @@ audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
-		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install DEV_TOOLS=1)"; fi
+		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; fi
 	@$(MAKE) --no-print-directory lint-yaml
 	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
@@ -179,60 +180,42 @@ fmt:  ## gofmt -w every Go file
 	$(GO) fmt $(PKGS) >/dev/null
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
+# One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one. deep is opt-in (not in LINT_WHAT).
+LINT_WHAT := go shell yaml help settings docs
+
 .PHONY: lint
-lint: lint-go lint-shell lint-yaml lint-help lint-settings lint-docs  ## Lint and auto-fix everything (CHECK=1: report only)
+lint: $(addprefix lint-,$(LINT_WHAT))  ## Lint and auto-fix everything (CHECK=1: report only)
 	@echo -e "$(C_OK)lint passed"
 
-.PHONY: lint-go
-lint-go:  # (folded into `lint`) gofmt -w (CHECK=1: gofmt -l only) + go vet
-	@if [ "$(CHECK)" = 1 ]; then \
-		out="$$(gofmt -l $(GO_FMT_DIRS))"; \
-		if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make lint"; exit 1; fi; \
-	else \
-		gofmt -w $(GO_FMT_DIRS); \
-	fi
-	$(GO) vet $(PKGS)
-	@echo -e "$(C_OK)gofmt + vet clean"
-
-.PHONY: lint-deep
-lint-deep:  # (dev recipe, hidden from help) golangci-lint run with .golangci.yml
-	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
-
-.PHONY: lint-help
-lint-help:  # (folded into `lint`) `make help` rows fit 80 columns or wrap with a hanging indent at the description column
-	@out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
-		'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
-		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi
-
-.PHONY: lint-yaml
-lint-yaml:  # (folded into `lint` and `audit`) yamlfmt -lint over tracked YAML (.yamlfmt keeps blank lines)
-	@if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install DEV_TOOLS=1)"; \
-		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi
+lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 only reports
+	@case "$*" in \
+	go) if [ "$(CHECK)" = 1 ]; then \
+			out="$$(gofmt -l $(GO_FMT_DIRS))"; \
+			if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make lint"; exit 1; fi; \
+		else gofmt -w $(GO_FMT_DIRS); fi; \
+		$(GO) vet $(PKGS); echo -e "$(C_OK)gofmt + vet clean" ;; \
+	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
+		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
+		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
+	yaml) if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
+		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi ;; \
+	help) out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
+			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
+		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
+	settings) CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --reset --check ;; \
+	docs) $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix); \
+		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
+		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
+			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
+		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
+	deep) golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... ;; \
+	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT) deep)"; exit 1 ;; \
+	esac
 
 .PHONY: mdsmith
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 	@if ! $(MDSMITH) version 2>/dev/null | grep -qF '$(MDSMITH_VERSION)'; then \
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
-
-.PHONY: lint-docs
-lint-docs: compile mdsmith  # (folded into `lint`) mdsmith over .mdsmith.yml files, then memory fmt; CHECK=1 only reports
-	@$(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix)
-	@live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
-		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
-		else \
-			echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; \
-		fi
-
-.PHONY: lint-shell
-lint-shell:  # (folded into `lint`) shellcheck -S error over repo-owned shell scripts, if any exist
-	@if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
-	elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
-	else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi
-
-.PHONY: lint-settings
-lint-settings: compile  # (folded into `lint`) vendor-config render drift, against THIS checkout
-	CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --reset --check
 
 .PHONY: verify
 verify: audit  ## audit + doctor + router status
