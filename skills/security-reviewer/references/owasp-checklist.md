@@ -29,4 +29,11 @@ If security issue found:
    history
 5. Review the codebase for similar patterns (the problem-solving `ISSUE:` sweep)
 
-(Common false positives to rule out before flagging are listed in the parent `SKILL.md`.)
+## Common False Positives
+
+Always verify context before flagging:
+
+- Environment variables in `.env.example` (not actual secrets)
+- Test credentials in test files (if clearly marked)
+- Public API keys (if actually meant to be public)
+- SHA256/MD5 used for checksums (not passwords)

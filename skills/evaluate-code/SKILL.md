@@ -87,16 +87,14 @@ tightening usually isn't). Commands + the safe-vs-breaking table + the migration
 ## Detectors
 
 `claude-code review <sub>` verbs, all support `--json`, all exit 0 (advisory signal — never a
-hard gate). **Run the mechanical gate first** (`make fmt && make lint`) — that one *can* fail, and a
-non-zero result is a must-fix before review proceeds. Full CLI reference: `references/detectors.md`.
+hard gate). Run the mechanical gate first; non-zero is must-fix (`rules/standards/quality.md` →
+Verification Order). Full CLI reference: `references/detectors.md`.
 
 Verb selection: [Detector index](references/detectors.md#detector-index).
 
 ## Dispatch a review
 
-The built-in `/code-review` already fans out quality and security reviewers and synthesizes
-one verdict; this skill is what the quality reviewer loads, and names which two skills own
-which half.
+This skill is what the built-in `/code-review`'s quality reviewer loads.
 
 Determine scope, then fan out **both** reviewers in parallel.
 
@@ -104,7 +102,7 @@ Determine scope, then fan out **both** reviewers in parallel.
 BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
 ```
 
-Mechanical gate first: [Lint & format gate](references/detectors.md#lint--format-gate-run-before-detectors).
+Mechanical gate first: `rules/standards/quality.md` → Verification Order.
 
 1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
 2. In a **single message**, launch two subagents concurrently:

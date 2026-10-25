@@ -42,25 +42,9 @@ features or fixes product bugs.
 
 ## Verbs
 
-| Verb | Use it for | Output |
-| --- | --- | --- |
-| `claude-code copilot [flags] [args…]` | launch the Copilot CLI; unknown words pass through | copilot CLI |
-| `claude-code copilot -- <args…>` | force passthrough (shadowed names, e.g. `copilot -- review`) | copilot CLI |
-| `claude-code copilot ask [flags] <task>` | one-shot run; `--tools` edits, `--background` detaches | answer |
-| `claude-code copilot resume <id> <task>` | continue a copilot session (= `ask --session`) | answer |
-| `claude-code copilot review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
-| `claude-code copilot transfer [--source f] [--wait] [note]` | hand this session to copilot | job id, or answer |
-| `claude-code copilot status [job] [--all]` | background jobs for copilot in this repo | rows: id, status, elapsed |
-| `claude-code copilot tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
-| `claude-code copilot result [job]` | a finished job's answer | answer + session id + resume cmd |
-| `claude-code copilot cancel [job]` | interrupt a running job | `cancelled <id>` |
-| `claude-code copilot setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
-| `claude-code copilot models` | copilot's own model catalog | list |
+Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Copilot deltas:
 
-- `<job>` = an exact dispatch id or a unique prefix; omitted = the newest job for copilot in this repo.
-- `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.
-- `claude-code ask --agent copilot` still works (saved Workflows use this form; equals `copilot ask`).
-- A shadowed native name needs the `--` passthrough: `claude-code copilot -- review`.
+- `resume <id> <task>` equals `ask --session`.
 - Resume the underlying CLI session directly with `copilot --resume <id>` (the native flag, not a
   `resume` subcommand).
 
@@ -75,15 +59,13 @@ features or fixes product bugs.
 
 ## Procedure
 
-1. **`claude-code copilot setup`** first. A non-zero exit (binary missing or not logged in) stops
-   you — report it, never fall through to doing the work yourself silently.
-2. **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`/`pr`); a contract verb
-   named outright in the brief — run it directly instead of guessing a mode.
-3. **Run it.** TEST follows the Workflow below, batched on `copilot ask --tools`; `--background` plus
-   `status`/`result` for any batch likely over ~3 minutes.
-4. **Verify the result yourself** — re-run the scoped tests, read the diff. Never report a batch or a
-   merge done on its word.
-5. **Report** per the contract below.
+Per `vendor-verbs.md` → Procedure skeleton. Delta:
+
+- **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`/`pr`); a contract verb
+  named outright in the brief — run it directly instead of guessing a mode.
+- **Run it.** TEST follows the Workflow below, batched on `copilot ask --tools`.
+- **Verify the result yourself** — re-run the scoped tests, read the diff. Never report a batch or a
+  merge done on its word.
 
 ### TEST
 
@@ -261,7 +243,8 @@ Remaining: <what is still uncommitted, or "clean">
   session-harvest flow).
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.
-- **Invent a verb** — the table above is the whole surface; `claude-code copilot -h` lists it.
+
+Per `vendor-verbs.md` → Don't: don't invent a verb.
 
 Memory proposals:
 [shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).

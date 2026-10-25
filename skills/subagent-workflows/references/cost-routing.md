@@ -30,10 +30,22 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
 3. Size the model: Copilot `claude-haiku-5.5` mechanical, `claude-sonnet-5.5` default, `claude-opus-5.5` only for an
    unusually complex step (premium multipliers scale). `claude-code models --live --provider github-copilot` lists
    what the seat serves.
-4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude. Alternatives, by hand:
-   codex limited → `copilot --model gpt-6.1-sol`; copilot down → opencode; agy down → copilot; Claude last.
+4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude — see Fallback below.
 5. A vendor leg in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
    `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
+
+## Fallback
+
+Two separate mechanisms:
+
+- **Built-in** (`internal/vendors/routes.go`) — only `opencode` and `copilot` have one, in priority order:
+  opencode tries its own GitHub Copilot login, then the registry's `anthropic` key (`ANTHROPIC_API_KEY`), then
+  none; copilot tries its own GitHub login, then BYOK via `ANTHROPIC_API_KEY`, then none. Every other vendor
+  (`codex`, `gemini`, `claude`) has no fallback chain — it either resolves or fails. `--format json`'s
+  `fallback`/`fallback_reason` fields report which leg actually ran; a non-empty `fallback` means the saving
+  did not happen — report it (`Ran on:` line, Handoff contract).
+- **By hand** (runner reassignment on rate limit, not a credential route): codex limited → `copilot --model
+  gpt-6.1-sol`; copilot down → opencode; agy down → copilot; Claude last.
 
 Independent read-only legs run in parallel (one backgrounded Bash call each); a writer then its reviewer run in
 sequence. Legs on one provider share its rate limit — reduce concurrency on persistent `429`s.
@@ -50,12 +62,11 @@ sequence. Legs on one provider share its rate limit — reduce concurrency on pe
 
 ## Verify and compare
 
-`--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` when another runner
-stood in — a non-empty `fallback` means the saving did not happen; report it. Treat the answer as a claim: check `git
-diff --stat` for the expected files and run the verification yourself. Each leaf's report carries the contract's `Ran
-on:` line plus first-try pass/fail and hand fixes (`../SKILL.md` → Handoff contract); tally per runner (`claude-code
-ask --log`) and shift the split only on that evidence. A leaf assigned a runner that did the work itself is a skipped
-leg, not a success.
+`--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` (Fallback above).
+Treat the answer as a claim: check `git diff --stat` for the expected files and run the verification yourself.
+Each leaf's report carries the contract's `Ran on:` line plus first-try pass/fail and hand fixes (`../SKILL.md` →
+Handoff contract); tally per runner (`claude-code ask --log`) and shift the split only on that evidence. A leaf
+assigned a runner that did the work itself is a skipped leg, not a success.
 
 The vendor CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
 As a `Workflow` stage (only when the user asks for one): `code-agent {leg, cwd, task}`, or

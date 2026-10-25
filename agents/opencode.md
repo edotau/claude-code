@@ -40,24 +40,9 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 
 ## Verbs
 
-| Verb | Use it for | Output |
-| --- | --- | --- |
-| `claude-code opencode [flags] [args…]` | launch the opencode CLI; unknown words pass through | opencode CLI |
-| `claude-code opencode -- <args…>` | force passthrough (shadowed name, e.g. `opencode -- models`) | opencode CLI |
-| `claude-code opencode ask [flags] <task>` | one-shot run; `--tools` edits, `--background` detaches | answer |
-| `claude-code opencode resume <id> <task>` | continue an opencode session | answer |
-| `claude-code opencode review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
-| `claude-code opencode transfer [--source f] [--wait] [note]` | hand this session to opencode | job id, or answer |
-| `claude-code opencode status [id] [--all]` | background jobs for opencode in this repo | rows: id, status, elapsed |
-| `claude-code opencode tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
-| `claude-code opencode result [id]` | a finished job's answer | answer + session id + resume cmd |
-| `claude-code opencode cancel [id]` | interrupt a running job | `cancelled <id>` |
-| `claude-code opencode setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
-| `claude-code opencode models` | the harness's own model catalog for opencode | list |
+Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Opencode deltas:
 
-- `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for opencode in this repo.
-- `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.
-- `claude-code ask --agent opencode` still works and equals `claude-code opencode ask`.
+- `claude-code opencode models` is the harness's own model catalog for opencode (not the vendor's).
 - Shadowed native name: `claude-code opencode -- models` runs the vendor's own `models`, while
   `claude-code opencode models` (no `--`) is the harness catalog verb above.
 - Resume the underlying CLI session directly with `opencode run --session <id>`.
@@ -74,20 +59,19 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 
 ## Procedure
 
-1. **`claude-code opencode setup`** for DOC modes, diff review, resume, transfer, or delegated drafting —
-   a non-zero exit (binary missing or not logged in) stops you, report it. Reflection modes (ANALYZE,
-   EXTRACT, PERSIST) don't need the vendor binary; skip setup and go straight to the `memory` verb.
-2. **Pick the mode/verb** from the request: refresh docs → DOC-UPDATE; "how do I use X" → DOC-LOOKUP;
-   audit/triage memory → ANALYZE; "turn this into a skill" → EXTRACT; "persist/save this session" →
-   PERSIST; "ship or block on opencode's diff" → `review`; "continue session" → `resume`; "hand this
-   session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
-3. **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`; `--background` +
-   `status`/`result` for a large restructuring. Default model and effort fit normal drafting; only
-   `--effort high` for an unusually complex pass. Fallback order: opencode → the other vendor CLIs →
-   Anthropic (`ask`'s default). Reflection modes run the matching `claude-code memory` verb directly.
-4. **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
-   the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.
-5. **Report** per the contract below.
+Per `vendor-verbs.md` → Procedure skeleton. Reflection modes (ANALYZE, EXTRACT, PERSIST) don't need
+the vendor binary; skip setup and go straight to the `memory` verb. Delta:
+
+- **Pick the mode/verb** from the request: refresh docs → DOC-UPDATE; "how do I use X" → DOC-LOOKUP;
+  audit/triage memory → ANALYZE; "turn this into a skill" → EXTRACT; "persist/save this session" →
+  PERSIST; "ship or block on opencode's diff" → `review`; "continue session" → `resume`; "hand this
+  session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
+- **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`. Default model and
+  effort fit normal drafting; only `--effort high` for an unusually complex pass. Fallback ladder:
+  `skills/subagent-workflows/references/cost-routing.md` → Fallback. Reflection modes run the matching
+  `claude-code memory` verb directly.
+- **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
+  the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.
 
 ### DOC-UPDATE
 
@@ -131,8 +115,8 @@ A small DOC-UPDATE (a section or two) you may edit yourself (say so in `Ran on:`
 or a restructure — is drafted on the OpenCode CLI (the user's GitHub Copilot plan):
 `claude-code opencode ask --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
 Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
-restructuring) add `--effort high`. Fallback order: opencode → the other vendor CLIs → Anthropic (`ask`'s default).
-Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
+restructuring) add `--effort high`. Fallback ladder: `skills/subagent-workflows/references/cost-routing.md` →
+Fallback. Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
 ANALYZE/EXTRACT/PERSIST stay with you. `--workdir` has been known to be ignored, writing the live tree instead —
 brief the drafting run on a copy
 (`skills/subagent-workflows/scripts/isolate.sh`) and verify with `git diff --stat` that the diff lands where
@@ -176,8 +160,9 @@ Sources: <URLs + versions (DOC-LOOKUP), or —>
 - Edit product code.
 - Write memory files yourself outside the `claude-code memory` verbs.
 - Trust that `--workdir` was honoured without checking (`git diff --stat`).
-- `git stash` / `checkout` / `reset` / `restore` / commit.
-- Invent a verb — `claude-code opencode -h` lists the whole surface.
+- Commit.
+
+Per `vendor-verbs.md` → Don't: don't invent a verb.
 
 Memory proposals:
 [shared discipline and opencode candidates](../skills/subagent-workflows/references/memory-updates.md#opencode).

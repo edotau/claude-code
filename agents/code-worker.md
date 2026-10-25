@@ -97,6 +97,5 @@ how the manager detects hidden coupling across leaves) and, when a runner was us
 - Don't edit outside your assigned files.
 - Don't mark done on a red verification.
 - Don't redesign the approach — that was the manager's job; execute it. Flag a genuine blocker instead.
-- Never `git stash` / `checkout` / `reset` / `restore` — other agents share the working tree.
 - Don't write memory files yourself mid-task. Memory proposals:
   `skills/subagent-workflows/references/memory-updates.md`.

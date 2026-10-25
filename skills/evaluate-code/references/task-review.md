@@ -72,5 +72,4 @@ Flag only what would cause real problems during implementation; wording and nice
 
 Output: verdict READY | NEEDS CLARIFICATION; issues as `[Task X, Step Y]: issue — why it matters`.
 
-Diff review after implementation is a different pass: `agents/codex.md` → Review
-(`claude-code codex review [--adversarial]`).
+Related, don't duplicate: `judge.md` → Protocol.

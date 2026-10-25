@@ -32,7 +32,7 @@ Objective: in-memory, provider-keyed credential cache with single-flight and a r
 Constraints: keyed by provider name, never process-global; providers/creds.go's TTL stays authoritative;
   never log a credential. Tests belong to copilot: list the behaviors that need coverage.
 Verify: gofmt -l <files> && go build ./... && go vet ./internal/router
-Shared tree: no stash/checkout/reset/restore; confirm each write with git diff --stat.
+Shared tree: per ../SKILL.md → Shared tree.
 Return: files, exact API surface to wire, verification output, risks.
 """)
 ```
