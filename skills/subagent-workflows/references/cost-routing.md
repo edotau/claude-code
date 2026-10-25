@@ -10,16 +10,16 @@ adds real coverage (independent review, broad-context sweep). Stay inline for sm
 |---|---|---|---|
 | `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code gemini explore "<question>"`; targeted: `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
 | `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"`; a diff: `claude-code codex review --adversarial [--base <b>]` |
-| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku` tier: `internal/route/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
-| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet` tier: `internal/route/table.json`) | as above, `--agent <runner>` |
-| `reasoning` | explicitly flagged hard reasoning | Claude (`opus` tier: `internal/route/table.json`) | stays in session; never by default |
+| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku` tier: `internal/routetable/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
+| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet` tier: `internal/routetable/table.json`) | as above, `--agent <runner>` |
+| `reasoning` | explicitly flagged hard reasoning | Claude (`opus` tier: `internal/routetable/table.json`) | stays in session; never by default |
 
 Docs and implementation edits rotate across vendors including `opencode` (default `opencode-go/kimi-k3.1-pro` at high
 effort). Architecture, judgement, integration and final verification never leave Claude. `--kind` from a caller is
 a hint: route by judgement and say so when you disagree.
 
 Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. Tier cell mappings
-follow `internal/route/table.json` as the single source.
+follow `internal/routetable/table.json` as the single source.
 
 ## Run the leg
 
@@ -28,8 +28,8 @@ follow `internal/route/table.json` as the single source.
 2. Assign runners round-robin across implementation steps and name it in the brief as `runner: <name>`; keep the
    split even across the session. Assign `runner: claude` when the brief would cost more than the work, the step
    needs context only this session holds, or the runner failed its smoke test.
-3. Size the tier (`opus`, `sonnet`, `haiku`): `internal/route/table.json` is the single source for runner × tier model,
-   effort, account and price. Each leg runs the requested tier's cell, including Claude.
+3. Size the tier (`opus`, `sonnet`, `haiku`): `internal/routetable/table.json` is the single source for runner × tier
+   model, effort, account and price. Each leg runs the requested tier's cell, including Claude.
 4. Use `--fallback none` so a failed leg exits non-zero instead of silently running on Claude — see Fallback below.
 5. A vendor leg in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
    `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
@@ -37,7 +37,7 @@ follow `internal/route/table.json` as the single source.
 ## Fallback
 
 The router (`internal/route`) dynamically picks and ranks runner + model for every `claude-code ask` leg.
-Table: `internal/route/table.json` defines runner × tier (`claude`, `copilot`, `codex`, `opencode`, `gemini` ×
+Table: `internal/routetable/table.json` defines runner × tier (`claude`, `copilot`, `codex`, `opencode`, `gemini` ×
 `opus`, `sonnet`, `haiku`) mapping to model, effort, account_key, and price. Default weights are `price=0.5`
 `headroom=0.5` (vault-overridable via `route` and `routeWeights`). Each leg runs the SAME tier's cell (tier
 from `--model`, else the task classifier), including the Claude leg.

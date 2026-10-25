@@ -56,7 +56,7 @@ func commands() []command {
 		{name: "copilot", group: groupVendors, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return vendorVerb("copilot", a) }},
 		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
 		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
-		{name: "opencode", group: groupVendors, summary: "OpenCode on your Copilot plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
+		{name: "opencode", group: groupVendors, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
