@@ -206,7 +206,7 @@ func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, ti
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
-	helper := shellQuote(self) + " token --provider " + shellQuote(p.Name)
+	helper := shellQuote(helperBin(self)) + " token --provider " + shellQuote(p.Name)
 	if o.Router || sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
 			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
@@ -227,7 +227,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = router.ClientHeader + ": " + secret
 		}
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
-		return shellQuote(self) + " token --router", nil
+		return shellQuote(helperBin(self)) + " token --router", nil
 	}
 	if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
 		plan.Set["ANTHROPIC_BASE_URL"] = route

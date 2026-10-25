@@ -22,6 +22,14 @@ func SelfBinary() (string, error) {
 	return filepath.Abs(exe)
 }
 
+// helperBin prefers the installed binary: the overlay file is shared, so a scratch build must never be baked in.
+func helperBin(self string) string {
+	if bin := filepath.Join(paths.BinDir(), "claude-code"); fileExists(bin) {
+		return bin
+	}
+	return self
+}
+
 // ClaudeBinary finds the real claude: BinDir/claude, else the native installer's newest version.
 func ClaudeBinary() (string, error) {
 	if bin, err := paths.VendorBin("claude"); err == nil {
