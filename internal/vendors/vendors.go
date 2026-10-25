@@ -304,7 +304,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	if p.Auth.Type == providers.AuthPassthrough {
 		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
-	model := models.Strip1M(t.Model)
+	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
 	var cred string
 	var err error
 	routed := false
