@@ -27,14 +27,25 @@
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "permissions": {
-    "defaultMode": "auto",
+    "defaultMode": "acceptEdits",
     "allow": [
       "Bash(*)",
       "Edit(*)",
       "Read(*)",
       "Write(*)",
       "Agent",
-      "WebFetch(*)"
+      "WebFetch(*)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(go build ./...)",
+      "Bash(gofmt -l *)",
+      "Bash(golangci-lint run ./...)",
+      "Bash(claude-code worktree list *)",
+      "Bash(claude-code vault list *)",
+      "Bash(claude-code databricks check *)",
+      "Bash(claude-code agents tree *)",
+      "Bash(claude-code configure provider --list *)",
+      "Bash(oc get *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
