@@ -11,7 +11,7 @@ var networkPage = helptext.Page{
 	About: "Everything that reaches past this machine: the tailnet, browsers to automate,\n" +
 		"web search, MCP server health, and the agent page served over the tailnet.",
 	Commands: [][2]string{
-		{"tailscale", "tailnet status; --machines --connect --key --exit-node"},
+		{"tailscale", "tailnet status; --machines --connect --key --exit-node --route"},
 		{"browser", "list automatable browsers; --setup wires one up"},
 		{"websearch", "stdio MCP web-search server; --query runs one search"},
 		{"mcp", "MCP server health and inline secrets"},
