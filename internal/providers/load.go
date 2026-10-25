@@ -56,49 +56,54 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		if err := json.Unmarshal(overlay, &o); err != nil {
 			return nil, fmt.Errorf("vault overlay/providers: %w", err)
 		}
-		if o.Default != "" {
-			reg.Default = o.Default
-		}
-		if o.Fallback != nil {
-			reg.Fallback = o.Fallback
-		}
-		if o.OpencodeLadder != nil {
-			reg.OpencodeLadder = o.OpencodeLadder
-		}
-		if o.OpencodePlugins != nil {
-			reg.OpencodePlugins = o.OpencodePlugins
-		}
-		if o.AgentPlans != nil {
-			reg.AgentPlans = o.AgentPlans
-		}
-		if o.AgentPlanFormat != "" {
-			reg.AgentPlanFormat = o.AgentPlanFormat
-		}
-		for runner, tiers := range o.Route { // cell by cell, matching how routetable.LoadFrom applies it
-			if reg.Route == nil {
-				reg.Route = map[string]map[string]RouteCell{}
-			}
-			if reg.Route[runner] == nil {
-				reg.Route[runner] = map[string]RouteCell{}
-			}
-			maps.Copy(reg.Route[runner], tiers)
-		}
-		if o.RouteWeights != nil {
-			reg.RouteWeights = o.RouteWeights // an overlay replaces the weights whole, per its docstring
-		}
-		if reg.Providers == nil {
-			reg.Providers = map[string]*Provider{}
-		}
-		for n, p := range o.Providers {
-			if p == nil { // "name": null removes a built-in
-				delete(reg.Providers, n)
-				continue
-			}
-			reg.Providers[n] = p
-		}
+		applyOverlay(&reg, &o)
 	}
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
 	return &reg, reg.Validate()
+}
+
+// applyOverlay merges overlay fields o into base, cell by cell for routes and whole-value for scalars.
+func applyOverlay(base, o *Registry) {
+	if o.Default != "" {
+		base.Default = o.Default
+	}
+	if o.Fallback != nil {
+		base.Fallback = o.Fallback
+	}
+	if o.OpencodeLadder != nil {
+		base.OpencodeLadder = o.OpencodeLadder
+	}
+	if o.OpencodePlugins != nil {
+		base.OpencodePlugins = o.OpencodePlugins
+	}
+	if o.AgentPlans != nil {
+		base.AgentPlans = o.AgentPlans
+	}
+	if o.AgentPlanFormat != "" {
+		base.AgentPlanFormat = o.AgentPlanFormat
+	}
+	for runner, tiers := range o.Route { // cell by cell, matching how routetable.LoadFrom applies it
+		if base.Route == nil {
+			base.Route = map[string]map[string]RouteCell{}
+		}
+		if base.Route[runner] == nil {
+			base.Route[runner] = map[string]RouteCell{}
+		}
+		maps.Copy(base.Route[runner], tiers)
+	}
+	if o.RouteWeights != nil {
+		base.RouteWeights = o.RouteWeights // an overlay replaces the weights whole, per its docstring
+	}
+	if base.Providers == nil {
+		base.Providers = map[string]*Provider{}
+	}
+	for n, p := range o.Providers {
+		if p == nil { // "name": null removes a built-in
+			delete(base.Providers, n)
+			continue
+		}
+		base.Providers[n] = p
+	}
 }

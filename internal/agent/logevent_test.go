@@ -14,11 +14,12 @@ const evSecret = "AKIAIOSFODNN7EXAMPLE"
 
 // emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
 func emitScript(lines ...string) string {
-	s := "cat > /dev/null\n"
+	var b strings.Builder
+	b.WriteString("cat > /dev/null\n")
 	for _, l := range lines {
-		s += "printf '%s\\n' '" + l + "'\n"
+		b.WriteString("printf '%s\\n' '" + l + "'\n")
 	}
-	return s
+	return b.String()
 }
 
 // loggedRun runs fn under a WithLog (or, for a job run, WithLogEvents) ctx and returns the closed log's content.

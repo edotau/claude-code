@@ -96,38 +96,58 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 	}
 	res := Result{Tier: tier, Want: want, Weights: t.Weights}
 	gate := func(runner string) (Candidate, bool) {
-		c, ok := t.Cell(runner, tier)
-		if !ok {
-			res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
-			return Candidate{}, false
-		}
-		if err := configured(runner, c); err != nil {
-			res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
-			return Candidate{}, false
-		}
-		billing := t.Billing[c.Account]
-		if o.Account != nil {
-			if a, b := o.Account(runner, c); a != "" {
-				c.Account, billing = a, b
-			}
-		}
-		if c.Account == routetable.CopilotUnpinned {
-			res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
-			return Candidate{}, false
-		}
-		e := st[c.Account]
-		if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
-			e = LoadState()[c.Account]
-			st[c.Account] = e
-		}
-		s := e.Status(now)
-		if s == StateExhausted {
-			res.Skipped = append(res.Skipped, Skip{runner, GateExhausted, ExhaustedReason(c.Account, e, now)})
-			return Candidate{}, false
-		}
-		return Candidate{Runner: runner, Cell: c, State: s, Billing: billing}, true
+		return t.gateCandidate(ctx, tier, runner, st, o, now, configured, &res)
 	}
-	var first, rest, last []Candidate
+	first, rest, last := t.gatherCandidates(want, o, gate)
+	all := t.score(slices.Concat(first, rest, last), st)
+	nf, nr := len(first), len(rest)
+	first, rest, last = all[:nf], all[nf:nf+nr], all[nf+nr:]
+	slices.SortStableFunc(rest, func(a, b Candidate) int {
+		return cmp.Or(cmp.Compare(lowRank(a.State), lowRank(b.State)), cmp.Compare(b.Total, a.Total))
+	})
+	res.Candidates = slices.Concat(first, rest, last)
+	return res
+}
+
+// gateCandidate runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
+func (t *Table) gateCandidate(
+	ctx context.Context, tier, runner string, st State, o Opts, now time.Time,
+	configured func(runner string, c Cell) error, res *Result,
+) (Candidate, bool) {
+	c, ok := t.Cell(runner, tier)
+	if !ok {
+		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
+		return Candidate{}, false
+	}
+	if err := configured(runner, c); err != nil {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
+		return Candidate{}, false
+	}
+	billing := t.Billing[c.Account]
+	if o.Account != nil {
+		if a, b := o.Account(runner, c); a != "" {
+			c.Account, billing = a, b
+		}
+	}
+	if c.Account == routetable.CopilotUnpinned {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
+		return Candidate{}, false
+	}
+	e := st[c.Account]
+	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
+		e = LoadState()[c.Account]
+		st[c.Account] = e
+	}
+	s := e.Status(now)
+	if s == StateExhausted {
+		res.Skipped = append(res.Skipped, Skip{runner, GateExhausted, ExhaustedReason(c.Account, e, now)})
+		return Candidate{}, false
+	}
+	return Candidate{Runner: runner, Cell: c, State: s, Billing: billing}, true
+}
+
+// gatherCandidates runs the wanted runner, then (unless suppressed) the other vendors, then claude under FallbackAll.
+func (t *Table) gatherCandidates(want string, o Opts, gate func(string) (Candidate, bool)) (first, rest, last []Candidate) {
 	if want != "" {
 		if c, ok := gate(want); ok {
 			first = append(first, c)
@@ -148,14 +168,7 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 			}
 		}
 	}
-	all := t.score(slices.Concat(first, rest, last), st)
-	nf, nr := len(first), len(rest)
-	first, rest, last = all[:nf], all[nf:nf+nr], all[nf+nr:]
-	slices.SortStableFunc(rest, func(a, b Candidate) int {
-		return cmp.Or(cmp.Compare(lowRank(a.State), lowRank(b.State)), cmp.Compare(b.Total, a.Total))
-	})
-	res.Candidates = slices.Concat(first, rest, last)
-	return res
+	return first, rest, last
 }
 
 // score fills each candidate's per-dimension scores and weighted total.

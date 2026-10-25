@@ -91,6 +91,18 @@
       "state": "ok"
     },
     {
+      "provider": "github",
+      "account": "work-account",
+      "plan": "Business",
+      "window": "monthly",
+      "used_percent": 100,
+      "left_percent": 0,
+      "used_credits": 30000,
+      "limit_credits": 30000,
+      "resets": "2026-11-01",
+      "state": "exceeded"
+    },
+    {
       "provider": "openai",
       "used_percent": 0,
       "left_percent": 100,

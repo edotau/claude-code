@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/edotau/claude-code/internal/usageledger"
@@ -72,6 +73,6 @@ func humanTokens(n int) string {
 	case n >= 1_000:
 		return fmt.Sprintf("%.0fk", float64(n)/1_000)
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.Itoa(n)
 	}
 }

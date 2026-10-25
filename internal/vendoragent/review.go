@@ -192,12 +192,12 @@ func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background boo
 		return nil, nil, err
 	}
 	if _, err := f.Write(diff); err != nil {
-		f.Close()
-		os.Remove(f.Name())
+		_ = f.Close()           // best-effort cleanup; the write error is already being returned
+		_ = os.Remove(f.Name()) // best-effort cleanup; the write error is already being returned
 		return nil, nil, err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name()) // best-effort cleanup; the close error is already being returned
 		return nil, nil, err
 	}
 	args := []string{"--agent", vendor, "--fallback", agent.FallbackVendors, "--attach", f.Name()}
@@ -210,7 +210,7 @@ func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background boo
 	args = append(args, ReviewPrompt(adversarial, focus))
 	cleanup := func() {}
 	if !background {
-		cleanup = func() { os.Remove(f.Name()) }
+		cleanup = func() { _ = os.Remove(f.Name()) } // best-effort cleanup of the review diff temp file
 	}
 	return args, cleanup, nil
 }

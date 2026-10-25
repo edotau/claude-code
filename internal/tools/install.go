@@ -147,7 +147,7 @@ func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) 
 	if err != nil {
 		return restoreOpencodeAside(src, aside, fmt.Errorf("opencode: installed but %s unreadable: %w", src, err))
 	}
-	defer os.Remove(aside) // src now holds an accepted version; the aside copy is no longer needed
+	defer func() { _ = os.Remove(aside) }() // src now holds an accepted version; the aside copy is no longer needed
 	return installBinary(w, dir, "opencode", data)
 }
 
