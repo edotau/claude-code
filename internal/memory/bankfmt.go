@@ -30,8 +30,7 @@ var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
 // BankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
 func BankFmtTargets() ([]string, error) {
-	var dirs []string
-	dirs = append(dirs, HomeBankDir())
+	dirs := []string{HomeBankDir()}
 	entries, err := RepoDirs()
 	if err != nil {
 		return nil, err
@@ -41,18 +40,25 @@ func BankFmtTargets() ([]string, error) {
 	}
 	var files []string
 	for _, dir := range dirs {
-		for _, name := range bankFiles {
-			p := filepath.Join(dir, name)
-			if _, err := os.Stat(p); err == nil {
-				files = append(files, p)
-			}
-		}
-		for _, sub := range bankFmtTargetDirs {
-			matches, _ := filepath.Glob(filepath.Join(dir, sub, "*.md"))
-			files = append(files, matches...)
-		}
+		files = append(files, dirFmtTargets(dir)...)
 	}
 	return files, nil
+}
+
+// dirFmtTargets lists one bank dir's typed files plus its archive/, handoffs/ and reports/ markdown.
+func dirFmtTargets(dir string) []string {
+	var files []string
+	for _, name := range bankFiles {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			files = append(files, p)
+		}
+	}
+	for _, sub := range bankFmtTargetDirs {
+		matches, _ := filepath.Glob(filepath.Join(dir, sub, "*.md"))
+		files = append(files, matches...)
+	}
+	return files
 }
 
 // FormatBank wraps every target file; check=true writes nothing and only reports. changed lists what
@@ -62,6 +68,20 @@ func FormatBank(check bool) (changed []string, err error) {
 	if err != nil {
 		return nil, err
 	}
+	changed, err = formatFiles(files, check)
+	if err != nil {
+		return changed, err
+	}
+	if !check && len(changed) > 0 {
+		if err := commitStore("fmt: wrap bank lines"); err != nil {
+			return changed, err
+		}
+	}
+	return changed, nil
+}
+
+// formatFiles wraps each file in place (check=true only reports) and returns the ones that changed.
+func formatFiles(files []string, check bool) (changed []string, err error) {
 	for _, f := range files {
 		data, rerr := os.ReadFile(f)
 		if rerr != nil {
@@ -76,11 +96,6 @@ func FormatBank(check bool) (changed []string, err error) {
 			continue
 		}
 		if err := paths.AtomicWrite(f, []byte(next), 0o600); err != nil {
-			return changed, err
-		}
-	}
-	if !check && len(changed) > 0 {
-		if err := commitStore("fmt: wrap bank lines"); err != nil {
 			return changed, err
 		}
 	}

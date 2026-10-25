@@ -143,3 +143,29 @@ func TestSettleAllCoversEveryStore(t *testing.T) {
 		t.Error("catalog not written")
 	}
 }
+
+// TestSettleAllWrapsBankFiles: a harvest that writes an over-width bullet leaves it wrapped after settle.
+func TestSettleAllWrapsBankFiles(t *testing.T) {
+	migrateConfig(t)
+	cutover(t)
+	da, err := EnsureRepoDir(gitRepo(t, t.TempDir(), "alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := "- " + strings.Repeat("word ", 40) + "end"
+	p := filepath.Join(da, "progress.md")
+	write(t, p, "# Progress\n\n"+long+"\n")
+	if _, err := SettleAll(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FormatBankMarkdown(string(got)) != string(got) {
+		t.Fatalf("progress.md not wrapped after settle:\n%s", got)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(string(got)), " "), strings.TrimSpace(strings.Join(strings.Fields(long), " "))) {
+		t.Fatalf("wrap lost content:\n%s", got)
+	}
+}
