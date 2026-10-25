@@ -17,3 +17,5 @@ with a brief per the Handoff contract that names `Runners:`, `Mode:`, `Owns:` an
 changes code also gets a `copilot` test agent in the SAME message (`rules/standards/quality.md`) and runs its
 edits in a worktree. Relay one consolidated report: per task, the runner rows (runner · model · job · fallback ·
 verified), the verified answer or change, and for `compare` where the runners agreed and differed.
+
+Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).

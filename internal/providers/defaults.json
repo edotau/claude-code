@@ -28,7 +28,7 @@
       "kind": "responses",
       "base_url": "https://chatgpt.com/backend-api/codex",
       "auth": {"type": "passthrough", "login": "codex"},
-      "models": {"opus": "gpt-6-astra", "sonnet": "gpt-6-astra", "haiku": "gpt-6-astra"},
+      "models": {"opus": "gpt-6.1-sol", "sonnet": "gpt-6.1-sol", "haiku": "gpt-6-luna"},
       "opencodeID": "openai"
     },
     "github-copilot": {

@@ -13,7 +13,7 @@
       "type": "local"
     }
   },
-  "model": "github-copilot/kimi-k3",
+  "model": "opencode-go/kimi-k3.1-pro",
   "permission": "allow",
   "provider": {
     "github-copilot": {
@@ -30,5 +30,5 @@
       }
     }
   },
-  "small_model": "github-copilot/claude-haiku-5.5"
+  "small_model": "opencode-go/qwen3.8-flash"
 }

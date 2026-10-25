@@ -27,6 +27,15 @@ var tierModel = map[string]string{
 	TierHigh:   "sonnet",
 }
 
+// RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
+type RuleClassifier struct{}
+
+// Tier maps task through EffortTierSignal and tierModel.
+func (RuleClassifier) Tier(task string) string {
+	t, _ := EffortTierSignal(task)
+	return tierModel[t]
+}
+
 // AgentEffort fills an unset spawn model with the classifier's cost-down tier, AND appends a memory-recall
 // pointer block to the spawn prompt (a subagent gets no UserPromptSubmit, so this is its only recall
 // surface) — both rewrites share ONE updatedInput, since two hooks each rewriting it on the same event race.
@@ -57,6 +66,16 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	}
 
 	note, systemMessage := pinModel(in, updated, task, recallIDs)
+	if !explicitModel(in) {
+		base, _ := updated["model"].(string)
+		if base == "" {
+			base = rosterModel(in.nested("tool_input", "subagent_type"))
+		}
+		if pn, ps := applyPressure(in, updated, promptField, base); pn != "" {
+			note, systemMessage = strings.TrimSpace(note+" "+pn), strings.TrimSpace(systemMessage+"; "+ps)
+			systemMessage = strings.TrimPrefix(systemMessage, "; ")
+		}
+	}
 	modelChanged := note != ""
 
 	if !modelChanged && !promptChanged {
@@ -86,9 +105,7 @@ func pinModel(in *Input, updated map[string]any, task string, recallIDs []string
 	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
 	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
 	// decision too: a model-pinned agent already carries its tier.
-	explicit := strings.TrimSpace(in.nested("tool_input", "model")) != "" &&
-		!strings.EqualFold(in.nested("tool_input", "model"), "inherit")
-	if explicit || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
+	if explicitModel(in) || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
 	tier, signal := EffortTierSignal(task)
@@ -124,6 +141,26 @@ func randomHex(n int) string {
 		return hex.EncodeToString([]byte(time.Now().Format("150405.000000000")))
 	}
 	return hex.EncodeToString(b)
+}
+
+// explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).
+func explicitModel(in *Input) bool {
+	m := strings.TrimSpace(in.nested("tool_input", "model"))
+	return m != "" && !strings.EqualFold(m, "inherit")
+}
+
+// rosterModel is the named harness agent's frontmatter model ("" for a built-in or a path-shaped name).
+func rosterModel(name string) string {
+	if name == "" || filepath.Base(name) != name {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "agents", name+".md"))
+	if err != nil {
+		return ""
+	}
+	fm, _ := frontmatter.Parse(string(raw))
+	model, _ := fm["model"].(string)
+	return model
 }
 
 // agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -222,6 +223,20 @@ func TestLegUnavailable(t *testing.T) {
 	}
 }
 
+// chainOf is a routed chain over rs: the first leg is the wanted runner keeping the caller's model, each later
+// leg runs models[i] (its cell).
+func chainOf(rs []Runner, models ...string) Chain {
+	c := Chain{Want: rs[0].Name()}
+	for i, r := range rs {
+		leg := Leg{Runner: r, keepCaller: i == 0}
+		if i < len(models) {
+			leg.Model = models[i]
+		}
+		c.Legs = append(c.Legs, leg)
+	}
+	return c
+}
+
 // TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
 // fallback runner with Fallback set, while a successful or excluded-class codex run must not.
 func TestRunWithFallback(t *testing.T) {
@@ -231,7 +246,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("falls back and reports it", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
@@ -244,27 +259,66 @@ func TestRunWithFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("vendor legs come before claude and the first answer wins", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
+	t.Run("each leg runs its own cell and the first answer wins", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: true}, errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		req := Request{Prompt: "p", Model: "gpt-6-astra"}
-		res, err := RunWithFallback(context.Background(), codex, []Runner{gemini, opencode, claude}, req, io.Discard, nil)
+		req := Request{Prompt: "p", Model: "gpt-6.1-sol"}
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, io.Discard, nil)
 		if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
 		}
 		if !strings.Contains(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "; gemini: ") {
-			t.Errorf("FallbackReason = %q, want one entry per skipped leg", res.FallbackReason)
+			t.Errorf("FallbackReason = %q, want one entry per failed leg", res.FallbackReason)
 		}
-		if gemini.seen[0].Model != "" || opencode.seen[0].Model != "" {
-			t.Errorf("a vendor leg must take its own default model, saw %q / %q", gemini.seen[0].Model, opencode.seen[0].Model)
+		if codex.seen[0].Model != "gpt-6.1-sol" || gemini.seen[0].Model != "gemini-4-argon" || opencode.seen[0].Model != "kimi-k3" {
+			t.Errorf("models = %q / %q / %q, want the caller's then each cell's", codex.seen[0].Model, gemini.seen[0].Model, opencode.seen[0].Model)
+		}
+	})
+
+	t.Run("the tier is kept on the claude leg", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
+		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), Request{Prompt: "p", Model: "claude-opus-5.5"}, io.Discard, nil); err != nil {
+			t.Fatal(err)
+		}
+		if claude.seen[0].Model != "opus" {
+			t.Errorf("claude leg ran %q, want the opus cell", claude.seen[0].Model)
+		}
+	})
+
+	t.Run("gate skips make zero attempts and are reported", func(t *testing.T) {
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		c := Chain{Want: "copilot", Skipped: []string{"copilot: copilot:u exhausted until 2026-11-01"},
+			Legs: []Leg{{Runner: claude, Model: "sonnet"}}}
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
+			t.Fatalf("res=%+v err=%v", res, err)
+		}
+		if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, Request{Prompt: "p"}, io.Discard, nil); err == nil {
+			t.Error("an empty chain must fail with the skips")
+		}
+	})
+
+	t.Run("a quota failure marks the account and moves on", func(t *testing.T) {
+		quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
+		copilot := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", errs: []error{nil}}
+		c := chainOf([]Runner{copilot, claude}, "", "sonnet")
+		c.Legs[0].Account, c.Legs[0].Billing = "copilot:u", "credits"
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
+			t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
+		}
+		if e := loadState()["copilot:u"]; e.Status(time.Now()) != "exhausted" || e.ExhaustedUntil.Day() != 1 {
+			t.Errorf("state = %+v, want exhausted until the 1st", e)
 		}
 	})
 
 	t.Run("an empty chain means no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
-		res, err := RunWithFallback(context.Background(), codex, nil, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), Single(codex), Request{Prompt: "p"}, io.Discard, nil)
 		if err == nil || res.Fallback != "" || res.Agent != "codex" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
@@ -273,7 +327,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("success needs no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -282,7 +336,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -292,31 +346,51 @@ func TestRunWithFallback(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "openai:gpt-4"}
-		res, err := RunWithFallback(context.Background(), codex, []Runner{claude}, req, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), req, io.Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
 	})
+}
 
-	t.Run("model mapping onto the fallback", func(t *testing.T) {
-		mapping := []struct{ in, want string }{
-			{"", "sonnet"},
-			{"opus", "opus"},
-			{"claude-sonnet-4-5", "claude-sonnet-4-5"},
-			{"gpt-5", "sonnet"},
+// TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no leg; once expired it leads again.
+func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("COPILOT_GITHUB_USER", "work-user")
+	old := route.GHAccounts
+	route.GHAccounts = func() []string { return []string{"work-user"} }
+	t.Cleanup(func() { route.GHAccounts = old })
+	all := route.Opts{Configured: func(string, route.Cell) error { return nil }}
+	tb, err := route.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acct := tb.Rows["copilot"]["sonnet"].Account
+	if err := route.MarkExhausted(acct, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range c.Legs {
+		if l.Runner.Name() == "copilot" {
+			t.Fatalf("exhausted copilot got a leg: %+v", c.Legs)
 		}
-		for _, m := range mapping {
-			codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
-			claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
-			req := Request{Prompt: "p", Model: m.in}
-			if _, err := RunWithFallback(context.Background(), codex, []Runner{claude}, req, io.Discard, nil); err != nil {
-				t.Fatalf("model=%q err=%v", m.in, err)
-			}
-			if len(claude.seen) != 1 || claude.seen[0].Model != m.want {
-				t.Errorf("model=%q: fallback saw Model=%q, want %q", m.in, claude.seen[0].Model, m.want)
-			}
-		}
-	})
+	}
+	if last := c.Legs[len(c.Legs)-1]; last.Runner.Name() != "claude" || last.Model != "sonnet" {
+		t.Errorf("claude leg = %+v, want sonnet", last)
+	}
+	if len(c.Skipped) == 0 || !strings.Contains(c.Skipped[0], "exhausted") {
+		t.Errorf("skips = %v", c.Skipped)
+	}
+	if err := route.Update(func(s route.State) { e := s[acct]; e.ExhaustedUntil = time.Now().Add(-time.Minute); s[acct] = e }); err != nil {
+		t.Fatal(err)
+	}
+	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
+	if c.Legs[0].Runner.Name() != "copilot" || c.Legs[0].Account != "copilot:work-user" {
+		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Legs[0])
+	}
 }
 
 // TestRunWithFallback_TimeoutAndCancelNotRetried proves the two context-based exclusions against a real
@@ -326,7 +400,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 
 	codex := &codexHang{}
-	_, err := RunWithFallback(context.Background(), codex, []Runner{claude},
+	_, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}),
 		Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
@@ -335,7 +409,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	codex = &codexHang{}
-	_, err = RunWithFallback(ctx, codex, []Runner{claude}, Request{Prompt: "p"}, io.Discard, nil)
+	_, err = RunWithFallback(ctx, chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -368,31 +442,6 @@ func (h *codexHang) Run(ctx context.Context, _ Request, _ io.Writer) (Result, er
 	h.calls++
 	<-ctx.Done()
 	return Result{}, ctx.Err()
-}
-
-// TestFallbackChain: vendors only in roster order without the requester, claude last only under "all".
-func TestFallbackChain(t *testing.T) {
-	names := func(rs []Runner) []string {
-		var out []string
-		for _, r := range rs {
-			out = append(out, r.Name())
-		}
-		return out
-	}
-	codex := &fakeRunner{name: "codex"}
-	all := names(FallbackChain(codex, FallbackAll))
-	if len(all) == 0 || all[len(all)-1] != "claude" || slices.Contains(all, "codex") || slices.Contains(all, "api") {
-		t.Errorf("all = %v, want installed vendors (no codex/api) then claude", all)
-	}
-	if v := names(FallbackChain(codex, FallbackVendors)); slices.Contains(v, "claude") {
-		t.Errorf("vendors = %v, must never include claude", v)
-	}
-	if n := FallbackChain(codex, FallbackNone); n != nil {
-		t.Errorf("none = %v, want nil", names(n))
-	}
-	if c := FallbackChain(&fakeRunner{name: "claude"}, FallbackAll); c != nil {
-		t.Errorf("claude itself never falls back, got %v", names(c))
-	}
 }
 
 func TestIsText(t *testing.T) {

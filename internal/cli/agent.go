@@ -18,10 +18,12 @@ import (
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
@@ -119,7 +121,7 @@ func cmdAsk(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	r, chain, err := resolveAskAgent(*name, *provider, *fallback, *native)
+	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native)
 	if err != nil {
 		return fail("ask: %v", err)
 	}
@@ -174,7 +176,7 @@ func cmdAsk(args []string) int {
 		// A --job child's stdout is the log (Spawn): event lines stream live, the full answer lands once at the end.
 		runCtx, stream = agent.WithLogEvents(ctx, sink), io.Discard
 	}
-	res, err := agent.RunWithFallback(runCtx, r, chain, req, stream, notify)
+	res, err := agent.RunWithFallback(runCtx, chain, req, stream, notify)
 	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
 	if jobRec != nil && res.Answer != "" && *format != "json" {
 		fmt.Print(res.Answer) // `<vendor> result` reads the log; ▸ lines are capped, so the answer goes in whole
@@ -261,25 +263,39 @@ func resolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-// resolveAskAgent looks up the named runner and, for a hub agent, swaps in the hub leg + chain.
-func resolveAskAgent(name, provider, fallback string, native bool) (agent.Runner, []agent.Runner, error) {
+// resolveAskChain looks up the named runner and routes it: an explicit backend (--provider, provider:model) or the
+// api runner runs alone; otherwise the tier comes from --model, else the task classifier, and route picks the legs.
+func resolveAskChain(name, provider, model, prompt, fallback string, native bool) (agent.Runner, agent.Chain, error) {
 	r, err := agent.Lookup(name)
 	if err != nil {
-		return nil, nil, err
+		return nil, agent.Chain{}, err
 	}
-	chain := agent.FallbackChain(r, fallback)
-	if native || !agent.IsHubAgent(name) {
-		return r, chain, nil
+	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) || name == "api" {
+		req := agent.Request{Provider: provider, Model: model}
+		if provider == "" || native || !agent.IsHubAgent(name) {
+			return r, agent.ExplicitChain(r, req), nil
+		}
+		reg, err := providers.Load()
+		if err != nil {
+			return nil, agent.Chain{}, err
+		}
+		start, err := agent.HubStart(reg, name, provider)
+		if err != nil {
+			return nil, agent.Chain{}, err
+		}
+		return r, agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), nil
 	}
-	reg, err := providers.Load()
+	tb, err := route.Load()
 	if err != nil {
-		return nil, nil, err
+		return nil, agent.Chain{}, err
 	}
-	start, err := agent.HubStart(reg, name, provider)
-	if err != nil {
-		return nil, nil, err
+	tier := tb.TierOf(model)
+	if tier == "" {
+		tier = hooks.RuleClassifier{}.Tier(prompt)
 	}
-	return agent.NewHubLeg(name, start, reg), agent.HubChain(reg, name, start, fallback), nil
+	chain, _, err := agent.RouteChain(context.Background(), name, tier, fallback, model != "", native,
+		route.Opts{Refresh: routeRefresh})
+	return r, chain, err
 }
 
 // backgroundExtraFlags carries explicitly-set --fallback/--native over to the spawned --job child;

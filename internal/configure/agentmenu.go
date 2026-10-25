@@ -158,15 +158,6 @@ func byokKey(reg *providers.Registry) (*providers.Provider, string) {
 	return nil, ""
 }
 
-// byokRow is opencode's API key row: shows which fallback key resolves, sets the anthropic one.
-func byokRow(d *dialog, label string) billingRow {
-	r := keyRow(d, label, anthropicRow, "pay per token via a stored key")
-	if _, env := byokKey(d.reg); env != "" {
-		r.desc = strings.TrimSuffix(r.desc, "[no key]") + "[" + env + " set]"
-	}
-	return r
-}
-
 // loginOrKey is the state of an agent that bills its own login first, else a BYOK key.
 func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 	if loggedIn {
@@ -488,5 +479,8 @@ func pinGitHubUser(d *dialog, user string) bool {
 
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	return agentMenu{state: loginOrKey(d, vendors.OpencodeCopilotLoginPresent(), "")}
+	if vendors.OpencodeOwnLoginPresent() || vendors.OpencodeCopilotLoginPresent() {
+		return agentMenu{state: agentState{modeSubscription, "", true}}
+	}
+	return agentMenu{state: agentState{mode: modeNone}}
 }

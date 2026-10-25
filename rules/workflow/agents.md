@@ -77,6 +77,7 @@ First agent 1, then agent 2, then agent 3
 - Managers tune `effort` per dispatch: low for mechanical leaves, medium default, high only
   for a single gnarly task — prefer dropping effort before dropping a tier.
 - Inherit-model managers never pin effort — they run at the session's effort.
+- Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
 
 ## Cross-Agent Teams
 

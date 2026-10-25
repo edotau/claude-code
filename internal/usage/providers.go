@@ -102,23 +102,25 @@ func githubQuotas(ctx context.Context) []quota {
 	status, _ := c.CombinedOutput() // exits 1 when any account's token is stale; the others still list
 	var out []quota
 	for _, m := range ghAccountRE.FindAllSubmatch(status, -1) {
-		login := string(m[1])
-		tok, err := ghRun(ctx, nil, "auth", "token", "--hostname", "github.com", "--user", login)
-		if err != nil {
-			out = append(out, quota{Provider: "github", Account: login, Note: "unavailable: no token"})
-			continue
-		}
-		body, err := ghRun(ctx, []string{"GH_TOKEN=" + strings.TrimSpace(string(tok))}, "api", "/copilot_internal/user")
-		if err != nil {
-			out = append(out, quota{Provider: "github", Account: login, Note: "unavailable: no Copilot seat or API error"})
-			continue
-		}
-		out = append(out, parseCopilot(login, body))
+		out = append(out, githubQuota(ctx, string(m[1])))
 	}
 	if len(out) == 0 {
 		out = append(out, quota{Provider: "github", Note: "unavailable: no gh login"})
 	}
 	return out
+}
+
+// githubQuota reads one gh login's Copilot seat; the login's own token, never another account's.
+func githubQuota(ctx context.Context, login string) quota {
+	tok, err := ghRun(ctx, nil, "auth", "token", "--hostname", "github.com", "--user", login)
+	if err != nil {
+		return quota{Provider: "github", Account: login, Note: "unavailable: no token"}
+	}
+	body, err := ghRun(ctx, []string{"GH_TOKEN=" + strings.TrimSpace(string(tok))}, "api", "/copilot_internal/user")
+	if err != nil {
+		return quota{Provider: "github", Account: login, Note: "unavailable: no Copilot seat or API error"}
+	}
+	return parseCopilot(login, body)
 }
 
 // parseCopilot turns a /copilot_internal/user body into its premium-credit row.

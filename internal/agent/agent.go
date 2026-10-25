@@ -140,14 +140,15 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
 		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.
-		if e != nil && e.Kind == KindRateLimit && providers.HardQuota(e.Err.Error()) && r.Caps().Model &&
+		if e != nil && (e.Kind == KindRateLimit || (e.Kind == KindQuota && modelScopedQuota(e.Err.Error()))) &&
+			providers.HardQuota(e.Err.Error()) && r.Caps().Model &&
 			(req.Model == "" || slices.Contains(models.Slots, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
 			if next := models.NextSlot(cur); next != "" {
 				if notify != nil {
 					notify(fmt.Sprintf("%s: the %s slot is quota-dead on this key; retrying on the %s slot", r.Name(), cur, next))
 				}
-				req.Model, e.RetryAfter = next, 0
+				req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
 			}
 		}
 		return e
@@ -158,6 +159,9 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	return res, nil
 }
+
+// modelScopedQuota is a zero limit on one model (Gemini free tier), not an exhausted account: a lower slot may serve.
+func modelScopedQuota(text string) bool { return strings.Contains(strings.ToLower(text), "limit: 0") }
 
 // resolveTarget applies --provider then --model (slot name, id, or provider:model) to the registry.
 func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
@@ -297,73 +301,57 @@ const (
 // FallbackModes lists the accepted --fallback values.
 var FallbackModes = []string{FallbackAll, FallbackVendors, FallbackNone}
 
-// FallbackChain is what an unavailable r falls back to: the other installed vendor runners in roster order
-// (a second model family stays a second family), then claude last under FallbackAll. claude/api never fall back.
-func FallbackChain(r Runner, mode string) []Runner {
-	if mode == FallbackNone || !isVendor(r.Name()) {
-		return nil
-	}
-	var chain []Runner
-	for _, c := range Runners() {
-		if !isVendor(c.Name()) || c.Name() == r.Name() {
-			continue
-		}
-		// codex and gemini: first party, then Copilot (same model for codex), then opencode, then claude (user decision).
-		if firstPartyChain[r.Name()] && c.Name() != "copilot" && c.Name() != "opencode" {
-			continue
-		}
-		chain = append(chain, c)
-	}
-	if firstPartyChain[r.Name()] {
-		slices.SortStableFunc(chain, func(a, b Runner) int { return copilotFirst(a) - copilotFirst(b) })
-	}
-	if mode == FallbackAll {
-		chain = append(chain, claudeRunner{})
-	}
-	return chain
-}
-
-// firstPartyChain names the first-party legs whose vendor stand-ins are only Copilot, then opencode.
-var firstPartyChain = map[string]bool{"codex": true, "gemini": true}
-
-func copilotFirst(r Runner) int {
-	if r.Name() == "copilot" {
-		return 0
-	}
-	return 1
-}
-
-// sameModelOnCopilot names the legs whose model ids Copilot also serves (GPT); Copilot has no Gemini models.
-var sameModelOnCopilot = map[string]bool{"codex": true}
-
 func isVendor(name string) bool { return name != "claude" && name != "api" }
 
-// RunWithFallback runs r, then each leg of chain in turn while the previous one turned out unavailable — binary
-// missing, no provider can serve it, a login/quota failure, or an exit with no answer. It never moves on after a
-// timeout, cancellation, an oversized prompt or a partial answer, nor when the caller pinned an explicit
-// non-Claude --provider/--model. The result names the original runner in Fallback and every skipped leg's reason.
-func RunWithFallback(ctx context.Context, r Runner, chain []Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
-	res, err := Run(ctx, r, req, stream, notify)
-	if explicitNonClaude(req) {
-		return res, err
+// RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
+// can serve it, a login/quota failure, or an exit with no answer. It never moves on after a timeout, cancellation,
+// an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
+// A KindQuota failure marks the leg's account until its reset. The result names the wanted runner in Fallback and
+// every gate skip and failed leg in FallbackReason.
+func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer, notify func(string)) (Result, error) {
+	reasons := slices.Clone(c.Skipped)
+	if len(c.Legs) == 0 {
+		return Result{Agent: c.Want, FallbackReason: strings.Join(reasons, "; ")},
+			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no runner available: %s", strings.Join(reasons, "; "))}
 	}
-	var reasons []string
-	prev := r
-	for _, fb := range chain {
-		if !legUnavailable(prev, res, err) {
+	if len(reasons) > 0 && notify != nil {
+		notify("skipped without an attempt — " + strings.Join(reasons, "; "))
+	}
+	var res Result
+	var err error
+	var prev Runner
+	for i, leg := range c.Legs {
+		if i > 0 {
+			if !legUnavailable(prev, res, err) {
+				break
+			}
+			reasons = append(reasons, legLabel(prev)+": "+fallbackReason(err))
+			if notify != nil {
+				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Runner), legCell(leg)))
+			}
+		}
+		res, err = Run(ctx, leg.Runner, legRequest(req, leg, i == 0 && leg.Runner.Name() == c.Want), stream, notify)
+		noteQuota(leg, err)
+		prev = leg.Runner
+		if i == 0 && ExplicitBackend(req) {
 			break
 		}
-		reasons = append(reasons, legLabel(prev)+": "+fallbackReason(err))
-		if notify != nil {
-			notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s", legLabel(prev), fallbackReason(err), legLabel(fb)))
-		}
-		res, err = Run(ctx, fb, fallbackRequest(r, fb, req, res.Model), stream, notify)
-		prev = fb
 	}
-	if len(reasons) > 0 {
-		res.Fallback, res.FallbackReason = r.Name(), strings.Join(reasons, "; ")
+	if len(reasons) > 0 || c.Legs[0].Runner.Name() != c.Want {
+		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
 	return res, err
+}
+
+// legCell is " (model, effort)" for a routed leg, "" for an unrouted one.
+func legCell(l Leg) string {
+	if l.Model == "" {
+		return ""
+	}
+	if l.Effort != "" {
+		return " (" + l.Model + ", " + l.Effort + ")"
+	}
+	return " (" + l.Model + ")"
 }
 
 // legLabel names a leg in fallback reasons: a hub leg by its account, since every hub leg shares the agent name.
@@ -372,29 +360,6 @@ func legLabel(r Runner) string {
 		return l.provider.Name
 	}
 	return r.Name()
-}
-
-// fallbackRequest drops the original leg's provider and vendor model: codex→copilot keeps the model codex ran
-// (prevModel), other vendor legs take their own default, and the claude leg is a sonnet leg unless the caller
-// asked for a Claude slot or id (unset would mean opus).
-func fallbackRequest(from, fb Runner, req Request, prevModel string) Request {
-	out := req
-	out.Provider, out.SessionID = "", "" // a session id belongs to the leg that minted it
-	if fb.Name() != "claude" {
-		out.Model = ""
-		if fb.Name() == "copilot" && sameModelOnCopilot[from.Name()] {
-			out.Model = models.Strip1M(cmp.Or(prevModel, req.Model)) // the caller's model when codex never resolved one
-		}
-		return out
-	}
-	if out.Model == "" {
-		out.Model = models.Sonnet
-	} else if !slices.Contains(models.Slots, out.Model) {
-		if _, _, _, ok := models.ParseClaudeID(out.Model); !ok {
-			out.Model = models.Sonnet
-		}
-	}
-	return out
 }
 
 // fallbackReason keeps the last line of the failure (a vendor CLI prints its own ERROR line last), capped at 200 bytes.
@@ -421,9 +386,9 @@ func legUnavailable(r Runner, res Result, err error) bool {
 	return !errors.As(err, &e) || !e.Progressed
 }
 
-// explicitNonClaude is true when --provider, or a "provider:model" --model, names a provider outright;
+// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
 // the fallback must never override a caller's explicit choice of backend.
-func explicitNonClaude(req Request) bool {
+func ExplicitBackend(req Request) bool {
 	if req.Provider != "" {
 		return true
 	}

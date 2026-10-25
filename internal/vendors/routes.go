@@ -10,7 +10,7 @@ import (
 // login) as a leg.
 const (
 	LegCopilotLogin  = "copilot-login"
-	LegAnthropicKey  = "anthropic-key"
+	LegOwnLogin      = "own-login"
 	LegByokAnthropic = "byok-anthropic"
 	LegNone          = "none"
 )
@@ -38,6 +38,10 @@ func DescribeRoute(reg *providers.Registry, vendor string) RouteInfo {
 // describeOpenCodeRoute: 1) opencode's own GitHub Copilot login; 2) the registry anthropic provider's
 // key; 3) the registry gemini provider's key (Gemini free tier); 4) none.
 func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
+	if OpencodeOwnLoginPresent() {
+		return RouteInfo{Vendor: "opencode", Leg: LegOwnLogin, Provider: "opencode-go",
+			Reason: "opencode's own opencode login (Go plan; OPENCODE_API_KEY from the vault when no stored login)", OK: true}
+	}
 	if OpencodeCopilotLoginPresent() {
 		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok {
 			if main, small, mok := OpencodeCopilotModelIDs(reg); mok {
@@ -47,10 +51,6 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 			return RouteInfo{Vendor: "opencode", Leg: LegCopilotLogin, Provider: p.Name,
 				Reason: "opencode's own GitHub Copilot login, but no sonnet/haiku model configured for github-copilot"}
 		}
-	}
-	if p, ok := reg.Providers["anthropic"]; ok && providers.CredentialPresent(p) {
-		return RouteInfo{Vendor: "opencode", Leg: LegAnthropicKey, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "ANTHROPIC_API_KEY resolves", OK: true}
 	}
 	return RouteInfo{Vendor: "opencode", Leg: LegNone, Reason: "no route for opencode: " + ConfigureHint("opencode")}
 }

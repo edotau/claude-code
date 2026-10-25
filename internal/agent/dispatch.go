@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // Kind is the failure class; it alone decides retryability.
@@ -22,10 +24,11 @@ const (
 	KindRateLimit      // 429 / quota
 	KindTransient      // network, 5xx, overload, per-attempt timeout
 	KindFatal          // everything else: bad request, missing binary, the agent's own verdict
+	KindQuota          // an exhausted account (402, monthly/plan quota): never retried, the router marks it
 )
 
 func (k Kind) String() string {
-	return [...]string{"ok", "auth rejected", "rate limited", "transient failure", "failed"}[k]
+	return [...]string{"ok", "auth rejected", "rate limited", "transient failure", "failed", "quota exhausted"}[k]
 }
 
 // Error is a classified runner failure.
@@ -64,6 +67,8 @@ func KindForStatus(status int) Kind {
 		return KindNone
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		return KindAuth
+	case status == http.StatusPaymentRequired:
+		return KindQuota
 	case status == http.StatusTooManyRequests:
 		return KindRateLimit
 	case status == 0, status == http.StatusRequestTimeout, status >= 500:
@@ -94,11 +99,16 @@ func Classify(agent string, err error, progressed bool) *Error {
 	if errors.As(err, &st) {
 		e.Status = st.StatusCode()
 		e.Kind = KindForStatus(e.Status)
+		if e.Kind == KindRateLimit && route.IsQuota(err.Error()) {
+			e.Kind = KindQuota
+		}
 	} else {
 		low := strings.ToLower(err.Error())
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
 			e.Kind = KindTransient
+		case route.IsQuota(low):
+			e.Kind = KindQuota
 		case rateRE.MatchString(low):
 			e.Kind = KindRateLimit
 		case authRE.MatchString(low):

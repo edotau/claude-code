@@ -21,6 +21,8 @@ import (
 // TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
 func TestMain(m *testing.M) {
 	spawnDream = func(string) bool { return true }
+	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
+	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	os.Exit(m.Run())
 }
 
@@ -42,6 +44,8 @@ func stubSpawn(t *testing.T, ok bool) *atomic.Int64 {
 	spawnHarvest = func(string, string, string) bool { calls.Add(1); return ok }
 	spawnWatcher = func([]string, string) bool { return true }
 	spawnDream = func(string) bool { return true }
+	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
+	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	t.Cleanup(func() { spawnHarvest, spawnWatcher, spawnDream = orig, origWatch, origDream })
 	return calls
 }

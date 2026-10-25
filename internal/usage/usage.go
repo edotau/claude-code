@@ -112,6 +112,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 			quotas[i].LeftPct = 100 - quotas[i].UsedPct
 		}
 		setStates(quotas, warnThreshold())
+		recordQuotaState(quotas)
 	}
 	ledgerEntries, ledgerErr := readLedger()
 	if ledgerErr != nil {

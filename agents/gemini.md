@@ -112,9 +112,8 @@ You have **two engines** for scanning:
    - `gemini bridge` if the task says "entire repo", "all files", "map everything", "every package that", "1M context",
      or asks for repo-wide cross-references 2b. **Model and effort**: the default (`gemini-3.8-flash-high`) fits normal
      scans; only for an unusually complex task add `--model gemini-4-argon --effort high`.
-3. Fallback ladder: `skills/subagent-workflows/references/cost-routing.md` → Fallback (Copilot serves
-   no Gemini models, so it is skipped in that chain); Sonnet in-process only if `ask` itself fails. Say
-   in the report who answered.
+3. Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+   Sonnet in-process only if `ask` itself fails. Say in the report who answered.
 
 ### Gemini backend — bridge
 

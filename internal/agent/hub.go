@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -39,39 +40,6 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 	return p, nil
 }
 
-// HubChain is the rest of a hub agent's fallback chain after start: the registry ladder rotated to
-// begin right after start, then claude under FallbackAll. A ladder entry opencode has no login for
-// still rides the chain — its Available() reports that, and RunWithFallback/legUnavailable skip it
-// the same way an unreachable vendor CLI is skipped today.
-func HubChain(reg *providers.Registry, agentName string, start *providers.Provider, mode string) []Runner {
-	if mode == FallbackNone {
-		return nil
-	}
-	var chain []Runner
-	for _, name := range rotateLadder(reg.OpencodeLadder, start.Name) {
-		if name == start.Name {
-			continue
-		}
-		if p, ok := reg.Providers[name]; ok && p.OpencodeID != "" {
-			chain = append(chain, hubLeg{agent: agentName, provider: p, reg: reg})
-		}
-	}
-	if mode == FallbackAll {
-		chain = append(chain, claudeRunner{})
-	}
-	return chain
-}
-
-// rotateLadder returns ladder starting at start's first occurrence, wrapping around; start absent
-// from ladder returns ladder unchanged.
-func rotateLadder(ladder []string, start string) []string {
-	i := slices.Index(ladder, start)
-	if i < 0 {
-		return ladder
-	}
-	return append(slices.Clone(ladder[i:]), ladder[:i]...)
-}
-
 // hubLeg is one opencode-routed ladder step: `opencode run -m <opencodeID>/<model>` on provider, under
 // the exposed agent name — so Result.Agent reads the same across every leg of the chain, and only
 // Result.Provider shows which account actually answered.
@@ -99,10 +67,8 @@ func (l hubLeg) Available() error {
 	if _, err := paths.VendorBin("opencode"); err != nil {
 		return err
 	}
-	if !slices.Contains(vendors.OpencodeLogins(), l.provider.OpencodeID) {
-		return fmt.Errorf("opencode has no %s login (run `opencode auth login`)", l.provider.Name)
-	}
-	return nil
+	_, err := vendors.OpencodeCredential(l.provider.OpencodeID)
+	return err
 }
 
 func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
@@ -120,7 +86,12 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	}
 	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir}
+	cred, err := vendors.OpencodeCredential(l.provider.OpencodeID)
+	if err != nil {
+		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
+	}
 	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
+	env = append(env, cred...)
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := runEventStream(ctx, l.agent, cmd, tail, stream, parseOpenCodeStream)
 	res.Answer, res.Usage = out.Answer, out.Usage
@@ -130,11 +101,10 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	return res, runErr
 }
 
-// resolveModel: "" takes provider's opus slot (every vendor runner's own default today); a slot name
-// maps through provider's table; anything else (a raw id or "provider:model") is parsed against it
-// directly — the raw-id case only ever reaches the first leg, since fallbackRequest resets Model to ""
-// for every leg after that.
+// resolveModel: "" takes provider's opus slot; a slot name maps through provider's table; anything else (a routed
+// cell's bare model, a raw id or "provider:model") is parsed against it directly.
 func (l hubLeg) resolveModel(reqModel string) string {
+	reqModel = strings.TrimPrefix(reqModel, l.provider.OpencodeID+"/")
 	var id string
 	switch {
 	case reqModel == "":

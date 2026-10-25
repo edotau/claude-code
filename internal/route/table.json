@@ -1,0 +1,38 @@
+{
+  "_source": "prices per 1M tokens, USD; 0 = not yet seeded from the vendor's published price page (anthropic.com/pricing, openai.com/api/pricing, ai.google.dev/pricing, docs.github.com/copilot premium requests)",
+  "weights": {"price": 0.5, "headroom": 0.5},
+  "billing": {
+    "claude:max": "subscription",
+    "codex:chatgpt": "subscription",
+    "gemini:antigravity": "subscription",
+    "copilot": "credits",
+    "opencode:go": "subscription"
+  },
+  "rows": {
+    "claude": {
+      "opus": {"model": "opus", "account_key": "claude:max", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "sonnet", "account_key": "claude:max", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "haiku", "account_key": "claude:max", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "copilot": {
+      "opus": {"model": "claude-opus-5.5", "account_key": "copilot", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "claude-sonnet-5.5", "account_key": "copilot", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "claude-haiku-5.5", "account_key": "copilot", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "codex": {
+      "opus": {"model": "gpt-6.1-sol", "effort": "high", "account_key": "codex:chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "gpt-6.1-sol", "account_key": "codex:chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "gpt-6-luna", "account_key": "codex:chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "opencode": {
+      "opus": {"model": "opencode-go/kimi-k3.1-pro", "effort": "max", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "opencode-go/kimi-k3.1-pro", "effort": "high", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "opencode-go/qwen3.8-flash", "account_key": "opencode:go", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    },
+    "gemini": {
+      "opus": {"model": "gemini-4-argon", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "sonnet": {"model": "gemini-3.8-flash", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "haiku": {"model": "gemini-3.5-flash-lite", "account_key": "gemini:antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
+    }
+  }
+}

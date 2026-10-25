@@ -13,6 +13,7 @@ import (
 // TestMain keeps every Run in this package offline: the live quota fetch is stubbed out.
 func TestMain(m *testing.M) {
 	fetchQuotas = func() []quota { return nil }
+	recordQuotaState = func([]quota) {}
 	os.Exit(m.Run())
 }
 
