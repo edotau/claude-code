@@ -156,8 +156,48 @@ func permissionBlock(allow, deny, ask []string) map[string]any {
 	return perm
 }
 
+// webSearchMCP is the MCP server name configure registers for `claude-code network websearch`.
+const webSearchMCP = "web_search"
+
+// isHarnessServer reports whether raw's command basename is claude-code, vs a user's own same-named server.
+func isHarnessServer(raw any) bool {
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch cmd := entry["command"].(type) {
+	case string:
+		return filepath.Base(cmd) == "claude-code"
+	case []any:
+		if len(cmd) == 0 {
+			return false
+		}
+		first, _ := cmd[0].(string)
+		return filepath.Base(first) == "claude-code"
+	default:
+		return false
+	}
+}
+
+// currentWebSearchArgs rewrites the retired ["web","search"] args to ["network","websearch"] on a copy.
+func currentWebSearchArgs(raw any) any {
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		return raw
+	}
+	args, _ := entry["args"].([]any)
+	if len(args) != 2 || args[0] != "web" || args[1] != "search" {
+		return raw
+	}
+	fixed := maps.Clone(entry)
+	fixed["args"] = []any{"network", "websearch"}
+	return fixed
+}
+
 // filterAllowedMCP keeps only servers named in allow (a vendor's MCP.Allow spec); dropped holds every
 // other server's name, reported on the same HARNESS_OPENCODE_MCP_SKIPPED channel as an unapproved one.
+// The harness's own web_search (command basename claude-code) always survives and gets its args rewritten;
+// a user's same-named server (e.g. npx brave) goes through the allow list like any other.
 func filterAllowedMCP(servers map[string]any, allow []string) (kept map[string]any, dropped []string) {
 	allowed := make(map[string]bool, len(allow))
 	for _, name := range allow {
@@ -165,11 +205,15 @@ func filterAllowedMCP(servers map[string]any, allow []string) (kept map[string]a
 	}
 	kept = map[string]any{}
 	for name, raw := range servers {
-		if allowed[name] {
-			kept[name] = raw
+		if name == webSearchMCP && isHarnessServer(raw) {
+			kept[name] = currentWebSearchArgs(raw)
 			continue
 		}
-		dropped = append(dropped, name)
+		if !allowed[name] {
+			dropped = append(dropped, name)
+			continue
+		}
+		kept[name] = raw
 	}
 	return kept, dropped
 }
