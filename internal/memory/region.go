@@ -217,7 +217,7 @@ func SettleAll(now time.Time) (BankSettlement, error) {
 	return s, err
 }
 
-// settleDir stamps block IDs, rotates sessionHistory and regenerates dir's MEMORY.md region.
+// settleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
 func settleDir(d string, now time.Time, s *BankSettlement) error {
 	if _, err := assignIDs(d, now); err != nil {
 		return err
@@ -227,7 +227,10 @@ func settleDir(d string, now time.Time, s *BankSettlement) error {
 	if err != nil {
 		return err
 	}
-	_, err = writeBankRegion(d, now)
+	if _, err = writeBankRegion(d, now); err != nil {
+		return err
+	}
+	_, err = formatFiles(dirFmtTargets(d), false) // harvest writes land wrapped, so lint-docs stays clean
 	return err
 }
 
