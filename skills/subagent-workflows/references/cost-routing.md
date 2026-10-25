@@ -36,14 +36,17 @@ Gemini needs `--tools` for any repo or web work — without it agy answers from 
 
 ## Fallback
 
-Two separate mechanisms:
+Three separate mechanisms; only the first is a leg change the report must name:
 
-- **Built-in** (`internal/vendors/routes.go`) — only `opencode` and `copilot` have one, in priority order:
-  opencode tries its own GitHub Copilot login, then the registry's `anthropic` key (`ANTHROPIC_API_KEY`), then
-  none; copilot tries its own GitHub login, then BYOK via `ANTHROPIC_API_KEY`, then none. Every other vendor
-  (`codex`, `gemini`, `claude`) has no fallback chain — it either resolves or fails. `--format json`'s
-  `fallback`/`fallback_reason` fields report which leg actually ran; a non-empty `fallback` means the saving
-  did not happen — report it (`Ran on:` line, Handoff contract).
+- **Dispatch ladder** (`ask`/`review`/`transfer` `--fallback all|vendors|none`, default `all`): when the dispatched
+  vendor fails, the rest of the registry ladder runs in order (`claude-code vault show` → `opencodeLadder`, rotated to
+  start after that vendor; `internal/agent/hub.go` `HubChain`), then Claude under `all`; `vendors` stops before
+  Claude; `none` fails fast. `review` always runs `--fallback vendors`. `--format json`'s `fallback`/`fallback_reason`
+  name the leg that answered — a non-empty `fallback` goes on the `Ran on:` line (Handoff contract), never hidden.
+- **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode tries its own GitHub
+  Copilot login, then the registry's `anthropic` key; copilot its own GitHub login, then BYOK `ANTHROPIC_API_KEY`;
+  codex, gemini and claude resolve or fail. A `<vendor>: session provider … cannot serve …; using <x>` line is this
+  route, not a fallback leg — report `fallback: none`.
 - **By hand** (runner reassignment on rate limit, not a credential route): codex limited → `copilot --model
   gpt-6.1-sol`; copilot down → opencode; agy down → copilot; Claude last.
 
