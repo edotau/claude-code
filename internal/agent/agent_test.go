@@ -183,6 +183,27 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	}
 }
 
+// A 402 (account exhausted: no credits/plan window left) is KindQuota and IsQuota-true but ModelDenied-false:
+// a lower slot on the same account is just as exhausted, so Run must not demote and must return the error.
+func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
+	fastDefaultBackoff(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	acctExhausted := errors.New("HTTP 402 payment required: you have exceeded your monthly quota")
+	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{acctExhausted}}
+	var notes []string
+	_, err := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { notes = append(notes, s) })
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != KindQuota {
+		t.Fatalf("err = %v, want a KindQuota error", err)
+	}
+	if len(f.seen) != 1 || f.seen[0].Model != "" {
+		t.Fatalf("seen = %+v, want one attempt with the model never demoted off \"\"", f.seen)
+	}
+	if len(notes) != 0 {
+		t.Errorf("account exhaustion must not announce a slot demotion: %v", notes)
+	}
+}
+
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
 // serving provider, or an exec failure with no answer) should fall back; everything else must not.
 func TestLegUnavailable(t *testing.T) {

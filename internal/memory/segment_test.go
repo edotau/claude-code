@@ -44,6 +44,8 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 		"---\nname: excludedbanktoken\ndescription: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n")
 	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"),
 		"---\nname: strippedmetadata\n---\n# knowledge invariant\nRouter retry requires bounded latency.\n")
+	write(t, filepath.Join(KnowledgeDir(local), "repoinvariant.md"),
+		"---\nname: repoknowledge\n---\n# repo knowledge\nRepo-specific retry invariant.\n")
 	write(t, filepath.Join(routed, "decisionLog.md"),
 		"# Decisions\n\n## saturn deploy\nRetry deployment after rate limits.\n")
 	write(t, filepath.Join(routed, "quasar.md"),
@@ -61,6 +63,7 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 		{"fenced marker", "local", "decisionLog.md"},
 		{"native recall", "native", "recall.md"},
 		{"knowledge invariant", "knowledge", "invariant.md"},
+		{"repo knowledge", "knowledge", "repoinvariant.md"},
 		{"archive storm", "archive", "sessionHistory-old.md"},
 		{"saturn deploy", "saturn", "decisionLog.md"},
 		{"saturn quasar", "saturn", "quasar.md"},
@@ -300,7 +303,7 @@ func oracleSearchSources(root string) []oracleSearchSource {
 		}
 	}
 	if CutOver() { // tracked long-term knowledge: cross-repo top plus this repo's subdir
-		if files := knowledgeFiles(filepath.Base(Dir(root))); len(files) > 0 {
+		if files := knowledgeFiles(root); len(files) > 0 {
 			out = append(out, oracleSearchSource{bank: "knowledge", files: files, knowledge: true})
 		}
 	}
