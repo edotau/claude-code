@@ -239,7 +239,8 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 		filepath.Join(global, "plans"),
 		string(filepath.Separator) + "handoffs" + string(filepath.Separator),
 		string(filepath.Separator) + "reports" + string(filepath.Separator),
-		filepath.Join(global, "docs", "knowledge"),
+		string(filepath.Separator) + "knowledge" + string(filepath.Separator),
+		"(local-only)",
 		"HARNESS_DOCS_PLACEMENT=0",
 		"rules/harness/docs-placement.md",
 	} {
@@ -375,15 +376,16 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree admits only knowledge/, images/ and
-// templates/; the retired handoffs/reports homes block even though this checkout no longer gitignores them.
-// docs/templates-evil (a sibling, not a child) must still block — a prefix-string bug would wave it through.
+// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree admits only images/ and templates/ — the
+// knowledge/ tier retired out of docs/ entirely, to memory/<bank>/knowledge/, so it blocks here like any
+// other retired home. docs/templates-evil (a sibling, not a child) must still block — a prefix-string bug
+// would wave it through.
 func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	harness := ignoredDocsRepo(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)
 
 	for name, want := range map[string]int{
-		"knowledge/topic.md": ExitProceed, "knowledge/repo/x.md": ExitProceed, "images/n.md": ExitProceed,
+		"knowledge/topic.md": ExitBlock, "knowledge/repo/x.md": ExitBlock, "images/n.md": ExitProceed,
 		"templates/README.md": ExitProceed, "templates/examples/memory/index.md": ExitProceed,
 		"handoffs/HANDOFF.md": ExitBlock, "reports/repo/y.md": ExitBlock, "plans/2026-09-09-x.md": ExitBlock,
 		"other/x.md": ExitBlock, "templates-evil/x.md": ExitBlock,
