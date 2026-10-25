@@ -111,7 +111,7 @@ type planHeading struct {
 func planHeadings(body []byte) []planHeading {
 	doc := markdown.Parse(body)
 	var out []planHeading
-	mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
+	_ = mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
 		if entering {
 			if h, ok := n.(*mdast.Heading); ok {
 				out = append(out, planHeading{level: h.Level, text: string(h.Lines().Value(doc.Body))})

@@ -313,21 +313,24 @@ func (s segView) terms() []string {
 	return out
 }
 
-func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
-	if len(qTerms) == 0 {
-		return nil
-	}
+// uniqTermIndex maps each distinct query term to a stable 0-based index.
+func uniqTermIndex(qTerms []string) map[string]int {
 	uniq := map[string]int{}
 	for _, t := range qTerms {
 		if _, ok := uniq[t]; !ok {
 			uniq[t] = len(uniq)
 		}
 	}
-	df := make([]int, len(uniq))
-	var ndocs int
+	return uniq
+}
+
+// indexSegments computes per-term document frequency, per-segment per-doc weighted tf, and corpus stats.
+func indexSegments(uniq map[string]int, segs []segView) (
+	df []int, weighted []map[int][]float64, usable []int, ndocs int, avgdl float64,
+) {
+	df = make([]int, len(uniq))
+	weighted = make([]map[int][]float64, len(segs)) // seg index -> doc -> per-term weighted tf
 	var sumdl uint64
-	var usable []int
-	weighted := make([]map[int][]float64, len(segs)) // seg index -> doc -> per-term weighted tf
 	for i, seg := range segs {
 		if seg == nil {
 			continue
@@ -348,50 +351,68 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 		}
 		weighted[i] = wt
 	}
+	if ndocs > 0 {
+		avgdl = float64(sumdl) / float64(ndocs)
+	}
+	return df, weighted, usable, ndocs, avgdl
+}
+
+// scoreSegmentDocs returns the BM25F-scored hits for every matched doc in one segment.
+func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl float64,
+	seg segView, wt map[int][]float64, file corpusFile) []SearchHit {
+	var hits []SearchHit
+	for doc := 0; doc < seg.docs(); doc++ {
+		freqs := wt[doc]
+		if freqs == nil {
+			continue
+		}
+		block, length := seg.doc(doc)
+		dl := float64(length)
+		var score float64
+		for _, t := range qTerms {
+			j := uniq[t]
+			tf := freqs[j]
+			if tf == 0 {
+				continue
+			}
+			idf := math.Log((n-float64(df[j])+0.5)/(float64(df[j])+0.5) + 1)
+			score += idf * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*dl/avgdl))
+		}
+		if score <= 0 {
+			continue
+		}
+		matched := 0
+		for _, tf := range freqs {
+			if tf > 0 {
+				matched++
+			}
+		}
+		first, _, _ := strings.Cut(block, "\n")
+		id := BlockID(first)
+		if id == "" {
+			id = ContentRef(block)
+		}
+		hits = append(hits, SearchHit{
+			Score: score, Matched: matched, Bank: file.bank,
+			File: filepath.Base(file.path), Block: block, ID: id,
+		})
+	}
+	return hits
+}
+
+func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
+	if len(qTerms) == 0 {
+		return nil
+	}
+	uniq := uniqTermIndex(qTerms)
+	df, weighted, usable, ndocs, avgdl := indexSegments(uniq, segs)
 	if ndocs == 0 {
 		return nil
 	}
 	n := float64(ndocs)
-	avgdl := float64(sumdl) / float64(ndocs)
 	var hits []SearchHit
 	for _, i := range usable {
-		seg := segs[i]
-		wt := weighted[i]
-		for doc := 0; doc < seg.docs(); doc++ {
-			freqs := wt[doc]
-			if freqs == nil {
-				continue
-			}
-			block, length := seg.doc(doc)
-			dl := float64(length)
-			var score float64
-			for _, t := range qTerms {
-				j := uniq[t]
-				tf := freqs[j]
-				if tf == 0 {
-					continue
-				}
-				idf := math.Log((n-float64(df[j])+0.5)/(float64(df[j])+0.5) + 1)
-				score += idf * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*dl/avgdl))
-			}
-			if score > 0 {
-				matched := 0
-				for _, tf := range freqs {
-					if tf > 0 {
-						matched++
-					}
-				}
-				first, _, _ := strings.Cut(block, "\n")
-				id := BlockID(first)
-				if id == "" {
-					id = ContentRef(block)
-				}
-				hits = append(hits, SearchHit{
-					Score: score, Matched: matched, Bank: files[i].bank,
-					File: filepath.Base(files[i].path), Block: block, ID: id,
-				})
-			}
-		}
+		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i])...)
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	if k > 0 && len(hits) > k {

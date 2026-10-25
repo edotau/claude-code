@@ -53,37 +53,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
 	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; `claude-code memory update` is the manual override."
-		if prefix != "" {
-			note = prefix + " " + note
-		}
-		if entry, ok := readChain(chain); ok {
-			prevID := entry.sessionID
-			note += " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
-			caughtUp := ""
-			if !guard.Paused && !memory.IsHarvestChild() {
-				caughtUp = catchUpPrevious(entry, sessionID, now)
-			}
-			if caughtUp != "" {
-				note += " " + caughtUp
-			} else if res, ok := memory.ReadHarvestResult(prevID); ok && res.NeedsAttention(now) {
-				hint := ""
-				if res.Log != "" {
-					hint = " (log: " + res.Log + ")"
-				}
-				note += " NOTE: the previous session's memory harvest did not complete (" + res.Status + ")" + hint + " — run `claude-code memory update` to recover it."
-			}
-		}
-		// The doctor line comes from the cache `memory update`'s settle path maintains — a full Doctor
-		// pass tokenizes the home bank + access log, which has no place on the launch path.
-		if data, err := os.ReadFile(memory.DoctorNoticePath()); err == nil {
-			if notice := strings.TrimSpace(string(data)); notice != "" {
-				if len(notice) > 200 {
-					notice = notice[:200]
-				}
-				note += " memory review: " + notice + "."
-			}
-		}
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now, guard) + doctorNotice()
 		out = note + "\n\n" + bank
 	}
 	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
@@ -100,6 +70,57 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
 	}
 	return out
+}
+
+// bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.
+func bankLoadNote(prefix string) string {
+	note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; `claude-code memory update` is the manual override."
+	if prefix != "" {
+		note = prefix + " " + note
+	}
+	return note
+}
+
+// chainNote appends the previous-session pointer and any catch-up/attention note, or "" with no chain entry.
+func chainNote(chain, sessionID string, now time.Time, guard memory.Guard) string {
+	entry, ok := readChain(chain)
+	if !ok {
+		return ""
+	}
+	prevID := entry.sessionID
+	note := " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
+	caughtUp := ""
+	if !guard.Paused && !memory.IsHarvestChild() {
+		caughtUp = catchUpPrevious(entry, sessionID, now)
+	}
+	if caughtUp != "" {
+		note += " " + caughtUp
+	} else if res, ok := memory.ReadHarvestResult(prevID); ok && res.NeedsAttention(now) {
+		hint := ""
+		if res.Log != "" {
+			hint = " (log: " + res.Log + ")"
+		}
+		note += " NOTE: the previous session's memory harvest did not complete (" + res.Status + ")" + hint +
+			" — run `claude-code memory update` to recover it."
+	}
+	return note
+}
+
+// doctorNotice is the cached memory-review notice line (from `memory update`'s settle path), or "" with none.
+// A full Doctor pass tokenizes the home bank + access log, which has no place on the launch path.
+func doctorNotice() string {
+	data, err := os.ReadFile(memory.DoctorNoticePath())
+	if err != nil {
+		return ""
+	}
+	notice := strings.TrimSpace(string(data))
+	if notice == "" {
+		return ""
+	}
+	if len(notice) > 200 {
+		notice = notice[:200]
+	}
+	return " memory review: " + notice + "."
 }
 
 // chainEntry is the session chain file: id (line 1), transcript path (line 2), cwd (line 3) —

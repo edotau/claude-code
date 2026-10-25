@@ -30,7 +30,7 @@ func CacheDir() string { return filepath.Join(ConfigDir(), ".memory-cache") }
 
 // BackupPath maps src to its mirrored backup location under CacheDir, tagged with now; pure, no I/O.
 func BackupPath(src string, now time.Time) string {
-	rel := src
+	var rel string
 	if home, err := os.UserHomeDir(); err == nil {
 		if r, err := filepath.Rel(home, src); err == nil && !strings.HasPrefix(r, "..") {
 			rel = r
