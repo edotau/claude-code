@@ -1,8 +1,6 @@
 package secrets
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -64,18 +62,4 @@ func expandHome(p string) string {
 		}
 	}
 	return p
-}
-
-// Status prints every registered provider's credential source, never a value.
-func Status(out io.Writer, reg *providers.Registry) {
-	fmt.Fprintln(out, "== credential status ==")
-	for _, name := range reg.Names() {
-		p := reg.Providers[name]
-		st := Resolve(p)
-		line := fmt.Sprintf("  %-16s %-12s %s", st.Name, st.Type, st.Source)
-		if st.Note != "" {
-			line += "  (" + st.Note + ")"
-		}
-		fmt.Fprintln(out, line)
-	}
 }

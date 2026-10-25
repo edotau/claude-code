@@ -33,7 +33,7 @@ var adapters = []Adapter{
 		ResumeHint:     func(id string) string { return "agy --conversation " + id },
 		ModelsArgv:     []string{"models"},
 		ReadNeedsTools: true, // agy's no-tools preamble bars @path reads; needs --tools to read/search
-		ExtraUsage:     [][2]string{{"bridge [flags] <task>", "ingest files for a large-context task"}},
+		ExtraUsage:     [][2]string{{"bridge", "ingest files for a large-context task"}},
 	},
 	{
 		Name:           "copilot",

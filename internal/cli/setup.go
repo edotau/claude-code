@@ -16,9 +16,9 @@ var setupPage = helptext.Page{
 	Usage: "claude-code install --setup <mode> [flags]",
 	About: "Move a harness checkout in or out: adopt a staged clone, remove one, or scope a project's own .claude/.",
 	Commands: [][2]string{
-		{"adopt --from DIR", "adopt a staged clone into an existing ~/.claude"},
+		{"adopt", "adopt a staged clone into an existing ~/.claude; --from DIR"},
 		{"nuke", "remove the harness directory (dry-run without --apply)"},
-		{"workspace init|link|status", "scaffold, link into, or report a project .claude/"},
+		{"workspace", "scaffold, link into, or report a project .claude/"},
 	},
 	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
 }

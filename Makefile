@@ -147,11 +147,12 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	fi
 
 ##@ Quality
-# Umbrella gate: gofmt + vet + test + build (ci.yml's four steps, same order) + govulncheck when
-# installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
+# Umbrella gate: gofmt + doctor --git (unpushed commits) + vet + test + build (ci.yml's four steps, same order) +
+# govulncheck when installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
 .PHONY: audit
-audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs
+audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
+	@$(MAKE) --no-print-directory audit-git
 	$(GO) vet $(PKGS)
 	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
 	$(GO) build $(PKGS)
@@ -163,6 +164,15 @@ audit: compile  ## CI gate: fmt, vet, test, build, vuln, docs
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke + generated docs; vuln + yaml when installed)"
+
+# Commits being pushed: AUDIT_GIT_RANGE (pre-push sets it), else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
+AUDIT_GIT_FALLBACK ?= 20
+.PHONY: audit-git
+audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commits; a token-shaped addition fails
+	@if [ -n "$(AUDIT_GIT_RANGE)" ]; then exec $(BIN) doctor --git --range '$(AUDIT_GIT_RANGE)'; fi; \
+		if ! n=$$(git rev-list --count '@{u}..HEAD' 2>/dev/null); then exec $(BIN) doctor --git --since $(AUDIT_GIT_FALLBACK); fi; \
+		if [ "$$n" = 0 ]; then echo -e "$(C_NOTE)doctor --git skipped (no unpushed commits)"; exit 0; fi; \
+		$(BIN) doctor --git --range '@{u}..HEAD'
 
 .PHONY: fmt
 fmt:  ## gofmt -w every Go file

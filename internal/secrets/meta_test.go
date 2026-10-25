@@ -94,7 +94,7 @@ func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 	}
 }
 
-// TestRecordProbeSkipsWriteWhenSetAtChanged: a `secrets set` that lands between the probe's read
+// TestRecordProbeSkipsWriteWhenSetAtChanged: a `vault set` that lands between the probe's read
 // and its write (sinceSet captured before the slow probe ran) must leave the new value's record
 // untouched — the probe's verdict was computed against the old value and must not stamp the new one.
 func TestRecordProbeSkipsWriteWhenSetAtChanged(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRecordProbeSkipsWriteWhenSetAtChanged(t *testing.T) {
 	}
 	staleSetAt := readRecord(t, "RACY").SetAt
 
-	// Simulate a concurrent `secrets set` landing while the probe for first-value was in flight.
+	// Simulate a concurrent `vault set` landing while the probe for first-value was in flight.
 	if err := Store("RACY", "second-value"); err != nil {
 		t.Fatal(err)
 	}

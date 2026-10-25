@@ -32,14 +32,12 @@ func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 	}
 }
 
-// TestSecretsOpHelpPrintsUsage: the same ignored-flag twin in `secrets status|scan|doctor -h` (ISSUE sweep of the
-// router fix); each must print usage instead of running the op.
-func TestSecretsOpHelpPrintsUsage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, args := range [][]string{{"status", "-h"}, {"scan", "--help"}, {"doctor", "-h"}} {
-		code, stdout, stderr := captureOutput(t, func() int { return cmdSecrets(args) })
-		if code != 0 || !strings.Contains(stderr, "usage: claude-code secrets") || stdout != "" {
-			t.Errorf("secrets %v: want usage + exit 0 and no op output, got exit %d stdout %q", args, code, stdout)
+func TestVaultStorageHelpPrintsUsage(t *testing.T) {
+	useVaultTest(t)
+	for _, op := range []string{"set", "get", "delete", "import", "export"} {
+		code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{op, "-h"}) })
+		if code != 0 || !strings.Contains(stderr, "usage: claude-code vault "+op) || stdout != "" {
+			t.Errorf("vault %s -h: want usage + exit 0 and no op output, got exit %d", op, code)
 		}
 	}
 }

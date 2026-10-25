@@ -42,7 +42,7 @@ func LoadMeta() (map[string]Meta, error) {
 
 // RecordProbe updates probe metadata in one transaction, preserving the sealed value without needing its key.
 // sinceSet is the record's SetAt captured by the caller before the (slow) probe ran; if the record's SetAt
-// has since moved — a concurrent `secrets set` replaced the value mid-probe — the stale result is dropped.
+// has since moved — a concurrent `vault set` replaced the value mid-probe — the stale result is dropped.
 func RecordProbe(name, status string, at, sinceSet time.Time) error {
 	return vault.Update(func(tx *vault.Tx) error {
 		r, found, err := tx.Record(name)

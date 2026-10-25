@@ -49,7 +49,7 @@ func binaryCheck(a Adapter) Check {
 // loginCheck runs the adapter's own-login probe.
 func loginCheck(a Adapter) Check {
 	if a.Login == nil || !a.Login() {
-		return Check{Name: "login", State: "fail", Detail: "no " + a.Name + " login found (claude-code secrets set / vendor's own login)"}
+		return Check{Name: "login", State: "fail", Detail: "no " + a.Name + " login found (claude-code vault set / vendor's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: a.Name + " login present"}
 }

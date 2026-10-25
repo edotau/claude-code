@@ -246,14 +246,14 @@ function tokenFromFiles(env, readFileImpl) {
   return null;
 }
 
-/** Resolves BITBUCKET_TOKEN: `<binary> secrets get`, then env, then the token files. The caller caches/invalidates it. */
+/** Resolves BITBUCKET_TOKEN: `<binary> vault get` (NAME=value), then env, then the token files. The caller caches/invalidates it. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['secrets', 'get', 'BITBUCKET_TOKEN'], (err, stdout) => {
-      const fromBinary = err ? null : stdout.toString().trim();
+    runExecFile(binary, ['vault', 'get', 'BITBUCKET_TOKEN'], (err, stdout) => {
+      const fromBinary = err ? null : stdout.toString().trim().replace(/^BITBUCKET_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.BITBUCKET_TOKEN) return resolve(environment.BITBUCKET_TOKEN);
       const fromFile = tokenFromFiles(environment, readFileImpl);

@@ -52,7 +52,7 @@ asserted ones. `evaluate-code` judges quality; this judges honesty.
    - **Hand-edited `settings.json`** — generated artifact; the change belongs in
      `internal/settings/template/` and dies on the next regenerate (CLAUDE.md hard rule 1).
    - **A secret outside the vault** — an API key, token, or profile key in a plain file,
-     `settings.json`, a commit, or a log line instead of `claude-code secrets set` or a provider's
+     `settings.json`, a commit, or a log line instead of `claude-code vault set` or a provider's
      `auth.command` (hard rule 2).
    - **AI-attribution footers in commit messages** — `Co-Authored-By: Claude`, `🤖 …`,
      `Claude-Session:` trailers (hard rule 3).

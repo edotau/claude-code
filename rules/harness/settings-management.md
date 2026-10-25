@@ -65,7 +65,7 @@ overlay, every machine, every launch). Provider-specific/infra durable config st
 
 `claude-code network mcp` is read-only diagnosis of MCP health, scope conflicts and inline secrets;
 propose the fix (`claude mcp remove <name> -s <scope>`, or move the token to `${ENV}` via
-`claude-code secrets set`) and never remove or rotate without the user's confirmation.
+`claude-code vault set`) and never remove or rotate without the user's confirmation.
 
 ## Schema reference
 

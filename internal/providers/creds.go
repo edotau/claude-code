@@ -54,7 +54,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if vaultErr != nil {
 		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
 	}
-	return "", fmt.Errorf("%s: no credential (set %s with `claude-code secrets set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
+	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
 }
 
 // Refresh drops a cached command credential and re-runs it; used after an upstream 401.

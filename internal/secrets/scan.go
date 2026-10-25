@@ -242,9 +242,9 @@ func (s *Scanner) ScanConfigs(targets []string) int {
 		s.ScanVault()
 	}
 	if n := len(s.Findings); n > 0 {
-		fmt.Fprintf(s.out(), "secrets scan: %d finding(s) — move inline values into the vault with `claude-code secrets set`.\n", n)
+		fmt.Fprintf(s.out(), "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
 		return ExitFindings
 	}
-	fmt.Fprintln(s.out(), "secrets scan: clean.")
+	fmt.Fprintln(s.out(), "doctor --scan: clean.")
 	return ExitClean
 }

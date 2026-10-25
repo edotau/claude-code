@@ -98,7 +98,7 @@ func agentNames() []string {
 }
 
 // secretNames unions every env var the harness itself reads (each enabled provider's auth.env, the
-// setup-token) with the names index `secrets set` has already written — never a hand copy of either.
+// setup-token) with the names index `vault set` has already written — never a hand copy of either.
 func secretNames() []string {
 	var out []string
 	if reg, err := providers.Load(); err == nil {

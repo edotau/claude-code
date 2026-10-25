@@ -252,16 +252,16 @@ test('a non-2xx response throws an Error with .status and errorMessages[0] in th
 
 // -- resolveToken --
 
-test('resolveToken: uses `secrets get JIRA_TOKEN` via execFileImpl, argv exact, no shell', async () => {
+test('resolveToken: uses `vault get JIRA_TOKEN` via execFileImpl, argv exact, no shell', async () => {
   const calls = [];
   const execFileImpl = (binary, args, cb) => {
     calls.push({ binary, args });
-    cb(null, 'secret-tok\n');
+    cb(null, 'JIRA_TOKEN=secret-tok\n');
   };
   const token = await resolveToken({ binary: 'claude-code', env: {}, execFileImpl });
   assert.equal(token, 'secret-tok');
   assert.equal(calls[0].binary, 'claude-code');
-  assert.deepEqual(calls[0].args, ['secrets', 'get', 'JIRA_TOKEN']);
+  assert.deepEqual(calls[0].args, ['vault', 'get', 'JIRA_TOKEN']);
 });
 
 test('resolveToken: falls back to env.JIRA_TOKEN when the binary fails', async () => {

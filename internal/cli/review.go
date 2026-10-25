@@ -28,14 +28,14 @@ var reviewPage = helptext.Page{
 	About: "The evaluate-code and simplify detectors as one verb; each tool keeps its former script's flags " +
 		"and output.",
 	Commands: [][2]string{
-		{"quality <path>", "code smells and SOLID violations in a file or tree"},
-		{"complexity <targets...>", "function length, nesting and branch counts"},
+		{"quality", "code smells and SOLID violations in a file or tree"},
+		{"complexity", "function length, nesting and branch counts"},
 		{"diff", "diff lines that don't trace to the task"},
-		{"pr [<repo>]", "a branch's changes by category, risk and review order"},
-		{"report [<repo>]", "pr + quality findings as one review report"},
+		{"pr", "a branch's changes by category, risk and review order"},
+		{"report", "pr + quality findings as one review report"},
 		{"gate", "advisory pre-commit summary of the staged change"},
-		{"assumptions [<input>]", "vague or hopeful steps in a plan"},
-		{"goals [<input>]", "plan steps with no verifiable goal"},
+		{"assumptions", "vague or hopeful steps in a plan"},
+		{"goals", "plan steps with no verifiable goal"},
 	},
 	Hint: "claude-code review <tool> -h lists that tool's flags.",
 }
@@ -97,8 +97,8 @@ var workflowPage = helptext.Page{
 	Usage: "claude-code workflow <command> [args]",
 	About: "Scaffold a new Workflow tool script from a pattern, or lint the saved ones.",
 	Commands: [][2]string{
-		{"skeleton <pattern>", "print a pipeline|parallel|evaluator|orchestrator script"},
-		{"lint [<root>]", "check model/effort pins + meta/throw"},
+		{"skeleton", "print a pipeline|parallel|evaluator|orchestrator script"},
+		{"lint", "check model/effort pins + meta/throw"},
 	},
 	Hint: "claude-code workflow <command> -h lists that command's flags.",
 }

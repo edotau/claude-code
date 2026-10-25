@@ -1,12 +1,12 @@
 # Security Standards
 
 Language specifics: `rules/software/<lang>/security.md`. Harness credentials live only in the encrypted vault
-(`claude-code secrets set`) or a provider's `auth.command` (CLAUDE.md hard rule 2; `README.md` → Credentials).
+(`claude-code vault set`) or a provider's `auth.command` (CLAUDE.md hard rule 2; `README.md` → Credentials).
 
 ## Core Principles
 
 1. **No secrets in code** — env vars or a secret manager; exclude `.env`, `credentials.json`, `*.pem` from git;
-   validate required secrets at startup; scan before committing (`claude-code secrets scan`). A secret in a
+   validate required secrets at startup; scan before committing (`claude-code doctor --scan`). A secret in a
    git-tracked file is urgent: rotate it at the source, replace it with `${ENV_VAR}`, scrub history if pushed.
 2. **Input validation** — validate all user input; sanitize file paths (no traversal); subprocess with list
    args, never shell-string concatenation.

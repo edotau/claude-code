@@ -1494,7 +1494,7 @@ class TasksViewProvider {
       }
       case 'signIn': {
         const t = terminal();
-        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} secrets set BITBUCKET_TOKEN` : msg.source === 'jira' ? `${cfg.binary} secrets set JIRA_TOKEN` : 'gh auth login');
+        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} vault set BITBUCKET_TOKEN` : msg.source === 'jira' ? `${cfg.binary} vault set JIRA_TOKEN` : 'gh auth login');
         t.show();
         this.tokenPromise = null;
         this.jiraTokenPromise = null;

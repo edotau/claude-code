@@ -31,6 +31,9 @@ func buildSpecTree() map[string]*compNode {
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
 	valuedFlag := func(name string, values func() []string) flagInfo { return flagInfo{name: name, values: values} }
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
+	vaultSections := func() []string {
+		return []string{"secrets", "pins", "env", "providers", "vendors", "settings", "vault", "all"}
+	}
 
 	askFlags := []flagInfo{
 		valuedFlag("agent", agentNames), valuedFlag("provider", providerNames), flag("model"),
@@ -47,7 +50,7 @@ func buildSpecTree() map[string]*compNode {
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
-		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), formatFlag()}},
+		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), formatFlag()}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
 		"ask":      {flags: askFlags},
 		"theme": {args: []func() []string{statusline.GradientNames}, flags: []flagInfo{boolFlag("preview")},
@@ -83,26 +86,16 @@ func buildSpecTree() map[string]*compNode {
 			"lint":     {},
 		}},
 		"review": {sub: reviewSubNodes()},
-		"secrets": {sub: map[string]*compNode{
-			"set":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("dry-run")}},
-			"get":    {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export")}},
-			"delete": {args: []func() []string{secretNames}},
-			"import": {},
-			"export": {args: []func() []string{secretNames}},
-			"list":   {args: []func() []string{secretNames}},
-			"status": {}, "scan": {},
-			"git":    {flags: []flagInfo{flag("since")}},
-			"doctor": {},
-			"all":    {flags: []flagInfo{flag("since")}}, // forwards its args to `secrets git`
-		}},
 		"vault": {sub: map[string]*compNode{
-			"show": {flags: []flagInfo{boolFlag("tailscale"), formatFlag()}}, "edit": {},
-			"rollback":   {flags: []flagInfo{valuedFlag("discard", secretNames)}},
-			"rotate-key": {flags: []flagInfo{boolFlag("force")}},
-			"set":        {flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"), boolFlag("dry-run")}},
-			"migrate":    {flags: []flagInfo{boolFlag("dry-run")}},
-			"finalize":   {flags: []flagInfo{valuedFlag("discard", secretNames)}},
-			"key":        {sub: map[string]*compNode{"show": {}}},
+			"list": {args: []func() []string{vaultSections}, flags: []flagInfo{boolFlag("tailscale"), formatFlag()}},
+			"set": {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"),
+				boolFlag("dry-run")}},
+			"get":           {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export"), boolFlag("key")}},
+			"delete":        {args: []func() []string{secretNames}},
+			"import":        {flags: []flagInfo{boolFlag("yes")}},
+			"export":        {args: []func() []string{secretNames}, flags: []flagInfo{flag("out")}},
+			"edit":          {},
+			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
 		}},
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},

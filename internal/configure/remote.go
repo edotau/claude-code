@@ -29,7 +29,7 @@ func runRemote(d *dialog) bool {
 	case hasAdminCredential():
 		d.printf("admin api   credential present\n")
 	default:
-		d.printf("admin api   credential absent → claude-code secrets set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
+		d.printf("admin api   credential absent → claude-code vault set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
 	}
 	machines, _ := tailscale.Machines(ctx)
 	var online []string

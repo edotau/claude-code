@@ -279,25 +279,45 @@ func cmdInstall(args []string) int {
 	if err := configure.MigrateWebSearchArgs(*dry, os.Stdout); err != nil {
 		return fail("install: web-search MCP migrate: %v", err)
 	}
+	if err := configure.MigrateVendorOverlay(*dry, os.Stdout); err != nil {
+		return fail("install: vendor overlay migrate: %v", err)
+	}
 	return 0
 }
 
 func cmdDoctor(args []string) int {
 	fs := helptext.NewFlagSet("doctor", helptext.Page{
-		Usage: "claude-code doctor [flags]",
+		Usage: "claude-code doctor [flags] [--scan [path...]]",
 		About: "Check binaries, providers, credentials and the router without changing anything; " +
 			"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
-			"and router failovers instead.",
+			"and router failovers instead. --scan, --git and --secrets audit for plaintext " +
+			"credentials instead and exit 1 on any finding.",
 	})
 	format := outfmt.Flag(fs)
 	auditMode := fs.Bool("audit", false, "print the typed action log instead of health checks")
 	days := fs.Int("days", 7, "with --audit: events from the last N days")
+	scan := fs.Bool("scan", false, "scan paths given, else configs and vault, for inline secrets")
+	gitScan := fs.Bool("git", false, "scan this repo's git history for committed secrets")
+	since := fs.Int("since", 0, "with --git or --secrets: only the last N commits (0 = all)")
+	rev := fs.String("range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
+	all := fs.Bool("secrets", false, "--scan, --git and the vault checks together; worst exit wins")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("doctor: %v", err)
 		return 2
+	}
+	if len(fs.Args()) > 0 && !*scan {
+		fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
+		return 2
+	}
+	if *scan || *gitScan || *all {
+		if *format == outfmt.JSON {
+			fail("doctor: --scan, --git and --secrets print text only")
+			return 2
+		}
+		return secretAudits(*scan || *all, *gitScan || *all, *all, fs.Args(), *rev, *since)
 	}
 	if *auditMode {
 		return printAudit(*days, *format)

@@ -68,7 +68,7 @@ func claudeMenu(d *dialog) agentMenu {
 			return keepOrPin(d, cur, subscriptionName)
 		}},
 		{"API key", "pay per token · paste to set or rotate · no RC " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
-			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code secrets set " + anthropicKeyEnv,
+			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code vault set " + anthropicKeyEnv,
 				provider: fp.reg.Providers[anthropicRow]}
 			if !ensureKey(d, kt, keyOK) {
 				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(cur))

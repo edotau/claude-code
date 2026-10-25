@@ -90,13 +90,13 @@ lives. VS Code decides the floating window's size and remembers the last size yo
 gets (board columns stretch to the width). Tasks is live in one place at a time: the Panel/sidebar copy
 closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the
 harness only supplies the Bitbucket and Jira
-credentials (`<binary> secrets get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
+credentials (`<binary> vault get BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
 `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session and re-resolved once on a
 401/403.
 
 Chrome, top to bottom: a source bar (one square button per visible source), an availability banner
 (not signed in / no token, with a Sign in / Set token action that runs `gh auth login` or
-`claude-code secrets set BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
+`claude-code vault set BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
 chips (click applies; **right-click makes it the default** for that source), type/state dropdowns, the
 query input (Enter applies, X clears), "New issue" (GitHub) and Refresh. The list is a sticky-header grid
 with sticky ID and Title columns under horizontal scroll — issues: ID · Title · Assignees · Status ·

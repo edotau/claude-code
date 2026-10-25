@@ -82,7 +82,7 @@ func sourceLabel(src, shadowed string) string {
 	return src
 }
 
-// Secrets is the guided `secrets set`: pick a tracked secret (or a new custom one), choose how to satisfy it,
+// Secrets is the guided `vault set`: pick a tracked secret (or a new custom one), choose how to satisfy it,
 // and seal it in the vault. Loops until Esc or done.
 func Secrets(o Options) int {
 	reg, err := providers.Load()
@@ -156,7 +156,7 @@ func editSecret(d *dialog, s trackedSecret) {
 		run        func() bool
 	}
 	var acts []action
-	kt := keyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code secrets set " + s.name}
+	kt := keyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code vault set " + s.name}
 	if s.name == providers.OAuthTokenEnv {
 		kt.mintArgv = []string{"claude", "setup-token"}
 	}

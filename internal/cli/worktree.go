@@ -23,9 +23,9 @@ var worktreePage = helptext.Page{
 		"per task, then merge it back with a verified fast-forward and clean it up.",
 	Commands: [][2]string{
 		{"list", "every worktree with status, reopen and cleanup commands"},
-		{"create <name>", "new worktree on branch worktree-<name> (--branch)"},
-		{"merge <name>", "verified fast-forward merge; --dry-run previews, --resume"},
-		{"clean <name>", "remove one merged worktree (--force, --dry-run)"},
+		{"create", "new worktree on branch worktree-<name> (--branch)"},
+		{"merge", "verified fast-forward merge; --dry-run previews, --resume"},
+		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 	},
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",

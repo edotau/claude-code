@@ -17,7 +17,7 @@ var setupWorkspacePage = helptext.Page{
 		"<root> defaults to cwd and must be a git toplevel outside ~/.claude.",
 	Commands: [][2]string{
 		{"init", "scaffold .claude/ (--with LIST, --dry-run)"},
-		{"link <kind> <name>", "link one of agents|commands|skills into it"},
+		{"link", "link one of agents|commands|skills into it"},
 		{"status", "report what the project .claude/ holds"},
 	},
 }

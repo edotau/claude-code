@@ -40,7 +40,7 @@ func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
 
 			var out bytes.Buffer
 			started := time.Now()
-			if code := ScanGit(&out, t.TempDir(), 0); code != ExitFindings {
+			if code := ScanGit(&out, t.TempDir(), "", 0); code != ExitFindings {
 				t.Errorf("ScanGit failed probe exit = %d, want %d; output = %q", code, ExitFindings, out.String())
 			}
 			if elapsed := time.Since(started); elapsed >= time.Second {
@@ -55,7 +55,7 @@ func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
 
 func TestScanGitNonRepoStillSkipped(t *testing.T) {
 	var out bytes.Buffer
-	if code := ScanGit(&out, t.TempDir(), 0); code != ExitClean {
+	if code := ScanGit(&out, t.TempDir(), "", 0); code != ExitClean {
 		t.Fatalf("non-repo exit = %d, want %d: %s", code, ExitClean, out.String())
 	}
 	if !strings.Contains(out.String(), "not inside a git repo") || !strings.Contains(out.String(), "skipped") {
@@ -117,7 +117,7 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	run("commit", "-q", "-m", "add fixtures")
 
 	var buf bytes.Buffer
-	if rc := ScanGit(&buf, dir, 0); rc != ExitFindings {
+	if rc := ScanGit(&buf, dir, "", 0); rc != ExitFindings {
 		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
 	}
 	out := buf.String()
@@ -168,7 +168,7 @@ func TestScanGitLongLine(t *testing.T) {
 
 			var buf bytes.Buffer
 			started := time.Now()
-			rc := ScanGit(&buf, dir, 0)
+			rc := ScanGit(&buf, dir, "", 0)
 			if elapsed := time.Since(started); elapsed >= 5*time.Second {
 				t.Errorf("ScanGit took %v, want < 5s", elapsed)
 			}
@@ -205,7 +205,7 @@ func TestScanGitSecretInsideLongLine(t *testing.T) {
 	run("commit", "-q", "-m", "add long.txt")
 
 	var buf bytes.Buffer
-	rc := ScanGit(&buf, dir, 0)
+	rc := ScanGit(&buf, dir, "", 0)
 	if rc != ExitFindings {
 		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
 	}
@@ -238,7 +238,7 @@ func TestScanGitNoTextconv(t *testing.T) {
 	run("commit", "-q", "-m", "add textconv config")
 
 	var buf bytes.Buffer
-	ScanGit(&buf, dir, 0)
+	ScanGit(&buf, dir, "", 0)
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("textconv filter ran during ScanGit (MARKER present)")
 	}

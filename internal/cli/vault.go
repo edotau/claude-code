@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -19,24 +19,26 @@ import (
 )
 
 var vaultPage = helptext.Page{
-	Usage: "claude-code vault <subcommand>",
+	Usage: "claude-code vault <command> [flags]",
+	About: "The encrypted store (state/vault.db): sealed secrets, pins, env, and the\n" +
+		"provider and vendor overlays. Values print only through get.",
 	Commands: [][2]string{
-		{"show", "print the pins, env, overlays and key_command " +
-			"[--format text|json] (default text on a terminal) [--tailscale]"},
-		{"set", "only --tailscale: add a Tailscale credential [--api-key] " +
-			"[--dry-run]; bare \"set\" points at claude-code secrets set"},
-		{"edit", "$VISUAL/$EDITOR on that JSON; saved in one transaction, " +
-			"refused if the vault changed meanwhile"},
-		{"rotate-key", "re-seal every secret under a new master key; the old key " +
-			"stays in the keyring [--force past an env/key_command guard]"},
-		{"key show", "print the master key (base64) to a pipe; refused on a TTY"},
+		{"list", "everything stored, secrets first (masked); --format json"},
+		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
+		{"get", "print secret values; --export for shell, --key for master"},
+		{"delete", "remove a secret"},
+		{"import", "seal every NAME=value line of a .env file"},
+		{"export", "write secrets to ./.env (0600); --out for another path"},
+		{"edit", "pins, env and overlays in $EDITOR, one transaction"},
+		{"rotate-secret", "re-seal every secret under a new master key"},
 	},
+	Hint: "claude-code vault <command> -h lists that command's arguments and flags.",
 }
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
-	"show": configShow, "set": cmdVaultSet, "edit": configEdit, "rotate-key": configRotateKey,
-	"key": cmdVaultKey,
+	"list": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
+	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
 }
 
 // cmdVault reads and edits the vault's non-secret config through one JSON document.
@@ -70,52 +72,8 @@ func vaultUsageErr(sub string, args []string) int {
 	return 2
 }
 
-func configShow(args []string) int {
-	fs := helptext.NewFlagSet("vault show", helptext.Page{Usage: "claude-code vault show [flags]"})
-	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
-	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("show", fs.Args())
-	}
-	if *ts {
-		return vaultShowTailscale()
-	}
-	f := *format
-	if f == "" {
-		f = outfmt.JSON
-		if tui.StdoutIsTerminal() {
-			f = outfmt.Text
-		}
-	}
-	if err := outfmt.Check(f); err != nil {
-		fmt.Fprintln(os.Stderr, "vault show:", err)
-		return 2
-	}
-	if f == outfmt.JSON {
-		return vaultShowJSON()
-	}
-	return vaultShowText()
-}
-
-// vaultShowJSON prints config.Export() as-is: the vault's non-secret config, byte-identical for scripts.
-func vaultShowJSON() int {
-	out, err := config.Export()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault show:", err)
-		return 1
-	}
-	if _, err := os.Stdout.Write(out); err != nil {
-		fmt.Fprintln(os.Stderr, "vault show:", err)
-		return 1
-	}
-	return 0
-}
-
-// vaultShowTailscale prints presence (never a value) per credential name, then the api verdict.
-func vaultShowTailscale() int {
+// vaultListTailscale prints presence (never a value) per credential name, then the api verdict.
+func vaultListTailscale() int {
 	cs := tailscale.Credentials()
 	for _, c := range cs {
 		if c.Present {
@@ -143,26 +101,36 @@ func tailscaleAPIVerdict(cs []tailscale.CredState) string {
 	}
 }
 
-// cmdVaultSet adds a Tailscale credential; no other use is supported (use claude-code secrets set).
+// cmdVaultSet stores a secret by NAME (or via the guided dialog); --tailscale adds a Tailscale credential.
 func cmdVaultSet(args []string) int {
-	fs := helptext.NewFlagSet("vault set", helptext.Page{Usage: "claude-code vault set [flags]"})
-	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key)")
-	apiKey := fs.Bool("api-key", false, "piped stdin is one TAILSCALE_API_KEY value")
+	fs := helptext.NewFlagSet("vault set", helptext.Page{
+		Usage: "claude-code vault set [NAME] [flags]",
+		About: "Store a secret sealed in the vault; no NAME on a terminal opens the guided dialog.",
+	})
+	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key) instead of NAME")
+	apiKey := fs.Bool("api-key", false, "with --tailscale: piped stdin is one TAILSCALE_API_KEY value")
 	dryRun := fs.Bool("dry-run", false, "report what would be written; change nothing")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
+	names, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("set", fs.Args())
+	if *ts {
+		if len(names) > 0 {
+			return vaultUsageErr("set", names)
+		}
+		if tui.StdinIsTerminal() {
+			return vaultSetTailscaleInteractive(*dryRun)
+		}
+		return vaultSetTailscalePiped(*apiKey, *dryRun)
 	}
-	if !*ts {
-		fmt.Fprintln(os.Stderr, "vault set: only --tailscale; use claude-code secrets set NAME")
+	if len(names) == 0 && !*dryRun && tui.StdinIsTerminal() {
+		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
+	}
+	if len(names) != 1 {
+		fs.Usage()
 		return 2
 	}
-	if tui.StdinIsTerminal() {
-		return vaultSetTailscaleInteractive(*dryRun)
-	}
-	return vaultSetTailscalePiped(*apiKey, *dryRun)
+	return vaultSetSecret(names[0], *dryRun)
 }
 
 // vaultPair is one credential name/value pair waiting to be reported and stored together.
@@ -255,63 +223,22 @@ func configEdit(args []string) int {
 }
 
 func configRotateKey(args []string) int {
-	fs := helptext.NewFlagSet("vault rotate-key", helptext.Page{Usage: "claude-code vault rotate-key [flags]"})
+	fs := helptext.NewFlagSet("vault rotate-secret", helptext.Page{
+		Usage: "claude-code vault rotate-secret [flags]",
+		About: "Re-seal every secret under a new master key; values unchanged.",
+	})
 	force := fs.Bool("force", false, "rotate even if HARNESS_VAULT_KEY or key_command is set")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return vaultUsageErr("rotate-key", fs.Args())
+		return vaultUsageErr("rotate-secret", fs.Args())
 	}
 	var opts []vault.RotateKeyOption
 	if *force {
 		opts = append(opts, vault.ForceRotate())
 	}
-	return configRun("rotate-key", config.RotateKey(os.Stdout, opts...))
-}
-
-var vaultKeyPage = helptext.Page{
-	Usage:    "claude-code vault key <subcommand>",
-	Commands: [][2]string{{"show", "print the master key (base64) to stdout; refused on a terminal"}},
-}
-
-// cmdVaultKey routes "vault key <subcommand>".
-func cmdVaultKey(args []string) int {
-	sub := ""
-	if len(args) > 0 {
-		sub = args[0]
-		args = args[1:]
-	}
-	switch sub {
-	case "", "-h", "--help", "help":
-		vaultKeyPage.Fprint(os.Stdout)
-		return 0
-	case "show":
-		return vaultKeyShow(args)
-	}
-	fmt.Fprintf(os.Stderr, "vault key: unknown subcommand %q\n", sub)
-	vaultKeyPage.Fprint(os.Stderr)
-	return 2
-}
-
-// vaultKeyShow prints the current master key only to a pipe, never a terminal, so the value never
-// lands in scrollback; meant for `claude-code vault key show | pass insert -m <name>`.
-func vaultKeyShow(args []string) int {
-	if len(args) > 0 {
-		return vaultUsageErr("key show", args)
-	}
-	if tui.StdoutIsTerminal() {
-		fmt.Fprintln(os.Stderr, "vault key show: refusing to print the master key to a terminal; pipe it")
-		return 2
-	}
-	k, _, err := vault.MasterKey()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault key show:", err)
-		return 1
-	}
-	fmt.Println(k.Raw())
-	audit.Log(audit.KeyReveal, k.Kid, "")
-	return 0
+	return configRun("rotate-secret", config.RotateKey(os.Stdout, opts...))
 }
 
 // configRun maps a subcommand's error to its exit code.

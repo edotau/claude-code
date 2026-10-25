@@ -311,7 +311,7 @@ func maxPlanTarget(kt keyTarget) keyTarget {
 	kt.loginArgv = []string{"claude", "auth", "login"}
 	kt.mintArgv = []string{"claude", "setup-token"}
 	kt.envVar = providers.OAuthTokenEnv
-	kt.fixCmd = "claude auth login (interactive) · claude setup-token → claude-code secrets set " + providers.OAuthTokenEnv + " (headless)"
+	kt.fixCmd = "claude auth login (interactive) · claude setup-token → claude-code vault set " + providers.OAuthTokenEnv + " (headless)"
 	kt.headless = providers.HeadlessOAuthToken() != ""
 	loggedIn, plan := providers.ClaudeLoginStatus()
 	kt.present = loggedIn || kt.headless
@@ -372,9 +372,9 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 			return nil, err
 		}
 		p := sel.Provider
-		fix := "resolve the credential for " + p.Name + " (see `claude-code secrets status`)"
+		fix := "resolve the credential for " + p.Name + " (see `claude-code configure provider --list`)"
 		if p.Auth.Env != "" {
-			fix = "claude-code secrets set " + p.Auth.Env
+			fix = "claude-code vault set " + p.Auth.Env
 		}
 		kt := keyTarget{
 			label: "claude", present: providers.CredentialPresent(p), source: secrets.Resolve(p).Source,

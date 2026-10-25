@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"regexp"
 	"slices"
@@ -27,17 +28,20 @@ func TestCmdVault(t *testing.T) {
 		{"short help", []string{"-h"}, 0},
 		{"long help", []string{"--help"}, 0},
 		{"unknown", []string{"nope"}, 2},
-		{"show extra arg", []string{"show", "x"}, 2},
+		{"list unknown section", []string{"list", "bogus"}, 2},
 		{"edit extra arg", []string{"edit", "x"}, 2},
-		{"show", []string{"show"}, 0},
+		{"list", []string{"list"}, 0},
+		{"show removed", []string{"show"}, 2},
 		{"migrate is unknown", []string{"migrate"}, 2},
 		{"finalize is unknown", []string{"finalize"}, 2},
 		{"rollback is unknown", []string{"rollback"}, 2},
-		{"rotate-key extra arg", []string{"rotate-key", "x"}, 2},
+		{"rotate-secret extra arg", []string{"rotate-secret", "x"}, 2},
+		{"rotate-key removed", []string{"rotate-key"}, 2},
+		{"key removed", []string{"key", "show"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vaulttest.Use(t)
+			useVaultTest(t)
 			if got := cmdVault(tt.args); got != tt.want {
 				t.Errorf("cmdVault(%q) = %d, want %d", tt.args, got, tt.want)
 			}
@@ -46,8 +50,8 @@ func TestCmdVault(t *testing.T) {
 }
 
 func TestVaultVerbsAndMenu(t *testing.T) {
-	vaulttest.Use(t)
-	want := []string{"show", "set", "edit", "rotate-key", "key"}
+	useVaultTest(t)
+	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}
@@ -99,8 +103,8 @@ func vaultTestStdin(t *testing.T, input string) {
 	os.Stdin = f
 }
 
-func TestCmdVaultShowTailscalePresenceOnly(t *testing.T) {
-	vaulttest.Use(t)
+func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
+	useVaultTest(t)
 	for _, name := range []string{
 		"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET",
 		"TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
@@ -112,10 +116,10 @@ func TestCmdVaultShowTailscalePresenceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := captureOutput(t, func() int {
-		return cmdVault([]string{"show", "--tailscale"})
+		return cmdVault([]string{"list", "--tailscale"})
 	})
 	if code != 0 {
-		t.Fatalf("vault show --tailscale = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list --tailscale = %d, stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "TAILSCALE_API_KEY  set (") {
 		t.Errorf("stdout = %q, want stored credential presence", stdout)
@@ -137,7 +141,7 @@ func TestCmdVaultShowTailscalePresenceOnly(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscalePipedTwoLines(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	vaultTestStdin(t, "id-value\nsecret-value\n")
 	code, _, stderr := captureOutput(t, func() int {
 		return cmdVault([]string{"set", "--tailscale"})
@@ -150,14 +154,14 @@ func TestCmdVaultSetTailscalePipedTwoLines(t *testing.T) {
 		"TAILSCALE_OAUTH_CLIENT_SECRET": "secret-value",
 	} {
 		value, source, ok := secrets.Get(name)
-		if !ok || value != want || source != "vault" {
-			t.Errorf("secrets.Get(%q) = (%q, %q, %v), want (%q, vault, true)", name, value, source, ok, want)
+		if !ok || secrets.Redact(value) != secrets.Redact(want) || source != "vault" {
+			t.Errorf("%s was not stored correctly in the vault", name)
 		}
 	}
 }
 
 func TestCmdVaultSetTailscaleApiKeyOneLine(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	vaultTestStdin(t, "apikeyvalue\n")
 	code, _, stderr := captureOutput(t, func() int {
 		return cmdVault([]string{"set", "--tailscale", "--api-key"})
@@ -166,13 +170,13 @@ func TestCmdVaultSetTailscaleApiKeyOneLine(t *testing.T) {
 		t.Fatalf("vault set --tailscale --api-key = %d, stderr = %q", code, stderr)
 	}
 	value, source, ok := secrets.Get("TAILSCALE_API_KEY")
-	if !ok || value != "apikeyvalue" || source != "vault" {
-		t.Errorf("secrets.Get(TAILSCALE_API_KEY) = (%q, %q, %v), want (apikeyvalue, vault, true)", value, source, ok)
+	if !ok || secrets.Redact(value) != secrets.Redact("apikeyvalue") || source != "vault" {
+		t.Error("TAILSCALE_API_KEY was not stored correctly in the vault")
 	}
 }
 
 func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	for _, tc := range []struct {
 		name  string
 		input string
@@ -182,7 +186,7 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 		{"empty secret", "id-value\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			vaulttest.Use(t)
+			useVaultTest(t)
 			vaultTestStdin(t, tc.input)
 			code, _, stderr := captureOutput(t, func() int {
 				return cmdVault([]string{"set", "--tailscale"})
@@ -201,7 +205,7 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscaleDryRunStoresNothing(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	vaultTestStdin(t, "id-value\nsecret-value\n")
 	code, stdout, stderr := captureOutput(t, func() int {
 		return cmdVault([]string{"set", "--tailscale", "--dry-run"})
@@ -226,15 +230,16 @@ func TestCmdVaultSetTailscaleDryRunStoresNothing(t *testing.T) {
 }
 
 func TestCmdVaultSetBareExitsTwo(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
+	withStdin(t, "")
 	code, _, stderr := captureOutput(t, func() int {
 		return cmdVault([]string{"set"})
 	})
 	if code != 2 {
 		t.Errorf("vault set = %d, want 2", code)
 	}
-	if !strings.Contains(stderr, "secrets set") {
-		t.Errorf("stderr = %q, want guidance to use secrets set", stderr)
+	if !strings.Contains(stderr, "usage: claude-code vault set [NAME]") {
+		t.Errorf("stderr = %q, want vault set usage", stderr)
 	}
 }
 
@@ -255,7 +260,7 @@ func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			vaulttest.Use(t)
+			useVaultTest(t)
 			code, _, stderr := captureOutput(t, func() int {
 				return vaultStoreTailscale(false, tc.pairs)
 			})
@@ -301,9 +306,7 @@ func TestTailscaleAPIVerdict(t *testing.T) {
 	}
 }
 
-// TestCmdVaultRotateKeyRefusesWithEnvSetWithoutForce: the CLI layer surfaces vault.RotateKey's
-// guard (via configRotateKey) as exit 1 with the guard's message, and --force bypasses it.
-func TestCmdVaultRotateKeyRefusesWithEnvSetWithoutForce(t *testing.T) {
+func TestCmdVaultRotateSecretRefusesWithEnvSetWithoutForce(t *testing.T) {
 	dir, _ := vaulttest.UseKeyring(t)
 	_ = dir
 	if _, err := vault.EnsureKey(); err != nil {
@@ -313,33 +316,29 @@ func TestCmdVaultRotateKeyRefusesWithEnvSetWithoutForce(t *testing.T) {
 	// --force refuses, present with --force rotates.
 	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
 
-	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"rotate-key"}) })
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"rotate-secret"}) })
 	if code != 1 {
-		t.Fatalf("vault rotate-key = %d, want 1; stderr = %q", code, stderr)
+		t.Fatalf("vault rotate-secret = %d, want 1; stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stderr, "key_command") {
 		t.Errorf("stderr = %q, want it to name key_command", stderr)
 	}
 
-	code, _, stderr = captureOutput(t, func() int { return cmdVault([]string{"rotate-key", "--force"}) })
+	code, _, stderr = captureOutput(t, func() int { return cmdVault([]string{"rotate-secret", "--force"}) })
 	if code != 0 {
-		t.Fatalf("vault rotate-key --force = %d, want 0; stderr = %q", code, stderr)
+		t.Fatalf("vault rotate-secret --force = %d, want 0; stderr = %q", code, stderr)
 	}
 }
 
-// TestCmdVaultKeyShowNonTTYDecodesToMasterKey: under go test, stdout is a pipe (captureOutput),
-// never a terminal, so only the non-refusal path is reachable here — matching this repo's
-// existing convention for TTY-gated code (tui.TestListNonTTY, tui.TestOpenFailsCleanlyWithoutATTY):
-// the refusal itself, gated on tui.StdoutIsTerminal, is not exercised by an automated test.
-func TestCmdVaultKeyShowNonTTYDecodesToMasterKey(t *testing.T) {
-	vaulttest.Use(t)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"key", "show"}) })
+func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
+	useVaultTest(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"get", "--key"}) })
 	if code != 0 {
-		t.Fatalf("vault key show = %d, want 0; stderr = %q", code, stderr)
+		t.Fatalf("vault get --key = %d, want 0; stderr empty=%v", code, stderr == "")
 	}
 	got, err := base64.StdEncoding.DecodeString(strings.TrimSpace(stdout))
 	if err != nil {
-		t.Fatalf("vault key show stdout %q does not decode as base64: %v", stdout, err)
+		t.Fatal("vault get --key stdout does not decode as base64")
 	}
 	if len(got) != 32 {
 		t.Errorf("decoded master key is %d bytes, want 32", len(got))
@@ -349,63 +348,96 @@ func TestCmdVaultKeyShowNonTTYDecodesToMasterKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("vault key show printed a different key than HARNESS_VAULT_KEY")
+		t.Error("vault get --key printed a different key than HARNESS_VAULT_KEY")
 	}
 }
 
-// TestVaultShowDefaultIsJSONUnderCaptureOutput: go test's stdout (captureOutput) is a pipe, never
-// a terminal, so the undecorated default must resolve to the json branch — byte-identical to
-// config.Export(), the contract scripts piping `vault show` depend on.
-func TestVaultShowDefaultIsJSONUnderCaptureOutput(t *testing.T) {
-	vaulttest.Use(t)
-	seedVaultShowFixture(t)
+// Captured output defaults to JSON with masked secrets alongside config.Export's sections.
+func TestVaultListDefaultIsJSONUnderCaptureOutput(t *testing.T) {
+	useVaultTest(t)
+	seedVaultListFixture(t)
 	want, err := config.Export()
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list"}) })
 	if code != 0 {
-		t.Fatalf("vault show = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list = %d, stderr = %q", code, stderr)
 	}
-	if stdout != string(want) {
-		t.Errorf("vault show (default, piped) = %q, want config.Export() %q", stdout, want)
-	}
+	checkVaultListJSON(t, stdout, want)
 }
 
-// TestVaultShowFormatJSONMatchesExport: explicit --format json takes the same byte-identical path.
-func TestVaultShowFormatJSONMatchesExport(t *testing.T) {
-	vaulttest.Use(t)
-	seedVaultShowFixture(t)
+// Explicit JSON preserves every non-secret config section and adds masked secret metadata.
+func TestVaultListFormatJSONMatchesExport(t *testing.T) {
+	useVaultTest(t)
+	seedVaultListFixture(t)
 	want, err := config.Export()
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "json"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "json"}) })
 	if code != 0 {
-		t.Fatalf("vault show --format json = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list --format json = %d, stderr = %q", code, stderr)
 	}
-	if stdout != string(want) {
-		t.Errorf("vault show --format json = %q, want config.Export() %q", stdout, want)
+	checkVaultListJSON(t, stdout, want)
+}
+
+func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
+	t.Helper()
+	if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
+		t.Fatal("JSON leaked a raw secret")
+	}
+	var got, want map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(exported, &want); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(got["secrets"], &rows); err != nil || len(rows) != 1 {
+		t.Fatal("expected one masked secret row")
+	}
+	for _, row := range rows {
+		if len(row) != 3 || row["name"] == nil || row["masked"] == nil || row["length"] == nil {
+			t.Fatal("secret keys must be exactly length, masked, name")
+		}
+		var name, masked string
+		var length int
+		_ = json.Unmarshal(row["name"], &name)
+		_ = json.Unmarshal(row["masked"], &masked)
+		_ = json.Unmarshal(row["length"], &length)
+		stored, err := secrets.ListStored(nil)
+		if err != nil || len(stored) != 1 {
+			t.Fatal("could not read fixture metadata")
+		}
+		if name != "TAVILY_API_KEY" || masked != stored[0].Masked() || length != stored[0].Len {
+			t.Fatal("secret metadata differs from stored masked metadata")
+		}
+	}
+	delete(got, "secrets")
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(want)
+	if !bytes.Equal(a, b) {
+		t.Fatal("list JSON changed config.Export sections")
 	}
 }
 
-// TestVaultShowFormatBogusExitsTwo: an unrecognized --format value is a usage error, not a crash
+// TestVaultListFormatBogusExitsTwo: an unrecognized --format value is a usage error, not a crash
 // or a silent fallback.
-func TestVaultShowFormatBogusExitsTwo(t *testing.T) {
-	vaulttest.Use(t)
-	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "bogus"}) })
+func TestVaultListFormatBogusExitsTwo(t *testing.T) {
+	useVaultTest(t)
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "bogus"}) })
 	if code != 2 {
-		t.Fatalf("vault show --format bogus = %d, want 2; stderr = %q", code, stderr)
+		t.Fatalf("vault list --format bogus = %d, want 2; stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stderr, `"bogus"`) {
 		t.Errorf("stderr = %q, want it to name the bad --format value", stderr)
 	}
 }
 
-// seedVaultShowFixture plants one of every doc section the text renderer must flatten: a null
-// provider (removed), a nested provider map, a top-level array, a settings subtree, and a
-// key_command — plus a secret that must never surface in either format.
-func seedVaultShowFixture(t *testing.T) {
+// Seed every config section and a fake secret that must only appear masked.
+func seedVaultListFixture(t *testing.T) {
 	t.Helper()
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keepvalue")
@@ -417,15 +449,16 @@ func seedVaultShowFixture(t *testing.T) {
 	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-secret-leak-me-not")
 }
 
-// TestVaultShowTextFixtureFlattensEverySection pins the text renderer's contract against
-// seedVaultShowFixture: uppercase headings, sorted dotted-path rows, "null (removed)" for a
-// removed built-in, "path[i]" for an array, an empty section as "(none)", and no secret value.
-func TestVaultShowTextFixtureFlattensEverySection(t *testing.T) {
-	vaulttest.Use(t)
-	seedVaultShowFixture(t)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+// List renders providers as tables and keeps generic config rows without exposing values.
+func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
+	useVaultTest(t)
+	seedVaultListFixture(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
+	if strings.Contains(stdout+stderr, "tvly-dev-secret-leak-me-not") {
+		t.Fatal("vault list leaked a raw secret value")
+	}
 	if code != 0 {
-		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
 	}
 	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"} {
 		if !strings.Contains(stdout, head+"\n") {
@@ -435,11 +468,8 @@ func TestVaultShowTextFixtureFlattensEverySection(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"HARNESS_PROVIDER", "anthropic"}, // PINS
 		{"KEEP_ENV", "keepvalue"},         // ENV
-		{"custom.models.opus", "m1"},      // PROVIDERS nested
 		{"default", "anthropic"},          // PROVIDERS top-level sibling of providers.*
-		{"fallback[0]", "one"},            // PROVIDERS array index
-		{"fallback[1]", "two"},
-		{"openai", "null (removed)"},           // PROVIDERS removed built-in
+		{"fallback", "one → two"},
 		{"env.FOO", "bar"},                     // SETTINGS nested
 		{"flag", "true"},                       // SETTINGS scalar
 		{"key_command", `["pass","show","x"]`}, // VAULT
@@ -451,11 +481,13 @@ func TestVaultShowTextFixtureFlattensEverySection(t *testing.T) {
 	if !strings.Contains(stdout, "VENDORS\n  (none)\n") {
 		t.Errorf("stdout = %q, want VENDORS rendered as (none) for an empty overlay", stdout)
 	}
-	if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
-		t.Error("vault show --format text leaked a secret value")
-	}
-	if strings.Contains(stderr, "tvly-dev-secret-leak-me-not") {
-		t.Error("vault show --format text leaked a secret value on stderr")
+	for _, row := range []string{
+		"PROVIDER KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
+		"custom m1", "openai (removed)",
+	} {
+		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), row) {
+			t.Errorf("missing provider table row %q", row)
+		}
 	}
 }
 
@@ -466,23 +498,14 @@ func vaultTextHasRow(stdout, key, value string) bool {
 	return re.MatchString(stdout)
 }
 
-// TestVaultShowTextEmptyVaultAllSectionsNone: a fresh vault with nothing set renders every
-// section as "(none)" rather than an empty or missing heading.
-//
-// KNOWN BUG (production code, not this test): config.Export() renders an absent providers/
-// vendors/settings overlay as the JSON literal "null", and vaultFlattenSection's emptiness
-// check (`len(strings.TrimSpace(raw)) == 0`) does not treat that 4-byte "null" as empty — it
-// unmarshals to a nil top value, which flattenVaultValue's `case nil` turns into one bogus
-// row with an EMPTY key ("" -> "null (removed)"/"null"), not the section's own "(none)". This
-// test is written to the documented contract and is expected to fail (RED) until
-// vaultFlattenSection treats a raw "null" the same as an empty/absent section.
-func TestVaultShowTextEmptyVaultAllSectionsNone(t *testing.T) {
-	vaulttest.Use(t)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+// Empty sections render (none), including absent overlay documents.
+func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
+	useVaultTest(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
 	if code != 0 {
-		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
 	}
-	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS"} {
+	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS"} {
 		if !strings.Contains(stdout, head+"\n  (none)\n") {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}
@@ -492,15 +515,15 @@ func TestVaultShowTextEmptyVaultAllSectionsNone(t *testing.T) {
 	}
 }
 
-// TestVaultShowTextTruncatesToWidth: a row longer than $COLUMNS is clipped to that many runes and
+// TestVaultListTextTruncatesToWidth: a row longer than $COLUMNS is clipped to that many runes and
 // ends in the ellipsis, rather than wrapping or overflowing the terminal.
-func TestVaultShowTextTruncatesToWidth(t *testing.T) {
-	vaulttest.Use(t)
+func TestVaultListTextTruncatesToWidth(t *testing.T) {
+	useVaultTest(t)
 	vaulttest.Put(t, vault.Env, "LONG_ENV_NAME_FOR_WIDTH_TEST", strings.Repeat("x", 200))
 	t.Setenv("COLUMNS", "40")
-	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"show", "--format", "text"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
 	if code != 0 {
-		t.Fatalf("vault show --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
 	}
 	for _, line := range strings.Split(stdout, "\n") {
 		if n := utf8.RuneCountInString(line); n > 40 {
@@ -585,7 +608,7 @@ func TestVaultInAuthGroupHelp(t *testing.T) {
 
 // TestConfigVerbIsUnknown is also the only coverage of Run's unknown-command path (provider lookup → exit 2).
 func TestConfigVerbIsUnknown(t *testing.T) {
-	vaulttest.Use(t)
+	useVaultTest(t)
 	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
 	if code != 2 {
 		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)

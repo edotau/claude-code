@@ -17,7 +17,7 @@ var historyPage = helptext.Page{
 	Commands: [][2]string{
 		{"snapshot", "commit the config files now (--note)"},
 		{"log", "recent config commits (-n, --format)"},
-		{"diff [rev]", "one config commit's patch"},
+		{"diff", "one config commit's patch"},
 	},
 	Hint: "Config files only. Memory history: git -C ~/.claude/memory log\n\n" +
 		"claude-code history <command> -h lists that command's flags.",

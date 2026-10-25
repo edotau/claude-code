@@ -54,6 +54,63 @@ func TestHelpFormat(t *testing.T) {
 	}
 }
 
+func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	useVaultTest(t)
+	t.Setenv("HOME", t.TempDir())
+	for _, c := range commands() {
+		t.Run(c.name, func(t *testing.T) {
+			switch c.name {
+			case "opus", "sonnet", "haiku", "fable", "science", "claude":
+				t.Skip("external CLI launcher has no harness-owned top-level help page")
+			}
+			code, stdout, stderr := captureOutput(t, func() int {
+				return Run([]string{"claude-code", c.name, "-h"})
+			})
+			if code != 0 {
+				t.Fatalf("%s -h: exit %d", c.name, code)
+			}
+			checkCommandRows(t, stdout+stderr)
+		})
+	}
+}
+
+// checkCommandRows: every COMMANDS label is one bare word and every row fits one line of <=80 columns.
+func checkCommandRows(t *testing.T, text string) {
+	t.Helper()
+	inCommands := false
+	label, row := "", ""
+	for _, line := range strings.Split(text, "\n") {
+		if line == "COMMANDS" {
+			inCommands = true
+			continue
+		}
+		if line == "" || !strings.HasPrefix(line, "  ") {
+			inCommands = false
+			continue
+		}
+		if !inCommands {
+			continue
+		}
+		match := helpFormatRow.FindStringSubmatch(line)
+		if strings.HasPrefix(line, "   ") {
+			t.Errorf("label %q row %q has continuation %q", label, row, line)
+			continue
+		}
+		if match == nil {
+			t.Errorf("malformed COMMANDS row %q", line)
+			continue
+		}
+		label, row = match[1], line
+		if len(strings.Fields(label)) != 1 || strings.ContainsAny(label, "[<") {
+			t.Errorf("COMMANDS label %q must be one bare word; row %q", label, row)
+		}
+		if width := termWidth(line); width > 80 {
+			t.Errorf("COMMANDS label %q row %q has %d columns, want <=80", label, row, width)
+		}
+	}
+}
+
 func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	t.Helper()
 	argv := append([]string{"claude-code"}, path...)
@@ -63,6 +120,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	if code != 0 {
 		t.Errorf("%s: exit %d, want 0:\n%s", strings.Join(argv, " "), code, text)
 	}
+	checkCommandRows(t, text)
 	first := ""
 	for _, line := range strings.Split(text, "\n") {
 		if strings.TrimSpace(line) != "" {
@@ -126,6 +184,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	}
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
+		"vault delete": true,
 	}
 	if len(path) == 2 {
 		switch path[0] {
@@ -148,15 +207,6 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	}
 	for _, sub := range subs {
 		t.Run(sub, func(t *testing.T) {
-			if len(path) == 1 {
-				switch path[0] {
-				case "copilot", "codex", "gemini", "opencode":
-					// These syntax rows launch an external CLI; they are not harness subcommands.
-					if sub == "[launch" || sub == "--" {
-						t.Skip("launch/passthrough syntax forwards -h to an external CLI")
-					}
-				}
-			}
 			checkHelpFormat(t, append(append([]string{}, path...), sub), append(parents, text))
 		})
 	}

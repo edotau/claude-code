@@ -16,8 +16,10 @@ func TestVaultDoctorChecks(t *testing.T) {
 		if c == nil || c.Detail != "not created yet" || !c.OK {
 			t.Errorf("vault row = %+v", c)
 		}
-		if len(checks) != 1 {
-			t.Errorf("want only the vault row, got %+v", checks)
+		for _, name := range []string{"vault perms", "keyring tool"} {
+			if c := findCheck(checks, name); c == nil || !c.OK {
+				t.Errorf("missing healthy %s row", name)
+			}
 		}
 	})
 	t.Run("secrets and retired", func(t *testing.T) {

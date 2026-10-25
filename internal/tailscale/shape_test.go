@@ -23,7 +23,7 @@ func TestValidCredential(t *testing.T) {
 		{"client id whitespace", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLX N11CNTRL", true},
 		// real failure seen live: a full pbpaste'd shell pipeline, not a key.
 		{"client id real failure: pasted shell pipeline", "TAILSCALE_OAUTH_CLIENT_ID",
-			"! pbpaste | claude-code secrets set TAILSCALE_OAUTH_CLIENT_ID", true},
+			"! pbpaste | claude-code vault set TAILSCALE_OAUTH_CLIENT_ID", true},
 
 		{"client secret valid shape", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc123XYZ", false},
 		{"client secret wrong prefix", "TAILSCALE_OAUTH_CLIENT_SECRET", "not-a-secret", true},
@@ -67,7 +67,7 @@ func TestValidCredentialNeverEchoesFullValue(t *testing.T) {
 		name, value string
 	}{
 		{"TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-auth-realrandomtail1234567890"},
-		{"TAILSCALE_OAUTH_CLIENT_ID", "! pbpaste | claude-code secrets set TAILSCALE_OAUTH_CLIENT_ID"},
+		{"TAILSCALE_OAUTH_CLIENT_ID", "! pbpaste | claude-code vault set TAILSCALE_OAUTH_CLIENT_ID"},
 	}
 	for _, c := range cases {
 		err := ValidCredential(c.name, c.value)

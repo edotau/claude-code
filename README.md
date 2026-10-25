@@ -113,7 +113,7 @@ claude-code --provider gateway --model claude-sonnet-5   # this launch only
 Precedence: `--provider` → `HARNESS_PROVIDER` → registry `default`. Slot: `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` →
 the provider's `models`. Process env beats vault pins.
 
-### Vault: `claude-code vault show|edit`
+### Vault: `claude-code vault list|edit`
 
 `state/vault.db` holds pins, custom launch env, provider/vendor overlays and `key_command` as one JSON document, plus
 sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it.
@@ -133,7 +133,7 @@ sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets
 First non-empty source wins:
 
 1. **Process env** — `auth.env`
-2. **Vault** — `claude-code secrets set <KEY>` (AES-256-GCM)
+2. **Vault** — `claude-code vault set <KEY>` (AES-256-GCM)
 3. **`auth.file`**
 4. **`auth.command`** — prints the credential; cached `auth.ttl` seconds (default 300), re-run on 401
 
@@ -144,18 +144,19 @@ First non-empty source wins:
 `claude-code token --provider <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
 
 ```bash
-claude-code secrets set [KEY]          # bare on a terminal = guided dialog
-claude-code secrets get KEY [--export]
-claude-code secrets import keys.env    # then delete the plaintext file
-claude-code secrets export --out - | ssh box claude-code secrets import - --yes
-claude-code secrets status|scan|git|doctor|all   # sources and leak audits; never print values
+claude-code vault set [KEY]            # bare on a terminal = guided dialog
+claude-code vault get KEY... [--export]
+claude-code vault import keys.env      # then delete the plaintext file
+claude-code vault get KEY... | ssh box claude-code vault import - --yes
+claude-code configure provider --list  # credential sources; never prints values
+claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 ```
 
 ### The vault key
 
 32 random bytes, resolved in order: `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a JSON
 argv run without a shell). No key file is written. Headless boxes set `HARNESS_VAULT_KEY` or `key_command`.
-`HARNESS_VAULT_KEY` is scrubbed from vendor CLI children. `vault rotate-key` re-seals and keeps old keys.
+`HARNESS_VAULT_KEY` is scrubbed from vendor CLI children. `vault rotate-secret` re-seals and keeps old keys.
 
 ## Routing
 
@@ -322,7 +323,7 @@ Rows `CLAUDE.md` points here for.
 | Sync VS Code settings | `claude-code theme vscode [--check\|--dry-run]` |
 | Bash tab completion | `claude-code completion --install` |
 | Add a gateway provider | `claude-code vault edit` → `providers.providers` |
-| Edit pins, env, overlays | `claude-code vault show\|edit\|migrate\|finalize\|rollback\|rotate-key` |
+| Edit pins, env, overlays | `claude-code vault list\|edit\|rotate-secret` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
 | Project agents into vendors | `claude-code agents sync [--vendor v] [--dry-run\|--check]` |
 | Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |

@@ -25,7 +25,7 @@ const service = "claude-code"
 var timeout = 3 * time.Second
 
 // down latches once a lookup/store has already timed out this process, so a loop over many
-// names (`secrets status`) pays the timeout once, not once per name.
+// names (`configure provider --list`) pays the timeout once, not once per name.
 var down atomic.Bool
 
 // ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.

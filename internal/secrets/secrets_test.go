@@ -437,42 +437,9 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 	}
 }
 
-// Status must never print a credential value, even when every registered provider resolves one.
-func TestStatusNeverPrintsAValue(t *testing.T) {
-	vaulttest.Use(t)
-	gw := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
-	vaulttest.Put(t, vault.Overlay, "providers", gw)
-	secretValue := "sk-super-secret-value-0123456789"
-	t.Setenv("ANTHROPIC_API_KEY", secretValue)
-	vaulttest.Secret(t, "GATEWAY_API_KEY", secretValue)
-	t.Setenv("GATEWAY_API_KEY", "")
-	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
-	t.Setenv("OPENAI_API_KEY", "") // keep deterministic: unset sources read as "none"
-
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatalf("providers.Load: %v", err)
-	}
-	if got := Resolve(reg.Providers["gateway"]); got.Source != "vault" {
-		t.Fatalf("Resolve(gateway) = %+v, want vault source without decryption", got)
-	}
-	var buf bytes.Buffer
-	Status(&buf, reg)
-	out := buf.String()
-	if strings.Contains(out, secretValue) {
-		t.Fatalf("status output leaked a credential value:\n%s", out)
-	}
-	if !strings.Contains(out, "anthropic") || !strings.Contains(out, "env") {
-		t.Errorf("status did not report anthropic as env-sourced:\n%s", out)
-	}
-	if !strings.Contains(out, "gateway") || !strings.Contains(out, "vault") {
-		t.Errorf("status did not report gateway as vault-sourced:\n%s", out)
-	}
-}
-
 // Doctor must flag vault.db perms looser than 0600.
 func TestDoctorFlagsLoosePerms(t *testing.T) {
-	vaulttest.Use(t)
+	doctorTestVault(t)
 	vaulttest.Secret(t, "A_KEY", "v")
 	if err := os.Chmod(vault.Path(), 0o644); err != nil {
 		t.Fatal(err)
@@ -481,30 +448,30 @@ func TestDoctorFlagsLoosePerms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	if rc := Doctor(&buf, reg); rc != ExitFindings {
-		t.Fatalf("Doctor rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+	rc, detail := doctorTestResult(reg)
+	if rc != ExitFindings {
+		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitFindings, detail)
 	}
-	if !strings.Contains(buf.String(), vault.Path()+" is 0644, want 0600") || !strings.Contains(buf.String(), "chmod 600 "+vault.Path()) {
-		t.Fatalf("Doctor missing vault permission remediation: %s", buf.String())
+	if !strings.Contains(detail, vault.Path()+" is 0644, want 0600") || !strings.Contains(detail, "chmod 600 "+vault.Path()) {
+		t.Fatalf("DoctorChecks missing vault permission remediation: %s", detail)
 	}
 }
 
 // Doctor must flag an unknown key as a typo risk but still pass the gate (advisory only).
 func TestDoctorPassesOnCleanStore(t *testing.T) {
-	vaulttest.Use(t)
+	doctorTestVault(t)
 	vaulttest.Secret(t, "UNKNOWN_KEY", "v")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	if rc := Doctor(&buf, reg); rc != ExitClean {
-		t.Fatalf("Doctor rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
+	rc, detail := doctorTestResult(reg)
+	if rc != ExitClean {
+		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitClean, detail)
 	}
-	if !strings.Contains(buf.String(), "UNKNOWN_KEY matches no provider's auth.env") ||
-		!strings.Contains(buf.String(), "1 secret(s); master key from env") {
-		t.Fatalf("Doctor missing advisory or key source: %s", buf.String())
+	if !strings.Contains(detail, "UNKNOWN_KEY match no provider's auth.env") ||
+		!strings.Contains(detail, "1 secret(s); master key from env") {
+		t.Fatalf("DoctorChecks missing advisory or key source: %s", detail)
 	}
 }
 
@@ -534,7 +501,7 @@ func runGitScratch(t *testing.T) string {
 func TestScanGitFindsPlantedSecret(t *testing.T) {
 	dir := runGitScratch(t)
 	var buf bytes.Buffer
-	rc := ScanGit(&buf, dir, 0)
+	rc := ScanGit(&buf, dir, "", 0)
 	if rc != ExitFindings {
 		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
 	}
@@ -565,7 +532,7 @@ func TestScanGitCleanHistory(t *testing.T) {
 	run("commit", "-q", "-m", "init")
 
 	var buf bytes.Buffer
-	if rc := ScanGit(&buf, dir, 0); rc != ExitClean {
+	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
 		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
 	}
 }
@@ -574,7 +541,7 @@ func TestScanGitCleanHistory(t *testing.T) {
 func TestScanGitNotARepo(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
-	if rc := ScanGit(&buf, dir, 0); rc != ExitClean {
+	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
 		t.Fatalf("ScanGit rc = %d, want %d (skipped):\n%s", rc, ExitClean, buf.String())
 	}
 }

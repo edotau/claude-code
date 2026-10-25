@@ -21,8 +21,8 @@ var gitLogTimeout = 60 * time.Second
 
 // ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never
 // printing the matched line itself — only which commit and file introduced it. since caps the scan
-// to the last N commits (0 = full history). Read-only: runs `git log -p`, nothing else.
-func ScanGit(out io.Writer, dir string, since int) int {
+// to the last N commits (0 = full history); rev limits it to a revision range (e.g. @{u}..HEAD). Read-only: runs `git log -p`, nothing else.
+func ScanGit(out io.Writer, dir, rev string, since int) int {
 	fmt.Fprintln(out, "== git history credential scan ==")
 	inRepo, err := probeGitRepo(dir)
 	if err != nil {
@@ -36,6 +36,9 @@ func ScanGit(out io.Writer, dir string, since int) int {
 	args := []string{"-C", dir, "log", "-p", "--no-color", "--no-textconv", "--"}
 	if since > 0 {
 		args = append(args[:len(args)-1], "-n", strconv.Itoa(since), "--")
+	}
+	if rev != "" {
+		args = append(args[:len(args)-1], rev, "--")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
 	defer cancel()
@@ -107,13 +110,13 @@ func ScanGit(out io.Writer, dir string, since int) int {
 	}
 	if len(findings) == 0 {
 		fmt.Fprintln(out, "  ✓ no secret-shaped additions in scanned history")
-		fmt.Fprintln(out, "secrets git: clean.")
+		fmt.Fprintln(out, "doctor --git: clean.")
 		return ExitClean
 	}
 	for _, f := range findings {
 		fmt.Fprintf(out, "  ⚠ %s — secret-shaped addition (rotate + scrub history)\n", f)
 	}
-	fmt.Fprintf(out, "secrets git: %d finding(s).\n", len(findings))
+	fmt.Fprintf(out, "doctor --git: %d finding(s).\n", len(findings))
 	return ExitFindings
 }
 

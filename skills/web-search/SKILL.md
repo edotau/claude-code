@@ -41,5 +41,5 @@ MCP tool call (interactive sessions / agents granted the tool):
 
 ## Setup dependency
 
-Requires `TAVILY_API_KEY` via `claude-code secrets set TAVILY_API_KEY` (OS keyring; mint free at
+Requires `TAVILY_API_KEY` via `claude-code vault set TAVILY_API_KEY` (OS keyring; mint free at
 app.tavily.com → API keys). Without it the tool returns a friendly "key not set" message.

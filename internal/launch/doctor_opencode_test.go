@@ -19,6 +19,7 @@ func doctorScratch(t *testing.T) (xdgData string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
 	for _, k := range []string{"HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL",
 		"HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+		"COPILOT_MODEL", "COPILOT_REASONING_EFFORT", "COPILOT_CONTEXT_TIER",
 		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
 		t.Setenv(k, "")
 	}
