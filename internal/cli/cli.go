@@ -35,6 +35,9 @@ const (
 	groupSettings    = "SETTINGS"
 )
 
+// alphabetical groups list their verbs A→Z; ANTHROPIC (tier order) and AGENTS keep declaration order.
+var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
+
 // summaryMax is a soft target: longer summaries wrap with a hanging indent (helptext.WrapRow); one line is preferred.
 const (
 	menuWidth  = 80
@@ -186,10 +189,16 @@ func menuRows() []menuRow {
 	n := 0
 	for _, g := range groups {
 		rows = append(rows, menuRow{}, menuRow{head: g})
+		var group []command
 		for _, c := range cmds {
-			if c.hidden || c.group != g {
-				continue
+			if !c.hidden && c.group == g {
+				group = append(group, c)
 			}
+		}
+		if alphabetical[g] {
+			slices.SortStableFunc(group, func(a, b command) int { return strings.Compare(a.name, b.name) })
+		}
+		for _, c := range group {
 			rows = append(rows, menuRow{name: fmt.Sprintf("%-*s", nameWidth, c.name), summary: c.summary,
 				frac: float64(n) / float64(max(total-1, 1))})
 			n++

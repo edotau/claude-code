@@ -36,50 +36,50 @@
 <text x="173.2" y="312" fill="#d7d4dc">OpenCode on your Copilot plan; docs and drafting</text>
 <text x="22.0" y="350" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="369" fill="#d7d4dc">  </text>
-<text x="38.8" y="369" fill="#8978c8" font-weight="bold">secrets         </text>
-<text x="173.2" y="369" fill="#d7d4dc">set, get and scan credentials</text>
+<text x="38.8" y="369" fill="#8978c8" font-weight="bold">network         </text>
+<text x="173.2" y="369" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
 <text x="22.0" y="388" fill="#d7d4dc">  </text>
 <text x="38.8" y="388" fill="#9276bd" font-weight="bold">profile         </text>
 <text x="173.2" y="388" fill="#d7d4dc">providers and credential state</text>
 <text x="22.0" y="407" fill="#d7d4dc">  </text>
-<text x="38.8" y="407" fill="#9d72ae" font-weight="bold">vault           </text>
-<text x="173.2" y="407" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>
+<text x="38.8" y="407" fill="#9d72ae" font-weight="bold">secrets         </text>
+<text x="173.2" y="407" fill="#d7d4dc">set, get and scan credentials</text>
 <text x="22.0" y="426" fill="#d7d4dc">  </text>
-<text x="38.8" y="426" fill="#aa6f9f" font-weight="bold">network         </text>
-<text x="173.2" y="426" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
+<text x="38.8" y="426" fill="#aa6f9f" font-weight="bold">vault           </text>
+<text x="173.2" y="426" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>
 <text x="22.0" y="464" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
 <text x="38.8" y="483" fill="#b56b90" font-weight="bold">clean           </text>
 <text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#be6985" font-weight="bold">history         </text>
-<text x="173.2" y="502" fill="#d7d4dc">shadow git history of config + memory</text>
+<text x="38.8" y="502" fill="#be6985" font-weight="bold">dispatch        </text>
+<text x="173.2" y="502" fill="#d7d4dc">run an agent on a tailnet host in tmux</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
-<text x="38.8" y="521" fill="#c3677f" font-weight="bold">dispatch        </text>
-<text x="173.2" y="521" fill="#d7d4dc">run an agent on a tailnet host in tmux</text>
+<text x="38.8" y="521" fill="#c3677f" font-weight="bold">history         </text>
+<text x="173.2" y="521" fill="#d7d4dc">shadow git history of config + memory</text>
 <text x="22.0" y="540" fill="#d7d4dc">  </text>
-<text x="38.8" y="540" fill="#c46780" font-weight="bold">worktree        </text>
-<text x="173.2" y="540" fill="#d7d4dc">manage worktrees in ~/worktrees/&lt;repo&gt;</text>
+<text x="38.8" y="540" fill="#c46780" font-weight="bold">memory          </text>
+<text x="173.2" y="540" fill="#d7d4dc">session memory bank: recall, save, promote</text>
 <text x="22.0" y="559" fill="#d7d4dc">  </text>
-<text x="38.8" y="559" fill="#ca6783" font-weight="bold">memory          </text>
-<text x="173.2" y="559" fill="#d7d4dc">session memory bank: recall, save, promote</text>
+<text x="38.8" y="559" fill="#ca6783" font-weight="bold">worktree        </text>
+<text x="173.2" y="559" fill="#d7d4dc">manage worktrees in ~/worktrees/&lt;repo&gt;</text>
 <text x="22.0" y="597" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
-<text x="38.8" y="616" fill="#d46887" font-weight="bold">doctor          </text>
-<text x="173.2" y="616" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
+<text x="38.8" y="616" fill="#d46887" font-weight="bold">describe        </text>
+<text x="173.2" y="616" fill="#d7d4dc">machine-readable map of the harness</text>
 <text x="22.0" y="635" fill="#d7d4dc">  </text>
-<text x="38.8" y="635" fill="#df698d" font-weight="bold">usage           </text>
-<text x="173.2" y="635" fill="#d7d4dc">token totals, peak rate, provider quotas</text>
+<text x="38.8" y="635" fill="#df698d" font-weight="bold">doctor          </text>
+<text x="173.2" y="635" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
 <text x="22.0" y="654" fill="#d7d4dc">  </text>
-<text x="38.8" y="654" fill="#eb6a93" font-weight="bold">describe        </text>
-<text x="173.2" y="654" fill="#d7d4dc">machine-readable map of the harness</text>
+<text x="38.8" y="654" fill="#eb6a93" font-weight="bold">usage           </text>
+<text x="173.2" y="654" fill="#d7d4dc">token totals, peak rate, provider quotas</text>
 <text x="22.0" y="692" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="711" fill="#d7d4dc">  </text>
-<text x="38.8" y="711" fill="#f56a98" font-weight="bold">install         </text>
-<text x="173.2" y="711" fill="#d7d4dc">install Claude Code + write settings.json</text>
+<text x="38.8" y="711" fill="#f56a98" font-weight="bold">configure       </text>
+<text x="173.2" y="711" fill="#d7d4dc">guided setup; --reset re-renders from the templates</text>
 <text x="22.0" y="730" fill="#d7d4dc">  </text>
-<text x="38.8" y="730" fill="#fc6b9c" font-weight="bold">configure       </text>
-<text x="173.2" y="730" fill="#d7d4dc">guided setup; --reset re-renders from the templates</text>
+<text x="38.8" y="730" fill="#fc6b9c" font-weight="bold">install         </text>
+<text x="173.2" y="730" fill="#d7d4dc">install Claude Code + write settings.json</text>
 <text x="22.0" y="749" fill="#d7d4dc">  </text>
 <text x="38.8" y="749" fill="#ff6b9d" font-weight="bold">theme           </text>
 <text x="173.2" y="749" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>
