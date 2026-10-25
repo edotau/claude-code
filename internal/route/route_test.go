@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/routetable"
 )
 
 func testTable(t *testing.T) *Table {
@@ -105,11 +106,11 @@ func TestParseReset(t *testing.T) {
 		t.Error("no reset in a non-quota text")
 	}
 	for _, q := range []string{"HTTP 402", "insufficient_quota", "You've hit your usage limit", "limit: 0"} {
-		if !IsQuota(q) {
+		if !providers.IsQuota(q) {
 			t.Errorf("IsQuota(%q) = false", q)
 		}
 	}
-	if IsQuota("429 too many requests") || IsQuota("line 4021") {
+	if providers.IsQuota("429 too many requests") || providers.IsQuota("line 4021") {
 		t.Error("a plain rate limit or a bare number is not a quota failure")
 	}
 	if got := ResetFor("boom", BillCredits, Entry{}, now0); !got.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
@@ -199,6 +200,27 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 		if !strings.Contains(string(out), k) {
 			t.Errorf("JSON lacks %s: %s", k, out)
 		}
+	}
+}
+
+// TestPriceDimCheaperCreditsOutranksAtEqualHeadroom checks that between two credits-billed candidates
+// with equal headroom (both unseen accounts), the cheaper blended price scores higher and so outranks
+// the pricier one in the composite total.
+func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
+	tb := testTable(t)
+	cheap := Candidate{Runner: "codex", Billing: BillCredits, Cell: Cell{Account: "codex:chatgpt", Price: routetable.Price{In: 1, Out: 1}}}
+	pricey := Candidate{Runner: "gemini", Billing: BillCredits, Cell: Cell{Account: "gemini:antigravity", Price: routetable.Price{In: 4, Out: 4}}}
+	st := State{} // both accounts unseen: headroom ties at 0.5 for each
+	scored := tb.score([]Candidate{cheap, pricey}, st)
+	a, b := scored[0], scored[1]
+	if a.Scores["headroom"] != b.Scores["headroom"] {
+		t.Fatalf("precondition: headroom must tie, got %v vs %v", a.Scores["headroom"], b.Scores["headroom"])
+	}
+	if a.Scores["price"] <= b.Scores["price"] {
+		t.Errorf("cheap price score = %v, want it above the pricier candidate's %v", a.Scores["price"], b.Scores["price"])
+	}
+	if a.Total <= b.Total {
+		t.Errorf("cheap total = %v, want it to outrank the pricier candidate's %v", a.Total, b.Total)
 	}
 }
 

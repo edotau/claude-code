@@ -293,15 +293,15 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	}
 }
 
-func TestHardQuotaAndDemote(t *testing.T) {
+func TestIsQuotaAndDemote(t *testing.T) {
 	for text, want := range map[string]bool{
 		`{"error":{"code":429,"message":"You exceeded your current quota ... limit: 0, model: gemini-4-argon"}}`: true,
 		`insufficient_quota`:                 true,
 		`429 Too Many Requests, retry in 2s`: false,
 		`rate limit exceeded`:                false,
 	} {
-		if got := HardQuota(text); got != want {
-			t.Errorf("HardQuota(%q) = %v, want %v", text, got, want)
+		if got := IsQuota(text); got != want {
+			t.Errorf("IsQuota(%q) = %v, want %v", text, got, want)
 		}
 	}
 	p := &Provider{Name: "g", Models: map[string]string{"opus": "big", "sonnet": "mid", "haiku": "small", "fable": "other"}}
@@ -316,6 +316,31 @@ func TestHardQuotaAndDemote(t *testing.T) {
 	}
 	if _, ok := Demote(&Provider{Name: "one", Models: map[string]string{"opus": "x", "sonnet": "x"}}, "x"); ok {
 		t.Error("Demote must not return the same model under another slot")
+	}
+}
+
+// TestIsQuotaCoversEveryOldMarker checks the merged classifier still matches every marker either the old
+// providers.HardQuota (the 4 "this key cannot use this model at all" phrasings) or the old route.IsQuota
+// (the broader account-exhausted superset: 402, usage limit, monthly quota, ...) matched, and still
+// rejects a plain transient rate limit.
+func TestIsQuotaCoversEveryOldMarker(t *testing.T) {
+	oldHardQuotaMarkers := []string{
+		"limit: 0", "exceeded your current quota", "insufficient_quota", "quota exceeded for metric",
+	}
+	oldRouteIsQuotaMarkers := []string{
+		"HTTP 402", "payment required", "exceeded your monthly quota", "exceeded your current limit",
+		"exceeded your weekly quota", "usage limit", "insufficient_quota", "limit: 0",
+		"quota exceeded for metric", "out of credits", "out of premium requests", "monthly quota",
+	}
+	for _, text := range append(oldHardQuotaMarkers, oldRouteIsQuotaMarkers...) {
+		if !IsQuota(text) {
+			t.Errorf("IsQuota(%q) = false, want true (an old marker)", text)
+		}
+	}
+	for _, text := range []string{"429 Too Many Requests, retry in 2s", "rate limit exceeded", "line 4021"} {
+		if IsQuota(text) {
+			t.Errorf("IsQuota(%q) = true, want false (a plain rate limit, not a quota exhaustion)", text)
+		}
 	}
 }
 

@@ -73,6 +73,20 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		if o.AgentPlanFormat != "" {
 			reg.AgentPlanFormat = o.AgentPlanFormat
 		}
+		for runner, tiers := range o.Route { // cell by cell, matching how routetable.LoadFrom applies it
+			if reg.Route == nil {
+				reg.Route = map[string]map[string]RouteCell{}
+			}
+			if reg.Route[runner] == nil {
+				reg.Route[runner] = map[string]RouteCell{}
+			}
+			for tier, c := range tiers {
+				reg.Route[runner][tier] = c
+			}
+		}
+		if o.RouteWeights != nil {
+			reg.RouteWeights = o.RouteWeights // an overlay replaces the weights whole, per its docstring
+		}
 		if reg.Providers == nil {
 			reg.Providers = map[string]*Provider{}
 		}

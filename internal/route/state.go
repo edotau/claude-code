@@ -119,16 +119,11 @@ func (e Entry) Until(now time.Time) time.Time {
 }
 
 var (
-	quotaRE   = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|usage limit|insufficient_quota|limit: 0|quota exceeded for metric|out of (?:premium )?(?:credits|requests)|monthly quota`)
 	clockRE   = regexp.MustCompile(`try again (?:at|after) (\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?`)
 	inRE      = regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
 	dateRE    = regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
 	monthlyRE = regexp.MustCompile(`monthly`)
 )
-
-// IsQuota reports whether an error text is an exhausted account (credits, plan window, zero quota), not a
-// transient rate limit worth waiting out.
-func IsQuota(text string) bool { return quotaRE.MatchString(strings.ToLower(text)) }
 
 // ParseReset reads when an exhausted account frees up from the failure text; ok is false when the text names none.
 func ParseReset(text string, now time.Time) (time.Time, bool) {
