@@ -67,11 +67,11 @@ func cmdGeminiBridge(args []string) int {
 		return fail("gemini bridge: --format %q unknown (text|json)", *format)
 	}
 	if *maxFiles < 0 || *maxFileBytes < 0 {
-		fmt.Fprintln(os.Stderr, "usage: gemini bridge: --max-files and --max-file-bytes must not be negative")
+		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --max-files and --max-file-bytes must not be negative")
 		return 2
 	}
 	if *task != "" && len(pos) > 0 {
-		fmt.Fprintln(os.Stderr, "usage: gemini bridge: --task and trailing positional args are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --task and trailing positional args are mutually exclusive")
 		return 2
 	}
 	taskText := *task

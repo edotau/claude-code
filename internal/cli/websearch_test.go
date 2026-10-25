@@ -20,8 +20,8 @@ func TestCmdWebSearchQueryForms(t *testing.T) {
 			t.Setenv("TAVILY_API_KEY", "")
 			t.Setenv("PATH", t.TempDir())
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			if got := cmdWebSearch(tc.args); got != tc.want {
-				t.Fatalf("cmdWebSearch(%q) = %d, want %d", tc.args, got, tc.want)
+			if got := cmdNetworkWebsearch(tc.args); got != tc.want {
+				t.Fatalf("cmdNetworkWebsearch(%q) = %d, want %d", tc.args, got, tc.want)
 			}
 		})
 	}

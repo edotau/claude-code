@@ -173,7 +173,7 @@ func registerMCPAction(env Env) Action {
 		return Action{Kind: "noop", Executed: true, Description: devtoolsMCPName + " MCP is already registered in Claude Code."}
 	}
 	if !env.HasNPX {
-		a.Error = "npx not found: install Node.js 20+ (the MCP runs via npx), then rerun claude-code web setup"
+		a.Error = "npx not found: install Node.js 20+ (the MCP runs via npx), then rerun claude-code network browser --setup"
 		return a
 	}
 	if env.DryRun {

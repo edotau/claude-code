@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"html"
 	"math"
@@ -11,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -84,7 +84,7 @@ func hexOf(c ansi.RGB) string { return fmt.Sprintf("#%02x%02x%02x", c[0], c[1], 
 
 // cmdMenuSVG prints the menu SVG, writes it (--out), or fails when a file has drifted from it (--check).
 func cmdMenuSVG(args []string) int {
-	fs := flag.NewFlagSet("help-svg", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("help-svg", "usage: claude-code help-svg [--out f] [--check f]\n\nFLAGS\n")
 	out := fs.String("out", "", "write the SVG to this file")
 	check := fs.String("check", "", "exit 1 if this file differs from the render")
 	if err := fs.Parse(args); err != nil {

@@ -367,7 +367,7 @@
         "claudeCodeAgents.tailscaleBinary": {
           "type": "string",
           "default": "tailscale",
-          "description": "Path or name of the tailscale CLI used to switch exit nodes (the peer list comes from `claude-code tailscale status`)."
+          "description": "Path or name of the tailscale CLI used to switch exit nodes (the peer list comes from `claude-code network tailscale`)."
         },
         "claudeCodeAgents.tasksStartDefault": {
           "type": "string",

@@ -72,7 +72,7 @@ func modelPinSlots() []string {
 	return append(out, "all=")
 }
 
-// browserNames mirrors `web setup --browser`'s accepted values.
+// browserNames mirrors `network browser --setup --browser`'s accepted values.
 func browserNames() []string {
 	return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"}
 }
@@ -151,7 +151,7 @@ func worktreeNames() []string {
 	return out
 }
 
-// dispatchCachePath is where `tailscale machines` leaves its last successful listing for completion
+// dispatchCachePath is where `network tailscale --machines` leaves its last successful listing for completion
 // to read; completion never calls the network itself.
 func dispatchCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-machines.json") }
 
@@ -163,7 +163,7 @@ type dispatchMachineCache struct {
 	Names []string  `json:"names"`
 }
 
-// writeDispatchCache is called by `tailscale machines` on a successful listing; best-effort, never
+// writeDispatchCache is called by `network tailscale --machines` on a successful listing; best-effort, never
 // surfaced as an error to the caller.
 func writeDispatchCache(names []string) {
 	data, err := json.Marshal(dispatchMachineCache{At: time.Now(), Names: names})
@@ -174,7 +174,7 @@ func writeDispatchCache(names []string) {
 	_ = os.WriteFile(dispatchCachePath(), data, 0o600)
 }
 
-// dispatchHostNames reads the cache `tailscale machines` last wrote, when it's fresh enough; nil
+// dispatchHostNames reads the cache `network tailscale --machines` last wrote, when it's fresh enough; nil
 // (never an error, never a network call) otherwise — the Tab path has no time budget for ssh/API calls.
 func dispatchHostNames() []string {
 	data, err := os.ReadFile(dispatchCachePath())

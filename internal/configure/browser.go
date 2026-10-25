@@ -3,7 +3,7 @@ package configure
 import "github.com/edotau/claude-code/internal/browser"
 
 // runBrowser reports which installed browsers Claude in Chrome can drive and the system default — read-only,
-// never fails --check; the extension install itself needs the user's click (claude-code web setup).
+// never fails --check; the extension install itself needs the user's click (claude-code network browser --setup).
 func runBrowser(d *dialog) bool {
 	rep := browser.Detect(browser.NewEnv())
 	for _, b := range rep.Browsers {
@@ -18,9 +18,9 @@ func runBrowser(d *dialog) bool {
 	}
 	switch rep.Default {
 	case "":
-		d.printf("default     not a Chromium-family browser → claude-code web browsers for the control paths\n")
+		d.printf("default     not a Chromium-family browser → claude-code network browser for the control paths\n")
 	default:
-		d.printf("default     %s → claude-code web setup --browser default installs the extension\n", rep.Default)
+		d.printf("default     %s → claude-code network browser --setup --browser default installs the extension\n", rep.Default)
 	}
 	return true
 }

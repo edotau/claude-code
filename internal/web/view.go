@@ -11,7 +11,7 @@ import (
 
 // handleView serves /api/view?session=&agent=[&n=][&follow=1]: the drill-down snapshot for one
 // subagent, or (follow=1) its live event stream as text/plain, reusing agenttree.View/Follow —
-// the same engine `claude-code web view` uses, so dashboard and CLI never drift.
+// the same engine `claude-code network view` uses, so dashboard and CLI never drift.
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	if agent == "" {

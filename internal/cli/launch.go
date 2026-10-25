@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/history"
@@ -18,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/tui"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
@@ -84,47 +84,29 @@ func cmdHook(args []string) int {
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
 
-func cmdStatusline(args []string) int { return statusline.Run(args, os.Stdin, os.Stdout) }
-
-func cmdSettings(args []string) int {
-	fs := flag.NewFlagSet("settings", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
-	out := fs.String("out", "", "write the render here (atomically, after a timestamped backup)")
-	agents := fs.String("agents", "", "vendors to render (default: codex,opencode,gemini,copilot)")
-	dryRun := fs.Bool("dry-run", false, "preview settings and vendor configs; write nothing")
-	check := fs.Bool("check", false, "exit 1 if settings.json or a vendor config drifted")
-	vendors := fs.Bool("vendors", false, "render vendor configs even when CLAUDE_CONFIG_DIR is not the default ~/.claude")
-	revert := fs.Bool("revert", false, "restore vendor configs from backup (see --agents)")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if *revert {
-		return cmdGenerateRevert(*agents, *dryRun)
-	}
+// cmdReset is `configure --reset`: render settings.json and the vendor configs from the templates.
+func cmdReset(agents, out string, check, dryRun, vendors bool) int {
 	data, err := settings.RenderLive()
 	if err != nil {
 		return fail("%v", err)
 	}
-	prepared, drift, err := renderVendorConfigs(*agents, *out, *check, *dryRun, *vendors)
+	prepared, drift, err := renderVendorConfigs(agents, out, check, dryRun, vendors)
 	if err != nil {
 		return fail("%v", err)
 	}
-	snapshotSettingsHistory(*out, *dryRun, *check)
-	outDrift, err := writeSettingsOutput(*out, *check, *dryRun, data)
+	snapshotSettingsHistory(out, dryRun, check)
+	outDrift, err := writeSettingsOutput(out, check, dryRun, data)
 	if err != nil {
 		return fail("%v", err)
 	}
-	winDrift, err := writeWindowsSettingsOutput(*out, *check, *dryRun)
+	winDrift, err := writeWindowsSettingsOutput(out, check, dryRun)
 	if err != nil {
 		return fail("%v", err)
 	}
 	if err := prepared.Apply(); err != nil {
 		return fail("%v", err)
 	}
-	if *check && (drift || outDrift || winDrift) {
+	if check && (drift || outDrift || winDrift) {
 		return 1
 	}
 	return 0
@@ -222,14 +204,14 @@ func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*gene
 	return generate.Prepare(opts)
 }
 
-// cmdGenerateRevert handles `generate --revert [--agents a,b] [--dry-run]`.
-func cmdGenerateRevert(agents string, dryRun bool) int {
+// cmdRestore handles `configure --restore [--agent a,b] [--dry-run]`.
+func cmdRestore(agents string, dryRun bool) int {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	if err := generate.Revert(generate.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
-		return fail("generate --revert: %v", err)
+		return fail("configure --restore: %v", err)
 	}
 	return 0
 }
@@ -285,6 +267,9 @@ func cmdInstall(args []string) int {
 	}
 	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
 		return fail("install: %v", err)
+	}
+	if err := configure.MigrateWebSearchArgs(*dry, os.Stdout); err != nil {
+		return fail("install: web-search MCP migrate: %v", err)
 	}
 	return 0
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 )
 
-// DefaultPort is the port `claude-code web` binds by default.
+// DefaultPort is the port `claude-code network page` binds by default.
 const DefaultPort = 7777
 
 // cgnat is the 100.64.0.0/10 Carrier-Grade-NAT block tailscale assigns IPv4 node addresses from.

@@ -42,16 +42,14 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"secrets": {"set", "get", "delete", "import", "export", "list", "status", "scan", "git", "doctor", "all"},
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"show", "set", "edit", "migrate", "finalize", "rollback", "rotate-key", "key"},
-		"web":     {"browsers", "search", "setup", "view"},
+		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "migrate", "alias", "fmt"},
-		"router":    {"serve", "start", "stop", "status"},
-		"mcp":       {"doctor"},
-		"agents":    {"sync", "tree", "reap"},
-		"workflow":  {"skeleton", "lint"},
-		"theme":     {"apply"},
-		"tailscale": {"status", "machines", "connect", "key", "exit-node"},
-		"worktree":  {"list", "create", "merge", "clean", "clean-all"},
+		"router":   {"serve", "start", "stop", "status"},
+		"agents":   {"sync", "tree", "reap"},
+		"workflow": {"skeleton", "lint"},
+		"theme":    {"apply", "statusline", "vscode"},
+		"worktree": {"list", "create", "merge", "clean", "clean-all"},
 	}
 	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
 	// vendor subverb plus its one extra, bridge — derived from vendorSubverbs, not hand-copied, so a
@@ -145,7 +143,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		{"secrets set ⇥", []string{"secrets", "set", ""}},
 		{"models --pin ⇥", []string{"models", "--pin", ""}},
 		{"configure ⇥", []string{"configure", ""}},
-		{"tailscale exit-node ⇥", []string{"tailscale", "exit-node", ""}},
+		{"network tailscale --exit-node ⇥", []string{"network", "tailscale", "--exit-node", ""}},
 		{"memory archive ⇥", []string{"memory", "archive", ""}},
 		{"ask --agent=⇥", []string{"ask", "--agent="}},
 	} {
@@ -184,13 +182,18 @@ func TestWorktreeMergeResolveAgentCompletes(t *testing.T) {
 	}
 }
 
-// TestWebBareOffersSubwordsAndOwnFlags pins `web ⇥`: both its browsers|setup|view subwords and its
-// own serve-time flags (addr/hosts/days/dry-run-dispatch) are candidates at the same bare position.
-func TestWebBareOffersSubwordsAndOwnFlags(t *testing.T) {
-	got := completionCandidates([]string{"web", ""})
-	for _, want := range []string{"browsers", "setup", "view", "--addr", "--hosts"} {
+// TestNetworkBareOffersSubverbs pins `network ⇥`: all six sub-verbs; the page flags live on `network page`.
+func TestNetworkBareOffersSubverbs(t *testing.T) {
+	got := completionCandidates([]string{"network", ""})
+	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"} {
 		if !slices.Contains(got, want) {
-			t.Errorf("web ⇥ = %v, missing %q", got, want)
+			t.Errorf("network ⇥ = %v, missing %q", got, want)
+		}
+	}
+	page := completionCandidates([]string{"network", "page", ""})
+	for _, want := range []string{"--addr", "--hosts"} {
+		if !slices.Contains(page, want) {
+			t.Errorf("network page ⇥ = %v, missing %q", page, want)
 		}
 	}
 }
@@ -294,10 +297,10 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{
-		"generate": {"out", "agents", "dry-run", "check", "vendors"},          // cmdSettings
-		"profile":  {"format"},                                                // cmdProviders
-		"doctor":   {"audit", "days", "format"},                               // cmdDoctor
-		"models":   {"provider", "unpin", "live", "dry-run", "format", "pin"}, // cmdModels
+		"configure": {"reset", "restore", "out", "vendors", "agent", "dry-run", "check"}, // cmdConfigure
+		"profile":   {"format"},                                                          // cmdProviders
+		"doctor":    {"audit", "days", "format"},                                         // cmdDoctor
+		"models":    {"provider", "unpin", "live", "dry-run", "format", "pin"},           // cmdModels
 	}
 	for verb, flags := range cases {
 		node := specTree()[verb]

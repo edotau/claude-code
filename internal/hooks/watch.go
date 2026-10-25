@@ -6,7 +6,6 @@
 package hooks
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
@@ -63,7 +63,7 @@ func spawnIdleWatcher(in *Input) {
 
 // IdleHarvestWatch is `claude-code memory watch`: the detached per-session watcher described above.
 func IdleHarvestWatch(args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("memory watch", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("memory watch", "usage: claude-code memory watch [flags]\n\nFLAGS\n")
 	fs.SetOutput(stderr)
 	session := fs.String("session", "", "session id (names the stamp)")
 	tr := fs.String("transcript", "", "the session's transcript path")

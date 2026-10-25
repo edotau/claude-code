@@ -5,6 +5,7 @@ package statusline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -104,11 +105,14 @@ func (v values) text(key string) string {
 	return ""
 }
 
-// Run is `claude-code statusline [--style S]`: payload on r, rendered line(s) on w.
-func Run(args []string, r io.Reader, w io.Writer) int {
-	fs := flag.NewFlagSet("statusline", flag.ContinueOnError)
+// Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w. The caller supplies fs
+// with its themed Usage (helptext imports this package, so the theming can't live here).
+func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	style := fs.String("style", "", "gradient|powerline|capsule|minimal|dashboard (default: config.json)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	raw, err := io.ReadAll(r)

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -50,6 +51,9 @@ func Paint(text string) string {
 	return strings.Join(lines, "\n")
 }
 
+// singleDash matches PrintDefaults' leading "-name" so it can be widened to "--name".
+var singleDash = regexp.MustCompile(`(?m)^(\s+)-([^-\s])`)
+
 // Defaults prints fs's flag defaults through Fprint, so `-h` on a FlagSet verb matches the menu.
 func Defaults(fs *flag.FlagSet) {
 	var b bytes.Buffer
@@ -57,7 +61,19 @@ func Defaults(fs *flag.FlagSet) {
 	fs.SetOutput(&b)
 	fs.PrintDefaults()
 	fs.SetOutput(out)
-	Fprint(out, b.String())
+	text := singleDash.ReplaceAllString(b.String(), "$1--$2")
+	Fprint(out, text)
+}
+
+// NewFlagSet builds a FlagSet whose -h prints usage then Defaults, painted like the rest of the help palette.
+func NewFlagSet(name, usage string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		Fprint(fs.Output(), usage)
+		Defaults(fs)
+	}
+	return fs
 }
 
 // isRow: an indented label with a description column, or a bare flag line (`  -name type`) from PrintDefaults.

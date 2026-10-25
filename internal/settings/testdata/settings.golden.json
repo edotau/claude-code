@@ -71,7 +71,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "$HOME/.claude/bin/claude-code statusline",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
     "padding": 0
   },
   "enabledPlugins": {

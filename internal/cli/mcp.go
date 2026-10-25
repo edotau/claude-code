@@ -12,25 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// cmdMCP dispatches the `mcp` verb; doctor is the only subcommand today.
-func cmdMCP(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, "usage: claude-code mcp doctor [--format text|json]\n")
-		return 2
-	}
-	switch args[0] {
-	case "doctor":
-		return cmdMCPDoctor(args[1:])
-	}
-	fail("mcp: unknown subcommand %q", args[0])
-	helptext.Fprint(os.Stderr, "usage: claude-code mcp doctor [--format text|json]\n")
-	return 1
-}
-
-// cmdMCPDoctor reads every MCP scope Claude Code uses, runs live connect health, and flags
+// cmdNetworkMCP reads every MCP scope Claude Code uses, runs live connect health, and flags
 // cross-scope drift and inline plaintext secrets. Read-only; exit 1 on any Failed server or secret.
-func cmdMCPDoctor(args []string) int {
-	fs := flag.NewFlagSet("mcp doctor", flag.ContinueOnError)
+func cmdNetworkMCP(args []string) int {
+	fs := flag.NewFlagSet("network mcp", flag.ContinueOnError)
 	fs.Usage = func() {
 		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
 		helptext.Defaults(fs)
@@ -40,12 +25,12 @@ func cmdMCPDoctor(args []string) int {
 		return 2
 	}
 	if err := outfmt.Check(*format); err != nil {
-		fail("mcp doctor: %v", err)
+		fail("network mcp: %v", err)
 		return 2
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fail("mcp doctor: %v", err)
+		return fail("network mcp: %v", err)
 	}
 	claude, _ := launch.ClaudeBinary() // "" on error: Doctor fails OPEN on a missing claude binary
 	cwd, _ := os.Getwd()

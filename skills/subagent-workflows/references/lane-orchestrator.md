@@ -68,8 +68,8 @@ Classify a failed leaf before changing its brief or runner. Buckets from
   `/tmp` (tmpfs) filled → per-leaf scratch, deleted when done.
 - **tool_selection** — one whole-branch review leaf → narrow review leaves; a safety-guard change judged by reading
   the diff → execute the payloads against the old and new binaries.
-- **tool_arguments** — `generate` with a non-default config dir wrote live vendor configs → read `--vendors` and
-  `--dry-run` first; a test wrote the real `~/.claude/skills` → `HOME`/`CLAUDE_CONFIG_DIR` = `t.TempDir()`;
+- **tool_arguments** — `configure --reset` with a non-default config dir wrote live vendor configs → read `--vendors`
+  and `--dry-run` first; a test wrote the real `~/.claude/skills` → `HOME`/`CLAUDE_CONFIG_DIR` = `t.TempDir()`;
   `isolate.sh` given `/tmp/claude-1000` as the copy dir wiped every session's scratch → a fresh `mktemp -d` root.
 - **state_orchestration** — opencode ignored `--workdir` and wrote the live tree → compare
   `git -C ~/.claude status --short` before and after; Copilot reports omit exit codes → rerun every command in the

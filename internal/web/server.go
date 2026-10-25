@@ -1,4 +1,4 @@
-// Package web serves `claude-code web`: a small, phone-friendly page over the tailnet for watching
+// Package web serves `claude-code network page`: a small, phone-friendly page over the tailnet for watching
 // agent sessions/subagents and dispatching new ones, reusing internal/agenttree and internal/dispatch.
 package web
 

@@ -3,6 +3,7 @@ package statusline
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -307,13 +308,13 @@ func TestRunAndConfigOverride(t *testing.T) {
 	payload := `{"workspace":{"current_dir":"/nowhere/proj"},"model":{"id":"claude-opus-5","display_name":"Opus 5"},` +
 		`"cost":{"total_cost_usd":0.5,"total_duration_ms":3725000},"context_window":{"total_input_tokens":48000,"total_output_tokens":3400},"session_id":"abcdef0123456789"}`
 	var out bytes.Buffer
-	if code := Run([]string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
+	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, registryDefault(t)) || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
-	if code := Run([]string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
+	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
 		t.Errorf("bad flag exit %d", code)
 	}
 	// config.json picks the style and enables the session segment; omitted maps keep the embedded ones.

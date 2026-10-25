@@ -8,16 +8,16 @@
 | Template | Source | Rendered by | Example |
 | --- | --- | --- | --- |
 | Memory bank seed files (6) | [`internal/memory/templates/*.md`](../../internal/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (region/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
-| Settings sections (8) | [`internal/settings/template/*.json`](../../internal/settings/template/) | `claude-code generate` (alias `settings`), baked into `claude-code install` | [settings/settings.json](examples/settings/settings.json) |
+| Settings sections (8) | [`internal/settings/template/*.json`](../../internal/settings/template/) | `claude-code configure --reset`, baked into `claude-code install` | [settings/settings.json](examples/settings/settings.json) |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code profile` (alias `providers`), `claude-code switch`, `claude-code models` | — |
-| Status line default config + palettes | [`internal/statusline/default_config.json`](../../internal/statusline/default_config.json), [`default_palettes.json`](../../internal/statusline/default_palettes.json) | `claude-code statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
-| Vendor config defaults | [`internal/vendorconfig/defaults.json`](../../internal/vendorconfig/defaults.json) | `claude-code agents sync`, `claude-code generate --vendors` | — |
+| Status line default config + palettes | [`internal/statusline/default_config.json`](../../internal/statusline/default_config.json), [`default_palettes.json`](../../internal/statusline/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
+| Vendor config defaults | [`internal/vendorconfig/defaults.json`](../../internal/vendorconfig/defaults.json) | `claude-code agents sync`, `claude-code configure --reset --vendors` | — |
 | tmux.conf | [`internal/launch/tmux.conf`](../../internal/launch/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
-| VS Code machine-settings template | [`internal/vscode/machine-settings.template.json`](../../internal/vscode/machine-settings.template.json) | `claude-code vscode` | — |
-| VS Code keybindings template | [`internal/vscode/keybindings.template.json`](../../internal/vscode/keybindings.template.json) | `claude-code vscode` (keybindings leg) | — |
+| VS Code machine-settings template | [`internal/vscode/machine-settings.template.json`](../../internal/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
+| VS Code keybindings template | [`internal/vscode/keybindings.template.json`](../../internal/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings leg) | — |
 | claude-science config | [`internal/launch/science.toml`](../../internal/launch/science.toml) | `claude-code science` (`--print-env`) | — |
 | wl-paste WSL clipboard proxy | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Web dashboard page | [`internal/web/assets/index.html.tmpl`](../../internal/web/assets/index.html.tmpl) | `claude-code web` (`GET /`) | — |
+| Web dashboard page | [`internal/web/assets/index.html.tmpl`](../../internal/web/assets/index.html.tmpl) | `claude-code network page` (`GET /`) | — |
 
 ## Settings — the Windows subset
 

@@ -56,7 +56,7 @@ func TestRunRemoteConnectedReportsStatus(t *testing.T) {
 	if !strings.Contains(got, "admin api   credential absent") {
 		t.Errorf("output should note the missing admin credential:\n%s", got)
 	}
-	if !strings.Contains(got, "web         100.64.1.2 available for claude-code web") {
+	if !strings.Contains(got, "web         100.64.1.2 available for claude-code network page") {
 		t.Errorf("output missing the tailnet web-bind line:\n%s", got)
 	}
 }
@@ -71,10 +71,10 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	if !ok {
 		t.Fatal("runRemote = false, want true even when tailscale is absent")
 	}
-	if !strings.Contains(got, "tailscale   not connected → claude-code tailscale connect") {
+	if !strings.Contains(got, "tailscale   not connected → claude-code network tailscale --connect") {
 		t.Errorf("output missing the not-connected line:\n%s", got)
 	}
-	if !strings.Contains(got, "web         no tailnet IPv4 address; claude-code web binds loopback only") {
+	if !strings.Contains(got, "web         no tailnet IPv4 address; claude-code network page binds loopback only") {
 		t.Errorf("output missing the no-IPv4 web line:\n%s", got)
 	}
 	if !strings.Contains(got, "dispatch    no online tailnet machines found") {

@@ -53,7 +53,7 @@ type Event struct {
 	Size int       `json:"size,omitempty"` // result payload bytes, kind=="result" only
 }
 
-// Snapshot is one agent's drill-down view: `claude-code web view <id>`.
+// Snapshot is one agent's drill-down view: `claude-code network view <id>`.
 type Snapshot struct {
 	ID          string    `json:"id"`
 	SessionID   string    `json:"sessionId"`

@@ -1,9 +1,9 @@
 'use strict';
-// Tailscale exit node for the Task Sources section. The peer list comes from the harness (`<binary> tailscale status
+// Tailscale exit node for the Task Sources section. The peer list comes from the harness (`<binary> network tailscale
 // --format json`, CLI-only, no API key); the active exit node and the switch use the local `tailscale` CLI, also keyless.
 
 function harnessStatusArgs() {
-  return ['tailscale', 'status', '--format', 'json'];
+  return ['network', 'tailscale', '--format', 'json'];
 }
 
 function cliStatusArgs() {

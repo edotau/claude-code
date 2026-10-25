@@ -151,7 +151,7 @@ func cmdSecretsSet(args []string) int {
 		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets set [<NAME>] [--dry-run]  (no NAME = dialog)")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets set [<NAME>] [--dry-run]  (no NAME = dialog)\n")
 		return 2
 	}
 	name := rest[0]
@@ -186,7 +186,7 @@ func cmdSecretsSet(args []string) int {
 // cmdSecretsDelete removes NAME from the vault.
 func cmdSecretsDelete(args []string) int {
 	if len(args) != 1 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets delete <NAME>")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets delete <NAME>\n")
 		return 2
 	}
 	name := args[0]
@@ -218,7 +218,7 @@ func readSecretValue(name string) (string, error) {
 func cmdSecretsGet(args []string) int {
 	export, rest := extractBool(args, "export")
 	if len(rest) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets get <NAME> [--export]")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets get <NAME> [--export]\n")
 		return 2
 	}
 	name := rest[0]
@@ -259,7 +259,7 @@ func cmdSecretsScan(args []string) int {
 func cmdSecretsGit(args []string) int {
 	since, rest, err := extractInt(args, "since", 0)
 	if err != nil || len(rest) != 0 {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets git [--since N]")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets git [--since N]\n")
 		return 2
 	}
 	dir, err := os.Getwd()
@@ -296,7 +296,7 @@ func cmdSecretsAll(args []string) int {
 func cmdSecretsImport(args []string) int {
 	yes, rest := extractBool(args, "yes")
 	if len(rest) != 1 || rest[0] == "-h" || rest[0] == "--help" {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets import <file.env>|- [--yes]  (NAME=value lines)")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets import <file.env>|- [--yes]  (NAME=value lines)\n")
 		return 2
 	}
 	name := rest[0]
@@ -351,7 +351,7 @@ func cmdSecretsImport(args []string) int {
 func cmdSecretsExport(args []string) int {
 	out, rest, err := extractValue(args, "out")
 	if err != nil || slices.Contains(rest, "-h") || slices.Contains(rest, "--help") {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file|-]")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets export [NAME...] [--out file|-]\n")
 		fmt.Fprintln(os.Stderr, "  file: appends, 0600 (default ./.env)   -: stream to stdout")
 		return 2
 	}
@@ -390,7 +390,7 @@ func cmdSecretsExport(args []string) int {
 // cmdSecretsList prints each vault secret (never the process env) with a masked value; nothing is decrypted.
 func cmdSecretsList(args []string) int {
 	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
-		fmt.Fprintln(os.Stderr, "usage: claude-code secrets list [NAME...]")
+		helptext.Fprint(os.Stderr, "usage: claude-code secrets list [NAME...]\n")
 		return 2
 	}
 	rows, err := secrets.ListStored(args)
