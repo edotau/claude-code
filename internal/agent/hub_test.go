@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -96,6 +99,22 @@ func TestHubLegResolveModel(t *testing.T) {
 	}
 	if got := l.resolveModel("raw-model-id"); got != "raw-model-id" {
 		t.Errorf("resolveModel(raw id) = %q, want it passed through", got)
+	}
+}
+
+// hubLeg always execs opencode with the prompt in argv (vendors.OpencodeRunArgv), so its own
+// MaxPromptBytes check (hub.go, ahead of the binary lookup) stays unconditional, unlike vendorRunner's
+// opencode-only gate. This fails before touching paths.VendorBin, so no bin/opencode is needed.
+func TestHubLegRunOversizedPromptRefused(t *testing.T) {
+	reg := hubRegistry()
+	chatgpt, _ := reg.Get("chatgpt")
+	l := hubLeg{agent: "codex", provider: chatgpt, reg: reg}
+	big := strings.Repeat("x", MaxPromptBytes+10)
+
+	_, err := l.Run(context.Background(), Request{Prompt: big}, io.Discard)
+	var e *Error
+	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
+		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
 	}
 }
 
