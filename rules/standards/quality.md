@@ -73,9 +73,9 @@ did not, so the gap is visible.
 2. **Integration** — API endpoints, database operations
 3. **E2E** — critical user flows (framework per language)
 
-Live first, then tests: [procedure][discipline].
+Live first, then tests: [procedure][proc].
 
-Where nothing can be run live: [spec-pinned checks][discipline].
+Where nothing can be run live: [spec-pinned checks][spec-pinned-checks].
 
 ### RULE — every code dispatch carries a test agent, concurrently
 
@@ -83,15 +83,15 @@ Where nothing can be run live: [spec-pinned checks][discipline].
 launched in the SAME message as the implementation agent(s).** Not after they return; not "if
 there's time". One code agent still means one test agent — the minimum is one, not zero.
 
-Ownership split: [ownership table][discipline].
+Ownership split: [ownership table][ownership-table].
 
-Handoff: the test agent waits for the manager's "landed" `SendMessage`, never a polling loop — [handoff][discipline].
+Handoff: the test agent waits for the manager's "landed" `SendMessage`, never a polling loop — [handoff][handoff].
 
-Sizing: [test-agent sizing][discipline].
+Sizing: [test-agent sizing][test-agent-sizing].
 
-Not satisfied by: [invalid dispatch patterns][discipline].
+Not satisfied by: [invalid dispatch patterns][invalid-dispatch-patterns].
 
-Genuinely out of scope: [exceptions][discipline].
+Genuinely out of scope: [exceptions][exceptions].
 
 ## Completion Criteria (all tasks)
 
@@ -102,4 +102,10 @@ Full checklist and the severity scale (CRITICAL → LOW; approve when no CRITICA
 
 Fixture discipline and mutation (injection) proofs: the `testing-guidelines` skill.
 
-[discipline]: ../../skills/testing-guidelines/references/test-discipline.md
+[proc]: ../../skills/testing-guidelines/references/test-discipline.md#live-first-then-tests--no-core-contract-exception
+[spec-pinned-checks]: ../../skills/testing-guidelines/references/test-discipline.md#where-nothing-can-be-run-live
+[ownership-table]: ../../skills/testing-guidelines/references/test-discipline.md#ownership-split
+[handoff]: ../../skills/testing-guidelines/references/test-discipline.md#handoff-not-polling
+[test-agent-sizing]: ../../skills/testing-guidelines/references/test-discipline.md#sizing
+[invalid-dispatch-patterns]: ../../skills/testing-guidelines/references/test-discipline.md#not-satisfied-by
+[exceptions]: ../../skills/testing-guidelines/references/test-discipline.md#genuinely-out-of-scope

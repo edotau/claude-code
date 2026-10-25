@@ -29,19 +29,19 @@ repo need no check.)
 ### 3. Create the worktree + branch
 
 ```bash
-slug=add-auth-endpoint; repo=$(basename "$PWD")
+slug=add-auth-endpoint; repo=$(basename "$PWD"); parent=$PWD
 git worktree add ~/worktrees/$repo/$slug -b wt/$slug HEAD
 cd ~/worktrees/$repo/$slug
 ```
 
 ### 4. Wire up the environment — symlink, don't reinstall
 
-Prefer sharing the parent's `.venv` over a fresh install (instant, no 500MB copy):
+Prefer sharing the parent's `.venv` over a fresh install (instant, no 500MB copy). Capture `$parent`
+**before** the `cd` above — after it, `$(pwd)/.venv` is the worktree's own path and self-links:
 
 ```bash
-ln -sf "$(git rev-parse --show-toplevel)/../.venv" .venv 2>/dev/null \
-  || ln -sf "$(pwd)/.venv" .venv         # adjust to the real parent path
-cp ../../.env .env 2>/dev/null || true   # per-worktree override allowed
+ln -sf "$parent/.venv" .venv
+cp "$parent/.env" .env 2>/dev/null || true   # per-worktree override allowed
 ```
 
 Only run a real install

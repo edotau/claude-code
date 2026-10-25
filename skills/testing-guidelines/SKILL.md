@@ -121,22 +121,22 @@ auth/permissions/PII. Don't encode a silent guess into a test that then "passes.
 
 ## Root cause before the regression test
 
-For a reported bug the live reproduction is the RED: reproduce on the real surface, fix, re-run
-the same command. Before fixing anything past a trivial bug, state the root cause explicitly
-("X because Y"), trace data/control flow *backward* from the symptom, and when the failure spans
-components, log at each boundary to find the layer that actually breaks. A regression test
-built on the wrong root cause turns green while the real bug survives — then prove its teeth
-(above).
+For a reported bug the live reproduction is the RED: reproduce on the real surface, state the root
+cause explicitly ("X because Y") before fixing, then re-run the same command.
 
 ## Test-and-fix loop
 
-For "run the tests and fix what fails": a named test path runs directly
-(`.venv/bin/python -m pytest <path> -x -v`, `go test ./<pkg> -run '<Name>'`); `fast`/`unit`/`all` run
-`make test-smoke`/`test-unit`/`test-all` when defined (`make -n <target>`), else `make test-unit`, else
-`make test`. Then one failure at a time: read the test and the source, decide test-wrong vs
-impl-wrong (root cause, above), make the minimal fix, re-run only that test; max 3 attempts per test,
-then report it and move on. Finish with the full target and `make fmt`. Never bare `python`/`pytest`
-in a Python repo — always `.venv/bin/`. Unattended or many repos: Workflow `green-keeper-loop`.
+A named test path runs directly (`.venv/bin/python -m pytest <path> -x -v`,
+`go test ./<pkg> -run '<Name>'`); `fast`/`unit`/`all` run `make test-smoke`/`test-unit`/`test-all` when
+defined (`make -n <target>`), else `make test-unit`, else `make test`.
+
+| Scope | Command |
+|---|---|
+| Named path | `.venv/bin/python -m pytest <path> -x -v` · `go test ./<pkg> -run '<Name>'` |
+| `fast`/`unit`/`all` | `make test-smoke`/`test-unit`/`test-all` if defined, else `make test-unit`, else `make test` |
+
+A failing test is guilty until its justification traces to a spec. Loop at most 3 cycles per test,
+then report it and move on.
 
 ## Mock at boundaries, not everywhere
 
@@ -167,4 +167,3 @@ fails the import rule in disguise.
 Unit tests prove a function behaves; contract tests prove a boundary does — request shapes, status
 codes, response shape, enforced auth. Drive coverage from the auth/permission and input-validation
 matrices, not the happy path: [API & contract testing](references/api-contract-testing.md).
-Django `APITestCase`, factories and JWT: the `django` skill.
