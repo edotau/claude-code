@@ -139,6 +139,9 @@ type Summary struct {
 // retiredKeys are dropped from existing settings: autoMemoryDirectory is flat, so it merges every repo's memory.
 var retiredKeys = []string{"autoMemoryDirectory"}
 
+// runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
+var runtimeKeys = []string{"modelSettings"}
+
 // retiredEnvPrefix drops the retired claude-dbx harness's env keys, which no template owns and merge would keep.
 const retiredEnvPrefix = "CLAUDE_CODE_DBX_"
 
@@ -170,7 +173,7 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 		case !owned && slices.Contains(dropped, k): // a template key is never dropped: its existing value still merges
 			sum.Dropped = append(sum.Dropped, k)
 			continue
-		case !owned:
+		case !owned && !slices.Contains(runtimeKeys, k):
 			sum.Kept = append(sum.Kept, k)
 		}
 		kept.set(k, ex.vals[k])
