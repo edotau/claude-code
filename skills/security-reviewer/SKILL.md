@@ -8,10 +8,9 @@ metadata:
 
 # Security Reviewer
 
-The security half of the review stack. The `evaluate-code` skill owns code *quality* and the
-four-principle discipline lens; this skill owns the *security* pass they run in parallel.
-Loaded by the main session or any subagent (there is no dedicated security-reviewer agent —
-this skill is self-contained); invoke it as `/security-reviewer`.
+The security pass of a code review — security only, not code quality. Loaded by the main session or any
+subagent (there is no dedicated security-reviewer agent — this skill is self-contained); invoke it as
+`/security-reviewer`.
 
 Three modes: application security review (OWASP-style code audit), configuration security
 scanning (Claude Code harness audit), and dependency auditing (CVEs + license compliance).
@@ -26,8 +25,12 @@ pass read-only and end with a PASS / FIX REQUIRED / BLOCK verdict.
 
 ## Severity Levels
 
-Severity → action is canonical in `../evaluate-code/references/completion-criteria.md`; the security-label
-deltas are noted there (a security HIGH is fix-required, not warn).
+| Level | Meaning | Action |
+|-------|---------|--------|
+| CRITICAL | Exploitable vulnerability or data-loss risk | **BLOCK** — must fix before merge |
+| HIGH | Likely-exploitable or significant exposure | **FIX REQUIRED** — fix before merge |
+| MEDIUM | Hardening gap, defense-in-depth | **INFO** — consider |
+| LOW | Minor / informational | **NOTE** — optional |
 
 ## Must-Review Triggers
 

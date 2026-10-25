@@ -76,7 +76,7 @@ Only after `SPEC_COMPLIANT` and the simplify pass.
 ```markdown
 Load evaluate-code (Skill tool, or read ~/.claude/skills/evaluate-code/SKILL.md) and apply its lenses — the
 performance lens on any hot path touched.
-You are a read-only terminal reviewer: apply only its Lenses and Verdicts — skip its Dispatch a review and
+You are a read-only terminal reviewer: apply only its Lenses and Verdicts — skip its Review a diff scope and
 mechanical-gate steps (the manager ran them); never edit files or dispatch agents.
 Task: <summary>
 Scope: base <rev>, head <rev>, files <list>
