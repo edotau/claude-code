@@ -85,6 +85,7 @@ coverage.*
 !/skills/architecture-design
 /skills/architecture-design/references/local/
 !/skills/browser-automation
+!/skills/database-schema
 !/skills/evaluate-code
 !/skills/problem-solving
 !/skills/python-patterns
