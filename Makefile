@@ -58,7 +58,7 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools; V=1: verbose)
+install: compile mdsmith  ## Build + install (DEV_TOOLS=1: lint/vuln tools)
 	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
