@@ -18,7 +18,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 | Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-template` gates the native undated draft's first Write; `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
-| Promoted, public-safe knowledge | `~/.claude/docs/knowledge/<topic>.md` · `docs/knowledge/<repo>/<topic>.md` (tracked) | `claude-code memory promote`, reviewed |
+| Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` (home bank for cross-repo, the repo's own bank for one repo) | hand-curated, reviewed |
 | Session memory bank (STATE, not a doc) | `<store>/` | `memory init` / the harvest gate |
 
 `<store>` is the repo's memory store, `~/.claude/memory/<repo>/` (`claude-code memory path` prints it; the harness
@@ -48,10 +48,10 @@ filed with the approval date.
   brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
-- **State, not docs** — the memory store (its own local git repo), `state/projections/` (per-vendor agent renders
-  from `agents sync`; `clean --target projections` sweeps them) and the rest of `state/harness/`. This repo's `docs/`
-  holds only `images/`, `templates/` (the embedded-template reference, `docs/templates/README.md`) and the tracked
-  `knowledge/` tier.
+- **State, not docs** — the memory store (its own local git repo, `knowledge/` included), `state/projections/`
+  (per-vendor agent renders from `agents sync`; `clean --target projections` sweeps them) and the rest of
+  `state/harness/`. This repo's `docs/` holds only `images/` and `templates/` (the embedded-template reference,
+  `docs/templates/README.md`).
 
 ## Enforcement — the `docs-placement` gate
 
@@ -63,8 +63,8 @@ in either of two shapes, printing the canonical paths to use instead:
    clone (`git check-ignore`; a non-ignored `docs/` is the project's own and is never gated).
 
 It passes on: a root anchor, a git-**tracked** file (`git ls-files`, so a force-added page inside an
-ignored `docs/` passes), the harness's own `docs/knowledge/`, `docs/images/` and `docs/templates/` (any other new
-page there — a retired `docs/handoffs`/`docs/reports` — blocks), every other subdirectory,
+ignored `docs/` passes), the harness's own `docs/images/` and `docs/templates/` (any other new
+page there — a retired `docs/handoffs`/`docs/reports`/`docs/knowledge` — blocks), every other subdirectory,
 a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
 
 - The handler also checks `apply_patch` Add/Update/Move headers against the same placement rules.

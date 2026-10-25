@@ -147,10 +147,13 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 			t.Fatalf("doctor exit %d", code)
 		}
 		if format == "text" {
-			for _, name := range []string{"vault", "vault perms", "vault master key", "vault key names", "keyring tool"} {
+			for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
 				if !strings.Contains(stdout, name) {
 					t.Errorf("plain doctor missing %s", name)
 				}
+			}
+			if n := strings.Count(stdout, "vault master key"); n != 0 {
+				t.Errorf("plain doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
 			}
 			continue
 		}
@@ -166,10 +169,19 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 		for _, c := range doc.Checks {
 			names = append(names, c.Name)
 		}
-		for _, name := range []string{"vault", "vault perms", "vault master key", "vault key names", "keyring tool"} {
+		for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
 			if !slices.Contains(names, name) {
 				t.Errorf("JSON doctor missing %s", name)
 			}
+		}
+		n := 0
+		for _, name := range names {
+			if name == "vault master key" {
+				n++
+			}
+		}
+		if n != 0 {
+			t.Errorf("JSON doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
 		}
 	}
 }

@@ -24,6 +24,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history: AUDIT_GIT_RANGE below needs the push/PR base commit to diff against
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -33,5 +35,23 @@ jobs:
       # Pinned tool versions live in the Makefile; this also smoke-tests make install on each OS's throwaway runner.
       - name: make install DEV_TOOLS=1 (harness + govulncheck, golangci-lint, yamlfmt)
         run: make install DEV_TOOLS=1
+      # audit-git's own `@{u}..HEAD` is empty on a CI checkout (no upstream), so give it the event's range directly.
+      - name: compute AUDIT_GIT_RANGE for this event
+        id: range
+        run: |
+          zero="0000000000000000000000000000000000000000"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "$zero" ]; then
+              range=""  # new branch: no before sha, fall back to audit-git's own --since path
+            else
+              range="${before}..${{ github.sha }}"
+            fi
+          else
+            range=""
+          fi
+          echo "range=$range" >> "$GITHUB_OUTPUT"
       - name: make audit (gofmt, vet, test, build, generated-projection smoke)
-        run: NO_COLOR=1 make audit
+        run: NO_COLOR=1 make audit AUDIT_GIT_RANGE="${{ steps.range.outputs.range }}"

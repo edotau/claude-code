@@ -47,7 +47,7 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 			"description: router context\n---\nNative recall preserves retry details.\n",
 		filepath.Join(Dir(root), "bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(KnowledgeDir(), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {

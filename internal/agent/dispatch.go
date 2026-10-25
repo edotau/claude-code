@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Kind is the failure class; it alone decides retryability.
@@ -99,7 +99,7 @@ func Classify(agent string, err error, progressed bool) *Error {
 	if errors.As(err, &st) {
 		e.Status = st.StatusCode()
 		e.Kind = KindForStatus(e.Status)
-		if e.Kind == KindRateLimit && route.IsQuota(err.Error()) {
+		if e.Kind == KindRateLimit && providers.IsQuota(err.Error()) {
 			e.Kind = KindQuota
 		}
 	} else {
@@ -107,7 +107,7 @@ func Classify(agent string, err error, progressed bool) *Error {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
 			e.Kind = KindTransient
-		case route.IsQuota(low):
+		case providers.IsQuota(low):
 			e.Kind = KindQuota
 		case rateRE.MatchString(low):
 			e.Kind = KindRateLimit

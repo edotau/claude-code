@@ -141,7 +141,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		e := Classify(r.Name(), err, cw.n > 0)
 		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.
 		if e != nil && (e.Kind == KindRateLimit || (e.Kind == KindQuota && modelScopedQuota(e.Err.Error()))) &&
-			providers.HardQuota(e.Err.Error()) && r.Caps().Model &&
+			providers.IsQuota(e.Err.Error()) && r.Caps().Model &&
 			(req.Model == "" || slices.Contains(models.Slots, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
 			if next := models.NextSlot(cur); next != "" {

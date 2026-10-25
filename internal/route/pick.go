@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/routetable"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -110,7 +111,7 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 				c.Account, billing = a, b
 			}
 		}
-		if c.Account == copilotUnpinned {
+		if c.Account == routetable.CopilotUnpinned {
 			res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
 			return Candidate{}, false
 		}
@@ -189,9 +190,9 @@ func (priceDim) Score(c Candidate, s Scope) float64 {
 	if c.Billing == BillSubscription {
 		return headroom(s.State[c.Account])
 	}
-	p, low := c.Price.blended(), -1.0
+	p, low := blended(c.Price), -1.0
 	for _, o := range s.Candidates {
-		if b := o.Price.blended(); o.Billing != BillSubscription && b > 0 && (low < 0 || b < low) {
+		if b := blended(o.Price); o.Billing != BillSubscription && b > 0 && (low < 0 || b < low) {
 			low = b
 		}
 	}
@@ -217,7 +218,7 @@ func headroom(e Entry) float64 {
 }
 
 // blended weights input 3:1 over output, the usual agentic read/write mix.
-func (p Price) blended() float64 { return (3*p.In + p.Out) / 4 }
+func blended(p routetable.Price) float64 { return (3*p.In + p.Out) / 4 }
 
 // ExhaustedReason names the account and its reset, e.g. "copilot:aueric_boehcp exhausted until 2026-11-01".
 func ExhaustedReason(account string, e Entry, now time.Time) string {
@@ -250,7 +251,7 @@ func Configured(runner string, c Cell) error {
 	if _, err := paths.VendorBin(spec.Binary); err != nil {
 		return err
 	}
-	if u := copilotUser(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {
+	if u := routetable.CopilotUser(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}
 	if runner == "opencode" {

@@ -298,19 +298,19 @@ func TestNukeKeepMemoryAddsBank(t *testing.T) {
 	}
 }
 
-// --keep-memory also archives plans/ and docs/knowledge/ when present, not just memory/ and the bank.
+// --keep-memory also archives plans/ and a per-bank knowledge/ when present, not just memory/ and the bank.
 func TestNukeKeepMemoryIncludesPlansAndKnowledge(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
-	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "knowledge\n")
+	mustWrite(t, filepath.Join(dir, "memory", "repo", "knowledge", "x.md"), "knowledge\n")
 
 	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
 		t.Fatal(err)
 	}
 	entries := tarEntries(t, findTarball(t, home))
-	for _, want := range []string{"plans/2026-10-18-x.md", "docs/knowledge/x.md"} {
+	for _, want := range []string{"plans/2026-10-18-x.md", "memory/repo/knowledge/x.md"} {
 		if _, ok := entries[want]; !ok {
 			t.Fatalf("--keep-memory should archive %q, got %v", want, tarNames(entries))
 		}
@@ -343,21 +343,21 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 	}
 }
 
-// Without --keep-memory, memory/, plans/ and docs/knowledge/ are never archived (plan-only paths).
+// Without --keep-memory, memory/ (incl. its per-bank knowledge/) and plans/ are never archived (plan-only paths).
 func TestNukeWithoutKeepMemorySkipsMemoryPlansKnowledge(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	mustWrite(t, filepath.Join(dir, "memory", "repo", "MEMORY.md"), "- topic\n")
 	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
-	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "knowledge\n")
+	mustWrite(t, filepath.Join(dir, "memory", "repo", "knowledge", "x.md"), "knowledge\n")
 
 	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: false}); err != nil {
 		t.Fatal(err)
 	}
 	entries := tarEntries(t, findTarball(t, home))
 	for name := range entries {
-		if strings.HasPrefix(name, "memory/") || strings.HasPrefix(name, "plans/") || strings.HasPrefix(name, "docs/knowledge/") {
+		if strings.HasPrefix(name, "memory/") || strings.HasPrefix(name, "plans/") {
 			t.Fatalf("nuke without --keep-memory must never archive %q", name)
 		}
 	}
