@@ -11,7 +11,7 @@ description: |
 tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch]
 model: sonnet
 effort: medium
-color: orange
+color: yellow
 ---
 
 # Opencode — Docs · Memory Reflection on the OpenCode CLI

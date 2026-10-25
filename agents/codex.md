@@ -8,7 +8,7 @@ description: |
   user: "Give me a second opinion on this PR diff — ship or block?"
   assistant: "Running `claude-code codex review` — it reads the diff cold and returns SHIP IT / NEEDS WORK / BLOCK with file:line fixes."
   </example>
-color: yellow
+color: red
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 ---
 
