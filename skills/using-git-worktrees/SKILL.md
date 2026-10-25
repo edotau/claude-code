@@ -66,4 +66,4 @@ cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
 
 A subagent or sandbox grant on a subdirectory instead of the repo root hides `.git` and
 `.venv`, producing import errors that look like regressions — see
-[references/grant-depth-trap.md](references/grant-depth-trap.md).
+`skills/subagent-workflows/references/grant-depth-trap.md` (a dispatch concern, not a worktree one).

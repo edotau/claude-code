@@ -24,7 +24,8 @@ field: `problem-solving` (implementer, code-worker, lane leaf), `evaluate-code` 
 codex review, vet and judge), `simplify` (simplifier).
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
 Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
-Concurrency: lean leaves ~8–10 in flight, deep-context agents ≤8 (`rules/workflow/agents.md`).
+Concurrency caps: `rules/workflow/agents.md` → Parallel Task Execution. Scoping a leaf below the repo root hides
+`.git`/`.venv`: [grant-depth-trap.md](references/grant-depth-trap.md).
 
 ## Handoff contract
 
