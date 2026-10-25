@@ -135,9 +135,13 @@ func TestThemePreviewListsEveryPaletteAndWritesNothing(t *testing.T) {
 
 func TestThemeNoArgsAlsoListsAndWritesNothing(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, out, _ := captureOutput(t, func() int { return cmdTheme(nil) })
+	code, _, out := captureOutput(t, func() int { return cmdTheme(nil) })
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
+	}
+	// bare `theme` is its help: usage, then the palettes with the current one marked
+	if !strings.Contains(out, "usage: claude-code theme") || !strings.Contains(out, "● "+currentGradient()) {
+		t.Errorf("bare theme must print usage and mark the current palette:\n%s", out)
 	}
 	for _, name := range statusline.GradientNames() {
 		if !strings.Contains(out, name) {
