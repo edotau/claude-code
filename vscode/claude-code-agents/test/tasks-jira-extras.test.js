@@ -33,7 +33,7 @@ function fakeFetch(routes) {
   return { fetchImpl, calls };
 }
 
-const BASE = 'https://jira.biscrum.com';
+const BASE = 'https://jira.corp.example';
 const TOKEN = 'T';
 
 function emptyQuery(overrides) {
@@ -43,7 +43,7 @@ function emptyQuery(overrides) {
 // ===== lib/jira-client.js: boardStatusOrder =====
 
 test('boardStatusOrder: GET /rest/agile/1.0/board?projectKeyOrId=KEY&maxResults=2, one board -> fetches its configuration', async () => {
-  const boardList = { values: [{ id: 42, name: 'DIGITALBTD board' }] };
+  const boardList = { values: [{ id: 42, name: 'ACME board' }] };
   const config = {
     id: 42,
     columnConfig: {
@@ -59,12 +59,12 @@ test('boardStatusOrder: GET /rest/agile/1.0/board?projectKeyOrId=KEY&maxResults=
     [(u) => u.pathname === '/rest/agile/1.0/board/42/configuration', () => jsonResponse(200, config)],
   ]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  const result = await client.boardStatusOrder('DIGITALBTD');
+  const result = await client.boardStatusOrder('ACME');
 
   assert.equal(calls.length, 2);
   const listUrl = new URL(calls[0].url);
   assert.equal(listUrl.pathname, '/rest/agile/1.0/board');
-  assert.equal(listUrl.searchParams.get('projectKeyOrId'), 'DIGITALBTD');
+  assert.equal(listUrl.searchParams.get('projectKeyOrId'), 'ACME');
   assert.equal(listUrl.searchParams.get('maxResults'), '2');
   const confUrl = new URL(calls[1].url);
   assert.equal(confUrl.pathname, '/rest/agile/1.0/board/42/configuration');
@@ -82,7 +82,7 @@ test('boardStatusOrder: GET /rest/agile/1.0/board?projectKeyOrId=KEY&maxResults=
 test('boardStatusOrder: zero boards resolves null (no second request)', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, { values: [] })]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  const result = await client.boardStatusOrder('DIGITALBTD');
+  const result = await client.boardStatusOrder('ACME');
   assert.equal(result, null);
   assert.equal(calls.length, 1);
 });
@@ -90,7 +90,7 @@ test('boardStatusOrder: zero boards resolves null (no second request)', async ()
 test('boardStatusOrder: several boards resolves null (no second request)', async () => {
   const { fetchImpl, calls } = fakeFetch([[() => true, () => jsonResponse(200, { values: [{ id: 1 }, { id: 2 }] })]]);
   const client = createClient({ baseUrl: BASE, token: TOKEN, fetchImpl });
-  const result = await client.boardStatusOrder('DIGITALBTD');
+  const result = await client.boardStatusOrder('ACME');
   assert.equal(result, null);
   assert.equal(calls.length, 1);
 });
@@ -191,13 +191,13 @@ test('isRawJql: a "jql:" prefix (any case) is raw', () => {
 });
 
 for (const text of [
-  'project = DIGITALBTD',
+  'project = ACME',
   'status != Blocked',
   'labels in ("a", "b")',
   'summary ~ "rollout"',
   'resolution is empty',
   'resolution is null',
-  'project = DIGITALBTD order by updated desc',
+  'project = ACME order by updated desc',
   'ORDER BY updated DESC',
 ]) {
   test(`isRawJql: Orca's heuristic matches ${JSON.stringify(text)}`, () => {
@@ -205,7 +205,7 @@ for (const text of [
   });
 }
 
-for (const text of ['hello world', 'project:KEY', 'status:Blocked', 'DIGITALBTD-8139', '', 'celery work scoping']) {
+for (const text of ['hello world', 'project:KEY', 'status:Blocked', 'ACME-8139', '', 'celery work scoping']) {
   test(`isRawJql: plain text is not raw: ${JSON.stringify(text)}`, () => {
     assert.equal(isRawJql(text), false);
   });
@@ -214,38 +214,38 @@ for (const text of ['hello world', 'project:KEY', 'status:Blocked', 'DIGITALBTD-
 // ===== lib/tasks-jira.js: rawJql =====
 
 test('rawJql: strips a "jql:" prefix and appends ORDER BY updated DESC when the text has none', () => {
-  const jql = rawJql('jql:project = DIGITALBTD');
-  assert.equal(jql, 'project = DIGITALBTD ORDER BY updated DESC');
+  const jql = rawJql('jql:project = ACME');
+  assert.equal(jql, 'project = ACME ORDER BY updated DESC');
 });
 
 test('rawJql: a "jql:" prefix is stripped case-insensitively', () => {
-  const jql = rawJql('JQL: project = DIGITALBTD');
-  assert.equal(jql, 'project = DIGITALBTD ORDER BY updated DESC');
+  const jql = rawJql('JQL: project = ACME');
+  assert.equal(jql, 'project = ACME ORDER BY updated DESC');
 });
 
 test('rawJql: text that already has an ORDER BY is left as-is when no opts are given', () => {
-  const jql = rawJql('project = DIGITALBTD order by created desc');
-  assert.equal(jql, 'project = DIGITALBTD order by created desc');
+  const jql = rawJql('project = ACME order by created desc');
+  assert.equal(jql, 'project = ACME order by created desc');
 });
 
 test('rawJql: opts.sort replaces an existing ORDER BY', () => {
-  const jql = rawJql('project = DIGITALBTD order by created desc', { sort: { field: 'updated', dir: 'asc' } });
-  assert.equal(jql, 'project = DIGITALBTD ORDER BY updated ASC');
+  const jql = rawJql('project = ACME order by created desc', { sort: { field: 'updated', dir: 'asc' } });
+  assert.equal(jql, 'project = ACME ORDER BY updated ASC');
 });
 
 test('rawJql: opts.sort sets the ORDER BY when the text has none', () => {
-  const jql = rawJql('project = DIGITALBTD', { sort: { field: 'key', dir: 'desc' } });
-  assert.equal(jql, 'project = DIGITALBTD ORDER BY key DESC');
+  const jql = rawJql('project = ACME', { sort: { field: 'key', dir: 'desc' } });
+  assert.equal(jql, 'project = ACME ORDER BY key DESC');
 });
 
 test('rawJql: opts.currentSprint and opts.statuses AND in before the ORDER BY, wrapping the original body in parens', () => {
-  const jql = rawJql('project = DIGITALBTD', { currentSprint: true, statuses: ['Done'] });
-  assert.equal(jql, '(project = DIGITALBTD) AND status in ("Done") AND sprint in openSprints() ORDER BY updated DESC');
+  const jql = rawJql('project = ACME', { currentSprint: true, statuses: ['Done'] });
+  assert.equal(jql, '(project = ACME) AND status in ("Done") AND sprint in openSprints() ORDER BY updated DESC');
 });
 
 test('rawJql TEETH: a status name containing a double quote is escaped', () => {
-  const jql = rawJql('project = DIGITALBTD', { statuses: ['Needs "Review"'] });
-  assert.equal(jql, '(project = DIGITALBTD) AND status in ("Needs \\"Review\\"") ORDER BY updated DESC');
+  const jql = rawJql('project = ACME', { statuses: ['Needs "Review"'] });
+  assert.equal(jql, '(project = ACME) AND status in ("Needs \\"Review\\"") ORDER BY updated DESC');
 });
 
 test('rawJql: with no original body text, extras are AND-ed without parens', () => {
@@ -270,8 +270,8 @@ const ISSUES = fixture('search').issues;
 
 test('list: a raw-JQL rawQuery ("jql:…") goes through rawJql, not toJql', async () => {
   const client = fakeClient(1, [ISSUES[0]]);
-  await list({ client, query: emptyQuery(), rawQuery: 'jql:project = DIGITALBTD', page: 1, limit: 10, baseUrl: BASE });
-  assert.equal(client.calls[0].jql, 'project = DIGITALBTD ORDER BY updated DESC');
+  await list({ client, query: emptyQuery(), rawQuery: 'jql:project = ACME', page: 1, limit: 10, baseUrl: BASE });
+  assert.equal(client.calls[0].jql, 'project = ACME ORDER BY updated DESC');
 });
 
 test('list: a raw-JQL rawQuery honours sort/currentSprint/statuses', async () => {
@@ -279,14 +279,14 @@ test('list: a raw-JQL rawQuery honours sort/currentSprint/statuses', async () =>
   await list({
     client,
     query: emptyQuery(),
-    rawQuery: 'jql:project = DIGITALBTD',
+    rawQuery: 'jql:project = ACME',
     sort: { field: 'priority', dir: 'asc' },
     currentSprint: true,
     page: 1,
     limit: 10,
     baseUrl: BASE,
   });
-  assert.equal(client.calls[0].jql, '(project = DIGITALBTD) AND sprint in openSprints() ORDER BY priority ASC');
+  assert.equal(client.calls[0].jql, '(project = ACME) AND sprint in openSprints() ORDER BY priority ASC');
 });
 
 test('list: a non-raw rawQuery (or none) falls back to toJql(query, …)', async () => {

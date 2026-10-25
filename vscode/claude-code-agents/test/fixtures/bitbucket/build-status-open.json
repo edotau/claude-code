@@ -7,7 +7,7 @@
       "state": "SUCCESSFUL",
       "key": "0fbb34a3",
       "name": "0fbb34a3",
-      "url": "https://jenkins.example.com/job/digitalbtd-cd/job/digitalbtd-cd-portal-frontend-10051/1/",
+      "url": "https://jenkins.example.com/job/acme-cd/job/acme-cd-portal-frontend-10051/1/",
       "dateAdded": 1792622483015
     }
   ],

@@ -5,7 +5,7 @@
 
 const MAX_CONCURRENT_BUILD_FETCHES = 6;
 
-/** "DIGITALBTD/digitalbtd-portal-frontend" style ref from an ssh/scp/https Data Center remote on `host`. */
+/** "ACME/acme-portal-frontend" style ref from an ssh/scp/https Data Center remote on `host`. */
 function parseRepoRef(remoteUrl, host) {
   const trimmed = (remoteUrl || '').trim();
   const hostLower = (host || '').toLowerCase();

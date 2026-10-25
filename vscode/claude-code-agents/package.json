@@ -256,7 +256,7 @@
         },
         "claudeCodeAgents.tasksJiraBaseUrl": {
           "type": "string",
-          "default": "https://jira.biscrum.com",
+          "default": "",
           "description": "Jira Data Center base URL the Tasks page queries and links issue keys to, e.g. https://jira.example.com"
         },
         "claudeCodeAgents.tasksStatusBar": {
@@ -266,8 +266,8 @@
         },
         "claudeCodeAgents.bitbucketUrl": {
           "type": "string",
-          "default": "https://bitbucket.biscrum.com",
-          "description": "Bitbucket Data Center server URL the Tasks page queries directly."
+          "default": "",
+          "description": "Bitbucket Data Center server URL the Tasks page queries directly, e.g. https://bitbucket.example.com"
         },
         "claudeCodeAgents.tasksInstallGitHubExtension": {
           "type": "boolean",

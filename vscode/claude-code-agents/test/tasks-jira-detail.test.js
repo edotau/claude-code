@@ -12,7 +12,7 @@ function fixture(name) {
   return JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, `${name}.json`), 'utf8'));
 }
 
-const BASE = 'https://jira.biscrum.com';
+const BASE = 'https://jira.corp.example';
 const ISSUES = fixture('search').issues;
 const RAW_TRANSITIONS = fixture('transitions').transitions;
 
@@ -159,12 +159,12 @@ test('mapComment: missing author falls back to "unknown"', () => {
 // -- mapDetail --
 
 test('mapDetail: keeps row fields (key, status) and adds descriptionHtml/descriptionText, comments, transitions', () => {
-  const issue = ISSUES[0]; // DIGITALBTD-8139, renderedFields: null, no fields.description in fixture
+  const issue = ISSUES[0]; // ACME-8139, renderedFields: null, no fields.description in fixture
   const detail = mapDetail(
     { issue, comments: [{ id: '1', author: { displayName: 'A' }, created: 'c1', body: 'hi' }], transitions: RAW_TRANSITIONS },
     { baseUrl: BASE },
   );
-  assert.equal(detail.key, 'DIGITALBTD-8139');
+  assert.equal(detail.key, 'ACME-8139');
   assert.equal(detail.status.name, 'In Progress');
   assert.equal(detail.descriptionHtml, '');
   assert.equal(detail.descriptionText, '');
@@ -219,41 +219,41 @@ test('mapDetail: falls back to escaped raw fields.description in <p> when render
 // -- branchName --
 
 test('branchName: lower-cases the key and slugifies the title, joined with "-"', () => {
-  const row = { key: 'DIGITALBTD-8139', title: 'celery work scoping (fixture)' };
-  assert.equal(branchName(row), 'digitalbtd-8139-celery-work-scoping-fixture');
+  const row = { key: 'ACME-8139', title: 'celery work scoping (fixture)' };
+  assert.equal(branchName(row), 'acme-8139-celery-work-scoping-fixture');
 });
 
 test('branchName: non-alnum runs collapse to a single "-", trimmed at the edges', () => {
-  const row = { key: 'DIGITALBTD-8139', title: '  --Weird!! Title?? ' };
-  assert.equal(branchName(row), 'digitalbtd-8139-weird-title');
+  const row = { key: 'ACME-8139', title: '  --Weird!! Title?? ' };
+  assert.equal(branchName(row), 'acme-8139-weird-title');
 });
 
 test('branchName: caps the slug at 52 chars total', () => {
   const longTitle = 'a'.repeat(100);
-  const row = { key: 'DIGITALBTD-8139', title: longTitle };
+  const row = { key: 'ACME-8139', title: longTitle };
   const result = branchName(row);
-  const slug = result.replace('digitalbtd-8139-', '');
+  const slug = result.replace('acme-8139-', '');
   assert.equal(slug.length, 52);
 });
 
 test('branchName: empty title yields just the lower-cased key, no trailing dash', () => {
-  const row = { key: 'DIGITALBTD-8139', title: '' };
-  assert.equal(branchName(row), 'digitalbtd-8139');
+  const row = { key: 'ACME-8139', title: '' };
+  assert.equal(branchName(row), 'acme-8139');
 });
 
 // -- prompt --
 
 test('prompt: exact format with description text', () => {
-  const row = { key: 'DIGITALBTD-8139', title: 'celery work scoping', url: `${BASE}/browse/DIGITALBTD-8139`, descriptionText: 'Some description.' };
+  const row = { key: 'ACME-8139', title: 'celery work scoping', url: `${BASE}/browse/ACME-8139`, descriptionText: 'Some description.' };
   assert.equal(
     prompt(row),
-    'Complete Jira issue DIGITALBTD-8139: celery work scoping\n\nhttps://jira.biscrum.com/browse/DIGITALBTD-8139\n\nSome description.',
+    'Complete Jira issue ACME-8139: celery work scoping\n\nhttps://jira.corp.example/browse/ACME-8139\n\nSome description.',
   );
 });
 
 test('prompt: omits the trailing description block when descriptionText is empty', () => {
-  const row = { key: 'DIGITALBTD-8139', title: 'celery work scoping', url: `${BASE}/browse/DIGITALBTD-8139`, descriptionText: '' };
-  assert.equal(prompt(row), 'Complete Jira issue DIGITALBTD-8139: celery work scoping\n\nhttps://jira.biscrum.com/browse/DIGITALBTD-8139');
+  const row = { key: 'ACME-8139', title: 'celery work scoping', url: `${BASE}/browse/ACME-8139`, descriptionText: '' };
+  assert.equal(prompt(row), 'Complete Jira issue ACME-8139: celery work scoping\n\nhttps://jira.corp.example/browse/ACME-8139');
 });
 
 // -- end-to-end: mapDetail's row feeds branchName/prompt directly --
@@ -261,9 +261,9 @@ test('prompt: omits the trailing description block when descriptionText is empty
 test('end-to-end: mapDetail(issue #0) -> branchName and prompt produce the exact expected strings', () => {
   const issue = ISSUES[0];
   const detail = mapDetail({ issue, comments: [], transitions: [] }, { baseUrl: BASE });
-  assert.equal(branchName(detail), 'digitalbtd-8139-celery-work-scoping-fixture');
+  assert.equal(branchName(detail), 'acme-8139-celery-work-scoping-fixture');
   assert.equal(
     prompt(detail),
-    `Complete Jira issue DIGITALBTD-8139: celery work scoping (fixture)\n\n${BASE}/browse/DIGITALBTD-8139`,
+    `Complete Jira issue ACME-8139: celery work scoping (fixture)\n\n${BASE}/browse/ACME-8139`,
   );
 });

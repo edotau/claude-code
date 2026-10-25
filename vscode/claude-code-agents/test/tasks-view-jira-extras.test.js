@@ -10,7 +10,7 @@ const { renderTasksHtml, JIRA_GRID } = require('../lib/tasks-view');
 const { mapIssue } = require('../lib/tasks-jira');
 const { jiraColumns } = require('../lib/tasks-board');
 
-const BASE = 'https://jira.biscrum.com';
+const BASE = 'https://jira.corp.example';
 const ISSUES = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'jira', 'search.json'), 'utf8')).issues;
 const ROWS = ISSUES.map((i) => mapIssue(i, { baseUrl: BASE })); // In Progress, To Do, Done
 

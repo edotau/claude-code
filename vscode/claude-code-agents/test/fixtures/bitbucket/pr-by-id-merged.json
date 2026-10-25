@@ -1,7 +1,7 @@
 {
   "id": 1654,
   "version": 8,
-  "title": "Feature/DIGITALBTD-9679 mmseqs pathogen mimicry ai summary feature frontend eau",
+  "title": "Feature/ACME-9679 mmseqs pathogen mimicry ai summary feature frontend eau",
   "description": "Description.",
   "state": "MERGED",
   "open": false,
@@ -11,21 +11,21 @@
   "updatedDate": 1792629427671,
   "closedDate": 1792629427671,
   "fromRef": {
-    "id": "refs/heads/feature/DIGITALBTD-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
-    "displayId": "feature/DIGITALBTD-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
+    "id": "refs/heads/feature/ACME-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
+    "displayId": "feature/ACME-9679-mmseqs-pathogen-mimicry-ai-summary-feature-frontend-eau",
     "latestCommit": "8b60f37cfd97c6d34342e1b9bca67014e4ad907b",
     "type": "BRANCH",
     "repository": {
-      "slug": "digitalbtd-portal-frontend",
+      "slug": "acme-portal-frontend",
       "id": 34822,
-      "name": "digitalbtd-portal-frontend",
+      "name": "acme-portal-frontend",
       "hierarchyId": "cf987aa7fc728a104222",
       "scmId": "git",
       "state": "AVAILABLE",
       "statusMessage": "Available",
       "forkable": true,
       "project": {
-        "key": "DIGITALBTD",
+        "key": "ACME",
         "id": 5838,
         "name": "DIGITAL BTD PORTAL",
         "description": "Description.",
@@ -34,7 +34,7 @@
         "links": {
           "self": [
             {
-              "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD"
+              "href": "https://bitbucket.corp.example/projects/ACME"
             }
           ]
         }
@@ -44,17 +44,17 @@
       "links": {
         "clone": [
           {
-            "href": "https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git",
+            "href": "https://bitbucket.corp.example/scm/acme/acme-portal-frontend.git",
             "name": "http"
           },
           {
-            "href": "ssh://git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git",
+            "href": "ssh://git@bitbucket.corp.example:7999/acme/acme-portal-frontend.git",
             "name": "ssh"
           }
         ],
         "self": [
           {
-            "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/browse"
+            "href": "https://bitbucket.corp.example/projects/ACME/repos/acme-portal-frontend/browse"
           }
         ]
       }
@@ -66,16 +66,16 @@
     "latestCommit": "fe1ddb0a26fdc7121445665256f2532d0fed6dd7",
     "type": "BRANCH",
     "repository": {
-      "slug": "digitalbtd-portal-frontend",
+      "slug": "acme-portal-frontend",
       "id": 34822,
-      "name": "digitalbtd-portal-frontend",
+      "name": "acme-portal-frontend",
       "hierarchyId": "cf987aa7fc728a104222",
       "scmId": "git",
       "state": "AVAILABLE",
       "statusMessage": "Available",
       "forkable": true,
       "project": {
-        "key": "DIGITALBTD",
+        "key": "ACME",
         "id": 5838,
         "name": "DIGITAL BTD PORTAL",
         "description": "Description.",
@@ -84,7 +84,7 @@
         "links": {
           "self": [
             {
-              "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD"
+              "href": "https://bitbucket.corp.example/projects/ACME"
             }
           ]
         }
@@ -94,17 +94,17 @@
       "links": {
         "clone": [
           {
-            "href": "https://bitbucket.biscrum.com/scm/digitalbtd/digitalbtd-portal-frontend.git",
+            "href": "https://bitbucket.corp.example/scm/acme/acme-portal-frontend.git",
             "name": "http"
           },
           {
-            "href": "ssh://git@bitbucket.biscrum.com:7999/digitalbtd/digitalbtd-portal-frontend.git",
+            "href": "ssh://git@bitbucket.corp.example:7999/acme/acme-portal-frontend.git",
             "name": "ssh"
           }
         ],
         "self": [
           {
-            "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/browse"
+            "href": "https://bitbucket.corp.example/projects/ACME/repos/acme-portal-frontend/browse"
           }
         ]
       }
@@ -123,7 +123,7 @@
       "links": {
         "self": [
           {
-            "href": "https://bitbucket.biscrum.com/users/dev1_example.com"
+            "href": "https://bitbucket.corp.example/users/dev1_example.com"
           }
         ]
       }
@@ -145,7 +145,7 @@
         "links": {
           "self": [
             {
-              "href": "https://bitbucket.biscrum.com/users/dev2_example.com"
+              "href": "https://bitbucket.corp.example/users/dev2_example.com"
             }
           ]
         }
@@ -167,7 +167,7 @@
         "links": {
           "self": [
             {
-              "href": "https://bitbucket.biscrum.com/users/dev3_example.com"
+              "href": "https://bitbucket.corp.example/users/dev3_example.com"
             }
           ]
         }
@@ -188,7 +188,7 @@
         "links": {
           "self": [
             {
-              "href": "https://bitbucket.biscrum.com/users/dev4_example.com"
+              "href": "https://bitbucket.corp.example/users/dev4_example.com"
             }
           ]
         }
@@ -202,7 +202,7 @@
   "links": {
     "self": [
       {
-        "href": "https://bitbucket.biscrum.com/projects/DIGITALBTD/repos/digitalbtd-portal-frontend/pull-requests/1654"
+        "href": "https://bitbucket.corp.example/projects/ACME/repos/acme-portal-frontend/pull-requests/1654"
       }
     ]
   }
