@@ -94,6 +94,23 @@ type AgentBinding struct {
 
 // ResolveAgent merges explicit input over the active profile's row: flags > row > today's pins/defaults.
 func (r *Registry) ResolveAgent(req AgentRequest) AgentBinding {
+	b := r.resolveAgent(req)
+	p, ok := r.Providers[b.Provider]
+	if !ok || p == nil {
+		return b
+	}
+	b.Model = p.WireModel(b.Model)
+	if b.Slots != nil {
+		slots := make(map[string]string, len(b.Slots))
+		for k, v := range b.Slots {
+			slots[k] = p.WireModel(v)
+		}
+		b.Slots = slots
+	}
+	return b
+}
+
+func (r *Registry) resolveAgent(req AgentRequest) AgentBinding {
 	b := AgentBinding{Provider: req.Provider, Model: req.Model, Effort: req.Effort}
 	row, ok := r.AgentRow(req.Agent)
 	if !ok {
