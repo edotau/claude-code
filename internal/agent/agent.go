@@ -140,9 +140,8 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
 		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.
-		if e != nil && (e.Kind == KindRateLimit || (e.Kind == KindQuota && modelScopedQuota(e.Err.Error()))) &&
-			providers.IsQuota(e.Err.Error()) && r.Caps().Model &&
-			(req.Model == "" || slices.Contains(models.Slots, req.Model)) {
+		if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
+			r.Caps().Model && (req.Model == "" || slices.Contains(models.Slots, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
 			if next := models.NextSlot(cur); next != "" {
 				if notify != nil {
@@ -159,9 +158,6 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	return res, nil
 }
-
-// modelScopedQuota is a zero limit on one model (Gemini free tier), not an exhausted account: a lower slot may serve.
-func modelScopedQuota(text string) bool { return strings.Contains(strings.ToLower(text), "limit: 0") }
 
 // resolveTarget applies --provider then --model (slot name, id, or provider:model) to the registry.
 func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {

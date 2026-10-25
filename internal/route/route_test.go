@@ -47,13 +47,14 @@ func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
 }
 
 func TestOverlayCellAndWeights(t *testing.T) {
-	reg := &providers.Registry{Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "x/y"}}},
+	// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
+	reg := &providers.Registry{Route: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
 		RouteWeights: map[string]float64{"price": 0.2, "headroom": 0.8}}
 	tb, err := load(reg, "u")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "x/y" || c.Effort != "high" {
+	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" || c.Effort != "high" {
 		t.Errorf("overlay cell = %+v, want model replaced and effort kept", c)
 	}
 	if tb.Weights["headroom"] != 0.8 {
