@@ -23,7 +23,7 @@
   "segments": {
     "path": true,
     "model": true,
-    "provider": false,
+    "provider": true,
     "router": false,
     "context": true,
     "limits": true,

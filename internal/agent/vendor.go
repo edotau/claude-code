@@ -94,6 +94,7 @@ func (v vendorRunner) Available() error {
 }
 
 func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+	ctx = directCtx(ctx, req)
 	t, own, err := vendorTarget(req, v.name)
 	if err != nil {
 		return Result{}, err
@@ -366,6 +367,7 @@ func (copilotRunner) Caps() Caps {
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+	ctx = directCtx(ctx, req)
 	t, own, err := vendorTarget(req, "copilot")
 	if err != nil {
 		return Result{}, err
@@ -432,4 +434,12 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		return res, err
 	}
 	return res, nil
+}
+
+// directCtx carries req.Direct to vendors.Configure (skip the router).
+func directCtx(ctx context.Context, req Request) context.Context {
+	if req.Direct {
+		return vendors.WithDirect(ctx)
+	}
+	return ctx
 }

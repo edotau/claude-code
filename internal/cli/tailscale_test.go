@@ -334,3 +334,62 @@ func TestNetworkTailscaleMachinesIsAMode(t *testing.T) {
 		t.Errorf("--machines alone is a valid mode: %q", stderr)
 	}
 }
+
+func TestNetworkTailscaleRouteEmptyValueExitsTwo(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	fakeTailscaleOnPATH(t, "Running")
+	code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--route", ""}) })
+	if code != 2 {
+		t.Errorf("--route with empty value: exit %d, want 2; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "requires a peer name") {
+		t.Errorf("stderr = %q, want a message about requiring a peer name", stderr)
+	}
+}
+
+func TestNetworkTailscaleRouteValueStartingWithDashExitsTwo(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	fakeTailscaleOnPATH(t, "Running")
+	code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--route", "-invalid"}) })
+	if code != 2 {
+		t.Errorf("--route with dash-value: exit %d, want 2; stderr=%q", code, stderr)
+	}
+}
+
+func TestNetworkTailscaleRouteMutualExclusivity(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"route and machines", []string{"--route", "off", "--machines"}},
+		{"route and connect", []string{"--route", "peer", "--connect"}},
+		{"route and key", []string{"--route", "off", "--key"}},
+		{"route and exit-node", []string{"--route", "peer", "--exit-node", "on"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale(tc.args) })
+			if code != 2 {
+				t.Errorf("exit %d, want 2; stderr=%q", code, stderr)
+			}
+			if !strings.Contains(stderr, "mutually exclusive") {
+				t.Errorf("stderr = %q, want it to mention mutual exclusion", stderr)
+			}
+		})
+	}
+}
+
+func TestNetworkTailscaleRouteRunsAndReports(t *testing.T) {
+	for args, want := range map[string]string{"off": "exit node cleared", "my-peer": "routing via my-peer"} {
+		t.Run(args, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			code, stdout, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--route", args}) })
+			if code != 0 || !strings.Contains(stdout, want) {
+				t.Errorf("--route %s: exit %d stdout %q stderr %q, want 0 and %q", args, code, stdout, stderr, want)
+			}
+		})
+	}
+}

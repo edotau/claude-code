@@ -3,6 +3,8 @@ package hooks
 import (
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // withPressure forces the Anthropic reading for one test, restoring TestMain's no-reading stub after.
@@ -12,6 +14,8 @@ func withPressure(t *testing.T, pct float64) {
 	claudePressure = func() (float64, string, bool) { return pct, "5h", true }
 	t.Cleanup(func() { claudePressure = old })
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(providers.PinProvider, "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
 }
 
 const pressureSpawn = `{"tool_name":"Agent","session_id":"s","tool_input":{"subagent_type":"%s","prompt":"refactor the parser in a.go and b.go"%s}}`
@@ -62,5 +66,26 @@ func TestPressureBelowLowIsSilent(t *testing.T) {
 	withPressure(t, 50)
 	if got, _ := runAgentEffort(t, spawn("code-worker", "")); got["model"] != "sonnet" || got["subagent_type"] != "code-worker" {
 		t.Errorf("50%% must not reroute: %+v", got)
+	}
+}
+
+// A session billed to a key/token provider never spends the claude.ai plan, so its windows must not steer dispatch.
+func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
+	withPressure(t, 99)
+	if !billsSubscription() {
+		t.Fatal("registry default must count as the subscription")
+	}
+	t.Setenv(providers.PinProvider, "openai")
+	if billsSubscription() {
+		t.Fatal("openai (API key) session must not count as the subscription")
+	}
+	updated := map[string]any{"subagent_type": "code-worker"}
+	if note, _ := applyPressure(&Input{}, updated, "prompt", "sonnet"); note != "" || updated["model"] != nil {
+		t.Errorf("pressure applied to a non-subscription session: %q %v", note, updated)
+	}
+	t.Setenv(providers.PinProvider, "")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/openai")
+	if billsSubscription() {
+		t.Error("routed openai session must not count as the subscription")
 	}
 }

@@ -48,6 +48,7 @@ func buildSpecTree() map[string]*compNode {
 		"resolve":  {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("router")}},
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
+		"restart":  {flags: []flagInfo{boolFlag("dry-run"), formatFlag()}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), formatFlag()}},
@@ -65,7 +66,8 @@ func buildSpecTree() map[string]*compNode {
 			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
-				valuedFlag("exit-node", exitNodeActions), flag("auth-key"), flag("key-env"), boolFlag("advertise-exit"),
+				valuedFlag("exit-node", exitNodeActions), valuedFlag("route", routeTargets), flag("auth-key"),
+				flag("key-env"), boolFlag("advertise-exit"),
 				flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
 				boolFlag("preauthorized"), flag("description")}},
 			"browser":   {flags: []flagInfo{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run")}},
@@ -215,6 +217,9 @@ func memoryPromoteTargets() []string { return memory.PromoteTargets }
 
 // exitNodeActions are the `network tailscale --exit-node` values.
 func exitNodeActions() []string { return []string{"on", "off", "approve"} }
+
+// routeTargets are the `network tailscale --route` values: dispatch hosts or "off" to clear.
+func routeTargets() []string { return append(dispatchHostNames(), "off") }
 
 // statuslineStyles are the `theme statusline --style` values.
 func statuslineStyles() []string {

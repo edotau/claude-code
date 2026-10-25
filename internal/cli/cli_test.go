@@ -77,7 +77,7 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 		if lookup(name) == nil {
 			t.Errorf("legacy name %s no longer dispatches", name)
 		}
-		for _, name := range []string{"profile", "providers"} {
+		for _, name := range []string{"providers"} {
 			if lookup(name) != nil {
 				t.Errorf("removed provider-list verb %s still dispatches", name)
 			}

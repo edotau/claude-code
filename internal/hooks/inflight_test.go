@@ -186,6 +186,35 @@ func TestAgentInflightTTLPruningIsOwnerAware(t *testing.T) {
 	}
 }
 
+// A FRESH untagged self marker whose spawn the session transcript already answered (auto-mode refusal: no
+// PostToolUse fires) is retired at once; an unanswered one keeps its slot until the TTL.
+func TestAgentInflightPrunesAnsweredUntaggedMarker(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := inflightDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	self := strconv.Itoa(os.Getpid())
+	for _, name := range []string{"agent-" + self + "-toolu_refused", "agent-" + self + "-toolu_running"} {
+		if f, err := os.Create(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		} else {
+			f.Close()
+		}
+	}
+	transcript := filepath.Join(t.TempDir(), "session.jsonl")
+	line := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_refused","is_error":true}]}}`
+	if err := os.WriteFile(transcript, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := pruneAndCountMarkers(dir, os.Getpid(), transcript, time.Now()); n != 1 {
+		t.Fatalf("pruneAndCountMarkers = %d, want 1 (the answered spawn retires, the running one counts)", n)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "agent-"+self+"-toolu_refused")); !os.IsNotExist(err) {
+		t.Error("an untagged marker whose tool_use_id has a tool_result must be retired")
+	}
+}
+
 // A provably dead owner is pruned on sight — no TTL wait: even a marker created moments ago must not
 // survive a prune pass once its owning process has already exited.
 func TestAgentInflightPrunesDeadOwnerRegardlessOfAge(t *testing.T) {
