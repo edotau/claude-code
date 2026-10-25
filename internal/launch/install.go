@@ -232,7 +232,7 @@ func settingsDriftDetailLabeled(d SettingsDrift, err error, label string) string
 		return "clean"
 	}
 	for i, l := range lines {
-		lines[i] = strings.TrimPrefix(l, label+": ")
+		lines[i] = strings.TrimPrefix(l, label+": ") // LinesLabeled already caps each line at 80
 	}
 	return strings.Join(lines, "; ")
 }

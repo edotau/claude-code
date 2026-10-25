@@ -7,12 +7,16 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// maxLineRunes is the CLI text width cap for one drift line.
+const maxLineRunes = 80
 
 // SettingsDrift holds every way the live settings.json (and its neighbors) can have drifted.
 type SettingsDrift struct {
@@ -37,30 +41,36 @@ func (s SettingsDrift) Lines() []string { return s.LinesLabeled("settings") }
 // LinesLabeled is Lines with a different line prefix, e.g. "settings (windows)".
 func (s SettingsDrift) LinesLabeled(label string) []string {
 	var lines []string
+	add := func(l string) { lines = append(lines, textutil.Truncate(l, maxLineRunes)) }
+	// addKey shortens the key, not the line, so the verb saying what is wrong always fits
+	addKey := func(k, verb string) {
+		room := maxLineRunes - utf8.RuneCountInString(label+": "+verb)
+		add(label + ": " + textutil.Truncate(k, max(room, 8)) + verb)
+	}
 	switch {
 	case s.Invalid != nil:
-		lines = append(lines, label+": "+s.Invalid.Error())
+		add(label + ": " + s.Invalid.Error())
 	case len(s.Differs) == 1 && s.Differs[0] == "(missing)":
-		lines = append(lines, label+": "+textutil.Truncate(s.File, 80)+" is missing (run claude-code install)")
+		add(label + ": " + s.File + " is missing (run claude-code install)")
 	default:
 		for _, k := range s.Differs {
-			lines = append(lines, label+": "+textutil.Truncate(k, 80)+" differs from the template")
+			addKey(k, " differs from the template")
 		}
 	}
 	for _, k := range s.Foreign {
-		lines = append(lines, label+": "+textutil.Truncate(k, 80)+" is a foreign key not in the template")
+		addKey(k, " is a foreign key not in the template")
 	}
 	for _, k := range s.Kept {
-		lines = append(lines, label+": "+textutil.Truncate(k, 80)+" is kept (not in the template)")
+		addKey(k, " is kept (not in the template)")
 	}
 	for _, l := range s.LocalDup {
-		lines = append(lines, label+": "+l)
+		add(label + ": " + l)
 	}
 	if s.Nested != "" {
-		lines = append(lines, label+": nested config: "+textutil.Truncate(s.Nested, 80))
+		add(label + ": nested config: " + s.Nested)
 	}
 	if s.Note != "" {
-		lines = append(lines, label+": "+s.Note)
+		add(label + ": " + s.Note)
 	}
 	return lines
 }
@@ -78,7 +88,7 @@ func CheckSettingsDrift() (SettingsDrift, error) {
 // settings.local.json entries that only repeat it, and reports a nested <config dir>/.claude.
 func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	file := SettingsFile()
-	d, err := checkSettingsDriftAt(file, filepath.Join(paths.ConfigDir(), "settings.local.json"), rendered)
+	d, err := checkSettingsDriftAt(file, filepath.Join(paths.ConfigDir(), "settings.local.json"), rendered, " (only read in $HOME)")
 	if err != nil {
 		return d, err
 	}

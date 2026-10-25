@@ -461,3 +461,42 @@ func TestInstallWindowsSettings_DropsListedForeignKey(t *testing.T) {
 		t.Error("unlisted foreign key remote was dropped")
 	}
 }
+
+// The Windows settings.local.json is not read-only-in-$HOME; its duplicate note must not say so.
+func TestCheckWindowsSettingsDrift_LocalDupNoteOmitsHomeClaim(t *testing.T) {
+	profile := winHermetic(t)
+	if err := os.MkdirAll(filepath.Dir(winSettingsPath(profile)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var installOut bytes.Buffer
+	if err := InstallWindowsSettings(&installOut, false); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(winSettingsPath(profile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	theme, ok := decodeObj(t, b)["theme"]
+	if !ok {
+		t.Skip("template has no theme key to duplicate")
+	}
+	local := filepath.Join(profile, ".claude", "settings.local.json")
+	if err := os.WriteFile(local, []byte(`{"theme":`+string(theme)+`}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drift, _, err := CheckWindowsSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drift.LocalDup) != 1 {
+		t.Fatalf("LocalDup = %q, want one entry", drift.LocalDup)
+	}
+	if got, want := drift.LocalDup[0], "settings.local.json theme repeats the template"; got != want {
+		t.Errorf("LocalDup = %q, want %q", got, want)
+	}
+	for _, l := range drift.LinesLabeled("settings (windows)") {
+		if len([]rune(l)) > 80 || strings.Contains(l, "$HOME") {
+			t.Errorf("bad windows line: %q", l)
+		}
+	}
+}
