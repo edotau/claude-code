@@ -1,6 +1,6 @@
 ---
 name: architecture-design
-description: 'Use when designing or assessing system architecture — "design the architecture", "monolith vs microservices", "which database/queue/cache", "make a technical decision", "review the system design", "architecture diagram", "analyze dependencies", "plan a migration", or writing an ADR. For code-level quality see evaluate-code; for security see security-reviewer.'
+description: 'Use when designing or assessing system architecture — "design the architecture", "monolith vs microservices", "which database/queue/cache", "make a technical decision", "review the system design", "architecture diagram", "analyze dependencies", "plan a migration", or writing an ADR. For code-level quality and security see evaluate-code.'
 ---
 
 # Architecture Design
@@ -78,5 +78,5 @@ those to a delivery/devops skill if one is installed.
 
 - **Code-level quality** (complexity, surgical changes, bug-hunting) → `evaluate-code` skill /
   `claude` agent.
-- **Security** (auth/crypto/SSRF, secret handling) → `security-reviewer`.
+- **Security** (auth/crypto/SSRF, secret handling) → `evaluate-code` → Security lens.
 - **Performance profiling / hot-path fixes** → `evaluate-code` skill's performance lens (`references/performance.md`).

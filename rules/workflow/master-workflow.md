@@ -199,7 +199,7 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 | Cross-module feature (HIGH) | review -> orchestrate `[--refine]` (simplify stage included) -> verify -> `/copilot commit` |
 | Fix failing tests | the `testing-guidelines` test-and-fix loop |
 | Clean up tech debt | `skills/evaluate-code/references/techdebt.md` (scan, then fix) |
-| Review current changes | `/code-review` (quality) ‖ `/security-reviewer` |
+| Review current changes | `/code-review` (quality + security lenses, `evaluate-code`) |
 | Second opinion from another model | `claude-code ask --agent <leg> "<review brief>"` |
 
 ## Agent Reference
@@ -209,8 +209,8 @@ purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `
 `codex`/`gemini`/`opencode` → 1; `Explore` → 2; `general-purpose` (built-in) → 5, 6;
 `code-worker`/`copilot` → 6; `claude` → 4, 7; `claude-code ask --agent <leg>` → 1, 6, 8.
 
-> **Security review is a skill, not an agent.** Run it via `/security-reviewer` (the `security-reviewer`
-> skill), typically alongside Phase 8.
+> **Security review is a lens of `evaluate-code`, not an agent** — `skills/evaluate-code/SKILL.md` → Security,
+> typically alongside Phase 8.
 
 ## Saved Workflows (`workflows/*.js`)
 

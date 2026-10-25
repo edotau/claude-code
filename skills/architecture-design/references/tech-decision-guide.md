@@ -85,7 +85,7 @@ Keep the auth surfaces distinct — don't conflate them:
 | Developer → platform | **Interactive OAuth (U2M)** via a named profile — never an implicit default that points at prod |
 | Service → service | **Machine identity** (service principal / workload identity), scoped per environment |
 
-Auth/crypto/token changes are a **must-review** surface → route to `security-reviewer`.
+Auth/crypto/token changes are a **must-review** surface → route to `evaluate-code` → Security lens.
 
 ---
 

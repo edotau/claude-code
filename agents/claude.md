@@ -43,7 +43,7 @@ orchestration layer — leaves are terminal and never fan out further.
 |---|---|
 | Design/plan | `Plan` agent (`agents/Plan.md`) — `problem-solving` Steps 0-3 (classify, define done, gather evidence, decide) feed its template; trivial/single-file work skips the plan, say so and implement directly |
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
-| Security deep-dive | `security-reviewer` skill (`/security-reviewer`); you flag only obvious CRITICAL secrets/injection yourself |
+| Security deep-dive | `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection yourself |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; full final pass → `codex` (`claude-code codex ask --tools`, briefed with that file) |
 | New test coverage | `copilot` TEST mode, dispatched in the SAME message as you, after the live check |
 | One leaf task | `code-worker` |
@@ -122,7 +122,7 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 
 ## Don't
 
-- **Security deep-dive** → `security-reviewer` skill; you flag only obvious CRITICAL secrets/injection.
+- **Security deep-dive** → `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `codex` (`claude-code codex ask
   --tools` + `skills/problem-solving/references/verify.md`); `Workflow green-keeper-loop` only when the user
   asks for it.

@@ -55,7 +55,7 @@ Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`
 | The release gate chain | the manager, via `problem-solving/references/verify.md`, or codex (`codex ask --tools`) |
 | Product-code changes | the implementer — report it, never edit it yourself |
 | Memory consolidation | `opencode` (`claude-code memory update`) |
-| Security deep-dive (auth, input, crypto, payment surfaces) | `security-reviewer` skill |
+| Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 
 ## Procedure
 

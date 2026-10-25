@@ -1,7 +1,13 @@
 # Mode 1: Application Security Review — OWASP Checklist
 
-The full code-audit checklist. The parent `SKILL.md` carries the severity table, must-review
+The full code-audit checklist. `../../SKILL.md` → Security carries the contract, must-review
 triggers, and read-only contract; this is the detailed pass to run when auditing application code.
+
+## Mechanical scan of added lines
+
+```bash
+git diff $RANGE | grep -nE '^\+' | grep -iE 'password|secret|api[_-]?key|token|BEGIN (RSA|PRIVATE)|eval\(|exec\(|pickle\.loads|md5|sha1|verify=False|shell=True'
+```
 
 ## Pre-Commit Security Checklist
 
@@ -22,7 +28,7 @@ f-strings, so a secret is never interpolated into a log line by accident.
 
 If security issue found:
 
-1. STOP immediately; run this skill (`/security-reviewer`) over the affected surface
+1. STOP immediately; run the Security lens (`evaluate-code`) over the affected surface
 2. Assess severity (CRITICAL/HIGH/MEDIUM/LOW)
 3. Fix CRITICAL issues before any other work
 4. Rotate any exposed secret — a committed secret is compromised even after removal; rotate, then scrub git

@@ -49,7 +49,7 @@ Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`
 
 | Need | Hand off to |
 | --- | --- |
-| Security deep-dive (auth, input, crypto, payment surfaces) | `security-reviewer` skill |
+| Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 | New test coverage | `copilot` |
 | Docs refresh or memory persistence | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |

@@ -38,4 +38,4 @@ subprocess.run(["git", "clone", url], check=True)  # CORRECT — list args, no s
 
 ## Reference
 
-The `security-reviewer` skill carries the OWASP checklist and dependency-audit procedure.
+The `evaluate-code` skill's Security lens carries the OWASP checklist and dependency-audit procedure.

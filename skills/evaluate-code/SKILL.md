@@ -1,6 +1,6 @@
 ---
 name: evaluate-code
-description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt".'
+description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, security (OWASP, secrets, injection, auth, Claude Code config, dependency CVEs and licences), performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt", "security review", "is this safe", "check for secrets", "OWASP", "audit dependencies", "any CVEs in our deps", "license compliance".'
 
 metadata:
   version: 4.0.0
@@ -14,6 +14,7 @@ that catches how LLM-written code characteristically fails. Read-only: findings 
 ## Pick your path
 
 - **Review a diff/PR** → [Review a diff](#review-a-diff).
+- **Security review (code, Claude Code config, dependencies)** → [Security](#security) lens.
 - **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the evidence loop the work
   claimed to follow against what actually happened).
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
@@ -78,6 +79,22 @@ the bar) and **breaking-change** detection (adding is usually safe; removing/ren
 tightening usually isn't). Commands + the safe-vs-breaking table + the migration two-phase rule:
 `references/pr-and-api-review.md`.
 
+### Security
+
+The security pass over the same diff — read-only by convention: propose fixes as findings, **never patch
+auth/crypto code directly** (a "helpful" auto-edit in security-sensitive code is itself a risk). The must-review
+triggers (`rules/standards/security.md` → Must-review) make this lens mandatory. A security HIGH is **FIX
+REQUIRED**, never a warn; MEDIUM is INFO, LOW is NOTE.
+
+- **Code** — OWASP Top 10 audit of the full changed files, not just the hunks; mechanical scan of added lines first
+  (`references/security/owasp-checklist.md` has the grep, the checklist, the response protocol and the false positives).
+- **Config** — Claude Code settings/hooks/MCP/agents touched → `references/security/agentshield-config-scan.md`;
+  cloud / IaC / IAM / CI-CD → `references/security/cloud-infrastructure-security.md`.
+- **Dependencies** — manifests touched, or asked for CVEs / licences → read-only scanners only (`osv-scanner`,
+  `pip-audit` without `--fix`, `npm audit` without `fix`, `pip-licenses`); a scanner that isn't installed reports
+  **UNKNOWN**, never "clean" (`command -v` first; `pipx install pip-audit osv-scanner` on demand). Procedure:
+  `references/security/dependency-auditor.md`; licence grid: `references/security/dependency-license-matrix.md`.
+
 ## Detectors
 
 `claude-code review <sub>` verbs, all support `--json`, all exit 0 (advisory signal — never a
@@ -104,8 +121,8 @@ Mechanical gate first: `rules/standards/quality.md` → Verification Order.
 3. Pre-approval checklist and the CRITICAL/HIGH/MEDIUM/LOW → action mapping: `rules/standards/quality.md`
    (Code Quality Checklist) · `references/completion-criteria.md` (severity) — approve when no CRITICAL/HIGH,
    block on either.
-4. A change on the must-review list (`rules/standards/security.md` → Must-review) also needs a security
-   pass — record that as a finding; the security pass is not this skill's.
+4. A change on the must-review list (`rules/standards/security.md` → Must-review) gets the [Security](#security)
+   lens as well — mandatory, not a judgment call.
 
 ## Verdicts
 

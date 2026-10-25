@@ -132,4 +132,4 @@ asserts < 0.5s."
 Run the detectors **first** (mechanical pass), then apply judgment on top. The detectors
 are advisory — they point at hot spots; you decide severity. A clean detector run does not
 mean the change is good; it means the mechanical violations are absent and you can spend
-attention on correctness, architecture, and the security pass (`security-reviewer`).
+attention on correctness, architecture, and the Security lens (`../SKILL.md` → Security).
