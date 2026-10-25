@@ -92,7 +92,7 @@ func TestUsageStreamsSectionsInOrder(t *testing.T) {
 	if idxModel < 0 || idxQuotas < 0 || idxKeys < 0 || idxAgents < 0 {
 		t.Fatalf("missing a section; MODEL@%d QUOTAS@%d KEYS@%d AGENTS@%d:\n%s", idxModel, idxQuotas, idxKeys, idxAgents, s)
 	}
-	if !(idxModel < idxQuotas && idxQuotas < idxKeys && idxKeys < idxAgents) {
+	if idxModel >= idxQuotas || idxQuotas >= idxKeys || idxKeys >= idxAgents {
 		t.Fatalf("sections out of order: MODEL@%d QUOTAS@%d KEYS@%d AGENTS@%d:\n%s", idxModel, idxQuotas, idxKeys, idxAgents, s)
 	}
 	if !strings.Contains(errw.String(), "usage: github me at 100% (exceeded)") {
@@ -241,7 +241,7 @@ func TestUsageAgentsClaudeRowMatchesModelTotals(t *testing.T) {
 // grepLine returns the first line of s containing substr, failing the test if none matches.
 func grepLine(t *testing.T, s, substr string) string {
 	t.Helper()
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.Contains(line, substr) {
 			return line
 		}

@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"math"
 	"os/exec"
 	"strings"
@@ -117,7 +117,7 @@ func findAgyUsageResult(out []byte) (agyUsageResult, error) {
 			return res, nil
 		}
 	}
-	return agyUsageResult{}, fmt.Errorf("no successful usage result in agy output")
+	return agyUsageResult{}, errors.New("no successful usage result in agy output")
 }
 
 // firstLine trims a command's combined error to one line, capped at 80 chars, never the whole stream.

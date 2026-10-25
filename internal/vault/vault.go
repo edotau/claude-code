@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 const (
@@ -109,7 +110,7 @@ func create(path string) error {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }() // best-effort cleanup; os.Link above moves it into place on success
 	if err = f.Close(); err != nil {
 		return err
 	}
@@ -239,7 +240,7 @@ func (t *Tx) Names(bucket string) []string {
 
 func (t *Tx) Put(bucket, key, val string) error {
 	if t.tx == nil || !t.tx.Writable() {
-		return bbolt.ErrTxNotWritable
+		return bolterrors.ErrTxNotWritable
 	}
 	b := t.tx.Bucket([]byte(bucket))
 	if val == "" {

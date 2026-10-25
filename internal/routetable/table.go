@@ -76,31 +76,9 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	if reg != nil {
 		for runner, tiers := range reg.Route {
 			for tier, o := range tiers {
-				if _, ok := t.Rows[runner][tier]; !ok {
-					return nil, fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, tier)
+				if err := t.applyRouteOverlayCell(runner, tier, o, copilotKey); err != nil {
+					return nil, err
 				}
-				c := t.Rows[runner][tier]
-				if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
-					key, err := opencodeOverrideAccount(prefixOf(o.Model), copilotKey)
-					if err != nil {
-						return nil, fmt.Errorf("routetable: overlay %s/%s: %w", runner, tier, err)
-					}
-					c.Account = key
-				}
-				if o.Model != "" {
-					c.Model = o.Model
-				}
-				if o.Effort != "" {
-					c.Effort = o.Effort
-				}
-				if o.Account != "" {
-					if _, ok := t.Billing[o.Account]; !ok {
-						return nil, fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry",
-							runner, tier, o.Account)
-					}
-					c.Account = o.Account
-				}
-				t.Rows[runner][tier] = c
 			}
 		}
 	}
@@ -116,6 +94,36 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 		t.Rows["copilot"][tier] = c
 	}
 	return &t, nil
+}
+
+// applyRouteOverlayCell merges one overlay cell (o) into t.Rows[runner][tier], resolving the opencode
+// override account when the model prefix moves the cell off its table-defined backend.
+func (t *Table) applyRouteOverlayCell(runner, tier string, o providers.RouteCell, copilotKey string) error {
+	c, ok := t.Rows[runner][tier]
+	if !ok {
+		return fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, tier)
+	}
+	if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+		key, err := opencodeOverrideAccount(prefixOf(o.Model), copilotKey)
+		if err != nil {
+			return fmt.Errorf("routetable: overlay %s/%s: %w", runner, tier, err)
+		}
+		c.Account = key
+	}
+	if o.Model != "" {
+		c.Model = o.Model
+	}
+	if o.Effort != "" {
+		c.Effort = o.Effort
+	}
+	if o.Account != "" {
+		if _, ok := t.Billing[o.Account]; !ok {
+			return fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry", runner, tier, o.Account)
+		}
+		c.Account = o.Account
+	}
+	t.Rows[runner][tier] = c
+	return nil
 }
 
 // CopilotUser is the pinned gh user Copilot bills (COPILOT_GITHUB_USER); the router never picks another account.
