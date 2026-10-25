@@ -49,7 +49,7 @@ func envMap(env []string) map[string]string {
 }
 
 func TestConfigure(t *testing.T) {
-	ctx := context.Background()
+	ctx := WithDirect(context.Background()) // these rows pin the direct hand-off; routing is covered in router_route_test.go
 	cases := []struct {
 		vendor, provider, model string
 		h                       *Headless
@@ -396,7 +396,7 @@ func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 
 func TestOpenCodeConfigShape(t *testing.T) {
 	tg := target(t, "gateway", "anthropic/claude-opus-5")
-	env, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+	env, argv, err := ConfigureHeadless(WithDirect(context.Background()), "opencode", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,7 +917,7 @@ func TestCopilotLoginPresentHonoursEveryTokenVar(t *testing.T) {
 func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	tg.Provider.Headers = map[string]string{"X-Tenant": "t1", "Authorization-Extra": "z"}
-	env, _, err := Configure(context.Background(), "copilot", tg, "")
+	env, _, err := Configure(WithDirect(context.Background()), "copilot", tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -77,12 +78,11 @@ func agentInflight(mode string, in *Input, stderr io.Writer) int {
 		// Without a shared dispatch ID, later events cannot match this marker; only pruning can retire it.
 		id = strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
-	transcriptDir := inflight.SubagentDir(in.TranscriptPath)
 	code := ExitProceed
 	// TryFileLock, not WithFileLock: the latter is fail-open, and counting markers unlocked races a
 	// sibling's write into a wrong total. Under contention: write first, then count (see below).
 	ran, _ := paths.TryFileLock(filepath.Join(dir, ".lock"), inflightLockWait, func() error {
-		n := pruneAndCountMarkers(dir, owner, transcriptDir, time.Now())
+		n := pruneAndCountMarkers(dir, owner, in.TranscriptPath, time.Now())
 		if n >= AgentMaxInflight {
 			fmt.Fprintf(stderr, "agent-inflight: %d Agent dispatches already in flight (cap %d, machine-wide) — "+
 				"wait for one to finish or run this task sequentially.\n", n, AgentMaxInflight)
@@ -95,7 +95,7 @@ func agentInflight(mode string, in *Input, stderr io.Writer) int {
 	if !ran {
 		// Contention IS the burst: write-then-count means every racer sees its peers, so over-cap ones back off.
 		writeMarker(dir, owner, id)
-		if n := pruneAndCountMarkers(dir, owner, transcriptDir, time.Now()); n > AgentMaxInflight {
+		if n := pruneAndCountMarkers(dir, owner, in.TranscriptPath, time.Now()); n > AgentMaxInflight {
 			_ = os.Remove(filepath.Join(dir, markerName(owner, id)))
 			fmt.Fprintf(stderr, "agent-inflight: %d Agent dispatches already in flight (cap %d, machine-wide) — "+
 				"wait for one to finish or run this task sequentially.\n", n-1, AgentMaxInflight)
@@ -210,14 +210,18 @@ func ownerDead(pid int) bool {
 
 // pruneAndCountMarkers removes markers whose owner is PROVABLY gone — or, when the owner cannot be
 // probed at all, whose TTL expired — and, for self's own TAGGED markers, whose agent transcript under
-// transcriptDir is idle past inflightIdle or absent past inflightGrace (a turn-capped agent sends no
-// SubagentStop). Returns the live count. Non-marker entries never count.
-func pruneAndCountMarkers(dir string, self int, transcriptDir string, now time.Time) int {
+// the session transcript's subagent dir is idle past inflightIdle or absent past inflightGrace (a
+// turn-capped agent sends no SubagentStop), and self's UNTAGGED markers the session transcript has
+// already answered. Returns the live count. Non-marker entries never count.
+func pruneAndCountMarkers(dir string, self int, transcript string, now time.Time) int {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
 	probeTrusted := inflight.ProbeTrusted()
+	transcriptDir := inflight.SubagentDir(transcript)
+	selfPrefix := markerPrefix + strconv.Itoa(self) + "-"
+	var session []byte // read lazily: only an untagged self marker needs it
 	n := 0
 	for _, e := range entries {
 		if _, ok := markerOwner(e.Name()); !ok {
@@ -227,6 +231,15 @@ func pruneAndCountMarkers(dir string, self int, transcriptDir string, now time.T
 		if err != nil {
 			continue
 		}
+		if id, own := strings.CutPrefix(e.Name(), selfPrefix); own && transcript != "" && !strings.Contains(id, markerAgentSep) {
+			if session == nil {
+				session, _ = os.ReadFile(transcript)
+			}
+			if spawnAnswered(session, id) {
+				_ = os.Remove(filepath.Join(dir, e.Name()))
+				continue
+			}
+		}
 		if !inflight.Live(e.Name(), fi.ModTime(), now, self, transcriptDir, probeTrusted) {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 			continue
@@ -234,6 +247,12 @@ func pruneAndCountMarkers(dir string, self int, transcriptDir string, now time.T
 		n++
 	}
 	return n
+}
+
+// spawnAnswered: the session transcript holds a tool_result for this spawn's tool_use_id, so the spawn already
+// ended — refused by auto mode or failed (no PostToolUse ever fires), or a foreground Agent that finished.
+func spawnAnswered(session []byte, id string) bool {
+	return id != "" && bytes.Contains(session, []byte(`"tool_use_id":"`+id+`"`))
 }
 
 // retireMarker removes the marker for this exact dispatch when the event names a tool_use_id (a failed

@@ -22,7 +22,7 @@ import (
 var tailscalePage = helptext.Page{
 	Usage: "claude-code network tailscale [<mode flag>] [flags]",
 	About: "Bare prints this box's tailnet status; one mode flag (--machines, --connect,\n" +
-		"--key, --exit-node on|off|approve) picks another action.",
+		"--key, --exit-node on|off|approve, --route <peer>|off) picks another action.",
 	Hint: "--connect takes --auth-key k|-, --key-env NAME and --advertise-exit.\n" +
 		"--key takes --expiry, --tags, --save, --reusable, --ephemeral, --preauthorized\n" +
 		"and --description. Status and --machines take --format text|json.",
@@ -42,6 +42,7 @@ func cmdNetworkTailscale(args []string) int {
 	connect := fs.Bool("connect", false, "join the tailnet")
 	mint := fs.Bool("key", false, "mint a Tailscale auth key")
 	exitNode := fs.String("exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
+	route := fs.String("route", "", "<peer>|off: send this box's traffic through a peer exit node")
 	format := outfmt.Flag(fs)
 	var o tsOpts
 	fs.StringVar(&o.authKey, "auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
@@ -60,14 +61,17 @@ func cmdNetworkTailscale(args []string) int {
 	if fs.NArg() > 0 {
 		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))
 	}
-	exitNodeSet := false
+	exitNodeSet, routeSet := false, false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "exit-node" {
 			exitNodeSet = true
 		}
+		if f.Name == "route" {
+			routeSet = true
+		}
 	})
 	var modes []string
-	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": exitNodeSet} {
+	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": exitNodeSet, "route": routeSet} {
 		if on {
 			modes = append(modes, "--"+name)
 		}
@@ -106,8 +110,31 @@ func cmdNetworkTailscale(args []string) int {
 			return failUsage("network tailscale: --exit-node must be on, off or approve, got %q", *exitNode)
 		}
 		return tailscaleExitNode(ctx, *exitNode)
+	case "route":
+		if *route == "" || strings.HasPrefix(*route, "-") {
+			return failUsage("network tailscale: --route requires a peer name or 'off'")
+		}
+		return tailscaleRoute(ctx, *route)
 	}
 	return tailscaleStatus(ctx, *format)
+}
+
+// tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
+func tailscaleRoute(ctx context.Context, peer string) int {
+	if peer == "off" {
+		if err := tailscale.UseExitNode(ctx, ""); err != nil {
+			return fail("network tailscale route: %v", err)
+		}
+		audit.Log(audit.TailscaleExitNode, "self", "clear")
+		fmt.Println("tailscale: exit node cleared")
+		return 0
+	}
+	if err := tailscale.UseExitNode(ctx, peer); err != nil {
+		return fail("network tailscale route: %v", err)
+	}
+	audit.Log(audit.TailscaleExitNode, peer, "use")
+	fmt.Println("tailscale: routing via " + peer + " (LAN stays local)")
+	return 0
 }
 
 // tsOpts carries the connect and key mode flags.

@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,5 +84,63 @@ func TestLimitsSegmentEmptyWhenNeitherSource(t *testing.T) {
 	got := plain(Render([]byte(runningPayload), "gradient"))
 	if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") {
 		t.Errorf("limits rendered with no source: %q", got)
+	}
+}
+
+// tokenLeft boundaries: expired at 0, "<1m" under a minute, then whole minutes, then hours and minutes.
+func TestTokenLeftBoundaries(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	for left, want := range map[time.Duration]string{
+		-time.Second:                    "tok:exp",
+		0:                               "tok:exp",
+		time.Second:                     "tok:<1m",
+		59 * time.Second:                "tok:<1m",
+		time.Minute:                     "tok:1m",
+		42 * time.Minute:                "tok:42m",
+		59*time.Minute + 59*time.Second: "tok:59m",
+		time.Hour:                       "tok:1h00m",
+		65 * time.Minute:                "tok:1h05m",
+	} {
+		if got := tokenLeft(now.Add(left), now); got != want {
+			t.Errorf("tokenLeft(+%v) = %q, want %q", left, got, want)
+		}
+	}
+}
+
+// A bearer or x-api-key provider shows its token's time left; a passthrough or unknown provider keeps 5h/7d.
+func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
+	hermetic(t)
+	future := time.Now().Add(24 * time.Hour).Unix()
+	payload := fmt.Sprintf(`{"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
+		future, future)
+	var in Input
+	if err := json.Unmarshal([]byte(payload), &in); err != nil {
+		t.Fatal(err)
+	}
+	writeTokenExpiry(t, "openai", time.Now().Add(42*time.Minute+30*time.Second))
+
+	if got := limitsSegment(in, "openai"); got != "tok:42m" {
+		t.Errorf("bearer provider with a record: %q, want tok:42m", got)
+	}
+	if got := limitsSegment(in, "anthropic"); got != "" {
+		t.Errorf("x-api-key provider without a record: %q, want empty", got)
+	}
+	if got := limitsSegment(in, "subscription"); got != "5h:23% 7d:41%" {
+		t.Errorf("passthrough provider: %q, want 5h/7d", got)
+	}
+	if got := limitsSegment(in, "no-such-provider"); got != "5h:23% 7d:41%" {
+		t.Errorf("unknown provider: %q, want 5h/7d", got)
+	}
+}
+
+// writeTokenExpiry plants the {"exp":N} record providers.TokenExpiry reads, without minting a credential.
+func writeTokenExpiry(t *testing.T, name string, exp time.Time) {
+	t.Helper()
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"exp":%d}`, exp.Unix())), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

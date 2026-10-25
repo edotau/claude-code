@@ -288,3 +288,22 @@ func TestClaudeRouter(t *testing.T) {
 		t.Errorf("cross-provider --model: %v %v", p.Set, err)
 	}
 }
+
+// The overlay is shared across sessions, so a scratch build must not become every session's apiKeyHelper.
+func TestHelperBinPrefersInstalled(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if got := helperBin("/tmp/scratch/claude-code"); got != "/tmp/scratch/claude-code" {
+		t.Errorf("nothing installed: %q", got)
+	}
+	bin := filepath.Join(dir, "bin", "claude-code")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := helperBin("/tmp/scratch/claude-code"); got != bin {
+		t.Errorf("installed binary must win: %q", got)
+	}
+}

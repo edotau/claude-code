@@ -42,6 +42,32 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 	}
 }
 
+// vendors.copilot blanks each BYOK credential var, then appends the real one: the session must get the last value.
+func TestProviderFromEnvLastDuplicateWins(t *testing.T) {
+	p := providerFromEnv([]string{
+		"COPILOT_PROVIDER_BASE_URL=https://h/serving-endpoints", "COPILOT_PROVIDER_TYPE=openai",
+		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_BEARER_TOKEN=tok",
+	})
+	if p == nil || p.BearerToken != "tok" || p.APIKey != "" {
+		t.Fatalf("provider = %+v, want BearerToken tok and no APIKey", p)
+	}
+}
+
+// A gateway Claude id keeps its wire name but gets copilot's catalog ModelID; other ids pass through.
+func TestProviderFromEnvWellKnownModelID(t *testing.T) {
+	for id, want := range map[string]string{
+		"databricks-claude-sonnet-5-5": "claude-sonnet-5.5",
+		"databricks-claude-opus-5-5":   "claude-opus-5.5",
+		"claude-opus-5.5":              "claude-opus-5.5",
+		"gpt-5":                        "gpt-5",
+	} {
+		p := providerFromEnv([]string{"COPILOT_PROVIDER_BASE_URL=https://h", "COPILOT_MODEL=" + id})
+		if p.ModelID != want || p.WireModel != id {
+			t.Errorf("%s: ModelID=%q WireModel=%q, want %q / %q", id, p.ModelID, p.WireModel, want, id)
+		}
+	}
+}
+
 // ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
 func TestListModelsMapsFields(t *testing.T) {
 	mult := 2.5

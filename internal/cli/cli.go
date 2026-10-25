@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -57,15 +58,18 @@ func commands() []command {
 		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
 		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
 		{name: "opencode", group: groupVendors, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
+		{name: "databricks", group: groupVendors, summary: "Claude Code on Databricks serving; check: smoke/1M probe", run: databricks.Run},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (vault pins)", run: cmdUse},
+		{name: "restart", group: groupSession, summary: "restart running daemons on the installed binary", run: cmdRestart},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
 		{name: "dispatch", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
+		{name: "profile", group: groupSession, summary: "per-agent account profiles: list, use, save, migrate", run: cmdProfile},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS

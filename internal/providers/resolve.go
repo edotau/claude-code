@@ -96,12 +96,24 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 		return true
 	}
 	for _, t := range s.Slots {
-		if t.Provider != s.Provider {
+		if t.Provider != s.Provider || PrefersOpenAI(t.Provider, t.Model) {
 			return true
 		}
 	}
 	// A login session stays direct even with a fallback ladder: a loopback ANTHROPIC_BASE_URL disables Remote Control.
 	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthPassthrough
+}
+
+// PrefersOpenAI reports whether model must use p's OpenAI route even though p has an Anthropic one:
+// a non-Claude model on a provider serving both (one gateway, two paths) needs the router's translation.
+func PrefersOpenAI(p *Provider, model string) bool {
+	if _, ok := p.Route(DialectAnthropic); !ok {
+		return false
+	}
+	if _, ok := p.Route(DialectOpenAI); !ok {
+		return false
+	}
+	return !strings.Contains(strings.ToLower(model), "claude")
 }
 
 // FailoverTarget maps a request that failed on from/model to the equivalent model on next: same slot

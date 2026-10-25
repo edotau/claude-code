@@ -91,6 +91,9 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
+	// Load-only: derived preset fields are never written back to the overlay.
+	expandPresets(&reg)
+	decorateModels(&reg)
 	reg.Routing.Opencode.Ladder = NormalizeOpencodeLadder(&reg) // legacy provider-name ladder entries, before Validate
 	if legacyErr != nil {
 		return &reg, legacyErr
@@ -142,6 +145,12 @@ func applyOverlay(base, o *Registry) {
 		base.AgentPlanFormat = o.AgentPlanFormat
 	}
 	applyRoutingOverlay(&base.Routing, &o.Routing)
+	if o.Profiles.Active != "" {
+		base.Profiles.Active = o.Profiles.Active
+	}
+	if o.Profiles.Sets != nil {
+		base.Profiles.Sets = o.Profiles.Sets
+	}
 	if base.Providers == nil {
 		base.Providers = map[string]*Provider{}
 	}

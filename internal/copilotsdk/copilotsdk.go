@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -103,9 +106,10 @@ func permissionHandler(o Options) copilot.PermissionHandlerFunc {
 }
 
 // providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
+// Last duplicate wins (exec's rule): vendors.copilot blanks each credential var, then appends the real one.
 func providerFromEnv(env []string) *copilot.ProviderConfig {
 	get := func(key string) string {
-		for _, kv := range env {
+		for _, kv := range slices.Backward(env) {
 			if v, ok := strings.CutPrefix(kv, key+"="); ok {
 				return v
 			}
@@ -116,14 +120,31 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	if base == "" {
 		return nil
 	}
+	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
+	model := get("COPILOT_MODEL")
 	return &copilot.ProviderConfig{
-		Type:        get("COPILOT_PROVIDER_TYPE"),
-		BaseURL:     base,
-		APIKey:      get("COPILOT_PROVIDER_API_KEY"),
-		BearerToken: get("COPILOT_PROVIDER_BEARER_TOKEN"),
-		ModelID:     get("COPILOT_MODEL"),
-		WireModel:   get("COPILOT_MODEL"),
+		Type:            get("COPILOT_PROVIDER_TYPE"),
+		BaseURL:         base,
+		APIKey:          get("COPILOT_PROVIDER_API_KEY"),
+		BearerToken:     get("COPILOT_PROVIDER_BEARER_TOKEN"),
+		ModelID:         wellKnownModel(model),
+		WireModel:       model,
+		MaxPromptTokens: atoi("COPILOT_PROVIDER_MAX_PROMPT_TOKENS"),
+		MaxOutputTokens: atoi("COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"),
 	}
+}
+
+// gatewayClaudeRE matches a gateway-prefixed Claude id (databricks-claude-sonnet-5-5) ending in major-minor.
+var gatewayClaudeRE = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable)-(\d+)-(\d{1,2})$`)
+
+// wellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
+// its Claude settings (no temperature, reasoning, limits); any other id passes through unchanged.
+func wellKnownModel(id string) string {
+	m := gatewayClaudeRE.FindStringSubmatch(id)
+	if m == nil {
+		return id
+	}
+	return "claude-" + m[1] + "-" + m[2] + "." + m[3]
 }
 
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
