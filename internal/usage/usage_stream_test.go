@@ -261,7 +261,7 @@ func TestUsageSlowQuotaFetchLeavesAgentsIntactAndWarnsAfter(t *testing.T) {
 	release := make(chan struct{})
 	origQ := fetchQuotas
 	fetchQuotas = func() []quota {
-		<-release // simulates a slow provider round-trip
+		<-release                                                                   // simulates a slow provider round-trip
 		return []quota{{Provider: "openai", Account: "me", UsedPct: 100, Note: ""}} // exceeded -> warns
 	}
 	t.Cleanup(func() { fetchQuotas = origQ })
