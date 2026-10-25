@@ -2,7 +2,7 @@
 
 Dispatch remote work over SSH/tmux and watch per-agent-CLI token usage from the VS Code activity bar.
 
-Runs `claude-code dispatch`, `claude-code usage --format json` and `claude-code profile --format json`
+Runs `claude-code dispatch`, `claude-code usage --format json` and `claude-code configure provider --list --format json`
 via `child_process.execFile` — no shell, no npm dependencies. On Remote-SSH it runs on the remote host
 (workspace extension kind), so usage always reflects the box the binary is actually on.
 
@@ -23,7 +23,7 @@ A status bar segment (right side) and an "Agents Dashboard" activity-bar view sh
 `claude-code usage` at a glance — most importantly, the Claude 5-hour window's used percentage and
 time until it resets. Click the status bar segment (or run "Claude Code Agents: Show Agent
 Dashboard") to open the view; "Claude Code Agents: Refresh Agents Dashboard" re-fetches on demand.
-Data comes from `claude-code usage --format json` and `claude-code profile --format json`,
+Data comes from `claude-code usage --format json` and `claude-code configure provider --list --format json`,
 refreshed every `claudeCodeAgents.usageRefreshSeconds` (default `60`, floored to `15`); reset
 countdowns tick every minute between fetches by re-rendering the cached JSON, no refetch needed.
 `claudeCodeAgents.usageShow` picks `used` (default) or `left` percentages.

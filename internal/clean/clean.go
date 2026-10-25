@@ -16,7 +16,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/helptext"
 	"io"
@@ -142,22 +141,19 @@ func targets() []target {
 
 // Run is `claude-code clean`: applies unless --dry-run.
 func Run(args []string, out, errw io.Writer) int {
-	fs := flag.NewFlagSet("clean", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("clean", helptext.Page{
+		Usage: "claude-code clean [flags]",
+		About: "Delete caches, run dirs and backups older than --older-than. Credentials,\n" +
+			"settings and memory are never touched; --target sessions asks first.",
+	})
 	fs.SetOutput(errw)
 	want := fs.String("target", "", "comma-separated targets (default: every target); --list names them")
 	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h)")
 	dryRun := fs.Bool("dry-run", false, "preview only — print what would be removed, delete nothing")
 	yesFlag := fs.Bool("yes", false, "skip the --target sessions confirmation prompt (required without a TTY)")
 	list := fs.Bool("list", false, "print the targets and exit")
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	all := targets()
 	if *list {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -13,10 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
-const memoryMigrateUsage = `usage: claude-code memory migrate [--dry-run] [--origin SLUG=PATH]...
-                                  [--supersede] [--format text|json]
-       claude-code memory migrate --manifest MANIFEST [--supersede]
-Inventory, write manifest, and apply (--dry-run writes the manifest only).`
+var memoryMigratePage = helptext.Page{
+	Usage: "claude-code memory migrate [flags]\nclaude-code memory migrate --manifest MANIFEST [--supersede]",
+	About: "Inventory, write manifest, and apply (--dry-run writes the manifest only).",
+}
 
 // originFlag collects repeatable --origin SLUG=PATH pins.
 type originFlag map[string]string
@@ -35,33 +34,28 @@ func (o originFlag) Set(v string) error {
 // cmdMemoryMigrate applies by default (inventory, manifest, apply); --dry-run stops after the manifest and
 // --manifest applies a reviewed one. Exit 0 only on a complete apply (or a written dry-run manifest).
 func cmdMemoryMigrate(args []string) int {
-	fs := flag.NewFlagSet("memory migrate", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of memory migrate:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("memory migrate", memoryMigratePage)
 	dryRun := fs.Bool("dry-run", false, "inventory and write a manifest only; apply nothing")
 	manifest := fs.String("manifest", "", "apply this reviewed manifest instead of taking a fresh inventory")
 	supersede := fs.Bool("supersede", false, "set aside an unfinished journal as *.journal.superseded.json")
 	origins := originFlag{}
 	fs.Var(origins, "origin", "pin a legacy slug to its checkout: SLUG=PATH (repeatable)")
 	format := outfmt.Flag(fs)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 {
-		return fail("memory migrate: unexpected argument %q (%s)", fs.Arg(0), memoryMigrateUsage)
+		return fail("memory migrate: unexpected argument %q (usage: %s)", fs.Arg(0), memoryMigratePage.Usage)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("memory migrate: %v", err)
 		return 2
 	}
 	if *manifest != "" && (*dryRun || len(origins) > 0) {
-		return fail("memory migrate: --manifest applies a reviewed manifest; it takes no --dry-run/--origin (%s)", memoryMigrateUsage)
+		return fail("memory migrate: --manifest applies a reviewed manifest; it takes no --dry-run/--origin (see claude-code memory migrate -h)")
 	}
 	if *format == outfmt.JSON && !*dryRun {
-		return fail("memory migrate: --format json only applies to --dry-run; an apply streams progress text (%s)", memoryMigrateUsage)
+		return fail("memory migrate: --format json only applies to --dry-run; an apply streams progress text (see claude-code memory migrate -h)")
 	}
 	if *manifest != "" {
 		return migrateApply(*manifest, *supersede)

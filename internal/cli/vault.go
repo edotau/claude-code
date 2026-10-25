@@ -18,16 +18,20 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-const vaultUsage = `usage: claude-code vault <subcommand>
-  show        print the pins, env, overlays and key_command
-              [--format text|json] (default text on a terminal) [--tailscale]
-  set         only --tailscale: add a Tailscale credential [--api-key]
-              [--dry-run]; bare "set" points at claude-code secrets set
-  edit        $VISUAL/$EDITOR on that JSON; saved in one transaction,
-              refused if the vault changed meanwhile
-  rotate-key  re-seal every secret under a new master key; the old key
-              stays in the keyring [--force past an env/key_command guard]
-  key show    print the master key (base64) to a pipe; refused on a TTY`
+var vaultPage = helptext.Page{
+	Usage: "claude-code vault <subcommand>",
+	Commands: [][2]string{
+		{"show", "print the pins, env, overlays and key_command " +
+			"[--format text|json] (default text on a terminal) [--tailscale]"},
+		{"set", "only --tailscale: add a Tailscale credential [--api-key] " +
+			"[--dry-run]; bare \"set\" points at claude-code secrets set"},
+		{"edit", "$VISUAL/$EDITOR on that JSON; saved in one transaction, " +
+			"refused if the vault changed meanwhile"},
+		{"rotate-key", "re-seal every secret under a new master key; the old key " +
+			"stays in the keyring [--force past an env/key_command guard]"},
+		{"key show", "print the master key (base64) to a pipe; refused on a TTY"},
+	},
+}
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
@@ -43,31 +47,35 @@ func cmdVault(args []string) int {
 		args = args[1:]
 	}
 	switch sub {
-	case "", "-h", "--help":
-		helptext.Fprint(os.Stdout, vaultUsage+"\n")
+	case "", "-h", "--help", "help":
+		vaultPage.Fprint(os.Stdout)
 		return 0
 	}
 	if run, ok := vaultVerbs[sub]; ok {
 		return run(args)
 	}
 	fmt.Fprintf(os.Stderr, "vault: unknown subcommand %q\n", sub)
-	helptext.Fprint(os.Stderr, vaultUsage+"\n")
+	vaultPage.Fprint(os.Stderr)
 	return 2
 }
 
-// vaultUsageErr reports a stray argument to a vault subcommand.
+// vaultUsageErr reports a stray argument to a vault subcommand; a -h there prints the page and exits 0.
 func vaultUsageErr(sub string, args []string) int {
+	if args[0] == "-h" || args[0] == "--help" {
+		vaultPage.Fprint(os.Stdout)
+		return 0
+	}
 	fmt.Fprintf(os.Stderr, "vault %s: unexpected argument %q\n", sub, args[0])
-	helptext.Fprint(os.Stderr, vaultUsage+"\n")
+	vaultPage.Fprint(os.Stderr)
 	return 2
 }
 
 func configShow(args []string) int {
-	fs := helptext.NewFlagSet("vault show", "usage: claude-code vault show [--tailscale] [--format text|json]\n\n")
+	fs := helptext.NewFlagSet("vault show", helptext.Page{Usage: "claude-code vault show [flags]"})
 	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
 	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		return vaultUsageErr("show", fs.Args())
@@ -137,12 +145,12 @@ func tailscaleAPIVerdict(cs []tailscale.CredState) string {
 
 // cmdVaultSet adds a Tailscale credential; no other use is supported (use claude-code secrets set).
 func cmdVaultSet(args []string) int {
-	fs := helptext.NewFlagSet("vault set", "usage: claude-code vault set [--tailscale [--api-key]] [--dry-run]\n\n")
+	fs := helptext.NewFlagSet("vault set", helptext.Page{Usage: "claude-code vault set [flags]"})
 	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key)")
 	apiKey := fs.Bool("api-key", false, "piped stdin is one TAILSCALE_API_KEY value")
 	dryRun := fs.Bool("dry-run", false, "report what would be written; change nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		return vaultUsageErr("set", fs.Args())
@@ -247,10 +255,10 @@ func configEdit(args []string) int {
 }
 
 func configRotateKey(args []string) int {
-	fs := helptext.NewFlagSet("vault rotate-key", "usage: claude-code vault rotate-key [--force]\n\n")
+	fs := helptext.NewFlagSet("vault rotate-key", helptext.Page{Usage: "claude-code vault rotate-key [flags]"})
 	force := fs.Bool("force", false, "rotate even if HARNESS_VAULT_KEY or key_command is set")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 {
 		return vaultUsageErr("rotate-key", fs.Args())
@@ -262,8 +270,10 @@ func configRotateKey(args []string) int {
 	return configRun("rotate-key", config.RotateKey(os.Stdout, opts...))
 }
 
-const vaultKeyUsage = `usage: claude-code vault key <subcommand>
-show  print the master key (base64) to stdout; refused on a terminal`
+var vaultKeyPage = helptext.Page{
+	Usage:    "claude-code vault key <subcommand>",
+	Commands: [][2]string{{"show", "print the master key (base64) to stdout; refused on a terminal"}},
+}
 
 // cmdVaultKey routes "vault key <subcommand>".
 func cmdVaultKey(args []string) int {
@@ -273,14 +283,14 @@ func cmdVaultKey(args []string) int {
 		args = args[1:]
 	}
 	switch sub {
-	case "", "-h", "--help":
-		helptext.Fprint(os.Stdout, vaultKeyUsage+"\n")
+	case "", "-h", "--help", "help":
+		vaultKeyPage.Fprint(os.Stdout)
 		return 0
 	case "show":
 		return vaultKeyShow(args)
 	}
 	fmt.Fprintf(os.Stderr, "vault key: unknown subcommand %q\n", sub)
-	helptext.Fprint(os.Stderr, vaultKeyUsage+"\n")
+	vaultKeyPage.Fprint(os.Stderr)
 	return 2
 }
 

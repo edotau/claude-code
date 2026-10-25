@@ -22,7 +22,7 @@ const notAVendor = "zzz-not-a-vendor"
 // names its extra bridge verb (contract.md's help-text target).
 func TestVendorUsageFits80(t *testing.T) {
 	for _, vendor := range vendorNames() {
-		usage := vendorUsage(vendor)
+		usage := renderHelpPage(vendorPage(vendor))
 		for _, line := range strings.Split(strings.TrimRight(usage, "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); n > 80 {
 				t.Errorf("vendorUsage(%q) line %q is %d runes, want <= 80", vendor, line, n)
@@ -98,14 +98,14 @@ func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) 
 	}
 }
 
-// TestVendorVerbHelpFlag: -h/--help prints vendorUsage and exits 2 (matches other verbs' help convention).
+// TestVendorVerbHelpFlag checks that vendor help uses the shared page and exits successfully.
 func TestVendorVerbHelpFlag(t *testing.T) {
 	for _, flagArg := range []string{"-h", "--help", "help"} {
 		code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{flagArg}) })
-		if code != 2 {
-			t.Errorf("vendorVerb(codex, %q) exit %d, want 2", flagArg, code)
+		if code != 0 {
+			t.Errorf("vendorVerb(codex, %q) exit %d, want 0", flagArg, code)
 		}
-		if !strings.Contains(stderr, "claude-code codex — the codex agent") {
+		if !strings.HasPrefix(stderr, "usage: claude-code codex") {
 			t.Errorf("vendorVerb(codex, %q) stderr missing usage header: %q", flagArg, stderr)
 		}
 	}
@@ -164,10 +164,10 @@ func TestVendorCompletionDoesNotFollowDoubleDash(t *testing.T) {
 }
 
 func TestVendorUsageBridgeRowOnlyForGemini(t *testing.T) {
-	if u := vendorUsage("codex"); strings.Contains(u, "bridge") {
+	if u := renderHelpPage(vendorPage("codex")); strings.Contains(u, "bridge") {
 		t.Errorf("vendorUsage(codex) must not carry the bridge row:\n%s", u)
 	}
-	if u := vendorUsage("gemini"); !strings.Contains(u, "gemini bridge") {
+	if u := renderHelpPage(vendorPage("gemini")); !strings.Contains(u, "  bridge") {
 		t.Errorf("vendorUsage(gemini) missing the bridge row:\n%s", u)
 	}
 }
@@ -268,7 +268,7 @@ func TestVendorTailUnknownIDFails(t *testing.T) {
 // TestVendorUsageNamesTail: every vendor's help block carries a tail row.
 func TestVendorUsageNamesTail(t *testing.T) {
 	for _, vendor := range vendorNames() {
-		if !strings.Contains(vendorUsage(vendor), "tail") {
+		if !strings.Contains(renderHelpPage(vendorPage(vendor)), "tail") {
 			t.Errorf("vendorUsage(%q) has no tail row", vendor)
 		}
 	}

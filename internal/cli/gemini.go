@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -38,12 +37,15 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// geminiBridgePage is `gemini bridge -h`: the harness's own large-context sweep, not agy's launcher.
+var geminiBridgePage = helptext.Page{
+	Usage: "claude-code gemini bridge [flags] <task>",
+	About: "Inline the files under --dirs/--files into one 1M-context Gemini call and stream the " +
+		"answer. --diff narrows to files changed vs HEAD; --index prepends a path index.",
+}
+
 func cmdGeminiBridge(args []string) int {
-	fs := flag.NewFlagSet("gemini bridge", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("gemini bridge", geminiBridgePage)
 	task := fs.String("task", "", "explicit task text (else trailing args)")
 	model := fs.String("model", "", "slot name, model id, or provider:model")
 	provider := fs.String("provider", "", "API-key provider instead of agy's Google sign-in")
@@ -61,7 +63,7 @@ func cmdGeminiBridge(args []string) int {
 	// Interspersed: `bridge "task" --dirs d` must ingest d, not append "--dirs d" to the task.
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if *format != "text" && *format != "json" {
 		return fail("gemini bridge: --format %q unknown (text|json)", *format)
@@ -79,8 +81,10 @@ func cmdGeminiBridge(args []string) int {
 		taskText = strings.Join(pos, " ")
 	}
 	if strings.TrimSpace(taskText) == "" {
-		helptext.Fprint(os.Stderr, "usage: claude-code gemini bridge [flags] <task>\n")
-		helptext.Defaults(fs)
+		fs.Usage()
+		if len(args) == 0 {
+			return 0 // bare `gemini bridge` is a help request
+		}
 		return 2
 	}
 	cwd, err := os.Getwd()

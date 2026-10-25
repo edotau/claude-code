@@ -25,12 +25,16 @@ import (
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
+// askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
+var askPage = helptext.Page{
+	Usage: "claude-code ask [flags] <task | ->",
+	About: "Run one task headlessly on an agent runner and stream its answer; a vendor that " +
+		"fails falls back per --fallback. With no task, or \"-\", the task is read from stdin.",
+	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
+}
+
 func cmdAsk(args []string) int {
-	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("ask", askPage)
 	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot")
 	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (vendors, then claude)|vendors|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
@@ -53,8 +57,8 @@ func cmdAsk(args []string) int {
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return fail("ask: %v", err)
@@ -112,8 +116,7 @@ func cmdAsk(args []string) int {
 		return fail("ask: %v", err)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		helptext.Fprint(os.Stderr, "usage: claude-code ask [flags] <prompt | ->\n")
-		helptext.Defaults(fs)
+		fs.Usage()
 		return 2
 	}
 	r, chain, err := resolveAskAgent(*name, *provider, *fallback, *native)
@@ -330,11 +333,32 @@ func reportAskResult(format string, res agent.Result, err error) {
 	}
 }
 
-const agentsUsage = `usage: claude-code agents
-       claude-code agents sync [--vendor V] [--dry-run] [--check] [--no-prune]
-       claude-code agents tree [--days N] [--session ID] [--running] [--all]
-                              [--watch [--interval D]] [--format text|json]
-       claude-code agents reap [--dry-run]`
+// agentsPage is `agents -h`; bare `agents` lists the runners.
+var agentsPage = helptext.Page{
+	Usage: "claude-code agents [<command>] [flags]",
+	About: "With no command, list each agent runner, whether it is available and which " +
+		"request fields (model, provider, effort, …) it honors.",
+	Commands: [][2]string{
+		{"sync", "project agents/ + CLAUDE.md into every vendor home; link skills"},
+		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
+		{"reap", "mark dead running dispatches as error; drop stale markers"},
+	},
+	Hint: "claude-code agents <command> -h lists that command's flags.",
+}
+
+// agentsSyncPage is `agents sync -h`.
+var agentsSyncPage = helptext.Page{
+	Usage: "claude-code agents sync [flags]",
+	About: "Render agents/ into state/projections/<vendor>/agents plus each vendor's instruction " +
+		"file, install them into the vendor homes, and link skills/ into ~/.agents/skills.",
+}
+
+// agentsReapPage is `agents reap -h`.
+var agentsReapPage = helptext.Page{
+	Usage: "claude-code agents reap [flags]",
+	About: "Mark dispatch records still \"running\" whose process is gone as error, and drop stale " +
+		"agent-inflight markers.",
+}
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
@@ -347,25 +371,24 @@ func cmdAgents(args []string) int {
 		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "reap":
 		return cmdAgentsReap(args[1:])
-	case "-h", "--help":
-		helptext.Fprint(os.Stderr, agentsUsage+"\n")
-		return 2
+	case "-h", "--help", "help":
+		agentsPage.Fprint(os.Stderr)
+		return 0
 	}
 	fail("agents: unknown subcommand %q", args[0])
-	helptext.Fprint(os.Stderr, agentsUsage+"\n")
+	agentsPage.Fprint(os.Stderr)
 	return 1
 }
 
 // cmdAgentsReap marks dead-but-"running" dispatch records as error and drops stale agent-inflight markers.
 func cmdAgentsReap(args []string) int {
-	fs := flag.NewFlagSet("agents reap", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("agents reap", agentsReapPage)
 	dryRun := fs.Bool("dry-run", false, "print what would change, write nothing")
-	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		helptext.Fprint(os.Stderr, agentsUsage+"\n")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
 		return 2
 	}
 	return agenttree.Reap(*dryRun, os.Stdout, os.Stderr)
@@ -374,17 +397,16 @@ func cmdAgentsReap(args []string) int {
 // cmdAgentsSync renders agents/ into state/projections/<vendor>/agents plus each vendor's global instruction file, installs the
 // copies into the vendor homes, and links skills/ into ~/.agents/skills; --vendor narrows the run to one target.
 func cmdAgentsSync(args []string) int {
-	fs := flag.NewFlagSet("agents sync", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
 	vendor := fs.String("vendor", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
-	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		helptext.Fprint(os.Stderr, agentsUsage+"\n")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
 		return 2
 	}
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})

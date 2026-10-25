@@ -23,7 +23,7 @@ func TestDescribeCoversVerbsAndHooks(t *testing.T) {
 	for _, c := range d.Commands {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"ask", "doctor", "describe", "profile", "memory"} {
+	for _, want := range []string{"ask", "doctor", "describe", "configure", "memory"} {
 		if !names[want] {
 			t.Errorf("describe lacks verb %q", want)
 		}

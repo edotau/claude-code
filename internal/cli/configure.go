@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -13,18 +11,28 @@ import (
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/tui"
 )
 
-// configureUsage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
-var configureUsage = "usage: claude-code configure [--provider p] [--agent CLI] [--dry-run] [--check]\n       [--drop k[,k…]] [--keep k[,k…]]\n       [" +
-	strings.Join(configure.Sections, "|") + "]\n" + `       claude-code configure --reset [--check|--dry-run] [--agent a,b] [--out f]
-                                     [--vendors]
-       claude-code configure --restore [--agent a,b] [--dry-run]
-
---reset re-renders settings.json and the vendor configs from the templates;
-settings.local.json is never touched. --check reports drift, exit 1.
---restore puts vendor configs back from their timestamped backups.`
+// configurePage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
+var configurePage = helptext.Page{
+	Usage: "claude-code configure [<page>] [flags]\nclaude-code configure --reset|--restore [flags]",
+	About: "Guided setup for the model backend, tier pins and each agent CLI; bare walks every page in order. " +
+		"--reset re-renders settings.json and the vendor configs from the templates (settings.local.json is " +
+		"never touched); with --check it reports drift and exits 1.",
+	Commands: [][2]string{
+		{"provider", "pick the model backend; --list shows credential state"},
+		{"models", "pin tier models (live catalog: claude-code models --live)"},
+		{"agents", "set up each agent CLI's routing (--agent for one)"},
+		{"router", "start the model router when a slot crosses providers"},
+		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
+		{"remote", "tailscale connectivity and dispatch hosts (read-only)"},
+		{"browser", "browsers Claude in Chrome can drive (read-only)"},
+		{"claude", "per-machine settings.json overrides"},
+		{"doctor", "read-only health checks"},
+	},
+}
 
 // keyList is a repeatable comma-separated flag: splits, trims, skips empties, dedupes in first-seen order.
 type keyList []string
@@ -42,7 +50,7 @@ func (k *keyList) Set(v string) error {
 
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
-	fs := flag.NewFlagSet("configure", flag.ContinueOnError)
+	fs := helptext.NewFlagSet("configure", configurePage)
 	provider := fs.String("provider", "", "select the model backend non-interactively")
 	vendor := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
@@ -51,26 +59,32 @@ func cmdConfigure(args []string) int {
 	restore := fs.Bool("restore", false, "put vendor configs back from their timestamped backups")
 	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
 	vendors := fs.Bool("vendors", false, "with --reset: render vendor configs even off the default ~/.claude")
+	list := fs.Bool("list", false, "with provider: list providers and credential state")
+	format := outfmt.Flag(fs)
 	var drop, keep keyList
 	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
 	fs.Var(&keep, "keep", "stop dropping these keys")
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), configureUsage+"\n")
-		helptext.Defaults(fs)
-	}
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		section, args = args[0], args[1:]
 	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	pos, err := outfmt.Parse(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
-	if section == "" && fs.NArg() > 0 {
-		section = fs.Arg(0)
+	if section == "" && len(pos) > 0 {
+		section, pos = pos[0], pos[1:]
+	}
+	if *list || *format != outfmt.Text {
+		if section != "provider" {
+			return fail("configure: --list needs the provider page")
+		}
+		name := ""
+		if len(pos) > 0 {
+			name = pos[0]
+		}
+		return configureProviderList(name, *format)
 	}
 	if *reset || *restore {
 		return configureRender(*reset, *restore, section, *vendor, *out, *check, *dryRun, *vendors)

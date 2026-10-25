@@ -260,8 +260,8 @@ func TestCmdMemoryFmt(t *testing.T) {
 		t.Errorf("--check after wrapping: code=%d out=%q, want 0 clean", code, out)
 	}
 
-	if !strings.Contains(memoryUsage, "fmt") {
-		t.Error("memoryUsage's plumbing note does not list `fmt`")
+	if !strings.Contains(memoryPage.Hint, "fmt") {
+		t.Error("memoryPage's plumbing hint does not list `fmt`")
 	}
 }
 
@@ -726,19 +726,18 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	}
 }
 
-// TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch: memoryUsage's help body names only the
-// 7 public verbs; a private (plumbing) verb is absent from it but still dispatches when invoked.
+// TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch checks public rows and private dispatch.
 func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 	publicVerbs := []string{"recall", "remember", "init", "review", "promote", "update", "dream"}
 	for _, v := range publicVerbs {
-		if !strings.Contains(memoryUsage, "memory "+v) {
-			t.Errorf("memoryUsage missing public verb %q: %q", v, memoryUsage)
+		if !helpPageHasCommand(memoryPage, v) {
+			t.Errorf("memoryPage missing public verb %q", v)
 		}
 	}
 	privateVerbs := []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "archive", "migrate", "alias"}
 	for _, v := range privateVerbs {
-		if strings.Contains(memoryUsage, "memory "+v+" ") || strings.Contains(memoryUsage, "memory "+v+"\n") {
-			t.Errorf("memoryUsage lists private verb %q as if public: %q", v, memoryUsage)
+		if helpPageHasCommand(memoryPage, v) {
+			t.Errorf("memoryPage lists private verb %q as if public", v)
 		}
 		if _, ok := memorySubcommands[v]; !ok {
 			t.Errorf("private verb %q is not registered in memorySubcommands (undispatchable)", v)

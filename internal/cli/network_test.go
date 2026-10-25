@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func TestNetworkBareAndHelpPrintUsageExitTwo(t *testing.T) {
+func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
 		code, _, stderr := captureOutput(t, func() int { return cmdNetwork(args) })
-		if code != 2 {
-			t.Errorf("network %v: exit %d, want 2", args, code)
+		if code != 0 {
+			t.Errorf("network %v: exit %d, want 0", args, code)
 		}
 		for _, sub := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"} {
 			if !strings.Contains(stderr, sub) {

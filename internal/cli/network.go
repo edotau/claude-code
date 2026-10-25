@@ -6,24 +6,27 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 )
 
-const networkUsage = `usage: claude-code network <sub> [flags]
-
-  tailscale   tailnet status; --machines --connect --key --exit-node
-  browser     list automatable browsers; --setup wires one up
-  websearch   stdio MCP web-search server; --query runs one search
-  mcp         MCP server health and inline secrets
-  page        serve the tailnet agent page and dashboard
-  view        print one agent's transcript; --follow streams it
-  vscode      VS Code web UI on the tailnet; --stop --status --funnel
-
-claude-code network <sub> -h lists that sub-verb's flags.
-`
+var networkPage = helptext.Page{
+	Usage: "claude-code network <command> [flags]",
+	About: "Everything that reaches past this machine: the tailnet, browsers to automate,\n" +
+		"web search, MCP server health, and the agent page served over the tailnet.",
+	Commands: [][2]string{
+		{"tailscale", "tailnet status; --machines --connect --key --exit-node"},
+		{"browser", "list automatable browsers; --setup wires one up"},
+		{"websearch", "stdio MCP web-search server; --query runs one search"},
+		{"mcp", "MCP server health and inline secrets"},
+		{"page", "serve the tailnet agent page and dashboard"},
+		{"view", "print one agent's transcript; --follow streams it"},
+		{"vscode", "VS Code web UI on the tailnet; --stop --status --funnel"},
+	},
+	Hint: "claude-code network <command> -h lists that command's flags.",
+}
 
 // cmdNetwork is the one connectivity verb: tailnet, browsers, web search, MCP health and the agent page.
 func cmdNetwork(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, networkUsage)
-		return 2
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		networkPage.Fprint(os.Stderr)
+		return 0
 	}
 	rest := args[1:]
 	switch args[0] {

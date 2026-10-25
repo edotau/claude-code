@@ -78,7 +78,7 @@ func browserNames() []string {
 }
 
 // providerNames reads the provider registry straight off disk (no network): the same file
-// `claude-code profile`/`switch` already read.
+// `claude-code configure provider --list`/`switch` already read.
 func providerNames() []string {
 	reg, err := providers.Load()
 	if err != nil {

@@ -21,48 +21,83 @@ var vendorSubverbs = map[string]bool{
 	"review": true, "transfer": true, "explore": true,
 }
 
-// vendorUsageWidth is the description column: the longest label ("  claude-code opencode [launch flags] [args…]") plus a gap.
-const vendorUsageWidth = 46
+// vendorAbout expands each vendor's one-line menu summary for its help page.
+var vendorAbout = map[string]string{
+	"copilot": "GitHub's Copilot CLI, billed to your Copilot plan. Bare launches it with args " +
+		"forwarded; the commands below run it headless, in the background or as a reviewer.",
+	"codex": "OpenAI's Codex CLI on your ChatGPT login, the second-opinion reviewer. Bare " +
+		"launches it with args forwarded; the commands below run it headless.",
+	"gemini": "Gemini through agy (the Antigravity CLI) on your Google sign-in. Bare launches it " +
+		"with args forwarded; bridge inlines whole directories into one 1M-context call.",
+	"opencode": "The OpenCode CLI on your Copilot plan, for docs and drafting. Bare launches it " +
+		"with args forwarded; the commands below run it headless.",
+}
 
-// vendorUsage renders the frozen help block (plans/2026-10-24-vendor-agent-verbs/contract.md) for one vendor.
-func vendorUsage(vendor string) string {
+// vendorPage is the help page for one vendor verb: the shared command roster plus the adapter's extra rows.
+func vendorPage(vendor string) helptext.Page {
 	rows := [][2]string{
-		{vendor + " [launch flags] [args…]", "launch " + vendor + "; args forwarded"},
-		{vendor + " -- <args…>", "force passthrough to " + vendor},
-		{vendor + " ask [flags] <task>", "one-shot run (= ask --agent " + vendor + ")"},
-		{vendor + " resume <id> <task>", "continue a session"},
-		{vendor + " review [scope] [focus]", "diff review; --adversarial"},
-		{vendor + " explore <question>", "scan code + web research → brief"},
-		{vendor + " transfer [--source f]", "hand this Claude session to " + vendor},
-		{vendor + " status [id] [--all]", "background jobs in this repo"},
-		{vendor + " tail [id] [-f]", "a job's output; -f follows live"},
-		{vendor + " result [id]", "a finished job's answer + session"},
-		{vendor + " cancel [id]", "interrupt a running job"},
-		{vendor + " setup [--format json]", "binary, login, route, projection"},
-		{vendor + " models", "the vendor's own model catalog"},
+		{"[launch flags] [args…]", "launch " + vendor + "; args forwarded"},
+		{"-- <args…>", "force passthrough to " + vendor},
+		{"ask [flags] <task>", "one-shot run (= ask --agent " + vendor + ")"},
+		{"resume <id> <task>", "continue a session"},
+		{"review [scope] [focus]", "diff review; --adversarial"},
+		{"explore <question>", "scan code + web research → brief"},
+		{"transfer [--source f]", "hand this Claude session to " + vendor},
+		{"status [id] [--all]", "background jobs in this repo"},
+		{"tail [id] [-f]", "a job's output; -f follows live"},
+		{"result [id]", "a finished job's answer + session"},
+		{"cancel [id]", "interrupt a running job"},
+		{"setup [--format json]", "binary, login, route, projection"},
+		{"models", "the vendor's own model catalog"},
 	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "claude-code %s — the %s agent\n\nUSAGE\n", vendor, vendor)
-	for _, r := range rows {
-		for _, l := range helptext.WrapRow("  claude-code "+r[0], r[1], vendorUsageWidth, 80) {
-			b.WriteString(l)
-			b.WriteByte('\n')
-		}
+	return helptext.Page{
+		Usage:    "claude-code " + vendor + " [<command>] [args…]",
+		About:    vendorAbout[vendor],
+		Commands: rows,
+		Hint:     "claude-code " + vendor + " <command> -h lists that command's flags.",
 	}
-	return b.String()
 }
 
-// newVendorFlags makes a ContinueOnError FlagSet named "<vendor> <verb>" with the shared usage printer.
-func newVendorFlags(vendor, verb string) *flag.FlagSet {
-	fs := flag.NewFlagSet(vendor+" "+verb, flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
+// vendorSubPages maps each sub-verb to its synopsis tail and blurb; %s is the vendor name.
+var vendorSubPages = map[string][2]string{
+	"resume": {"resume <id> [ask flags] <task>",
+		"Continue session <id> on %s (= ask --agent %[1]s --session <id>); ask's flags apply, see claude-code ask -h."},
+	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
+	"tail":     {"tail [id] [flags]", "A job's output (default: the newest). Exits 1 when the job failed or was lost."},
+	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
+	"cancel":   {"cancel [id]", "Interrupt a running %s job (default: the single running job in this repo)."},
+	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
+	"models":   {"models", "The %s CLI's own model catalog, or a note that it has none."},
+	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
+	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
+	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
+}
+
+// vendorSubPage is the help page for `<vendor> <verb>`.
+func vendorSubPage(vendor, verb string) helptext.Page {
+	sp := vendorSubPages[verb]
+	about := sp[1]
+	if strings.Contains(about, "%") {
+		about = fmt.Sprintf(about, vendor)
 	}
-	return fs
+	return helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
+}
+
+// vendorSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
+func vendorSubHelp(vendor, verb string, args []string) bool {
+	if len(args) == 0 || (args[0] != "-h" && args[0] != "--help") {
+		return false
+	}
+	vendorSubPage(vendor, verb).Fprint(os.Stderr)
+	return true
+}
+
+// newVendorFlags makes a ContinueOnError FlagSet named "<vendor> <verb>" whose -h renders the sub-verb's page.
+func newVendorFlags(vendor, verb string) *flag.FlagSet {
+	return helptext.NewFlagSet(vendor+" "+verb, vendorSubPage(vendor, verb))
 }
 
 // cmdVendorSub dispatches a vendor's background-job and setup subverbs (resume/status/result/cancel/setup/models).
@@ -81,6 +116,9 @@ func cmdVendorSub(vendor string, args []string) int {
 	case "setup":
 		return cmdVendorSetup(vendor, args[1:])
 	case "models":
+		if vendorSubHelp(vendor, "models", args[1:]) {
+			return 0
+		}
 		return cmdVendorModels(vendor)
 	case "review":
 		return cmdVendorReview(vendor, args[1:])
@@ -94,6 +132,9 @@ func cmdVendorSub(vendor string, args []string) int {
 
 // cmdVendorResume is `claude-code <v> resume <id> <task…>` = `ask --agent <v> --session <id> <task…>`.
 func cmdVendorResume(vendor string, args []string) int {
+	if vendorSubHelp(vendor, "resume", args) {
+		return 0
+	}
 	if len(args) < 1 {
 		return fail("%s resume: usage: claude-code %s resume <id> <task>", vendor, vendor)
 	}
@@ -107,7 +148,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 	format := outfmt.Flag(fs)
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		return fail("%s status: %v", vendor, err)
@@ -141,7 +182,7 @@ func cmdVendorTail(vendor string, args []string) int {
 	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	ref := ""
 	if len(pos) > 0 {
@@ -171,7 +212,7 @@ func cmdVendorResult(vendor string, args []string) int {
 	format := outfmt.Flag(fs)
 	pos, err := outfmt.Parse(fs, args)
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		return fail("%s result: %v", vendor, err)
@@ -225,10 +266,11 @@ func resumeHint(vendor, id string) string {
 
 // cmdVendorCancel is `claude-code <v> cancel [id]`.
 func cmdVendorCancel(vendor string, args []string) int {
-	ref := ""
-	if len(args) > 0 {
-		ref = args[0]
+	fs := newVendorFlags(vendor, "cancel")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
+	ref := fs.Arg(0)
 	cwd, _ := os.Getwd()
 	rec, err := vendoragent.CancelJob(context.Background(), vendor, cwd, ref)
 	if err != nil {
@@ -242,8 +284,8 @@ func cmdVendorCancel(vendor string, args []string) int {
 func cmdVendorSetup(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "setup")
 	format := outfmt.Flag(fs)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		return fail("%s setup: %v", vendor, err)
@@ -272,8 +314,8 @@ func cmdVendorReview(vendor string, args []string) int {
 	adversarial := fs.Bool("adversarial", false, "adversarial findings instead of a neutral verdict")
 	background := fs.Bool("background", false, "detach; claude-code "+vendor+" status|result to follow up")
 	rubric := fs.String("rubric", "", "grade the review against this rubric file")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	scope, err := vendoragent.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
@@ -299,8 +341,8 @@ func cmdVendorExplore(vendor string, args []string) int {
 	noWeb := fs.Bool("no-web", false, "skip the web-research leg; code scan only")
 	background := fs.Bool("background", false, "detach; claude-code "+vendor+" status|result to follow up")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	question := strings.Join(fs.Args(), " ")
 	if question == "" {
@@ -320,8 +362,8 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "transfer")
 	source := fs.String("source", "", "transcript .jsonl (default: newest session for this repo)")
 	wait := fs.Bool("wait", false, "block for the answer instead of detaching")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	cwd, _ := os.Getwd()
 	src := *source

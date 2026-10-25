@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -11,10 +10,18 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 )
 
-const historyUsage = `usage: claude-code history snapshot [--note N]
-       claude-code history log [-n N] [--format text|json]
-       claude-code history diff [rev]
-Config files only. Memory history: git -C ~/.claude/memory log`
+var historyPage = helptext.Page{
+	Usage: "claude-code history <command> [flags]",
+	About: "A shadow git repo (state/harness/history) that snapshots the config files, so a\n" +
+		"bad render or edit can be diffed and rolled back.",
+	Commands: [][2]string{
+		{"snapshot", "commit the config files now (--note)"},
+		{"log", "recent config commits (-n, --format)"},
+		{"diff [rev]", "one config commit's patch"},
+	},
+	Hint: "Config files only. Memory history: git -C ~/.claude/memory log\n\n" +
+		"claude-code history <command> -h lists that command's flags.",
+}
 
 // cmdHistory reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
 func cmdHistory(args []string) int {
@@ -24,8 +31,8 @@ func cmdHistory(args []string) int {
 		args = args[1:]
 	}
 	switch sub {
-	case "", "-h", "--help":
-		helptext.Fprint(os.Stdout, historyUsage+"\n")
+	case "", "-h", "--help", "help":
+		historyPage.Fprint(os.Stdout)
 		return 0
 	case "snapshot":
 		return historySnapshot(args)
@@ -35,20 +42,16 @@ func cmdHistory(args []string) int {
 		return historyDiff(args)
 	}
 	fmt.Fprintf(os.Stderr, "history: unknown subcommand %q\n", sub)
-	helptext.Fprint(os.Stderr, historyUsage+"\n")
+	historyPage.Fprint(os.Stderr)
 	return 2
 }
 
 // historySnapshot records the config plane now; unchanged files report so rather than committing.
 func historySnapshot(args []string) int {
-	fs := flag.NewFlagSet("history snapshot", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("history snapshot", helptext.Page{Usage: "claude-code history snapshot [flags]"})
 	note := fs.String("note", "manual", "note recorded in the commit subject")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0
@@ -80,15 +83,11 @@ func printSnapshot(plane string, r history.Result) {
 
 // historyLog prints the config plane's log.
 func historyLog(args []string) int {
-	fs := flag.NewFlagSet("history log", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("history log", helptext.Page{Usage: "claude-code history log [flags]"})
 	n := fs.Int("n", 20, "commits per plane")
 	format := outfmt.Flag(fs)
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
@@ -148,13 +147,9 @@ func printLog(plane string, lines []string) {
 
 // historyDiff shows one config-plane commit's patch.
 func historyDiff(args []string) int {
-	fs := flag.NewFlagSet("history diff", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
-	if err := fs.Parse(args); err != nil {
-		return 2
+	fs := helptext.NewFlagSet("history diff", helptext.Page{Usage: "claude-code history diff [rev]"})
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	rev := ""
 	if fs.NArg() > 0 {

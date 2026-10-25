@@ -534,12 +534,15 @@ func isUsageRow(l string) bool {
 // own cutoff) must satisfy helptext's row matcher, or the gradient paint silently skips it. A
 // wrapped continuation line (indent > 4, no column of its own) carries no label and is exempt.
 func TestVaultUsageRowsMatchHelptextRowRegex(t *testing.T) {
-	lines := strings.Split(vaultUsage, "\n")
+	lines := strings.Split(renderHelpPage(vaultPage), "\n")
 	if len(lines) < 2 {
 		t.Fatal("vaultUsage has no subcommand lines")
 	}
 	sawRow := false
 	for _, l := range lines[1:] {
+		if !strings.HasPrefix(l, "  ") {
+			continue
+		}
 		m := usageRow.FindStringSubmatch(l)
 		if m == nil {
 			t.Errorf("vaultUsage line %q does not even match the indented-line shape", l)

@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -74,12 +73,18 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 	return fail("exec %s: %v", plan.Binary, plan.Exec())
 }
 
+// hookPage lists names in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
+var hookPage = helptext.Page{
+	Usage: "claude-code hook <name> < payload.json",
+	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the vendor hook files invoke it.",
+	Hint: "names: safety|stop-format|context-checkpoint|session-start|\n" +
+		"       memory-recall|session-harvest|session-harvest-end",
+}
+
 func cmdHook(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, "usage: claude-code hook <name> < payload.json\n"+
-			"  names: safety|stop-format|context-checkpoint|session-start|\n"+
-			"         memory-recall|session-harvest|session-harvest-end\n")
-		return 1
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		hookPage.Fprint(os.Stderr)
+		return 0
 	}
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
@@ -245,18 +250,19 @@ func cmdInstall(args []string) int {
 	if len(args) > 0 && (args[0] == "--setup" || args[0] == "-setup") {
 		return cmdSetup(args[1:])
 	}
-	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("install", helptext.Page{
+		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
+		About: "Build-time setup: install the Claude Code CLI and vendor links, then render settings.json. " +
+			"--tools installs only the agent CLIs; --setup migrates, wipes or scopes a .claude/ tree.",
+		Hint: "claude-code install --setup -h lists the setup modes.",
+	})
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
 	verbose := fs.Bool("verbose", false, "print every step in full, instead of one line each")
 	var tf toolsFlag
 	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
 	setup := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *setup != "" {
 		return fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
@@ -277,16 +283,17 @@ func cmdInstall(args []string) int {
 }
 
 func cmdDoctor(args []string) int {
-	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("doctor", helptext.Page{
+		Usage: "claude-code doctor [flags]",
+		About: "Check binaries, providers, credentials and the router without changing anything; " +
+			"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
+			"and router failovers instead.",
+	})
 	format := outfmt.Flag(fs)
 	auditMode := fs.Bool("audit", false, "print the typed action log instead of health checks")
 	days := fs.Int("days", 7, "with --audit: events from the last N days")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("doctor: %v", err)

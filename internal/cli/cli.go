@@ -60,7 +60,6 @@ func commands() []command {
 		// AUTH
 		{name: "secrets", group: groupAuth, summary: "set, get and scan credentials", run: cmdSecrets},
 		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
-		{name: "profile", group: groupAuth, aliases: []string{"providers"}, summary: "providers and credential state", run: cmdProviders},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
@@ -109,8 +108,8 @@ func vendorVerb(vendor string, args []string) int {
 		return cmdVendorSub(vendor, args)
 	}
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		helptext.Fprint(os.Stderr, vendorUsage(vendor))
-		return 2
+		vendorPage(vendor).Fprint(os.Stderr)
+		return 0
 	}
 	return launchVendor(vendor, args)
 }

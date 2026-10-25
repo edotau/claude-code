@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -68,18 +67,15 @@ type DescribeHook struct {
 	Timeout int    `json:"timeout"`
 }
 
-const describeUsage = "usage: claude-code describe [--format json|text]"
-
 func cmdDescribe(args []string) int {
-	fs := flag.NewFlagSet("describe", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
-	fs.SetOutput(os.Stderr)
+	fs := helptext.NewFlagSet("describe", helptext.Page{
+		Usage: "claude-code describe [flags]",
+		About: "One map of the whole harness for an agent: verbs, providers, runners, slots and hooks. " +
+			"Credentials never appear, only whether one resolves.",
+	})
 	format := fs.String("format", "json", "json (the full map) or text (a short listing)")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -97,14 +93,14 @@ func cmdDescribe(args []string) int {
 	case "text":
 		printDescribe(d)
 	default:
-		helptext.Fprint(os.Stderr, describeUsage+"\n")
+		fs.Usage()
 		return 2
 	}
 	return 0
 }
 
 // describe builds the describe view from an already-loaded registry, so a caller that loaded one
-// itself (e.g. profileJSON) never pays for a second load.
+// itself (e.g. configureProviderList) never pays for a second load.
 func describe(reg *providers.Registry) (Describe, error) {
 	d := Describe{Version: buildVersion(), Slots: models.Slots}
 	tree := specTree()

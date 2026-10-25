@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"os"
 	"path/filepath"
 
@@ -15,14 +14,12 @@ import (
 // cmdNetworkMCP reads every MCP scope Claude Code uses, runs live connect health, and flags
 // cross-scope drift and inline plaintext secrets. Read-only; exit 1 on any Failed server or secret.
 func cmdNetworkMCP(args []string) int {
-	fs := flag.NewFlagSet("network mcp", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network mcp", helptext.Page{Usage: "claude-code network mcp [flags]",
+		About: "Live health of every MCP server, plus cross-scope drift and inline plaintext secrets.\n" +
+			"Read-only; exits 1 on any failed server or secret."})
 	format := outfmt.Flag(fs)
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("network mcp: %v", err)

@@ -26,9 +26,9 @@ function usageArgv(binary, opts) {
   return argv;
 }
 
-/** argv for `<binary> profile --format json`. */
+/** argv for `<binary> configure provider --list --format json`. */
 function profileArgv(binary) {
-  return [binary, 'profile', '--format', 'json'];
+  return [binary, 'configure', 'provider', '--list', '--format', 'json'];
 }
 
 /** argv for `<binary> network vscode` or, with opts.stop, `<binary> network vscode --stop`. */

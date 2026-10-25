@@ -73,9 +73,14 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 			t.Errorf("group %s has no rows", g)
 		}
 	}
-	for _, name := range []string{"token", "providers", "use"} {
+	for _, name := range []string{"token", "use"} {
 		if lookup(name) == nil {
 			t.Errorf("legacy name %s no longer dispatches", name)
+		}
+		for _, name := range []string{"profile", "providers"} {
+			if lookup(name) != nil {
+				t.Errorf("removed provider-list verb %s still dispatches", name)
+			}
 		}
 	}
 }

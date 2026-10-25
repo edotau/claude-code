@@ -1,34 +1,29 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/memory"
 )
 
-const memoryAliasUsage = `usage: claude-code memory alias --repo CHECKOUT --into KEY [--dry-run]
-Record CHECKOUT as an alias of store KEY and fold any separate store into KEY.`
+var memoryAliasPage = helptext.Page{
+	Usage: "claude-code memory alias --repo CHECKOUT --into KEY [flags]",
+	About: "Record CHECKOUT as an alias of store KEY and fold any separate store into KEY.",
+}
 
 // cmdMemoryAlias is `memory alias`: --dry-run prints the plan and writes nothing.
 func cmdMemoryAlias(args []string) int {
-	fs := flag.NewFlagSet("memory alias", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of memory alias:\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("memory alias", memoryAliasPage)
 	repo := fs.String("repo", "", "second checkout of the repo to record as an alias")
 	into := fs.String("into", "", "store key that absorbs it (see the catalog)")
 	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *repo == "" || *into == "" || fs.NArg() > 0 {
-		return fail("memory alias: --repo and --into are required (%s)", memoryAliasUsage)
+		return fail("memory alias: --repo and --into are required (usage: %s)", memoryAliasPage.Usage)
 	}
 	res, err := memory.AliasRepo(memory.AliasOptions{Repo: *repo, Into: *into, DryRun: *dryRun, Now: time.Now()})
 	if err != nil {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -12,29 +11,44 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 )
 
-const setupWorkspaceUsage = `usage: claude-code install --setup workspace <op>
-  init [<root>] [--with LIST] [--dry-run]
-  link <agents|commands|skills> <name> [<root>]
-  status [<root>]
-<root> defaults to cwd and must be a git toplevel outside ~/.claude.`
+var setupWorkspacePage = helptext.Page{
+	Usage: "claude-code install --setup workspace <op> [<root>]",
+	About: "Scope a project's own .claude/: scaffold it, link a harness item into it, or report it. " +
+		"<root> defaults to cwd and must be a git toplevel outside ~/.claude.",
+	Commands: [][2]string{
+		{"init", "scaffold .claude/ (--with LIST, --dry-run)"},
+		{"link <kind> <name>", "link one of agents|commands|skills into it"},
+		{"status", "report what the project .claude/ holds"},
+	},
+}
+
+// setupWorkspaceOps is each op's own -h page.
+var setupWorkspaceOps = map[string]helptext.Page{
+	"init": {Usage: "claude-code install --setup workspace init [<root>] [flags]",
+		About: "Scaffold the project's .claude/."},
+	"link": {Usage: "claude-code install --setup workspace link <kind> <name> [<root>]",
+		About: "Link one harness item into the project's .claude/; <kind> is agents, commands or skills."},
+	"status": {Usage: "claude-code install --setup workspace status [<root>]",
+		About: "Report what the project's .claude/ holds."},
+}
 
 // cmdSetupWorkspace is the `setup workspace` leg: a project .claude/ scaffold, link and status.
 func cmdSetupWorkspace(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		setupWorkspacePage.Fprint(os.Stderr)
+		return 0
+	}
+	op, ok := setupWorkspaceOps[args[0]]
+	if !ok {
+		setupWorkspacePage.Fprint(os.Stderr)
 		return 2
 	}
-	fs := flag.NewFlagSet("setup workspace "+args[0], flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), "Usage of "+fs.Name()+":\n")
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("setup workspace "+args[0], op)
 	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
 	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
 	pos, err := outfmt.Parse(fs, args[1:])
 	if err != nil {
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if args[0] != "init" && (*with != "" || *dryRun) { // link would write despite --dry-run; refuse
 		fmt.Fprintf(os.Stderr, "claude-code: setup workspace %s: --with/--dry-run apply to init only\n", args[0])
@@ -45,21 +59,21 @@ func cmdSetupWorkspace(args []string) int {
 		return setupWorkspaceInit(pos, *with, *dryRun)
 	case "link":
 		if len(pos) < 2 || len(pos) > 3 {
-			helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
+			setupWorkspacePage.Fprint(os.Stderr)
 			return 2
 		}
 		return setupWorkspaceErr(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout))
 	case "status":
 		return setupWorkspaceErr(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout))
 	}
-	helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
+	setupWorkspacePage.Fprint(os.Stderr)
 	return 2
 }
 
 // setupWorkspaceInit runs init on the optional positional root.
 func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if len(pos) > 1 {
-		helptext.Fprint(os.Stderr, setupWorkspaceUsage+"\n")
+		setupWorkspacePage.Fprint(os.Stderr)
 		return 2
 	}
 	var parts []string

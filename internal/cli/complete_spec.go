@@ -44,7 +44,6 @@ func buildSpecTree() map[string]*compNode {
 	tree := map[string]*compNode{
 		"resolve":  {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("router")}},
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
-		"profile":  {args: []func() []string{providerNames}, flags: []flagInfo{formatFlag()}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
@@ -58,9 +57,9 @@ func buildSpecTree() map[string]*compNode {
 				"vscode": {flags: []flagInfo{flag("template"), flag("dest"), flag("extensions-dir"),
 					flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
 			}},
-		"configure": {args: []func() []string{configureSections}, flags: []flagInfo{
+		"configure": {args: []func() []string{configureSections, providerNames}, flags: []flagInfo{
 			valuedFlag("provider", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
-			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors")}},
+			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
 				valuedFlag("exit-node", exitNodeActions), flag("auth-key"), flag("key-env"), boolFlag("advertise-exit"),

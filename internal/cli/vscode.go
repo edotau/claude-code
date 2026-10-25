@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,21 +18,11 @@ import (
 // cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json.
 // Machine scope is per-box and is NOT Settings-Synced, so the merge is what seeds a fresh box instead.
 func cmdVSCode(args []string) int {
-	fs := flag.NewFlagSet("vscode", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(os.Stderr, `usage: claude-code theme vscode [--check] [--dry-run] [--dest <settings.json>]
-                                [--template <file>] [--keybindings-dest <file>]
-                                [--keybindings-template <file>]
-                                [--extensions-dir <dir>]
-
-Merge embedded templates into VS Code's Machine settings and local keybindings.
-Machine settings are per-box and excluded from Settings Sync.
-Skip keybindings on headless boxes with only ~/.vscode-server.
-Link the Claude Code Agents extension into the detected extensions directory.
-
-`)
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("theme vscode", helptext.Page{Usage: "claude-code theme vscode [flags]",
+		About: "Merge embedded templates into VS Code's Machine settings and local keybindings.\n" +
+			"Machine settings are per-box and excluded from Settings Sync.\n" +
+			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
+			"Link the Claude Code Agents extension into the detected extensions directory."})
 	template := fs.String("template", "", "settings template to merge (default: the one embedded in the binary)")
 	dest := fs.String("dest", "", "VS Code Machine settings.json (default: platform-detected)")
 	extensionsDir := fs.String("extensions-dir", "", "link the Agents extension here (default: platform-detected)")
@@ -41,11 +30,8 @@ Link the Claude Code Agents extension into the detected extensions directory.
 	keybindingsDest := fs.String("keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge; write nothing")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if fs.NArg() > 0 { // a stray word (the retired `serve`) must not fall through to a merge
 		return fail("theme vscode: unexpected argument %q (serving moved to `network vscode`)", fs.Arg(0))
@@ -181,21 +167,12 @@ func reportDryRun(label, dest string, changed bool) {
 
 // cmdNetworkVSCode runs `code serve-web` as a detached daemon and maps it onto the tailnet.
 func cmdNetworkVSCode(args []string) int {
-	fs := flag.NewFlagSet("network vscode", flag.ContinueOnError)
-	fs.Usage = func() {
-		helptext.Fprint(fs.Output(), `usage: claude-code network vscode [--port N] [--stop] [--status]
-                                  [--no-tailscale] [--funnel]
-                                  [--folder <dir>] [--format text|json]
-
-Publish VS Code's web UI (code serve-web) to the phone over the tailnet.
-The browser opens --folder (default: the current directory) with the
-desktop's extensions.
---funnel maps it on the public internet instead of the tailnet (still
-token-gated).
-
-`)
-		helptext.Defaults(fs)
-	}
+	fs := helptext.NewFlagSet("network vscode", helptext.Page{Usage: "claude-code network vscode [flags]",
+		About: "Publish VS Code's web UI (code serve-web) to the phone over the tailnet.\n" +
+			"The browser opens --folder (default: the current directory) with the\n" +
+			"desktop's extensions.\n" +
+			"--funnel maps it on the public internet instead of the tailnet (still\n" +
+			"token-gated)."})
 	port := fs.Int("port", vscodeserve.DefaultPort, "serve-web port; falls back to the next free one when busy")
 	stop := fs.Bool("stop", false, "stop the daemon and remove any tailscale/funnel mapping")
 	status := fs.Bool("status", false, "report the daemon and tailscale mapping, then exit")
@@ -203,11 +180,8 @@ token-gated).
 	funnel := fs.Bool("funnel", false, "use tailscale funnel, not serve (public internet, token-gated)")
 	folder := fs.String("folder", ".", "folder the browser opens by default")
 	format := fs.String("format", "text", "output format: text|json")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	ctx := context.Background()
 	switch {

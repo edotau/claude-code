@@ -63,15 +63,16 @@ func spawnIdleWatcher(in *Input) {
 
 // IdleHarvestWatch is `claude-code memory watch`: the detached per-session watcher described above.
 func IdleHarvestWatch(args []string, stderr io.Writer) int {
-	fs := helptext.NewFlagSet("memory watch", "usage: claude-code memory watch [flags]\n\nFLAGS\n")
+	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
+		About: "Detached per-session watcher the Stop gate spawns; harvests the bank once the session goes idle."})
 	fs.SetOutput(stderr)
 	session := fs.String("session", "", "session id (names the stamp)")
 	tr := fs.String("transcript", "", "the session's transcript path")
 	cwd := fs.String("cwd", "", "project root whose bank to harvest")
 	idle := fs.Duration("idle", harvestIdleAfter, "quiet period before the final harvest")
 	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
-	if fs.Parse(args) != nil {
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if *session == "" || *tr == "" || *idle <= 0 {
 		fmt.Fprintln(stderr, "memory watch: --session, --transcript and a positive --idle are required")

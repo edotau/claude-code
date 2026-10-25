@@ -60,10 +60,7 @@ func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
 	}
 }
 
-// TestSkillVerbsArePublicCLIVerbs: every `claude-code memory <verb>` named in
-// skills/reflection/SKILL.md's verb table is a PUBLIC verb in memoryUsage/memorySubcommands —
-// checked against the live verb table, not a hardcoded list, so the skill can't silently drift
-// out of sync with the CLI.
+// TestSkillVerbsArePublicCLIVerbs checks the skill's verb table against memoryPage and memorySubcommands.
 func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 	root := reflectionRepoRoot(t)
 	path := filepath.Join(root, "skills", "reflection", "SKILL.md")
@@ -102,8 +99,8 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 			t.Errorf("SKILL.md names unknown verb %q (not in memorySubcommands)", verb)
 			continue
 		}
-		if !strings.Contains(memoryUsage, "memory "+verb) {
-			t.Errorf("SKILL.md names verb %q that is not listed as public in memoryUsage", verb)
+		if !helpPageHasCommand(memoryPage, verb) {
+			t.Errorf("SKILL.md names verb %q that is not listed as public in memoryPage", verb)
 		}
 	}
 	if len(seen) == 0 {
