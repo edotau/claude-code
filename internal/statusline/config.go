@@ -21,10 +21,11 @@ var embeddedPalettesJSON []byte
 
 // Config is the render-time design: <ConfigDir>/state/statusline/config.json overlaid on the embedded default.
 type Config struct {
-	Style          string            `json:"style"`     // gradient|powerline|capsule|minimal|dashboard
-	ColorMode      string            `json:"colorMode"` // auto|truecolor|ansi256|ansi16
-	Gradient       string            `json:"gradient"`  // named ramp in palettes.gradients
-	UserColor      string            `json:"userColor"` // "ansi" → literal PS1 bold-green; else palette user
+	Style          string            `json:"style"`        // gradient|powerline|capsule|minimal|dashboard
+	ColorMode      string            `json:"colorMode"`    // auto|truecolor|ansi256|ansi16
+	Gradient       string            `json:"gradient"`     // named ramp in palettes.gradients
+	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
+	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	BranchMax      int               `json:"branchMax"`
 	PathMax        int               `json:"pathMax"` // cwd path display cap, in runes; 0 → no cap

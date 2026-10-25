@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+// easeAt keeps the ends fixed, leaves exp 0/1 linear, and moves the middle toward the end colors when exp < 1.
+func TestEaseAt(t *testing.T) {
+	for _, exp := range []float64{0, 1, 0.5} {
+		if easeAt(0, exp) != 0 || easeAt(1, exp) != 1 {
+			t.Errorf("exp %v must keep the ends at 0 and 1", exp)
+		}
+	}
+	if easeAt(0.5, 0) != 0.5 || easeAt(0.5, 1) != 0.5 {
+		t.Error("exp 0 and 1 must be linear")
+	}
+	if got := easeAt(0.25, 0.5); got != 0.5 {
+		t.Errorf("easeAt(0.25, 0.5) = %v, want 0.5", got)
+	}
+}
+
 func TestGradientCells(t *testing.T) {
 	type run struct{ text, kind string }
 	for _, tc := range []struct {

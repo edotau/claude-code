@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -16,6 +17,14 @@ type cell struct {
 
 // sepPath is the fixed path→body separator.
 const sepPath = " | "
+
+// easeAt bends a ramp position t∈[0,1] by exp (t^exp); exp ≤ 0 or 1 leaves it linear.
+func easeAt(t, exp float64) float64 {
+	if exp <= 0 || exp == 1 {
+		return t
+	}
+	return math.Pow(t, exp)
+}
 
 // renderGradient paints "user:" then sweeps the ramp from the path across cfg.Order, the branch and the
 // velocity counts; separators, troughs and the dot keep their own tones.
@@ -34,7 +43,7 @@ func renderGradient(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode s
 		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("punct")), ":", false))
 	}
 	for i, c := range cells {
-		rgb := ansi.GradAt(stops, float64(i)/float64(total))
+		rgb := ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase))
 		switch c.kind {
 		case "sep":
 			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))

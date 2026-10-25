@@ -291,8 +291,8 @@ claude-code theme [--preview] | apply     # statusline palette; whole look acros
 ## Status line
 
 `claude-code statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router, context
-%, tokens, duration and git state, plus `N ◉` agents running (main thread + subagents + this session's dispatch legs) and
-the 5h/weekly rate limits (`5h:N% 7d:N%`).
+%, tokens, duration and git state, plus the 5h/weekly rate limits (`5h:N% 7d:N%`); `segments.agents` adds `N ◉` agents
+running (main thread + subagents + this session's dispatch legs), and `gradientEase` (<1) reaches the ramp's end sooner.
 Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout

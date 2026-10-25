@@ -2,6 +2,7 @@
   "style": "gradient",
   "colorMode": "auto",
   "gradient": "gemini",
+  "gradientEase": 0.45,
   "powerlineTheme": "nord",
   "charset": "text",
   "userColor": "ansi",
@@ -10,8 +11,8 @@
     "model",
     "provider",
     "router",
-    "limits",
     "context",
+    "limits",
     "tokens",
     "duration",
     "session"
@@ -29,7 +30,7 @@
     "tokens": false,
     "duration": false,
     "session": false,
-    "agents": true,
+    "agents": false,
     "git": true,
     "velocity": true
   },

@@ -5,16 +5,22 @@ import (
 	"testing"
 )
 
-// The default segment order is model, then the rate limits ahead of the context bar; agents sit in the git section.
+// The default order puts the context bar right after the model, then the rate limits; the agent count is off.
 func TestDefaultConfigOrder(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()
-	want := []string{"model", "provider", "router", "limits", "context", "tokens", "duration", "session"}
+	want := []string{"model", "provider", "router", "context", "limits", "tokens", "duration", "session"}
 	if !reflect.DeepEqual(cfg.Order, want) {
 		t.Errorf("Order = %v, want %v", cfg.Order, want)
 	}
 	if !cfg.seg("limits", false) {
 		t.Error("segments.limits should default to true")
+	}
+	if cfg.seg("agents", true) {
+		t.Error("segments.agents should default to false")
+	}
+	if cfg.GradientEase != 0.45 {
+		t.Errorf("GradientEase = %v, want 0.45", cfg.GradientEase)
 	}
 	if cfg.PathMax != 24 {
 		t.Errorf("PathMax = %d, want 24", cfg.PathMax)
