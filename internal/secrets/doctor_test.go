@@ -70,6 +70,47 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 	}
 }
 
+// TestMasterKeyStatus exercises MasterKeyStatus directly (the seam shared by checkMasterKey and
+// launch's "vault" row): unreadable vault, empty vault, a good key, and a key that won't open it.
+func TestMasterKeyStatus(t *testing.T) {
+	t.Run("unreadable vault", func(t *testing.T) {
+		doctorTestVault(t)
+		vaulttest.Put(t, vault.Meta, "schema", "3")
+		count, source, err := MasterKeyStatus()
+		if count != 0 || source != "" || err == nil {
+			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
+		}
+	})
+	t.Run("empty vault", func(t *testing.T) {
+		doctorTestVault(t)
+		count, source, err := MasterKeyStatus()
+		if count != 0 || source != "not needed" || err != nil {
+			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"not needed\", nil)", count, source, err)
+		}
+	})
+	t.Run("secrets and good key", func(t *testing.T) {
+		doctorTestVault(t)
+		if err := Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+			t.Fatal(err)
+		}
+		count, source, err := MasterKeyStatus()
+		if count != 1 || source != "env" || err != nil {
+			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, \"env\", nil)", count, source, err)
+		}
+	})
+	t.Run("secrets and bad key", func(t *testing.T) {
+		doctorTestVault(t)
+		if err := Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+			t.Fatal(err)
+		}
+		wrongVaultKey(t)
+		count, source, err := MasterKeyStatus()
+		if count != 1 || err == nil {
+			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, _, err)", count, source, err)
+		}
+	})
+}
+
 func TestDoctorMasterKeySources(t *testing.T) {
 	for _, source := range []string{"env", "keyring"} {
 		t.Run(source, func(t *testing.T) {
