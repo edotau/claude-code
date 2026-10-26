@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendoragent"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
@@ -63,7 +64,8 @@ func vendorPage(vendor string) helptext.Page {
 		About:    vendorAbout[vendor],
 		Commands: rows,
 		Flags:    vendorLaunchFlags(vendor),
-		Hint:     "claude-code " + vendor + " <command> -h lists that command's flags.",
+		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
+			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + vendorBinary(vendor) + "'s own help.",
 	}
 }
 
@@ -451,4 +453,10 @@ func vendorLaunchFlags(vendor string) *flag.FlagSet {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
 	return fs
+}
+
+// vendorBinary is the wrapped CLI a vendor verb drives (gemini → agy).
+func vendorBinary(vendor string) string {
+	spec, _ := vendors.Lookup(vendor)
+	return spec.Binary
 }

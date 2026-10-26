@@ -49,6 +49,7 @@ var anthropicPage = helptext.Page{
 		"[--router] [--print-env] [--keep-env NAMES] [claude args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key.",
+	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
 // anthropicHelp renders the page with its flag rows; the flags are parsed by launch.ParseAnthropicArgs.
@@ -70,6 +71,9 @@ func cmdAnthropic(args []string) int {
 	if helptext.WantsHelp(args) {
 		anthropicHelp(os.Stdout)
 		return 0
+	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		return helptext.WrappedDocs("claude")
 	}
 	o, rest, err := launch.ParseAnthropicArgs(args)
 	if err != nil {

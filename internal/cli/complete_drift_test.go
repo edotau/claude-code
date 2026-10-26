@@ -40,7 +40,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
-		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"},
+		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
 		"gateway":  {"route", "proxy"},
@@ -183,7 +183,7 @@ func TestWorktreeMergeResolveAgentCompletes(t *testing.T) {
 // TestNetworkBareOffersSubverbs pins `network ⇥`: all six sub-verbs; the page flags live on `network page`.
 func TestNetworkBareOffersSubverbs(t *testing.T) {
 	got := completionCandidates([]string{"network", ""})
-	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"} {
+	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("network ⇥ = %v, missing %q", got, want)
 		}

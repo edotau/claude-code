@@ -80,6 +80,9 @@ func Run(args []string) int {
 		usage()
 		return 0
 	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		return helptext.WrappedDocs("databricks")
+	}
 	if len(args) > 0 {
 		if run, ok := subverbs[args[0]]; ok {
 			return run(args[1:])
@@ -369,7 +372,8 @@ var page = helptext.Page{
 		{"rescue", "break-glass: run claude on a scratch settings file"},
 		{"agents", "on|off|status: profile use DEFAULT / profile off / show"},
 	},
-	Hint: "claude-code databricks <command> -h lists that command's flags.",
+	Hint: "claude-code databricks <command> -h lists that command's flags.\n" +
+		"claude-code databricks " + helptext.DocsFlag + " prints the databricks CLI's own help.",
 }
 
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.
