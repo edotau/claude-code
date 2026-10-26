@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -36,6 +37,7 @@ var agyStopGrace = 3 * time.Second
 // (SIGINT, then SIGTERM after agyStopGrace) the moment the marker appears — or on agySignInTimeout, or
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
 func runAgy(d *dialog) bool {
+	defer tui.Preserve()()
 	home, _ := os.UserHomeDir()
 	marker := vendors.AgyLoginMarker(home)
 	before, _ := os.ReadFile(marker)
