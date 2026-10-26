@@ -36,6 +36,7 @@ type Options struct {
 	PrintEnv bool
 	Direct   bool     // vendors only: skip the router, hand the CLI the provider route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
+	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
 }
 
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
@@ -67,6 +68,15 @@ func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
 			o.Direct = true
 		case a == "--print-env":
 			o.PrintEnv = true
+		case (name == "-f" || name == "--file") && !allowRouter:
+			if !hasVal {
+				if i+1 >= len(args) {
+					return o, nil, fmt.Errorf("%s needs a value", name)
+				}
+				i++
+				val = args[i]
+			}
+			o.File = val
 		case name == "--keep-env":
 			if !hasVal {
 				if i+1 >= len(args) {
@@ -347,6 +357,16 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	}
 	if authVendorArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
+	}
+	if o.File != "" {
+		if name != "codex" {
+			return Plan{}, fmt.Errorf("-f is codex only (got %s)", name)
+		}
+		overrides, err := codexFileOverrides(o.File)
+		if err != nil {
+			return Plan{}, err
+		}
+		args = append(overrides, args...) // after the harness prefix, so the file's keys win
 	}
 	o, profile := vendorProfile(name, o)
 	reg, sel, err := selection(o)
