@@ -108,7 +108,9 @@ func currentGradient() string {
 			return cfg.Gradient
 		}
 	}
-	_ = json.Unmarshal(statusline.DefaultConfigJSON(), &cfg)
+	if err := json.Unmarshal(statusline.DefaultConfigJSON(), &cfg); err != nil {
+		return "" // the embedded default must stay a valid JSON object; a stale cfg would mislead the caller
+	}
 	return cfg.Gradient
 }
 

@@ -185,7 +185,9 @@ func cmdVendorStatus(vendor string, args []string) int {
 		return fail("%s status: %v", vendor, err)
 	}
 	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, rows)
+		if err := outfmt.Write(os.Stdout, rows); err != nil {
+			return fail("%s status: %v", vendor, err)
+		}
 		return 0
 	}
 	if len(rows) == 0 {
@@ -249,12 +251,14 @@ func cmdVendorResult(vendor string, args []string) int {
 		return fail("%s result: %v", vendor, err)
 	}
 	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, struct {
+		if err := outfmt.Write(os.Stdout, struct {
 			ID      string `json:"id"`
 			Session string `json:"session,omitempty"`
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
-		}{rec.ID, rec.SessionID, resumeHint(vendor, rec.SessionID), log})
+		}{rec.ID, rec.SessionID, resumeHint(vendor, rec.SessionID), log}); err != nil {
+			return fail("%s result: %v", vendor, err)
+		}
 		return resultExit(rec)
 	}
 	fmt.Print(log)
@@ -314,7 +318,9 @@ func cmdVendorSetup(vendor string, args []string) int {
 	}
 	rep := vendoragent.Setup(vendor)
 	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, rep)
+		if err := outfmt.Write(os.Stdout, rep); err != nil {
+			return fail("%s setup: %v", vendor, err)
+		}
 	} else {
 		for _, c := range rep.Checks {
 			fmt.Printf("%s  %s  %s  %s\n", rep.Vendor, c.Name, c.State, c.Detail)

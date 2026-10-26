@@ -200,6 +200,9 @@ func cmdNetworkVSCode(args []string) int {
 }
 
 func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format string) int {
+	if err := outfmt.Check(format); err != nil {
+		return fail("network vscode: %v", err)
+	}
 	res, err := vscodeserve.Start(ctx, opts)
 	if err != nil {
 		return fail("network vscode: %v", err)
@@ -208,7 +211,9 @@ func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format stri
 		fmt.Fprintln(os.Stderr, "claude-code: network vscode: "+n)
 	}
 	if format == "json" {
-		_ = outfmt.Write(os.Stdout, res.State)
+		if err := outfmt.Write(os.Stdout, res.State); err != nil {
+			return fail("network vscode: %v", err)
+		}
 		return 0
 	}
 	fmt.Printf("claude-code: network vscode running pid %d port %d\n", res.State.PID, res.State.Port)
@@ -218,6 +223,9 @@ func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format stri
 }
 
 func vscodeServeStop(format string) int {
+	if err := outfmt.Check(format); err != nil {
+		return fail("network vscode: %v", err)
+	}
 	st, wasRunning := vscodeserve.Running()
 	err := vscodeserve.Stop()
 	if errors.Is(err, vscodeserve.ErrNotRunning) || (err == nil && !wasRunning) {
@@ -232,10 +240,13 @@ func vscodeServeStop(format string) int {
 		return fail("network vscode: %v", err)
 	}
 	if format == "json" {
-		b, _ := json.Marshal(struct {
+		b, err := json.Marshal(struct {
 			Stopped bool `json:"stopped"`
 			PID     int  `json:"pid"`
 		}{true, st.PID})
+		if err != nil {
+			return fail("network vscode: %v", err)
+		}
 		fmt.Println(string(b))
 		return 0
 	}
@@ -246,14 +257,19 @@ func vscodeServeStop(format string) int {
 // vscodeServeStatus reports the daemon from our own state plus a live re-query of `tailscale serve
 // status --json` for the mapping — the source of truth, since the daemon may have started earlier.
 func vscodeServeStatus(ctx context.Context, format string) int {
+	if err := outfmt.Check(format); err != nil {
+		return fail("network vscode: %v", err)
+	}
 	st, running := vscodeserve.Running()
 	_, mapped := vscodeserve.TailscaleMapping(ctx, st.Port)
 	if format == "json" {
-		_ = outfmt.Write(os.Stdout, struct {
+		if err := outfmt.Write(os.Stdout, struct {
 			Running bool `json:"running"`
 			Mapped  bool `json:"tailscale_mapped"`
 			vscodeserve.State
-		}{running, mapped, st})
+		}{running, mapped, st}); err != nil {
+			return fail("network vscode: %v", err)
+		}
 		if !running {
 			return 1
 		}

@@ -158,7 +158,9 @@ func tailscaleStatus(ctx context.Context, format string) int {
 		return fail("network tailscale status: %v", err)
 	}
 	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, st)
+		if err := outfmt.Write(os.Stdout, st); err != nil {
+			return fail("network tailscale status: %v", err)
+		}
 		return 0
 	}
 	fmt.Printf("backend   %s\n", st.BackendState)
@@ -185,7 +187,9 @@ func tailscaleMachines(ctx context.Context, format string) int {
 	}
 	writeDispatchCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
 	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, machines)
+		if err := outfmt.Write(os.Stdout, machines); err != nil {
+			return fail("network tailscale machines: %v", err)
+		}
 		return 0
 	}
 	for _, m := range machines {
@@ -223,8 +227,12 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 	if err := tailscale.Connect(ctx, key, o.advertise); err != nil {
 		return fail("network tailscale connect: %v", err)
 	}
-	st, _ := tailscale.Status(ctx)
-	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
+	st, err := tailscale.Status(ctx)
+	if err != nil {
+		audit.Log(audit.TailscaleConnect, "", "connect (status unavailable: "+err.Error()+")")
+	} else {
+		audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
+	}
 	fmt.Println("tailscale: connected")
 	return 0
 }
@@ -305,7 +313,7 @@ func tailscaleApproveExitNode(ctx context.Context) int {
 		return 2
 	}
 	st, err := tailscale.Status(ctx)
-	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
+	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
 		return fail("network tailscale exit-node: %v", err)
 	}
 	devices, err := client.Devices(ctx)

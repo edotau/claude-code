@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,12 +17,20 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// dispatchPage documents the three modes: start, --list, --attach.
+// dispatchPage documents the three modes: start, --list, --attach; each has its own usage line
+// since their flags and positionals are not interchangeable (--attach takes exactly one session).
 var dispatchPage = helptext.Page{
 	Usage: "claude-code dispatch --host <name> [flags] \"<task>\"\n" +
-		"claude-code dispatch --host <name> --list|--attach [flags] [<session>]",
+		"claude-code dispatch --host <name> --list [flags]\n" +
+		"claude-code dispatch --host <name> --attach <session>",
 	About: "Start an agent CLI in a detached tmux session on a tailnet host over ssh, then\n" +
 		"list its cc-* sessions (--list) or attach to one (--attach <session>).",
+}
+
+// dispatchFlagMode maps a mode-specific flag to the mode that owns it; --host/--list/--attach apply to every mode.
+var dispatchFlagMode = map[string]string{
+	"dir": "start", "agent": "start", "name": "start", "dry-run": "start",
+	"format": "list", "status": "list", "interval": "list",
 }
 
 // sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
@@ -51,15 +60,31 @@ func cmdDispatch(args []string) int {
 	if *host == "" {
 		return fail("dispatch: --host is required")
 	}
+	mode := "start"
+	switch {
+	case *list:
+		mode = "list"
+	case *attach:
+		mode = "attach"
+	}
+	var wrong error
+	fs.Visit(func(f *flag.Flag) {
+		if owner, ok := dispatchFlagMode[f.Name]; ok && owner != mode && wrong == nil {
+			wrong = fmt.Errorf("--%s applies to --%s mode only, not --%s", f.Name, owner, mode)
+		}
+	})
+	if wrong != nil {
+		return fail("dispatch: %v", wrong)
+	}
 	ctx := context.Background()
 	resolved, err := dispatch.ResolveHost(ctx, *host)
 	if err != nil {
 		return fail("%v", err)
 	}
-	switch {
-	case *list:
+	switch mode {
+	case "list":
 		return dispatchList(ctx, resolved, *format, *status, *interval)
-	case *attach:
+	case "attach":
 		if len(rest) != 1 {
 			return fail("dispatch --attach: give exactly one session name")
 		}
@@ -91,7 +116,10 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()
-	_, writeErr := os.Stdout.Write(out)
+	n, writeErr := os.Stdout.Write(out)
+	if writeErr == nil && n < len(out) {
+		writeErr = fmt.Errorf("short write to stdout: wrote %d of %d bytes", n, len(out))
+	}
 	if err := errors.Join(err, writeErr); err != nil {
 		return fail("dispatch: %v", err)
 	}
@@ -121,7 +149,9 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 	}
 	sessions := dispatch.ParseSessions(string(out))
 	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, sessions)
+		if err := outfmt.Write(os.Stdout, sessions); err != nil {
+			return fail("dispatch --list: %v", err)
+		}
 		return 0
 	}
 	for _, s := range sessions {
@@ -141,7 +171,9 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 		if capErr != nil && len(prev) == 0 {
 			return fail("dispatch --status: %v", capErr)
 		}
-		printPaneStatus(prev, format)
+		if err := printPaneStatus(prev, format); err != nil {
+			return fail("dispatch --status: %v", err)
+		}
 		if interval <= 0 {
 			return 0
 		}
@@ -154,14 +186,14 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 }
 
 // printPaneStatus writes one sample of pane statuses in the requested format.
-func printPaneStatus(statuses []dispatch.PaneStatus, format string) {
+func printPaneStatus(statuses []dispatch.PaneStatus, format string) error {
 	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, statuses)
-		return
+		return outfmt.Write(os.Stdout, statuses)
 	}
 	for _, p := range statuses {
 		fmt.Printf("%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason)
 	}
+	return nil
 }
 
 func dispatchAttach(host, session string) int {

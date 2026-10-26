@@ -45,7 +45,8 @@ func tierVerb(tier string) func([]string) int {
 }
 
 var anthropicPage = helptext.Page{
-	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]]\n[--model ID] [claude args]",
+	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model ID]\n" +
+		"[--router] [--print-env] [--keep-env NAMES] [claude args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key.",
 }
@@ -86,14 +87,16 @@ func cmdAnthropic(args []string) int {
 
 // anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
 func anthropicSecret(o launch.AnthropicOptions) (string, error) {
-	read := func() string {
+	read := func() (string, error) {
 		if o.Mode == launch.AuthOAuth {
-			return providers.StoredSecret(o.Name)
+			return providers.StoredSecret(o.Name), nil
 		}
-		v, _, _ := providers.EffectiveSecret(o.Name)
-		return v
+		v, _, err := providers.EffectiveSecret(o.Name)
+		return v, err
 	}
-	if v := read(); v != "" {
+	if v, err := read(); err != nil {
+		return "", fmt.Errorf("%s: %w", o.Name, err)
+	} else if v != "" {
 		return v, nil
 	}
 	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set %s`", o.Name, o.Name)
@@ -109,7 +112,9 @@ func anthropicSecret(o launch.AnthropicOptions) (string, error) {
 	if code := vaultSetSecret(o.Name, false); code != 0 {
 		return "", fmt.Errorf("%s was not stored", o.Name)
 	}
-	if v := read(); v != "" {
+	if v, err := read(); err != nil {
+		return "", fmt.Errorf("%s: %w", o.Name, err)
+	} else if v != "" {
 		return v, nil
 	}
 	return "", missing
@@ -165,8 +170,11 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 var hookPage = helptext.Page{
 	Usage: "claude-code hook <name> < payload.json",
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the vendor hook files invoke it.",
-	Hint: "names: safety|stop-format|context-checkpoint|session-start|\n" +
-		"       memory-recall|session-harvest|session-harvest-end",
+	Hint: "names: bash-guard|docs-placement|agent-effort|agent-routed|workflow-lint|\n" +
+		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
+		"       plan-mirror|save-plan|access-trace|context-checkpoint|stop-format|\n" +
+		"       session-harvest|session-start|wsl-path-normalize|memory-recall|\n" +
+		"       session-harvest-end|pre-compact|worktree-create|worktree-remove",
 }
 
 func cmdHook(args []string) int {
@@ -408,10 +416,12 @@ func cmdDoctor(args []string) int {
 	if *format == outfmt.JSON {
 		var checks []launch.Check
 		checks, ok = launch.DoctorChecks()
-		_ = outfmt.Write(os.Stdout, struct {
+		if err := outfmt.Write(os.Stdout, struct {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`
-		}{ok, checks})
+		}{ok, checks}); err != nil {
+			return fail("doctor: %v", err)
+		}
 	} else {
 		ok = launch.Doctor(os.Stdout)
 	}
@@ -433,11 +443,13 @@ func printAudit(days int, format string) int {
 		return fail("doctor --audit: %v", err)
 	}
 	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, struct {
+		if err := outfmt.Write(os.Stdout, struct {
 			Days    int                  `json:"days"`
 			Summary map[audit.Action]int `json:"summary"`
 			Events  []audit.Event        `json:"events"`
-		}{days, audit.Summary(ev), ev})
+		}{days, audit.Summary(ev), ev}); err != nil {
+			return fail("doctor --audit: %v", err)
+		}
 		return 0
 	}
 	if len(ev) == 0 {

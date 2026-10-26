@@ -110,7 +110,10 @@ func cmdGeminiBridge(args []string) int {
 		if err != nil {
 			env.Error = err.Error()
 		}
-		body, _ := json.Marshal(env)
+		body, merr := json.Marshal(env)
+		if merr != nil {
+			return fail("gemini bridge: encoding result: %v", merr)
+		}
 		fmt.Println(string(body))
 	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()

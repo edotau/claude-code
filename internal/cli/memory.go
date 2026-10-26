@@ -147,15 +147,16 @@ func cmdMemoryRecall(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
-		fail("memory recall: %v", err)
-		return 2
+		return failUsage("memory recall: %v", err)
 	}
 	if len(terms) == 0 {
 		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
 	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, hits)
+		if err := outfmt.Write(os.Stdout, hits); err != nil {
+			return fail("memory recall: %v", err)
+		}
 		return 0
 	}
 	if len(hits) == 0 {
@@ -183,6 +184,7 @@ func recallLoad(hits []memory.SearchHit, n int) {
 		}
 		_, block, err := memory.ShowBlock(h.ID)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
 			continue
 		}
 		block = strings.TrimSpace(block)
@@ -240,15 +242,16 @@ func cmdMemorySearch(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := outfmt.Check(*format); err != nil {
-		fail("memory search: %v", err)
-		return 2
+		return failUsage("memory search: %v", err)
 	}
 	if len(terms) == 0 {
 		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
 	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, hits)
+		if err := outfmt.Write(os.Stdout, hits); err != nil {
+			return fail("memory search: %v", err)
+		}
 		return 0
 	}
 	if len(hits) == 0 {
@@ -270,8 +273,7 @@ func cmdMemoryShow(args []string) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fail("memory show: give one block id (from `memory search` or a MEMORY.md region)")
-		return 2
+		return failUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 	}
 	path, block, err := memory.ShowBlock(fs.Arg(0))
 	if err != nil {
@@ -332,9 +334,15 @@ func cmdMemoryUpdate(args []string) int {
 	}
 	root := *cwd
 	if root == "" {
-		root, _ = os.Getwd()
+		var err error
+		if root, err = os.Getwd(); err != nil {
+			return fail("memory update: %v", err)
+		}
 	}
-	claude, _ := launch.ClaudeBinary()
+	claude, err := launch.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the harvest, Claude is only its fallback
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: memory update:", err)
+	}
 	if err := memory.Update(memory.UpdateOptions{Claude: claude, Run: memoryAgent(), Transcript: *transcript, CWD: root, Session: *session, Out: os.Stdout}); err != nil {
 		return fail("memory update: %v", err)
 	}
@@ -351,7 +359,10 @@ func cmdMemoryDream(args []string) int {
 	}
 	root := *cwd
 	if root == "" {
-		root, _ = os.Getwd()
+		var err error
+		if root, err = os.Getwd(); err != nil {
+			return fail("memory dream: %v", err)
+		}
 	}
 	if *dryRun {
 		fmt.Print(memory.PreviewDream(root, time.Now()).Report())
