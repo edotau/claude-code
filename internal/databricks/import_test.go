@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const dbxCfgFixture = `[DEFAULT]
@@ -123,5 +124,22 @@ func TestImportCfgRefusals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestImportAllSkippedWritesNothing(t *testing.T) {
+	useVaultTest(t)
+	cfg := writeCfg(t, "[bad name]\nhost = https://x.example.cloud.databricks.com\nauth_type = databricks-cli\n")
+	code, out, _ := captureOutput(t, func() int { return importCfg([]string{"--file", cfg, "--apply"}) })
+	if code != 0 || !strings.Contains(out, "nothing to import") || strings.Contains(out, "wrote provider rows") {
+		t.Fatalf("all-skipped apply: %d %q", code, out)
+	}
+	var doc string
+	var found bool
+	if err := vault.View(func(tx *vault.Tx) error { doc, found = tx.Get(vault.Overlay, "providers"); return nil }); err != nil {
+		t.Logf("vault view: %v", err)
+	}
+	if found {
+		t.Errorf("overlay written for an all-skipped import: %q", doc)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
@@ -85,6 +86,10 @@ func importCfg(args []string) int {
 	printImportTable(rows)
 	if !profile.PrintDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no changes")
+	}
+	if !slices.ContainsFunc(rows, func(r dbxcfg.Row) bool { return r.Action != "skip" }) {
+		fmt.Println("nothing to import")
+		return 0
 	}
 	if !*apply {
 		fmt.Println("dry-run: pass --apply to write")
