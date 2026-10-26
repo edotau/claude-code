@@ -161,3 +161,37 @@ func TestOfferLoginSlowTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 		t.Fatalf("warnings = %q, want one 'launching anyway' warning", plan.Warnings)
 	}
 }
+
+// A real token endpoint that hangs: the bounded check warns once, never prompts, never logs in.
+func TestOfferLoginHungTokenCheckLaunchesWithoutPrompt(t *testing.T) {
+	h := loginSetup(t, true, "y\n", nil)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) }) // runs before srv.Close so the abandoned mint returns promptly
+	p := u2mRow("hung", srv.URL)
+	if err := providers.SealSecret(providers.AuthSecretName(p), "rt"); err != nil {
+		t.Fatal(err)
+	}
+	oldTimeout := credCheckTimeout
+	t.Cleanup(func() { credCheckTimeout = oldTimeout })
+	credCheckTimeout = 100 * time.Millisecond
+	var plan Plan
+	start := time.Now()
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{p}, &plan)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("offerLogin took %s, want it bounded by credCheckTimeout", d)
+	}
+	if h.calls.Load() != 0 || strings.Contains(h.out.String(), "Log in now?") {
+		t.Fatalf("prompted or logged in (logins=%d, out=%q)", h.calls.Load(), h.out.String())
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "timed out") {
+		t.Fatalf("warnings = %q, want exactly one timeout warning", plan.Warnings)
+	}
+}

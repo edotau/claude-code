@@ -48,8 +48,8 @@ func offerLogin(ctx context.Context, o Options, args []string, ps []*providers.P
 func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader) error {
 	ok, err := checkCredential(ctx, p)
 	if !ok {
-		// A slow token endpoint is transient, never a login verdict: warn and launch rather than stall.
-		return fmt.Errorf("token check still running after %s; launching anyway", credCheckTimeout)
+		// A timeout is transient and never means a login is needed (A1 `transient`: no auth mark recorded).
+		return fmt.Errorf("token check timed out after %s; launching anyway", credCheckTimeout)
 	}
 	if !errors.Is(err, providers.ErrNeedsLogin) {
 		return nil
@@ -62,7 +62,11 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader)
 	if err := loginRow(ctx, p.Name, loginOut); err != nil {
 		return fmt.Errorf("databricks login: %w", err)
 	}
-	if _, err := providers.Credential(ctx, p); err != nil {
+	ok, err = checkCredential(ctx, p)
+	if !ok {
+		return fmt.Errorf("token check timed out after %s; launching anyway", credCheckTimeout)
+	}
+	if err != nil {
 		return fmt.Errorf("still no credential after login: %w", err)
 	}
 	return nil
