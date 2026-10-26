@@ -84,6 +84,9 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 		return fail("worktree list: %v", err)
 	}
 	if *format == outfmt.JSON {
+		if entries == nil {
+			entries = []worktree.Entry{} // [] not null, so JSON consumers can iterate
+		}
 		_ = outfmt.Write(os.Stdout, entries)
 		return 0
 	}
