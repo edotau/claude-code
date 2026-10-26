@@ -202,6 +202,7 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 		return Plan{}, err
 	}
 	plan.Set[providers.PinProvider] = p.Name
+	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
 	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
 		return Plan{}, err
@@ -244,6 +245,15 @@ func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, ti
 		}
 	}
 	return nil
+}
+
+// sessionProviders is the session provider plus each slot's provider.
+func sessionProviders(sel providers.Selection) []*providers.Provider {
+	out := []*providers.Provider{sel.Provider}
+	for _, t := range sel.Slots {
+		out = append(out, t.Provider)
+	}
+	return out
 }
 
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -23,6 +24,21 @@ const (
 	AuthOAuthM2M = "oauth-m2m" // client id + sealed client secret
 	AuthPAT      = "pat"       // sealed personal access token
 )
+
+// ErrNeedsLogin matches (errors.Is) a u2m credential that only a fresh browser login can restore.
+var ErrNeedsLogin = errors.New("login required")
+
+// LoginRequiredError is a u2m row with no sealed refresh token or one the token endpoint rejected.
+type LoginRequiredError struct {
+	Provider string
+	err      error
+}
+
+func (e *LoginRequiredError) Error() string { return e.err.Error() }
+func (e *LoginRequiredError) Unwrap() error { return e.err }
+
+// Is makes errors.Is(err, ErrNeedsLogin) true.
+func (e *LoginRequiredError) Is(target error) bool { return target == ErrNeedsLogin }
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
@@ -230,7 +246,11 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
-		return sdkport.Token{}, fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
+		err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
+		if p.Auth.AuthType == AuthU2M {
+			err = &LoginRequiredError{Provider: p.Name, err: err}
+		}
+		return sdkport.Token{}, err
 	}
 	if err := checkAuthScheme(p); err != nil {
 		return sdkport.Token{}, err
@@ -244,7 +264,11 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 	}
 	tok, err := sdkport.RefreshU2M(ctx, host, secret)
 	if err != nil {
-		return sdkport.Token{}, fmt.Errorf("%s: %w (run `claude-code databricks login %s`)", p.Name, err, p.Name)
+		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login %s`)", p.Name, err, p.Name)
+		if sdkport.IsLoginRequired(err) {
+			wrapped = &LoginRequiredError{Provider: p.Name, err: wrapped}
+		}
+		return sdkport.Token{}, wrapped
 	}
 	if tok.Refresh != "" && tok.Refresh != secret {
 		if err := SealSecret(name, tok.Refresh); err != nil {
