@@ -88,7 +88,9 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 	}
 	if f, err := os.Open(p); err == nil {
 		cfg, _, derr := image.DecodeConfig(f)
-		_ = f.Close()
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "wsl-path-normalize: close %s: %v\n", p, cerr)
+		}
 		if derr == nil {
 			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, humanBytes(fi.Size())), true, true
 		}
@@ -170,7 +172,8 @@ func modelContext(reps []pathReport) string {
 }
 
 // feedbackPayload marshals systemMessage (user-visible) and additionalContext (model-visible) in one
-// envelope, so a single hook write serves both audiences.
+// envelope, so a single hook write serves both audiences. "" on a marshal error, matching
+// agenteffort.go's handling of the same operation, so a bad payload is never printed half-formed.
 func feedbackPayload(reps []pathReport, vendor ...string) string {
 	payload := map[string]any{
 		"systemMessage": feedbackMessage(reps),
@@ -182,7 +185,10 @@ func feedbackPayload(reps []pathReport, vendor ...string) string {
 	if len(vendor) > 0 && vendor[0] == VendorCopilot {
 		payload = map[string]any{"additionalContext": modelContext(reps)}
 	}
-	out, _ := json.Marshal(payload)
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
 	return string(out)
 }
 
@@ -194,7 +200,9 @@ func promptPathFeedback(r io.Reader, stdout io.Writer, onWSL func() bool) int {
 	if len(reps) == 0 {
 		return ExitProceed
 	}
-	fmt.Fprintln(stdout, feedbackPayload(reps, in.Vendor()))
+	if out := feedbackPayload(reps, in.Vendor()); out != "" {
+		fmt.Fprintln(stdout, out)
+	}
 	return ExitProceed
 }
 

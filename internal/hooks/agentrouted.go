@@ -1,11 +1,12 @@
 // `agent-routed` — SubagentStart: records the model a spawned subagent actually launched with,
 // reconciling it against the oldest `agent-effort` decision for the session not yet claimed by an
-// audit row. Best-effort and advisory: any I/O error is swallowed, the hook always proceeds.
+// audit row. Best-effort and advisory: an I/O error is logged to stderr, the hook always proceeds.
 package hooks
 
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,9 +38,10 @@ func AgentRouted(r io.Reader) int {
 	sessionID := in.SessionID
 
 	if err := os.MkdirAll(routingDir(), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "agent-routed: mkdir %s: %v\n", routingDir(), err)
 		return ExitProceed
 	}
-	_, _ = paths.TryFileLock(auditPath()+".lock", routingLockWait, func() error {
+	ran, lockErr := paths.TryFileLock(auditPath()+".lock", routingLockWait, func() error {
 		rec := map[string]any{
 			"agent_id": agentID, "agent_type": agentType, "model": model,
 			"session_id": sessionID, "at": time.Now().Unix(),
@@ -59,6 +61,7 @@ func AgentRouted(r io.Reader) int {
 		}
 		return appendJSONLine(auditPath(), line)
 	})
+	warnLockFailure("audit append", ran, lockErr)
 	return ExitProceed
 }
 
@@ -71,10 +74,23 @@ func appendDecision(rec map[string]any) {
 	if err := os.MkdirAll(routingDir(), 0o700); err != nil {
 		return
 	}
-	_, _ = paths.TryFileLock(decisionsPath()+".lock", routingLockWait, func() error {
+	ran, lockErr := paths.TryFileLock(decisionsPath()+".lock", routingLockWait, func() error {
 		rotateIfOversize(decisionsPath())
 		return appendJSONLine(decisionsPath(), line)
 	})
+	warnLockFailure("decision append", ran, lockErr)
+}
+
+// warnLockFailure surfaces a lock timeout/open error or a failed write to stderr; never blocks the
+// hook (fail-open), but keeps the failure visible instead of silently discarding it.
+func warnLockFailure(op string, ran bool, err error) {
+	if !ran {
+		fmt.Fprintf(os.Stderr, "agent-routed: %s: lock not acquired, skipped\n", op)
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-routed: %s: %v\n", op, err)
+	}
 }
 
 // pendingDecision is the oldest decision for sessionID not yet referenced in audit.jsonl, preferring
@@ -134,11 +150,15 @@ func rotateIfOversize(path string) {
 	if err != nil || fi.Size() <= decisionsCap {
 		return
 	}
-	_ = os.Rename(path, path+".1")
+	if err := os.Rename(path, path+".1"); err != nil {
+		fmt.Fprintf(os.Stderr, "agent-routed: rotate %s: %v\n", path, err)
+	}
 }
 
 // appendJSONLine opens path O_APPEND (a single write() call is atomic for a line this short) and
 // writes line+"\n"; callers already hold the routing-dir lock, so this never interleaves with a sibling.
+// Checks the written byte count (a short write with no error is possible per the io.Writer contract)
+// and surfaces a Close error, which a bare `defer f.Close()` would otherwise discard.
 func appendJSONLine(path string, line []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -147,7 +167,14 @@ func appendJSONLine(path string, line []byte) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = f.Write(append(line, '\n'))
-	return err
+	data := append(line, '\n')
+	n, werr := f.Write(data)
+	cerr := f.Close()
+	if werr != nil {
+		return werr
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
+	return cerr
 }

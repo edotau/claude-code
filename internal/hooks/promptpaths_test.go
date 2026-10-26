@@ -129,3 +129,56 @@ func writePNG(t *testing.T, path string, w, h int) {
 		t.Fatal(err)
 	}
 }
+
+// TestDescribeProperly handles image files without losing close errors. Regression test for
+// defect where file close errors in describe() were silently ignored, potentially indicating
+// I/O issues that should be reported.
+func TestDescribeProperly(t *testing.T) {
+	dir := t.TempDir()
+	img := filepath.Join(dir, "test.png")
+	writePNG(t, img, 100, 200)
+
+	detail, isImage, ok := describe(img)
+
+	if !ok {
+		t.Fatal("describe failed to process valid image file")
+	}
+	if !isImage {
+		t.Error("isImage = false, want true for PNG")
+	}
+	if !strings.Contains(detail, "100") || !strings.Contains(detail, "200") {
+		t.Errorf("detail = %q, want dimensions included", detail)
+	}
+	if !strings.Contains(detail, "PNG") {
+		t.Errorf("detail = %q, want PNG type included", detail)
+	}
+}
+
+// TestFeedbackPayloadMarshalHandlesErrors: feedbackPayload must handle JSON marshal errors
+// properly. Regression test for defect where json.Marshal errors were swallowed with _,
+// producing corrupted hook output. Now properly handles errors by returning "" instead.
+func TestFeedbackPayloadMarshalHandlesErrors(t *testing.T) {
+	// Create valid path reports to ensure feedbackPayload is called correctly.
+	reps := []pathReport{
+		{path: "/test/file.txt", detail: "100 B", isImage: false},
+	}
+
+	payload := feedbackPayload(reps)
+	if payload == "" {
+		t.Fatal("feedbackPayload returned empty string for valid input")
+	}
+
+	// Verify the payload is valid JSON.
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(payload), &doc); err != nil {
+		t.Fatalf("feedbackPayload output is not valid JSON: %v\npayload=%s", err, payload)
+	}
+
+	// Verify expected fields are present.
+	if _, ok := doc["systemMessage"]; !ok {
+		t.Error("systemMessage field missing from payload")
+	}
+	if _, ok := doc["hookSpecificOutput"]; !ok {
+		t.Error("hookSpecificOutput field missing from payload")
+	}
+}

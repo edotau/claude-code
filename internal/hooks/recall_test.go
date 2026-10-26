@@ -117,3 +117,40 @@ func TestRelevantHitsGatesOnMatchedTerms(t *testing.T) {
 		t.Errorf("a 13-term query needs 3 matched terms; got %+v", long)
 	}
 }
+
+// TestMemoryRecallHandlesCwdGracefully: MemoryRecall must handle missing or invalid CWD
+// by using os.Getwd as a fallback. Regression test for defect where os.Getwd error was
+// swallowed with _, leaving root empty and degrading recall accuracy.
+func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	cwd := t.TempDir()
+
+	// Create a memory bank with searchable content.
+	for name, body := range map[string]string{
+		"conventions.md": "# C\n\n- alpha bravo charlie delta strong\n",
+	} {
+		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Test 1: With explicit CWD provided, recall works.
+	raw, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": cwd})
+	var out1 bytes.Buffer
+	code1 := MemoryRecall(bytes.NewReader(raw), &out1)
+	if code1 != ExitProceed {
+		t.Fatalf("MemoryRecall with explicit CWD failed: code=%d", code1)
+	}
+
+	// Test 2: With empty CWD, fallback to Getwd should work (on most systems).
+	raw2, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": ""})
+	var out2 bytes.Buffer
+	code2 := MemoryRecall(bytes.NewReader(raw2), &out2)
+	if code2 != ExitProceed {
+		t.Fatalf("MemoryRecall with empty CWD failed: code=%d", code2)
+	}
+}

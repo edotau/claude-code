@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textsim"
 )
 
@@ -39,7 +40,12 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	}
 	root := cwd
 	if root == "" {
-		root, _ = os.Getwd()
+		// A deleted cwd leaves Getwd erroring; fall back to the config dir rather than an empty root.
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
+		} else {
+			root = paths.ConfigDir()
+		}
 	}
 	terms := memory.ContentQueryTerms(tokens)
 	hits := relevantTermHits(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0))

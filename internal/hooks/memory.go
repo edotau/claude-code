@@ -119,8 +119,8 @@ func doctorNotice() string {
 	if notice == "" {
 		return ""
 	}
-	if len(notice) > 200 {
-		notice = notice[:200]
+	if rs := []rune(notice); len(rs) > 200 {
+		notice = string(rs[:200])
 	}
 	return " memory review: " + notice + "."
 }
@@ -154,7 +154,9 @@ func readChain(path string) (chainEntry, bool) {
 }
 
 func writeChain(path string, e chainEntry) {
-	_ = paths.AtomicWrite(path, []byte(e.sessionID+"\n"+e.transcriptPath+"\n"+e.cwd+"\n"), 0o600)
+	if err := paths.AtomicWrite(path, []byte(e.sessionID+"\n"+e.transcriptPath+"\n"+e.cwd+"\n"), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "session-start: write chain %s: %v\n", path, err)
+	}
 }
 
 // catchUpPrevious spawns the previous session's missed or failed harvest at most once, before its
@@ -239,7 +241,7 @@ func SessionHarvest(r io.Reader, stderr io.Writer) int {
 		}
 		writeStamp(stamp, now, "1", edits)
 		return blockForHarvest(stderr, edits)
-	case st.bg:
+	case st.bg || st.state == "catchup":
 		if now.Sub(st.at) < reharvestCooldown {
 			return ExitProceed // cheap gate before the whole-transcript count
 		}
@@ -381,13 +383,19 @@ func readStamp(path string) (harvestStamp, bool) {
 		return harvestStamp{}, false
 	}
 	st := harvestStamp{at: at, bg: parts[1] == "bg", state: parts[1]}
-	st.blocks, _ = strconv.Atoi(parts[1])
+	// parts[1] is "bg", "catchup", or a block count: only the numeric form is a real block count,
+	// so a non-numeric state leaves st.blocks at its zero value instead of masquerading as one.
+	if n, err := strconv.Atoi(parts[1]); err == nil {
+		st.blocks = n
+	}
 	st.edits, _ = strconv.Atoi(parts[2])
 	return st, true
 }
 
 func writeStamp(path string, at time.Time, state string, edits int) {
-	_ = paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600)
+	if err := paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "session-harvest: write stamp %s: %v\n", path, err)
+	}
 }
 
 // countState tracks complete transcript lines separately from edits already covered by a harvest;
@@ -436,7 +444,9 @@ func readCountState(path string) (countState, bool) {
 func writeCountState(path string, cs countState) {
 	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10) + "|" +
 		strconv.Itoa(cs.subEdits) + ":" + strconv.FormatInt(cs.subBytes, 10)
-	_ = paths.AtomicWrite(path, []byte(line), 0o600)
+	if err := paths.AtomicWrite(path, []byte(line), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "session-harvest: write count state %s: %v\n", path, err)
+	}
 }
 
 // countEdits resumes after the last complete line, leaving partial appends for the next Stop; dispatched
@@ -508,7 +518,10 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 	if dir == "" {
 		return 0, 0
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
+	matches, err := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
+	if err != nil {
+		return cachedEdits, cachedBytes // glob failed: keep the last known count rather than reporting zero
+	}
 	sizes := make(map[string]int64, len(matches))
 	for _, m := range matches {
 		if fi, err := os.Stat(m); err == nil {
