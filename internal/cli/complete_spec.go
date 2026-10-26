@@ -137,6 +137,7 @@ func buildSpecTree() map[string]*compNode {
 			"clean":     {args: []func() []string{worktreeNames}, flags: []flagInfo{boolFlag("dry-run"), boolFlag("force")}},
 			"clean-all": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("yes")}},
 		}},
+		"test": {sub: map[string]*compNode{"mutate": {flags: []flagInfo{flag("run")}}}},
 		"memory": {sub: map[string]*compNode{
 			"recall": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"),
 				flag("load"), formatFlag()}},

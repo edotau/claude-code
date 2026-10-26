@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/mutate"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/statusline"
 )
@@ -72,6 +73,7 @@ func commands() []command {
 		{name: "dispatch", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
 		{name: "profile", group: groupSession, summary: "per-agent account profiles: list, use, save, migrate", run: cmdProfile},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
+		{name: "test", group: groupSession, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
@@ -272,4 +274,24 @@ func cmdVersion([]string) int {
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
 	return 1
+}
+
+// cmdTest dispatches `test <sub>`; mutate is the only sub so far.
+func cmdTest(args []string) int {
+	if len(args) > 0 && args[0] == "mutate" {
+		return mutate.Run(args[1:])
+	}
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		testPage.Fprint(os.Stderr)
+		return 0
+	}
+	fail("test: unknown subcommand %q", args[0])
+	testPage.Fprint(os.Stderr)
+	return 2
+}
+
+var testPage = helptext.Page{
+	Usage:    "claude-code test <command> [flags]",
+	Commands: [][2]string{{"mutate", "swap one snippet via -overlay; do the tests notice?"}},
+	Hint:     "claude-code test mutate -h lists that command's flags.",
 }
