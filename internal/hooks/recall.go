@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textsim"
 )
 
@@ -42,7 +43,12 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	}
 	root := in.CWD
 	if root == "" {
-		root, _ = os.Getwd()
+		// A deleted cwd leaves Getwd erroring; fall back to the config dir rather than an empty root.
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
+		} else {
+			root = paths.ConfigDir()
+		}
 	}
 	terms := memory.ContentQueryTerms(tokens)
 	hits := relevantTermHits(in.SessionID, terms, memory.SearchBanksTerms(root, q, terms, 0))
