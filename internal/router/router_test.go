@@ -840,3 +840,35 @@ func TestRegistryPreFixLogicCachedTheBadMtime(t *testing.T) {
 		t.Fatal("replica no longer reproduces the bug: it retried Load instead of serving the stale cache")
 	}
 }
+
+func TestDatabricksGatewayWireReachesUpstream(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("DBX_KEY", "dbx-token")
+	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
+		`","auth":{"type":"bearer","env":"DBX_KEY"},"options":{"wire":"gateway"}}`
+	srv := setup(t, `{"default":"dbx","providers":{"dbx":`+row+`}}`)
+
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := reg.Providers["dbx"].Models["opus"]
+	if wire != "system.ai.claude-opus-5-5" {
+		t.Fatalf("registry opus slot = %q, want system.ai.claude-opus-5-5", wire)
+	}
+	resp := post(t, srv.URL+"/p/dbx/v1/messages", `{"model":"`+wire+`","max_tokens":5}`, nil)
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d: %s", resp.StatusCode, b)
+	}
+	got, body := up.last.Load(), *up.body.Load()
+	if h := got.Header.Get("x-databricks-use-coding-agent-mode"); h != "true" {
+		t.Errorf("coding-agent header = %q, headers %v", h, got.Header)
+	}
+	if body["model"] != wire {
+		t.Errorf("model = %v", body["model"])
+	}
+	if a := got.Header.Get("Authorization"); a != "Bearer dbx-token" {
+		t.Errorf("authorization = %q", a)
+	}
+}
