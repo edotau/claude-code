@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -66,25 +67,88 @@ func configureProviderList(name, format string) int {
 	return 0
 }
 
-// printProviderTable prints one row per provider, columns sized to the widest name and kind.
+// printProviderTable prints the providers grouped by family, columns sized to the widest name and kind.
 func printProviderTable(reg *providers.Registry) {
 	nameW, kindW := 0, 0
+	groups := map[string][]string{}
 	for _, n := range reg.Names() {
 		nameW = max(nameW, len(n))
 		kindW = max(kindW, len(reg.Providers[n].Kind))
+		g := providerGroup(reg.Providers[n])
+		groups[g] = append(groups[g], n)
 	}
-	for _, n := range reg.Names() {
-		p := reg.Providers[n]
-		mark := " "
-		if n == reg.Default {
-			mark = "*"
+	first := true
+	for _, g := range providerGroups {
+		names := groups[g]
+		if len(names) == 0 {
+			continue
 		}
-		cred, _ := credSource(p)
-		fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
+		if !first {
+			fmt.Println()
+		}
+		first = false
+		fmt.Println(g)
+		if g == groupDatabricks {
+			slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
+		}
+		for _, n := range names {
+			p := reg.Providers[n]
+			mark := " "
+			if n == reg.Default {
+				mark = "*"
+			}
+			cred, _ := credSource(p)
+			fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
+		}
 	}
 	if len(reg.Fallback) > 0 {
+		fmt.Println()
 		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
 	}
+}
+
+const groupDatabricks = "databricks"
+
+// providerGroups is the family order `configure provider --list` prints; opensource takes every other host.
+var providerGroups = []string{"anthropic", "openai", "github", "google", groupDatabricks, "opensource"}
+
+// providerGroup files p under a family: Databricks by preset or sealed auth, the rest by its route's host.
+func providerGroup(p *providers.Provider) string {
+	if p.Preset == providers.PresetDatabricks || p.Auth.AuthType != "" {
+		return groupDatabricks
+	}
+	host := ""
+	for _, d := range p.Dialects() {
+		if r, ok := p.Route(d); ok {
+			if u, err := url.Parse(r); err == nil {
+				host = u.Hostname()
+			}
+			break
+		}
+	}
+	for _, m := range []struct{ suffix, group string }{
+		{"anthropic.com", "anthropic"}, {"openai.com", "openai"}, {"chatgpt.com", "openai"},
+		{"githubcopilot.com", "github"}, {"github.com", "github"}, {"googleapis.com", "google"},
+		{"databricks.com", groupDatabricks},
+	} {
+		if host == m.suffix || strings.HasSuffix(host, "."+m.suffix) {
+			return m.group
+		}
+	}
+	return "opensource"
+}
+
+// envSortKey orders Databricks rows bare env first (dev, qa, prod), then each prefix's -dev, -qa, -prod.
+func envSortKey(name string) string {
+	for i, env := range []string{"dev", "qa", "prod"} {
+		if name == env {
+			return fmt.Sprintf("0 %d", i)
+		}
+		if base, ok := strings.CutSuffix(name, "-"+env); ok {
+			return fmt.Sprintf("1 %s %d", base, i)
+		}
+	}
+	return "2 " + name
 }
 
 // credSource names where p's credential resolves from (vault|env|command|auth.file|passthrough|none|missing).
@@ -99,6 +163,7 @@ func credSource(p *providers.Provider) (source, note string) {
 // providerListEntry is the describe provider view plus where its credential resolves from.
 type providerListEntry struct {
 	DescribeProvider
+	Group       string `json:"group"` // the family `--list` files it under (anthropic, openai, ... opensource)
 	Source      string `json:"source"`
 	Note        string `json:"note"`
 	Host        string `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
@@ -124,6 +189,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		}
 		e := providerListEntry{DescribeProvider: dp}
 		p := reg.Providers[dp.Name]
+		e.Group = providerGroup(p)
 		e.Source, e.Note = credSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
