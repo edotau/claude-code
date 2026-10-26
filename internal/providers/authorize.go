@@ -60,12 +60,15 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 	return ids, err
 }
 
-// liveModelEntry is one catalog row: the id plus the display name when the API sends one (Anthropic does).
-type liveModelEntry struct{ id, name string }
+// liveModelEntry is one catalog row: the id plus the display name when the API sends one (Anthropic does);
+// task and ready come only from a Databricks serving-endpoints listing.
+type liveModelEntry struct{ id, name, task, ready string }
 
 func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
 	url, anthropicDialect := "", false
-	if r, ok := p.Route(DialectAnthropic); ok {
+	if host := presetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
+		url = host + "/api/2.0/serving-endpoints"
+	} else if r, ok := p.Route(DialectAnthropic); ok {
 		url, anthropicDialect = r+"/v1/models", true
 	} else if r, ok := p.Route(DialectOpenAI); ok {
 		url = r + "/models"
@@ -98,6 +101,9 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: %s: %s", url, resp.Status, strings.TrimSpace(string(body)))
 	}
+	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
+		return decodeServingEndpoints(url, body)
+	}
 	var doc struct {
 		Data []struct {
 			ID          string `json:"id"`
@@ -110,6 +116,27 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	out := make([]liveModelEntry, len(doc.Data))
 	for i, m := range doc.Data {
 		out[i] = liveModelEntry{id: m.ID, name: m.DisplayName}
+	}
+	return out, nil
+}
+
+// decodeServingEndpoints maps a Databricks /api/2.0/serving-endpoints body to catalog rows (name, task, ready).
+func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
+	var doc struct {
+		Endpoints []struct {
+			Name  string `json:"name"`
+			Task  string `json:"task"`
+			State struct {
+				Ready string `json:"ready"`
+			} `json:"state"`
+		} `json:"endpoints"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", url, err)
+	}
+	out := make([]liveModelEntry, len(doc.Endpoints))
+	for i, e := range doc.Endpoints {
+		out[i] = liveModelEntry{id: e.Name, task: e.Task, ready: e.State.Ready}
 	}
 	return out, nil
 }

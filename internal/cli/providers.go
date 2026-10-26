@@ -348,6 +348,8 @@ type liveModel struct {
 	Name         string `json:"name,omitempty"`
 	UseCase      string `json:"use_case"`
 	Capabilities string `json:"capabilities,omitempty"`
+	Task         string `json:"task,omitempty"`
+	Ready        string `json:"ready,omitempty"`
 }
 
 // listLive prints the provider's live model catalog via providers.ListModels (github-copilot's own SDK,
@@ -369,13 +371,30 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	if format == outfmt.JSON {
 		rows := make([]liveModel, len(infos))
 		for i, m := range infos {
-			rows[i] = liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities}
+			rows[i] = liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
+				Task: m.Task, Ready: m.Ready}
 		}
 		_ = outfmt.Write(os.Stdout, rows)
 		return 0
 	}
+	if len(infos) > 0 && infos[0].Task != "" {
+		printEndpointTable(infos)
+		return 0
+	}
 	printModelTable(infos)
 	return 0
+}
+
+// printEndpointTable prints a Databricks serving-endpoints listing as aligned name/task/ready columns.
+func printEndpointTable(infos []providers.ModelInfo) {
+	nameW, taskW := len("NAME"), len("TASK")
+	for _, m := range infos {
+		nameW, taskW = max(nameW, len(m.ID)), max(taskW, len(m.Task))
+	}
+	fmt.Printf("%-*s  %-*s  %s\n", nameW, "NAME", taskW, "TASK", "READY")
+	for _, m := range infos {
+		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", nameW, m.ID, taskW, m.Task, m.Ready), " "))
+	}
 }
 
 // printModelTable prints an aligned ID/Model/Use case/Capabilities table; widths are computed from the

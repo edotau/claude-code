@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
@@ -18,6 +19,8 @@ type ModelInfo struct {
 	Name         string
 	UseCase      string
 	Capabilities string // e.g. "vision · reasoning · x2"; blank when none
+	Task         string // Databricks serving endpoints only, e.g. "llm/v1/chat"
+	Ready        string // Databricks serving endpoints only, e.g. "READY"
 }
 
 // ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
@@ -35,9 +38,15 @@ func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, e
 	out := make([]ModelInfo, len(entries))
 	for i, e := range entries {
 		name := cmp.Or(e.name, displayName(e.id))
-		out[i] = ModelInfo{ID: e.id, Name: name, UseCase: models.UseCase(e.id, name)}
+		caps := endpointCapabilities(e)
+		out[i] = ModelInfo{ID: e.id, Name: name, UseCase: models.UseCase(e.id, name), Capabilities: caps, Task: e.task, Ready: e.ready}
 	}
 	return out, nil
+}
+
+// endpointCapabilities joins a Databricks endpoint's task and ready state, e.g. "llm/v1/chat · READY"; "" otherwise.
+func endpointCapabilities(e liveModelEntry) string {
+	return strings.Join(slices.DeleteFunc([]string{e.task, e.ready}, func(s string) bool { return s == "" }), " · ")
 }
 
 // githubCopilotProviderName mirrors the cli package's constant; duplicated here to avoid an import cycle.
