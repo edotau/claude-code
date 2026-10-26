@@ -10,8 +10,8 @@ import (
 
 // TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds a block in an archive.
 func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
-	migrateConfig(t)
-	cutover(t)
+	isolatedConfig(t)
+	initStore(t)
 	dir := filepath.Join(StoreDir(), "repo")
 	log := filepath.Join(dir, "decisionLog.md")
 	write(t, log, "# Decision Log\n\n## 2026-10-18 — First\nbody one\n\n## 2026-10-17 — Second\nbody two\n")
@@ -123,8 +123,8 @@ func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 // across two independent SearchBanks calls and resolves through ShowBlock; a block carrying a real
 // persisted id keeps that id rather than getting a derived ref.
 func TestContentRefStableAcrossRunsAndResolvesViaShow(t *testing.T) {
-	migrateConfig(t)
-	cutover(t)
+	isolatedConfig(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "widget")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {

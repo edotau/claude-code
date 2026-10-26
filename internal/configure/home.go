@@ -214,9 +214,6 @@ func registerCodexMCP(path, bin string) error {
 
 // runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
 func runWebSearch(d *dialog) {
-	if err := MigrateWebSearchArgs(false, d.out); err != nil {
-		d.printf("web search: migrate: %v\n", err)
-	}
 	if _, _, ok := secrets.Get(webSearchKey); !ok {
 		val, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
 		if err != nil || strings.TrimSpace(val) == "" {

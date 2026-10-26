@@ -348,17 +348,6 @@ func TestProtectedExactBoundary(t *testing.T) {
 	}
 }
 
-// TestProtectedUnderMigrateQuarantine: migrate's quarantine subtree (a Phase-1 migration artifact)
-// nests under MigrateStateDir() and must stay protected at any depth.
-func TestProtectedUnderMigrateQuarantine(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	p := filepath.Join(dir, "state/harness/memory/migrate/quarantine/20260101/item-1/conflicting.md")
-	if !protected(p) {
-		t.Errorf("protected(%s) = false: quarantined migration conflicts must never be swept", p)
-	}
-}
-
 // Only plugin version dirs absent from installed_plugins.json are stale; the live installPath is never a target,
 // and a missing manifest makes the whole cache off-limits.
 func TestStalePluginVersions(t *testing.T) {
@@ -624,15 +613,14 @@ func TestCleanSessionsTTYPrompt(t *testing.T) {
 	}
 }
 
-// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), migration
-// manifests/journals, access logs, the bank lock and the maintenance marker are never pruned, at any age.
+// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), journals, access logs, the bank lock and the maintenance marker are never pruned, at any age.
 func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	old := time.Now().Add(-400 * 24 * time.Hour)
 	keep := []string{
 		"memory/.git/HEAD", "memory/MEMORY.md", "memory/repo/archive/sessionHistory-2025-01.md",
-		"state/harness/memory/migrate/20260101.manifest.json", "state/harness/memory/journal/txn-1.json",
+		"state/harness/memory/journal/txn-1.json",
 		"state/harness/memory/access/repo.log", "state/harness/memory/bank.lock", "state/harness/memory/maintenance",
 	}
 	for _, rel := range keep {

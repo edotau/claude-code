@@ -10,8 +10,8 @@ import (
 // "subagent" (agent is a substring of subagent) and "routing" exactly; a block with an exact "agent"
 // outranks the substring-only match; a hyphenated query term ("agent-routing") matches both parts.
 func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
-	migrateConfig(t)
-	cutover(t)
+	isolatedConfig(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "routing")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {

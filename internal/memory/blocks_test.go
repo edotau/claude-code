@@ -94,39 +94,6 @@ func TestFenceToggleVariants(t *testing.T) {
 	}
 }
 
-// NewestHeadingBlocks: n below the count truncates to the newest n, n above returns everything, a file
-// with no trailing newline still yields its last block, and a missing file returns nil (not empty).
-func TestNewestHeadingBlocksEdgeCases(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "decisionLog.md")
-	body := "h\n\n## one\nfirst\n```\n## two fake\n```\n\n## two\nsecond\n\n## three\nthird\n"
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	want2 := []string{"## one\nfirst\n```\n## two fake\n```", "## two\nsecond"}
-	if got := NewestHeadingBlocks(p, 2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("NewestHeadingBlocks(n=2) = %#v, want %#v", got, want2)
-	}
-	wantAll := []string{"## one\nfirst\n```\n## two fake\n```", "## two\nsecond", "## three\nthird"}
-	if got := NewestHeadingBlocks(p, 100); !reflect.DeepEqual(got, wantAll) {
-		t.Errorf("NewestHeadingBlocks(n>count) = %#v, want %#v", got, wantAll)
-	}
-
-	p2 := filepath.Join(dir, "dl2.md")
-	if err := os.WriteFile(p2, []byte("h\n\n## only\nbody no nl"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	wantNoNL := []string{"## only\nbody no nl"}
-	if got := NewestHeadingBlocks(p2, 5); !reflect.DeepEqual(got, wantNoNL) {
-		t.Errorf("NewestHeadingBlocks(no trailing newline) = %#v, want %#v", got, wantNoNL)
-	}
-
-	if got := NewestHeadingBlocks(filepath.Join(dir, "absent.md"), 5); got != nil {
-		t.Errorf("NewestHeadingBlocks(missing file) = %#v, want nil", got)
-	}
-}
-
 func TestAppendBlocksPreservesBytes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,7 +74,7 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 			t.Errorf("group %s has no rows", g)
 		}
 	}
-	for _, name := range []string{"token", "use"} {
+	for _, name := range []string{"token"} {
 		if lookup(name) == nil {
 			t.Errorf("legacy name %s no longer dispatches", name)
 		}
@@ -146,5 +147,23 @@ func TestOldVerbsAreUnknownCommands(t *testing.T) {
 		if code != 2 || !strings.Contains(stderr, "unknown command") {
 			t.Errorf("%s: exit %d, stderr %q, want exit 2 unknown command", old, code, stderr)
 		}
+	}
+}
+
+// TestUseVerbRemoved: `use` was the old name of `switch`; it is no longer a verb or an alias.
+func TestUseVerbRemoved(t *testing.T) {
+	if lookup("use") != nil {
+		t.Error("use still dispatches")
+	}
+	if c := lookup("switch"); c == nil {
+		t.Error("switch does not dispatch")
+	}
+	for _, c := range commands() {
+		if slices.Contains(c.aliases, "use") {
+			t.Errorf("%s still aliases use", c.name)
+		}
+	}
+	if got := completionCandidates([]string{"us"}); slices.Contains(got, "use") {
+		t.Errorf("completion offers use: %v", got)
 	}
 }

@@ -21,43 +21,9 @@ func projectsMemory(slug string) string {
 	return filepath.Join(paths.ConfigDir(), "projects", slug, "memory")
 }
 
-// EnsureNativeLinks points every known project's native memory dir at its store dir; real content is never replaced.
-func EnsureNativeLinks() ([]LinkResult, error) {
-	if !CutOver() {
-		return nil, nil
-	}
-	entries, err := RepoDirs()
-	if err != nil {
-		return nil, err
-	}
-	var out []LinkResult
-	seen := map[string]bool{}
-	add := func(origin, target string) {
-		if origin == "" {
-			return
-		}
-		slug := ProjectSlug(filepath.Clean(origin))
-		if seen[slug] {
-			return
-		}
-		seen[slug] = true
-		out = append(out, ensureLink(projectsMemory(slug), target))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		add(home, HomeBankDir())
-	}
-	for _, e := range entries {
-		add(e.Origin.Origin, e.Dir)
-		for _, a := range e.Origin.Aliases {
-			add(a, e.Dir)
-		}
-	}
-	return out, nil
-}
-
 // LinkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
 func LinkNativeFor(cwd string) (LinkResult, bool) {
-	if !CutOver() || cwd == "" {
+	if cwd == "" {
 		return LinkResult{}, false
 	}
 	root := filepath.Clean(cwd)
@@ -94,7 +60,7 @@ func ensureLink(link, target string) LinkResult {
 		r.Action, r.Detail = "relinked", "was -> "+cur
 	case fi.IsDir():
 		if ents, err := os.ReadDir(link); err != nil || len(ents) > 0 {
-			r.Action, r.Detail = "blocked", "real native dir with content: run `claude-code memory migrate`"
+			r.Action, r.Detail = "blocked", "real native dir with content: merge it into the store dir by hand"
 			return r
 		}
 		if err := os.Remove(link); err != nil {

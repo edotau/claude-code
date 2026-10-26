@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -329,5 +330,20 @@ func TestGeminiModelResolverPinVsDefaultIgnoresUnrelatedEnvVar(t *testing.T) {
 	}
 	if got, src := GeminiModel(); got != "gemini-3.8-flash-high" || src != "pin" {
 		t.Errorf("GeminiModel(pinned) = (%q, %q), want (gemini-3.8-flash-high, pin)", got, src)
+	}
+}
+
+// TestSelectDoesNotTranslateLegacyDatabricksPin: a databricks-<env>[-oai] pin is taken as written, never mapped to <env>.
+func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
+	reg := selectTestRegistry(t)
+	row := *reg.Providers[reg.Default] // a migrated <env> preset row the old pin used to be rewritten to
+	row.Name, row.Preset = "qa", PresetDatabricks
+	reg.Providers["qa"] = &row
+	for _, pin := range []string{"databricks-qa", "databricks-dev-oai"} {
+		writeProviderPins(t, map[string]string{PinProvider: pin})
+		sel, err := Select(reg, "")
+		if err == nil || !strings.Contains(err.Error(), pin) {
+			t.Errorf("Select with pin %q = %+v, %v; want an unknown-provider error naming the pin", pin, sel.Provider, err)
+		}
 	}
 }

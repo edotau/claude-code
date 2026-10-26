@@ -322,7 +322,7 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string
 	return hit, size
 }
 
-// protected guards the vault, memory store, and migration state behind the sweep globs.
+// protected guards the vault and memory store behind the sweep globs.
 func protected(p string) bool {
 	p = filepath.Clean(p)
 	vaultPath := filepath.Clean(vault.Path())
@@ -334,7 +334,7 @@ func protected(p string) bool {
 			return true
 		}
 	}
-	for _, root := range []string{memory.StoreDir(), memory.MigrateStateDir(), memory.JournalDir(), memory.AccessStateDir()} {
+	for _, root := range []string{memory.StoreDir(), memory.JournalDir(), memory.AccessStateDir()} {
 		root = filepath.Clean(root)
 		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
 			return true

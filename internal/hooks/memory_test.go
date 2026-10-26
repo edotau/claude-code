@@ -142,6 +142,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv(memory.HarvestChildEnv, "")
+	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -172,8 +173,12 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	if got := start(s0, sub); got != "" || memory.HasBank(sub) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
+	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
+	if err := os.WriteFile(filepath.Join(memory.StoreDir(), memory.CatalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	got := start(s1, repo)
-	if !strings.Contains(got, "Memory bank scaffolded at") || !strings.Contains(got, "<!-- activeContext.md -->") {
+	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
 	_ = memory.WriteHarvestResult(s1, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now(), Log: "/x.log"})
@@ -254,72 +259,25 @@ func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
 	if err := memory.ClearMaintenance(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := memory.Init(repo); err != nil {
+	dir, err := memory.Init(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "activeContext.md"), []byte("# Active\n\n## Current Focus\n\n- readonly focus\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := memory.SetMaintenance("again"); err != nil {
 		t.Fatal(err)
 	}
 	got = memoryContext(repo, "s2", "", time.Now())
-	if !strings.HasPrefix(got, "memory maintenance in progress (again)") || !strings.Contains(got, "<!-- activeContext.md -->") {
+	if !strings.HasPrefix(got, "memory maintenance in progress (again)") || !strings.Contains(got, "readonly focus") {
 		t.Errorf("paused with a bank: notice must prefix the read-only surface: %q", got[:min(len(got), 300)])
 	}
 }
 
-// An unfinished migration journal pauses the same paths as the maintenance marker (plan §4: "no implicit
-// migration") — SessionStart never resumes/completes a migration itself, it only surfaces the notice.
-func TestMemoryGuardPausesOnIncompleteMigrationJournal(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
-	repo := filepath.Join(t.TempDir(), "repo")
-	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
-		t.Fatal(err)
-	}
-	journal := filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json")
-	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(journal, []byte(`{"phase":"copy","manifest":"/m/pending.json"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	got := memoryContext(repo, "s1", "", time.Now())
-	if memory.HasBank(repo) || !strings.Contains(got, "memory migration incomplete") || !strings.Contains(got, "memory migrate --manifest /m/pending.json") ||
-		strings.Contains(got, "scaffolded") {
-		t.Fatalf("paused SessionStart must emit the migration notice alone and scaffold nothing: %q", got)
-	}
-
-	assertPausedSuppressesHarvest(t, repo)
-
-	// A complete journal retires the legacy bank; until the cutover re-points Dir/HomeBankDir at the store, the
-	// hook stays paused so SessionStart never recreates it.
-	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/pending.json"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got = memoryContext(repo, "s2", "", time.Now())
-	if memory.HasBank(repo) || !strings.Contains(got, "memory migration complete") || strings.Contains(got, "scaffolded") {
-		t.Fatalf("a completed journal must keep the pause and scaffold nothing: %q", got[:min(len(got), 300)])
-	}
-	if _, err := os.Stat(memory.HomeBankDir()); !os.IsNotExist(err) {
-		t.Error("SessionStart recreated the retired legacy bank")
-	}
-	assertPausedSuppressesHarvest(t, repo)
-}
-
-// cutoverStore marks the migration complete and creates the unified store's git repo — the state
-// memoryContext checks via memory.StartupGuard()/CutOver() before repairing a native link.
+// cutoverStore creates the unified store's git repo, the state memoryContext needs before repairing a native link.
 func cutoverStore(t *testing.T) {
 	t.Helper()
-	journal := filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json")
-	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(journal, []byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +305,8 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if g := memory.StartupGuard(); g.Paused || !g.Migrated {
-		t.Fatalf("test setup: guard = %+v, want unpaused and migrated", g)
+	if g := memory.StartupGuard(); g.Paused {
+		t.Fatalf("test setup: guard = %+v, want unpaused", g)
 	}
 
 	memoryContext(repo, "s1", "", time.Now())

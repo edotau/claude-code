@@ -8,29 +8,9 @@ import (
 )
 
 // The Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
-func TestSessionSurfaceDropsParked(t *testing.T) {
-	t.Parallel()
-	ac := "# Active Context\n\n## Current Focus\n\n- shipping the router\n\n## Parked\n\n- home network gateway firmware\n- interview prep notes\n\n## Blockers\n\n- none\n"
-	got := dropParked(ac)
-	for _, want := range []string{"shipping the router", "## Blockers", "2 parked item(s) omitted"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("surface lacks %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "gateway firmware") || strings.Contains(got, "## Parked") {
-		t.Errorf("parked content leaked into the surface:\n%s", got)
-	}
-	if in := "# A\n\n## Current Focus\n\n- x\n"; dropParked(in) != in {
-		t.Error("a file without Parked must pass through unchanged")
-	}
-}
-
-// TestUnifiedSurfaceCatalogAndFocusOnly: the post-cutover surface carries the catalog plus only
-// activeContext's Current Focus/Blockers/Next Steps and progress's In Progress — nothing else — and
-// stays within TotalCapChars.
 func TestUnifiedSurfaceCatalogAndFocusOnly(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {
@@ -68,8 +48,8 @@ func TestUnifiedSurfaceCatalogAndFocusOnly(t *testing.T) {
 // TestUnifiedSurfaceCatalogTruncatesAtRowBoundary: a huge catalog is cut at a whole-line boundary, never
 // mid-row, with a pointer back to the full file.
 func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
 	if _, err := EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
@@ -125,33 +105,5 @@ func TestSectionBodyRespectsFence(t *testing.T) {
 	want := "```\n## not a heading\n```\n- a"
 	if got := sectionBody(text, "Current Focus"); got != want {
 		t.Errorf("sectionBody = %q, want %q (fence-aware heading scan must keep the fenced \"## \" line in-section)", got, want)
-	}
-}
-
-// dropParked works line-by-line with TrimSpace, so CRLF endings still match "## Parked" and the bullet count.
-func TestDropParkedCRLF(t *testing.T) {
-	t.Parallel()
-	ac := "# Active\r\n\r\n## Current Focus\r\n\r\n- a\r\n\r\n## Parked\r\n\r\n- p1\r\n\r\n## Blockers\r\n\r\n- none\r\n"
-	got := dropParked(ac)
-	for _, want := range []string{"## Current Focus", "## Blockers", "1 parked item(s) omitted"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("dropParked(CRLF) missing %q:\n%q", want, got)
-		}
-	}
-	if strings.Contains(got, "p1") || strings.Contains(got, "## Parked") {
-		t.Errorf("dropParked(CRLF) leaked parked content:\n%q", got)
-	}
-}
-
-// Parked as the last section (no following heading) still drops cleanly and reports its item count.
-func TestDropParkedLastSection(t *testing.T) {
-	t.Parallel()
-	ac := "# Active\n\n## Current Focus\n\n- a\n\n## Parked\n\n- p1\n- p2\n"
-	got := dropParked(ac)
-	if strings.Contains(got, "## Parked") || strings.Contains(got, "p1") || strings.Contains(got, "p2") {
-		t.Errorf("dropParked(last section) leaked parked content:\n%q", got)
-	}
-	if !strings.Contains(got, "2 parked item(s) omitted") {
-		t.Errorf("dropParked(last section) missing the omitted-count marker:\n%q", got)
 	}
 }

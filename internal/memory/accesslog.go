@@ -28,7 +28,7 @@ func LogAccess(dir string, now time.Time, entry, reason string) {
 
 // LogAccessBatch appends a recall batch with one open and write per bank.
 func LogAccessBatch(dir string, now time.Time, entries []string, reason string) {
-	if dir == "" || len(entries) == 0 || checkLegacyWritable() != nil { // never seed a stray legacy log dir
+	if dir == "" || len(entries) == 0 {
 		return
 	}
 	if credentialPattern.MatchString(reason) {
@@ -143,17 +143,15 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 	return stats, oldest
 }
 
-// AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir after the cutover
-// (state, never memory history), else access.log beside the legacy bank.
+// AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir (state, never
+// memory history), else access.log beside the bank.
 func AccessLogPath(dir string) string {
-	if CutOver() {
-		if rel, ok := InsideStore(dir); ok {
-			key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
-			if key == "" || key == "." {
-				key = "home"
-			}
-			return filepath.Join(AccessStateDir(), key+".log")
+	if rel, ok := InsideStore(dir); ok {
+		key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
+		if key == "" || key == "." {
+			key = "home"
 		}
+		return filepath.Join(AccessStateDir(), key+".log")
 	}
 	return filepath.Join(dir, AccessLogFile)
 }

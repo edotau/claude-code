@@ -20,10 +20,10 @@ type aliasEnv struct {
 // newAliasEnv builds an isolated config (itself a decoy git repo), a cut-over store and two repo stores.
 func newAliasEnv(t *testing.T) aliasEnv {
 	t.Helper()
-	cfg, _ := migrateConfig(t)
+	cfg, _ := isolatedConfig(t)
 	fixtureGit(t, cfg, "init", "-q", "-b", "main")
 	fixtureGit(t, cfg, "commit", "-q", "--allow-empty", "-m", "decoy")
-	cutover(t)
+	initStore(t)
 	parent := canonTemp(t, t.TempDir())
 	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
 	var err error

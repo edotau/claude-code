@@ -218,7 +218,7 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 
 func TestIdentityCreationHonoursMaintenance(t *testing.T) {
 	storeFixture(t)
-	root := repoRoot(t, "proj")
+	root := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
 	if err := SetMaintenance("migrate"); err != nil {
 		t.Fatal(err)
 	}
@@ -359,14 +359,6 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	}
 	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "two", Origin: "/src/one"}); err == nil {
 		t.Error("key must match the directory")
-	}
-	bad := filepath.Join(cfg, "memory", "bad")
-	write(t, filepath.Join(bad, legacyOriginFile), `{"version":99,"key":"bad","origin":"/b"}`)
-	if _, err := ReadOrigin(bad); err == nil {
-		t.Error("wrong version must fail")
-	}
-	if err := WriteOrigin(bad, Origin{Version: OriginVersion, Key: "bad", Origin: "/b"}); err == nil {
-		t.Error("an unreadable .origin is never overwritten")
 	}
 	link := filepath.Join(cfg, "memory", "link")
 	if err := os.Symlink(dir, link); err != nil {

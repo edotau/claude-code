@@ -220,8 +220,8 @@ func TestFormatBankMarkdownIdempotent(t *testing.T) {
 // bankFmtRepoStore builds a cut-over store with one registered repo, returning the repo's bank dir.
 func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
 	t.Helper()
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {

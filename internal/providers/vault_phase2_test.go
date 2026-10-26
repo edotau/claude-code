@@ -22,7 +22,7 @@ func TestRenderPinsSorted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte("# Managed by `claude-code use` / `claude-code models --pin`.\nA=1\nB=2\n")
+	want := []byte("# Managed by `claude-code switch` / `claude-code models --pin`.\nA=1\nB=2\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("RenderPins() = %q, want %q", got, want)
 	}

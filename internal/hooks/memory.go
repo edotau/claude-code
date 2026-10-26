@@ -47,7 +47,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	if !guard.Paused {
 		prefix = maybeAutoInit(cwd)
 	}
-	if guard.Migrated && !guard.Paused && !memory.IsHarvestChild() {
+	if !guard.Paused && !memory.IsHarvestChild() {
 		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
@@ -55,6 +55,8 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	if bank := memory.SessionSurface(cwd); bank != "" {
 		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now, guard) + doctorNotice()
 		out = note + "\n\n" + bank
+	} else if !guard.Paused && prefix != "" {
+		out = prefix // a fresh scaffold has no surface yet; still say where the bank went
 	}
 	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
 	if !guard.Paused && !memory.IsHarvestChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {

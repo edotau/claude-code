@@ -251,7 +251,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 	if o.Router || sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
 			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
-				return "", fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code use %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
+				return "", fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code switch %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
 			}
 		}
 		base, err := ensureRouter(ctx)

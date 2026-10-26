@@ -47,7 +47,7 @@ func checkExample(t *testing.T, name, got string) {
 // TestDocsTemplateExamplesCatalog renders docs/templates/examples/memory/index.md from two fixture repo
 // stores with fixed fake origins (no real paths) and a handful of global conventions.
 func TestDocsTemplateExamplesCatalog(t *testing.T) {
-	migrateConfig1(t)
+	isolatedConfig1(t)
 	now := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
 	mtime := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) // noon UTC: the "last" column's calendar date holds in any local TZ
 

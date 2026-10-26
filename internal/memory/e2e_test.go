@@ -117,12 +117,12 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		t.Skip("builds the claude-code binary")
 	}
 	bin := filepath.Join(t.TempDir(), "claude-code")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/claude-code") // before migrateConfig: keeps the real GOCACHE
+	build := exec.Command("go", "build", "-o", bin, "./cmd/claude-code") // before isolatedConfig: keeps the real GOCACHE
 	build.Dir = e2eModuleRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
-	cfg, home := migrateConfig(t) // parent env only locates the on-disk seed; subprocesses get their own env
+	cfg, home := isolatedConfig(t) // parent env only locates the on-disk seed; subprocesses get their own env
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git not on PATH")
@@ -134,7 +134,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
 	e := e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}
 
-	cutover(t)                                                        // completed journal + store git repo, written under cfg by the same helper the unit tests use
+	initStore(t)                                                      // completed journal + store git repo, written under cfg by the same helper the unit tests use
 	write(t, DreamStampPath(), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
 
 	const fact = "rotate the zebrafish kestrel gearbox calibration before every deploy"

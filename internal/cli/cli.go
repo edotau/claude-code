@@ -66,7 +66,7 @@ func commands() []command {
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
-		{name: "switch", group: groupSession, hidden: true, aliases: []string{"use"}, summary: "pin the session provider (vault pins)", run: cmdUse},
+		{name: "switch", group: groupSession, hidden: true, summary: "pin the session provider (vault pins)", run: cmdSwitch},
 		{name: "restart", group: groupSession, summary: "restart running daemons on the installed binary", run: cmdRestart},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},

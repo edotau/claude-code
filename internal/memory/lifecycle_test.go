@@ -63,25 +63,6 @@ func TestPromoteRefusesCredentialShapedOverflow(t *testing.T) {
 	}
 }
 
-func TestArchiveSettledOverflowOnlyWhenLocalIsGlobal(t *testing.T) {
-	cfg := tempConfig(t)
-	decisionLogOver(t, filepath.Join(cfg, "docs", "memory", "bank", "decisionLog.md"), 80)
-	root := repoRoot(t, "proj") // an ordinary project bank — promote owns its overflow, not archive
-	decisionLogOver(t, filepath.Join(Dir(root), "decisionLog.md"), 80)
-
-	if n, err := ArchiveSettledOverflow(root, time.Now()); err != nil || n != 0 {
-		t.Errorf("project bank: archive must no-op, got n=%d err=%v", n, err)
-	}
-	n, err := ArchiveSettledOverflow(cfg, time.Now())
-	if err != nil || n == 0 {
-		t.Fatalf("global bank: archived %d err %v", n, err)
-	}
-	arch, err := os.ReadFile(filepath.Join(HomeBankDir(), "archive", "decisionLog-"+time.Now().Format("2006-01")+".md"))
-	if err != nil || !strings.Contains(string(arch), "decision 01") {
-		t.Errorf("settled entries did not land in the archive: %v", err)
-	}
-}
-
 func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	tempConfig(t)
 	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)

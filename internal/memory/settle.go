@@ -39,16 +39,6 @@ func BuildBankIndex(dir string, now time.Time) string {
 		"> Route, then read: scan these lines, open only the entry you need in the named file.\n" + b.String()
 }
 
-// WriteBankIndex regenerates <dir>/index.md; returns its path ("" when the bank has nothing to index).
-func WriteBankIndex(dir string, now time.Time) (string, error) {
-	content := BuildBankIndex(dir, now)
-	if content == "" {
-		return "", nil
-	}
-	path := filepath.Join(dir, BankIndexFile)
-	return path, paths.AtomicWrite(path, []byte(content), 0o644)
-}
-
 // RotateSessionHistory moves entries past the cap to <dir>/archive/sessionHistory-<yyyy-mm>.md, archive first.
 func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	path := filepath.Join(dir, "sessionHistory.md")
@@ -87,43 +77,7 @@ type BankSettlement struct {
 // SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
 // local (and home) index — all under the bank lock. Deletes nothing.
 func SettleBank(root string, now time.Time) (BankSettlement, error) {
-	if CutOver() { // overflow archives in scope; no auto-promotion to home
-		return settleUnified(root, now)
-	}
-	dir := Dir(root)
-	var s BankSettlement
-	err := paths.WithFileLock(lockPath(dir), func() error {
-		cleanupLegacyLocks(dir) // one-time: old dotfile locks left beside the bank from before the move
-		n, rerr := RotateSessionHistory(dir, now)
-		s.Rotated = n
-		if rerr != nil {
-			return rerr
-		}
-		p, perr := PromoteLocalToGlobal(root, now)
-		s.Promoted = p
-		if perr != nil {
-			return perr
-		}
-		a, aerr := ArchiveSettledOverflow(root, now)
-		s.Archived += a
-		if aerr != nil {
-			return aerr
-		}
-		_, ierr := WriteBankIndex(dir, now)
-		s.Indexed = ierr == nil
-		return ierr
-	})
-	if !IsHomeBank(root) {
-		// Promotion appends to the home tier from every project, so its settled overflow must
-		// archive from everywhere too, or the home bank grows unbounded.
-		if a, _ := ArchiveSettledOverflow(HomeBankDir(), now); a > 0 {
-			s.Archived += a
-		}
-		if _, gerr := WriteBankIndex(HomeBankDir(), now); err == nil {
-			err = gerr
-		}
-	}
-	return s, err
+	return settleUnified(root, now) // overflow archives in scope; no auto-promotion to home
 }
 
 // NewestMtime is the newest mtime across dir's six typed files — the "did the harvest write?" probe.

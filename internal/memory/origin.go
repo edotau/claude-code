@@ -85,14 +85,13 @@ func originRows() (map[string]string, error) {
 	return rows, nil
 }
 
-// resolveOrigins maps store keys to records: vault row, else a legacy .origin, else index.md. Fallback hits become
-// rows (legacy files removed) unless the vault is unreadable, which leaves the call read-only. errs holds the misses.
+// resolveOrigins maps store keys to records: vault row, else index.md. Fallback hits become
+// rows unless the vault is unreadable, which leaves the call read-only. errs holds the misses.
 func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error) {
 	rows, verr := originRows()
 	found, errs = map[string]Origin{}, map[string]error{}
 	var catalog map[string]Origin
 	var imports []Origin
-	var legacy []string
 	for _, key := range keys {
 		dir := filepath.Join(StoreDir(), key)
 		if raw, ok := rows[key]; ok {
@@ -103,40 +102,30 @@ func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]err
 			}
 			continue
 		}
-		o, err := readLegacyOrigin(dir)
-		switch {
-		case err == nil:
-			legacy = append(legacy, filepath.Join(dir, legacyOriginFile))
-		case !errors.Is(err, fs.ErrNotExist):
-			errs[key] = err // an invalid legacy record is never imported, nor overwritten
+		if catalog == nil {
+			catalog = catalogOrigins()
+		}
+		o, ok := catalog[key]
+		if !ok {
+			errs[key] = fmt.Errorf("%s: no origin record: %w", dir, fs.ErrNotExist)
 			continue
-		default:
-			if catalog == nil {
-				catalog = catalogOrigins()
-			}
-			c, ok := catalog[key]
-			if !ok {
-				errs[key] = fmt.Errorf("%s: no origin record: %w", dir, fs.ErrNotExist)
-				continue
-			}
-			if err := validateOrigin(dir, c); err != nil {
-				errs[key] = err
-				continue
-			}
-			o = c
+		}
+		if err := validateOrigin(dir, o); err != nil {
+			errs[key] = err
+			continue
 		}
 		found[key] = o
 		imports = append(imports, o)
 	}
 	if verr == nil && len(imports) > 0 {
-		_ = importOrigins(imports, legacy) // best effort on a read path: a failed import is retried by the next read
+		_ = importOrigins(imports) // best effort on a read path: a failed import is retried by the next read
 	}
 	return found, errs
 }
 
-// importOrigins writes the rows still absent in one transaction, then removes the legacy files they replace.
-func importOrigins(origins []Origin, legacy []string) error {
-	err := vault.Update(func(t *vault.Tx) error {
+// importOrigins writes the rows still absent in one transaction, .
+func importOrigins(origins []Origin) error {
+	return vault.Update(func(t *vault.Tx) error {
 		for _, o := range origins {
 			if _, ok := t.Get(vault.MemoryOrigins, o.Key); ok {
 				continue // another process recorded it first
@@ -151,23 +140,6 @@ func importOrigins(origins []Origin, legacy []string) error {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	for _, f := range legacy {
-		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
-}
-
-func readLegacyOrigin(dir string) (Origin, error) {
-	data, err := os.ReadFile(filepath.Join(dir, legacyOriginFile))
-	if err != nil {
-		return Origin{}, err
-	}
-	return decodeOrigin(dir, data)
 }
 
 // decodeOrigin parses and validates one stored record for dir.

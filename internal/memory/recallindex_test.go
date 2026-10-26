@@ -22,10 +22,8 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	recallIndexWrite(t, filepath.Join(MigrateStateDir(), "20260101-000000.journal.json"),
-		`{"phase":"complete","manifest":"/m/done.json"}`, time.Now().Add(-time.Hour))
-	if !CutOver() {
-		t.Fatal("fixture did not cut over to the memory store")
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
 	}
 	stamp, ok := currentExeStamp()
 	if !ok {

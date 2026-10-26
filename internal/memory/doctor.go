@@ -78,21 +78,8 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
-	problems = append(problems, leftoverHomeBankDirProblem()...)
 	problems = append(problems, harvestProblems(now)...)
 	return append(problems, AccessNominations(now)...)
-}
-
-// leftoverHomeBankDirProblem flags a store/global/ dir the rename left behind because store/home/
-// already existed (both present): a human call, never guessed at.
-func leftoverHomeBankDirProblem() []string {
-	if !CutOver() {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(StoreDir(), "global")); err != nil {
-		return nil
-	}
-	return []string{"global/ left over; merge into home/ by hand"}
 }
 
 // harvestProblems surfaces receipts that need a human: a failed harvest, or one still "pending" past the

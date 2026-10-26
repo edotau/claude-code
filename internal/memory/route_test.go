@@ -8,8 +8,8 @@ import (
 // TestRoutedReposWholeWordMatchAndShortKeysIgnored: a routed name must appear in the query as a whole
 // word; a bare substring of it, or a key under 4 chars, never matches.
 func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "edotau.github.io")
 	if _, err := EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
@@ -35,22 +35,10 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	}
 }
 
-// TestRoutedReposNoopBeforeCutover: RoutedRepos is nil before the migration lands.
-func TestRoutedReposNoopBeforeCutover(t *testing.T) {
-	migrateConfig1(t)
-	repo := gitRepo(t, t.TempDir(), "proj")
-	if _, err := EnsureRepoDir(repo); err != nil {
-		t.Fatal(err)
-	}
-	if got := RoutedRepos("proj"); got != nil {
-		t.Errorf("before cutover RoutedRepos = %v, want nil", got)
-	}
-}
-
 // TestRoutedFilesExcludesOwnStore checks that naming both stores only loads the other's blocks.
 func TestRoutedFilesExcludesOwnStore(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
 	da, err := EnsureRepoDir(a)
@@ -88,8 +76,8 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 // TestRepoByNameMatchesKeyOrOriginBasename: RepoByName folds case and matches either the store key or
 // the origin's basename.
 func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proja")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {
@@ -109,8 +97,8 @@ func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
 // TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks only enter a search's results
 // when the query names that repo.
 func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
 	if _, err := EnsureRepoDir(a); err != nil {
@@ -139,8 +127,8 @@ func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 
 // TestSearchAllCoversEveryRepoStore: SearchAll ranks blocks across every repo store, not just one root.
 func TestSearchAllCoversEveryRepoStore(t *testing.T) {
-	migrateConfig1(t)
-	cutover(t)
+	isolatedConfig1(t)
+	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
 	da, err := EnsureRepoDir(a)

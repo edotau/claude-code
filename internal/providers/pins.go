@@ -188,7 +188,7 @@ func RenderPins() ([]byte, error) {
 	}
 	keys := slices.Sorted(maps.Keys(pins))
 	var b strings.Builder
-	b.WriteString("# Managed by `claude-code use` / `claude-code models --pin`.\n")
+	b.WriteString("# Managed by `claude-code switch` / `claude-code models --pin`.\n")
 	for _, k := range keys {
 		b.WriteString(k + "=" + pins[k] + "\n")
 	}

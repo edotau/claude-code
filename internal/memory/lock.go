@@ -37,22 +37,6 @@ func storeLockDir(dir string) string {
 	return d
 }
 
-// legacyLockNames are the pre-migration dotfile locks that used to live beside a bank's own files.
-var legacyLockNames = []string{".postharvest.lock", ".promote.lock", "bank.lock"}
-
-// cleanupLegacyLocks removes a leftover legacy lock file from dir only if it is empty AND this process
-// can itself flock it (proof nothing live still holds it the old way) — one-time hygiene post-migration.
-func cleanupLegacyLocks(dir string) {
-	for _, name := range legacyLockNames {
-		p := filepath.Join(dir, name)
-		fi, err := os.Lstat(p)
-		if err != nil || !fi.Mode().IsRegular() || fi.Size() != 0 {
-			continue
-		}
-		_, _ = paths.TryFileLock(p, 0, func() error { return os.Remove(p) })
-	}
-}
-
 // WithBankLock runs fn holding the bank lock; wait<=0 means BankLockWait. Lock order: worker claim → bank → git index.
 // Not reentrant: *Locked helpers never take it, so settlement cannot deadlock on itself.
 func WithBankLock(wait time.Duration, fn func() error) error {

@@ -2,28 +2,10 @@ package providers
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
 )
-
-// LegacyDatabricksName maps a pinned databricks-<env>[-oai] that no longer exists to the migrated <env>
-// preset row, noting it on w; every other name is returned unchanged. Kept for one release.
-func LegacyDatabricksName(reg *Registry, name string, w io.Writer) string {
-	rest, ok := strings.CutPrefix(name, "databricks-")
-	if !ok || reg == nil || reg.Providers[name] != nil {
-		return name
-	}
-	env := strings.TrimSuffix(rest, "-oai")
-	if p := reg.Providers[env]; !slices.Contains(DatabricksEnvs, env) || p == nil || p.Preset != PresetDatabricks {
-		return name
-	}
-	fmt.Fprintf(w, "claude-code: %s=%s: use %s\n", PinProvider, name, env)
-	return env
-}
 
 // Target is one resolved (provider, wire model id) pair.
 type Target struct {
@@ -64,7 +46,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	}
 	name := providerFlag
 	if name == "" {
-		name = LegacyDatabricksName(reg, pin(PinProvider), os.Stderr)
+		name = pin(PinProvider)
 	}
 	if name == "" {
 		name = reg.Default
