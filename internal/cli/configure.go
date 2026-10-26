@@ -31,6 +31,7 @@ var configurePage = helptext.Page{
 		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
+		{"databricks", "browser sign-in and token mint per Databricks row"},
 		{"doctor", "read-only health checks"},
 	},
 }
