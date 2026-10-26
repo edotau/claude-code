@@ -8,10 +8,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/tui"
 )
 
@@ -69,7 +71,12 @@ func vaultList(args []string) int {
 	} else {
 		var doc config.Doc
 		if err = json.Unmarshal(raw, &doc); err == nil {
-			helptext.Fprint(os.Stdout, renderVaultText(doc, stored, sel, vaultTableWidth()))
+			text := renderVaultText(doc, stored, sel, vaultTableWidth())
+			if !ansi.Enabled(os.Stdout) {
+				fmt.Print(text)
+				return 0
+			}
+			fmt.Print(paintMarks(helptext.Paint(text)))
 			return 0
 		}
 	}
@@ -160,4 +167,11 @@ func vaultListJSON(raw []byte, stored []secrets.Stored, sel []string) ([]byte, e
 	}
 	b.WriteString("\n}\n")
 	return b.Bytes(), nil
+}
+
+// paintMarks colors the ✓ (verified) and ✗ (unverified) env marks green and red.
+func paintMarks(s string) string {
+	mode, _, _ := statusline.Theme()
+	s = strings.ReplaceAll(s, "✓", ansi.Paint(mode, ansi.RGB{80, 200, 120}, "✓", true))
+	return strings.ReplaceAll(s, "✗", ansi.Paint(mode, ansi.RGB{230, 90, 90}, "✗", true))
 }
