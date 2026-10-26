@@ -37,6 +37,9 @@ func Spawn(rec *agent.Record, extra []string) error {
 	}
 	defer logFile.Close()
 
+	if proc.IsSelfUnderTest(exe) {
+		return errors.New("vendoragent: refusing to relaunch the test binary as a job")
+	}
 	argv := append([]string{"ask", "--job", rec.ID}, extra...)
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
