@@ -34,7 +34,7 @@ func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 // already cancelled when Promote is entered must return immediately without acquiring the merge lock
 // or touching repo.Main at all — not even a failed fast-forward attempt.
 func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
-	t.Parallel()
+	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
@@ -63,6 +63,7 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 // dirty, OIDs, ancestry, re-simulation) has already passed, a context cancelled in that window must
 // still stop before the ff-only update, never racing a late cancellation into a real mutation.
 func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
@@ -200,6 +201,7 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 // ordinary clean must refuse outright, before ever rechecking the worktree's state, while another
 // operation already holds the same worktree's lease — even one that would otherwise be eligible.
 func TestCleanRefusesWhileWorktreeLeaseHeld(t *testing.T) {
+	t.Parallel()
 	repo, main, _ := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, main, "h.txt", "main advances past the merged worktree\n", "main advances")
 

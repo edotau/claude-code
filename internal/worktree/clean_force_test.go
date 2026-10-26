@@ -9,13 +9,9 @@ import (
 
 func forceFixture(t *testing.T) (repo *Repo, main, dest string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	main = gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dest, err = Create(repo, "force", "")
+	repo = testRepo(t)
+	main = repo.Main
+	dest, err := Create(repo, "force", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +23,7 @@ func forceFixture(t *testing.T) (repo *Repo, main, dest string) {
 }
 
 func TestForceCleanRefusesDirtyUnmergedWithoutForce(t *testing.T) {
+	t.Parallel()
 	repo, _, dest := forceFixture(t)
 	res, err := Clean(repo, "force", false)
 	if err != nil || res.Removed {
@@ -38,6 +35,7 @@ func TestForceCleanRefusesDirtyUnmergedWithoutForce(t *testing.T) {
 }
 
 func TestForceCleanDiscardsDirtyUnmergedAndReports(t *testing.T) {
+	t.Parallel()
 	repo, main, dest := forceFixture(t)
 	var got []DiscardSummary
 	res, err := CleanForce(repo, "force", false, func(s DiscardSummary) { got = append(got, s) })
@@ -56,6 +54,7 @@ func TestForceCleanDiscardsDirtyUnmergedAndReports(t *testing.T) {
 }
 
 func TestForceCleanDryRunReportsButKeeps(t *testing.T) {
+	t.Parallel()
 	repo, main, dest := forceFixture(t)
 	called := 0
 	res, err := CleanForce(repo, "force", true, func(DiscardSummary) { called++ })
@@ -87,6 +86,7 @@ func TestForceCleanRefusesInUse(t *testing.T) {
 }
 
 func TestForceCleanNeverRemovesMainCheckout(t *testing.T) {
+	t.Parallel()
 	repo, main, _ := forceFixture(t)
 	if !isMainCheckout(repo, main) {
 		t.Fatal("isMainCheckout must recognise the main checkout")

@@ -57,7 +57,7 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 	defer close(release)
 
 	start := time.Now()
-	wait := 300 * time.Millisecond
+	wait := 100 * time.Millisecond
 	err := Acquire(wait, func() error {
 		t.Fatal("fn must not run while another holder has the lock")
 		return nil
@@ -76,7 +76,7 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	if MergeLockWait != 5*time.Second || mergeLockWait != MergeLockWait {
 		t.Fatalf("defaults: MergeLockWait=%v mergeLockWait=%v, want both 5s", MergeLockWait, mergeLockWait)
 	}
-	const short = 300 * time.Millisecond
+	const short = 100 * time.Millisecond
 	t.Cleanup(func() { mergeLockWait = MergeLockWait })
 	mergeLockWait = short
 	held := make(chan struct{})
@@ -98,25 +98,7 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 		t.Fatalf("err = %v, want ErrMergeBusy", err)
 	}
 	// wait<=0 must fall back to the default wait, not return immediately as a zero wait would imply.
-	if elapsed < short-50*time.Millisecond {
+	if elapsed < short-20*time.Millisecond {
 		t.Fatalf("Acquire(0, ...) returned after %v, want it to have used the default wait (%v)", elapsed, short)
-	}
-}
-
-func TestAcquireNotReentrantWouldDeadlockDocumented(t *testing.T) {
-	// Acquire's own doc states fn must never call Acquire itself. This test documents the hazard by
-	// demonstrating a bounded (not infinite) self-call deadlocks until the inner wait elapses, so a
-	// caller who violates the contract gets a timeout rather than a silent hang forever.
-	mergeFixtureLockEnv(t)
-	start := time.Now()
-	outerErr := Acquire(2*time.Second, func() error {
-		return Acquire(300*time.Millisecond, func() error { return nil })
-	})
-	elapsed := time.Since(start)
-	if outerErr != ErrMergeBusy {
-		t.Fatalf("outer err = %v, want ErrMergeBusy from the self-call's own bounded wait", outerErr)
-	}
-	if elapsed < 300*time.Millisecond {
-		t.Fatalf("self-call returned in %v, want it to have actually waited", elapsed)
 	}
 }

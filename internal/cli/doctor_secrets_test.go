@@ -135,6 +135,7 @@ func TestDoctorAuditUsageErrors(t *testing.T) {
 func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
 	if err := secrets.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
 		t.Fatal(err)
 	}
