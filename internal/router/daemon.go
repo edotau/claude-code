@@ -2,8 +2,6 @@ package router
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -92,37 +89,7 @@ func Health(ctx context.Context, port int) error {
 }
 
 // ClientSecret returns the per-install secret clients must present (created 0600 on first use).
-func ClientSecret() (string, error) {
-	file := secretFile()
-	if s, err := readSecret(file); err == nil {
-		return s, nil
-	}
-	var out string
-	err := paths.WithFileLock(file, func() error {
-		if s, err := readSecret(file); err == nil {
-			out = s
-			return nil
-		}
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return err
-		}
-		out = hex.EncodeToString(b)
-		return paths.AtomicWrite(file, []byte(out+"\n"), 0o600)
-	})
-	return out, err
-}
-
-func readSecret(file string) (string, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
-	}
-	if s := strings.TrimSpace(string(b)); s != "" {
-		return s, nil
-	}
-	return "", errors.New("empty router secret")
-}
+func ClientSecret() (string, error) { return paths.ClientSecret(secretFile()) }
 
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).
 func Ensure(ctx context.Context) (string, error) {

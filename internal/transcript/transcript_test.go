@@ -27,7 +27,7 @@ func TestLastUsageAndEdits(t *testing.T) {
 	if got := EditedFiles(tr, 10); strings.Join(got, ",") != "/r/a.go,/r/b.go" {
 		t.Errorf("edits %v", got)
 	}
-	if n := CountEdits(tr); n != 2 {
+	if n := countEdits(tr); n != 2 {
 		t.Errorf("CountEdits = %d, want 2 (Read excluded)", n)
 	}
 	if _, ok := LastUsage(filepath.Join(t.TempDir(), "missing")); ok {
@@ -109,7 +109,7 @@ func TestCountEditsFromIncremental(t *testing.T) {
 			next := offset + int64(len(chunk))
 			checkEditsFrom(t, path, offset, record.edits, next)
 			total += record.edits
-			if got := CountEdits(path); got != total {
+			if got := countEdits(path); got != total {
 				t.Fatalf("accumulated edits = %d, full scan = %d", total, got)
 			}
 			offset = next
@@ -128,7 +128,7 @@ func TestCountEditsFromPartialRecords(t *testing.T) {
 
 			appendTranscript(t, path, edit)
 			checkEditsFrom(t, path, offset, 0, offset)
-			if got := CountEdits(path); got != 1 {
+			if got := countEdits(path); got != 1 {
 				t.Fatalf("full scan with unterminated JSON = %d, want 1 complete-record edit", got)
 			}
 			appendTranscript(t, path, ending)
@@ -142,7 +142,7 @@ func TestCountEditsFromPartialRecords(t *testing.T) {
 			checkEditsFrom(t, path, offset, 0, offset)
 			appendTranscript(t, path, ending)
 			checkEditsFrom(t, path, offset, 1, offset+int64(len(edit+ending)))
-			if got := CountEdits(path); got != 3 {
+			if got := countEdits(path); got != 3 {
 				t.Fatalf("full scan after completion = %d, want 3", got)
 			}
 		})
@@ -159,7 +159,7 @@ func TestCountEditsFromTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkEditsFrom(t, path, offset, 1, int64(len(edit)))
-	if got := CountEdits(path); got != 1 {
+	if got := countEdits(path); got != 1 {
 		t.Fatalf("full scan after truncation = %d, want 1", got)
 	}
 	if err := os.Truncate(path, 0); err != nil {
@@ -188,7 +188,7 @@ func TestCountEditsFromLongLines(t *testing.T) {
 	short := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/after.go"}}]}}` + "\n"
 	appendTranscript(t, path, short)
 	checkEditsFrom(t, path, next, 1, next+int64(len(short)))
-	if got := CountEdits(path); got != 2 {
+	if got := countEdits(path); got != 2 {
 		t.Fatalf("full scan after long records = %d, want 2", got)
 	}
 }
@@ -332,8 +332,8 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 			if tc.name == "Edit content mentioning git commit" {
 				want = 1 // the Edit tool_use itself still counts as one ordinary edit
 			}
-			if got := CountEdits(path); got != want {
-				t.Errorf("CountEdits(%q) = %d, want %d", tc.line, got, want)
+			if got := countEdits(path); got != want {
+				t.Errorf("countEdits(%q) = %d, want %d", tc.line, got, want)
 			}
 		})
 	}
@@ -352,8 +352,8 @@ func TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := 1 + CommitEditWeight
-	if got := CountEdits(path); got != want {
-		t.Errorf("CountEdits(Edit+commit in one record) = %d, want %d", got, want)
+	if got := countEdits(path); got != want {
+		t.Errorf("countEdits(Edit+commit in one record) = %d, want %d", got, want)
 	}
 }
 
@@ -371,8 +371,8 @@ func TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit(t *testing.T
 	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := CountEdits(path); got != 1 {
-		t.Errorf("CountEdits(malformed $( alongside an Edit) = %d, want 1 (the Edit counts; the dangling $( never counts as a commit)", got)
+	if got := countEdits(path); got != 1 {
+		t.Errorf("countEdits(malformed $( alongside an Edit) = %d, want 1 (the Edit counts; the dangling $( never counts as a commit)", got)
 	}
 }
 
@@ -426,7 +426,7 @@ func TestCountEditsFromMalformedCommandNoPanic(t *testing.T) {
 	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := CountEdits(path); got != 0 {
+	if got := countEdits(path); got != 0 {
 		t.Errorf("CountEdits with a dangling $( = %d, want 0", got)
 	}
 }
@@ -452,7 +452,7 @@ func TestCountEditsFromRealTranscript(t *testing.T) {
 			t.Fatalf("real record %d: next = %d, want %d", i, next, want)
 		}
 		total += edits
-		if full := CountEdits(path); total != full {
+		if full := countEdits(path); total != full {
 			t.Fatalf("real record %d: accumulated edits = %d, full scan = %d", i, total, full)
 		}
 		checkEditsFrom(t, path, next, 0, next)
@@ -494,4 +494,10 @@ func TestEachLineExportedHandlesHugeAndUnterminated(t *testing.T) {
 			t.Errorf("line %d: len %d, want %d", i, len(got[i]), len(want[i]))
 		}
 	}
+}
+
+// countEdits is the whole-file count: CountEditsFrom from offset 0.
+func countEdits(path string) int {
+	n, _ := CountEditsFrom(path, 0)
+	return n
 }

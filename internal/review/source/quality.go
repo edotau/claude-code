@@ -1,10 +1,9 @@
 package source
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/review/pyjson"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode/utf16"
 )
 
 // thresholds mirrors quality_core.THRESHOLDS.
@@ -542,43 +540,10 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
 // pairs above U+FFFF) and no HTML-escaping of <, >, & (Go's default does the opposite on both counts).
 func writeJSON(w io.Writer, v any) error {
-	b, err := marshalPyJSON(v)
+	b, err := pyjson.MarshalIndent(v)
 	if err != nil {
 		return err
 	}
 	_, err = w.Write(b)
 	return err
-}
-
-func marshalPyJSON(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	compact := bytes.TrimRight(buf.Bytes(), "\n")
-	escaped := escapeNonASCII(compact)
-	var out bytes.Buffer
-	if err := json.Indent(&out, escaped, "", "  "); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-func escapeNonASCII(b []byte) []byte {
-	var out bytes.Buffer
-	for _, r := range string(b) {
-		if r < 0x80 {
-			out.WriteRune(r)
-			continue
-		}
-		if r > 0xFFFF {
-			r1, r2 := utf16.EncodeRune(r)
-			fmt.Fprintf(&out, "\\u%04x\\u%04x", r1, r2)
-		} else {
-			fmt.Fprintf(&out, "\\u%04x", r)
-		}
-	}
-	return out.Bytes()
 }
