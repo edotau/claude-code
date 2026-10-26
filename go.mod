@@ -7,6 +7,7 @@ require (
 	github.com/github/copilot-sdk/go v1.0.22
 	github.com/jeduden/mdsmith v0.57.0
 	go.etcd.io/bbolt v1.5.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -32,5 +33,4 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 )

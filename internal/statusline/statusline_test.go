@@ -405,3 +405,67 @@ func TestProviderLabelDatabricksPreset(t *testing.T) {
 		}
 	}
 }
+
+// Regression: malformed ANSI escape (0x1b without 'm' anywhere) should not cause early return in visibleWidth.
+func TestVisibleWidthMalformedANSI(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input string
+		want  int
+	}{
+		"incomplete escape followed by text":   {"hello\x1bXworld", 11}, // h,e,l,l,o,X,w,o,r,l,d (11 visible, \x1b skipped)
+		"incomplete escape at end":             {"hello\x1bX", 6},       // h,e,l,l,o,X (6 visible, \x1b skipped)
+		"bracket without 'm' followed by text": {"line\x1b[999xyz", 11}, // 4+7=11 visible, \x1b skipped
+		"malformed escape in middle":           {"pre\x1bQtext", 8},     // 3+1+4=8 visible, \x1b skipped
+	} {
+		if got := visibleWidth(tc.input); got != tc.want {
+			t.Errorf("TestVisibleWidthMalformedANSI %s: visibleWidth(%q) = %d, want %d", name, tc.input, got, tc.want)
+		}
+	}
+}
+
+// Regression: incomplete ANSI escape sequence should not cause early break in clipLine, truncating output.
+func TestClipLineMalformedANSI(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input  string
+		width  int
+		wantLe int // expected visible width <= this
+	}{
+		"short string with incomplete escape": {
+			input:  "short\x1bXtext",
+			width:  40,
+			wantLe: 10, // within width, untouched (s,h,o,r,t,X,t,e,x,t = 10)
+		},
+		"long line with incomplete escape": {
+			input:  "this is a long line\x1b[99xxxxx",
+			width:  25,
+			wantLe: 25, // should clip and be <= width
+		},
+		"incomplete escape with visible chars after": {
+			input:  "line\x1b[9xxxxx",
+			width:  15,
+			wantLe: 15, // clips normally, escape doesn't break
+		},
+	} {
+		got := clipLine(tc.input, tc.width)
+		w := visibleWidth(got)
+		if w > tc.wantLe {
+			t.Errorf("TestClipLineMalformedANSI %s: clipped width %d > %d (input %q)", name, w, tc.wantLe, tc.input)
+		}
+		// Clipped (non-identical) output must end with reset
+		if got != tc.input && !strings.HasSuffix(got, "\x1b[0m") {
+			t.Errorf("TestClipLineMalformedANSI %s: clipped line must end reset", name)
+		}
+	}
+}
+
+// Regression: visibleWidth with incomplete escape should count all visible runes, not stop at escape.
+func TestVisibleWidthIncompleteEscapeDoesNotEarlyReturn(t *testing.T) {
+	// Ensure visibleWidth counts chars after a malformed escape (no 'm' terminator anywhere)
+	input := "a" + strings.Repeat("b", 79) + "\x1b[99xxxxx"
+	got := visibleWidth(input)
+	// 80 chars (a + 79b) + 8 more ([99xxxxx) = 88 total visible (\x1b skipped)
+	want := 88
+	if got != want {
+		t.Errorf("visibleWidth(80 visible + malformed escape + '[99xxxxx') = %d, want %d", got, want)
+	}
+}

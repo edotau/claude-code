@@ -101,6 +101,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	res := Result{Provider: ownLoginProvider, Model: t.Model, SessionID: req.SessionID}
 	if !own {
+		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
+			return res, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("vendor target resolved to no provider")}
+		}
 		res.Provider = t.Provider.Name
 	}
 	prompt, err := v.attachPrompt(req.Prompt, req.Attach, req.Tools)
@@ -374,6 +377,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	}
 	res := Result{Provider: ownLoginProvider, Model: models.Strip1M(t.Model)}
 	if !own {
+		if t.Provider == nil {
+			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: errors.New("vendor target resolved to no provider")}
+		}
 		res.Provider = t.Provider.Name
 	}
 	var env []string
@@ -388,7 +394,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
 	var model string
-	if own || t.Provider.Auth.Login != "" {
+	if own || (t.Provider != nil && t.Provider.Auth.Login != "") {
 		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.

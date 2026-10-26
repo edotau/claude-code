@@ -40,7 +40,9 @@ func clipLine(s string, width int) string {
 		if s[i] == 0x1b {
 			j := strings.IndexByte(s[i:], 'm')
 			if j < 0 {
-				break
+				// malformed/incomplete escape: skip just the ESC byte, keep counting the rest
+				i++
+				continue
 			}
 			b.WriteString(s[i : i+j+1])
 			i += j + 1
@@ -64,7 +66,9 @@ func visibleWidth(s string) int {
 		if s[i] == 0x1b {
 			j := strings.IndexByte(s[i:], 'm')
 			if j < 0 {
-				return n
+				// malformed/incomplete escape: skip just the ESC byte, keep counting the rest
+				i++
+				continue
 			}
 			i += j + 1
 			continue
