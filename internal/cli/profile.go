@@ -119,6 +119,7 @@ func profileShow(args []string) int {
 func profileUse(args []string) int {
 	fs := helptext.NewFlagSet("profile use", helptext.Page{Usage: "claude-code profile use [flags] <name>"})
 	dry := fs.Bool("dry-run", false, "print the overlay diff, write nothing")
+	account := fs.String("account", "", "repoint the set's rows of this account's preset to it")
 	name, code, done := parseNamed(fs, args)
 	if done {
 		return code
@@ -127,8 +128,16 @@ func profileUse(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return applyProfile(*dry, fmt.Sprintf("profile active: %s (relaunch to apply)", name),
-		func(apply bool) ([]byte, []byte, error) { return profile.Use(apply, name) })
+	done1 := fmt.Sprintf("profile active: %s (relaunch to apply)", name)
+	if *account == "" {
+		return applyProfile(*dry, done1, func(apply bool) ([]byte, []byte, error) { return profile.Use(apply, name) })
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+	return applyProfile(*dry, fmt.Sprintf("profile active: %s on %s (relaunch to apply)", name, *account),
+		func(apply bool) ([]byte, []byte, error) { return profile.UseAccount(apply, reg, name, *account) })
 }
 
 func profileOff(args []string) int {

@@ -76,6 +76,33 @@ func Use(apply bool, name string) (oldDoc, newDoc []byte, err error) {
 	})
 }
 
+// UseAccount activates name with every row on an account of account's preset repointed to account.
+func UseAccount(apply bool, reg *providers.Registry, name, account string) (oldDoc, newDoc []byte, err error) {
+	to, err := reg.Get(account)
+	if err != nil {
+		return nil, nil, err
+	}
+	if to.Preset == "" {
+		return nil, nil, fmt.Errorf("account %q has no preset; --account only switches between rows of one preset", account)
+	}
+	moved := map[string]string{}
+	for n, p := range reg.Providers {
+		if n != account && p.Preset == to.Preset {
+			moved[n] = account
+		}
+	}
+	return mutateProfiles(apply, func(p *providers.Profiles) error {
+		set, ok := p.Sets[name]
+		if !ok {
+			return fmt.Errorf("no profile set %q (see `claude-code profile list`)", name)
+		}
+		sets := maps.Clone(p.Sets)
+		sets[name] = renameAccounts(set, moved)
+		p.Sets, p.Active = sets, name
+		return nil
+	})
+}
+
 // Off clears profiles.active and keeps every set.
 func Off(apply bool) (oldDoc, newDoc []byte, err error) {
 	return mutateProfiles(apply, func(p *providers.Profiles) error {
