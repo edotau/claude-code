@@ -14,8 +14,11 @@ func cmdVendorEnv(vendor string, args []string) int {
 		return fail("%s env: %v", vendor, err)
 	}
 	if len(args) == 0 {
-		row, _ := reg.AgentRow(vendor)
-		fmt.Printf("%s: %s\n", vendor, row.Account)
+		if row, _ := reg.AgentRow(vendor); row.Account != "" {
+			fmt.Printf("%s: %s\n", vendor, row.Account)
+			return 0
+		}
+		fmt.Printf("%s: no account in the active profile (launches use today's selection)\n", vendor)
 		return 0
 	}
 	if len(args) > 1 {

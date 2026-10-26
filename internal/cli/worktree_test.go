@@ -86,6 +86,9 @@ func TestCmdWorktreeListEmptyTextAndJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("json list empty: code=%d", code)
 	}
+	if strings.TrimSpace(out) == "null" {
+		t.Fatalf("empty list printed null, want []")
+	}
 	var entries []map[string]any
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Fatalf("invalid JSON: %v, out=%q", err, out)
