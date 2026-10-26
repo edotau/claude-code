@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -64,34 +65,52 @@ func login(args []string) int {
 	if t := p.Auth.AuthType; t != "" && t != providers.AuthU2M && !explicit {
 		return fail("login: %s has auth.authType %q; pass --auth-type u2m to switch it to a browser login", p.Name, t)
 	}
-	switched := false
-	if p.Auth.AuthType != providers.AuthU2M {
-		was := p.Auth.AuthType
-		if err := switchToU2M(p, *dryRun); err != nil {
-			return fail("login: %v", err)
-		}
-		if *dryRun {
+	if *dryRun {
+		if p.Auth.AuthType != providers.AuthU2M {
+			if err := switchAuthType(p, providers.AuthU2M, true); err != nil {
+				return fail("login: %v", err)
+			}
 			fmt.Printf("would log in to %s\n", loginHost(p))
 			return 0
 		}
-		switched = true
-		p.Auth.AuthType = providers.AuthU2M
-		defer func() { rollbackHint(p.Name, was, switched) }()
-	}
-	if *dryRun {
 		fmt.Printf("would open a browser login for %s and seal the refresh token as %s; nothing written\n",
 			p.Name, providers.AuthSecretName(p))
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	ttl, err := loginU2M(ctx, p, sdkport.LoginOptions{Open: openLoginURL, Out: os.Stderr})
-	if err != nil {
+	if err := LoginRow(ctx, p.Name, os.Stdout); err != nil {
 		return fail("login: %v", err)
 	}
-	switched = false
-	fmt.Printf("logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return 0
+}
+
+// LoginRow runs the u2m browser login for the named row, switching its authType to u2m first if needed.
+func LoginRow(ctx context.Context, name string, out io.Writer) error {
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	p, err := reg.Get(name)
+	if err != nil {
+		return err
+	}
+	switched, was := false, p.Auth.AuthType
+	if was != providers.AuthU2M {
+		if err := switchAuthType(p, providers.AuthU2M, false); err != nil {
+			return err
+		}
+		p.Auth.AuthType = providers.AuthU2M
+		switched = true
+		defer func() { rollbackHint(p.Name, was, switched) }()
+	}
+	ttl, err := loginU2M(ctx, p, sdkport.LoginOptions{Open: openLoginURL, Out: os.Stderr})
+	if err != nil {
+		return err
+	}
+	switched = false
+	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
+	return nil
 }
 
 // openLoginURL hands the authorize URL to the desktop opener; an error makes the login print the URL instead.
@@ -121,8 +140,18 @@ func rollbackHint(id, was string, switched bool) {
 		id, was, id)
 }
 
-// switchToU2M sets providers.<id>.auth.authType to u2m through the force path and prints the overlay diff.
-func switchToU2M(p *providers.Provider, dryRun bool) error {
+// switchAuthType sets providers.<id>.auth.authType (u2m, pat or oauth-m2m) through the force path and prints the diff.
+func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
+	switch authType {
+	case providers.AuthU2M, providers.AuthPAT:
+	case providers.AuthOAuthM2M:
+		if p.Auth.ClientID == "" {
+			return fmt.Errorf("%s: auth.authType %s needs auth.clientId; set it with `claude-code vault edit` first",
+				p.Name, authType)
+		}
+	default:
+		return fmt.Errorf("unsupported auth.authType %q (want u2m, pat or oauth-m2m)", authType)
+	}
 	var kept []string
 	oldDoc, newDoc, err := providers.UpdateOverlayDocForce(!dryRun, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 		provs := map[string]map[string]json.RawMessage{}
@@ -141,7 +170,7 @@ func switchToU2M(p *providers.Provider, dryRun bool) error {
 				return fmt.Errorf("%s: auth: %w", p.Name, err)
 			}
 		}
-		auth["authType"] = json.RawMessage(`"` + providers.AuthU2M + `"`)
+		auth["authType"] = json.RawMessage(`"` + authType + `"`)
 		kept = dropDerivedCommands(p, auth)
 		b, err := json.Marshal(auth)
 		if err != nil {

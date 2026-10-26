@@ -106,7 +106,7 @@ func Run(args []string) int {
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
-	"agents": agents, "config": config, "rescue": rescue, "login": login, "import": importCfg, "export": export,
+	"agents": agents, "config": config, "rescue": rescue, "login": login, "mint": mint, "import": importCfg, "export": export,
 }
 
 // rowName is the provider row for env: the migrated <env> preset row, else the legacy databricks-<env>.
@@ -362,6 +362,7 @@ var page = helptext.Page{
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per env x wire (serving/gateway)"},
 		{"login", "<id>: browser sign-in for a u2m row; seals the refresh token"},
+		{"mint", "<id>: fresh token, never printed; --copy to clipboard"},
 		{"import", "create rows from ~/.databrickscfg (dry-run unless --apply)"},
 		{"export", "write u2m/m2m/pat rows as .databrickscfg sections, no secrets"},
 		{"config", "<target>: render a claude or codex config (never a token)"},
