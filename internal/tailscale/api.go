@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -178,10 +179,43 @@ func (c *Client) Devices(ctx context.Context) ([]Device, error) {
 	return out.Devices, nil
 }
 
-// ApproveExitNode approves device id's default-route advertisement via POST /device/{id}/routes.
-func (c *Client) ApproveExitNode(ctx context.Context, deviceID string) error {
+// DeviceRoutes is GET /device/{id}/routes: what the device advertises and what the tailnet has enabled.
+type DeviceRoutes struct {
+	Advertised []string `json:"advertisedRoutes"`
+	Enabled    []string `json:"enabledRoutes"`
+}
+
+// Routes reads device id's advertised and enabled routes.
+func (c *Client) Routes(ctx context.Context, deviceID string) (DeviceRoutes, error) {
+	var out DeviceRoutes
+	err := c.request(ctx, http.MethodGet, "/device/"+deviceID+"/routes", nil, &out)
+	return out, err
+}
+
+// EnableRoutes adds routes to cur.Enabled and POSTs the union (the endpoint replaces the set); returns the new enabled set.
+func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur DeviceRoutes, routes []string) ([]string, error) {
+	want := cur.Enabled
+	for _, r := range routes {
+		if !slices.Contains(want, r) {
+			want = append(want, r)
+		}
+	}
 	body := struct {
 		Routes []string `json:"routes"`
-	}{Routes: []string{"0.0.0.0/0", "::/0"}}
-	return c.request(ctx, http.MethodPost, "/device/"+deviceID+"/routes", body, nil)
+	}{Routes: want}
+	var out DeviceRoutes
+	if err := c.request(ctx, http.MethodPost, "/device/"+deviceID+"/routes", body, &out); err != nil {
+		return nil, err
+	}
+	return out.Enabled, nil
+}
+
+// ApproveExitNode approves device id's default-route advertisement, keeping any enabled subnet routes.
+func (c *Client) ApproveExitNode(ctx context.Context, deviceID string) error {
+	cur, err := c.Routes(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+	_, err = c.EnableRoutes(ctx, deviceID, cur, defaultRoutes)
+	return err
 }

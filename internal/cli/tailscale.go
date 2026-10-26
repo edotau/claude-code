@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"slices"
 	"strconv"
@@ -22,7 +23,8 @@ import (
 var tailscalePage = helptext.Page{
 	Usage: "claude-code network tailscale [<mode flag>] [flags]",
 	About: "Bare prints this box's tailnet status; one mode flag (--machines, --connect,\n" +
-		"--key, --exit-node on|off|approve, --route <peer>|off) picks another action.",
+		"--key, --exit-node on|off|approve, --subnet <cidr>[,…]|approve|off,\n" +
+		"--route <peer>|off) picks another action.",
 	Hint: "--connect takes --auth-key k|-, --key-env NAME and --advertise-exit.\n" +
 		"--key takes --expiry, --tags, --save, --reusable, --ephemeral, --preauthorized\n" +
 		"and --description. Status and --machines take --format text|json.",
@@ -42,6 +44,7 @@ func cmdNetworkTailscale(args []string) int {
 	connect := fs.Bool("connect", false, "join the tailnet")
 	mint := fs.Bool("key", false, "mint a Tailscale auth key")
 	exitNode := fs.String("exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
+	subnet := fs.String("subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
 	route := fs.String("route", "", "<peer>|off: send this box's traffic through a peer exit node")
 	format := outfmt.Flag(fs)
 	var o tsOpts
@@ -61,17 +64,10 @@ func cmdNetworkTailscale(args []string) int {
 	if fs.NArg() > 0 {
 		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))
 	}
-	exitNodeSet, routeSet := false, false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "exit-node" {
-			exitNodeSet = true
-		}
-		if f.Name == "route" {
-			routeSet = true
-		}
-	})
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	var modes []string
-	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": exitNodeSet, "route": routeSet} {
+	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]} {
 		if on {
 			modes = append(modes, "--"+name)
 		}
@@ -110,6 +106,8 @@ func cmdNetworkTailscale(args []string) int {
 			return failUsage("network tailscale: --exit-node must be on, off or approve, got %q", *exitNode)
 		}
 		return tailscaleExitNode(ctx, *exitNode)
+	case "subnet":
+		return tailscaleSubnet(ctx, *subnet)
 	case "route":
 		if *route == "" || strings.HasPrefix(*route, "-") {
 			return failUsage("network tailscale: --route requires a peer name or 'off'")
@@ -167,6 +165,9 @@ func tailscaleStatus(ctx context.Context, format string) int {
 	fmt.Printf("node      %s\n", st.DNSName)
 	fmt.Printf("ips       %s\n", strings.Join(st.IPs, ", "))
 	fmt.Printf("exit-node option=%v approved=%v\n", st.ExitNodeOption, st.ExitNodeApproved)
+	if len(st.SubnetRoutes) > 0 {
+		fmt.Printf("subnets   approved=%s\n", strings.Join(st.SubnetRoutes, ", "))
+	}
 	for _, p := range st.Peers {
 		fmt.Printf("peer      %-40s %-8s online=%v exit-node=%v\n", p.DNSName, p.OS, p.Online, p.ExitNode)
 	}
@@ -307,33 +308,93 @@ func tailscaleExitNode(ctx context.Context, action string) int {
 }
 
 func tailscaleApproveExitNode(ctx context.Context) int {
-	client, err := tailscale.NewClient()
-	if err != nil {
-		fmt.Println("tailscale: no admin credential; approve at https://login.tailscale.com/admin/machines")
-		return 2
-	}
-	st, err := tailscale.Status(ctx)
-	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
-		return fail("network tailscale exit-node: %v", err)
-	}
-	devices, err := client.Devices(ctx)
-	if err != nil {
-		return fail("network tailscale exit-node: %v", err)
-	}
-	var id string
-	for _, d := range devices {
-		if slices.ContainsFunc(d.Addresses, func(a string) bool { return slices.Contains(st.IPs, a) }) {
-			id = d.ID
-			break
-		}
-	}
-	if id == "" {
-		return fail("network tailscale exit-node: could not match this node's address to a device (is it connected?)")
+	client, st, id, code := tailscaleSelfDevice(ctx, "exit-node")
+	if code != 0 {
+		return code
 	}
 	if err := client.ApproveExitNode(ctx, id); err != nil {
 		return fail("network tailscale exit-node: %v", err)
 	}
 	audit.Log(audit.TailscaleExitNode, st.DNSName, "approve")
 	fmt.Println("tailscale: exit-node routes approved")
+	return 0
+}
+
+// tailscaleSelfDevice resolves this box to its admin-API device; a non-zero code means the failure was already reported.
+func tailscaleSelfDevice(ctx context.Context, mode string) (*tailscale.Client, tailscale.Local, string, int) {
+	client, err := tailscale.NewClient()
+	if err != nil {
+		fmt.Println("tailscale: no admin credential; approve at https://login.tailscale.com/admin/machines")
+		return nil, tailscale.Local{}, "", 2
+	}
+	st, err := tailscale.Status(ctx)
+	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
+		return nil, tailscale.Local{}, "", fail("network tailscale %s: %v", mode, err)
+	}
+	devices, err := client.Devices(ctx)
+	if err != nil {
+		return nil, tailscale.Local{}, "", fail("network tailscale %s: %v", mode, err)
+	}
+	for _, d := range devices {
+		if slices.ContainsFunc(d.Addresses, func(a string) bool { return slices.Contains(st.IPs, a) }) {
+			return client, st, d.ID, 0
+		}
+	}
+	return nil, tailscale.Local{}, "", fail("network tailscale %s: could not match this node's address to a device (is it connected?)", mode)
+}
+
+// tailscaleSubnet dispatches --subnet: "off" withdraws, "approve" approves in the tailnet, anything else is a CIDR list.
+func tailscaleSubnet(ctx context.Context, value string) int {
+	switch value {
+	case "off":
+		return tailscaleSubnetWithdraw(ctx)
+	case "approve":
+		return tailscaleSubnetApprove(ctx)
+	}
+	return tailscaleSubnetAdvertise(ctx, value)
+}
+
+func tailscaleSubnetWithdraw(ctx context.Context) int {
+	if err := tailscale.AdvertiseRoutes(ctx, nil); err != nil {
+		return fail("network tailscale subnet: %v", err)
+	}
+	audit.Log(audit.TailscaleSubnet, "self", "withdraw")
+	fmt.Println("tailscale: subnet routes withdrawn")
+	return 0
+}
+
+// tailscaleSubnetApprove enables every subnet route this box advertises, keeping routes already enabled.
+func tailscaleSubnetApprove(ctx context.Context) int {
+	client, st, id, code := tailscaleSelfDevice(ctx, "subnet")
+	if code != 0 {
+		return code
+	}
+	cur, err := client.Routes(ctx, id)
+	if err != nil {
+		return fail("network tailscale subnet: %v", err)
+	}
+	want := tailscale.SubnetRoutes(cur.Advertised)
+	if len(want) == 0 {
+		return fail("network tailscale subnet: this box advertises no subnet routes; run --subnet <cidr> first")
+	}
+	enabled, err := client.EnableRoutes(ctx, id, cur, want)
+	if err != nil {
+		return fail("network tailscale subnet: %v", err)
+	}
+	audit.Log(audit.TailscaleSubnet, st.DNSName, "approve:"+strings.Join(want, ","))
+	fmt.Printf("tailscale: subnet routes approved: %s\n", strings.Join(tailscale.SubnetRoutes(enabled), ", "))
+	return 0
+}
+
+func tailscaleSubnetAdvertise(ctx context.Context, value string) int {
+	routes := strings.Split(value, ",")
+	if slices.ContainsFunc(routes, func(r string) bool { _, err := netip.ParsePrefix(r); return err != nil }) {
+		return failUsage("network tailscale: --subnet must be a CIDR list, approve or off, got %q", value)
+	}
+	if err := tailscale.AdvertiseRoutes(ctx, routes); err != nil {
+		return fail("network tailscale subnet: %v", err)
+	}
+	audit.Log(audit.TailscaleSubnet, "self", "advertise:"+value)
+	fmt.Printf("tailscale: advertising %s; approve with --subnet approve\n", strings.Join(routes, ", "))
 	return 0
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -48,7 +50,9 @@ type Local struct {
 	ExitNodeOption bool
 	// ExitNodeApproved is true once Self.AllowedIPs carries both default routes.
 	ExitNodeApproved bool
-	Peers            []Peer
+	// SubnetRoutes are the approved subnet routes in Self.AllowedIPs (own addresses and defaults excluded).
+	SubnetRoutes []string
+	Peers        []Peer
 }
 
 // rawStatus mirrors the subset of `tailscale status --json` this package reads.
@@ -69,18 +73,54 @@ type rawNode struct {
 	LastSeen       time.Time
 }
 
-// hasDefaultRoutes is true once allowed carries both 0.0.0.0/0 and ::/0.
+// defaultRoutes are the two routes an exit node advertises.
+var defaultRoutes = []string{"0.0.0.0/0", "::/0"}
+
+// hasDefaultRoutes is true once allowed carries both default routes.
 func hasDefaultRoutes(allowed []string) bool {
-	v4, v6 := false, false
-	for _, a := range allowed {
-		switch a {
-		case "0.0.0.0/0":
-			v4 = true
-		case "::/0":
-			v6 = true
+	return !slices.ContainsFunc(defaultRoutes, func(r string) bool { return !slices.Contains(allowed, r) })
+}
+
+// SubnetRoutes is routes minus the default routes: what a subnet router advertises or has enabled.
+func SubnetRoutes(routes []string) []string {
+	return slices.DeleteFunc(slices.Clone(routes), func(r string) bool { return slices.Contains(defaultRoutes, r) })
+}
+
+// subnetRoutesOf is Self.AllowedIPs minus the node's own /32 and /128 and the two default routes.
+func subnetRoutesOf(self rawNode) []string {
+	own := make([]string, 0, len(self.TailscaleIPs))
+	for _, ip := range self.TailscaleIPs {
+		suffix := "/32"
+		if strings.Contains(ip, ":") {
+			suffix = "/128"
+		}
+		own = append(own, ip+suffix)
+	}
+	var out []string
+	for _, r := range SubnetRoutes(self.AllowedIPs) {
+		if !slices.Contains(own, r) {
+			out = append(out, r)
 		}
 	}
-	return v4 && v6
+	return out
+}
+
+// AdvertiseRoutes sets this box's advertised subnet routes (`set --advertise-routes=<csv>`); empty withdraws them.
+func AdvertiseRoutes(ctx context.Context, routes []string) error {
+	return set(ctx, "--advertise-routes="+strings.Join(routes, ","))
+}
+
+// set runs `tailscale set <flags>` with the CLI's output passed through.
+func set(ctx context.Context, flags ...string) error {
+	bin, err := tailscaleBin()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
+	defer cancel()
+	cmd := execCommandContext(ctx, bin, append([]string{"set"}, flags...)...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // tailscaleBin resolves the installed CLI; ErrNoCLI when it is not on PATH.
@@ -115,6 +155,7 @@ func Status(ctx context.Context) (Local, error) {
 		IPs:              raw.Self.TailscaleIPs,
 		ExitNodeOption:   raw.Self.ExitNodeOption,
 		ExitNodeApproved: hasDefaultRoutes(raw.Self.AllowedIPs),
+		SubnetRoutes:     subnetRoutesOf(raw.Self),
 	}
 	for _, p := range raw.Peer {
 		local.Peers = append(local.Peers, Peer{
@@ -180,37 +221,20 @@ func writeAuthKeyFile(authKey string) (string, error) {
 
 // AdvertiseExitNode toggles exit-node advertisement via `tailscale set --advertise-exit-node[=false]`.
 func AdvertiseExitNode(ctx context.Context, on bool) error {
-	bin, err := tailscaleBin()
-	if err != nil {
-		return err
-	}
 	flag := "--advertise-exit-node"
 	if !on {
 		flag += "=false"
 	}
-	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
-	defer cancel()
-	cmd := execCommandContext(ctx, bin, "set", flag)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	return cmd.Run()
+	return set(ctx, flag)
 }
 
 // UseExitNode routes this box's traffic through a peer exit node via `tailscale set --exit-node=<peer>`.
 func UseExitNode(ctx context.Context, peer string) error {
-	bin, err := tailscaleBin()
-	if err != nil {
-		return err
-	}
-	flag := "--exit-node=" + peer
-	args := []string{"set", flag}
+	flags := []string{"--exit-node=" + peer}
 	if peer != "" {
-		args = append(args, "--exit-node-allow-lan-access=true")
+		flags = append(flags, "--exit-node-allow-lan-access=true")
 	}
-	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
-	defer cancel()
-	cmd := execCommandContext(ctx, bin, args...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	return cmd.Run()
+	return set(ctx, flags...)
 }
 
 // Machine is one tailnet node, merged from the admin API and/or the local CLI status.

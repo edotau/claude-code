@@ -275,7 +275,7 @@ claude-code gateway router [--model M] [--task "<text>"]   # agent + model pick
 ## Tailscale
 
 ```bash
-claude-code network tailscale [--machines|--connect|--key [--save]|--exit-node on|off|approve]
+claude-code network tailscale [--machines|--connect|--key [--save]|--exit-node on|off|approve|--subnet <cidr>|approve|off]
 ```
 
 `status`/`machines`/`connect` use the installed CLI. `key` and `exit-node --approve` need
@@ -451,7 +451,7 @@ Rows `CLAUDE.md` points here for.
 | Theme | `claude-code theme [--preview] [<palette>]` · `theme apply` |
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node on\|off\|approve]` |
+| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node on\|off\|approve\|--subnet <cidr>\|approve\|off]` |
 | VS Code on your phone | `claude-code network vscode [--stop\|--status] [--funnel]` |
 
 ## Development
