@@ -20,9 +20,10 @@ const workflowLintName = "inline workflow"
 // blocks when a leaf's options argument can't be rewritten safely or a pin's literal value is bad. A
 // saved script given by scriptPath can't be rewritten, so it only blocks (on a model/agentType/value
 // problem, never a missing effort — that's a `workflow lint` concern, not this hook's). A by-name call
-// is redirected to scriptPath pointing at the on-disk file (the by-name registry is read once at
-// session start, so an edit made mid-session would otherwise run the stale copy) and linted the same
-// way; a name with no matching file (a built-in, or a bogus name) proceeds untouched.
+// is redirected to the on-disk file's text as an inline script (the by-name registry is read once at
+// session start, so an edit made mid-session would otherwise run the stale copy; a scriptPath outside
+// the session's cwd is refused by the tool) and linted the same way; a name with no matching file (a
+// built-in, or a bogus name) proceeds untouched.
 func WorkflowLint(r io.Reader, stdout, errw io.Writer) int {
 	in := ParseInput(r)
 	if in.ToolName != "Workflow" {
@@ -82,7 +83,7 @@ func workflowLintSaved(path string, errw io.Writer) int {
 	return blockSavedLint(path, hits, errw)
 }
 
-// workflowLintByName redirects a saved-by-name call to its on-disk script via updatedInput.scriptPath,
+// workflowLintByName redirects a saved-by-name call to its on-disk script's text via updatedInput.script,
 // then lints that file exactly as a direct scriptPath call would. A path-shaped name, an empty config
 // dir, or no matching file on disk all fail open to ExitProceed, untouched.
 func workflowLintByName(in *Input, name string, stdout, errw io.Writer) int {
@@ -100,13 +101,17 @@ func workflowLintByName(in *Input, name string, stdout, errw io.Writer) int {
 	if hits := lintSavedFile(path); len(hits) > 0 {
 		return blockSavedLint(path, hits, errw)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ExitProceed
+	}
 	updated := in.cloneToolInput()
 	if updated == nil {
 		return ExitProceed
 	}
 	delete(updated, "name")
-	updated["scriptPath"] = path
-	note := fmt.Sprintf("workflow-lint: name → scriptPath %s (the by-name registry is read at session"+
+	updated["script"] = string(data) // inline, not scriptPath: the tool refuses a path outside the session's cwd
+	note := fmt.Sprintf("workflow-lint: name → inline script from %s (the by-name registry is read at session"+
 		" start; the file on disk is current)", path)
 	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
 	enc, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})
