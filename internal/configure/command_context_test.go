@@ -149,9 +149,14 @@ func assertConfigureCancellation(t *testing.T, ready string, run func(context.Co
 		case <-ticker.C:
 		}
 	}
+	canceledAt := time.Now()
 	cancel()
 	select {
 	case err := <-done:
+		// under WaitDelay (3s): SIGINT ended the child, not the kill fallback
+		if d := time.Since(canceledAt); d > 2500*time.Millisecond {
+			t.Errorf("cancellation took %v, want prompt SIGINT exit (< 2.5s, far under the 30s helper sleep)", d)
+		}
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("canceled command error = %v, want wrapped context.Canceled", err)
 		}

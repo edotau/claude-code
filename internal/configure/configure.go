@@ -663,6 +663,14 @@ func runMint(argv []string) (string, error) {
 	return runMintContext(ctx, argv)
 }
 
+// attachedCommand is argv under ctx; cancel sends SIGINT first, and Go kills it after WaitDelay.
+func attachedCommand(ctx context.Context, argv []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = 3 * time.Second
+	return cmd
+}
+
 func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
@@ -670,8 +678,9 @@ func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
 		return "", nil
 	}
+	defer tui.Preserve()()
 	var buf bytes.Buffer
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := attachedCommand(ctx, argv)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
 	err := cmd.Run()
@@ -762,7 +771,8 @@ func runLoginContext(ctx context.Context, argv []string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	defer tui.Preserve()()
+	cmd := attachedCommand(ctx, argv)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err = cmd.Run()
 	if cerr := ctxErr(ctx, "login"); cerr != nil {
