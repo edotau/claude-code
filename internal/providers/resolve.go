@@ -29,6 +29,7 @@ func LegacyDatabricksName(reg *Registry, name string, w io.Writer) string {
 type Target struct {
 	Provider *Provider
 	Model    string // plain wire id, never [1m]-marked
+	OneM     bool   // the user typed [1m]; ClientModel keeps it as typed
 }
 
 // Spec is the "provider:model" form Claude Code sees for a cross-provider slot and the router parses back.
@@ -43,13 +44,15 @@ type Selection struct {
 // ParseTarget splits "provider:model" when the prefix names a registered provider; otherwise the
 // whole string is a model on def (ollama tags like "qwen3:30b" keep their colon).
 func ParseTarget(reg *Registry, spec string, def *Provider) Target {
-	spec = models.Strip1M(strings.TrimSpace(spec))
+	spec = strings.TrimSpace(spec)
 	if name, model, ok := strings.Cut(spec, ":"); ok {
 		if p, found := reg.Providers[name]; found && model != "" {
-			return Target{Provider: p, Model: model}
+			base, oneM := models.Canonical(model)
+			return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
 		}
 	}
-	return Target{Provider: def, Model: spec}
+	base, oneM := models.Canonical(spec)
+	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
 }
 
 // Select resolves the session: provider = flag → HARNESS_PROVIDER pin → registry default; each slot =
@@ -99,7 +102,13 @@ func (s Selection) ClientModel(slot string) string {
 		return ""
 	}
 	if t.Provider != s.Provider {
+		if t.OneM {
+			return t.Spec() + "[1m]"
+		}
 		return t.Spec()
+	}
+	if t.OneM {
+		return t.Model + "[1m]"
 	}
 	if t.Provider.OneM {
 		return models.MaybeAdd1M(t.Model)

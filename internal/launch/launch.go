@@ -2,6 +2,7 @@
 package launch
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,6 +38,8 @@ type Options struct {
 	Direct   bool     // vendors only: skip the router, hand the CLI the provider route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
+	// ModelSlot is the slot --model fills ("" = opus); only the anthropic verb sets it.
+	ModelSlot string
 }
 
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
@@ -121,6 +124,9 @@ var wipeKeys = []string{
 	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
 	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "ANTHROPIC_CUSTOM_HEADERS",
+	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
+	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
+	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
 }
 
 // oauthKey survives the wipe only for passthrough (subscription) providers.
@@ -155,7 +161,7 @@ func sessionSelection(o Options, session bool) (*providers.Registry, providers.S
 		}
 	}
 	if o.Model != "" && sel.Provider != nil {
-		sel.Slots[models.Opus] = providers.ParseTarget(reg, o.Model, sel.Provider)
+		sel.Slots[cmp.Or(o.ModelSlot, models.Opus)] = providers.ParseTarget(reg, o.Model, sel.Provider)
 		err = nil
 	}
 	return reg, sel, applied, err
