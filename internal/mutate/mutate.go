@@ -89,6 +89,7 @@ func Check(o Options) (Result, error) {
 	if err != nil {
 		return Result{Verdict: Invalid}, err
 	}
+	given := abs // go keys the overlay by the path it sees; on macOS /var vs /private/var both occur
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = real
 	}
@@ -114,7 +115,7 @@ func Check(o Options) (Result, error) {
 	if err := os.WriteFile(copyPath, []byte(mutated), 0o600); err != nil {
 		return Result{Verdict: Invalid}, err
 	}
-	ov, _ := json.Marshal(map[string]map[string]string{"Replace": {abs: copyPath}})
+	ov, _ := json.Marshal(map[string]map[string]string{"Replace": {abs: copyPath, given: copyPath}})
 	ovPath := filepath.Join(tmp, "overlay.json")
 	if err := os.WriteFile(ovPath, ov, 0o600); err != nil {
 		return Result{Verdict: Invalid}, err
