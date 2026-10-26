@@ -159,7 +159,11 @@ func TestVaultGetMultipleNames(t *testing.T) {
 				if export {
 					prefix = "export "
 				}
-				wantSb151.WriteString(prefix + name + "=" + secrets.Redact(values[i]) + "\n")
+				wantSb151.WriteString(prefix)
+				wantSb151.WriteString(name)
+				wantSb151.WriteByte('=')
+				wantSb151.WriteString(secrets.Redact(values[i]))
+				wantSb151.WriteByte('\n')
 			}
 			want += wantSb151.String()
 			if stdout != want {

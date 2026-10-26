@@ -14,7 +14,8 @@ import (
 // The Pointer->uintptr conversion stays inline in the Syscall call so the compiler keeps arg alive
 // until the call completes; a stack-moved buffer would otherwise invalidate the address first.
 func ptyIoctl(fd uintptr, req uint, arg unsafe.Pointer) error {
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(req), uintptr(arg))
+	//lint:ignore SA1019 darwin has no libSystem wrapper for a buffer-filling ioctl
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(req), uintptr(arg)) //nolint:staticcheck // see lint:ignore above
 	if errno != 0 {
 		return errno
 	}
