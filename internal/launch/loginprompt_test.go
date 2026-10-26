@@ -195,3 +195,29 @@ func TestOfferLoginHungTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 		t.Fatalf("warnings = %q, want exactly one timeout warning", plan.Warnings)
 	}
 }
+
+// The check after a successful login is bounded too: a hung re-check warns instead of stalling the launch.
+func TestOfferLoginHungPostLoginCheckWarns(t *testing.T) {
+	h := loginSetup(t, true, "y\n", nil)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	oldCheck, oldTimeout := credentialCheck, credCheckTimeout
+	t.Cleanup(func() { close(release); credentialCheck, credCheckTimeout = oldCheck, oldTimeout })
+	credentialCheck = func(context.Context, *providers.Provider) (string, error) {
+		if calls.Add(1) == 1 {
+			return "", providers.ErrNeedsLogin
+		}
+		<-release
+		return "tok", nil
+	}
+	credCheckTimeout = 50 * time.Millisecond
+	var plan Plan
+	start := time.Now()
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{u2mRow("post", h.server)}, &plan)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("offerLogin took %s, want the post-login check bounded by credCheckTimeout", d)
+	}
+	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "timed out") {
+		t.Fatalf("logins=%d warnings=%q, want one login and one timeout warning", h.calls.Load(), plan.Warnings)
+	}
+}
