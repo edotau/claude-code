@@ -128,7 +128,8 @@ func flattenVaultValue(prefix string, v any, nullLabel string, out *[]vaultKV) {
 // vaultSection renders one heading plus its aligned, width-truncated rows (or "(none)" when empty).
 func vaultSection(heading string, rows [][2]string, width int) string {
 	var b strings.Builder
-	b.WriteString(heading + "\n")
+	b.WriteString(heading)
+	b.WriteByte('\n')
 	if len(rows) == 0 {
 		b.WriteString("  (none)\n")
 		return b.String()
@@ -169,7 +170,8 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	}
 	var reg providers.Registry
 	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width) + "\n")
+		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteByte('\n')
 		return b.String()
 	}
 	var blocks []string
@@ -271,12 +273,14 @@ func vaultRoutingText(raw json.RawMessage, width int) string {
 	}
 	var reg providers.Registry
 	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width) + "\n")
+		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteByte('\n')
 		return b.String()
 	}
 	rb, err := json.Marshal(reg.Routing)
 	if err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width) + "\n")
+		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteByte('\n')
 		return b.String()
 	}
 	rows := vaultFlattenSection(rb)
@@ -314,13 +318,15 @@ func vaultTable(head []string, rows [][]string, width int) string {
 		line := " "
 		var lineSb242 strings.Builder
 		for i, c := range r {
-			lineSb242.WriteString(" " + c)
+			lineSb242.WriteByte(' ')
+			lineSb242.WriteString(c)
 			if i < len(r)-1 {
 				lineSb242.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+1))
 			}
 		}
 		line += lineSb242.String()
-		b.WriteString(vaultTruncate(strings.TrimRight(line, " "), width) + "\n")
+		b.WriteString(vaultTruncate(strings.TrimRight(line, " "), width))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
