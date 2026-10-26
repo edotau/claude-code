@@ -94,6 +94,7 @@ func drain(r *os.File) <-chan string {
 
 // TestPlanTable pins the default model, env selection, passthrough order and --env forms.
 func TestPlanTable(t *testing.T) {
+	seedOverlay(t, "") // the real vault's migrated dev/qa/prod rows would rename the provider
 	tests := []struct {
 		name     string
 		args     []string
@@ -274,6 +275,7 @@ func TestRunEnvErrorExit2(t *testing.T) {
 
 // TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch and the experimental-beta opt-out.
 func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
+	seedOverlay(t, "") // a real preset row carries the beta key, which suppresses the injected opt-out
 	f := &fakeChild{}
 	useFake(t, f)
 	if code := Run([]string{"sonnet", "--env", "prod", "-p", "hi"}); code != 0 {
