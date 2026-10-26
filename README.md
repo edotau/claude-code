@@ -152,6 +152,18 @@ claude-code configure provider --list  # credential sources; never prints values
 claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 ```
 
+Databricks: only `u2m` and `pat` credentials are stored, sealed in the vault, plus the u2m access token cached as
+`PROVIDER_<ID>_ACCESS_TOKEN`. `oauth-m2m` tokens are minted per use and never stored; the SP client secret stays sealed.
+
+`claude-code databricks mint <id> [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and expiry,
+never the token. `--copy` puts it on the clipboard and clears it after 30s; on WSL the copy stays out of Win+V history.
+
+`claude-code configure` → databricks: Login / Paste PAT / Mint now / Copy token / Apply to agents.
+`configure databricks --check` gives the same information without the TUI.
+
+Clipboard gaps: macOS clipboard managers and Universal Clipboard can keep a copy; a killed clear process leaves the
+token; headless Linux has no clipboard.
+
 ### The vault key
 
 32 random bytes, resolved in order: `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a JSON
