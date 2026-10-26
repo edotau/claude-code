@@ -108,3 +108,11 @@ func TestVaultLoginAuthTypeFailurePrintsRollback(t *testing.T) {
 		t.Errorf("exit %d stderr %q", code, stderr)
 	}
 }
+
+// -t is --auth-type's shorthand, and it counts as an explicit switch like the long form.
+func TestLoginShorthandT(t *testing.T) {
+	_, _, stderr := captureOutput(t, func() int { return login([]string{"-p", "x", "-t", "m2m"}) })
+	if !strings.Contains(stderr, `--auth-type "m2m"`) {
+		t.Fatalf("stderr %q, want -t m2m refused like --auth-type m2m", stderr)
+	}
+}
