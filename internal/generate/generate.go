@@ -240,7 +240,7 @@ func codexPermissionKeys(existing string, out io.Writer) string {
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
 // pairs vendors.Configure("codex", ...) returns, renaming the provider id to the fixed "claude-code".
 func codexBlockFromArgv(argv []string) (string, error) {
-	var model, tableVal string
+	var model, tableVal, catalog string
 	for i := 0; i+1 < len(argv); i++ {
 		if argv[i] != "-c" {
 			continue
@@ -252,6 +252,8 @@ func codexBlockFromArgv(argv []string) (string, error) {
 		switch {
 		case k == "model":
 			model = v
+		case k == "model_catalog_json":
+			catalog = v
 		case strings.HasPrefix(k, "model_providers."):
 			tableVal = v
 		}
@@ -261,7 +263,11 @@ func codexBlockFromArgv(argv []string) (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "model_provider = %q\n", "claude-code")
-	fmt.Fprintf(&b, "model = %s\n\n", model)
+	fmt.Fprintf(&b, "model = %s\n", model)
+	if catalog != "" {
+		fmt.Fprintf(&b, "model_catalog_json = %s\n", catalog)
+	}
+	b.WriteString("\n")
 	b.WriteString("[model_providers.claude-code]\n")
 	for _, f := range splitTopLevelInline(tableVal) {
 		b.WriteString(f + "\n")
