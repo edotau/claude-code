@@ -67,11 +67,16 @@ func configureProviderList(name, format string) int {
 	return 0
 }
 
-// printProviderTable prints the providers grouped by family, columns sized to the widest name and kind.
+// printProviderTable prints the providers grouped by family, columns sized to the widest name and kind; m2m rows hide.
 func printProviderTable(reg *providers.Registry) {
-	nameW, kindW := 0, 0
+	nameW, kindW, hidden := 0, 0, 0
 	groups := map[string][]string{}
 	for _, n := range reg.Names() {
+		// An m2m row is a service principal that mints a u2m login from a cold start, not a session provider.
+		if reg.Providers[n].Auth.AuthType == providers.AuthOAuthM2M {
+			hidden++
+			continue
+		}
 		nameW = max(nameW, len(n))
 		kindW = max(kindW, len(reg.Providers[n].Kind))
 		g := providerGroup(reg.Providers[n])
@@ -101,8 +106,13 @@ func printProviderTable(reg *providers.Registry) {
 			fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
 		}
 	}
-	if len(reg.Fallback) > 0 {
+	if hidden > 0 || len(reg.Fallback) > 0 {
 		fmt.Println()
+	}
+	if hidden > 0 {
+		fmt.Printf("hidden: %d m2m service-principal row(s) that mint u2m logins (--list <name> or --format json shows them)\n", hidden)
+	}
+	if len(reg.Fallback) > 0 {
 		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
 	}
 }

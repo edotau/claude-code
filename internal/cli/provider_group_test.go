@@ -42,3 +42,20 @@ func TestEnvSortKeyKeepsDevQaProdTogether(t *testing.T) {
 		t.Fatalf("sorted = %v, want %v", names, want)
 	}
 }
+
+// m2m service-principal rows are cold-start helpers for minting u2m, so the table hides them and counts them.
+func TestProviderTableHidesM2MRows(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reg := &providers.Registry{Default: "dev", Providers: map[string]*providers.Provider{
+		"dev": {Name: "dev", Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks},
+		"sp-user-dev": {Name: "sp-user-dev", Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks,
+			Auth: providers.Auth{AuthType: providers.AuthOAuthM2M}},
+	}}
+	_, out, _ := captureOutput(t, func() int { printProviderTable(reg); return 0 })
+	if strings.Contains(out, "sp-user-dev") {
+		t.Fatalf("m2m row listed:\n%s", out)
+	}
+	if !strings.Contains(out, "* dev") || !strings.Contains(out, "hidden: 1 m2m service-principal row(s)") {
+		t.Fatalf("want the dev row and a hidden count, got:\n%s", out)
+	}
+}
