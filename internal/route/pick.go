@@ -160,6 +160,10 @@ func (t *Table) gateCandidate(
 		res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return nil, false
 	}
+	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAuth, authSkipReason(reason, c.Account)})
+		return nil, false
+	}
 	e := st[c.Account]
 	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
 		e = LoadState()[c.Account]
@@ -222,6 +226,10 @@ func (t *Table) gateOpencodeCandidate(
 		}
 		if err := configured("opencode", c); err != nil {
 			res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
+			continue
+		}
+		if reason, marked := st.accountAuthMarked(c.Account, now); marked {
+			res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 			continue
 		}
 		e := st[c.Account]
@@ -345,6 +353,14 @@ func headroom(e Entry) float64 {
 
 // blended weights input 3:1 over output, the usual agentic read/write mix.
 func blended(p routetable.Price) float64 { return (3*p.In + p.Out) / 4 }
+
+// authSkipReason is the mark's own reason, else the login hint for the account's provider.
+func authSkipReason(reason, account string) string {
+	if reason != "" {
+		return reason
+	}
+	return "auth rejected: run `claude-code databricks login " + strings.TrimPrefix(account, "provider:") + "`"
+}
 
 // ExhaustedReason names the account and its reset, e.g. "copilot:aueric_boehcp exhausted until 2026-11-01".
 func ExhaustedReason(account string, e Entry, now time.Time) string {

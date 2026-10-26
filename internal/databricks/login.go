@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/profile"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -109,6 +110,7 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 		return err
 	}
 	switched = false
+	_ = route.ClearProviderAuth(p.Name) // best-effort: the TTL backstops a missed clear
 	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return nil
 }

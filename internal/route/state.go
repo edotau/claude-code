@@ -35,6 +35,8 @@ type Entry struct {
 	ExhaustedUntil time.Time `json:"exhausted_until,omitzero"`
 	Reason         string    `json:"reason,omitempty"`
 	Seen           time.Time `json:"seen"`
+	AuthReason     string    `json:"auth_reason,omitempty"`
+	AuthAt         time.Time `json:"auth_at,omitzero"`
 }
 
 // State is every account's entry, keyed by account key.
@@ -93,6 +95,81 @@ func MarkExhausted(key string, until, now time.Time, reason string) error {
 		e.Seen = now
 		s[key] = e
 	})
+}
+
+// GateAuth names the auth gate; AuthMarkTTL is how long a mark outlives a missed clear.
+const (
+	GateAuth    = "auth"
+	AuthMarkTTL = 6 * time.Hour
+)
+
+// ProviderAccount is the account key of a registry provider.
+func ProviderAccount(provider string) string { return "provider:" + provider }
+
+// MarkAuth remembers an auth rejection on account until a login, credential change or the TTL clears it.
+func MarkAuth(account, reason string) error {
+	return Update(func(s State) {
+		e := s[account]
+		e.AuthReason, e.AuthAt = reason, time.Now()
+		s[account] = e
+	})
+}
+
+// ClearAuth drops account's auth mark; nothing is written when none exists.
+func ClearAuth(account string) error {
+	if e, ok := LoadState()[account]; !ok || e.AuthAt.IsZero() {
+		return nil
+	}
+	return Update(func(s State) {
+		e, ok := s[account]
+		if !ok {
+			return
+		}
+		e.AuthReason, e.AuthAt = "", time.Time{}
+		s[account] = e
+	})
+}
+
+// ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each leg's "<runner>:<p>".
+func ClearProviderAuth(provider string) error {
+	hit := func(account string, e Entry) bool {
+		return !e.AuthAt.IsZero() && (account == ProviderAccount(provider) || strings.HasSuffix(account, ":"+provider))
+	}
+	marked := false
+	for account, e := range LoadState() {
+		marked = marked || hit(account, e)
+	}
+	if !marked {
+		return nil // nothing is written when no mark exists
+	}
+	return Update(func(s State) {
+		for account, e := range s {
+			if hit(account, e) {
+				e.AuthReason, e.AuthAt = "", time.Time{}
+				s[account] = e
+			}
+		}
+	})
+}
+
+// accountAuthMarked checks the account's own mark, then the router's mark on its provider ("<runner>:<p>" → p).
+func (s State) accountAuthMarked(account string, now time.Time) (string, bool) {
+	if reason, ok := s.AuthMarked(account, now); ok {
+		return reason, ok
+	}
+	if _, p, ok := strings.Cut(account, ":"); ok && p != "" {
+		return s.AuthMarked(ProviderAccount(p), now)
+	}
+	return "", false
+}
+
+// AuthMarked reports a live (unexpired) auth mark on account and its reason.
+func (s State) AuthMarked(account string, now time.Time) (string, bool) {
+	e, ok := s[account]
+	if !ok || e.AuthAt.IsZero() || now.Sub(e.AuthAt) >= AuthMarkTTL {
+		return "", false
+	}
+	return e.AuthReason, true
 }
 
 // Status classifies e at now: exhausted (100% or a live remembered failure), low (≥90%), ok, or unknown.
