@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -70,5 +71,33 @@ func TestResolveAskChainHubNativeFallback(t *testing.T) {
 	}
 	if len(chain.Legs) != 1 || chain.Legs[0].Runner == r {
 		t.Fatalf("chatgpt: want the hub leg, got the native runner")
+	}
+}
+
+const useAcctOverlay = `{"providers":{
+"dbx-dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev"},
+"dbx-prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod"}},
+"profiles":{"active":"","sets":{"DEFAULT":{"session":{"account":"dbx-dev"}}}}}`
+
+func TestProfileUseAccount(t *testing.T) {
+	profileFixture(t, "")
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", useAcctOverlay) }); err != nil {
+		t.Fatal(err)
+	}
+	if code := profileUse([]string{"--account", "dbx-prod", "--dry-run", "DEFAULT"}); code != 0 {
+		t.Fatalf("dry-run exit %d", code)
+	}
+	if reg, _ := providers.Load(); reg.Profiles.Active != "" {
+		t.Fatalf("dry-run activated %q", reg.Profiles.Active)
+	}
+	if code := profileUse([]string{"--account", "dbx-prod", "DEFAULT"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	reg, _ := providers.Load()
+	if reg.Profiles.Active != "DEFAULT" || reg.Profiles.Sets["DEFAULT"]["session"].Account != "dbx-prod" {
+		t.Fatalf("profiles = %+v", reg.Profiles)
+	}
+	if code := profileUse([]string{"--account", "nope", "DEFAULT"}); code == 0 {
+		t.Fatal("unknown account accepted")
 	}
 }

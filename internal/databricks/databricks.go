@@ -196,7 +196,7 @@ func agents(args []string) int {
 			return 2
 		}
 		reg, _ := providers.Load()
-		argv = []string{"profile", "use", agentsSet(reg, env)}
+		argv = agentsUse(reg, env)
 	case "off":
 		argv = []string{"profile", "off"}
 	case "status":
@@ -218,14 +218,14 @@ func agents(args []string) int {
 	return code
 }
 
-// agentsSet is the profile set `agents on` uses: a legacy databricks-<env> set when present, else DEFAULT.
-func agentsSet(reg *providers.Registry, env string) string {
+// agentsUse is the `profile use` argv for `agents on`: a legacy databricks-<env> set, else DEFAULT repointed to <env>.
+func agentsUse(reg *providers.Registry, env string) []string {
 	if reg != nil {
 		if _, ok := reg.Profiles.Sets["databricks-"+env]; ok {
-			return "databricks-" + env
+			return []string{"profile", "use", "databricks-" + env}
 		}
 	}
-	return "DEFAULT"
+	return []string{"profile", "use", "--account", env, "DEFAULT"}
 }
 
 // agentsEnv picks the env: --env, else the one in HARNESS_PROVIDER (<env> or databricks-<env>[-oai]), else the default.

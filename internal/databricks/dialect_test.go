@@ -117,13 +117,13 @@ func TestAgentsArgv(t *testing.T) {
 		wantCode    int
 		wantNoSpawn bool
 	}{
-		{"on default qa", []string{"agents", "on"}, "", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"on --env prod", []string{"agents", "on", "--env", "prod"}, "", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"on --env= form", []string{"agents", "on", "--env=dev"}, "", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"on infers from HARNESS_PROVIDER", []string{"agents", "on"}, "databricks-prod", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"on infers from -oai provider", []string{"agents", "on"}, "databricks-dev-oai", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"--env beats HARNESS_PROVIDER", []string{"agents", "on", "--env", "dev"}, "databricks-prod", []string{"profile", "use", "DEFAULT"}, 0, false},
-		{"unrelated HARNESS_PROVIDER falls to qa", []string{"agents", "on"}, "openai", []string{"profile", "use", "DEFAULT"}, 0, false},
+		{"on default qa", []string{"agents", "on"}, "", []string{"profile", "use", "--account", "qa", "DEFAULT"}, 0, false},
+		{"on --env prod", []string{"agents", "on", "--env", "prod"}, "", []string{"profile", "use", "--account", "prod", "DEFAULT"}, 0, false},
+		{"on --env= form", []string{"agents", "on", "--env=dev"}, "", []string{"profile", "use", "--account", "dev", "DEFAULT"}, 0, false},
+		{"on infers from HARNESS_PROVIDER", []string{"agents", "on"}, "databricks-prod", []string{"profile", "use", "--account", "prod", "DEFAULT"}, 0, false},
+		{"on infers from -oai provider", []string{"agents", "on"}, "databricks-dev-oai", []string{"profile", "use", "--account", "dev", "DEFAULT"}, 0, false},
+		{"--env beats HARNESS_PROVIDER", []string{"agents", "on", "--env", "dev"}, "databricks-prod", []string{"profile", "use", "--account", "dev", "DEFAULT"}, 0, false},
+		{"unrelated HARNESS_PROVIDER falls to qa", []string{"agents", "on"}, "openai", []string{"profile", "use", "--account", "qa", "DEFAULT"}, 0, false},
 		{"off", []string{"agents", "off"}, "", []string{"profile", "off"}, 0, false},
 		{"status", []string{"agents", "status"}, "", []string{"profile", "show"}, 0, false},
 		{"bad env", []string{"agents", "on", "--env", "staging"}, "", nil, 2, true},
