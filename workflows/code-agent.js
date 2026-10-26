@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-agent',
   description: 'One non-Claude leg (codex|gemini|opencode|copilot) as a workflow stage: smoke ask, JSON envelope relay, sonnet fallback',
   whenToUse:
-    'Inline from another script: workflow("code-agent", {leg?, tier?, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). No leg: claude-code route --format json picks it at tier (default sonnet). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling — an explicit smoke:true runs it and caps each call at 4 min; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
+    'Inline from another script: workflow("code-agent", {leg?, tier?, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3}). No leg: claude-code gateway route --format json picks it at tier (default sonnet). Returns {ok, leg, answer, provider, model, error, skipped?, fallback?}. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling — an explicit smoke:true runs it and caps each call at 4 min; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit leg (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call.',
   phases: [{ title: 'Leg', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
@@ -29,9 +29,9 @@ const ROUTE_STATE = {
 const routed = a0.leg
   ? null
   : await agent(
-      `Run exactly: cd ${a0.cwd || '.'} && claude-code route --format json --fallback vendors --tier ${a0.tier || 'sonnet'}. ` +
+      `Run exactly: cd ${a0.cwd || '.'} && claude-code gateway route --format json --fallback vendors --tier ${a0.tier || 'sonnet'}. ` +
         `It prints one JSON object; leg = candidates[0].runner, or leg = "" when candidates is empty. ` +
-        `Also run exactly: cd ${a0.cwd || '.'} && claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+        `Also run exactly: cd ${a0.cwd || '.'} && claude-code gateway route --format json --agent claude --fallback none --tier sonnet. ` +
         `claudeState = that result's candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
         `is "claude" and its gate value, else "unknown". Never run anything else.`,
       { label: 'route', phase: 'Leg', schema: ROUTE_PICK, model: 'haiku', effort: 'low' }
@@ -43,7 +43,7 @@ const FALLBACK_ENABLED = a.fallback !== false
 const routeState =
   !routed && a0.leg && FALLBACK_ENABLED
     ? await agent(
-        `Run exactly: cd ${a0.cwd || '.'} && claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+        `Run exactly: cd ${a0.cwd || '.'} && claude-code gateway route --format json --agent claude --fallback none --tier sonnet. ` +
           `It prints one JSON object; claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
           `is "claude" and its gate value, else "unknown". Never run anything else.`,
         { label: 'route-state', phase: 'Leg', schema: ROUTE_STATE, model: 'haiku', effort: 'low' }

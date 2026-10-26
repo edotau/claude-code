@@ -872,7 +872,7 @@ func runRouter(d *dialog) bool {
 		return true
 	}
 	if !d.o.Interactive {
-		d.println("needed: run `claude-code router start`, or relaunch with --router")
+		d.println("needed: run `claude-code gateway proxy --start`, or relaunch with --router")
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

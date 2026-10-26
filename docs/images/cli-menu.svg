@@ -80,8 +80,8 @@
 <text x="38.8" y="692" fill="#dc698c" font-weight="bold">doctor          </text>
 <text x="173.2" y="692" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
 <text x="22.0" y="711" fill="#d7d4dc">  </text>
-<text x="38.8" y="711" fill="#e66990" font-weight="bold">route           </text>
-<text x="173.2" y="711" fill="#d7d4dc">which runner + model a tier routes to, and why</text>
+<text x="38.8" y="711" fill="#e66990" font-weight="bold">gateway         </text>
+<text x="173.2" y="711" fill="#d7d4dc">which runner + model a tier routes to; the loopback proxy</text>
 <text x="22.0" y="730" fill="#d7d4dc">  </text>
 <text x="38.8" y="730" fill="#ef6a95" font-weight="bold">usage           </text>
 <text x="173.2" y="730" fill="#d7d4dc">token totals, peak rate, provider quotas</text>

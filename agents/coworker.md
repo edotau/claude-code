@@ -34,7 +34,7 @@ The vendor contract each runner shares (`agents/<runner>.md` → Verbs): `claude
 [--tools] [--workdir <dir>] [--background]` for a task, `review [--adversarial]` for a diff, `gemini
 explore` for a code + web brief, `status|result|tail [-f]|cancel <job>` for a background leg. Prefer
 `--format json` (the envelope carries `answer`, `model`, `fallback`).
-Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
 
 ## Hands off to
 

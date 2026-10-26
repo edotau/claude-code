@@ -128,6 +128,11 @@ func Ensure(ctx context.Context) (string, error) {
 // errTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
 var errTestBinary = errors.New("router: refusing to spawn the daemon from a test binary (stub the router seam)")
 
+// daemonCommand builds the detached daemon's command line.
+func daemonCommand(exe string) *exec.Cmd {
+	return exec.Command(exe, "gateway", "proxy", "--serve") //nolint:noctx // The detached daemon must outlive its caller.
+}
+
 func spawn() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -136,7 +141,7 @@ func spawn() error {
 	if proc.IsSelfUnderTest(exe) {
 		return errTestBinary
 	}
-	// Resolve shims: argv[0] `claude` would dispatch to the launcher instead of `router serve`.
+	// Resolve shims: argv[0] `claude` would dispatch to the launcher instead of `gateway proxy --serve`.
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
 	}
@@ -149,7 +154,7 @@ func spawn() error {
 		return err
 	}
 	defer lf.Close()
-	cmd := exec.Command(exe, "router", "serve") //nolint:noctx // The detached daemon must outlive its caller.
+	cmd := daemonCommand(exe)
 	cmd.Dir = paths.StateDir()
 	cmd.Stdout, cmd.Stderr = lf, lf
 	proc.Detach(cmd)
@@ -161,6 +166,10 @@ func spawn() error {
 
 // Serve runs the router on 127.0.0.1:port until ctx ends, then drains in-flight streams.
 func Serve(ctx context.Context, port int) error {
+	// A test binary never binds (or reclaims) the live router's port: reclaim would SIGTERM the user's router.
+	if exe, err := os.Executable(); err == nil && port == DefaultPort && proc.IsSelfUnderTest(exe) {
+		return errTestBinary
+	}
 	secret, err := ClientSecret()
 	if err != nil {
 		return err

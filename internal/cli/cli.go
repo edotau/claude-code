@@ -77,7 +77,7 @@ func commands() []command {
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
-		{name: "route", group: groupDiagnostics, summary: "which runner + model a tier routes to, and why", run: cmdRoute},
+		{name: "gateway", group: groupDiagnostics, summary: "which runner + model a tier routes to; the loopback proxy", run: cmdGateway},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, provider quotas", run: cmdUsage},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
@@ -90,7 +90,6 @@ func commands() []command {
 		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
 		{name: "agents", hidden: true, summary: "list runners; sync roster + instructions into vendor homes", run: cmdAgents},
 		{name: "models", hidden: true, summary: "tier→model slots; --pin slot=[provider:]model, --live", run: cmdModels},
-		{name: "router", hidden: true, summary: "loopback model router: serve | start | stop | status", run: cmdRouter},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},

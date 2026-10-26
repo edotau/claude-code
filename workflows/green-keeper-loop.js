@@ -24,7 +24,7 @@ const RULES = a.rules ||
 
 // ── Router pressure: Claude account state read once; low/exhausted steps every Claude stage down one tier ──
 const routeState = await agent(
-  `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code route --format json --agent claude --fallback none --tier sonnet. ` +
+  `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code gateway route --format json --agent claude --fallback none --tier sonnet. ` +
     `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
   { label: 'route-state', phase: 'Detect', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }

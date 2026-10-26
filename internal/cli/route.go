@@ -20,14 +20,20 @@ import (
 // routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.
 var routeRefresh = usagepkg.RefreshAccount
 
-// cmdRoute is `claude-code route`: the router's pick at a tier and every skipped runner with its gate; it reads
-// quota state (refreshing a stale account) and never dispatches.
-func cmdRoute(args []string) int {
-	fs := helptext.NewFlagSet("route", helptext.Page{
-		Usage: "claude-code route [--tier T] [--agent a] [--task \"<text>\"] [flags]",
-		About: "Show which runner and model a task routes to: gated on availability, the pinned\n" +
-			"account and quota, then ranked by a weighted price + headroom score.",
-	})
+// cmdGatewayRoute is `claude-code gateway route`: the pick at a tier and every skipped runner with its gate; it
+// reads quota state (refreshing a stale account) and never dispatches.
+func cmdGatewayRoute(args []string) int { return gatewayRoute(args, false) }
+
+// gatewayRoute runs the route pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
+func gatewayRoute(args []string, withProxy bool) int {
+	name, usage := "gateway route", "claude-code gateway route [--tier T] [--agent a] [--task <text>] [flags]"
+	about := "Show which runner and model a task routes to: gated on availability, the pinned\n" +
+		"account and quota, then ranked by a weighted price + headroom score."
+	if withProxy {
+		name, usage = "gateway", "claude-code gateway [route|proxy] [--tier T] [flags]"
+		about += "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."
+	}
+	fs := helptext.NewFlagSet(name, helptext.Page{Usage: usage, About: about})
 	tier := fs.String("tier", "", "opus, sonnet or haiku (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the runner asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --tier is absent")
@@ -37,10 +43,10 @@ func cmdRoute(args []string) int {
 		return code
 	}
 	if err := outfmt.Check(*format); err != nil {
-		return fail("route: %v", err)
+		return fail(name+": %v", err)
 	}
 	if !slices.Contains(agent.FallbackModes, *fallback) {
-		return fail("route: --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
+		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
 	}
 	t := *tier
 	if t == "" && *task != "" {
@@ -50,30 +56,47 @@ func cmdRoute(args []string) int {
 		t = route.Tiers[1]
 	}
 	if !slices.Contains(route.Tiers, t) {
-		return fail("route: --tier %q unknown (%s)", t, strings.Join(route.Tiers, "|"))
+		return fail(name+": --tier %q unknown (%s)", t, strings.Join(route.Tiers, "|"))
 	}
 	if *want != "" && !slices.Contains(route.Runners, *want) {
-		return fail("route: --agent %q unknown (%s)", *want, strings.Join(route.Runners, "|"))
+		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(route.Runners, "|"))
 	}
 	tb, err := route.Load()
 	if err != nil {
-		return fail("route: %v", err)
+		return fail(name+": %v", err)
 	}
 	res := tb.Pick(context.Background(), t, *want, route.LoadState(),
 		route.Opts{Fallback: *fallback, Refresh: routeRefresh})
 	src := routeSources{Weights: routeWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
+	rj := routeJSON{Result: res, Sources: src}
+	var ps proxyState
+	if withProxy {
+		if ps, err = loadProxyState(context.Background()); err != nil {
+			return fail(name+": %v", err)
+		}
+	}
 	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, routeJSON{Result: res, Sources: src}); err != nil {
+		var payload any = rj
+		if withProxy {
+			payload = struct {
+				Route routeJSON  `json:"route"`
+				Proxy proxyState `json:"proxy"`
+			}{rj, ps}
+		}
+		if err := outfmt.Write(os.Stdout, payload); err != nil {
 			return 1
 		}
 		return 0
 	}
 	printRoute(res, src)
+	if withProxy {
+		printProxyState(ps)
+	}
 	return 0
 }
 
-// routeSources names where each routing knob printed by `route` came from.
+// routeSources names where each routing knob printed by `gateway route` came from.
 type routeSources struct {
 	Weights   string `json:"weights"` // "default" or "vault"
 	Subagents struct {
@@ -82,7 +105,7 @@ type routeSources struct {
 	} `json:"subagents"`
 }
 
-// routeJSON is `route --format json`'s payload: the pick plus where its knobs came from.
+// routeJSON is `gateway route --format json`'s payload: the pick plus where its knobs came from.
 type routeJSON struct {
 	route.Result
 	Sources routeSources `json:"sources"`
@@ -111,14 +134,28 @@ func printRoute(res route.Result, src routeSources) {
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
 	if len(res.Candidates) == 0 {
 		fmt.Println("no runner passes the gates")
-	} else {
-		fmt.Printf("%-3s %-9s %-32s %-6s %-26s %-8s %6s %8s %6s\n", "#", "RUNNER", "MODEL", "EFFORT", "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
+	}
+	wRun, wModel, wAcct := len("RUNNER"), len("MODEL"), len("ACCOUNT")
+	for _, c := range res.Candidates {
+		wRun, wModel, wAcct = max(wRun, len(c.Runner)), max(wModel, len(c.Model)), max(wAcct, len(c.Account))
+	}
+	if len(res.Candidates) > 0 {
+		fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "RUNNER", wModel, "MODEL", "EFFORT",
+			wAcct, "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
 	}
 	for i, c := range res.Candidates {
-		fmt.Printf("%-3d %-9s %-32s %-6s %-26s %-8s %6.2f %8.2f %6.2f\n", i+1, c.Runner, c.Model, cmp.Or(c.Effort, "-"),
-			c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
+		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Runner, wModel, c.Model,
+			cmp.Or(c.Effort, "-"), wAcct, c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
+	if len(res.Skipped) == 0 {
+		return
+	}
+	wSkip, wGate := len("SKIP"), len("GATE")
 	for _, s := range res.Skipped {
-		fmt.Printf("skip %-9s %-10s %s\n", s.Runner, s.Gate, s.Reason)
+		wSkip, wGate = max(wSkip, len(s.Runner)), max(wGate, len(s.Gate))
+	}
+	fmt.Printf("%-*s %-*s %s\n", wSkip, "SKIP", wGate, "GATE", "REASON")
+	for _, s := range res.Skipped {
+		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Runner, wGate, s.Gate, s.Reason)
 	}
 }

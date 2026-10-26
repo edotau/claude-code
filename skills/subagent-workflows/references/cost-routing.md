@@ -58,14 +58,14 @@ from `--model`, else the task classifier), including the Claude leg.
   passes gates; other vendor candidates follow sorted by score; Claude runs last under `all`. `vendors` stops
   before Claude; `none` fails fast. `review` always falls back across vendors only, never to Claude. `--format json`
   reports `fallback`/`fallback_reason`; non-empty `fallback` goes on the `Ran on:` line, never hidden.
-- **Inspection verb**: `claude-code route [--tier T] [--agent a] [--task "<text>"] [--fallback all|vendors|none]`
+- **Inspection verb**: `claude-code gateway route [--tier T] [--agent a] [--task "<text>"] [--fallback all|vendors|none]`
   `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
 - **Pressure hooks & workflows**: `agent-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
   an unset subagent model one tier; >=97% moves code-worker/Explore to `coworker` at haiku with routed runner
   prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.leg` picks via
-  `claude-code route --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model, so it
+  `claude-code gateway route --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model, so it
   never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `workflow-lint`; each
-  script now reads `claude-code route --agent claude --fallback none` once itself and downshifts its own pins under
+  script now reads `claude-code gateway route --agent claude --fallback none` once itself and downshifts its own pins under
   pressure (`saved-workflows.md`).
 - **Explicit backend** (`--provider`, `provider:model`): one leg, no fallback, but gated and marked on its own account.
 - **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode uses its own `opencode`

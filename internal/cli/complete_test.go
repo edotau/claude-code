@@ -20,7 +20,7 @@ func TestCompletionTopLevel(t *testing.T) {
 			t.Errorf("top-level candidates missing %q: %v", want, got)
 		}
 	}
-	for _, hidden := range []string{"models", "router", "ask", "agents", "review", "workflow",
+	for _, hidden := range []string{"models", "ask", "agents", "review", "workflow",
 		"completion", "__complete", "hook", "statusline", "version", "switch", "resolve", "claude"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("top-level candidates must not offer hidden %q: %v", hidden, got)
@@ -47,7 +47,7 @@ func TestCompletionAliasPrefix(t *testing.T) {
 }
 
 // TestCompletionSubcommands: a hand-dispatched verb completes its subcommand words (order doesn't
-// matter — they come off a map, not a table); a leaf with no args/sub/flags (router start) offers
+// matter — they come off a map, not a table); a leaf with no args/sub/flags (gateway proxy) offers
 // nothing, so the shell falls back to filenames.
 func TestCompletionSubcommands(t *testing.T) {
 	got := completionCandidates([]string{"vault", "s"})
@@ -58,7 +58,7 @@ func TestCompletionSubcommands(t *testing.T) {
 	if got := completionCandidates([]string{"memory", "rev"}); !slices.Equal(got, []string{"review"}) {
 		t.Errorf("memory rev* = %v, want [review]", got)
 	}
-	if got := completionCandidates([]string{"router", "start", ""}); len(got) != 0 {
+	if got := completionCandidates([]string{"gateway", "route", "--task", ""}); len(got) != 0 {
 		t.Errorf("leaf command should offer no candidates, got %v", got)
 	}
 }

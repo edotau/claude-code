@@ -131,7 +131,7 @@ func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
 	if regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SETTINGS")) {
 		t.Errorf("memory still listed under SETTINGS")
 	}
-	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline"} {
+	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route", "router"} {
 		if regexp.MustCompile(`(?m)^  ` + old + ` +\S`).MatchString(out) {
 			t.Errorf("old verb %q still in the menu", old)
 		}
@@ -139,7 +139,7 @@ func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
 }
 
 func TestOldVerbsAreUnknownCommands(t *testing.T) {
-	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline"} {
+	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route", "router"} {
 		if lookup(old) != nil {
 			t.Errorf("lookup(%q) still resolves", old)
 		}
