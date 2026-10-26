@@ -161,6 +161,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 // post-resolution IntegrateTarget call refuse with IssueDirtyWorktree, which this test deliberately
 // does not exercise.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, _, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
@@ -480,6 +481,7 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 // Promote, then advances main before Promote runs — reproducing "target moved between resolve and
 // promote". Promote must stop with a retry hint rather than falling back to a real conflicting merge.
 func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
@@ -533,6 +535,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 // run alongside a still-active one — WithWorktreeLease must refuse outright, and its fn (here wrapping
 // ResolveWithAgent, the way cmdWorktreeMerge and Merge both call it) must never run at all.
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
+	t.Parallel()
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 

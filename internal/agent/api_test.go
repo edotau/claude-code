@@ -140,12 +140,25 @@ func TestAPIRunnerOpenAI(t *testing.T) {
 	}
 }
 
+// fakeFailingClaude points CLAUDE_CONFIG_DIR at a bin/ holding a claude that exits 1, so no real claude is spawned.
+func fakeFailingClaude(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\necho fake claude failure >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestAPIRunnerPassthroughDelegatesToClaude proves api no longer refuses outright on a passthrough
 // provider: it must hand the same request to claudeRunner (marked via res.Fallback), not fail instantly
 // with the old "needs a key" message. The delegated claude call itself fails in this sandbox (no
 // subscription login), but that failure must come from claude, not from api's own passthrough guard.
 func TestAPIRunnerPassthroughDelegatesToClaude(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	fakeFailingClaude(t)
 	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
 	if res.Fallback != "api" {
 		t.Errorf("res.Fallback = %q, want %q (delegation marker)", res.Fallback, "api")
@@ -187,8 +200,7 @@ func TestAPIRunnerPassthroughDelegationSuccessReportsClaudeAgent(t *testing.T) {
 // an early claude failure (before claude ever sets res.Provider/res.Model) still leaves api's own
 // resolved provider/model on the result, never blank.
 func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	fakeFailingClaude(t)
 	req := Request{Prompt: "x", Provider: "subscription"}
 
 	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)

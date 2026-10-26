@@ -114,12 +114,8 @@ func TestCreateSpaceInNameDerivesInvalidBranchRef(t *testing.T) {
 }
 
 func TestCleanRefusesDirty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "dirty", "")
 	if err != nil {
 		t.Fatal(err)
@@ -143,12 +139,8 @@ func TestCleanRefusesDirty(t *testing.T) {
 }
 
 func TestCleanRefusesUnmerged(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "ahead", "")
 	if err != nil {
 		t.Fatal(err)
@@ -167,12 +159,9 @@ func TestCleanRefusesUnmerged(t *testing.T) {
 }
 
 func TestCleanRemovesMergedAndDeletesBranch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
+	main := repo.Main
 	if _, err := Create(repo, "clean", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -193,12 +182,8 @@ func TestCleanRemovesMergedAndDeletesBranch(t *testing.T) {
 }
 
 func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "drifts", "")
 	if err != nil {
 		t.Fatal(err)
@@ -232,24 +217,17 @@ func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
 }
 
 func TestCleanMissingWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if _, err := Clean(repo, "never-existed", false); err == nil {
 		t.Fatal("want error for a name with no worktree on disk")
 	}
 }
 
 func TestCleanLockedRefused(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
+	main := repo.Main
 	dest, err := Create(repo, "locked", "")
 	if err != nil {
 		t.Fatal(err)
@@ -270,12 +248,8 @@ func TestCleanLockedRefused(t *testing.T) {
 }
 
 func TestCleanAllPreviewThenApply(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	if _, err := Create(repo, "mergeable", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -338,12 +312,8 @@ func gitDirOfForTest(t *testing.T, dest string) string {
 // in-progress-operation check, Clean would otherwise remove the worktree and strand the only pointer
 // to those stashed edits held in its own private git-dir.
 func TestCleanRefusesPendingAutostash(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	repo := testRepo(t)
 	dest, err := Create(repo, "autostashed", "")
 	if err != nil {
 		t.Fatal(err)
@@ -401,12 +371,7 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 // TestCleanRefusesInUseAndDryRunReportsIt is the regression test for the busy-cwd guard: Clean must
 // refuse a worktree InUseBy reports as busy, under both the real call and --dry-run's preview.
 func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	repo := testRepo(t)
 	dest, err := Create(repo, "busy", "")
 	if err != nil {
 		t.Fatal(err)
@@ -441,12 +406,7 @@ func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
 // TestCleanAllSkipsBusyEntryButRemovesOthers proves CleanAll continues past a busy refusal rather
 // than aborting the whole sweep, and still removes every other eligible entry.
 func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	repo := testRepo(t)
 	busyDest, err := Create(repo, "busyall", "")
 	if err != nil {
 		t.Fatal(err)

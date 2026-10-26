@@ -12,7 +12,7 @@ import (
 // repo's common git dir) that always fails, so `git merge` inside the worktree aborts mid-merge; the
 // worktree is left with MERGE_HEAD, and main must never be touched since Promote is never reached.
 func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
-	t.Parallel()
+	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
@@ -53,6 +53,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 // IntegrateTarget ran but before Promote reacquires the lock and rechecks: Promote must stop with a
 // retry hint, never fabricate a real conflicting merge.
 func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
@@ -87,6 +88,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 // a commit that is not an ancestor of the (re-pinned) worktree HEAD, Promote must refuse the ff-only
 // merge rather than fall back to a real merge commit.
 func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
@@ -115,6 +117,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 // and Promote (e.g. another actor, or the agent continuing to work) must never be silently promoted —
 // Promote must only ever fast-forward main onto the OID IntegrateTarget actually produced and pinned.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
@@ -147,6 +150,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 }
 
 func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, _, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
@@ -184,6 +188,7 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 // TestIntegrateAndPromoteToleratePostResolutionResidue: a plan from PreflightAfterResolution lets untracked tool
 // residue (a plugin cache) through integrate + promote, while a plain Preflight plan still refuses it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
+	mergeFixtureLockEnv(t)
 	repo, main, wt := mergeFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	if err := os.MkdirAll(filepath.Join(wt, ".impeccable"), 0o755); err != nil {

@@ -69,8 +69,6 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 // branched from it — the shared starting point for every divergence scenario below.
 func mergeFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	return preflightFixtureSetup(t)
 }
 

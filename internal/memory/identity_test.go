@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/gitexec"
@@ -25,16 +26,48 @@ func fixtureGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// gitRepo makes a real disposable repository with one commit at <parent>/<name>.
+// gitRepo makes a real disposable repository with one commit at <parent>/<name>, copied from a once-built template.
 func gitRepo(t *testing.T, parent, name string) string {
 	t.Helper()
 	root := filepath.Join(parent, name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fixtureGit(t, root, "init", "-q", "-b", "main")
-	fixtureGit(t, root, "commit", "-q", "--allow-empty", "-m", "init")
+	tmpl := gitRepoTemplate(t)
+	if out, err := exec.Command("cp", "-a", filepath.Join(tmpl, ".git"), root).CombinedOutput(); err != nil {
+		t.Fatalf("copy template repo: %v %s", err, out)
+	}
 	return root
+}
+
+var (
+	gitTmplOnce sync.Once
+	gitTmplDir  string
+)
+
+func gitRepoTemplate(t *testing.T) string {
+	t.Helper()
+	gitTmplOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "memory-gittmpl-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gitTmplDir = dir
+		fixtureGit(t, dir, "init", "-q", "-b", "main")
+		fixtureGit(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
+	})
+	if gitTmplDir == "" {
+		t.Fatal("git template repo unavailable")
+	}
+	return gitTmplDir
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if gitTmplDir != "" {
+		os.RemoveAll(gitTmplDir)
+	}
+	os.Exit(code)
 }
 
 func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
