@@ -136,6 +136,7 @@ func Render(raw []byte, style string) string {
 }
 
 func render(v values, cfg Config, pal Palettes) string {
+	pal = cfg.liftPalette(pal)
 	stops := resolveGradient(cfg, pal)
 	mode := colorMode(cfg)
 	width := lineWidth(cfg)
@@ -159,7 +160,11 @@ func resolveGradient(cfg Config, pal Palettes) []ansi.RGB {
 	if len(stops) == 0 {
 		stops = embeddedPalettes().Gradients["gemini"]
 	}
-	return hexStops(stops)
+	out := hexStops(stops)
+	for i, rgb := range out {
+		out[i] = cfg.lifted(rgb)
+	}
+	return out
 }
 
 // hexStops converts a palette's hex ramp to RGB stops (shared by resolveGradient and GradientStops).
@@ -250,6 +255,9 @@ var envSuffixRE = regexp.MustCompile(`^(.+?)-(dev|qa|test|stage|staging|prod)(-.
 
 // providerLabel renders a databricks preset row as "databricks·<id>" and "<family>-<env>" as "<family>·<env>".
 func providerLabel(name string) string {
+	if name == "subscription" || name == "anthropic" { // first-party; the tok:/usage segments tell the auth apart
+		return "anthropic"
+	}
 	if reg := registry(); reg != nil {
 		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
 			return "databricks·" + strings.TrimPrefix(name, "databricks-")

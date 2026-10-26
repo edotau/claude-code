@@ -325,7 +325,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  "+registryDefault(t)+"  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  anthropic  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -339,7 +339,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( Opus 5 ) ( " + registryDefault(t) + " ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( Opus 5 ) ( anthropic ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -372,6 +372,7 @@ func TestProviderLabelEnvTable(t *testing.T) {
 		"databricks-stage":    "databricks·stage",
 		"my-app-staging":      "my-app·staging",
 		"anthropic":           "anthropic",
+		"subscription":        "anthropic",
 		"github-copilot":      "github-copilot",
 		"openai":              "openai",
 		"databricks-prodx":    "databricks-prodx",

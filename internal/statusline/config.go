@@ -3,6 +3,8 @@ package statusline
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +27,7 @@ type Config struct {
 	ColorMode      string            `json:"colorMode"`    // auto|truecolor|ansi256|ansi16
 	Gradient       string            `json:"gradient"`     // named ramp in palettes.gradients
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
+	Lift           float64           `json:"lift"`         // brighten every tone toward white: 0 = off, clamped to 0..0.6
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	BranchMax      int               `json:"branchMax"`
@@ -96,6 +99,38 @@ func (c Config) sep(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// lifted brightens rgb toward white by the clamped lift: c + lift*(255-c) per channel.
+func (c Config) lifted(rgb ansi.RGB) ansi.RGB {
+	l := math.Min(math.Max(c.Lift, 0), 0.6)
+	if l == 0 {
+		return rgb
+	}
+	for i, v := range rgb {
+		rgb[i] = int(math.Round(float64(v) + l*float64(255-v)))
+	}
+	return rgb
+}
+
+// liftPalette returns pal with every semantic tone (baked roles included) lifted; one pass per render.
+func (c Config) liftPalette(pal Palettes) Palettes {
+	if c.Lift <= 0 {
+		return pal
+	}
+	sem := make(map[string]string, len(bakedSemantic)+len(pal.Semantic))
+	for role := range bakedSemantic {
+		sem[role] = pal.sem(role)
+	}
+	for role := range pal.Semantic {
+		sem[role] = pal.sem(role)
+	}
+	for role, h := range sem {
+		r := c.lifted(ansi.Hex(h))
+		sem[role] = fmt.Sprintf("#%02X%02X%02X", r[0], r[1], r[2])
+	}
+	pal.Semantic = sem
+	return pal
 }
 
 // ConfigDir holds the optional config.json / palettes.json overrides.
@@ -194,6 +229,7 @@ func colorMode(cfg Config) string {
 
 // Theme exposes the status line's color mode, gradient stops and dim tone so other output can match it.
 func Theme() (mode string, stops []ansi.RGB, dim ansi.RGB) {
-	cfg, pal := loadConfig(), loadPalettes()
+	cfg := loadConfig()
+	pal := cfg.liftPalette(loadPalettes())
 	return colorMode(cfg), resolveGradient(cfg, pal), ansi.Hex(pal.sem("dim"))
 }
