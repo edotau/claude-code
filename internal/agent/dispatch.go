@@ -39,6 +39,7 @@ type Error struct {
 	RetryAfter time.Duration
 	Progressed bool // output already reached the stream: never retried
 	Attempts   int
+	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
 	Err        error
 }
 

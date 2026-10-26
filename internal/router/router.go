@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -32,8 +33,21 @@ const (
 	maxBody         = 64 << 20
 	defaultCooldown = 30 * time.Second
 	maxCooldown     = 5 * time.Minute
-	credTTL         = 60 * time.Second // providers.CredentialPresent cache: one keyring probe per provider per TTL
+	credTTL         = 60 * time.Second   // providers.CredentialPresent cache: one keyring probe per provider per TTL
+	authStateTTL    = 5 * time.Second    // route.LoadState cache: quota.json is read at most once per TTL, not per request
+	oauthBeta       = "oauth-2025-04-20" // the anthropic-beta Claude Code sends with a subscription bearer token
 )
+
+// AuthGate is the route package's auth marks, injected because route imports router; the zero value is disabled.
+type AuthGate struct {
+	Account func(provider string) string                              // route.ProviderAccount
+	Mark    func(account, reason string) error                        // route.MarkAuth
+	Clear   func(account string) error                                // route.ClearAuth
+	Marked  func() func(account string, now time.Time) (string, bool) // route.LoadState().AuthMarked, freshly loaded
+}
+
+// Gate is wired once by the serve path (internal/cli/gateway.go proxyServe).
+var Gate AuthGate
 
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.
 var idleTimeout = 10 * time.Minute
@@ -55,6 +69,13 @@ type Router struct {
 	dead     map[string]time.Time  // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
 	credGen  map[string]int        // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
+
+	authState func(account string, now time.Time) (string, bool) // cached Gate.Marked() lookup for attempts
+	authAt    time.Time                                          // when authState was loaded
+	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
+	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
+	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
+	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
 }
 
 // credResult is one provider's cached CredentialPresent outcome.
@@ -68,7 +89,8 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{}}
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{},
+		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -111,6 +133,7 @@ type fallbackError struct {
 	error
 	status int
 	hard   bool // a 429 that denies the model outright (quota 0), not a transient rate limit
+	auth   bool // the credential was condemned (login required or rejected after a re-mint)
 }
 
 func (e *fallbackError) Unwrap() error { return e.error }
@@ -144,7 +167,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return session, head.Model, 0
 	}
 	target := providers.ParseTarget(reg, head.Model, sess)
-	clientAuth := in.Header.Get("Authorization") != ""
+	clientAuth := in.Header.Get("Authorization") != "" || r.oauthToken() != "" // the sealed token authenticates passthrough
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
 		writeError(w, http.StatusBadRequest, "router: "+msg)
 		return target.Provider.Name, target.Model, 0
@@ -157,6 +180,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		last := i == len(ladder)-1
 		done, err := r.try(w, in, body, t, clientModel, count, last)
 		if done {
+			r.clearOnSuccess(t.Provider.Name, w.status)
 			return t.Provider.Name, t.Model, i + 1
 		}
 		lastErr = err
@@ -185,6 +209,11 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		}
 	}
 	t := ladder[len(ladder)-1]
+	var failure *fallbackError
+	if errors.As(lastErr, &failure) && failure.auth {
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("router: %s: authentication failed; run `claude-code databricks login %s`", t.Provider.Name, t.Provider.Name))
+		return t.Provider.Name, t.Model, len(ladder)
+	}
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("router: %s: %v", t.Provider.Name, lastErr))
 	return t.Provider.Name, t.Model, len(ladder)
 }
@@ -227,12 +256,113 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 			}
 		}
 	}
+	out = r.withoutAuthMarked(out)
 	now := r.now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cooling := func(t providers.Target) bool { return now.Before(r.cool[t.Provider.Name]) }
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
 	return out
+}
+
+// withoutAuthMarked drops targets whose provider has a live auth mark; when that empties the ladder it is kept whole.
+func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
+	if Gate.Marked == nil {
+		return out
+	}
+	marked, now := r.authMarks(), r.now()
+	kept := make([]providers.Target, 0, len(out))
+	for _, t := range out {
+		if _, ok := marked(Gate.Account(t.Provider.Name), now); !ok {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == 0 {
+		return out
+	}
+	return kept
+}
+
+// authMarks is the route state, re-read from quota.json at most once per authStateTTL.
+func (r *Router) authMarks() func(string, time.Time) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now := r.now(); r.authState == nil || now.Sub(r.authAt) >= authStateTTL {
+		r.authState, r.authAt = Gate.Marked(), now
+	}
+	return r.authState
+}
+
+// condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
+func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
+	if Gate.Mark == nil {
+		return
+	}
+	if err := Gate.Mark(Gate.Account(p.Name), "auth "+string(v)+": run `claude-code databricks login "+p.Name+"`"); err != nil {
+		fmt.Fprintf(r.log, "router: mark %s auth-dead: %v\n", p.Name, err)
+		return
+	}
+	r.mu.Lock()
+	r.marked[p.Name] = true
+	r.authAt = time.Time{} // the next attempts() re-reads the state and sees the mark
+	r.mu.Unlock()
+}
+
+// clearOnSuccess lifts a mark this process set once the provider answers with a 2xx.
+func (r *Router) clearOnSuccess(name string, status int) {
+	if status < 200 || status > 299 {
+		return
+	}
+	r.mu.Lock()
+	was := r.marked[name]
+	delete(r.marked, name)
+	r.mu.Unlock()
+	if was && Gate.Clear != nil {
+		_ = Gate.Clear(Gate.Account(name)) // best-effort: the TTL backstop expires a missed clear
+	}
+}
+
+// oauthToken is the vault's sealed subscription token, cached (present results only) for credTTL.
+func (r *Router) oauthToken() string {
+	r.mu.Lock()
+	if now := r.now(); r.oauthTok != "" && now.Sub(r.oauthAt) < credTTL {
+		tok := r.oauthTok
+		r.mu.Unlock()
+		return tok
+	}
+	r.mu.Unlock()
+	tok := r.oauth()
+	if tok != "" {
+		r.mu.Lock()
+		r.oauthTok, r.oauthAt = tok, r.now()
+		r.mu.Unlock()
+	}
+	return tok
+}
+
+// passthroughAuth sets the client's login on h, else the sealed subscription token (with its OAuth beta).
+func (r *Router) passthroughAuth(h http.Header, in *http.Request, route string) {
+	if a := in.Header.Get("Authorization"); a != "" {
+		h.Set("Authorization", a)
+		return
+	}
+	tok := r.oauthToken()
+	if tok == "" || !anthropicOrigin(route) {
+		return
+	}
+	h.Set("Authorization", "Bearer "+tok)
+	if beta := h.Get("Anthropic-Beta"); !strings.Contains(beta, oauthBeta) {
+		h.Set("Anthropic-Beta", strings.Trim(beta+","+oauthBeta, ","))
+	}
+}
+
+// anthropicHost is the only host the sealed subscription token is sent to; a var so tests can point it at httptest.
+var anthropicHost = "api.anthropic.com"
+
+// anthropicOrigin reports whether route is https on anthropicHost exactly (no suffix or userinfo tricks).
+func anthropicOrigin(route string) bool {
+	u, err := url.Parse(route)
+	return err == nil && u.Scheme == "https" && u.User == nil && u.Host == anthropicHost
 }
 
 // demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
@@ -333,7 +463,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	resp, err := r.send(in, p, url, out, func(h http.Header) {
 		copyRequestHeaders(h, in.Header)
 		if p.Auth.Type == providers.AuthPassthrough {
-			h.Set("Authorization", in.Header.Get("Authorization"))
+			r.passthroughAuth(h, in, route)
 		}
 	})
 	if err != nil {
@@ -518,22 +648,51 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 	}
 	resp, err := do("")
 	if err != nil {
-		return nil, err
+		return nil, r.authFailure(p, err)
 	}
-	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) &&
+	resp.Body = newIdleBody(resp.Body, idleTimeout) // before invalidToken's peek, so a stalled 400 body cannot hang
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p)) &&
 		(p.Auth.Type == providers.AuthAPIKey || p.Auth.Type == providers.AuthBearer) {
 		drain(resp)
 		r.invalidateCredential(p.Name) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
 		credential, err := providers.Refresh(ctx, p)
 		if err != nil {
-			return nil, err
+			return nil, r.authFailure(p, err)
 		}
 		if resp, err = do(credential); err != nil {
 			return nil, err
 		}
+		resp.Body = newIdleBody(resp.Body, idleTimeout)
+		if resp.StatusCode == http.StatusUnauthorized || invalidToken(resp, p) {
+			drain(resp)
+			r.condemn(p, providers.VerdictRejected)
+			return nil, &fallbackError{error: errors.New("credential rejected after re-mint"), status: http.StatusUnauthorized, auth: true}
+		}
 	}
-	resp.Body = newIdleBody(resp.Body, idleTimeout)
 	return resp, nil
+}
+
+// authFailure condemns p when err's verdict says only a login can fix it (the router then moves on); else err as is.
+func (r *Router) authFailure(p *providers.Provider, err error) error {
+	v := providers.Verdict(err)
+	if !v.Condemns() {
+		return err
+	}
+	r.condemn(p, v)
+	return &fallbackError{error: errors.New("authentication failed (" + string(v) + ")"), status: http.StatusUnauthorized, auth: true}
+}
+
+// invalidToken is the AI Gateway's 400 "Invalid Token" on p; it peeks 256 bytes and leaves the body readable.
+func invalidToken(resp *http.Response, p *providers.Provider) bool {
+	if resp.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	peek, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+	return providers.IsInvalidTokenResponse(p, resp.StatusCode, peek)
 }
 
 // failover classifies a failed response: a hard-quota 429 marks the model dead (and moves on even on the last

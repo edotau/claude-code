@@ -10,6 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
@@ -43,8 +45,22 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if err := secrets.Store(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
+	clearProviderAuth(name)
 	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, secrets.Redact(value), name)
 	return 0
+}
+
+// clearProviderAuth drops the auth marks of every provider whose sealed secret or auth.env is name; best-effort.
+func clearProviderAuth(name string) {
+	reg, err := providers.Load()
+	if err != nil {
+		return
+	}
+	for _, p := range reg.Providers {
+		if providers.AuthSecretName(p) == name || (p.Auth.Env != "" && p.Auth.Env == name) {
+			_ = route.ClearProviderAuth(p.Name)
+		}
+	}
 }
 
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.

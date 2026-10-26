@@ -36,6 +36,7 @@ func Single(r Runner) Chain {
 var (
 	loadState     = route.LoadState
 	markExhausted = route.MarkExhausted
+	markAuth      = route.MarkAuth
 )
 
 // RouteChain turns a pick at tier into legs; the wanted runner's leg keeps an explicit caller model, every other leg
@@ -232,4 +233,24 @@ func noteStall(leg Leg, err error) {
 	now := time.Now()
 	reason := fmt.Sprintf("free leg stalled (no output in %s)", firstOutputDeadline())
 	_ = markExhausted(leg.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
+}
+
+// condemnAuth tags a KindAuth whose Recover failed with a condemning verdict, or any error that itself condemns
+// (an initial u2m invalid_grant / missing refresh token can classify as fatal with no Recover run).
+func condemnAuth(e *Error, recoverErr error) {
+	switch {
+	case e.Kind == KindAuth && providers.Verdict(recoverErr).Condemns():
+		e.AuthReason = fallbackReason(recoverErr)
+	case e.Err != nil && providers.Verdict(e.Err).Condemns():
+		e.AuthReason = fallbackReason(e.Err)
+	}
+}
+
+// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so route.Pick skips it until a login clears it.
+func noteAuth(leg Leg, err error) {
+	var e *Error
+	if leg.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {
+		return
+	}
+	_ = markAuth(leg.Account, e.AuthReason) // best-effort: the run's own error still reports it
 }

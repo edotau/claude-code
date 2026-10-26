@@ -127,8 +127,12 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		p.AttemptTimeout = req.Timeout
 	}
 	p.Notify = notify
-	if _, t, err := resolveTarget(req); err == nil && t.Provider.Auth.Command != "" {
-		p.Recover = func(ctx context.Context) error { _, err := providers.Refresh(ctx, t.Provider); return err }
+	var recoverErr error
+	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.AuthType != "") {
+		p.Recover = func(ctx context.Context) error {
+			_, recoverErr = providers.Refresh(ctx, t.Provider)
+			return recoverErr
+		}
 	}
 	start := time.Now()
 	e := Do(ctx, p, func(actx context.Context, _ int) *Error {
@@ -154,6 +158,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	})
 	res.Duration = time.Since(start)
 	if e != nil {
+		condemnAuth(e, recoverErr)
 		return res, e
 	}
 	return res, nil
@@ -328,6 +333,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		}
 		res, err = Run(ctx, leg.Runner, legRequest(req, leg, i == 0 && leg.Runner.Name() == c.Want), stream, notify)
 		noteQuota(leg, err)
+		noteAuth(leg, err)
 		noteStall(leg, err)
 		prev = leg.Runner
 		if i == 0 && ExplicitBackend(req) {
@@ -373,6 +379,10 @@ func fallbackReason(err error) string {
 // or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
 // partial answer. claude/api are the end of every chain and never count as unavailable here.
 func legUnavailable(r Runner, res Result, err error) bool {
+	var ae *Error
+	if errors.As(err, &ae) && ae.AuthReason != "" && res.Answer == "" {
+		return true
+	}
 	if err == nil || !isVendor(r.Name()) || res.Answer != "" {
 		return false
 	}

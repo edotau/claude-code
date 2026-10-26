@@ -246,3 +246,9 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 	tok.Refresh = ""
 	return tok, nil
 }
+
+// IsRejected reports a token endpoint that answered 401 or 403 (credentials refused, not a transient failure).
+func IsRejected(err error) bool {
+	var oe *oauthError
+	return errors.As(err, &oe) && (oe.Status == http.StatusUnauthorized || oe.Status == http.StatusForbidden)
+}
