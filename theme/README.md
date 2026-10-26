@@ -12,6 +12,7 @@ for any file it rewrites); `--dry-run` lists what would change. Edit a file here
 | `opencode-themes/gemini-plum.json` | `~/.config/opencode/themes/gemini-plum.json` | the theme file itself; opencode only reads custom themes from its own config dir, so this is the one opencode file the harness still writes |
 | `copilot.json` | `~/.copilot/settings.json` | `theme` (`default` keeps the terminal background; `github` forces #0d1117) |
 | `gemini.json` | `~/.gemini/settings.json` | `theme` |
+| `ghostty.conf` | `~/.config/ghostty/config` | `theme` (Ubuntu), background/foreground colors, cursor style/color, window padding and behavior, font settings, clipboard permissions |
 
 Claude Code's own `"theme": "auto"` lives in `internal/settings/template/` (rendered by `make install`),
 not here. Codex's `appearanceTheme` is set from the ChatGPT desktop app and is left alone.

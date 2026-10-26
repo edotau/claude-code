@@ -142,11 +142,11 @@ func setGradient(name string) error {
 	return paths.AtomicWrite(path, append(out, '\n'), 0o644)
 }
 
-// themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json into that tool's config.
+// themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json|.conf into that tool's config.
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
 		Usage: "claude-code theme apply [flags]",
-		About: "Merge every theme/<tool>.json into that tool's config.",
+		About: "Merge every theme/<tool>.json|.conf into that tool's config.",
 	})
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
 	if code, done := helptext.Parse(fs, args); done {

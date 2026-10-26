@@ -23,8 +23,9 @@ func Dir() string { return filepath.Join(paths.ConfigDir(), "theme") }
 
 // Target is one tool's theme file and the config it merges into.
 type Target struct {
-	Name string // file stem under theme/
+	Name string // display name for output
 	Dest string // the tool's own config file
+	Src  string // source file in theme/, defaults to Name+".json" if empty
 }
 
 // Targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
@@ -35,12 +36,13 @@ func Targets(home string) []Target {
 		cfg = filepath.Join(home, ".config")
 	}
 	return []Target{
-		{"vscode", vs},
-		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json")},
-		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json")},
-		{"opencode-themes/gemini-plum", filepath.Join(cfg, "opencode", "themes", "gemini-plum.json")},
-		{"copilot", filepath.Join(home, ".copilot", "settings.json")},
-		{"gemini", filepath.Join(home, ".gemini", "settings.json")},
+		{"vscode", vs, ""},
+		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json"), ""},
+		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json"), ""},
+		{"opencode-themes/gemini-plum", filepath.Join(cfg, "opencode", "themes", "gemini-plum.json"), ""},
+		{"copilot", filepath.Join(home, ".copilot", "settings.json"), ""},
+		{"gemini", filepath.Join(home, ".gemini", "settings.json"), ""},
+		{"ghostty", filepath.Join(cfg, "ghostty", "config"), "ghostty.conf"},
 	}
 }
 
@@ -52,33 +54,55 @@ type Outcome struct {
 	Backup     string
 }
 
-// Apply merges every present theme/<name>.json into its destination. dryRun reports without writing.
-// Keys the theme file omits are kept; a key it carries wins. Maps merge recursively.
+// Apply merges every present theme/<name>.json (or .conf) into its destination. dryRun reports without writing.
+// Keys the theme file omits are kept; a key it carries wins. Maps merge recursively for JSON; lines replace for .conf.
 func Apply(dir, home string, dryRun bool) ([]Outcome, error) {
 	var out []Outcome
 	for _, t := range Targets(home) {
 		o := Outcome{Name: t.Name, Dest: t.Dest}
-		src := filepath.Join(dir, t.Name+".json")
-		overlay, err := readJSON(src)
+		src := t.Src
+		if src == "" {
+			src = t.Name + ".json"
+		}
+		srcPath := filepath.Join(dir, src)
+		merge, err := loadOverlay(srcPath)
 		switch {
 		case os.IsNotExist(err):
-			o.Skipped = "no " + filepath.Base(src)
+			o.Skipped = "no " + filepath.Base(srcPath)
 			out = append(out, o)
 			continue
 		case err != nil:
-			return out, fmt.Errorf("%s: %w", src, err)
+			return out, fmt.Errorf("%s: %w", srcPath, err)
 		case t.Dest == "":
 			o.Skipped = "no destination on this platform"
 			out = append(out, o)
 			continue
 		}
-		o.Changed, o.Backup, err = mergeFile(t.Dest, overlay, dryRun)
+		o.Changed, o.Backup, err = merge(t.Dest, dryRun)
 		if err != nil {
 			return out, fmt.Errorf("%s → %s: %w", t.Name, t.Dest, err)
 		}
 		out = append(out, o)
 	}
 	return out, nil
+}
+
+type mergeFunc func(dest string, dryRun bool) (changed bool, backup string, err error)
+
+// loadOverlay reads one theme file and returns the merge that applies it: line-wise for .conf, JSON otherwise.
+func loadOverlay(path string) (mergeFunc, error) {
+	if filepath.Ext(path) == ".conf" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return func(dest string, dryRun bool) (bool, string, error) { return confMergeFile(dest, raw, dryRun) }, nil
+	}
+	overlay, err := readJSON(path)
+	if err != nil {
+		return nil, err
+	}
+	return func(dest string, dryRun bool) (bool, string, error) { return mergeFile(dest, overlay, dryRun) }, nil
 }
 
 func readJSON(path string) (map[string]any, error) {
@@ -91,6 +115,40 @@ func readJSON(path string) (map[string]any, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// writeMerged writes newContent with backup and concurrent-change check.
+func writeMerged(dest string, oldContent, newContent []byte, dryRun bool, mode os.FileMode) (changed bool, backup string, err error) {
+	if bytes.Equal(oldContent, newContent) {
+		return false, "", nil
+	}
+	if dryRun {
+		return true, "", nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return false, "", err
+	}
+	if beforeWrite != nil {
+		beforeWrite(dest)
+	}
+	fresh, err := os.ReadFile(dest)
+	if err != nil && !os.IsNotExist(err) {
+		return false, "", err
+	}
+	if !bytes.Equal(fresh, oldContent) {
+		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
+	}
+	if len(oldContent) > 0 {
+		bak := paths.BackupPath(dest, time.Now())
+		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
+			return false, "", err
+		}
+		backup, err = paths.WriteBackup(bak, oldContent)
+		if err != nil {
+			return false, "", err
+		}
+	}
+	return true, backup, paths.AtomicWrite(dest, newContent, mode)
 }
 
 // mergeFile overlays onto dest's JSON (JSONC tolerated on read); unchanged means no write, no backup.
@@ -109,37 +167,20 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 	if reflect.DeepEqual(base, merged) {
 		return false, "", nil
 	}
-	if dryRun {
-		return true, "", nil
-	}
 	body, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return false, "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return false, "", err
-	}
-	if beforeWrite != nil {
-		beforeWrite(dest)
-	}
-	fresh, err := os.ReadFile(dest)
+	return writeMerged(dest, raw, append(body, '\n'), dryRun, 0o600)
+}
+
+// confMergeFile merges overlay into dest for key=value config files.
+func confMergeFile(dest string, overlay []byte, dryRun bool) (changed bool, backup string, err error) {
+	raw, err := os.ReadFile(dest)
 	if err != nil && !os.IsNotExist(err) {
 		return false, "", err
 	}
-	if !bytes.Equal(fresh, raw) {
-		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
-	}
-	if len(raw) > 0 {
-		bak := paths.BackupPath(dest, time.Now())
-		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
-			return false, "", err
-		}
-		backup, err = paths.WriteBackup(bak, raw)
-		if err != nil {
-			return false, "", err
-		}
-	}
-	return true, backup, paths.AtomicWrite(dest, append(body, '\n'), 0o600)
+	return writeMerged(dest, raw, mergeGhostty(raw, overlay), dryRun, 0o644)
 }
 
 // deepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.
