@@ -157,10 +157,16 @@ func Ensure(ctx context.Context) (string, error) {
 	return base, err
 }
 
+// errTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
+var errTestBinary = errors.New("router: refusing to spawn the daemon from a test binary (stub the router seam)")
+
 func spawn() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	if proc.IsSelfUnderTest(exe) {
+		return errTestBinary
 	}
 	// Resolve shims: argv[0] `claude` would dispatch to the launcher instead of `router serve`.
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
