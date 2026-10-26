@@ -393,3 +393,52 @@ func TestNetworkTailscaleRouteRunsAndReports(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkTailscaleSubnetParsing(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"empty value", []string{"--subnet", ""}, `must be a CIDR list, approve or off, got ""`},
+		{"not a cidr", []string{"--subnet", "sideways"}, "must be a CIDR list, approve or off"},
+		{"bad second cidr", []string{"--subnet", "192.168.1.0/24,nope"}, "must be a CIDR list, approve or off"},
+		{"subnet and exit-node", []string{"--subnet", "192.168.1.0/24", "--exit-node", "on"}, "mutually exclusive"},
+		{"subnet and route", []string{"--subnet", "approve", "--route", "peer"}, "mutually exclusive"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			code, _, stderr := captureOutput(t, func() int { return cmdNetworkTailscale(tc.args) })
+			if code != 2 || !strings.Contains(stderr, tc.want) {
+				t.Errorf("exit %d stderr %q, want 2 and %q", code, stderr, tc.want)
+			}
+		})
+	}
+}
+
+func TestNetworkTailscaleSubnetApproveWithoutCredentialPrintsAdminURL(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	fakeTailscaleOnPATH(t, "Running")
+	code, out, _ := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--subnet", "approve"}) })
+	if code != 2 || !strings.Contains(out, "login.tailscale.com/admin/machines") {
+		t.Errorf("--subnet approve (no credential): exit %d stdout %q, want 2 and the admin URL", code, out)
+	}
+}
+
+func TestNetworkTailscaleSubnetAdvertiseAndOffReport(t *testing.T) {
+	for args, want := range map[string]string{
+		"192.168.1.0/24,10.9.0.0/16": "advertising 192.168.1.0/24, 10.9.0.0/16",
+		"off":                        "subnet routes withdrawn",
+	} {
+		t.Run(args, func(t *testing.T) {
+			hermeticTailscaleSecrets(t)
+			fakeTailscaleOnPATH(t, "Running")
+			code, stdout, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--subnet", args}) })
+			if code != 0 || !strings.Contains(stdout, want) {
+				t.Errorf("--subnet %s: exit %d stdout %q stderr %q, want 0 and %q", args, code, stdout, stderr, want)
+			}
+		})
+	}
+}

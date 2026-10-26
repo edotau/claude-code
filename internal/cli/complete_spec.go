@@ -74,7 +74,7 @@ func buildSpecTree() map[string]*compNode {
 		"network": {sub: map[string]*compNode{
 			"restart": {flags: []flagInfo{boolFlag("dry-run"), formatFlag()}},
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
-				valuedFlag("exit-node", exitNodeActions), valuedFlag("route", routeTargets), flag("auth-key"),
+				valuedFlag("exit-node", exitNodeActions), valuedFlag("subnet", subnetActions), valuedFlag("route", routeTargets), flag("auth-key"),
 				flag("key-env"), boolFlag("advertise-exit"),
 				flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
 				boolFlag("preauthorized"), flag("description")}},
@@ -254,6 +254,9 @@ func memoryPromoteTargets() []string { return memory.PromoteTargets }
 
 // exitNodeActions are the `network tailscale --exit-node` values.
 func exitNodeActions() []string { return []string{"on", "off", "approve"} }
+
+// subnetActions are the `network tailscale --subnet` keyword values (a CIDR list is also accepted).
+func subnetActions() []string { return []string{"approve", "off"} }
 
 // routeTargets are the `network tailscale --route` values: dispatch hosts or "off" to clear.
 func routeTargets() []string { return append(dispatchHostNames(), "off") }

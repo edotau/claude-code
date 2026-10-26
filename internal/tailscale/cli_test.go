@@ -243,3 +243,43 @@ func TestUseExitNodeFlags(t *testing.T) {
 func shQuote(s string) string {
 	return "'" + s + "'"
 }
+
+func TestAdvertiseRoutesFlags(t *testing.T) {
+	for _, tc := range []struct {
+		routes []string
+		want   string
+	}{
+		{[]string{"192.168.1.0/24", "10.9.0.0/16"}, "set\n--advertise-routes=192.168.1.0/24,10.9.0.0/16\n"},
+		{nil, "set\n--advertise-routes=\n"},
+	} {
+		dir := t.TempDir()
+		argvFile := filepath.Join(dir, "argv")
+		bin := fakeBin(t, dir, "tailscale", "printf '%s\\n' \"$@\" > "+shQuote(argvFile))
+		prevLook, prevExec := lookPathReal, execCommandContext
+		lookPathReal = func(string) (string, error) { return bin, nil }
+		execCommandContext = exec.CommandContext
+		if err := AdvertiseRoutes(context.Background(), tc.routes); err != nil {
+			t.Fatalf("AdvertiseRoutes(%v) err = %v", tc.routes, err)
+		}
+		b, _ := os.ReadFile(argvFile)
+		if string(b) != tc.want {
+			t.Errorf("AdvertiseRoutes(%v) argv = %q, want %q", tc.routes, string(b), tc.want)
+		}
+		lookPathReal, execCommandContext = prevLook, prevExec
+	}
+}
+
+// TestStatusSubnetRoutes: approved LAN routes show up; own /32,/128 and the default routes do not.
+func TestStatusSubnetRoutes(t *testing.T) {
+	stubCLI(t, catScript(t, "status_subnet.json"))
+	st, err := Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status err = %v", err)
+	}
+	if len(st.SubnetRoutes) != 1 || st.SubnetRoutes[0] != "192.168.1.0/24" {
+		t.Errorf("SubnetRoutes = %v, want [192.168.1.0/24]", st.SubnetRoutes)
+	}
+	if !st.ExitNodeApproved {
+		t.Error("ExitNodeApproved = false with both default routes present")
+	}
+}

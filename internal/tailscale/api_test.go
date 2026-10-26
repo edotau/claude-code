@@ -85,8 +85,12 @@ func TestApproveExitNodeBody(t *testing.T) {
 	var gotBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
+		if r.Method == http.MethodGet { // the enabled set is read before it is replaced
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0"],"enabledRoutes":[]}`))
+			return
+		}
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
 	}))
 	defer ts.Close()
 	if err := staticClient(ts, "tok").ApproveExitNode(context.Background(), "dev123"); err != nil {
@@ -140,5 +144,46 @@ func TestRequestGivesUpAfterSecond401(t *testing.T) {
 	c := staticClient(ts, "stale")
 	if _, err := c.Devices(context.Background()); err == nil {
 		t.Error("Devices() err = nil, want an error after a persistent 401")
+	}
+}
+
+// TestEnableRoutesKeepsEnabled: approving a subnet must not drop routes the tailnet already enabled.
+func TestEnableRoutesKeepsEnabled(t *testing.T) {
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/device/dev1/routes" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
+		case http.MethodPost:
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"]}`))
+		}
+	}))
+	defer ts.Close()
+	c := staticClient(ts, "tok")
+	cur, err := c.Routes(context.Background(), "dev1")
+	if err != nil {
+		t.Fatalf("Routes err = %v", err)
+	}
+	enabled, err := c.EnableRoutes(context.Background(), "dev1", cur, []string{"192.168.1.0/24", "::/0"})
+	if err != nil {
+		t.Fatalf("EnableRoutes err = %v", err)
+	}
+	routes, _ := gotBody["routes"].([]any)
+	if len(routes) != 3 || routes[0] != "0.0.0.0/0" || routes[1] != "::/0" || routes[2] != "192.168.1.0/24" {
+		t.Errorf("POST routes = %v, want the enabled pair plus 192.168.1.0/24, no duplicate ::/0", routes)
+	}
+	if len(enabled) != 3 {
+		t.Errorf("enabled after = %v", enabled)
+	}
+}
+
+func TestSubnetRoutesDropsDefaults(t *testing.T) {
+	got := SubnetRoutes([]string{"0.0.0.0/0", "192.168.1.0/24", "::/0", "10.9.0.0/16"})
+	if len(got) != 2 || got[0] != "192.168.1.0/24" || got[1] != "10.9.0.0/16" {
+		t.Errorf("SubnetRoutes = %v", got)
 	}
 }

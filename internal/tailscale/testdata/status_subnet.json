@@ -1,0 +1,72 @@
+{
+  "Version": "1.104.1-t7f4efe814-g4939ea2e4",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": [
+    "100.107.35.117",
+    "fd7a:115c:a1e0::a339:2376"
+  ],
+  "Self": {
+    "ID": "n64qJ2CXZg11CNTRL",
+    "PublicKey": "nodekey:redacted0000000000000000000000000000000000000000000000000000",
+    "HostName": "test-mac",
+    "DNSName": "test-mac.tailxxxxx.ts.net.",
+    "OS": "macOS",
+    "TailscaleIPs": [
+      "100.107.35.117",
+      "fd7a:115c:a1e0::a339:2376"
+    ],
+    "AllowedIPs": [
+      "100.107.35.117/32",
+      "fd7a:115c:a1e0::a339:2376/128",
+      "0.0.0.0/0",
+      "::/0",
+      "192.168.1.0/24"
+    ],
+    "Online": true,
+    "ExitNode": false,
+    "ExitNodeOption": true,
+    "LastSeen": "0001-01-01T00:00:00Z",
+    "KeyExpiry": "2027-04-16T00:51:23Z"
+  },
+  "Health": [],
+  "MagicDNSSuffix": "tailxxxxx.ts.net",
+  "CurrentTailnet": {
+    "Name": "user@example.com",
+    "StableID": "Tkp9x6ZhkC11CNTRL",
+    "MagicDNSSuffix": "tailxxxxx.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "Peer": {
+    "nodekey:redacted1111111111111111111111111111111111111111111111111111": {
+      "ID": "n8xH7JvZkA21CNTRL",
+      "PublicKey": "nodekey:redacted1111111111111111111111111111111111111111111111111111",
+      "HostName": "localhost",
+      "DNSName": "test-phone.tailxxxxx.ts.net.",
+      "OS": "iOS",
+      "TailscaleIPs": [
+        "100.105.201.90",
+        "fd7a:115c:a1e0::b139:c95b"
+      ],
+      "AllowedIPs": [
+        "100.105.201.90/32",
+        "fd7a:115c:a1e0::b139:c95b/128"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "LastSeen": "0001-01-01T00:00:00Z",
+      "KeyExpiry": "2027-04-16T02:37:35Z"
+    }
+  },
+  "User": {
+    "2569984949708623": {
+      "ID": 2569984949708623,
+      "LoginName": "user@example.com",
+      "DisplayName": "Test User"
+    }
+  },
+  "ClientVersion": null
+}
