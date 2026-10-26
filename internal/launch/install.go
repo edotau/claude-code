@@ -34,7 +34,10 @@ import (
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
 var userBinDir = func() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "" // caller's MkdirAll("") fails loudly rather than link under a bogus root path
+	}
 	return filepath.Join(home, ".local", "bin")
 }
 
@@ -311,7 +314,10 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, orErr("", err))
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (home dir: %v)", opencodeLogin, copilotCLILogin, err)
+	}
 	file := filepath.Join(home, ".config", "opencode", "opencode.json")
 	if target.Provider.Name != "github-copilot" {
 		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
@@ -420,7 +426,10 @@ func routerStatus() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	url := fmt.Sprintf("http://127.0.0.1:%d/healthz", st.Port)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "bad healthz request: " + err.Error()
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "stale router.json (port " + strconv.Itoa(st.Port) + " not answering)"
@@ -534,11 +543,17 @@ func vendorDoctorDetail(s tools.Status, bin string) string {
 
 // extraPATHCopies lists PATH copies of name that resolve somewhere other than primary, as " · also on PATH: …".
 func extraPATHCopies(name, primary string) string {
-	first, _ := filepath.EvalSymlinks(primary)
+	first, err := filepath.EvalSymlinks(primary)
+	if err != nil { // broken/inaccessible symlink: fall back to the path itself so comparison still works
+		first = primary
+	}
 	first, _ = filepath.Abs(first)
 	var out strings.Builder
 	for _, path := range toolPATHCopies(name) {
-		real, _ := filepath.EvalSymlinks(path)
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			real = path
+		}
 		real, _ = filepath.Abs(real)
 		if real == first {
 			continue

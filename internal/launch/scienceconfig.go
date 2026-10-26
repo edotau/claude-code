@@ -32,7 +32,7 @@ func scienceConfigPort(raw []byte) int {
 			continue
 		}
 		value, _, _ = strings.Cut(value, "#")
-		if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 && n < 65534 {
+		if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 && n < 65535 {
 			return n
 		}
 	}
@@ -42,7 +42,10 @@ func scienceConfigPort(raw []byte) int {
 // scienceDefaultsFile materializes the embedded config only for a box without claude-science's own config.toml,
 // so a user's existing grants are never replaced; "" means pass no --config.
 func scienceDefaultsFile() (string, error) {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
 	if fileExists(filepath.Join(home, ".claude-science", "config.toml")) {
 		return "", nil
 	}
@@ -72,8 +75,8 @@ func scienceArgs(args []string, defPort int) (port int, rest []string, err error
 			value, args = args[1], args[1:]
 		}
 		args = args[1:]
-		if port, err = strconv.Atoi(value); err != nil || port <= 0 || port >= 65534 {
-			return 0, nil, fmt.Errorf("--port %q: want a port number below 65534 (sandbox is port+1)", value)
+		if port, err = strconv.Atoi(value); err != nil || port <= 0 || port >= 65535 {
+			return 0, nil, fmt.Errorf("--port %q: want a port number below 65535 (sandbox is port+1)", value)
 		}
 	}
 	return port, args, nil
