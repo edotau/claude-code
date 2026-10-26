@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -332,6 +333,13 @@ var (
 	ensureRouter = router.Ensure
 	routerSecret = router.ClientSecret
 )
+
+// StubRouterForTest points configure at base for t: an unstubbed Ensure would relaunch the test binary as the daemon.
+func StubRouterForTest(t testing.TB, base string) {
+	oe := ensureRouter
+	t.Cleanup(func() { ensureRouter = oe })
+	ensureRouter = func(context.Context) (string, error) { return base, nil }
+}
 
 type directKey struct{}
 
