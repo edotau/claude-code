@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 )
 
 // opencodeMenuVerbs are the `opencode models` subverbs this file owns; bare `models` stays the CLI's own catalog.
-var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset"}
+var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check"}
 
 func isOpencodeMenuVerb(vendor string, args []string) bool {
 	return vendor == "opencode" && len(args) > 0 && slices.Contains(opencodeMenuVerbs, args[0])
@@ -31,6 +32,8 @@ func opencodeMenuPage(verb string) helptext.Page {
 		"import": {"import <file> [--apply]",
 			"Replace the menu from an opencode.json or `id[,Label][,responses]` lines; dry run unless --apply."},
 		"reset": {"reset", "Delete the vault menu and fall back to the built-in one."},
+		"check": {"check [--all | <id>...] [flags]",
+			"Probe endpoints with one tiny request: status, latency, tool calls."},
 	}[verb]
 	return helptext.Page{Usage: "claude-code opencode models " + usage[0], About: usage[1]}
 }
@@ -45,14 +48,20 @@ func cmdOpencodeMenu(args []string) int {
 	fs := opencodeMenuFlags(verb)
 	var live, force, apply, responses bool
 	var provider string
+	var all bool
+	timeout := 30 * time.Second
 	format := new(string)
-	if verb == "list" {
+	if verb == "list" || verb == "check" {
 		format = outfmt.Flag(fs)
 	}
 	switch verb {
 	case "list":
 		fs.BoolVar(&live, "live", false, "mark each entry served or missing on the workspace")
 		fs.StringVar(&provider, "provider", "", "workspace provider (default: opencode's env)")
+	case "check":
+		fs.BoolVar(&all, "all", false, "probe every chat endpoint, not just the menu")
+		fs.StringVar(&provider, "provider", "", "workspace provider (default: opencode's env)")
+		fs.DurationVar(&timeout, "timeout", timeout, "per-request timeout")
 	case "add":
 		fs.BoolVar(&responses, "responses", false, "serve through the Responses API")
 		fs.BoolVar(&force, "force", false, "skip the workspace check")
@@ -67,15 +76,20 @@ func cmdOpencodeMenu(args []string) int {
 		}
 		return 2
 	}
-	if verb == "list" {
+	if verb == "list" || verb == "check" {
 		if err := outfmt.Check(*format); err != nil {
-			return fail("opencode models list: %v", err)
+			return fail("opencode models "+verb+": %v", err)
 		}
 	}
 	fail := func(f string, a ...any) int { return fail("opencode models "+verb+": "+f, a...) }
 	switch verb {
 	case "list":
 		return opencodeMenuList(live, provider, *format, fail)
+	case "check":
+		if all && len(pos) > 0 {
+			return fail("--all and explicit ids are exclusive")
+		}
+		return opencodeMenuCheck(pos, all, provider, timeout, *format, fail)
 	case "add":
 		if len(pos) != 1 {
 			return fail("usage: claude-code opencode models add <id>[=Label]")
@@ -164,6 +178,7 @@ type ocMenuRow struct {
 	Source    string `json:"source"`
 	Live      string `json:"live,omitempty"`
 	Ready     string `json:"ready,omitempty"`
+	Check     string `json:"check,omitempty"`
 }
 
 func opencodeMenuList(live bool, provider, format string, fail func(string, ...any) int) int {
@@ -179,6 +194,10 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 			return fail("%v", err)
 		}
 	}
+	var cache map[string]providers.CheckResult
+	if live {
+		cache, _ = providers.LoadCheckCache(p.Name)
+	}
 	var rows []ocMenuRow
 	for _, m := range providers.OpencodeMenu() {
 		r := ocMenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
@@ -187,6 +206,7 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 			if info, ok := servedInfo(served, p, m.ID); ok {
 				r.Live, r.Ready = "served", info.Ready
 			}
+			r.Check = checkCell(cache, m.ID)
 		}
 		rows = append(rows, r)
 	}
@@ -200,13 +220,13 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 	}
 	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
 	if live {
-		head += "  LIVE"
+		head += "  LIVE                  CHECK"
 	}
 	fmt.Println(head)
 	for _, r := range rows {
 		line := fmt.Sprintf("%-*s  %-*s  %-9v  %s", idW, r.ID, labW, r.Label, r.Responses, r.Source)
 		if live {
-			line += "  " + strings.TrimSpace(r.Live+" "+r.Ready)
+			line += fmt.Sprintf("  %-20s  %s", strings.TrimSpace(r.Live+" "+r.Ready), r.Check)
 		}
 		fmt.Println(line)
 	}
@@ -262,4 +282,102 @@ func opencodeMenuImport(file string, apply bool, fail func(string, ...any) int) 
 		return 0
 	}
 	return opencodeMenuWrite(next, fmt.Sprintf("imported %d model(s)", len(next)), fail)
+}
+
+// checkCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-".
+func checkCell(cache map[string]providers.CheckResult, id string) string {
+	r, ok := cache[id]
+	switch {
+	case !ok:
+		return "-"
+	case r.Status == "ok" && r.Tools == "no":
+		return "ok no-tools"
+	case r.Status == "ok":
+		return "ok tools"
+	case r.Status == "fail" && r.HTTP > 0:
+		return fmt.Sprintf("fail %d", r.HTTP)
+	}
+	return r.Status
+}
+
+// opencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
+func opencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []providers.CheckTarget {
+	menu := map[string]providers.OpencodeModel{}
+	for _, m := range providers.OpencodeMenu() {
+		menu[m.ID] = m
+	}
+	var out []providers.CheckTarget
+	if all {
+		for name, info := range served {
+			if info.Task != "llm/v1/chat" {
+				continue
+			}
+			id := providers.MenuID(name)
+			out = append(out, providers.CheckTarget{ID: id, Wire: name, Responses: menu[id].Responses || strings.HasPrefix(id, "gpt-")})
+		}
+		return out
+	}
+	if len(ids) == 0 {
+		for _, m := range providers.OpencodeMenu() {
+			ids = append(ids, m.ID)
+		}
+	}
+	for _, raw := range ids {
+		id := providers.MenuID(raw)
+		t := providers.CheckTarget{ID: id, Responses: menu[id].Responses || (menu[id].ID == "" && strings.HasPrefix(id, "gpt-"))}
+		if _, ok := served[p.ModelPrefix+id]; ok {
+			t.Wire = p.ModelPrefix + id
+		} else if _, ok := served[id]; ok {
+			t.Wire = id
+		} else {
+			t.Missing = true
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Duration, format string, fail func(string, ...any) int) int {
+	served, p, err := opencodeServed(provider)
+	if err != nil {
+		return fail("%v", err)
+	}
+	targets := opencodeCheckTargets(ids, all, served, p)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	results, err := providers.ProbeEndpoints(ctx, p, targets, providers.CheckOptions{Concurrency: 4, Timeout: timeout})
+	if err != nil && results == nil {
+		return fail("%v", err)
+	}
+	providers.SortCheckResults(results)
+	if err := providers.SaveCheckCache(providers.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
+		fmt.Fprintf(os.Stderr, "opencode models check: cache not written: %v\n", err)
+	}
+	if format == outfmt.JSON {
+		_ = outfmt.Write(os.Stdout, results)
+		return 0
+	}
+	idW := len("ID")
+	for _, r := range results {
+		idW = max(idW, len(r.ID))
+	}
+	fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
+	for _, r := range results {
+		code, lat, tools := "-", "-", "-"
+		if r.HTTP > 0 {
+			code = fmt.Sprint(r.HTTP)
+		}
+		if r.Status != "missing" {
+			lat = fmt.Sprintf("%dms", r.LatencyMS)
+		}
+		if r.Tools != "" {
+			tools = r.Tools
+		}
+		fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
+		if r.Status == "fail" && r.Error != "" {
+			fmt.Print("  " + r.Error)
+		}
+		fmt.Println()
+	}
+	return 0
 }
