@@ -189,7 +189,7 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 		var id struct {
 			Command string `json:"command"`
 		}
-		if err := json.Unmarshal(h, &id); err == nil && hookspec.IsHarness(id.Command) {
+		if err := json.Unmarshal(h, &id); err == nil && (hookspec.IsHarness(id.Command) || retiredHook(id.Command)) {
 			harnessFound = true
 			continue
 		}
@@ -206,6 +206,11 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 		return &raw, true
 	}
 	return &rebuilt, true
+}
+
+// retiredHook reports a hook of the retired claude-dbx harness, whose binary is gone: merge drops it.
+func retiredHook(command string) bool {
+	return strings.Contains(command, "CLAUDE_CODE_DBX_BIN") || strings.Contains(command, "/bin/claude-dbx")
 }
 
 // rebuildCodexGroup replaces a partially-filtered group's "hooks" array, preserving every other key

@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendorconfig"
@@ -150,9 +151,26 @@ func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
 }
 
+// agentSelection applies the active profile's row for vendor name to sel, as a `claude-code <vendor>` launch does.
+func agentSelection(reg *providers.Registry, name string, sel providers.Selection) (providers.Selection, bool) {
+	b := reg.ResolveAgent(providers.AgentRequest{Agent: name})
+	if b.Profile == "" || b.Provider == "" {
+		return sel, false
+	}
+	s, err := providers.Select(reg, b.Provider)
+	if err != nil || s.Provider == nil {
+		return sel, false
+	}
+	if b.Model != "" {
+		s.Slots[models.Opus] = providers.ParseTarget(reg, b.Model, s.Provider)
+	}
+	return s, true
+}
+
 func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
 	ctx := context.Background()
-	target, note, err := vendors.ResolveTarget(reg, "codex", sel, false)
+	sel, explicit := agentSelection(reg, "codex", sel)
+	target, note, err := vendors.ResolveTarget(reg, "codex", sel, explicit)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil

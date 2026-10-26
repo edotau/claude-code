@@ -748,3 +748,39 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 		t.Fatalf("--vendors must still write copilot hooks: %v", err)
 	}
 }
+
+// TestCodexRenderAppliesProfileRow: config.toml follows the active profile's codex row, as a codex launch does.
+func TestCodexRenderAppliesProfileRow(t *testing.T) {
+	home := scratch(t)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"default":"openai","profiles":{"active":"p","sets":{"p":{"codex":{"account":"openai","model":"gpt-row-pin"}}}}}`)
+	var out bytes.Buffer
+	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	cfg, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), `model = "gpt-row-pin"`) {
+		t.Errorf("codex config ignores the profile row's model:\n%s", cfg)
+	}
+}
+
+// TestMergeCodexHooksDropsRetiredDbx: claude-dbx hooks are dropped; Orca and other foreign hooks stay.
+func TestMergeCodexHooksDropsRetiredDbx(t *testing.T) {
+	existing := `{"hooks":{
+"SessionEnd":[{"hooks":[{"type":"command","command":"${CLAUDE_CODE_DBX_BIN:-$HOME/.claude/bin/claude-dbx} hook session-harvest end || true","timeout":10}]}],
+"Stop":[{"hooks":[{"type":"command","command":"orca-hook stop"},{"type":"command","command":"$HOME/.claude/bin/claude-dbx hook stop-format"}]}]}}`
+	got, err := mergeCodexHooks([]byte(existing), []byte(`{"hooks":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if strings.Contains(s, "claude-dbx") || strings.Contains(s, "SessionEnd") {
+		t.Errorf("retired claude-dbx hooks kept:\n%s", s)
+	}
+	if !strings.Contains(s, "orca-hook stop") {
+		t.Errorf("foreign Orca hook dropped:\n%s", s)
+	}
+}
