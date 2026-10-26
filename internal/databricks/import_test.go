@@ -76,3 +76,52 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 		t.Errorf("re-import should skip existing: %d %q", code, out)
 	}
 }
+
+// writeCfg writes a databrickscfg fixture and returns its path.
+func writeCfg(t *testing.T, body string) string {
+	t.Helper()
+	cfg := filepath.Join(t.TempDir(), "cfg")
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestImportCfgRefusals(t *testing.T) {
+	const one = "[solo]\nhost = https://solo.example.cloud.databricks.com\nauth_type = databricks-cli\n"
+	cases := []struct {
+		name   string
+		cfg    string
+		args   []string
+		want   string
+		refuse bool // true: non-zero exit; false: a skipped row (exit 0, the note says why)
+	}{
+		{"unknown profile", one, []string{"--apply", "--profile", "ghost"}, `no profile "ghost" in the config`, true},
+		{"empty config", "", []string{"--apply"}, "no profiles in", true},
+		{"bad rename", one, []string{"--apply", "--rename", "solo"}, "want old=new", true},
+		{"default only", "[DEFAULT]\nhost = https://d.example.cloud.databricks.com\n", []string{"--apply"},
+			"never imported", false},
+		{"bad id", one, []string{"--apply", "--rename", "solo=bad id!"}, "id must match", false},
+		{"http host", "[web]\nhost = http://web.example.cloud.databricks.com\nauth_type = databricks-cli\n",
+			[]string{"--apply"}, "no usable https host", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			useVaultTest(t)
+			args := append([]string{"--file", writeCfg(t, c.cfg)}, c.args...)
+			code, out, errOut := captureOutput(t, func() int { return importCfg(args) })
+			if all := out + errOut; !strings.Contains(all, c.want) {
+				t.Errorf("output %q lacks %q (code %d)", all, c.want, code)
+			}
+			if c.refuse == (code == 0) {
+				t.Errorf("exit %d, refuse=%v", code, c.refuse)
+			}
+			reg, _ := providers.Load()
+			for _, id := range []string{"solo", "web", "DEFAULT", "bad id!", "ghost"} {
+				if reg != nil && reg.Providers[id] != nil {
+					t.Errorf("row %q was written", id)
+				}
+			}
+		})
+	}
+}

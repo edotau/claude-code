@@ -382,3 +382,25 @@ func TestProviderLabelEnvTable(t *testing.T) {
 		}
 	}
 }
+
+// A databricks preset row renders "databricks·<id>" whatever its id; a non-preset row keeps the env-suffix rule.
+func TestProviderLabelDatabricksPreset(t *testing.T) {
+	prev := registry
+	t.Cleanup(func() { registry = prev })
+	registry = func() *providers.Registry {
+		return &providers.Registry{Providers: map[string]*providers.Provider{
+			"databricks-lab": {Name: "databricks-lab", Preset: providers.PresetDatabricks},
+			"mylab":          {Name: "mylab", Preset: providers.PresetDatabricks},
+			"databricks-foo": {Name: "databricks-foo"},
+		}}
+	}
+	for name, want := range map[string]string{
+		"databricks-lab": "databricks·lab",
+		"mylab":          "databricks·mylab",
+		"databricks-foo": "databricks-foo",
+	} {
+		if got := providerLabel(name); got != want {
+			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
