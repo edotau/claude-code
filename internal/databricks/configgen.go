@@ -187,6 +187,8 @@ func renderClaude(o Options) (Result, error) {
 	if gw {
 		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
 		env["ANTHROPIC_MODEL"] = p.WireModel("claude-opus-5-5")
+	} else {
+		env["ANTHROPIC_MODEL"] = p.WireModel("claude-opus-5-5[1m]") // serving serves 1M; matches the launcher's default
 	}
 	for slot, id := range map[string]string{"OPUS": "claude-opus-5-5", "SONNET": "claude-sonnet-5-5", "HAIKU": "claude-haiku-5-5"} {
 		env["ANTHROPIC_DEFAULT_"+slot+"_MODEL"] = p.WireModel(id)
