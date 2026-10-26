@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
@@ -47,14 +49,16 @@ func vendorPage(vendor string) helptext.Page {
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"models", "the vendor's own model catalog"},
+		{"env", "show or move only " + vendor + "'s account: dev, qa, prod"},
 	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
 	}
 	return helptext.Page{
-		Usage:    "claude-code " + vendor + " [<command>|--] [args…]",
+		Usage:    "claude-code " + vendor + " [<command>|--] [launch flags] [args…]",
 		About:    vendorAbout[vendor],
 		Commands: rows,
+		Flags:    vendorLaunchFlags(vendor),
 		Hint:     "claude-code " + vendor + " <command> -h lists that command's flags.",
 	}
 }
@@ -82,7 +86,13 @@ func vendorSubPage(vendor, verb string) helptext.Page {
 	if strings.Contains(about, "%") {
 		about = fmt.Sprintf(about, vendor)
 	}
-	return helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
+	page := helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
+	if verb == "env" {
+		for _, env := range providers.DatabricksEnvs {
+			page.Commands = append(page.Commands, [2]string{env, "move " + vendor + " to the " + env + " workspace"})
+		}
+	}
+	return page
 }
 
 // vendorSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
@@ -126,7 +136,8 @@ func cmdVendorSub(vendor string, args []string) int {
 	case "transfer":
 		return cmdVendorTransfer(vendor, args[1:])
 	case "env":
-		if vendorSubHelp(vendor, "env", args[1:]) {
+		if slices.Contains(args[1:], "-h") || slices.Contains(args[1:], "--help") { // `env prod -h` too
+			vendorSubPage(vendor, "env").Fprint(os.Stderr)
 			return 0
 		}
 		return cmdVendorEnv(vendor, args[1:])
@@ -414,4 +425,17 @@ func cmdVendorModels(vendor string) int {
 		fmt.Printf("%s: no model catalog\n", vendor)
 		return 0
 	}
+}
+
+// vendorLaunchFlags lists the harness flags a bare launch consumes (launch.ParseArgs) for the help page.
+func vendorLaunchFlags(vendor string) *flag.FlagSet {
+	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
+	fs.String("model", "", "model for this launch, [provider:]id")
+	fs.String("provider", "", "provider row for this launch")
+	fs.Bool("direct", false, "skip the router; hand the CLI the provider route")
+	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
+	if vendor == "codex" {
+		fs.String("f", "", "config.toml whose keys ride as -c overrides")
+	}
+	return fs
 }
