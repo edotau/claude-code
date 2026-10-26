@@ -111,3 +111,24 @@ func TestRejects(t *testing.T) {
 		t.Error("bad host accepted")
 	}
 }
+
+// TestCodexModelAndNameFollowWire: either wire's id is re-prefixed for the row's wire; the name says which wire.
+func TestCodexModelAndNameFollowWire(t *testing.T) {
+	cases := []struct{ wire, model, wantModel, wantName string }{
+		{"serving", "system.ai.gpt-6-1-sol", `model = "databricks-gpt-6-1-sol"`, `name = "Databricks serving"`},
+		{"gateway", "databricks-gpt-6-1-sol", `model = "system.ai.gpt-6-1-sol"`, `name = "Databricks AI Gateway"`},
+	}
+	for _, c := range cases {
+		t.Run(c.wire, func(t *testing.T) {
+			o := base(t, TargetCodex, c.wire)
+			o.Model = c.model
+			r, err := Render(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(r.Text, c.wantModel) || !strings.Contains(r.Text, c.wantName) {
+				t.Errorf("want %s and %s in:\n%s", c.wantModel, c.wantName, r.Text)
+			}
+		})
+	}
+}

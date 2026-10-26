@@ -192,7 +192,7 @@ func renderClaude(o Options) (Result, error) {
 		env["ANTHROPIC_DEFAULT_"+slot+"_MODEL"] = p.WireModel(id)
 	}
 	if o.Model != "" {
-		env["ANTHROPIC_MODEL"] = p.WireModel(o.Model)
+		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
 	}
 	for k, v := range p.Env {
 		env[k] = v
@@ -235,6 +235,16 @@ func replaceLine(head, key, val string) string {
 	return strings.Join(lines, "\n")
 }
 
+// bareModel strips either wire's id prefix, so a serving id given for a gateway row (or back) is re-prefixed.
+func bareModel(id string) string {
+	for _, prefix := range []string{"databricks-", "system.ai."} {
+		if rest, ok := strings.CutPrefix(id, prefix); ok {
+			return rest
+		}
+	}
+	return id
+}
+
 func renderCodex(o Options) (Result, error) {
 	raw, err := tmpl("codex.toml", o.Host)
 	if err != nil {
@@ -251,7 +261,10 @@ func renderCodex(o Options) (Result, error) {
 	if o.Model != "" {
 		model = o.Model
 	}
-	head = replaceLine(head, "model", p.WireModel(model))
+	head = replaceLine(head, "model", p.WireModel(bareModel(model)))
+	if p.Options.Wire != WireGateway {
+		head = replaceLine(head, "name", "Databricks serving")
+	}
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
 	if o.Auth == AuthHarness {
 		auth = fmt.Sprintf("command = %s\nargs = [\"token\", \"--provider\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
