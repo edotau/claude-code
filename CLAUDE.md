@@ -61,7 +61,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Set a credential | `claude-code vault set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `vault list\|get\|delete\|import\|export`, sources in `configure provider --list` | `README.md` → Credentials |
-| Run the model router | `claude-code router start\|status\|stop` (`router serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
+| Run the model router | `claude-code gateway proxy --start\|--stop\|--status` (`--serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
 | Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cost-routing.md` |
 | Search the public web when native search is unavailable | `claude-code network websearch --query "<query>"` | `skills/web-search/SKILL.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini.md`, `agents/gemini.md` |

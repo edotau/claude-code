@@ -37,7 +37,7 @@ func TestHelpFormat(t *testing.T) {
 		"opus": true, "sonnet": true, "haiku": true, "fable": true, "science": true,
 	}
 	hidden := []string{
-		"ask", "agents", "models", "router", "review", "workflow", "hook",
+		"ask", "agents", "models", "review", "workflow", "hook",
 		"help-svg", "clip", "bmp-transcode", "completion",
 	}
 	var verbs []string

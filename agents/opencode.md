@@ -65,7 +65,7 @@ the vendor binary; skip setup and go straight to the `memory` verb. Delta:
   session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
 - **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`. Default model and
   effort fit normal drafting; only `--effort high` for an unusually complex pass.
-  Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+  Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
   Reflection modes run the matching `claude-code memory` verb directly.
 - **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
   the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.
@@ -113,7 +113,7 @@ or a restructure — is drafted on the OpenCode CLI (the user's opencode Go plan
 `claude-code opencode ask --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
 Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
 restructuring) add `--effort high`.
-Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
 Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
 ANALYZE/EXTRACT/PERSIST stay with you. `--workdir` has been known to be ignored, writing the live tree instead —
 brief the drafting run on a copy

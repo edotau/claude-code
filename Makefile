@@ -219,10 +219,10 @@ mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
 
 .PHONY: verify
-verify: audit  ## audit + doctor + router status
+verify: audit  ## audit + doctor + proxy status
 	@$(BIN) doctor
-	@$(BIN) router status
-	@echo -e "$(C_OK)verify passed (audit + doctor + router status)"
+	@$(BIN) gateway proxy --status
+	@echo -e "$(C_OK)verify passed (audit + doctor + proxy status)"
 
 ##@ Diagnostics
 .PHONY: doctor
@@ -231,8 +231,8 @@ doctor: compile  ## Harness health checks
 
 .PHONY: router
 router: compile  ## Router daemon status (UP=1 starts it)
-	@if [ -n "$(UP)" ]; then $(BIN) router start; fi
-	$(BIN) router status
+	@if [ -n "$(UP)" ]; then $(BIN) gateway proxy --start; fi
+	$(BIN) gateway proxy --status
 
 .PHONY: statusline
 statusline: compile  ## Render a sample statusline (COLS=…)

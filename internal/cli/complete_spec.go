@@ -6,6 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -32,6 +33,12 @@ func buildSpecTree() map[string]*compNode {
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
 	valuedFlag := func(name string, values func() []string) flagInfo { return flagInfo{name: name, values: values} }
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
+	// gateway route's flags, which bare `gateway` also takes.
+	gatewayRouteFlags := func() []flagInfo {
+		return []flagInfo{valuedFlag("tier", func() []string { return route.Tiers }),
+			valuedFlag("agent", func() []string { return route.Runners }),
+			flag("task"), valuedFlag("fallback", func() []string { return agent.FallbackModes }), formatFlag()}
+	}
 	vaultSections := func() []string {
 		return []string{"secrets", "pins", "env", "providers", "vendors", "settings", "vault", "all"}
 	}
@@ -82,8 +89,11 @@ func buildSpecTree() map[string]*compNode {
 		}},
 		"models": {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
-		"router": {sub: map[string]*compNode{
-			"serve": {flags: []flagInfo{flag("port")}}, "start": {}, "stop": {}, "status": {}}},
+		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
+			"route": {flags: gatewayRouteFlags()},
+			"proxy": {flags: []flagInfo{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
+				flag("port"), formatFlag()}},
+		}},
 		"workflow": {sub: map[string]*compNode{
 			"skeleton": {args: []func() []string{workflowPatterns}, flags: []flagInfo{flag("name")}},
 			"lint":     {},

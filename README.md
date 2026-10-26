@@ -187,8 +187,8 @@ The router disables Remote Control, so a subscription session stays direct under
 cross-provider slot or `--router` still routes it.
 
 ```bash
-claude-code router start|status|stop
-claude-code router serve --port 18765   # foreground
+claude-code gateway proxy --start|--stop|--status
+claude-code gateway proxy --serve --port 18765   # foreground
 claude-code --router                    # force the router for one launch
 ```
 

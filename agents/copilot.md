@@ -130,7 +130,7 @@ A few test edits you may make yourself (say so in `Ran on:`). A large batch — 
    (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
    batch needs a stronger model).
 3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
-4. Leg choice and fallback: `claude-code route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+4. Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
    If `ask` fails or its edits don't hold up, make them yourself and say why.
 
 ### LAST-MILE

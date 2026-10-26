@@ -51,7 +51,9 @@ func TestRouteVerbJSON(t *testing.T) {
 	if err := route.MarkExhausted("copilot:work-user", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
-	out, code := captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet", "--agent", "copilot", "--format", "json"}) })
+	out, code := captureRouteStdout(t, func() int {
+		return cmdGatewayRoute([]string{"--tier", "sonnet", "--agent", "copilot", "--format", "json"})
+	})
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -74,7 +76,7 @@ func TestRouteVerbJSON(t *testing.T) {
 	if c := res.Candidates[len(res.Candidates)-1]; c.Runner != "claude" || c.Model != "sonnet" || c.Scores == nil {
 		t.Errorf("last candidate = %+v, want claude at sonnet with scores", c)
 	}
-	if code := cmdRoute([]string{"--tier", "fable"}); code == 0 {
+	if code := cmdGatewayRoute([]string{"--tier", "fable"}); code == 0 {
 		t.Error("an unrouted tier must fail")
 	}
 }
@@ -85,7 +87,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(providers.EnvRouteSubagents, "")
 
-	out, code := captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	out, code := captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -113,7 +115,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	}
 	t.Setenv(providers.EnvRouteSubagents, "0")
 
-	out, code = captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	out, code = captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -136,7 +138,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 		t.Errorf("subagents = %+v, want off/env (the process env beats the vault)", withOverlay.Sources.Subagents)
 	}
 
-	textOut, code := captureRouteStdout(t, func() int { return cmdRoute([]string{"--tier", "sonnet"}) })
+	textOut, code := captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, textOut)
 	}
