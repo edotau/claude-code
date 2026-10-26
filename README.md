@@ -155,7 +155,7 @@ claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 Databricks: only `u2m` and `pat` credentials are stored, sealed in the vault, plus the u2m access token cached as
 `PROVIDER_<ID>_ACCESS_TOKEN`. `oauth-m2m` tokens are minted per use and never stored; the SP client secret stays sealed.
 
-`claude-code databricks mint <id> [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and expiry,
+`claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and expiry,
 never the token. `--copy` puts it on the clipboard and clears it after 30s; on WSL the copy stays out of Win+V history.
 
 `claude-code configure` → databricks: Login / Paste PAT / Mint now / Copy token / Apply to agents.

@@ -30,7 +30,7 @@ func fail(format string, a ...any) int {
 }
 
 var loginPage = helptext.Page{
-	Usage: "claude-code databricks login <provider> [flags]",
+	Usage: "claude-code databricks login [--profile <name>] [flags]",
 	About: "Sign in through the browser for a provider row with auth.authType u2m;\n" +
 		"the refresh token is sealed in the vault.",
 }
@@ -40,13 +40,13 @@ func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
 	authType := fs.String("auth-type", providers.AuthU2M, "switch the row's auth.authType first (only u2m)")
+	profileName := profileFlag(fs)
 	names, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(names) != 1 {
-		fs.Usage()
-		return 2
+	if len(names) > 0 {
+		return usageProfile("login", names[0])
 	}
 	if *authType != providers.AuthU2M {
 		fail("login: --auth-type %q does not sign in through the browser; "+
@@ -57,7 +57,7 @@ func login(args []string) int {
 	if err != nil {
 		return fail("login: %v", err)
 	}
-	p, err := reg.Get(names[0])
+	p, err := reg.Get(resolveProfile(reg, *profileName))
 	if err != nil {
 		return fail("login: %v", err)
 	}
@@ -216,4 +216,26 @@ func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage)
 		}
 	}
 	return kept
+}
+
+// profileFlag registers --profile, the provider row a databricks command acts on.
+func profileFlag(fs *flag.FlagSet) *string {
+	return fs.String("profile", "", "provider row (default: the pinned Databricks row, else HARNESS_PROVIDER's env, else qa)")
+}
+
+// resolveProfile is name, else the vault default when it is a Databricks row, else envOrDefault's env.
+func resolveProfile(reg *providers.Registry, name string) string {
+	if name != "" {
+		return name
+	}
+	if p := reg.Providers[reg.Default]; p != nil && p.Preset == providers.PresetDatabricks {
+		return reg.Default
+	}
+	return envOrDefault("")
+}
+
+// usageProfile refuses a positional row name: commands take only flags (--profile).
+func usageProfile(verb, arg string) int {
+	fmt.Fprintf(os.Stderr, "claude-code databricks %s: unexpected argument %q; pass --profile %s\n", verb, arg, arg)
+	return 2
 }

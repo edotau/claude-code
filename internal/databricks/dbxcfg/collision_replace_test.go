@@ -27,7 +27,7 @@ func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 		"keep": json.RawMessage(`{"preset":"databricks","host":"https://example.cloud.databricks.com","auth":{"type":"bearer"}}`),
 	}
 	rows := Plan([]Candidate{patCand("keep"), patCand("fresh")}, existing, Options{Replace: true})
-	if rows[0].Action != "skip" || !strings.Contains(rows[0].Reason, "databricks login keep --auth-type u2m") {
+	if rows[0].Action != "skip" || !strings.Contains(rows[0].Reason, "databricks login --profile keep --auth-type u2m") {
 		t.Errorf("existing = %+v", rows[0])
 	}
 	if rows[1].Action != "add" {

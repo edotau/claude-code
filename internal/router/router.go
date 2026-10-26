@@ -211,7 +211,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	t := ladder[len(ladder)-1]
 	var failure *fallbackError
 	if errors.As(lastErr, &failure) && failure.auth {
-		writeError(w, http.StatusUnauthorized, fmt.Sprintf("router: %s: authentication failed; run `claude-code databricks login %s`", t.Provider.Name, t.Provider.Name))
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("router: %s: authentication failed; run `claude-code databricks login --profile %s`", t.Provider.Name, t.Provider.Name))
 		return t.Provider.Name, t.Model, len(ladder)
 	}
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("router: %s: %v", t.Provider.Name, lastErr))
@@ -298,7 +298,7 @@ func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
 	if Gate.Mark == nil {
 		return
 	}
-	if err := Gate.Mark(Gate.Account(p.Name), "auth "+string(v)+": run `claude-code databricks login "+p.Name+"`"); err != nil {
+	if err := Gate.Mark(Gate.Account(p.Name), "auth "+string(v)+": run `claude-code databricks login --profile "+p.Name+"`"); err != nil {
 		fmt.Fprintf(r.log, "router: mark %s auth-dead: %v\n", p.Name, err)
 		return
 	}

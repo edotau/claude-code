@@ -48,7 +48,7 @@ func overlayDoc(t *testing.T) string {
 
 func TestVaultLoginAuthTypeRejectsOther(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int {
-		return login([]string{"x", "--auth-type", "m2m"})
+		return login([]string{"--profile", "x", "--auth-type", "m2m"})
 	})
 	if code == 0 || !strings.Contains(stderr, "vault set") {
 		t.Errorf("exit %d, stderr %q", code, stderr)
@@ -61,7 +61,7 @@ func TestVaultLoginAuthTypeDryRun(t *testing.T) {
 	called := false
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { called = true; return 0, nil })
 	code, stdout, stderr := captureOutput(t, func() int {
-		return login([]string{"dbx-dev", "--auth-type", "u2m", "--dry-run"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m", "--dry-run"})
 	})
 	if code != 0 || called {
 		t.Fatalf("exit %d called=%v stderr %q", code, called, stderr)
@@ -84,7 +84,7 @@ func TestVaultLoginAuthTypeWrites(t *testing.T) {
 		return 30 * time.Minute, nil
 	})
 	code, stdout, stderr := captureOutput(t, func() int {
-		return login([]string{"dbx-dev", "--auth-type", "u2m"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m"})
 	})
 	if code != 0 || !sawU2M || !strings.Contains(stdout, "logged in · token expires in 30m") {
 		t.Fatalf("exit %d u2m=%v stdout %q stderr %q", code, sawU2M, stdout, stderr)
@@ -102,7 +102,7 @@ func TestVaultLoginAuthTypeFailurePrintsRollback(t *testing.T) {
 	seedCLIProfileRow(t)
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return 0, context.DeadlineExceeded })
 	code, _, stderr := captureOutput(t, func() int {
-		return login([]string{"dbx-dev", "--auth-type", "u2m"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m"})
 	})
 	if code == 0 || !strings.Contains(stderr, "providers.prev") {
 		t.Errorf("exit %d stderr %q", code, stderr)

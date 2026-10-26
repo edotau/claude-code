@@ -108,7 +108,7 @@ func TestCondemnedRefreshMovesOnToNextTarget(t *testing.T) {
 	if resp.StatusCode != 200 || up1.hits.Load() != 0 || up2.hits.Load() != 1 {
 		t.Fatalf("status %d hits up1=%d up2=%d, want 200 served by up2 only", resp.StatusCode, up1.hits.Load(), up2.hits.Load())
 	}
-	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "needs_login") || !strings.Contains(reason, "databricks login up1") {
+	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "needs_login") || !strings.Contains(reason, "databricks login --profile up1") {
 		t.Fatalf("up1 mark = %q, %v; want a needs_login mark with the login hint", reason, ok)
 	}
 	if _, ok := g.marked("up2"); ok {
@@ -145,7 +145,7 @@ func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
 	b := body(t, resp)
 	if resp.StatusCode != 401 || !strings.Contains(b, `"authentication_error"`) ||
-		!strings.Contains(b, "run `claude-code databricks login up1`") {
+		!strings.Contains(b, "run `claude-code databricks login --profile up1`") {
 		t.Fatalf("status %d body %s, want 401 authentication_error with the login hint", resp.StatusCode, b)
 	}
 	if up1.hits.Load() != 0 {

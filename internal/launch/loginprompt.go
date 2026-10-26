@@ -57,7 +57,7 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader)
 	fmt.Fprintf(loginOut, "%s: Databricks login required. Log in now? [Y/n] ", p.Name)
 	line, _ := in.ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "" && !strings.HasPrefix(a, "y") {
-		return fmt.Errorf("login skipped; requests will fail until `claude-code databricks login %s`", p.Name)
+		return fmt.Errorf("login skipped; requests will fail until `claude-code databricks login --profile %s`", p.Name)
 	}
 	if err := loginRow(ctx, p.Name, loginOut); err != nil {
 		return fmt.Errorf("databricks login: %w", err)
