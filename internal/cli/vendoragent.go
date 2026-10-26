@@ -18,7 +18,7 @@ import (
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
 var vendorSubverbs = map[string]bool{
 	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "models": true,
-	"review": true, "transfer": true, "explore": true,
+	"review": true, "transfer": true, "explore": true, "env": true,
 }
 
 // vendorAbout expands each vendor's one-line menu summary for its help page.
@@ -71,6 +71,7 @@ var vendorSubPages = map[string][2]string{
 	"models":   {"models", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
+	"env":      {"env [dev|qa|prod]", "Show %s's account, or move only %[1]s to another env of its preset."},
 	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
 }
 
@@ -124,6 +125,11 @@ func cmdVendorSub(vendor string, args []string) int {
 		return cmdVendorExplore(vendor, args[1:])
 	case "transfer":
 		return cmdVendorTransfer(vendor, args[1:])
+	case "env":
+		if vendorSubHelp(vendor, "env", args[1:]) {
+			return 0
+		}
+		return cmdVendorEnv(vendor, args[1:])
 	}
 	return fail("%s: unknown subcommand %q", vendor, args[0])
 }

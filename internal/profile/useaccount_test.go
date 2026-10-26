@@ -88,3 +88,26 @@ func TestUseAccountDryRunWritesNothing(t *testing.T) {
 		t.Errorf("dry run did not plan the change:\n%s", newDoc)
 	}
 }
+
+// TestUseAgentAccountMovesOneRow: only the named agent moves; a cross-preset row is refused.
+func TestUseAgentAccountMovesOneRow(t *testing.T) {
+	seed(t, strings.Replace(useAcctDoc, `"active":""`, `"active":"DEFAULT"`, 1))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := UseAgentAccount(true, reg, "codex", "dbx-prod"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := providers.Load()
+	set := got.Profiles.Sets["DEFAULT"]
+	if set["codex"].Account != "dbx-prod" || set["codex"].Model != "dbx-dev:gpt-x" {
+		t.Errorf("codex = %+v, want dbx-prod with its model kept", set["codex"])
+	}
+	if set["session"].Account != "dbx-dev" {
+		t.Errorf("session moved: %+v", set["session"])
+	}
+	if _, _, err := UseAgentAccount(true, got, "gemini", "dbx-prod"); err == nil {
+		t.Error("gemini on acme moved to a databricks row, want a refusal")
+	}
+}
