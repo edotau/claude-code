@@ -198,12 +198,22 @@ func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 	}
 }
 
+// remoteCache memoizes originRemoteURL per checkout, misses included; a remote change mid-process is not seen.
+var remoteCache sync.Map
+
+// resetRemoteCache drops the memoized remotes (tests only).
+func resetRemoteCache() { remoteCache.Clear() }
+
 // originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).
 func originRemoteURL(checkout string) string {
+	if v, ok := remoteCache.Load(checkout); ok {
+		return v.(string)
+	}
 	out, err := gitOut(checkout, "remote", "get-url", "origin")
 	if err != nil {
-		return ""
+		out = ""
 	}
+	remoteCache.Store(checkout, out)
 	return out
 }
 
