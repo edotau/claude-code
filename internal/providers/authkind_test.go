@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func kindRow(kind, clientID, typ string) *Provider {
@@ -45,7 +47,7 @@ func TestKindSecretName(t *testing.T) {
 }
 
 func TestPATCredentialAndPresence(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t) // sealing needs the vault master key; Linux CI has no keyring
 	p := kindRow(AuthPAT, "", AuthBearer)
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
