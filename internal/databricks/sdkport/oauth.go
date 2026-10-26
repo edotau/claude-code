@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,6 +71,15 @@ func (e *oauthError) Error() string {
 		s += ": " + e.Desc
 	}
 	return s
+}
+
+// authRejectionCodes are the RFC 6749 §5.2 error codes (case-sensitive) that mean the grant itself is dead.
+var authRejectionCodes = []string{"invalid_client", "unauthorized_client", "invalid_grant", "access_denied", "invalid_scope"}
+
+// IsLoginRequired reports a token-endpoint rejection a fresh browser login fixes; transport, 429 and 5xx are not.
+func IsLoginRequired(err error) bool {
+	var oe *oauthError
+	return errors.As(err, &oe) && slices.Contains(authRejectionCodes, oe.Code)
 }
 
 // retryPolicy says which token-endpoint failures a grant may repeat.

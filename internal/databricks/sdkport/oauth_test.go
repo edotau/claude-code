@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -349,6 +350,35 @@ func TestNormHost(t *testing.T) {
 	for _, bad := range []string{"", "example.cloud.databricks.com", "ftp://x"} {
 		if _, err := normHost(bad); err == nil {
 			t.Errorf("normHost(%q) accepted", bad)
+		}
+	}
+}
+
+func TestIsLoginRequired(t *testing.T) {
+	oe := func(code string, status int) error {
+		return &oauthError{Host: "h", Op: "refresh", Code: code, Status: status}
+	}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"invalid_grant", oe("invalid_grant", 400), true},
+		{"invalid_client", oe("invalid_client", 401), true},
+		{"unauthorized_client", oe("unauthorized_client", 400), true},
+		{"access_denied", oe("access_denied", 400), true},
+		{"invalid_scope", oe("invalid_scope", 400), true},
+		{"case-sensitive", oe("Invalid_Grant", 400), false},
+		{"429", oe("", 429), false},
+		{"503", oe("", 503), false},
+		{"500", oe("", 500), false},
+		{"transport", errors.New("dial tcp: connection refused"), false},
+		{"nil", nil, false},
+		{"wrapped", fmt.Errorf("ctx: %w", oe("invalid_grant", 400)), true},
+	}
+	for _, c := range cases {
+		if got := IsLoginRequired(c.err); got != c.want {
+			t.Errorf("%s: IsLoginRequired = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

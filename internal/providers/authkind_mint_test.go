@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -216,5 +217,48 @@ func TestAuthU2MIgnoresStaleEnvRefresh(t *testing.T) {
 	}
 	if seen != "vault-refresh" {
 		t.Errorf("token endpoint got refresh token of length %d, want the vault value", len(seen))
+	}
+}
+
+func TestU2MEmptyRefreshNeedsLogin(t *testing.T) {
+	p := mintRow(t, "kind-u2m-empty", AuthU2M, "", "http://127.0.0.1:1")
+	_, err := Credential(context.Background(), p)
+	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login kind-u2m-empty") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestU2MRejectedGrantNeedsLogin(t *testing.T) {
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+		return 400, map[string]any{"error": "invalid_grant"}
+	})
+	p := mintRow(t, "kind-u2m-rej", AuthU2M, "", srv.URL)
+	if err := SealSecret(AuthSecretName(p), "rt"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Credential(context.Background(), p)
+	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login kind-u2m-rej") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestU2MServerErrorDoesNotNeedLogin(t *testing.T) {
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+		return 503, map[string]any{"error": "temporarily_unavailable"}
+	})
+	p := mintRow(t, "kind-u2m-503", AuthU2M, "", srv.URL)
+	if err := SealSecret(AuthSecretName(p), "rt"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Credential(context.Background(), p)
+	if err == nil || errors.Is(err, ErrNeedsLogin) {
+		t.Fatalf("err = %v, want non-login error", err)
+	}
+}
+
+func TestM2MEmptySecretIsNotNeedsLogin(t *testing.T) {
+	p := mintRow(t, "kind-m2m-empty", AuthOAuthM2M, "cid", "http://127.0.0.1:1")
+	if _, err := Credential(context.Background(), p); err == nil || errors.Is(err, ErrNeedsLogin) {
+		t.Fatalf("err = %v", err)
 	}
 }
