@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/helptext"
@@ -46,6 +50,28 @@ func cmdBMPTranscode(args []string) int {
 	}
 	if err := transcode(os.Stdin, os.Stdout); err != nil {
 		return fail("bmp-transcode: %v", err)
+	}
+	return 0
+}
+
+// cmdClipClear sleeps --after, then clears the clipboard if it still holds the value whose sha256
+// digest arrives on stdin; ScheduleClear spawns it detached.
+func cmdClipClear(args []string) int {
+	fs := helptext.NewFlagSet("clip-clear", helptext.Page{
+		Usage: "claude-code clip-clear [--after 30s] < digest",
+		About: "Waits, then clears the clipboard only if it still holds the copied secret (sha256 on stdin).",
+	})
+	after := fs.Duration("after", clipboard.DefaultClearAfter, "delay before the clear")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	b, err := io.ReadAll(io.LimitReader(os.Stdin, 256))
+	if err != nil || strings.TrimSpace(string(b)) == "" {
+		return fail("clip-clear: no digest on stdin")
+	}
+	time.Sleep(*after)
+	if _, err := clipboard.ClearIfMatch(context.Background(), string(b)); err != nil {
+		return fail("clip-clear: %v", err)
 	}
 	return 0
 }
