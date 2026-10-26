@@ -185,6 +185,9 @@ func NewFlagSet(name string, p Page) *flag.FlagSet {
 
 // isRow: an indented label with a description column, or a bare flag line (`  -name type`) from PrintDefaults.
 func isRow(l string) bool {
+	if isTableHead(l) {
+		return false
+	}
 	m := row.FindStringSubmatch(l)
 	if m == nil || len(m[1]) > 4 {
 		return false
@@ -192,8 +195,21 @@ func isRow(l string) bool {
 	return m[3] != "" || strings.HasPrefix(m[2], "-")
 }
 
+// isTableHead: an indented column-header line, two or more all-caps columns (PROVIDER  KIND  AUTH).
+func isTableHead(l string) bool {
+	m := row.FindStringSubmatch(l)
+	if m == nil || m[3] == "" || len(m[1]) > 4 {
+		return false
+	}
+	t := strings.TrimSpace(l)
+	return strings.ToUpper(t) == t && strings.ContainsFunc(t, func(r rune) bool { return r >= 'A' && r <= 'Z' })
+}
+
 // isHead: an unindented all-caps section title (FLAGS, EXAMPLES:), never a usage line.
 func isHead(l string) bool {
+	if isTableHead(l) {
+		return true
+	}
 	t := strings.TrimSuffix(strings.TrimSpace(l), ":")
 	return t != "" && l[0] != ' ' && strings.ToUpper(t) == t && strings.ContainsFunc(t, func(r rune) bool { return r >= 'A' && r <= 'Z' })
 }

@@ -509,7 +509,7 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 		t.Errorf("stdout = %q, want VENDORS rendered as (none) for an empty overlay", stdout)
 	}
 	for _, row := range []string{
-		"PROVIDER KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
+		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
 		"custom m1", "openai (removed)",
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), row) {

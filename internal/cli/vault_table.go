@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -182,16 +183,24 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	var blocks []string
 	if len(reg.Providers) > 0 {
 		var rows [][]string
+		presets := map[string][]string{} // preset → its env rows, shown as one row
 		for _, name := range slices.Sorted(maps.Keys(reg.Providers)) {
 			p := reg.Providers[name]
 			if p == nil { // "name": null removes a built-in
 				rows = append(rows, []string{name, "(removed)", "", "", "", "", "", ""})
 				continue
 			}
+			if p.Preset != "" {
+				presets[p.Preset] = append(presets[p.Preset], name)
+				continue
+			}
 			rows = append(rows, []string{name, p.Kind, p.Auth.Type, p.Models["opus"], p.Models["sonnet"],
 				p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
 		}
-		head := []string{"PROVIDER", "KIND", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
+		for _, preset := range slices.Sorted(maps.Keys(presets)) {
+			rows = append(rows, []string{preset, "preset", presetEnvs(presets[preset]), "", "", "", "", ""})
+		}
+		head := []string{"NAME", "KIND", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
 		blocks = append(blocks, vaultTable(head, rows, width))
 	}
 	if len(reg.AgentPlans) > 0 {
@@ -224,6 +233,39 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	}
 	b.WriteString(strings.Join(blocks, "\n"))
 	return b.String()
+}
+
+// vaultCredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
+var vaultCredOK = func(name string) bool {
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	p, ok := reg.Providers[name]
+	return ok && providers.CredentialPresent(p)
+}
+
+// presetEnvs lists a preset's env rows in DatabricksEnvs order, each marked ✓ (credential resolves) or ✗.
+func presetEnvs(names []string) string {
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Compare(envRank(a), envRank(b))
+	})
+	parts := make([]string, len(names))
+	for i, n := range names {
+		parts[i] = n + "✗"
+		if vaultCredOK(n) {
+			parts[i] = n + "✓"
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// envRank orders dev/qa/prod first, in that order; other names after.
+func envRank(name string) int {
+	if i := slices.Index(providers.DatabricksEnvs, name); i >= 0 {
+		return i
+	}
+	return len(providers.DatabricksEnvs)
 }
 
 // vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,

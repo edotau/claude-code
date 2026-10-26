@@ -95,7 +95,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	}
 	normalized := strings.Join(strings.Fields(stdout), " ")
 	for _, want := range []string{
-		"PROVIDER KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK", "fake openai none fake-sonnet",
+		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK", "fake openai none fake-sonnet",
 		"PLANS", "AGENT TIER ID", "copilot standard fake-plan",
 		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
 		"VENDORS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
@@ -106,5 +106,17 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	}
 	if strings.Contains(stdout, "omit-this-comment") || strings.Contains(stdout, "vendors.opencode") {
 		t.Error("vendor table retained comment or vendor prefix")
+	}
+}
+
+// TestVaultProvidersGroupsPresetRows: preset rows collapse into one row listing each env with its credential mark.
+func TestVaultProvidersGroupsPresetRows(t *testing.T) {
+	old := vaultCredOK
+	vaultCredOK = func(name string) bool { return name != "prod" }
+	t.Cleanup(func() { vaultCredOK = old })
+	raw := `{"providers":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}`
+	got := strings.Join(strings.Fields(vaultProvidersText(json.RawMessage(raw), 200)), " ")
+	if !strings.Contains(got, "databricks preset dev✓ qa✓ prod✗") {
+		t.Errorf("preset rows not grouped in env order with marks:\n%s", got)
 	}
 }
