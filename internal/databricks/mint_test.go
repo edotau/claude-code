@@ -81,7 +81,7 @@ func TestMintResultHidesToken(t *testing.T) {
 
 func TestMintVerbNeverPrintsToken(t *testing.T) {
 	mintRow(t, 200)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"mrow"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow"}) })
 	if code != 0 || !strings.Contains(stdout, "mrow · command · minted · 21 chars") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -101,7 +101,7 @@ func TestMintVerbErrorPathsHideToken(t *testing.T) {
 	}
 	seedOverlay(t, `{"providers":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"bearer","command":"echo `+mintToken+`; exit 3"}}}}`)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"mrow", "--copy"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code == 0 {
 		t.Errorf("failing command: exit 0")
 	}
@@ -113,7 +113,7 @@ func TestMintDryRunWritesNothing(t *testing.T) {
 	mintRow(t, 200)
 	rec := stubClipboard(t)
 	before := overlayDoc(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"mrow", "--dry-run", "--copy"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--dry-run", "--copy"}) })
 	if code != 0 || !strings.Contains(stdout, "nothing written") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -132,7 +132,7 @@ func TestMintDryRunWritesNothing(t *testing.T) {
 func TestMintCopyWritesViaStdinAndHidesToken(t *testing.T) {
 	mintRow(t, 200)
 	rec := stubClipboard(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"mrow", "--copy", "--clear-after", "5s"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy", "--clear-after", "5s"}) })
 	got, err := os.ReadFile(rec)
 	if err != nil || string(got) != mintToken {
 		t.Fatalf("clipboard stub got %q err %v (WriteSecret not called)", got, err)
@@ -148,7 +148,7 @@ func TestMintCopyWritesViaStdinAndHidesToken(t *testing.T) {
 func TestMintCopyNoClipboardPrintsRouterNote(t *testing.T) {
 	mintRow(t, 200)
 	noClipboard(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"mrow", "--copy"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code != 0 || !strings.Contains(stderr, "the agents already fetch the token through the router") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}

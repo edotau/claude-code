@@ -126,7 +126,7 @@ func TestMarkAuthKeepsQuotaFields(t *testing.T) {
 
 func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 	tb := testTable(t)
-	marked := State{"codex:chatgpt": {AuthReason: "auth needs_login: run `claude-code databricks login chatgpt`", AuthAt: now0.Add(-time.Hour)}}
+	marked := State{"codex:chatgpt": {AuthReason: "auth needs_login: run `claude-code databricks login --profile chatgpt`", AuthAt: now0.Add(-time.Hour)}}
 	r := pick(tb, "sonnet", "codex", marked, FallbackVendors)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("auth-marked codex picked: %s", runners(r))
@@ -215,7 +215,7 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 // A router mark on provider:<p> gates a pick whose account is "<runner>:<p>".
 func TestPickGatesLegAccountOnRouterProviderMark(t *testing.T) {
 	tb := testTable(t)
-	st := State{"provider:chatgpt": {AuthReason: "auth rejected: run `claude-code databricks login chatgpt`", AuthAt: now0}}
+	st := State{"provider:chatgpt": {AuthReason: "auth rejected: run `claude-code databricks login --profile chatgpt`", AuthAt: now0}}
 	r := pick(tb, "sonnet", "codex", st, FallbackVendors)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("codex:chatgpt picked despite provider:chatgpt mark: %s", runners(r))

@@ -361,8 +361,8 @@ var page = helptext.Page{
 		"openai route). check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per env x wire (serving/gateway)"},
-		{"login", "<id>: browser sign-in for a u2m row; seals the refresh token"},
-		{"mint", "<id>: fresh token, never printed; --copy to clipboard"},
+		{"login", "browser sign-in for a u2m row; seals the refresh token"},
+		{"mint", "fresh token, never printed; --copy to clipboard"},
 		{"import", "create rows from ~/.databrickscfg (dry-run unless --apply)"},
 		{"export", "write u2m/m2m/pat rows as .databrickscfg sections, no secrets"},
 		{"config", "<target>: render a claude or codex config (never a token)"},

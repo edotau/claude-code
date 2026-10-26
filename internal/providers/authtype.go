@@ -264,7 +264,7 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 	}
 	tok, err := sdkport.RefreshU2M(ctx, host, secret)
 	if err != nil {
-		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login %s`)", p.Name, err, p.Name)
+		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)
 		if sdkport.IsLoginRequired(err) {
 			wrapped = &LoginRequiredError{Provider: p.Name, err: wrapped}
 		}
@@ -290,7 +290,7 @@ func mintSecret(p *Provider, name string) (string, error) {
 
 func authHint(p *Provider, name string) string {
 	if p.Auth.AuthType == AuthU2M {
-		return "run `claude-code databricks login " + p.Name + "`"
+		return "run `claude-code databricks login --profile " + p.Name + "`"
 	}
 	return "set " + name + " with `claude-code vault set`"
 }

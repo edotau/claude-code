@@ -131,7 +131,7 @@ func TestAuthU2MInvalidGrantPointsToLoginWithoutToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "databricks login kind-u2m-dead") || strings.Contains(err.Error(), "refresh-dead-value") {
+	if err == nil || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-dead") || strings.Contains(err.Error(), "refresh-dead-value") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestAuthU2MIgnoresStaleEnvRefresh(t *testing.T) {
 func TestU2MEmptyRefreshNeedsLogin(t *testing.T) {
 	p := mintRow(t, "kind-u2m-empty", AuthU2M, "", "http://127.0.0.1:1")
 	_, err := Credential(context.Background(), p)
-	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login kind-u2m-empty") {
+	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-empty") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -237,7 +237,7 @@ func TestU2MRejectedGrantNeedsLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)
-	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login kind-u2m-rej") {
+	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-rej") {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -25,7 +25,7 @@ type MintResult struct {
 }
 
 var mintPage = helptext.Page{
-	Usage: "claude-code databricks mint <provider> [flags]",
+	Usage: "claude-code databricks mint [--profile <name>] [flags]",
 	About: "Mint a fresh access token for a provider row (the router's own mint, forced) and report its\n" +
 		"length and expiry. The token is never printed; --copy puts it on the clipboard.",
 }
@@ -101,26 +101,27 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 	return status, fmt.Errorf("%s: personal access token rejected (%s); kept the previous value", p.Name, detail)
 }
 
-// mint is `databricks mint <id> [--copy] [--clear-after d] [--dry-run]`.
+// mint is `databricks mint [--profile <name>] [--copy] [--clear-after d] [--dry-run]`.
 func mint(args []string) int {
 	fs := helptext.NewFlagSet("databricks mint", mintPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; mint nothing")
 	doCopy := fs.Bool("copy", false, "put the token on the clipboard, then clear it")
 	clearAfter := fs.Duration("clear-after", clipboard.DefaultClearAfter, "with --copy: clear the clipboard after this long")
+	profileName := profileFlag(fs)
 	names, err := outfmt.Parse(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(names) != 1 {
-		fs.Usage()
-		return 2
+	if len(names) > 0 {
+		return usageProfile("mint", names[0])
 	}
+	reg, err := providers.Load()
+	if err != nil {
+		return fail("mint: %v", err)
+	}
+	name := resolveProfile(reg, *profileName)
 	if *dryRun {
-		reg, err := providers.Load()
-		if err != nil {
-			return fail("mint: %v", err)
-		}
-		p, err := reg.Get(names[0])
+		p, err := reg.Get(name)
 		if err != nil {
 			return fail("mint: %v", err)
 		}
@@ -129,7 +130,7 @@ func mint(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	res, tok, err := Mint(ctx, names[0])
+	res, tok, err := Mint(ctx, name)
 	if err != nil {
 		return fail("mint: %v", err)
 	}

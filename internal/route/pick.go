@@ -359,7 +359,7 @@ func authSkipReason(reason, account string) string {
 	if reason != "" {
 		return reason
 	}
-	return "auth rejected: run `claude-code databricks login " + strings.TrimPrefix(account, "provider:") + "`"
+	return "auth rejected: run `claude-code databricks login --profile " + strings.TrimPrefix(account, "provider:") + "`"
 }
 
 // ExhaustedReason names the account and its reset, e.g. "copilot:aueric_boehcp exhausted until 2026-11-01".
