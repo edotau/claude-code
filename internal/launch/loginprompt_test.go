@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -133,5 +134,30 @@ func TestOfferLoginSharesOneReaderAcrossProviders(t *testing.T) {
 	offerLogin(context.Background(), Options{}, nil, ps, &plan)
 	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "lp-b") {
 		t.Fatalf("login=%d warnings=%v", h.calls.Load(), plan.Warnings)
+	}
+}
+
+// A hung token check gives up after credCheckTimeout: warn, never prompt, never log in, launch anyway.
+func TestOfferLoginSlowTokenCheckLaunchesWithoutPrompt(t *testing.T) {
+	h := loginSetup(t, true, "y\n", nil)
+	release := make(chan struct{})
+	oldCheck, oldTimeout := credentialCheck, credCheckTimeout
+	t.Cleanup(func() { close(release); credentialCheck, credCheckTimeout = oldCheck, oldTimeout })
+	credentialCheck = func(context.Context, *providers.Provider) (string, error) {
+		<-release
+		return "", providers.ErrNeedsLogin
+	}
+	credCheckTimeout = 50 * time.Millisecond
+	var plan Plan
+	start := time.Now()
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{u2mRow("slow", h.server)}, &plan)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("offerLogin took %s, want it bounded by credCheckTimeout", d)
+	}
+	if h.calls.Load() != 0 || strings.Contains(h.out.String(), "Log in now?") {
+		t.Fatalf("prompted or logged in on a timed-out check (logins=%d, out=%q)", h.calls.Load(), h.out.String())
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "launching anyway") {
+		t.Fatalf("warnings = %q, want one 'launching anyway' warning", plan.Warnings)
 	}
 }
