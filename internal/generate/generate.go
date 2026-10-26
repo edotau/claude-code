@@ -400,29 +400,6 @@ func commitOverlayFile(path string, raw, next []byte, o Options, out io.Writer, 
 	return true, nil
 }
 
-func moveBackup(path, base string) (string, error) {
-	for i := 0; ; i++ {
-		dest := base
-		if i > 0 {
-			dest = fmt.Sprintf("%s-%d", base, i)
-		}
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if os.IsExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if err := f.Close(); err != nil {
-			return "", errors.Join(err, os.Remove(dest))
-		}
-		if err := os.Rename(path, dest); err != nil {
-			return "", errors.Join(err, os.Remove(dest))
-		}
-		return dest, nil
-	}
-}
-
 // --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
 // auth is the cached Google login marker at launch time (see vendors.GeminiLoginPresent).

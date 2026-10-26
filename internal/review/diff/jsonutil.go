@@ -7,7 +7,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"unicode/utf16"
+
+	"github.com/edotau/claude-code/internal/review/pyjson"
 )
 
 // pyFloat marshals like Python's json.dumps: shortest round-trip decimal, ".0" for integral values.
@@ -40,31 +41,13 @@ func mustIndentJSON(v any) string {
 		return fmt.Sprintf("{\"error\": %q}", err.Error())
 	}
 	compact := bytes.TrimRight(enc.Bytes(), "\n")
-	ascii := escapeNonASCII(compact)
+	ascii := pyjson.EscapeNonASCII(compact)
 	spaced := insertColonSpace(ascii)
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, spaced, "", "  "); err != nil {
 		return string(spaced)
 	}
 	return buf.String()
-}
-
-// escapeNonASCII matches Python's json.dumps default ensure_ascii=True.
-func escapeNonASCII(b []byte) []byte {
-	var out bytes.Buffer
-	for _, r := range string(b) {
-		if r < 0x80 {
-			out.WriteRune(r)
-			continue
-		}
-		if r > 0xFFFF {
-			r1, r2 := utf16.EncodeRune(r)
-			fmt.Fprintf(&out, "\\u%04x\\u%04x", r1, r2)
-		} else {
-			fmt.Fprintf(&out, "\\u%04x", r)
-		}
-	}
-	return out.Bytes()
 }
 
 // insertColonSpace adds a space after each key-separator colon outside of string literals,

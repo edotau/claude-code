@@ -147,12 +147,6 @@ func EditedFiles(path string, limit int) []string {
 	return out
 }
 
-// CountEdits counts editor tool_use calls (plus weighted commits) in the transcript's complete JSONL records.
-func CountEdits(path string) int {
-	n, _ := CountEditsFrom(path, 0)
-	return n
-}
-
 // CountEditsFrom counts complete lines from offset and returns the position after the last newline.
 func CountEditsFrom(path string, offset int64) (edits int, next int64) {
 	offset = max(offset, 0)

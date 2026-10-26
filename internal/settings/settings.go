@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -375,7 +374,7 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
 			return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
 		}
-		backup, err = writeBackup(base, old)
+		backup, err = paths.WriteBackup(base, old)
 		if err != nil {
 			return "", fmt.Errorf("backup %s: %w", base, err)
 		}
@@ -383,27 +382,6 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		return "", fmt.Errorf("read %s: %w", path, rerr)
 	}
 	return backup, paths.AtomicWrite(path, data, mode)
-}
-
-func writeBackup(base string, data []byte) (string, error) {
-	for i := 0; ; i++ {
-		dest := base
-		if i > 0 {
-			dest = fmt.Sprintf("%s-%d", base, i)
-		}
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if os.IsExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		_, err = f.Write(data)
-		if err = errors.Join(err, f.Close()); err != nil {
-			return "", errors.Join(err, os.Remove(dest))
-		}
-		return dest, nil
-	}
 }
 
 func orEmpty(raw json.RawMessage) json.RawMessage {

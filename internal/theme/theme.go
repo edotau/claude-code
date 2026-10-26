@@ -5,7 +5,6 @@ package theme
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -135,33 +134,12 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
 			return false, "", err
 		}
-		backup, err = writeBackup(bak, raw)
+		backup, err = paths.WriteBackup(bak, raw)
 		if err != nil {
 			return false, "", err
 		}
 	}
 	return true, backup, paths.AtomicWrite(dest, append(body, '\n'), 0o600)
-}
-
-func writeBackup(base string, data []byte) (string, error) {
-	for i := 0; ; i++ {
-		dest := base
-		if i > 0 {
-			dest = fmt.Sprintf("%s-%d", base, i)
-		}
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if os.IsExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		_, err = f.Write(data)
-		if err = errors.Join(err, f.Close()); err != nil {
-			return "", errors.Join(err, os.Remove(dest))
-		}
-		return dest, nil
-	}
 }
 
 // deepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.

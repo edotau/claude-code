@@ -2,14 +2,11 @@
 package plan
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"sync"
-	"unicode/utf16"
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
@@ -98,39 +95,4 @@ func pyRound1(x float64) float64 {
 // formatPyFloat renders a float the way Python's f-string/json.dumps would (always keep one decimal here).
 func formatPyFloat(v float64) string {
 	return fmt.Sprintf("%.1f", v)
-}
-
-// marshalPyJSON matches Python's json.dumps(v, indent=2): ensure_ascii escapes every non-ASCII rune to
-// \uXXXX (Go's stdlib doesn't), and HTML-escaping of <, >, & must be off (Python never escapes those).
-func marshalPyJSON(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	compact := bytes.TrimRight(buf.Bytes(), "\n")
-	escaped := escapeNonASCII(compact)
-	var out bytes.Buffer
-	if err := json.Indent(&out, escaped, "", "  "); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-func escapeNonASCII(b []byte) []byte {
-	var out bytes.Buffer
-	for _, r := range string(b) {
-		if r < 0x80 {
-			out.WriteRune(r)
-			continue
-		}
-		if r > 0xFFFF {
-			r1, r2 := utf16.EncodeRune(r)
-			fmt.Fprintf(&out, "\\u%04x\\u%04x", r1, r2)
-		} else {
-			fmt.Fprintf(&out, "\\u%04x", r)
-		}
-	}
-	return out.Bytes()
 }

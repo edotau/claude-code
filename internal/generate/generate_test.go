@@ -15,38 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-func TestMoveBackupPreservesCollision(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "opencode.jsonc")
-	base := path + ".bak-20261020T120000.123456789Z"
-	original := []byte("original backup\n")
-	data := []byte("new backup\n")
-	for name, content := range map[string][]byte{base: original, path: data} {
-		if err := os.WriteFile(name, content, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	backup, err := moveBackup(path, base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if backup != base+"-1" {
-		t.Fatalf("backup = %q, want %q", backup, base+"-1")
-	}
-	for name, want := range map[string][]byte{base: original, backup: data} {
-		got, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s = %q, want %q", name, got, want)
-		}
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("source still exists or cannot be checked after move: %v", err)
-	}
-}
-
 // scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor
 // renders instead of skipping), and returns the vendor-config home dir.
 func scratch(t *testing.T) string {

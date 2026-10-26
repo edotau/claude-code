@@ -14,7 +14,7 @@ func BenchmarkScan(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		CountEdits(path)
+		countEdits(path)
 		EditedFiles(path, 50)
 	}
 }
