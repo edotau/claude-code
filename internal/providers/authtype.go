@@ -42,8 +42,15 @@ func SecretNameFor(id, authType string) string {
 	default:
 		return ""
 	}
+	return providerSecretID(id) + "_" + suffix
+}
+
+// AccessCacheName is the vault name of a u2m row's sealed access-token cache.
+func AccessCacheName(id string) string { return providerSecretID(id) + "_ACCESS_TOKEN" }
+
+func providerSecretID(id string) string {
 	norm := secretIDRE.ReplaceAllString(strings.ToUpper(id), "_")
-	return "PROVIDER_" + strings.Trim(norm, "_") + "_" + suffix
+	return "PROVIDER_" + strings.Trim(norm, "_")
 }
 
 // sealedAuth reports whether the authType keeps its credential in the vault.
@@ -166,12 +173,42 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 		var out string
 		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
 		err := withRefreshLock(p, func() error {
+			if !force {
+				if v, ok := sealedAccess(p); ok {
+					out = v
+					return finishCredential(p, v, time.Time{})
+				}
+			}
 			v, err := mintAndCache(ctx, p)
 			out = v
+			if err == nil {
+				sealAccess(p, v)
+			}
 			return err
 		})
 		return out, err
 	})
+}
+
+// sealedAccess returns the sealed access token when it stays valid past the expiry margin.
+func sealedAccess(p *Provider) (string, bool) {
+	v, _, err := vault.ReadSecret(AccessCacheName(p.Name))
+	v = strings.TrimSpace(v)
+	if err != nil || v == "" {
+		return "", false
+	}
+	exp, ok := jwtExp(v)
+	if !ok || !time.Unix(exp, 0).Add(-expiryMargin).After(time.Now()) {
+		return "", false
+	}
+	return v, true
+}
+
+// sealAccess caches a u2m access token; a seal error is logged by name only and never fails the mint.
+func sealAccess(p *Provider, tok string) {
+	if err := SealSecret(AccessCacheName(p.Name), tok); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) failed\n", p.Name, AccessCacheName(p.Name))
+	}
 }
 
 func mintAndCache(ctx context.Context, p *Provider) (string, error) {
@@ -284,6 +321,7 @@ func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time
 		if err := SealSecret(AuthSecretName(p), tok.Refresh); err != nil {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
+		sealAccess(p, tok.Access)
 		return finishCredential(p, tok.Access, tok.Expiry)
 	})
 	if err != nil {
