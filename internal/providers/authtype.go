@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -136,15 +135,10 @@ func validateAuthType(n string, p *Provider) []string {
 // refreshLockWait bounds how long a refresh waits for another process holding the provider's refresh lock.
 const refreshLockWait = 60 * time.Second
 
-var refreshMus sync.Map // provider name → *sync.Mutex (in-process half of the refresh lock)
-
 var lockNameRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// withRefreshLock serializes a provider's refresh-token use across goroutines (mutex) and processes (file lock).
+// withRefreshLock serializes a provider's refresh-token use across processes; mintOnce covers goroutines.
 func withRefreshLock(p *Provider, fn func() error) error {
-	mu, _ := refreshMus.LoadOrStore(p.Name, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
 	dir := filepath.Join(paths.StateDir(), "locks")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("%s: refresh lock: %w", p.Name, err)
@@ -160,36 +154,21 @@ func withRefreshLock(p *Provider, fn func() error) error {
 	return nil
 }
 
-// cachedValue is p's unexpired cached token, if any.
-func cachedValue(p *Provider) (string, bool) {
-	if c, ok := cmdCache.Load(p.Name); ok && time.Now().Before(c.(cached).until) {
-		return c.(cached).value, true
-	}
-	return "", false
-}
-
 // authCredential mints (or serves from cache) the access token for a sealed authType; force skips the cache.
 func authCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	before, _ := cachedValue(p)
-	if v, ok := cachedValue(p); ok && !force {
-		return v, nil
-	}
 	if p.Auth.AuthType != AuthU2M {
-		return mintAndCache(ctx, p)
+		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p) })
 	}
-	var out string
-	err := withRefreshLock(p, func() error {
-		// Another goroutine may have minted while we waited; a forced call accepts only a newer token.
-		if v, ok := cachedValue(p); ok && (!force || v != before) {
-			out = v
-			return nil
-		}
+	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
+		var out string
 		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
-		v, err := mintAndCache(ctx, p)
-		out = v
-		return err
+		err := withRefreshLock(p, func() error {
+			v, err := mintAndCache(ctx, p)
+			out = v
+			return err
+		})
+		return out, err
 	})
-	return out, err
 }
 
 func mintAndCache(ctx context.Context, p *Provider) (string, error) {
