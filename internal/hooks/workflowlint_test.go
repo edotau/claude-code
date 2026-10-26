@@ -201,7 +201,7 @@ func TestWorkflowLintByNameUnknownProceeds(t *testing.T) {
 	}
 }
 
-func TestWorkflowLintByNameResolvesAndFillsScriptPath(t *testing.T) {
+func TestWorkflowLintByNameInlinesScript(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	wfDir := filepath.Join(dir, "workflows")
@@ -230,9 +230,12 @@ func TestWorkflowLintByNameResolvesAndFillsScriptPath(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &doc); err != nil {
 		t.Fatalf("invalid JSON (%v): %q", err, lines[0])
 	}
-	gotPath, _ := doc.HSO.UpdatedInput["scriptPath"].(string)
-	if gotPath != path {
-		t.Errorf("updatedInput.scriptPath = %q, want %q", gotPath, path)
+	gotScript, _ := doc.HSO.UpdatedInput["script"].(string)
+	if gotScript != "agent('x', { model: 'sonnet' });\n" {
+		t.Errorf("updatedInput.script = %q, want the file's text inlined", gotScript)
+	}
+	if _, ok := doc.HSO.UpdatedInput["scriptPath"]; ok {
+		t.Errorf("updatedInput carries scriptPath, want the inline script only (the tool refuses out-of-cwd paths)")
 	}
 	if _, ok := doc.HSO.UpdatedInput["name"]; ok {
 		t.Errorf("updatedInput still carries %q, want name removed", "name")
