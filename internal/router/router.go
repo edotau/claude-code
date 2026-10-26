@@ -77,6 +77,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.URL.Path == "/healthz" {
+		w.Header().Set(PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
 		_, _ = io.WriteString(w, "ok\n")
 		return
 	}
