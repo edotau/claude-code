@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/edotau/claude-code/internal/providers"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -213,6 +214,7 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"tail":     {flags: []flagInfo{boolFlag("f")}},
 		"result":   {flags: []flagInfo{formatFlag()}},
 		"cancel":   {},
+		"env":      {args: []func() []string{func() []string { return providers.DatabricksEnvs }}},
 		"setup":    {flags: []flagInfo{formatFlag()}},
 		"models":   {},
 	}

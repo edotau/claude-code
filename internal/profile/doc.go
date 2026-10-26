@@ -130,3 +130,35 @@ func Save(name string, set providers.Profile, force bool) error {
 	})
 	return err
 }
+
+// UseAgentAccount repoints one agent's row in the active set to account, a row of the same preset.
+func UseAgentAccount(apply bool, reg *providers.Registry, agent, account string) (oldDoc, newDoc []byte, err error) {
+	to, err := reg.Get(account)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mutateProfiles(apply, func(p *providers.Profiles) error {
+		set, ok := p.Sets[p.Active]
+		if !ok {
+			return fmt.Errorf("no active profile set (see `claude-code profile use`)")
+		}
+		row := set[agent]
+		if from, err := reg.Get(row.Account); row.Account != "" && (err != nil || from.Preset != to.Preset) {
+			return fmt.Errorf("%s is on %q, not a %s row; edit it with `claude-code vault edit`", agent, row.Account, cmpPreset(to.Preset))
+		}
+		row.Account = account
+		next := maps.Clone(set)
+		next[agent] = row
+		sets := maps.Clone(p.Sets)
+		sets[p.Active] = next
+		p.Sets = sets
+		return nil
+	})
+}
+
+func cmpPreset(preset string) string {
+	if preset == "" {
+		return "preset"
+	}
+	return preset
+}
