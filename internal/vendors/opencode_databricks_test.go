@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 type ocProv struct {
@@ -26,6 +27,7 @@ type ocCfg struct {
 
 func renderOpencode(t *testing.T, p *providers.Provider, dialect, base, model string, routed bool) ocCfg {
 	t.Helper()
+	vaulttest.Use(t)
 	env, _, err := opencode(p, dialect, base, model, "tok", routed, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -139,5 +141,37 @@ func TestOpencodeNonDatabricksSingleProvider(t *testing.T) {
 	}
 	if _, ok := prov.Models["gpt-5"]; !ok || strings.Contains(envMap(env)["OPENCODE_CONFIG_CONTENT"], "·") {
 		t.Errorf("unexpected menu: %v", prov.Models)
+	}
+}
+
+func TestOpencodeRenderUsesOverlayMenu(t *testing.T) {
+	vaulttest.Use(t)
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2"},
+		{ID: "gpt-5-5", Label: "GPT 5.5", Responses: true}}); err != nil {
+		t.Fatal(err)
+	}
+	p := dbxRow("qa", "databricks-")
+	env, _, err := opencode(p, providers.DialectOpenAI, p.Routes[providers.DialectOpenAI], "databricks-glm-5-2", "tok", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c ocCfg
+	if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &c); err != nil {
+		t.Fatal(err)
+	}
+	chat, gpt := c.Provider["harness-qa"], c.Provider["harness-qa-gpt"]
+	if _, ok := chat.Models["databricks-glm-5-2"]; !ok || len(chat.Models) != 1 {
+		t.Errorf("chat models = %v", chat.Models)
+	}
+	if _, ok := gpt.Models["databricks-gpt-5-5"]; !ok || len(gpt.Models) != 1 {
+		t.Errorf("gpt models = %v", gpt.Models)
+	}
+	for _, seed := range []string{"databricks-kimi-k3", "databricks-claude-opus-5-5", "databricks-gpt-6-1-sol"} {
+		if _, ok := chat.Models[seed]; ok {
+			t.Errorf("seed entry %s leaked past the overlay", seed)
+		}
+		if _, ok := gpt.Models[seed]; ok {
+			t.Errorf("seed entry %s leaked past the overlay", seed)
+		}
 	}
 }

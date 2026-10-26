@@ -664,7 +664,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	chat, resp := map[string]any{}, map[string]any{}
 	defID := id
-	for _, m := range providers.DatabricksOpencodeMenu {
+	for _, m := range providers.OpencodeMenu() {
 		wire := p.ModelPrefix + m.ID // every menu id is bare; WireModel only decorates claude-/gpt-/gemini-
 		entry := map[string]any{"name": m.Label + " · " + p.Name}
 		if m.Responses {

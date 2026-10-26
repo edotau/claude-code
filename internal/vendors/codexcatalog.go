@@ -50,7 +50,7 @@ func codexCatalogArgs(p *providers.Provider) []string {
 		}
 	}
 	var out []map[string]any
-	for _, m := range providers.DatabricksOpencodeMenu {
+	for _, m := range providers.OpencodeMenu() {
 		base, ok := bySlug[digitHyphen.ReplaceAllString(m.ID, "$1.$2")]
 		if !ok { // codex already reads this catalog: its dump lists our wire ids, not its built-ins
 			base, ok = bySlug[p.ModelPrefix+m.ID]

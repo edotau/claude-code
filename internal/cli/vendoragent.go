@@ -51,6 +51,10 @@ func vendorPage(vendor string) helptext.Page {
 		{"models", "the vendor's own model catalog"},
 		{"env", "show or move only " + vendor + "'s account: dev, qa, prod"},
 	}
+	if vendor == "opencode" {
+		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "models" })][1] =
+			"model catalog; list|add|remove|import|reset edit the menu"
+	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
 	}
@@ -125,6 +129,9 @@ func cmdVendorSub(vendor string, args []string) int {
 	case "setup":
 		return cmdVendorSetup(vendor, args[1:])
 	case "models":
+		if isOpencodeMenuVerb(vendor, args[1:]) {
+			return cmdOpencodeMenu(args[1:])
+		}
 		if vendorSubHelp(vendor, "models", args[1:]) {
 			return 0
 		}
