@@ -89,3 +89,35 @@ func find(out []Outcome, name string) Outcome {
 	}
 	return Outcome{}
 }
+
+func TestApplyReportsMergeErrorForEachFormat(t *testing.T) {
+	for _, tc := range []struct{ src, body, dest string }{
+		{"gemini.json", `{"theme":"new"}`, ".gemini/settings.json"},
+		{"ghostty.conf", "theme = new\n", ".config/ghostty/config"},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, tc.src), []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dest := filepath.Join(home, tc.dest)
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dest, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			oldBeforeWrite := beforeWrite
+			t.Cleanup(func() { beforeWrite = oldBeforeWrite })
+			beforeWrite = func(path string) { _ = os.WriteFile(path, []byte("{\"x\":1}\n"), 0o600) }
+
+			if _, err := Apply(dir, home, false); err == nil {
+				t.Fatal("Apply hid the merge's concurrent-edit error")
+			}
+		})
+	}
+}
