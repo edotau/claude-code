@@ -67,54 +67,100 @@ func configureProviderList(name, format string) int {
 	return 0
 }
 
-// printProviderTable prints the providers grouped by family, columns sized to the widest name and kind; m2m rows hide.
+// printProviderTable prints one row per provider family, then one per agent CLI: the profiles whose credential
+// resolves now (m2m service principals excluded) and the auth modes they use.
 func printProviderTable(reg *providers.Registry) {
-	nameW, kindW, hidden := 0, 0, 0
 	groups := map[string][]string{}
+	modes := map[string][]string{}
 	for _, n := range reg.Names() {
-		// An m2m row is a service principal that mints a u2m login from a cold start, not a session provider.
-		if reg.Providers[n].Auth.AuthType == providers.AuthOAuthM2M {
-			hidden++
+		p := reg.Providers[n]
+		if cred, _ := credSource(p); cred == "missing" {
 			continue
 		}
-		nameW = max(nameW, len(n))
-		kindW = max(kindW, len(reg.Providers[n].Kind))
-		g := providerGroup(reg.Providers[n])
+		g := providerGroup(p)
+		modes[g] = appendUnique(modes[g], providerMode(p))
+		if p.Auth.AuthType == providers.AuthOAuthM2M {
+			continue // a service principal mints u2m logins from a cold start; it is a mode, not a profile
+		}
 		groups[g] = append(groups[g], n)
 	}
-	first := true
+	var rows [][3]string
+	var ready []*providers.Provider // family order, so the agent rows read like the provider rows
 	for _, g := range providerGroups {
-		names := groups[g]
-		if len(names) == 0 {
-			continue
-		}
-		if !first {
-			fmt.Println()
-		}
-		first = false
-		fmt.Println(g)
-		if g == groupDatabricks {
-			slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
-		}
-		for _, n := range names {
-			p := reg.Providers[n]
-			mark := " "
-			if n == reg.Default {
-				mark = "*"
+		if len(groups[g]) > 0 {
+			names := sortProfiles(g, groups[g])
+			rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
+			for _, n := range names {
+				ready = append(ready, reg.Providers[n])
 			}
-			cred, _ := credSource(p)
-			fmt.Printf("%s %-*s %-*s %-12s %s\n", mark, nameW, n, kindW, p.Kind, cred, strings.Join(p.Dialects(), ","))
 		}
 	}
-	if hidden > 0 || len(reg.Fallback) > 0 {
-		fmt.Println()
+	rows = append(rows, [3]string{})
+	for _, v := range vendors.Names() {
+		var names, vm []string
+		for _, p := range ready {
+			if vendors.CanServe(v, p) {
+				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
+			}
+		}
+		if len(names) > 0 {
+			rows = append(rows, [3]string{v, familyProfiles(reg, names), strings.Join(vm, ", ")})
+		}
 	}
-	if hidden > 0 {
-		fmt.Printf("hidden: %d m2m service-principal row(s) that mint u2m logins (--list <name> or --format json shows them)\n", hidden)
+	w0, w1 := len("PROVIDERS"), len("PROFILES")
+	for _, r := range rows {
+		w0, w1 = max(w0, len(r[0])), max(w1, len(r[1]))
+	}
+	fmt.Printf("%-*s  %-*s  %s\n", w0, "PROVIDERS", w1, "PROFILES", "MODE")
+	for _, r := range rows {
+		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", w0, r[0], w1, r[1], r[2]), " "))
 	}
 	if len(reg.Fallback) > 0 {
+		fmt.Println()
 		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
 	}
+}
+
+// providerMode is how p authenticates: web (browser u2m), oauth (m2m), login (a CLI's own), api-key, or "-".
+func providerMode(p *providers.Provider) string {
+	switch {
+	case p.Auth.AuthType == providers.AuthU2M, p.Preset == providers.PresetDatabricks && p.Auth.AuthType == "":
+		return "web"
+	case p.Auth.AuthType == providers.AuthOAuthM2M:
+		return "oauth"
+	case p.Auth.Login != "", p.Auth.Type == providers.AuthPassthrough:
+		return "login"
+	case p.Auth.Type == providers.AuthNone:
+		return "-"
+	}
+	return "api-key"
+}
+
+// familyProfiles joins names, marking the session default with *.
+func familyProfiles(reg *providers.Registry, names []string) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = n
+		if n == reg.Default {
+			out[i] = "*" + n
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// sortProfiles keeps Databricks rows in env order (dev, qa, prod); other groups stay alphabetical.
+func sortProfiles(group string, names []string) []string {
+	if group == groupDatabricks {
+		slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
+	}
+	return names
+}
+
+func appendUnique(xs []string, x string) []string {
+	if slices.Contains(xs, x) {
+		return xs
+	}
+	return append(xs, x)
 }
 
 const groupDatabricks = "databricks"

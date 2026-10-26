@@ -57,16 +57,6 @@ func TestProviderCredentialSources(t *testing.T) {
 	for source := range auths {
 		name := "fake-" + strings.ReplaceAll(source, ".", "-")
 		t.Run(source, func(t *testing.T) {
-			found := false
-			for row := range strings.SplitSeq(text, "\n") {
-				fields := strings.Fields(strings.TrimPrefix(row, "*"))
-				if len(fields) >= 3 && fields[0] == name {
-					found = fields[2] == source
-				}
-			}
-			if !found {
-				t.Errorf("provider table missing %s source for %s", source, name)
-			}
 			code, stdout, stderr := captureOutput(t, func() int { return configureProviderList(name, "json") })
 			if strings.Contains(stdout+stderr, value) {
 				t.Fatal("provider JSON leaked a raw value")

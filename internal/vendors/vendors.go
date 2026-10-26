@@ -98,7 +98,7 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 			return gt, gnote, nil
 		}
 	}
-	if explicit || canServe(name, t.Provider) {
+	if explicit || CanServe(name, t.Provider) {
 		return t, "", nil
 	}
 	if ft, fallbackNote, ok := fallbackTarget(reg, name); ok {
@@ -120,9 +120,9 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("vendor runs on its own login")
 
-// canServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
+// CanServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
 // of the dialects the vendor speaks.
-func canServe(name string, p *providers.Provider) bool {
+func CanServe(name string, p *providers.Provider) bool {
 	// A passthrough provider carries a login only its own vendor can forward; a dialect match is not enough.
 	if p.Auth.Login != "" || p.Auth.Type == "passthrough" {
 		return p.Auth.Login == name

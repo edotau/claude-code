@@ -43,19 +43,63 @@ func TestEnvSortKeyKeepsDevQaProdTogether(t *testing.T) {
 	}
 }
 
-// m2m service-principal rows are cold-start helpers for minting u2m, so the table hides them and counts them.
-func TestProviderTableHidesM2MRows(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+// The summary lists profiles whose credential resolves, folds m2m rows into MODE, and adds an agent section.
+func TestProviderTableSummary(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("SUMMARY_MISSING_KEY", "")
+	t.Setenv("SUMMARY_SP_SECRET", "x")
+	dbx := func(name string, auth providers.Auth) *providers.Provider {
+		return &providers.Provider{Name: name, Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks,
+			BaseURL: "https://dbc-1.cloud.databricks.com/serving-endpoints/anthropic",
+			Routes:  map[string]string{providers.DialectResponses: "https://dbc-1.cloud.databricks.com/serving-endpoints"},
+			Auth:    auth}
+	}
 	reg := &providers.Registry{Default: "dev", Providers: map[string]*providers.Provider{
-		"dev": {Name: "dev", Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks},
-		"sp-user-dev": {Name: "sp-user-dev", Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks,
-			Auth: providers.Auth{AuthType: providers.AuthOAuthM2M}},
+		"prod":    dbx("prod", providers.Auth{Type: providers.AuthBearer, Command: "printf t"}),
+		"dev":     dbx("dev", providers.Auth{Type: providers.AuthBearer, Command: "printf t"}),
+		"sp-user": dbx("sp-user", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthOAuthM2M, Env: "SUMMARY_SP_SECRET"}),
+		"openai": {Name: "openai", Kind: providers.DialectOpenAI, BaseURL: "https://api.openai.com/v1",
+			Auth: providers.Auth{Type: providers.AuthBearer, Env: "SUMMARY_MISSING_KEY"}},
 	}}
 	_, out, _ := captureOutput(t, func() int { printProviderTable(reg); return 0 })
-	if strings.Contains(out, "sp-user-dev") {
-		t.Fatalf("m2m row listed:\n%s", out)
+	if !strings.Contains(out, "PROVIDERS") || !strings.Contains(out, "MODE") {
+		t.Fatalf("no header:\n%s", out)
 	}
-	if !strings.Contains(out, "* dev") || !strings.Contains(out, "hidden: 1 m2m service-principal row(s)") {
-		t.Fatalf("want the dev row and a hidden count, got:\n%s", out)
+	if strings.Contains(out, "sp-user") || strings.Contains(out, "openai ") {
+		t.Fatalf("m2m row or unconfigured provider listed as a profile:\n%s", out)
+	}
+	row := func(label string) string {
+		for l := range strings.SplitSeq(out, "\n") {
+			if f := strings.Fields(l); len(f) > 0 && f[0] == label {
+				return l
+			}
+		}
+		return ""
+	}
+	if r := row("databricks"); !strings.Contains(r, "*dev, prod") || !strings.Contains(r, "web, oauth") {
+		t.Fatalf("databricks row = %q, want profiles *dev, prod and modes web, oauth", r)
+	}
+	if r := row("codex"); !strings.Contains(r, "*dev, prod") {
+		t.Fatalf("codex row = %q, want the Databricks profiles it can run on", r)
+	}
+}
+
+func TestProviderModeLabels(t *testing.T) {
+	cases := []struct {
+		p    *providers.Provider
+		want string
+	}{
+		{&providers.Provider{Auth: providers.Auth{AuthType: providers.AuthU2M}}, "web"},
+		{&providers.Provider{Preset: providers.PresetDatabricks}, "web"},
+		{&providers.Provider{Auth: providers.Auth{AuthType: providers.AuthOAuthM2M}}, "oauth"},
+		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthPassthrough}}, "login"},
+		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}, "-"},
+		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthBearer, Env: "K"}}, "api-key"},
+		{&providers.Provider{Auth: providers.Auth{AuthType: providers.AuthPAT}}, "api-key"},
+	}
+	for _, c := range cases {
+		if got := providerMode(c.p); got != c.want {
+			t.Errorf("providerMode(%+v) = %q, want %q", c.p.Auth, got, c.want)
+		}
 	}
 }
