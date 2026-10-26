@@ -1,10 +1,63 @@
 package providers
 
+import (
+	"encoding/json"
+
+	"github.com/edotau/claude-code/internal/vault"
+)
+
+// opencodeMenuKey is the vault Overlay entry holding the user's menu: a JSON array of OpencodeModel.
+const opencodeMenuKey = "opencode-models"
+
+// OpencodeMenu is the menu opencode (and codex's /model) shows: the vault overlay if set and valid, else the seed.
+func OpencodeMenu() []OpencodeModel {
+	if m, ok := vaultOpencodeMenu(); ok {
+		return m
+	}
+	return DatabricksOpencodeMenu
+}
+
+// OpencodeMenuFromVault reports whether OpencodeMenu is served from the vault overlay rather than the seed.
+func OpencodeMenuFromVault() bool {
+	_, ok := vaultOpencodeMenu()
+	return ok
+}
+
+func vaultOpencodeMenu() ([]OpencodeModel, bool) {
+	var out []OpencodeModel
+	var found bool
+	err := vault.View(func(t *vault.Tx) error {
+		raw, ok := t.Get(vault.Overlay, opencodeMenuKey)
+		if !ok || raw == "" {
+			return nil
+		}
+		found = json.Unmarshal([]byte(raw), &out) == nil && len(out) > 0
+		return nil
+	})
+	if err != nil || !found {
+		return nil, false
+	}
+	return out, true
+}
+
+// SetOpencodeMenu stores menu as the vault overlay; an empty menu deletes the entry (back to the seed).
+func SetOpencodeMenu(menu []OpencodeModel) error {
+	raw := ""
+	if len(menu) > 0 {
+		b, err := json.Marshal(menu)
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	return vault.Update(func(t *vault.Tx) error { return t.Put(vault.Overlay, opencodeMenuKey, raw) })
+}
+
 // OpencodeModel is one /models picker entry: a canonical id, its label, and whether it needs the Responses API.
 type OpencodeModel struct {
-	ID        string
-	Label     string
-	Responses bool
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Responses bool   `json:"responses,omitempty"`
 }
 
 // DatabricksOpencodeMenu is the curated multi-family menu opencode shows on a databricks preset row.
