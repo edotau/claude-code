@@ -175,3 +175,24 @@ func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 		t.Fatalf("auth command ran %d times, want 1", c)
 	}
 }
+
+func TestMintOncePanicDoesNotWedgeLaterCallers(t *testing.T) {
+	p := &Provider{Name: "flight-panic"}
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = mintOnce(context.Background(), p, true, func(context.Context) (string, error) { panic("boom") })
+	}()
+	done := make(chan string, 1)
+	go func() {
+		v, _ := mintOnce(context.Background(), p, true, func(context.Context) (string, error) { return "ok", nil })
+		done <- v
+	}()
+	select {
+	case v := <-done:
+		if v != "ok" {
+			t.Errorf("got %q", v)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("second mintOnce hung after a panicking mint")
+	}
+}

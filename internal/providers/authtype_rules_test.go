@@ -40,3 +40,15 @@ func TestValidIDShape(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIDInjectionRejected(t *testing.T) {
+	for _, id := range []string{"a\nb", "a\rb", "a[b", "a=b"} {
+		p := kindRow(AuthOAuthM2M, id, AuthBearer)
+		if errs := strings.Join(validateAuthType("x", p), ";"); !strings.Contains(errs, "auth.clientId must not contain") {
+			t.Errorf("clientId %q: errs %q", id, errs)
+		}
+	}
+	if errs := validateAuthType("x", kindRow(AuthOAuthM2M, "sp-client", AuthBearer)); len(errs) != 0 {
+		t.Errorf("clean clientId rejected: %v", errs)
+	}
+}
