@@ -124,13 +124,13 @@ func TestOverlayRejectsInvalidValue(t *testing.T) {
 	}
 }
 
-// TestDroppedRoundTripSortedDeduped: SaveDropped stores sorted+deduped keys; an empty list deletes the entry.
+// TestDroppedRoundTripSortedDeduped: UpdateDropped stores sorted+deduped keys; an empty list deletes the entry.
 func TestDroppedRoundTripSortedDeduped(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if got, err := LoadDropped(); err != nil || got != nil {
 		t.Fatalf("fresh LoadDropped = %v, %v; want nil, nil", got, err)
 	}
-	if err := SaveDropped([]string{"zeta", "alpha", "zeta"}); err != nil {
+	if err := UpdateDropped(func([]string) []string { return []string{"zeta", "alpha", "zeta"} }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadDropped()
@@ -140,16 +140,16 @@ func TestDroppedRoundTripSortedDeduped(t *testing.T) {
 	if want := []string{"alpha", "zeta"}; !slices.Equal(got, want) {
 		t.Fatalf("LoadDropped = %v, want %v", got, want)
 	}
-	if err := SaveDropped(nil); err != nil {
+	if err := UpdateDropped(func([]string) []string { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := LoadDropped(); got != nil {
-		t.Fatalf("after SaveDropped(nil) LoadDropped = %v, want nil", got)
+		t.Fatalf("after UpdateDropped(func([]string) []string { return nil }) LoadDropped = %v, want nil", got)
 	}
 }
 
-// TestSaveDroppedRefusesTemplateKeys: catalog keys and rendered top-level keys are never droppable.
-func TestSaveDroppedRefusesTemplateKeys(t *testing.T) {
+// TestUpdateDroppedRefusesTemplateKeys: catalog keys and rendered top-level keys are never droppable.
+func TestUpdateDroppedRefusesTemplateKeys(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rendered, err := Render()
 	if err != nil {
@@ -164,9 +164,9 @@ func TestSaveDroppedRefusesTemplateKeys(t *testing.T) {
 		keys = append(keys, k)
 	}
 	for _, k := range keys {
-		err := SaveDropped([]string{"foreignKey", k})
+		err := UpdateDropped(func([]string) []string { return []string{"foreignKey", k} })
 		if err == nil || !strings.Contains(err.Error(), k+" is owned by the template") {
-			t.Errorf("SaveDropped(%q) err = %v, want the owned-by-template refusal", k, err)
+			t.Errorf("UpdateDropped(%q) err = %v, want the owned-by-template refusal", k, err)
 		}
 	}
 	if got, _ := LoadDropped(); got != nil {

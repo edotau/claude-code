@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"cmp"
 	"regexp"
 	"strings"
 
@@ -38,8 +39,8 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if format == "" {
 		format, lower = defaultPlanFormat, true
 	}
-	out := strings.NewReplacer("{provider}", cmpOr(plan.Provider, agentVendor[name]), "{mode}", st.mode,
-		"{tier}", cmpOr(plan.Tier, st.tier), "{id}", id).Replace(format)
+	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentVendor[name]), "{mode}", st.mode,
+		"{tier}", cmp.Or(plan.Tier, st.tier), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
 	if lower {
 		out = strings.ToLower(out)

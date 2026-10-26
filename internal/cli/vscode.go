@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
 	"github.com/edotau/claude-code/internal/vscodeserve"
@@ -207,8 +208,7 @@ func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format stri
 		fmt.Fprintln(os.Stderr, "claude-code: network vscode: "+n)
 	}
 	if format == "json" {
-		b, _ := json.MarshalIndent(res.State, "", "  ")
-		fmt.Println(string(b))
+		_ = outfmt.Write(os.Stdout, res.State)
 		return 0
 	}
 	fmt.Printf("claude-code: network vscode running pid %d port %d\n", res.State.PID, res.State.Port)
@@ -249,12 +249,11 @@ func vscodeServeStatus(ctx context.Context, format string) int {
 	st, running := vscodeserve.Running()
 	_, mapped := vscodeserve.TailscaleMapping(ctx, st.Port)
 	if format == "json" {
-		b, _ := json.MarshalIndent(struct {
+		_ = outfmt.Write(os.Stdout, struct {
 			Running bool `json:"running"`
 			Mapped  bool `json:"tailscale_mapped"`
 			vscodeserve.State
-		}{running, mapped, st}, "", "  ")
-		fmt.Println(string(b))
+		}{running, mapped, st})
 		if !running {
 			return 1
 		}

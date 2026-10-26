@@ -276,7 +276,7 @@ func TestCheckSettingsDriftDroppedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
 		t.Fatal(err)
 	}
 	withKey := strings.TrimRight(strings.TrimSpace(string(rendered)), "}") + `,"verbose":true}`
@@ -313,7 +313,7 @@ func TestCheckSettingsDriftDroppedKey(t *testing.T) {
 // breakVault corrupts the vault file so settings.LoadDropped fails.
 func breakVault(t *testing.T, dir string) {
 	t.Helper()
-	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "state", "vault.db"), []byte("not a bolt db, garbage"), 0o600); err != nil {

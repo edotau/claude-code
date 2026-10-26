@@ -109,7 +109,7 @@ func Run(o Options, section string) int {
 	out := o.writer()
 	want := Sections
 	if section != "" {
-		if !contains(Sections, section) {
+		if !slices.Contains(Sections, section) {
 			fmt.Fprintf(out, "configure: unknown section %q (%s)\n", section, strings.Join(Sections, "|"))
 			return 2
 		}
@@ -196,10 +196,6 @@ func Vendor(name string, interactive bool, out io.Writer) (changed bool, err err
 	d.header("agents")
 	runAgents(d)
 	return changed, nil
-}
-
-func contains(ss []string, s string) bool {
-	return slices.Contains(ss, s)
 }
 
 func readLine(br *bufio.Reader) string {

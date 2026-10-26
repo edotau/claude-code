@@ -92,7 +92,7 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "save-plan: %v\n", err)
 				return ExitProceed
 			}
-			if err := removeRecordedDest(filepath.Base(draftPath)); err != nil && !os.IsNotExist(err) {
+			if err := os.Remove(destRecordPath(filepath.Base(draftPath))); err != nil && !os.IsNotExist(err) {
 				fmt.Fprintf(stderr, "save-plan: %v\n", err)
 			}
 		}
@@ -338,8 +338,6 @@ func recordDest(draftBase, dest string) error {
 	}
 	return os.WriteFile(destRecordPath(draftBase), []byte(dest), 0o600)
 }
-
-func removeRecordedDest(draftBase string) error { return os.Remove(destRecordPath(draftBase)) }
 
 // PlanMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
 // copied to its dated, repo-tagged file (SavePlan's own slug/title/dest logic), so the draft is never the

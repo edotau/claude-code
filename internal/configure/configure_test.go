@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,7 +196,7 @@ func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
 // "claude" is a Sections entry: present in the walk order, and listed in the unknown-section error so
 // a typo'd section name tells the user it is a valid choice.
 func TestClaudeSectionIsRegistered(t *testing.T) {
-	if !contains(Sections, "claude") {
+	if !slices.Contains(Sections, "claude") {
 		t.Fatalf("Sections = %v, want \"claude\" present", Sections)
 	}
 	var out bytes.Buffer

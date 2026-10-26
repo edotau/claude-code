@@ -244,21 +244,6 @@ func TestRefreshU2MRotationAndNonRotation(t *testing.T) {
 	}
 }
 
-func TestRefreshInvalidGrantDetected(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"refresh token expired"}`)
-	}))
-	defer srv.Close()
-	_, err := RefreshU2M(context.Background(), srv.URL, "ref-secret")
-	if !IsInvalidGrant(err) || strings.Contains(err.Error(), "ref-secret") {
-		t.Fatalf("err = %v", err)
-	}
-	if IsInvalidGrant(fmt.Errorf("other")) {
-		t.Error("plain error classified as invalid grant")
-	}
-}
-
 func TestMintM2MSuccess(t *testing.T) {
 	var user, pass string
 	var form url.Values
@@ -288,7 +273,7 @@ func TestMintM2MInvalidClientMessageHasNoSecret(t *testing.T) {
 	}))
 	defer srv.Close()
 	_, err := MintM2M(context.Background(), srv.URL, "sp-id", "sp-secret-value")
-	if err == nil || !IsInvalidGrant(err) || !strings.Contains(err.Error(), "invalid_client") ||
+	if err == nil || !strings.Contains(err.Error(), "invalid_client") ||
 		!strings.Contains(err.Error(), "Client authentication failed") || strings.Contains(err.Error(), "sp-secret-value") {
 		t.Fatalf("err = %v", err)
 	}

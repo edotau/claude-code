@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/review/pyjson"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/review/pyjson"
 )
 
 // ComplexityThresholds mirrors complexity_checker.THRESHOLDS.

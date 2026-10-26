@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -240,10 +241,7 @@ func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
 			return spec
 		}
 	}
-	session := providers.Pin(providers.PinProvider)
-	if session == "" {
-		session = reg.Default
-	}
+	session := cmp.Or(providers.Pin(providers.PinProvider), reg.Default)
 	if providerFlag == session {
 		return spec
 	}

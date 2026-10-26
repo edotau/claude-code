@@ -442,7 +442,7 @@ func TestInstallWindowsSettings_DropsListedForeignKey(t *testing.T) {
 	if err := os.WriteFile(file, []byte(`{"remote":{"a":1},"verbose":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := settings.SaveDropped([]string{"verbose"}); err != nil {
+	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

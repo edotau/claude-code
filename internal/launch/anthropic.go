@@ -51,6 +51,9 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 		if name == "--x-api-key" {
 			mode, def = AuthAPIKey, DefaultAPIKeyName
 		}
+		if o.Mode == mode {
+			return o, nil, fmt.Errorf("%s given more than once; pass it a single time", name)
+		}
 		if o.Mode != AuthLogin {
 			return o, nil, fmt.Errorf("--oauth and --x-api-key cannot be combined; pick one auth mode")
 		}

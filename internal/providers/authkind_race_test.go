@@ -60,7 +60,7 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
 	p := mintRow(t, "race-u2m", AuthU2M, "", srv.URL)
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	if err := SealSecret(name, idp.rotate()); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
 	p := mintRow(t, "race-xproc", AuthU2M, "", srv.URL)
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	if err := SealSecret(name, idp.rotate()); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" {
 		t.Errorf("cached = %q, %v; want login-access", v, ok)
 	}
-	if v, _, _ := EffectiveSecret(authSecretName(p)); v != idp.valid {
+	if v, _, _ := EffectiveSecret(AuthSecretName(p)); v != idp.valid {
 		t.Errorf("sealed = %q, want %q", v, idp.valid)
 	}
 }

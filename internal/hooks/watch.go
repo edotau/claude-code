@@ -55,7 +55,7 @@ func spawnIdleWatcher(in *Input) {
 	}
 	_ = f.Close()
 	args := []string{"--session", in.SessionID, "--transcript", in.TranscriptPath, "--cwd", in.CWD,
-		"--owner", strconv.Itoa(sessionOwnerPid())}
+		"--owner", strconv.Itoa(inflight.SessionOwner())}
 	if !spawnWatcher(args, in.CWD) {
 		_ = os.Remove(claim) // let the next Stop try again
 	}

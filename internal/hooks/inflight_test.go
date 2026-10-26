@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -18,7 +19,7 @@ const inflightPayload = `{"tool_name":"Agent","tool_input":{"prompt":"x"}}`
 
 func TestAgentInflightLockedMarkerMatchesTagLookup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	owner := sessionOwnerPid()
+	owner := inflight.SessionOwner()
 	if owner == 0 {
 		t.Skip("session owner unavailable")
 	}
@@ -281,7 +282,7 @@ func TestAgentInflightTranscriptPruning(t *testing.T) {
 			marker := filepath.Join(inflightDir(), names[0])
 			if c.sibling {
 				// Re-own the marker to this test binary: alive, but not the session owner (its parent process).
-				renamed := filepath.Join(inflightDir(), strings.Replace(names[0], strconv.Itoa(sessionOwnerPid()), strconv.Itoa(os.Getpid()), 1))
+				renamed := filepath.Join(inflightDir(), strings.Replace(names[0], strconv.Itoa(inflight.SessionOwner()), strconv.Itoa(os.Getpid()), 1))
 				if err := os.Rename(marker, renamed); err != nil {
 					t.Fatal(err)
 				}
@@ -329,7 +330,7 @@ func TestAgentInflightTranscriptPruning(t *testing.T) {
 	}
 }
 
-// markerOwner's second return distinguishes "not a marker at all" from "a marker whose pid parsed as
+// inflight.Owner's second return distinguishes "not a marker at all" from "a marker whose pid parsed as
 // 0" — the two cases the TTL/dead-owner logic in pruneAndCountMarkers must tell apart.
 func TestMarkerOwnerParsesPidReportsNonMarkers(t *testing.T) {
 	cases := []struct {
@@ -343,8 +344,8 @@ func TestMarkerOwnerParsesPidReportsNonMarkers(t *testing.T) {
 		{"stray", 0, false},
 	}
 	for _, c := range cases {
-		if pid, ok := markerOwner(c.name); pid != c.wantPid || ok != c.wantOK {
-			t.Errorf("markerOwner(%q) = (%d, %v), want (%d, %v)", c.name, pid, ok, c.wantPid, c.wantOK)
+		if pid, ok := inflight.Owner(c.name); pid != c.wantPid || ok != c.wantOK {
+			t.Errorf("inflight.Owner(%q) = (%d, %v), want (%d, %v)", c.name, pid, ok, c.wantPid, c.wantOK)
 		}
 	}
 }
@@ -488,7 +489,7 @@ func TestAgentInflightSubagentStopRetiresTaggedMarkerOnly(t *testing.T) {
 	if code := AgentInflight("tag", strings.NewReader(tagPayload("older", "a1")), &bytes.Buffer{}); code != ExitProceed {
 		t.Fatal("tag must proceed")
 	}
-	// os.Getpid() (the test process) is live and is not the owner (owner = sessionOwnerPid()), so it
+	// os.Getpid() (the test process) is live and is not the owner (owner = inflight.SessionOwner()), so it
 	// stands in for "another live session" whose marker must never be touched by this owner's retire.
 	other := "agent-" + strconv.Itoa(os.Getpid()) + "-x@a1"
 	if f, err := os.Create(filepath.Join(dir, other)); err != nil {

@@ -26,8 +26,8 @@ const (
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
-// authSecretName is the vault name of p's sealed secret for its authType; "" for types with none.
-func authSecretName(p *Provider) string { return SecretNameFor(p.Name, p.Auth.AuthType) }
+// AuthSecretName is the vault name of p's sealed secret for its authType; "" for types with none.
+func AuthSecretName(p *Provider) string { return SecretNameFor(p.Name, p.Auth.AuthType) }
 
 // SecretNameFor is the vault name of the sealed secret for provider id and authType; "" for types with none.
 func SecretNameFor(id, authType string) string {
@@ -187,7 +187,7 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 
 // mintAuth is the one path that turns a sealed credential into an access token.
 func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	secret, err := mintSecret(p, name)
 	if err != nil {
 		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
@@ -281,7 +281,7 @@ func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time
 		return 0, fmt.Errorf("%s: login returned no refresh token", p.Name)
 	}
 	err = withRefreshLock(p, func() error {
-		if err := SealSecret(authSecretName(p), tok.Refresh); err != nil {
+		if err := SealSecret(AuthSecretName(p), tok.Refresh); err != nil {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
 		return finishCredential(p, tok.Access, tok.Expiry)
@@ -295,6 +295,3 @@ func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time
 	}
 	return time.Until(c.(cached).until) + expiryMargin, nil
 }
-
-// AuthSecretName exports the sealed secret name for a row's authType (display only).
-func AuthSecretName(p *Provider) string { return authSecretName(p) }

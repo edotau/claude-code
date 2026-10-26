@@ -5,10 +5,10 @@ package providers
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -166,7 +166,7 @@ func (p Provider) Dialects() []string {
 	for d := range seen {
 		out = append(out, d)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -290,12 +290,7 @@ func (r *Registry) Get(name string) (*Provider, error) {
 
 // Names lists provider names, sorted.
 func (r *Registry) Names() []string {
-	out := make([]string, 0, len(r.Providers))
-	for n := range r.Providers {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(r.Providers))
 }
 
 // Validate reports registry errors: unknown dialects, missing base URLs, dangling default/fallback names.
@@ -320,7 +315,7 @@ func validateSecretNames(r *Registry) []string {
 	var errs []string
 	owner := map[string]string{}
 	for _, n := range r.Names() {
-		name := authSecretName(r.Providers[n])
+		name := AuthSecretName(r.Providers[n])
 		if name == "" {
 			continue
 		}

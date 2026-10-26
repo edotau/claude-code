@@ -900,12 +900,12 @@ func TestCopilotLoginPresentHonoursEveryTokenVar(t *testing.T) {
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}
-	if copilotLoginPresent() {
+	if CopilotLoginPresent() {
 		t.Fatal("no token and no gh must read as not logged in")
 	}
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GITHUB_TOKEN"} {
 		t.Setenv(k, "tok")
-		if !copilotLoginPresent() {
+		if !CopilotLoginPresent() {
 			t.Errorf("%s must count as a copilot login", k)
 		}
 		t.Setenv(k, "")

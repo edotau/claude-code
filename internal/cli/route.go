@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -64,9 +64,7 @@ func cmdRoute(args []string) int {
 	src := routeSources{Weights: routeWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	if *format == outfmt.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(routeJSON{Result: res, Sources: src}); err != nil {
+		if err := outfmt.Write(os.Stdout, routeJSON{Result: res, Sources: src}); err != nil {
 			return 1
 		}
 		return 0
@@ -117,17 +115,10 @@ func printRoute(res route.Result, src routeSources) {
 		fmt.Printf("%-3s %-9s %-32s %-6s %-26s %-8s %6s %8s %6s\n", "#", "RUNNER", "MODEL", "EFFORT", "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
 	}
 	for i, c := range res.Candidates {
-		fmt.Printf("%-3d %-9s %-32s %-6s %-26s %-8s %6.2f %8.2f %6.2f\n", i+1, c.Runner, c.Model, dashIf(c.Effort),
+		fmt.Printf("%-3d %-9s %-32s %-6s %-26s %-8s %6.2f %8.2f %6.2f\n", i+1, c.Runner, c.Model, cmp.Or(c.Effort, "-"),
 			c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
 	for _, s := range res.Skipped {
 		fmt.Printf("skip %-9s %-10s %s\n", s.Runner, s.Gate, s.Reason)
 	}
-}
-
-func dashIf(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
 }

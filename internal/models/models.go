@@ -100,11 +100,10 @@ func Canonical(id string) (base string, oneM bool) {
 	if hasFamilyDash(rest) {
 		cand = "claude-" + rest
 	}
-	if _, _, _, ok := ParseClaudeID(cand); ok && (stripped || cand != rest) {
-		return cand, oneM
-	}
-	if stripped && isFamily(rest) {
-		return rest, oneM
+	if stripped || cand != rest {
+		if _, _, _, ok := ParseClaudeID(cand); ok {
+			return cand, oneM
+		}
 	}
 	return id, oneM
 }

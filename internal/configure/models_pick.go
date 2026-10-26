@@ -178,7 +178,7 @@ func pickCopilotModel(d *dialog) {
 			continue
 		}
 		id := ids[j-nExtra]
-		saveCopilotModel(d, id)
+		saveAgentModel(d, "copilot", providers.PinCopilotModel, id)
 		clearIneligibleCopilotPins(d, id)
 		return
 	}
@@ -204,17 +204,16 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 	if err != nil || j < 0 {
 		return
 	}
-	saveCopilotModel(d, ids[j])
+	saveAgentModel(d, "copilot", providers.PinCopilotModel, ids[j])
 }
 
-// saveCopilotModel pins COPILOT_MODEL — the copilot agent's own model, independent of the
-// github-copilot provider's opus slot that opencode's fallback ladder reads.
-func saveCopilotModel(d *dialog, id string) {
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: id}); err != nil {
+// saveAgentModel pins an agent's model env var (copilot's COPILOT_MODEL is independent of the github-copilot opus slot).
+func saveAgentModel(d *dialog, agent, pin, id string) {
+	if err := providers.SetPins(map[string]string{pin: id}); err != nil {
 		d.printf("model: %v\n", err)
 		return
 	}
-	d.printf("model: copilot = %s\n", id)
+	d.printf("model: %s = %s\n", agent, id)
 	d.changed = true
 }
 

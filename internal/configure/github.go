@@ -84,16 +84,6 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 	return
 }
 
-// githubFixCmds is the exact command line for every absent row, printed once on a piped run.
-func githubFixCmds(d *dialog, ghOK, copilotOK bool) {
-	if !ghOK {
-		d.println("fix: gh auth login")
-	}
-	if !copilotOK {
-		d.println("fix: copilot login")
-	}
-}
-
 // runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
 // fallback ladder (not the copilot agent's own model, pinned on its own page via COPILOT_MODEL) —
 // gh/copilot/opencode login state, the opencode and copilot routes, and — on a terminal — a menu to
@@ -103,7 +93,12 @@ func runGithub(d *dialog) bool {
 		return githubMenu(d)
 	}
 	ghOK, copilotOK := githubStatusRows(d)
-	githubFixCmds(d, ghOK, copilotOK)
+	if !ghOK {
+		d.println("fix: gh auth login")
+	}
+	if !copilotOK {
+		d.println("fix: copilot login")
+	}
 	if d.o.Check {
 		return vendors.DescribeRoute(d.reg, "opencode").OK && vendors.DescribeRoute(d.reg, "copilot").OK
 	}
@@ -140,11 +135,6 @@ func githubMenu(d *dialog) bool {
 
 // runGithubLogin execs argv attached to the real terminal, same contract as runLogin elsewhere in configure.
 func runGithubLogin(d *dialog, argv []string, label string) {
-	argv, err := vendorArgv(argv)
-	if err != nil {
-		d.printf("%s: %v\n", label, err)
-		return
-	}
 	if err := runLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
 		return

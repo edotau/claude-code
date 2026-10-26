@@ -110,24 +110,18 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	}
 	var dirs []string
 	for _, dir := range sessionDirs {
-		dirs = append(dirs, workflowRunDirs(dir)...)
+		dirs = append(dirs, WorkflowRunDirs(dir)...)
 	}
 	return dirs, nil
 }
-
-// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agenttree).
-func WorkflowRunDirs(sessionDir string) []string { return workflowRunDirs(sessionDir) }
-
-// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agenttree).
-func WorkflowAgentFiles(runDir string) []string { return workflowAgentFiles(runDir) }
 
 // WorkflowPhaseFromMeta reads one agent transcript's sibling meta's workflowPhase (exported for internal/agenttree).
 func WorkflowPhaseFromMeta(transcriptPath string) string {
 	return workflowPhaseFromMeta(transcriptPath, io.Discard)
 }
 
-// workflowRunDirs lists one session's workflows/<runId> dirs.
-func workflowRunDirs(sessionDir string) []string {
+// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agenttree).
+func WorkflowRunDirs(sessionDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))
 	if err != nil {
 		return nil
@@ -147,9 +141,9 @@ func keepDirs(matches []string) []string {
 	return dirs
 }
 
-// workflowAgentFiles lists one run dir's agent transcripts; the agent-*.jsonl shape keeps the sibling
+// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agenttree); the agent-*.jsonl shape keeps the sibling
 // *.meta.json sidecars out of the token scan.
-func workflowAgentFiles(runDir string) []string {
+func WorkflowAgentFiles(runDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(runDir, "agent-*.jsonl"))
 	if err != nil {
 		return nil
@@ -161,7 +155,7 @@ func workflowAgentFiles(runDir string) []string {
 // loadWorkflowRun folds every agent transcript in one run dir into phase rows, returning the run and
 // the number of transcripts scanned (nil when the dir holds none).
 func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
-	files := workflowAgentFiles(runDir)
+	files := WorkflowAgentFiles(runDir)
 	if len(files) == 0 {
 		return nil, 0
 	}

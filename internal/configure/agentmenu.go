@@ -72,17 +72,13 @@ func displayLabel(name string) string {
 	return name
 }
 
-// internalName undoes displayLabel: the agent page title carries the display label.
-func internalName(label string) string {
-	if label == displayLabel("gemini") {
-		return "gemini"
-	}
-	return label
-}
-
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
-	if r := modelRow(d, internalName(name)); r != nil {
+	internal := name // the page title carries the display label; undo displayLabel
+	if name == displayLabel("gemini") {
+		internal = "gemini"
+	}
+	if r := modelRow(d, internal); r != nil {
 		m.rows = append(m.rows, *r)
 	}
 	title := name + " (current: " + m.state.mode
@@ -115,7 +111,11 @@ func bracket(ok bool, yes, no string) string {
 
 // keyVerified live-probes a keyed provider; false when absent or not accepted.
 func keyVerified(p *providers.Provider) bool {
-	return p != nil && providers.CredentialPresent(p) && probeStatus(p) == "verified"
+	if p == nil || !providers.CredentialPresent(p) {
+		return false
+	}
+	status, _, _ := probeCached(keyTarget{provider: p})
+	return status == "verified"
 }
 
 // keyPresent reports whether provider name has a stored key.
@@ -147,23 +147,13 @@ func keyRow(d *dialog, label, provider, desc string) billingRow {
 	}}
 }
 
-// byokKey is the key copilot and opencode fall back to without their login (vendors.DescribeRoute order): the
-// anthropic key; the harness hands it over as generated config, never `auth login`.
-func byokKey(reg *providers.Registry) (*providers.Provider, string) {
-	for _, name := range []string{anthropicRow} {
-		if p, ok := keyPresent(reg, name); ok {
-			return p, p.Auth.Env
-		}
-	}
-	return nil, ""
-}
-
 // loginOrKey is the state of an agent that bills its own login first, else a BYOK key.
 func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 	if loggedIn {
 		return agentState{modeSubscription, tier, true}
 	}
-	if p, _ := byokKey(d.reg); p != nil {
+	// BYOK fallback (vendors.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
+	if p, ok := keyPresent(d.reg, anthropicRow); ok {
 		return agentState{mode: modeAPIKey, verified: keyVerified(p)}
 	}
 	return agentState{mode: modeNone}

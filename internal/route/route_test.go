@@ -11,6 +11,15 @@ import (
 	"github.com/edotau/claude-code/internal/routetable"
 )
 
+// load builds a Table against an explicit registry and Copilot gh user.
+func load(reg *providers.Registry, ghUser string) (*Table, error) {
+	t, err := routetable.LoadFrom(reg, ghUser)
+	if err != nil {
+		return nil, err
+	}
+	return &Table{*t}, nil
+}
+
 func testTable(t *testing.T) *Table {
 	t.Helper()
 	// a bare table.json load carries no registry, so set the defaults.json-shaped opencode free-tier

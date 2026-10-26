@@ -300,7 +300,7 @@ func AddOriginAlias(dir, origin string) error {
 			return errors.Join(ErrOriginConflict, errors.New(origin+" already belongs to "+e.Dir))
 		}
 		cur.Aliases = append(slices.Clone(cur.Aliases), origin)
-		return putOrigin(dir, cur)
+		return foldOrigin(dir, cur, "")
 	})
 }
 

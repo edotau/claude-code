@@ -72,12 +72,6 @@ func (e *oauthError) Error() string {
 	return s
 }
 
-// IsInvalidGrant reports a rejected refresh token or credential (the caller must re-login or fix the secret).
-func IsInvalidGrant(err error) bool {
-	var oe *oauthError
-	return errors.As(err, &oe) && (oe.Code == "invalid_grant" || oe.Code == "invalid_client" || oe.Code == "unauthorized_client")
-}
-
 // retryPolicy says which token-endpoint failures a grant may repeat.
 type retryPolicy int
 

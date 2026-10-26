@@ -1,13 +1,8 @@
 package diff
 
 import (
-	"path/filepath"
 	"strings"
 )
-
-func absPath(p string) (string, error) {
-	return filepath.Abs(p)
-}
 
 // splitPositional separates positional args from flags so Go's flag.Parse (which stops at the
 // first non-flag token) can still handle argparse-style interleaving like ". --base main".
