@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -59,11 +58,7 @@ func vaultSecretRows(stored []secrets.Stored) [][2]string {
 
 // vaultMapRows sorts a pins/env map into rows by key.
 func vaultMapRows(m map[string]string) [][2]string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(m))
 	rows := make([][2]string, len(keys))
 	for i, k := range keys {
 		rows[i] = [2]string{k, m[k]}
@@ -73,10 +68,7 @@ func vaultMapRows(m map[string]string) [][2]string {
 
 // vaultVaultRows is the single vault.key_command row.
 func vaultVaultRows(keyCommand string) [][2]string {
-	if keyCommand == "" {
-		keyCommand = "(none)"
-	}
-	return [][2]string{{"key_command", keyCommand}}
+	return [][2]string{{"key_command", cmp.Or(keyCommand, "(none)")}}
 }
 
 // vaultFlattenSection flattens an overlay to dotted-path rows.

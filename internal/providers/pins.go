@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"cmp"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -165,11 +166,7 @@ func PinDiff(kv map[string]string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(kv))
-	for k := range kv {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(kv))
 	var out []string
 	for _, k := range keys {
 		if cur[k] == kv[k] {
@@ -189,11 +186,7 @@ func RenderPins() ([]byte, error) {
 	if len(pins) == 0 {
 		return nil, fs.ErrNotExist
 	}
-	keys := make([]string, 0, len(pins))
-	for k := range pins {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(pins))
 	var b strings.Builder
 	b.WriteString("# Managed by `claude-code use` / `claude-code models --pin`.\n")
 	for _, k := range keys {

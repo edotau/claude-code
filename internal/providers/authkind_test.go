@@ -36,10 +36,10 @@ func TestValidateKind(t *testing.T) {
 func TestKindSecretName(t *testing.T) {
 	p := kindRow(AuthU2M, "", AuthBearer)
 	p.Name = "dbx-dev.1"
-	if got := authSecretName(p); got != "PROVIDER_DBX_DEV_1_REFRESH_TOKEN" {
+	if got := AuthSecretName(p); got != "PROVIDER_DBX_DEV_1_REFRESH_TOKEN" {
 		t.Errorf("got %q", got)
 	}
-	if authSecretName(kindRow("", "", AuthBearer)) != "" {
+	if AuthSecretName(kindRow("", "", AuthBearer)) != "" {
 		t.Error("kindless row has a sealed name")
 	}
 }
@@ -50,7 +50,7 @@ func TestPATCredentialAndPresence(t *testing.T) {
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
 	}
-	if err := SealSecret(authSecretName(p), "dapi-test-value"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "dapi-test-value"); err != nil {
 		t.Fatal(err)
 	}
 	if !CredentialPresent(p) {

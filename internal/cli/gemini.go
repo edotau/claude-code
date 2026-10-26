@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -76,10 +77,7 @@ func cmdGeminiBridge(args []string) int {
 		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --task and trailing positional args are mutually exclusive")
 		return 2
 	}
-	taskText := *task
-	if taskText == "" {
-		taskText = strings.Join(pos, " ")
-	}
+	taskText := cmp.Or(*task, strings.Join(pos, " "))
 	if strings.TrimSpace(taskText) == "" {
 		fs.Usage()
 		if len(args) == 0 {

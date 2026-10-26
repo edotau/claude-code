@@ -52,7 +52,7 @@ func agentInflight(mode string, in *Input, stderr io.Writer) int {
 		return ExitProceed
 	}
 	// The session process (claude, codex) is the identity every event shares — never the hook's shell.
-	owner := sessionOwnerPid()
+	owner := inflight.SessionOwner()
 	if owner == 0 {
 		return ExitProceed // an unidentifiable owner writes no marker, and must retire none
 	}
@@ -198,10 +198,6 @@ func writeMarker(dir string, owner int, id string) {
 	}
 }
 
-// markerOwner parses the owning pid out of a marker name; ok=false means the entry is not a marker
-// (the lock file, a stray), which is NOT the same as a marker whose pid parsed as 0.
-func markerOwner(name string) (int, bool) { return inflight.Owner(name) }
-
 // ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
 // treating every pid as dead there would silently disable both this and the idle-harvest watcher.
 func ownerDead(pid int) bool {
@@ -224,7 +220,7 @@ func pruneAndCountMarkers(dir string, self int, transcript string, now time.Time
 	var session []byte // read lazily: only an untagged self marker needs it
 	n := 0
 	for _, e := range entries {
-		if _, ok := markerOwner(e.Name()); !ok {
+		if _, ok := inflight.Owner(e.Name()); !ok {
 			continue
 		}
 		fi, err := e.Info()
@@ -273,7 +269,7 @@ func retireMarker(dir string, owner int, id, agentID string) {
 	}
 	suffix := markerAgentSep + safeMarkerID(agentID)
 	for _, e := range entries {
-		if pid, ok := markerOwner(e.Name()); !ok || pid != owner {
+		if pid, ok := inflight.Owner(e.Name()); !ok || pid != owner {
 			continue
 		}
 		if strings.HasSuffix(e.Name(), suffix) {

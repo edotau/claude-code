@@ -27,7 +27,7 @@ func TestSealedAuthHerdMintsOnce(t *testing.T) {
 				return 200, map[string]any{"access_token": "herd-token", "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-herd-"+k.kind, k.kind, k.clientID, srv.URL)
-			if err := SealSecret(authSecretName(p), k.secret); err != nil {
+			if err := SealSecret(AuthSecretName(p), k.secret); err != nil {
 				t.Fatal(err)
 			}
 			vals, errs := herd(p, 20)
@@ -56,7 +56,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 				return 200, map[string]any{"access_token": fmt.Sprintf("tok-%d", n), "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-refresh-"+k.kind, k.kind, k.clientID, srv.URL)
-			if err := SealSecret(authSecretName(p), k.secret); err != nil {
+			if err := SealSecret(AuthSecretName(p), k.secret); err != nil {
 				t.Fatal(err)
 			}
 			var wg sync.WaitGroup

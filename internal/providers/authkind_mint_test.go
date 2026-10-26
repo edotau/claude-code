@@ -47,7 +47,7 @@ func TestAuthOAuthM2MMintsViaOIDC(t *testing.T) {
 		return 200, map[string]any{"access_token": "m2m-minted", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-m2m-ok", AuthOAuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(authSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Credential(context.Background(), p)
@@ -70,7 +70,7 @@ func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
 		return 401, map[string]any{"error": "invalid_client", "error_description": "Client authentication failed"}
 	})
 	p := mintRow(t, "kind-m2m-bad", AuthOAuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(authSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)
@@ -86,7 +86,7 @@ func TestAuthU2MRotatedRefreshIsResealed(t *testing.T) {
 		return 200, map[string]any{"access_token": "u2m-acc", "refresh_token": "refresh-2", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-u2m-rot", AuthU2M, "", srv.URL)
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	if err := SealSecret(name, "refresh-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestAuthU2MNonRotationKeepsSealedToken(t *testing.T) {
 		return 200, map[string]any{"access_token": "u2m-acc", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-u2m-norot", AuthU2M, "", srv.URL)
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	if err := SealSecret(name, "refresh-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestAuthU2MInvalidGrantPointsToLoginWithoutToken(t *testing.T) {
 		return 400, map[string]any{"error": "invalid_grant", "error_description": "refresh token expired"}
 	})
 	p := mintRow(t, "kind-u2m-dead", AuthU2M, "", srv.URL)
-	if err := SealSecret(authSecretName(p), "refresh-dead-value"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "refresh-dead-value"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)
@@ -151,7 +151,7 @@ func TestCredentialPresentPerKind(t *testing.T) {
 		if CredentialPresent(p) {
 			t.Errorf("%s: present before sealing", kind)
 		}
-		if err := SealSecret(authSecretName(p), "some-sealed-value"); err != nil {
+		if err := SealSecret(AuthSecretName(p), "some-sealed-value"); err != nil {
 			t.Fatal(err)
 		}
 		if !CredentialPresent(p) {
@@ -206,7 +206,7 @@ func TestAuthU2MIgnoresStaleEnvRefresh(t *testing.T) {
 		return 200, map[string]any{"access_token": "u2m-acc", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-u2m-env", AuthU2M, "", srv.URL)
-	name := authSecretName(p)
+	name := AuthSecretName(p)
 	if err := SealSecret(name, "vault-refresh"); err != nil {
 		t.Fatal(err)
 	}

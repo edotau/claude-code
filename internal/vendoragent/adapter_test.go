@@ -5,10 +5,14 @@ import (
 	"testing"
 )
 
-// TestNames pins the roster and its order, matching the verb table in contract.md.
-func TestNames(t *testing.T) {
-	if got := Names(); !slices.Equal(got, []string{"codex", "gemini", "copilot", "opencode"}) {
-		t.Errorf("Names() = %v, want [codex gemini copilot opencode]", got)
+// TestRoster pins the roster and its order, matching the verb table in contract.md.
+func TestRoster(t *testing.T) {
+	var got []string
+	for _, a := range adapters {
+		got = append(got, a.Name)
+	}
+	if !slices.Equal(got, []string{"codex", "gemini", "copilot", "opencode"}) {
+		t.Errorf("roster = %v, want [codex gemini copilot opencode]", got)
 	}
 }
 

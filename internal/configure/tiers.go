@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -39,7 +40,7 @@ func claudeRateTier() string {
 	if json.Unmarshal(b, &cfg) != nil {
 		return ""
 	}
-	return cmpOr(cfg.Account.User, cfg.Account.Org)
+	return cmp.Or(cfg.Account.User, cfg.Account.Org)
 }
 
 // codexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.

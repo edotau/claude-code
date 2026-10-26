@@ -18,7 +18,8 @@ func TestCanonical(t *testing.T) {
 		{"a/b", "a/b", false},
 		{"  claude-opus-5[1m]  ", "claude-opus-5", true},
 		{"  opus  ", "opus", false},
-		{"system.ai.opus", "opus", false},
+		{"system.ai.opus", "system.ai.opus", false},
+		{"databricks-opus", "databricks-opus", false},
 		{"claude-opus-5-5", "claude-opus-5-5", false},
 	}
 	for _, c := range cases {

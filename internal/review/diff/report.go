@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -574,7 +575,7 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	if len(positional) > 0 {
 		repoArg = positional[0]
 	}
-	repoPath, err := absPath(repoArg)
+	repoPath, err := filepath.Abs(repoArg)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1

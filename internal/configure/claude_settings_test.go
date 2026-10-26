@@ -501,7 +501,7 @@ func TestDropAbsentKeyDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// TestDropTemplateKeyRefused: a template-owned key present in settings.json is refused by SaveDropped.
+// TestDropTemplateKeyRefused: a template-owned key present in settings.json is refused by UpdateDropped.
 func TestDropTemplateKeyRefused(t *testing.T) {
 	dropFixture(t, "zzForeign")
 	var out bytes.Buffer
@@ -565,7 +565,7 @@ func TestReportPrintsDroppedKeysOnlyWhenNonEmpty(t *testing.T) {
 	if strings.Contains(out.String(), "dropped keys:") {
 		t.Fatalf("empty list printed a dropped line:\n%s", out.String())
 	}
-	if err := settings.SaveDropped([]string{"zzForeign"}); err != nil {
+	if err := settings.UpdateDropped(func([]string) []string { return []string{"zzForeign"} }); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

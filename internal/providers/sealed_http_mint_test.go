@@ -13,7 +13,7 @@ func TestLoopbackHTTPSealedRowStillMints(t *testing.T) {
 		return 200, map[string]any{"access_token": "loop-minted", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-loop-http", AuthOAuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(authSecretName(p), "sp-secret"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := Credential(context.Background(), p); err != nil || got != "loop-minted" {
@@ -23,7 +23,7 @@ func TestLoopbackHTTPSealedRowStillMints(t *testing.T) {
 
 func TestPlainHTTPNonLoopbackSealedRowDoesNotMint(t *testing.T) {
 	p := mintRow(t, "kind-nonloop-http", AuthOAuthM2M, "sp-client", "http://example.cloud.databricks.com")
-	if err := SealSecret(authSecretName(p), "sp-secret"); err != nil {
+	if err := SealSecret(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Credential(context.Background(), p)

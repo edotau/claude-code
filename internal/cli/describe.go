@@ -1,17 +1,18 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"runtime/debug"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -87,9 +88,7 @@ func cmdDescribe(args []string) int {
 	}
 	switch *format {
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(d)
+		_ = outfmt.Write(os.Stdout, d)
 	case "text":
 		printDescribe(d)
 	default:
@@ -143,12 +142,7 @@ func subwordNames(node *compNode) []string {
 	if node == nil || node.sub == nil {
 		return nil
 	}
-	out := make([]string, 0, len(node.sub))
-	for w := range node.sub {
-		out = append(out, w)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(node.sub))
 }
 
 // flagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
@@ -171,12 +165,7 @@ func flagNames(node *compNode) []string {
 	for _, sub := range node.sub {
 		add(sub.flags)
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func buildVersion() string {

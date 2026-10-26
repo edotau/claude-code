@@ -188,12 +188,6 @@ func loginProvider(reg *providers.Registry, providerName, vendor string) (*provi
 	return p, true
 }
 
-// copilotLoginPresent reports any GitHub credential copilot would use (copilotAuthSource order, no network).
-func copilotLoginPresent() bool {
-	_, ok := copilotAuthSource()
-	return ok
-}
-
 // ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
 func ConfigureHint(name string) string {
 	switch name {
@@ -974,7 +968,10 @@ func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
 
 // CopilotLoginPresent reports a usable GitHub login for copilot: a token env var, the keyring token, its own
 // stored login, or gh's active account.
-func CopilotLoginPresent() bool { return copilotLoginPresent() }
+func CopilotLoginPresent() bool {
+	_, ok := copilotAuthSource()
+	return ok
+}
 
 // GeminiLoginPresent reports whether agy's cached Google login is on disk; agy itself owns and refreshes the token.
 func GeminiLoginPresent() bool {

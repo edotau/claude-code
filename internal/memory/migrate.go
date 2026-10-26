@@ -402,5 +402,5 @@ func mergeOriginAliases(dir string, o Origin) error {
 	if !added {
 		return nil
 	}
-	return putOrigin(dir, cur)
+	return foldOrigin(dir, cur, "")
 }

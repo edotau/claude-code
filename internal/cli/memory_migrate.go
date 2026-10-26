@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -85,14 +86,7 @@ func migrateDryRun(origins map[string]string, format string, preview bool) (stri
 		return path, 0
 	}
 	for _, it := range m.Items {
-		src, dest := it.Source, it.Dest
-		if src == "" {
-			src = "(inline)"
-		}
-		if dest == "" {
-			dest = "-"
-		}
-		fmt.Printf("%-10s %-14s %s -> %s (%d B)\n", it.Action, it.Kind, src, dest, it.Bytes)
+		fmt.Printf("%-10s %-14s %s -> %s (%d B)\n", it.Action, it.Kind, cmp.Or(it.Source, "(inline)"), cmp.Or(it.Dest, "-"), it.Bytes)
 	}
 	for _, f := range m.Findings {
 		fmt.Println("! " + f)

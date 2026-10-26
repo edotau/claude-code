@@ -184,7 +184,7 @@ func pickCodexModel(d *dialog) {
 				start = j
 				continue
 			}
-			saveCodexModel(d, list[j-nExtra].Slug)
+			saveAgentModel(d, "codex", providers.PinCodexModel, list[j-nExtra].Slug)
 			clearIneligibleCodexEffort(d, list, list[j-nExtra].Slug)
 			return
 		}
@@ -195,7 +195,7 @@ func pickCodexModel(d *dialog) {
 		if err != nil || j < 0 {
 			return
 		}
-		saveCodexModel(d, list[j].Slug)
+		saveAgentModel(d, "codex", providers.PinCodexModel, list[j].Slug)
 		clearIneligibleCodexEffort(d, list, list[j].Slug)
 		return
 	}
@@ -216,16 +216,6 @@ func clearIneligibleCodexEffort(d *dialog, list []codexModelInfo, slug string) {
 		return
 	}
 	d.printf("codex: cleared %s pin (%s) — %s doesn't support that effort\n", providers.PinCodexEffort, cur, slug)
-}
-
-// saveCodexModel pins CODEX_MODEL.
-func saveCodexModel(d *dialog, slug string) {
-	if err := providers.SetPins(map[string]string{providers.PinCodexModel: slug}); err != nil {
-		d.printf("model: %v\n", err)
-		return
-	}
-	d.printf("model: codex = %s\n", slug)
-	d.changed = true
 }
 
 // --- gemini: `agy models` ---------------------------------------------------------------------
@@ -278,7 +268,7 @@ var geminiListModelsFn = func(ctx context.Context) ([]geminiModelInfo, error) {
 		base, effort, hasEffort := geminiEffortSuffix(id)
 		m, seen := byBase[base]
 		if !seen {
-			m = &geminiModelInfo{Base: base, Name: strings.TrimSuffix(name, " ("+titleCase(effort)+")")}
+			m = &geminiModelInfo{Base: base, Name: strings.TrimSuffix(name, " ("+title(effort)+")")}
 			byBase[base] = m
 			order = append(order, base)
 		}
@@ -291,13 +281,6 @@ var geminiListModelsFn = func(ctx context.Context) ([]geminiModelInfo, error) {
 		list = append(list, *byBase[b])
 	}
 	return list, nil
-}
-
-func titleCase(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // geminiModelsFallback is shown when `agy models` is unreachable, labelled "(fallback list)".
@@ -354,13 +337,13 @@ func geminiEffortRow(d *dialog, base, curEffort string) *billingRow {
 	r := billingRow{"Effort", desc, "", func() bool {
 		rows := make([][2]string, len(m.Efforts))
 		for i, e := range m.Efforts {
-			rows[i] = [2]string{titleCase(e), e + curMark(e == curEffort)}
+			rows[i] = [2]string{title(e), e + curMark(e == curEffort)}
 		}
 		idx, err := pick(d, "gemini — effort", rows)
 		if err != nil || idx < 0 {
 			return false
 		}
-		saveGeminiModel(d, base+"-"+m.Efforts[idx])
+		saveAgentModel(d, "gemini", providers.PinGeminiModel, base+"-"+m.Efforts[idx])
 		return true
 	}}
 	return &r
@@ -373,16 +356,6 @@ func geminiCatalogOrFallback(d *dialog) []geminiModelInfo {
 		return geminiModelsFallback
 	}
 	return list
-}
-
-// saveGeminiModel pins GEMINI_MODEL to id (a full base-effort id, or a bare base with no variants).
-func saveGeminiModel(d *dialog, id string) {
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: id}); err != nil {
-		d.printf("model: %v\n", err)
-		return
-	}
-	d.printf("model: gemini = %s\n", id)
-	d.changed = true
 }
 
 // pickGeminiModel is gemini's Model row: Effort first (for the current base), then one row per base
@@ -437,7 +410,7 @@ func pickGeminiModel(d *dialog) {
 // effort's variant when m offers it, else its first variant.
 func pickGeminiModelBase(d *dialog, m geminiModelInfo) {
 	if len(m.Efforts) == 0 {
-		saveGeminiModel(d, m.Base)
+		saveAgentModel(d, "gemini", providers.PinGeminiModel, m.Base)
 		return
 	}
 	_, curEffort := geminiCurrent()
@@ -445,5 +418,5 @@ func pickGeminiModelBase(d *dialog, m geminiModelInfo) {
 	if slices.Contains(m.Efforts, curEffort) {
 		effort = curEffort
 	}
-	saveGeminiModel(d, m.Base+"-"+effort)
+	saveAgentModel(d, "gemini", providers.PinGeminiModel, m.Base+"-"+effort)
 }

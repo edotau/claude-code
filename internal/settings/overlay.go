@@ -76,11 +76,6 @@ func UpdateDropped(next func(cur []string) []string) error {
 	})
 }
 
-// SaveDropped replaces the stored list with keys.
-func SaveDropped(keys []string) error {
-	return UpdateDropped(func([]string) []string { return keys })
-}
-
 // LoadOverlay reads the vault overlay/settings bucket; an absent entry is an empty map, not an error.
 func LoadOverlay() (map[string]json.RawMessage, error) {
 	ov := map[string]json.RawMessage{}

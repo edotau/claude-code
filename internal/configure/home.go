@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -80,7 +81,7 @@ func tailscaleRow() homeRow {
 
 func browsersRow() homeRow {
 	rep := browser.Detect(browser.NewEnv())
-	state := "default " + cmpOr(rep.Default, "none")
+	state := "default " + cmp.Or(rep.Default, "none")
 	n := 0
 	for _, b := range rep.Browsers {
 		if b.Installed {
@@ -88,13 +89,6 @@ func browsersRow() homeRow {
 		}
 	}
 	return homeRow{"browsers", state, fmt.Sprintf("%d installed", n), func(d *dialog) { runBrowser(d) }}
-}
-
-func cmpOr(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.
@@ -114,7 +108,7 @@ func webSearchRow() homeRow {
 			wired = append(wired, c.name)
 		}
 	}
-	check := "mcp: " + cmpOr(strings.Join(wired, ","), "none")
+	check := "mcp: " + cmp.Or(strings.Join(wired, ","), "none")
 	return homeRow{"web search", state, check, runWebSearch}
 }
 

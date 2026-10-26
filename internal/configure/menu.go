@@ -6,7 +6,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -101,16 +100,6 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 
 // agentPages are the agents whose row opens a tui.List page instead of runAgentMenu (opencode first).
 var agentPages = map[string]func(*dialog){"opencode": runOpencodePage}
-
-// probeStatus checks p's credential — a cached result within probeTTL, else a live probe (4 s cap) —
-// and returns "verified" / "rejected" / "unreachable" / "".
-func probeStatus(p *providers.Provider) string {
-	status, _, _ := probeCached(keyTarget{provider: p})
-	if status == "login" {
-		return ""
-	}
-	return status
-}
 
 // stagedKey is one menu-entered key: the value Submit will store and the env it shadows until then.
 type stagedKey struct {

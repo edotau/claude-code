@@ -3,7 +3,6 @@
 package route
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/routetable"
 )
 
@@ -31,16 +30,6 @@ type Table struct {
 // Load parses the embedded table, applies the registry's route overlay and resolves the pinned Copilot account.
 func Load() (*Table, error) {
 	t, err := routetable.Load()
-	if err != nil {
-		return nil, err
-	}
-	return &Table{*t}, nil
-}
-
-// load loads the table against an explicit registry and Copilot gh user; Load() is the normal entry point,
-// this is for tests that already hold a registry (or none).
-func load(reg *providers.Registry, ghUser string) (*Table, error) {
-	t, err := routetable.LoadFrom(reg, ghUser)
 	if err != nil {
 		return nil, err
 	}

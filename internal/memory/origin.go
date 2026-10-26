@@ -225,11 +225,6 @@ func WriteOrigin(dir string, o Origin) error {
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("refusing to overwrite: %w", err)
 	}
-	return putOrigin(dir, o)
-}
-
-// putOrigin writes the record unconditionally; callers have already proven the overwrite is legal.
-func putOrigin(dir string, o Origin) error {
 	return foldOrigin(dir, o, "")
 }
 

@@ -67,14 +67,5 @@ func Lookup(name string) (Adapter, bool) {
 	return Adapter{}, false
 }
 
-// Names lists the adapter roster, in verb order.
-func Names() []string {
-	out := make([]string, len(adapters))
-	for i, a := range adapters {
-		out[i] = a.Name
-	}
-	return out
-}
-
 // errUnknownVendor is the shared "no adapter" error, so callers report consistently.
 func errUnknownVendor(name string) error { return fmt.Errorf("unknown vendor %q", name) }

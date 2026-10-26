@@ -17,7 +17,7 @@ func TestSetupUnknownVendor(t *testing.T) {
 // a registered vendor; OK tracks binary+login only (route/projection are informational, per contract.md).
 // Route's own detail text is a wave-3 concern (launch.RouteDetail) and is deliberately not asserted here.
 func TestSetupKnownVendorChecks(t *testing.T) {
-	for _, name := range Names() {
+	for _, name := range []string{"codex", "gemini", "copilot", "opencode"} {
 		rep := Setup(name)
 		if rep.Vendor != name {
 			t.Errorf("Setup(%q).Vendor = %q", name, rep.Vendor)

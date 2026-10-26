@@ -242,3 +242,13 @@ func TestParseAnthropicErrorsNeverEchoName(t *testing.T) {
 		}
 	}
 }
+
+func TestParseAnthropicRefusesRepeatedFlag(t *testing.T) {
+	for _, flag := range []string{"--oauth", "--x-api-key"} {
+		_, _, err := ParseAnthropicArgs([]string{flag, flag})
+		want := flag + " given more than once; pass it a single time"
+		if err == nil || err.Error() != want {
+			t.Errorf("%s %s: err = %v, want %q", flag, flag, err, want)
+		}
+	}
+}

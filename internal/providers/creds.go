@@ -206,7 +206,7 @@ func CredentialPresent(p *Provider) bool {
 		return true
 	}
 	if sealedAuth(p.Auth.AuthType) {
-		return HasSecret(authSecretName(p)) != ""
+		return HasSecret(AuthSecretName(p)) != ""
 	}
 	if p.Auth.Command != "" {
 		return true

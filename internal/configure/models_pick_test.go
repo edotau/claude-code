@@ -212,7 +212,7 @@ func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 	// cur = the stub so its Effort row (row 1) offers low/high; after the sub-pick the model row is row 2.
 	shown := runCopilotPicker(t, reg, "stub-model-1", "1\n3\n2\n")
 	if !strings.Contains(shown, "model: copilot = stub-model-1") {
-		t.Errorf("saveCopilotModel not reached (no save line):\n%s", shown)
+		t.Errorf("saveAgentModel not reached (no save line):\n%s", shown)
 	}
 	if got, _ := providers.CopilotModel(reg); got != "stub-model-1" {
 		t.Errorf("COPILOT_MODEL resolver = %q, want stub-model-1", got)
