@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -20,6 +21,9 @@ var (
 	canPrompt           = func() bool { return ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr) }
 	loginIn   io.Reader = os.Stdin
 	loginOut  io.Writer = os.Stderr
+	// credentialCheck and credCheckTimeout bound the pre-launch token check; a var pair so tests stay fast.
+	credentialCheck  = providers.Credential
+	credCheckTimeout = 12 * time.Second
 )
 
 // offerLogin offers `databricks login` for each interactive u2m provider whose credential needs one; failures warn.
@@ -42,7 +46,11 @@ func offerLogin(ctx context.Context, o Options, args []string, ps []*providers.P
 
 // offerLoginOne prompts and logs in when p's credential needs it, then retries the credential once.
 func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader) error {
-	_, err := providers.Credential(ctx, p)
+	ok, err := checkCredential(ctx, p)
+	if !ok {
+		// A slow token endpoint is transient, never a login verdict: warn and launch rather than stall.
+		return fmt.Errorf("token check still running after %s; launching anyway", credCheckTimeout)
+	}
 	if !errors.Is(err, providers.ErrNeedsLogin) {
 		return nil
 	}
@@ -58,4 +66,17 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader)
 		return fmt.Errorf("still no credential after login: %w", err)
 	}
 	return nil
+}
+
+// checkCredential runs the token check, giving up after credCheckTimeout (false); the refresh itself keeps its
+// own uncancelled context, so an abandoned one finishes or dies with the exec.
+func checkCredential(ctx context.Context, p *providers.Provider) (bool, error) {
+	done := make(chan error, 1)
+	go func() { _, err := credentialCheck(ctx, p); done <- err }()
+	select {
+	case err := <-done:
+		return true, err
+	case <-time.After(credCheckTimeout):
+		return false, nil
+	}
 }
