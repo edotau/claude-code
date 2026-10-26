@@ -134,6 +134,7 @@ func TestAgentsArgv(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			seedOverlay(t, "") // the real vault may still hold a legacy databricks-<env> set
 			t.Setenv("HARNESS_PROVIDER", c.harnessProv)
 			f := &fakeChild{}
 			useFake(t, f)
@@ -143,12 +144,16 @@ func TestAgentsArgv(t *testing.T) {
 			}
 			if c.wantNoSpawn {
 				if len(f.calls) != 0 {
-					t.Fatalf("spawned %v, want none", f.calls)
+					t.Fatalf("spawned %d calls, want none", len(f.calls))
 				}
 				return
 			}
 			if len(f.calls) != 1 || f.calls[0].bin != self || !slices.Equal(f.calls[0].argv, c.wantArgv) {
-				t.Fatalf("calls = %+v, want one %v on %s", f.calls, c.wantArgv, self)
+				var got [][]string // argv only: a call's env holds the session's variables
+				for _, c := range f.calls {
+					got = append(got, append([]string{c.bin}, c.argv...))
+				}
+				t.Fatalf("calls = %q, want one %v on %s", got, c.wantArgv, self)
 			}
 		})
 	}
