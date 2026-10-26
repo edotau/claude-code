@@ -12,7 +12,7 @@ import (
 )
 
 var restartPage = helptext.Page{
-	Usage: "claude-code restart [--dry-run] [--format text|json]",
+	Usage: "claude-code network restart [--dry-run] [--format text|json]",
 	About: "Restart each running harness daemon on the installed binary. Stopped\n" +
 		"daemons are skipped. Covers the router; the memory idle watcher is\n" +
 		"per-session and exits by itself, so it is not restarted.",
@@ -28,7 +28,7 @@ type restartRow struct {
 }
 
 func cmdRestart(args []string) int {
-	fs := helptext.NewFlagSet("restart", restartPage)
+	fs := helptext.NewFlagSet("network restart", restartPage)
 	dry := fs.Bool("dry-run", false, "report what would restart; change nothing")
 	format := outfmt.Flag(fs)
 	if code, done := helptext.Parse(fs, args); done {

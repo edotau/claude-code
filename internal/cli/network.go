@@ -18,6 +18,7 @@ var networkPage = helptext.Page{
 		{"page", "serve the tailnet agent page and dashboard"},
 		{"view", "print one agent's transcript; --follow streams it"},
 		{"vscode", "VS Code web UI on the tailnet; --stop --status --funnel"},
+		{"restart", "restart running daemons on the installed binary"},
 	},
 	Hint: "claude-code network <command> -h lists that command's flags.",
 }
@@ -42,8 +43,10 @@ func cmdNetwork(args []string) int {
 		return cmdNetworkPage(rest)
 	case "view":
 		return cmdNetworkView(rest)
+	case "restart":
+		return cmdRestart(args[1:])
 	case "vscode":
 		return cmdNetworkVSCode(rest)
 	}
-	return fail("network: unknown subcommand %q (tailscale|browser|websearch|mcp|page|view|vscode)", args[0])
+	return fail("network: unknown subcommand %q (tailscale|browser|websearch|mcp|page|view|vscode|restart)", args[0])
 }

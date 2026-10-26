@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/mutate"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -54,7 +55,7 @@ func commands() []command {
 		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: tierVerb(models.Sonnet)},
 		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
-		{name: "anthropic", group: groupAnthropic, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
+		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
 		{name: "copilot", group: groupVendors, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return vendorVerb("copilot", a) }},
 		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
@@ -67,7 +68,6 @@ func commands() []command {
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session provider (vault pins)", run: cmdSwitch},
-		{name: "restart", group: groupSession, summary: "restart running daemons on the installed binary", run: cmdRestart},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
 		{name: "dispatch", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
@@ -118,6 +118,10 @@ func vendorVerb(vendor string, args []string) int {
 		vendorPage(vendor).Fprint(os.Stderr)
 		return 0
 	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		spec, _ := vendors.Lookup(vendor)
+		return helptext.WrappedDocs(spec.Binary)
+	}
 	return launchVendor(vendor, args)
 }
 
@@ -167,6 +171,7 @@ func Run(argv []string) int {
 var menuHeader = []string{
 	"usage: claude-code [<command>] [subcommand] [flags]",
 	"       claude-code <command> -h    per-command help",
+	"       claude-code anthropic       login, --oauth token or --x-api-key",
 }
 
 // menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).
@@ -222,7 +227,13 @@ func usage(w *os.File) {
 	paintName := func(s string, frac float64) string { return s }
 	if colorOK(w) {
 		mode, stops, dim := statusline.Theme()
-		paintHead = func(s string) string { return ansi.Paint(mode, dim, s, true) }
+		// ANTHROPIC is first-party, so its head opens the gradient; the other heads stay dim.
+		paintHead = func(s string) string {
+			if s == groupAnthropic {
+				return ansi.Paint(mode, ansi.GradAt(stops, 0), s, true)
+			}
+			return ansi.Paint(mode, dim, s, true)
+		}
 		paintName = func(s string, frac float64) string { return ansi.Paint(mode, ansi.GradAt(stops, frac), s, true) }
 	}
 	for _, r := range menuRows() {

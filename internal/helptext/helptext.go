@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -235,4 +236,27 @@ func WrapRow(label, desc string, labelWidth, width int) []string {
 		empty = false
 	}
 	return append(lines, cur)
+}
+
+// DocsFlag is the flag every wrapped-CLI verb takes to print the wrapped binary's own help.
+const DocsFlag = "--docs"
+
+// WrappedDocs runs `bin --help` with the terminal attached, so a wrapped CLI's own documentation is one flag away;
+// the exit code is the binary's.
+func WrappedDocs(bin string) int {
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: %s is not on PATH; install it to read its docs\n", bin)
+		return 1
+	}
+	cmd := exec.Command(path, "--help") //nolint:noctx // interactive help; nothing to cancel
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	var ee *exec.ExitError
+	if err := cmd.Run(); errors.As(err, &ee) {
+		return ee.ExitCode()
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: %s --help: %v\n", bin, err)
+		return 1
+	}
+	return 0
 }
