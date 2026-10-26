@@ -71,6 +71,44 @@ func MaybeAdd1M(id string) string {
 // Strip1M removes the client-only [1m] marker; no upstream accepts it on the wire.
 func Strip1M(id string) string { return strings.TrimSuffix(id, "[1m]") }
 
+var canonicalPrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
+
+func isFamily(s string) bool { return s == Opus || s == Sonnet || s == Haiku || s == Fable }
+
+// hasFamilyDash reports a bare "<family>-..." id (no claude- prefix).
+func hasFamilyDash(s string) bool {
+	i := strings.IndexByte(s, '-')
+	return i > 0 && isFamily(s[:i])
+}
+
+// Canonical reduces a typed model id to the plain Claude id and reports a trailing [1m]; non-Claude ids pass through.
+func Canonical(id string) (base string, oneM bool) {
+	id = strings.TrimSpace(id)
+	oneM = strings.HasSuffix(id, "[1m]")
+	id = Strip1M(id)
+	if strings.Contains(id, "/") {
+		return id, oneM
+	}
+	rest, stripped := id, false
+	for _, p := range canonicalPrefixes {
+		if strings.HasPrefix(id, p) {
+			rest, stripped = id[len(p):], true
+			break
+		}
+	}
+	cand := rest
+	if hasFamilyDash(rest) {
+		cand = "claude-" + rest
+	}
+	if _, _, _, ok := ParseClaudeID(cand); ok && (stripped || cand != rest) {
+		return cand, oneM
+	}
+	if stripped && isFamily(rest) {
+		return rest, oneM
+	}
+	return id, oneM
+}
+
 // ContextWindow is 1M for [1m]-marked ids, else 200K.
 func ContextWindow(id string) int {
 	if strings.HasSuffix(id, "[1m]") {

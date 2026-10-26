@@ -167,6 +167,8 @@ func buildSpecTree() map[string]*compNode {
 	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
 		tree[v] = &compNode{}
 	}
+	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"), boolFlag("router"),
+		boolFlag("print-env"), flag("keep-env")}}
 	// Vendor agents: ask/resume/review/transfer/status/result/cancel/setup/models, same shape per vendor.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
 		tree[v] = &compNode{sub: vendorSubNodes(askFlags)}

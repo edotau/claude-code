@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/generate"
@@ -17,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/tui"
@@ -39,6 +43,91 @@ func launchClaude(tier string, args []string) int {
 // tierVerb is `claude-code <tier>`: Claude Code on the session provider with that tier as the main model.
 func tierVerb(tier string) func([]string) int {
 	return func(a []string) int { return launchClaude(tier, a) }
+}
+
+var anthropicPage = helptext.Page{
+	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]]\n[--model ID] [claude args]",
+	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
+		"value; =NAME picks the vault key.",
+}
+
+// anthropicHelp renders the page with its flag rows; the flags are parsed by launch.ParseAnthropicArgs.
+func anthropicHelp(w io.Writer) {
+	fs := helptext.NewFlagSet("anthropic", anthropicPage)
+	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
+	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
+	fs.String("model", "", "any spelling of a Claude id; its family picks the main tier")
+	fs.Bool("router", false, "force the loopback router")
+	fs.Bool("print-env", false, "print the resolved launch; never prompts")
+	fs.String("keep-env", "", "env names the credential scrub keeps")
+	p := anthropicPage
+	p.Flags = fs
+	p.Fprint(w)
+}
+
+// cmdAnthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
+func cmdAnthropic(args []string) int {
+	if helptext.WantsHelp(args) {
+		anthropicHelp(os.Stdout)
+		return 0
+	}
+	o, rest, err := launch.ParseAnthropicArgs(args)
+	if err != nil {
+		return fail("%v", err)
+	}
+	secret := ""
+	if o.Mode != launch.AuthLogin {
+		if secret, err = anthropicSecret(o); err != nil {
+			return fail("%v", err)
+		}
+	}
+	plan, err := launch.Anthropic(context.Background(), o, rest, secret)
+	return runPlan(plan, o.Options, err)
+}
+
+// anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
+func anthropicSecret(o launch.AnthropicOptions) (string, error) {
+	read := func() string {
+		if o.Mode == launch.AuthOAuth {
+			return providers.StoredSecret(o.Name)
+		}
+		v, _, _ := providers.EffectiveSecret(o.Name)
+		return v
+	}
+	if v := read(); v != "" {
+		return v, nil
+	}
+	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set %s`", o.Name, o.Name)
+	if o.PrintEnv || !tui.StdinIsTerminal() || !ansi.IsTerminal(os.Stderr) {
+		return "", missing
+	}
+	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {
+		return "", missing
+	}
+	if o.Mode == launch.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+		runSetupToken()
+	}
+	if code := vaultSetSecret(o.Name, false); code != 0 {
+		return "", fmt.Errorf("%s was not stored", o.Name)
+	}
+	if v := read(); v != "" {
+		return v, nil
+	}
+	return "", missing
+}
+
+// runSetupToken runs `claude setup-token` on the inherited terminal; a failure only means the user pastes a token.
+func runSetupToken() {
+	bin, err := launch.ClaudeBinary()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code:", err)
+		return
+	}
+	cmd := exec.Command(bin, "setup-token")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: claude setup-token:", err)
+	}
 }
 
 func launchVendor(name string, args []string) int {
