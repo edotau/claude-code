@@ -27,25 +27,15 @@
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "permissions": {
-    "defaultMode": "acceptEdits",
+    "defaultMode": "auto",
     "allow": [
-      "Bash(*)",
       "Edit(*)",
       "Read(*)",
       "Write(*)",
       "Agent",
       "WebFetch(*)",
-      "Bash(go test *)",
-      "Bash(go vet *)",
-      "Bash(go build ./...)",
-      "Bash(gofmt -l *)",
-      "Bash(golangci-lint run ./...)",
-      "Bash(claude-code worktree list *)",
-      "Bash(claude-code vault list *)",
-      "Bash(claude-code databricks check *)",
-      "Bash(claude-code agents tree *)",
-      "Bash(claude-code configure provider --list *)",
-      "Bash(oc get *)"
+      "Bash(go *)",
+      "Bash(claude-code *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -60,13 +50,9 @@
       "Bash(make audit:*)",
       "Bash(make verify:*)",
       "Bash(go test ./...:*)",
-      "Bash(pytest)",
-      "Bash(npm test)",
-      "Bash(npm run test)",
-      "Bash(npx vitest run)",
-      "Bash(npx vitest run --coverage)",
-      "Bash(npm run e2e:*)",
-      "Bash(npx cypress run:*)",
+      "Bash(pytest *)",
+      "Bash(npm *)",
+      "Bash(npx vitest *)",
       "Bash(git push --force origin main:*)",
       "Bash(git push -f origin main:*)",
       "Bash(git push --force origin master:*)",
@@ -75,9 +61,7 @@
       "Read(~/.aws/credentials)",
       "Read(**/env.d/**)",
       "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)",
-      "Bash(security add-generic-password:*)",
-      "Bash(security delete-generic-password:*)"
+      "Read(**/.credentials.json)"
     ]
   },
   "statusLine": {
