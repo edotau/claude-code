@@ -582,13 +582,13 @@ func opencodeMenu(t *testing.T, env []string, id string) (map[string]any, string
 
 func TestOpenCodeModelMenu(t *testing.T) {
 	t.Run("known tier id", func(t *testing.T) {
-		tg := target(t, "anthropic", "claude-sonnet-5")
+		tg := target(t, "anthropic", "claude-sonnet-5-5")
 		env, _, err := Configure(context.Background(), "opencode", tg, "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		menu, _ := opencodeMenu(t, env, "harness-anthropic")
-		want := map[string]bool{"claude-opus-5-5": true, "claude-sonnet-5": true, "claude-haiku-4-5": true, "claude-fable-5-1": true}
+		want := map[string]bool{"claude-opus-5-5": true, "claude-sonnet-5-5": true, "claude-haiku-5-5": true, "claude-fable-5-1": true}
 		if len(menu) != len(want) {
 			t.Fatalf("menu = %v, want exactly the 4 tier ids", menu)
 		}
@@ -615,7 +615,7 @@ func TestOpenCodeModelMenu(t *testing.T) {
 	})
 
 	t.Run("headless carries no menu", func(t *testing.T) {
-		tg := target(t, "anthropic", "claude-sonnet-5")
+		tg := target(t, "anthropic", "claude-sonnet-5-5")
 		env, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
