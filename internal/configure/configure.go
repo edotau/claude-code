@@ -35,7 +35,7 @@ import (
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "models", "agents", "router", "github", "remote", "browser", "claude", "routing", "doctor"}
+var Sections = []string{"provider", "models", "agents", "router", "github", "remote", "browser", "claude", "routing", "databricks", "doctor"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -163,6 +163,8 @@ func Run(o Options, section string) int {
 			ok = runClaudeSettings(d)
 		case "routing":
 			ok = runRouting(d)
+		case "databricks":
+			ok = runDatabricks(d)
 		case "doctor":
 			ok = launch.Doctor(out)
 		}
