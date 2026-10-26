@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -169,8 +170,11 @@ func Serve(ctx context.Context, port int) error {
 	}
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if errors.Is(err, syscall.EADDRINUSE) && port == DefaultPort {
-		ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0") // router.json carries the real port
+	if errors.Is(err, syscall.EADDRINUSE) && port != 0 {
+		// Never move to a random port: clients hold this one. Replace an older router of ours, else refuse.
+		if err = reclaim(ctx, port); err == nil {
+			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		}
 	}
 	if err != nil {
 		return err
@@ -248,4 +252,46 @@ func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 		return old, State{}, false, fmt.Errorf("router did not come back healthy (see %s)", LogFile())
 	}
 	return old, cur, true, nil
+}
+
+// PIDHeader is the /healthz response header carrying the router's pid.
+const PIDHeader = "X-Claude-Code-Router-Pid"
+
+// holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
+func holder(ctx context.Context, port int) (pid int, router bool) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(port)+"/healthz", nil)
+	if err != nil {
+		return 0, false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, false
+	}
+	_ = resp.Body.Close()
+	pid, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
+	return pid, resp.StatusCode == http.StatusOK
+}
+
+// reclaim stops an older claude-code router holding port; anything else is an error naming the holder.
+func reclaim(ctx context.Context, port int) error {
+	pid, router := holder(ctx, port)
+	switch {
+	case !router:
+		return fmt.Errorf("router: 127.0.0.1:%d is held by another process; free it or pass --port", port)
+	case pid <= 0 || pid == os.Getpid():
+		return fmt.Errorf("router: 127.0.0.1:%d is held by an older claude-code router that reports no pid; "+
+			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
+	}
+	if err := terminate(pid); err != nil {
+		return fmt.Errorf("router: stop older router pid %d on :%d: %w", pid, port, err)
+	}
+	for deadline := time.Now().Add(shutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if !alive(pid) {
+			fmt.Fprintf(os.Stderr, "router: replaced older router pid %d on :%d\n", pid, port)
+			return nil
+		}
+	}
+	return fmt.Errorf("router: older router pid %d on :%d is still draining", pid, port)
 }
