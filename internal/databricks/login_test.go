@@ -81,3 +81,13 @@ func TestResolveProfileFallsBackToThePin(t *testing.T) {
 		t.Fatalf("no pin = %q, want %q", got, defaultEnv)
 	}
 }
+
+// -p is --profile's shorthand on both commands.
+func TestLoginAndMintTakeShorthandP(t *testing.T) {
+	for _, run := range []func([]string) int{login, mint} {
+		_, _, stderr := captureOutput(t, func() int { return run([]string{"-p", "no-such-row", "--dry-run"}) })
+		if !strings.Contains(stderr, "no-such-row") || strings.Contains(stderr, "flag provided but not defined") {
+			t.Fatalf("stderr %q, want -p to select the row no-such-row", stderr)
+		}
+	}
+}

@@ -40,6 +40,7 @@ func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
 	authType := fs.String("auth-type", providers.AuthU2M, "switch the row's auth.authType first (only u2m)")
+	fs.StringVar(authType, "t", providers.AuthU2M, "shorthand for --auth-type")
 	profileName := profileFlag(fs)
 	names, err := outfmt.Parse(fs, args)
 	if err != nil {
@@ -62,7 +63,7 @@ func login(args []string) int {
 		return fail("login: %v", err)
 	}
 	explicit := false
-	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" })
+	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
 	if t := p.Auth.AuthType; t != "" && t != providers.AuthU2M && !explicit {
 		return fail("login: %s has auth.authType %q; pass --auth-type u2m to switch it to a browser login", p.Name, t)
 	}
@@ -218,9 +219,11 @@ func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage)
 	return kept
 }
 
-// profileFlag registers --profile, the provider row a databricks command acts on.
+// profileFlag registers --profile (and its shorthand -p), the provider row a databricks command acts on.
 func profileFlag(fs *flag.FlagSet) *string {
-	return fs.String("profile", "", "provider row (default: the pinned Databricks row, else HARNESS_PROVIDER's env, else qa)")
+	v := fs.String("profile", "", "provider row (default: the pinned Databricks row, else HARNESS_PROVIDER's env, else qa)")
+	fs.StringVar(v, "p", "", "shorthand for --profile")
+	return v
 }
 
 // resolveProfile is name, else the vault default when it is a Databricks row, else envOrDefault's env.
