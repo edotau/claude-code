@@ -198,3 +198,23 @@ func TestKindChangeGuardCoversEmptyToKindAndForce(t *testing.T) {
 		t.Fatalf("forced kind change: %v", err)
 	}
 }
+
+func TestAuthU2MIgnoresStaleEnvRefresh(t *testing.T) {
+	var seen string
+	srv := oidcServer(t, func(_ *http.Request, f url.Values) (int, map[string]any) {
+		seen = f.Get("refresh_token")
+		return 200, map[string]any{"access_token": "u2m-acc", "expires_in": 3600}
+	})
+	p := mintRow(t, "kind-u2m-env", AuthU2M, "", srv.URL)
+	name := authSecretName(p)
+	if err := SealSecret(name, "vault-refresh"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(name, "stale-env-refresh")
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "vault-refresh" {
+		t.Errorf("token endpoint got refresh token of length %d, want the vault value", len(seen))
+	}
+}

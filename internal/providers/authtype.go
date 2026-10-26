@@ -126,6 +126,9 @@ func validateAuthType(n string, p *Provider) []string {
 	if k == AuthOAuthM2M && p.Auth.ClientID == "" {
 		errs = append(errs, n+": auth.authType "+AuthOAuthM2M+" needs auth.clientId")
 	}
+	if strings.ContainsAny(p.Auth.ClientID, "\r\n[=") {
+		errs = append(errs, n+": auth.clientId must not contain CR, LF, '[' or '='")
+	}
 	if k != AuthOAuthM2M && p.Auth.ClientID != "" {
 		errs = append(errs, n+": auth.clientId needs auth.authType "+AuthOAuthM2M)
 	}
@@ -185,7 +188,7 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 // mintAuth is the one path that turns a sealed credential into an access token.
 func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 	name := authSecretName(p)
-	secret, _, err := EffectiveSecret(name)
+	secret, err := mintSecret(p, name)
 	if err != nil {
 		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
@@ -212,6 +215,16 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 		}
 	}
 	return tok, nil
+}
+
+// mintSecret reads the sealed secret; u2m reads the vault only so a stale env value never replays a rotated token.
+func mintSecret(p *Provider, name string) (string, error) {
+	if p.Auth.AuthType != AuthU2M {
+		v, _, err := EffectiveSecret(name)
+		return v, err
+	}
+	v, _, err := vault.ReadSecret(name)
+	return strings.TrimSpace(v), err
 }
 
 func authHint(p *Provider, name string) string {

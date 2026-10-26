@@ -106,11 +106,13 @@ func mintOnce(ctx context.Context, p *Provider, force bool, mint func(context.Co
 			f = &flight{done: make(chan struct{}), force: force}
 			flights[p.Name] = f
 			flightMu.Unlock()
+			defer func() {
+				flightMu.Lock()
+				delete(flights, p.Name)
+				flightMu.Unlock()
+				close(f.done)
+			}()
 			f.val, f.err = mint(context.WithoutCancel(ctx))
-			flightMu.Lock()
-			delete(flights, p.Name)
-			flightMu.Unlock()
-			close(f.done)
 			return f.val, f.err
 		}
 		flightMu.Unlock()
