@@ -181,7 +181,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	if idp.codes.Load() != 1 || idp.refreshes.Load() != 0 {
 		t.Errorf("code exchanges=%d refreshes=%d, want 1 and 0", idp.codes.Load(), idp.refreshes.Load())
 	}
-	if v, ok := cachedValue(p); !ok || v != "login-access" {
+	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" {
 		t.Errorf("cached = %q, %v; want login-access", v, ok)
 	}
 	if v, _, _ := EffectiveSecret(authSecretName(p)); v != idp.valid {

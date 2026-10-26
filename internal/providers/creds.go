@@ -91,8 +91,8 @@ func cachedCommand(name string) (string, bool) {
 	return "", false
 }
 
-// commandCredential single-flights the mint per provider; a forced call never joins a non-forced flight.
-func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+// mintOnce is the one mint coordinator: per provider, single-flight; a forced call never joins a non-forced flight.
+func mintOnce(ctx context.Context, p *Provider, force bool, mint func(context.Context) (string, error)) (string, error) {
 	for {
 		flightMu.Lock()
 		if !force {
@@ -106,7 +106,7 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 			f = &flight{done: make(chan struct{}), force: force}
 			flights[p.Name] = f
 			flightMu.Unlock()
-			f.val, f.err = mintCommand(context.WithoutCancel(ctx), p, force)
+			f.val, f.err = mint(context.WithoutCancel(ctx))
 			flightMu.Lock()
 			delete(flights, p.Name)
 			flightMu.Unlock()
@@ -123,6 +123,10 @@ func commandCredential(ctx context.Context, p *Provider, force bool) (string, er
 			return f.val, f.err
 		}
 	}
+}
+
+func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintCommand(ctx, p, force) })
 }
 
 func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
