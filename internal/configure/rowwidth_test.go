@@ -139,3 +139,39 @@ func TestTierRowsFitEightyColumns(t *testing.T) {
 		}
 	}
 }
+
+// TestDatabricksRowsFitEightyColumns: the home row at its worst state text and every page/env/apply row stay <=80 cols.
+func TestDatabricksRowsFitEightyColumns(t *testing.T) {
+	menuTestEnv(t)
+	rows := []homeRow{{"databricks", "prod · oauth-m2m", "token expires in 119m", nil}, {"databricks", "prod · oauth-m2m", "token expires in 23h59m", nil}}
+	rows = append(rows, settingsRows(&dialog{})...)
+	laid, _ := rowsOf(rows)
+	for _, r := range laid {
+		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
+			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
+		}
+	}
+	d := dbxEnv(t)
+	if row := databricksRow(d); 2+len([]rune("environment"))+2+len([]rune(row.state))+2+len([]rune(row.check)) > 80 {
+		t.Errorf("live databricks row too wide: %+v", row)
+	}
+	f := &dbxFake{}
+	installDbxFake(t, f)
+	f.picks = []int{1, 4, 0, -1, -1}
+	runDatabricksPage(d)
+	for i, set := range f.rows {
+		var labels []string
+		for _, r := range set {
+			labels = append(labels, r[0])
+		}
+		for _, r := range set {
+			if w := rowRenderedWidth(labels, r[1]); w > 80 {
+				t.Errorf("%s row %q = %d cols: %q", f.titles[i], r[0], w, r[1])
+			}
+		}
+	}
+	worst := "prod"
+	if w := rowRenderedWidth([]string{"dev", "qa", worst}, "oauth-m2m  token expires in 23h59m"); w > 80 {
+		t.Errorf("env row worst case = %d cols", w)
+	}
+}
