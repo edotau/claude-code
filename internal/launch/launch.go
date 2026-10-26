@@ -206,7 +206,9 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	applyOverlay(&plan, passthrough, args, helper, p.Env)
+	if err := applyOverlay(&plan, passthrough, args, helper, p.Env); err != nil {
+		return Plan{}, err
+	}
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	return plan, nil
@@ -270,7 +272,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
 		return shellQuote(helperBin(self)) + " token --router", nil
 	}
-	if route, _ := p.Route(providers.DialectAnthropic); route != "https://api.anthropic.com" {
+	if route, ok := p.Route(providers.DialectAnthropic); ok && route != "https://api.anthropic.com" {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
 	}
 	if h := customHeaders(p.Headers); h != "" {
@@ -284,7 +286,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(plan *Plan, passthrough bool, args []string, helper string, env map[string]string) {
+func applyOverlay(plan *Plan, passthrough bool, args []string, helper string, env map[string]string) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
 	for k, v := range providerEnv(env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
@@ -302,11 +304,16 @@ func applyOverlay(plan *Plan, passthrough bool, args []string, helper string, en
 				plan.Set[oauthKey] = tok
 			}
 		}
-		return
+		return nil
 	}
 	plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
-	plan.Overlay, _ = json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
+	overlay, err := json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings overlay: %w", err)
+	}
+	plan.Overlay = overlay
 	plan.Argv = []string{"--settings", plan.OverlayPath}
+	return nil
 }
 
 // providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.
