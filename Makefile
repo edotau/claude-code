@@ -75,6 +75,10 @@ clean:  ## Remove bin/claude-code
 .PHONY: test
 test: audit  ## Full gate (= audit)
 
+.PHONY: cover
+cover:  ## Per-package test coverage (opt-in; cached when unchanged)
+	@$(GO) test -cover $(PKGS) | awk '/coverage:/ {print $$2, $$(NF-2)}' | sort -t' ' -k2 -n
+
 .PHONY: vet
 vet:  # (dev recipe, hidden from help) go vet
 	$(GO) vet $(PKGS)

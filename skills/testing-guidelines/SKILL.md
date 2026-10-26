@@ -58,15 +58,22 @@ grep -nE '^(import|from)' <test-file> | grep <module-under-test>   # no hit = no
 
 Do not reason about whether a test would catch a regression. Demonstrate it:
 
-1. checksum the source file
-2. revert the fix **in place**
-3. run the suite and confirm it fails, with a failure message matching the defect's
-   signature
-4. restore the file and confirm the checksum matches
-5. run the suite again and confirm it passes
+```bash
+claude-code test mutate <file> <old> <new> [--run RE] <pkg>   # exit 0 teeth, 1 vacuous, 2 error
+```
 
-If the suite passes at step 3, the test is not a guard yet. The checksum is what lets you state the
-tree is unchanged rather than hope so.
+It swaps `<old>` for `<new>` in a `go test -overlay` copy, runs the suite, and reports whether it failed.
+The tree is never edited, so there is nothing to restore and neither the auto-mode classifier nor parallel
+agents on the same checkout are affected. Exit 0 means the suite failed with the defect in (teeth); exit 1
+means it still passed (not a guard yet); exit 2 means `<old>` was absent or ambiguous, or the mutant did not
+compile. Confirm the failure message matches the defect's signature.
+
+Without the binary, the raw fallback:
+
+```bash
+printf '{"Replace":{"%s":"%s"}}' "$PWD/<file>" /tmp/mutant.go > /tmp/ov.json   # /tmp/mutant.go = edited copy
+go test -overlay /tmp/ov.json -run '<RE>' ./<pkg>    # must FAIL; the real file is untouched
+```
 
 **Prove the injection landed.** A `python -c` one-liner with nested quotes, or a `str.replace` whose
 anchor a formatter has since rewritten, silently changes nothing — and the suite passes for the very
