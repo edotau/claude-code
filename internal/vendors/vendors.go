@@ -403,6 +403,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	}
 	argv := []string{"-c", "model_provider=" + tomlStr(id), "-c", "model=" + tomlStr(model),
 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
+	argv = append(argv, codexCatalogArgs(p)...) // /model offers only ids this row serves
 	return env, codexHeadless(argv, h), nil
 }
 
