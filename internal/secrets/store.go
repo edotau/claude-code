@@ -33,6 +33,7 @@ func NamesErr() ([]string, error) {
 
 // Store seals a single-line value in the vault, replacing its metadata and clearing any cached probe.
 func Store(name, value string) error {
+	value = strings.TrimSpace(value) // a paste's leading/trailing spaces and newline are debris, never part of a secret
 	if strings.ContainsAny(value, "\r\n") {
 		return fmt.Errorf("%s: a secret must be one line", name)
 	}

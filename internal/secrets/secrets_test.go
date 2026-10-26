@@ -57,7 +57,7 @@ func TestStoreWithoutMasterKeyFails(t *testing.T) {
 }
 
 func TestStoreRejectsMultiline(t *testing.T) {
-	for _, value := range []string{"a\nb", "a\rb", "a\r\nb", "\na", "a\n"} {
+	for _, value := range []string{"a\nb", "a\rb", "a\r\nb"} {
 		t.Run(strconv.Quote(value), func(t *testing.T) {
 			vaulttest.Use(t)
 			vaulttest.Secret(t, "ONE_LINE", "unchanged")
