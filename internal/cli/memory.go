@@ -38,7 +38,7 @@ var memoryPage = helptext.Page{
 		"harvest writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,\n" +
-		"          migrate, alias — dispatchable, off the menu above\n" +
+		"          alias — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -512,7 +512,6 @@ var memorySubcommands = map[string]func([]string) int{
 	"watch":    cmdMemoryWatch,
 	"timeline": cmdMemoryTimeline,
 	"archive":  cmdMemoryArchive,
-	"migrate":  cmdMemoryMigrate,
 	"alias":    cmdMemoryAlias,
 }
 

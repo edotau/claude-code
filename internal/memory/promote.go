@@ -43,7 +43,6 @@ func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
 	localDir, homeDir := Dir(root), HomeBankDir()
 	promoted := 0
 	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
-		cleanupLegacyLocks(homeDir) // one-time: old dotfile locks left beside the home bank
 		for name, capLines := range promoteCaps {
 			n, err := promoteFile(filepath.Join(localDir, name), filepath.Join(homeDir, name), capLines, now)
 			if err != nil {
@@ -57,31 +56,6 @@ func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
 		return 0, errors.New("home bank busy (another worker holds the lock) — promotion deferred")
 	}
 	return promoted, err
-}
-
-// ArchiveSettledOverflow is the relief valve when local IS the home bank: no second tier to promote
-// into, so overflow moves to <bank>/archive/<file>-<yyyy-mm>.md instead. No-op for an ordinary project bank.
-func ArchiveSettledOverflow(root string, now time.Time) (int, error) {
-	if !IsHomeBank(root) {
-		return 0, nil
-	}
-	dir := Dir(root)
-	archived := 0
-	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
-		cleanupLegacyLocks(dir) // one-time: old dotfile locks left beside the home bank
-		for name, capLines := range promoteCaps {
-			n, err := archiveFile(filepath.Join(dir, name), dir, capLines, now)
-			if err != nil {
-				return err
-			}
-			archived += n
-		}
-		return nil
-	})
-	if !ran && err == nil {
-		return 0, errors.New("home bank busy (another worker holds the lock) — archive deferred")
-	}
-	return archived, err
 }
 
 // settledSplit splits blocks into (keep, overflow) at capLines, oldest-first into overflow.
@@ -103,33 +77,6 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 // (via archiveFile) and RotateSessionHistory.
 func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
-}
-
-// archiveFile prunes path to capLines by moving its SETTLED (oldest) blocks into an archive file.
-func archiveFile(path, dir string, capLines int, now time.Time) (int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, nil // absent file — nothing to archive
-	}
-	if LogicalLineCount(string(data)) <= capLines {
-		return 0, nil
-	}
-	base := filepath.Base(path)
-	header, blocks := entryBlocks(base, string(data))
-
-	keep, overflow := settledSplit(base, header, blocks, capLines)
-	if len(overflow) == 0 {
-		return 0, nil
-	}
-
-	archive := archivePath(dir, base, now)
-	if err := appendBlocks(archive, overflow); err != nil {
-		return 0, err // archive failed — leave the source intact (never truncate unarchived content)
-	}
-	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
-		return 0, err
-	}
-	return len(overflow), nil
 }
 
 // promoteFile prunes localPath to capLines by promoting the OLDEST overflow blocks into homePath.

@@ -26,7 +26,7 @@ func journals(t *testing.T) []string {
 
 func receipts(t *testing.T) []string {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(ReceiptsDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(StoreDir(), "receipts", "*.json"))
 	return files
 }
 

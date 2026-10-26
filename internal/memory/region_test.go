@@ -115,7 +115,7 @@ func TestStripFrontmatterNoFrontmatter(t *testing.T) {
 // TestBuildCatalogListsRepoRowsAndCapsGlobal: every repo store gets a row, and the global entry
 // section caps at catalogHomeMax with an overflow marker.
 func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
-	migrateConfig1(t)
+	isolatedConfig1(t)
 	a := gitRepo(t, t.TempDir(), "alpha")
 	b := gitRepo(t, t.TempDir(), "beta")
 	da, err := EnsureRepoDir(a)

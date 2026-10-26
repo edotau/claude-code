@@ -342,18 +342,9 @@ func readFile(path string) (string, error) {
 	return string(b), err
 }
 
-// TestCompletionMemoryMigrate: the migrate verb and its flags complete; --format offers its two values.
-func TestCompletionMemoryMigrate(t *testing.T) {
-	if got := completionCandidates([]string{"memory", "mi"}); !slices.Equal(got, []string{"migrate"}) {
-		t.Errorf("memory mi* = %v, want [migrate]", got)
-	}
-	got := completionCandidates([]string{"memory", "migrate", "--"})
-	for _, want := range []string{"--dry-run", "--manifest", "--origin", "--format"} {
-		if !slices.Contains(got, want) {
-			t.Errorf("memory migrate flags missing %q: %v", want, got)
-		}
-	}
-	if got := completionCandidates([]string{"memory", "migrate", "--format", ""}); !slices.Equal(got, []string{"text", "json"}) {
-		t.Errorf("memory migrate --format values = %v", got)
+// TestCompletionMemoryMigrateGone: the retired migrate verb no longer completes.
+func TestCompletionMemoryMigrateGone(t *testing.T) {
+	if got := completionCandidates([]string{"memory", "mi"}); slices.Contains(got, "migrate") {
+		t.Errorf("memory mi* = %v, want no migrate", got)
 	}
 }

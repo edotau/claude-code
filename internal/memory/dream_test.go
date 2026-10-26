@@ -22,15 +22,12 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	}
 }
 
-// TestDreamPreCutoverRunsWithoutDeadlock: on a fresh (pre-cutover) store Dream used to re-take its
+// TestDreamFreshStoreRunsWithoutDeadlock: on a fresh store Dream used to re-take its
 // own bank lock inside SettleBank and hang. Reference("dream") is now embedded and always resolves
 // (the old "missing reference" repro is unreachable), so this instead confirms Dream still returns
 // promptly and the agent still runs, proving the lock-then-settle-outside-the-lock fix holds.
-func TestDreamPreCutoverRunsWithoutDeadlock(t *testing.T) {
+func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if CutOver() {
-		t.Fatal("fixture must be a pre-cutover store")
-	}
 	ran := false
 	run := func(context.Context, string, string) (string, error) { ran = true; return "stub", nil }
 	done := make(chan error, 1)
@@ -44,6 +41,6 @@ func TestDreamPreCutoverRunsWithoutDeadlock(t *testing.T) {
 			t.Error("agent did not run despite an embedded reference")
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatal("Dream deadlocked on a pre-cutover store")
+		t.Fatal("Dream deadlocked on a fresh store")
 	}
 }

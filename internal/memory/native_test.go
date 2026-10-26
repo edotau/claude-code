@@ -447,8 +447,8 @@ func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
 // so one project's archive never collides with another's.
 func TestNativeArchiveDirIsPerProject(t *testing.T) {
 	tempConfig(t)
-	a := NativeDir(filepath.Join(t.TempDir(), "repo-a"))
-	b := NativeDir(filepath.Join(t.TempDir(), "repo-b"))
+	a := NativeDir(repoRoot(t, "repo-a"))
+	b := NativeDir(repoRoot(t, "repo-b"))
 	if NativeArchiveDir(a) == NativeArchiveDir(b) {
 		t.Errorf("both projects archive into %s", NativeArchiveDir(a))
 	}

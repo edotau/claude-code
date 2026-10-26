@@ -46,82 +46,18 @@ func IsHarvestChild() bool {
 	return v != "" && v != "0"
 }
 
-// LegacyGlobalDir is the pre-cutover bank tree; only migration reads it once the cutover lands.
-func LegacyGlobalDir() string { return filepath.Join(paths.ConfigDir(), "docs", "memory", "bank") }
+// HomeBankDir is the shared bank: store/home.
+func HomeBankDir() string { return homeStoreDir() }
 
-// CutOver reports a completed migration: from then on every bank and native path resolves inside StoreDir().
-func CutOver() bool {
-	_, _, incomplete, migrated := scanJournals()
-	return migrated && !incomplete
-}
-
-// HomeBankDir is the shared bank: store/home after the cutover, else the top of the legacy bank tree.
-func HomeBankDir() string {
-	if CutOver() {
-		return homeStoreDir()
-	}
-	return LegacyGlobalDir()
-}
-
-// homeStoreDir is the post-cutover home dir, unconditionally: migrate plans the FUTURE layout while
-// CutOver() still reports false, so its destinations must never gate on it (HomeBankDir() would self-reference).
-// Every caller resolves through here, so the one-time global/ → home/ rename rides along for free.
-func homeStoreDir() string {
-	ensureHomeBankRenamed()
-	return filepath.Join(StoreDir(), "home")
-}
-
-// homeBankRenamed memoizes the rename check per store dir (not a single global once: tests run many
-// distinct stores, via distinct ConfigDir, in one process).
-var homeBankRenamed sync.Map
-
-// ensureHomeBankRenamed renames a leftover store/global/ dir (a store that completed the unified-store
-// cutover before this rename landed) to store/home/, once per store dir. Idempotent: a no-op once
-// home/ exists or global/ is absent; both present is left alone for `memory review` to flag.
-func ensureHomeBankRenamed() {
-	store := StoreDir()
-	if _, done := homeBankRenamed.LoadOrStore(store, true); done {
-		return
-	}
-	oldDir, newDir := filepath.Join(store, "global"), filepath.Join(store, "home")
-	if _, err := os.Stat(newDir); err == nil {
-		return
-	}
-	if _, err := os.Stat(oldDir); err != nil {
-		return
-	}
-	_ = os.Rename(oldDir, newDir)
-}
+// homeStoreDir is the home dir inside the store.
+func homeStoreDir() string { return filepath.Join(StoreDir(), "home") }
 
 // Dir is root's local bank; a non-repo root collapses to the home one.
 func Dir(root string) string {
-	if CutOver() { // one dir per repo shared with native memory; the harness is memory/claude-code
-		if d, err := RepoDir(root); err == nil {
-			return d
-		}
-		return homeStoreDir()
+	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
+		return d
 	}
-	if slug := paths.RepoSlug(root); slug != "" && inWorkTree(root) {
-		return filepath.Join(HomeBankDir(), slug)
-	}
-	return HomeBankDir()
-}
-
-// worktrees memoizes the git fork: Dir runs several times per hook, and a flip mid-process would split a bank.
-var worktrees sync.Map
-
-// inWorkTree is stat-first on .git (a toplevel never forks git), else `git rev-parse --is-inside-work-tree`.
-func inWorkTree(root string) bool {
-	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
-		return true
-	}
-	if v, ok := worktrees.Load(root); ok {
-		return v.(bool)
-	}
-	out, err := gitOut(root, "rev-parse", "--is-inside-work-tree")
-	in := err == nil && strings.TrimSpace(out) == "true"
-	worktrees.Store(root, in)
-	return in
+	return homeStoreDir()
 }
 
 // IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).
@@ -138,22 +74,13 @@ func HasBank(root string) bool {
 }
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
-// It is a scaffold write, so the startup guard gates it: a retired legacy bank is never recreated.
+// It is a scaffold write, so the startup guard gates it.
 func Init(root string) (string, error) {
 	if err := CheckWritable(); err != nil {
 		return "", err
 	}
-	if err := checkLegacyWritable(); err != nil {
-		return "", err
-	}
-	dir := Dir(root)
-	if CutOver() { // a new repo store needs its origin record before any file lands in it
-		d, err := EnsureRepoDir(root)
-		if err != nil {
-			return "", err
-		}
-		dir = d
-	} else if err := os.MkdirAll(dir, 0o755); err != nil {
+	dir, err := EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
+	if err != nil {
 		return "", err
 	}
 	for name, body := range templates() {

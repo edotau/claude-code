@@ -100,22 +100,19 @@ func BuildCatalog(now time.Time) (string, error) {
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
 	var rows []string
-	// collectKnowledge lists dir's own knowledge/*.md plus legacyDir's leftover docs/knowledge/*.md,
-	// marking the latter (legacy) so a catalog reader knows which tier it still needs to migrate.
-	collectKnowledge := func(label, dir, legacyDir string) {
-		for _, d := range []struct{ dir, suffix string }{{KnowledgeDir(dir), ""}, {legacyDir, " (legacy)"}} {
-			m, _ := filepath.Glob(filepath.Join(d.dir, "*.md"))
-			for _, f := range m {
-				if filepath.Base(f) == "README.md" {
-					continue
-				}
-				rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f)+d.suffix)
+	// collectKnowledge lists dir's own knowledge/*.md.
+	collectKnowledge := func(label, dir string) {
+		m, _ := filepath.Glob(filepath.Join(KnowledgeDir(dir), "*.md"))
+		for _, f := range m {
+			if filepath.Base(f) == "README.md" {
+				continue
 			}
+			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
 	}
-	collectKnowledge("home", HomeBankDir(), legacyKnowledgeDir())
+	collectKnowledge("home", HomeBankDir())
 	for _, e := range entries {
-		collectKnowledge(e.Key, e.Dir, filepath.Join(legacyKnowledgeDir(), e.Key))
+		collectKnowledge(e.Key, e.Dir)
 	}
 	if len(rows) > 0 {
 		b.WriteString("\n## Knowledge (local, memory/<bank>/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
@@ -165,7 +162,7 @@ func stripFrontmatter(s string) string {
 	return string(content)
 }
 
-// settleUnified is SettleBank after the cutover: rotate + archive in scope, regenerate region and catalog, commit.
+// settleUnified is SettleBank: rotate + archive in scope, regenerate region and catalog, commit.
 func settleUnified(root string, now time.Time) (BankSettlement, error) {
 	var s BankSettlement
 	err := WithWritableBankLock(BankLockWait, func() error {
@@ -187,32 +184,6 @@ func settleUnified(root string, now time.Time) (BankSettlement, error) {
 		}
 		s.Indexed = true
 		return commitStore("settle: " + filepath.Base(dirs[0]))
-	})
-	return s, err
-}
-
-// SettleAll regenerates every store's region and the catalog in one commit (`memory index --all`, migrate cutover).
-func SettleAll(now time.Time) (BankSettlement, error) {
-	var s BankSettlement
-	err := WithWritableBankLock(BankLockWait, func() error {
-		entries, err := RepoDirs()
-		if err != nil {
-			return err
-		}
-		dirs := []string{HomeBankDir()}
-		for _, e := range entries {
-			dirs = append(dirs, e.Dir)
-		}
-		for _, d := range dirs {
-			if err := settleDir(d, now, &s); err != nil {
-				return err
-			}
-		}
-		if err := writeCatalog(now); err != nil {
-			return err
-		}
-		s.Indexed = true
-		return commitStore("settle: all stores")
 	})
 	return s, err
 }
@@ -278,18 +249,12 @@ func newestMarkdown(dir string) time.Time {
 	return newest
 }
 
-// legacyKnowledgeDir is the retired docs/knowledge/ tier (commit 44aab60); a compat read only — the
-// docs-placement hook still blocks new writes there, so nothing moves back into it.
-func legacyKnowledgeDir() string { return filepath.Join(paths.ConfigDir(), "docs", "knowledge") }
-
 // knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
-// (repo-specific), plus any leftover docs/knowledge/*.md and docs/knowledge/<key>/*.md a machine never
-// migrated off the retired tier; README.md is the tier's own doc.
+// (repo-specific); README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
-	dirs := []string{KnowledgeDir(HomeBankDir()), legacyKnowledgeDir()}
+	dirs := []string{KnowledgeDir(HomeBankDir())}
 	if !IsHomeBank(root) {
-		key := filepath.Base(Dir(root))
-		dirs = append(dirs, KnowledgeDir(Dir(root)), filepath.Join(legacyKnowledgeDir(), key))
+		dirs = append(dirs, KnowledgeDir(Dir(root)))
 	}
 	var out []string
 	for _, d := range dirs {

@@ -101,68 +101,22 @@ func TestRepoDirsReadsOriginsWithSealedSecretsButNoMasterKey(t *testing.T) {
 	}
 }
 
-// TestLegacyOriginFileImportedThenRemovedIdempotently: a pre-vault .origin file with no vault row
-// is read correctly, folded into a row, and the file removed; a second read is a no-op on the
-// (already-gone) file and returns the same record.
-func TestLegacyOriginFileImportedThenRemovedIdempotently(t *testing.T) {
+// TestLegacyOriginFileIgnored: a pre-vault .origin file is neither imported nor removed; the key has no origin.
+func TestLegacyOriginFileIgnored(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
 	dir := filepath.Join(cfg, "memory", "legacy")
 	legacyPath := filepath.Join(dir, legacyOriginFile)
-	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy","aliases":["/alt"]}`)
-
-	o, err := ReadOrigin(dir)
-	if err != nil || o.Origin != "/src/legacy" || len(o.Aliases) != 1 || o.Aliases[0] != "/alt" {
-		t.Fatalf("ReadOrigin(legacy file) = %+v, %v", o, err)
-	}
-	if _, err := os.Stat(legacyPath); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("legacy file survived import: %v", err)
-	}
-	if raw, ok := vaultGet(t, "legacy"); !ok || raw == "" {
-		t.Fatal("legacy file was not folded into a memory_origins row")
-	}
-
-	// RepoDirs must also see it, in the same batched read.
-	entries, err := RepoDirs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Key != "legacy" {
-		t.Errorf("RepoDirs = %+v, want exactly the legacy entry", entries)
-	}
-
-	again, err := ReadOrigin(dir)
-	if err != nil || !reflect.DeepEqual(again, o) {
-		t.Fatalf("second ReadOrigin (idempotent) = %+v, %v, want %+v", again, err, o)
-	}
-	if _, err := os.Stat(legacyPath); !errors.Is(err, fs.ErrNotExist) {
-		t.Error("second read recreated the legacy file")
-	}
-}
-
-// TestInvalidLegacyOriginNeverImported: a legacy file that fails validation (wrong version here)
-// is never folded into a row, is left on disk, and WriteOrigin refuses to overwrite it — distinctly
-// from ErrOriginConflict, which is reserved for a legacy record naming a different repo.
-func TestInvalidLegacyOriginNeverImported(t *testing.T) {
-	resetVaultRetry(t)
-	cfg := tempConfig(t)
-	dir := filepath.Join(cfg, "memory", "bad")
-	legacyPath := filepath.Join(dir, legacyOriginFile)
-	write(t, legacyPath, `{"version":99,"key":"bad","origin":"/b"}`)
+	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy"}`)
 
 	if _, err := ReadOrigin(dir); err == nil {
-		t.Fatal("wrong-version legacy record must fail to read")
+		t.Fatal("ReadOrigin imported a legacy .origin file")
 	}
 	if _, err := os.Stat(legacyPath); err != nil {
-		t.Errorf("invalid legacy file was removed: %v", err)
+		t.Errorf("legacy file was touched: %v", err)
 	}
-	if _, ok := vaultGet(t, "bad"); ok {
-		t.Error("invalid legacy record was imported into the vault")
-	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "bad", Origin: "/b"}); err == nil {
-		t.Error("an unreadable legacy record is never overwritten")
-	} else if errors.Is(err, ErrOriginConflict) {
-		t.Errorf("wrong error kind: %v, want anything but ErrOriginConflict", err)
+	if _, ok := vaultGet(t, "legacy"); ok {
+		t.Error("legacy file was folded into a memory_origins row")
 	}
 }
 

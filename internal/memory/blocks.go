@@ -135,16 +135,3 @@ func lineCount(s string) int {
 	}
 	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
 }
-
-// NewestHeadingBlocks returns up to n "## " blocks from the top of a newest-first file; nil when absent.
-func NewestHeadingBlocks(path string, n int) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	_, blocks := splitHeadingBlocks(string(data))
-	if len(blocks) > n {
-		blocks = blocks[:n]
-	}
-	return blocks
-}

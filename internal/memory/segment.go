@@ -44,10 +44,8 @@ func corpusFiles(root string) []corpusFile {
 			out = append(out, corpusFile{"native", path, segNative})
 		}
 	}
-	if CutOver() {
-		for _, path := range knowledgeFiles(root) {
-			out = append(out, corpusFile{"knowledge", path, segKnowledge})
-		}
+	for _, path := range knowledgeFiles(root) {
+		out = append(out, corpusFile{"knowledge", path, segKnowledge})
 	}
 	return out
 }

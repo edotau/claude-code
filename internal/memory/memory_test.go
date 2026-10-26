@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,21 +29,21 @@ func write(t *testing.T, path, body string) {
 // repoRoot makes a git work-tree root (a .git dir is enough for the stat-first check).
 func repoRoot(t *testing.T, name string) string {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), name)
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
+	if _, err := EnsureRepoDir(root); err != nil {
 		t.Fatal(err)
 	}
 	return root
 }
 
 func TestDirSlugAndInitNoOverwrite(t *testing.T) {
-	cfg := tempConfig(t)
+	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
-	if got, want := Dir(root), filepath.Join(cfg, "docs", "memory", "bank", "my-repo.v2"); got != want {
-		t.Errorf("Dir = %s want %s", got, want)
+	if got := Dir(root); filepath.Dir(got) != StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
+		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, StoreDir())
 	}
-	if Dir(cfg) != HomeBankDir() || !IsHomeBank(cfg) || IsHomeBank(root) {
-		t.Error("the config dir's bank must be the global bank")
+	if IsHomeBank(root) {
+		t.Error("a repo's bank must not be the home bank")
 	}
 	if plain := t.TempDir(); !IsHomeBank(plain) {
 		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
@@ -129,8 +128,8 @@ func TestRotateAndSettle(t *testing.T) {
 	if len(kept) != SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
-	idx := mustRead(t, filepath.Join(dir, BankIndexFile))
-	if !strings.Contains(idx, "## sessionHistory.md (30 entries)") || !strings.Contains(idx, "- entry 35") {
+	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
 	}
 	if n, _ := RotateSessionHistory(dir, now); n != 0 {
@@ -147,43 +146,7 @@ func mustRead(t *testing.T, p string) string {
 	return string(b)
 }
 
-func TestSessionSurfaceOrderAndCaps(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	write(t, filepath.Join(dir, "activeContext.md"), "# Active\nfocus")
-	write(t, filepath.Join(dir, "progress.md"), "# Progress\nworks")
-	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n## d3\n## d2\n## d1\n## d0\n")
-	write(t, filepath.Join(dir, "sessionHistory.md"), "# H\n## newest\n## older\n")
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n- global rule\n")
-	s := SessionSurface(root)
-	order := []string{"activeContext.md", "progress.md", "decisionLog.md (newest entries)", "## d1", "sessionHistory.md (newest entry)", "## newest", "SHARED home bank", "- global rule"}
-	last := -1
-	for _, want := range order {
-		i := strings.Index(s, want)
-		if i <= last {
-			t.Fatalf("%q out of order in:\n%s", want, s)
-		}
-		last = i
-	}
-	if strings.Contains(s, "## d0") || strings.Contains(s, "## older") {
-		t.Error("fallback surface carries only 3 decisions and 1 history entry")
-	}
-	// A huge pair truncates inside its own budget and never starves the index.
-	write(t, filepath.Join(dir, "activeContext.md"), strings.Repeat("— long line of context\n", 2000))
-	write(t, filepath.Join(dir, BankIndexFile), "# Memory Bank Index\n- routed entry\n")
-	s = SessionSurface(root)
-	if n := len([]rune(s)); n > TotalCapChars {
-		t.Errorf("surface %d chars > %d", n, TotalCapChars)
-	}
-	if !strings.Contains(s, "- routed entry") || !strings.Contains(s, "(surface truncated)") {
-		t.Errorf("index starved or no truncation marker:\n%s", s[len(s)-400:])
-	}
-	// An indexed global bank is a pointer (memory-recall covers it), not an injected index.
-	write(t, filepath.Join(HomeBankDir(), BankIndexFile), "# Memory Bank Index\n- global routed entry\n")
-	if s = SessionSurface(root); strings.Contains(s, "global routed entry") || !strings.Contains(s, "memory-recall hook") {
-		t.Errorf("global index injected instead of pointed at:\n%s", s[len(s)-400:])
-	}
+func TestCapCharsBelowMarkerYieldsEmpty(t *testing.T) {
 	if got := CapChars("aaaa\nbbbb", 3); got != "" {
 		t.Errorf("a cap below the marker length yields empty, got %q", got)
 	}
@@ -209,7 +172,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if r.Status != HarvestOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, BankIndexFile)), "harvested") {
+	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "harvested") {
 		t.Error("update did not settle/index the bank")
 	}
 	if err := Update(UpdateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
@@ -227,7 +190,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	}
 }
 
-func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
+func TestStartupGuardPausesOnMaintenance(t *testing.T) {
 	tempConfig(t)
 	if g := StartupGuard(); g.Paused || g.Notice != "" {
 		t.Fatalf("fresh config must not pause: %+v", g)
@@ -242,41 +205,18 @@ func TestStartupGuardPausesOnMaintenanceAndIncompleteJournal(t *testing.T) {
 	if err := ClearMaintenance(); err != nil {
 		t.Fatal(err)
 	}
-	journal := filepath.Join(MigrateStateDir(), "20260101-000000.journal.json")
-	write(t, journal, `{"phase":"complete","manifest":"/m/done.json"}`)
-	g = StartupGuard()
-	if !g.Paused || !g.Migrated || !strings.Contains(g.Notice, "memory migration complete (20260101-000000.journal.json)") ||
-		!strings.Contains(g.Notice, StoreDir()) {
-		t.Errorf("a complete journal must stay paused until the cutover wires the resolvers: %+v", g)
-	}
-	if _, err := Init(repoRoot(t, "after")); !errors.Is(err, ErrMemoryPaused) {
-		t.Errorf("Init after a completed migration must refuse to scaffold the legacy bank: %v", err)
-	}
-	if _, err := os.Stat(HomeBankDir()); !os.IsNotExist(err) {
-		t.Error("the retired legacy bank was recreated")
-	}
-	write(t, journal, `{"phase":"copy","manifest":"/m/pending.json"}`)
-	g = StartupGuard()
-	if !g.Paused || !strings.Contains(g.Notice, "memory migration incomplete (20260101-000000.journal.json)") ||
-		!strings.Contains(g.Notice, "memory migrate --manifest /m/pending.json") {
-		t.Errorf("incomplete journal guard: %+v", g)
-	}
-	write(t, journal, "not json")
-	if g := StartupGuard(); !g.Paused {
-		t.Error("an unreadable journal is an unknown state and must pause")
-	}
 	if _, err := os.Stat(MaintenancePath()); !os.IsNotExist(err) {
 		t.Error("StartupGuard must be a pure read")
 	}
 }
 
 func TestNativeTopicsJoinSearch(t *testing.T) {
-	cfg := tempConfig(t)
+	tempConfig(t)
 	root := repoRoot(t, "proj")
 	if got := ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := filepath.Join(cfg, "projects", ProjectSlug(root), "memory")
+	native := NativeDir(root)
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")

@@ -3,6 +3,7 @@ package hooks
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 
 func readAccessLog(t *testing.T, dir string) string {
 	t.Helper()
-	data, _ := os.ReadFile(filepath.Join(dir, memory.AccessLogFile))
+	data, _ := os.ReadFile(memory.AccessLogPath(dir))
 	return string(data)
 }
 
@@ -31,16 +32,16 @@ func TestLogReadAccessGlobalBankFile(t *testing.T) {
 
 func TestLogReadAccessLocalBankFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Skip("git unavailable:", err)
+	}
+	local, err := memory.EnsureRepoDir(repo)
+	if err != nil {
 		t.Fatal(err)
 	}
-	local := memory.Dir(repo)
 	if local == memory.HomeBankDir() {
 		t.Fatal("a repo root must own a local bank")
-	}
-	if err := os.MkdirAll(local, 0o755); err != nil {
-		t.Fatal(err)
 	}
 	logReadAccess(filepath.Join(local, memory.BankIndexFile), repo, time.Now())
 	if got := readAccessLog(t, local); !strings.Contains(got, "bank:"+memory.BankIndexFile+" -- read") {

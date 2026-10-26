@@ -86,7 +86,7 @@ For readers familiar with Google's Agent Development Kit memory services, this m
 
 Claude Code's own native auto-memory (`MEMORY.md` + topic files) is **not a separate system**: it
 lives in the same `memory/<repo>/` dir as the typed bank files. `~/.claude/projects/<slug>/memory`
-is a harness-maintained symlink into that dir (created by `memory migrate`, repaired at
+is a harness-maintained symlink into that dir (created and repaired at
 SessionStart) — there is no independent native tree to conflate with or diverge from the bank.
 `claude-code memory <verb>` curates both the native `MEMORY.md` + topics and the six typed files —
 one verb family, one directory.

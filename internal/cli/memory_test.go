@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -80,53 +79,12 @@ func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 	}
 }
 
-// memory migrate: the default dry run writes only a manifest (text and json), --origin rejects a bare value,
-// a foreign manifest is refused with exit 2, and `memory update` is refused while maintenance is raised.
-func TestMemoryMigrateDryRunApplyAndGuard(t *testing.T) {
+// `memory update` is refused while maintenance is raised, and `memory migrate` no longer exists.
+func TestMemoryUpdatePausedAndMigrateVerbGone(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	bank := filepath.Join(cfg, "docs", "memory", "bank")
-	if err := os.MkdirAll(bank, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bank, "conventions.md"), []byte("# C\n- legacy\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run"}) })
-	if code != 0 || !strings.Contains(out, "global-bank") || !strings.Contains(out, "manifest: ") || !strings.Contains(out, "memory migrate --manifest ") {
-		t.Fatalf("dry run: code=%d out=%q", code, out)
-	}
-	if strings.Contains(out, "- legacy") {
-		t.Error("dry run printed file contents")
-	}
-	manifests, _ := filepath.Glob(filepath.Join(memory.MigrateStateDir(), "manifest-*.json"))
-	if len(manifests) != 1 {
-		t.Fatalf("manifests after dry run: %v", manifests)
-	}
-	if _, err := os.Stat(memory.StoreDir()); !os.IsNotExist(err) {
-		t.Error("dry run created the store")
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // WriteManifest names to the second: a fresh dir avoids the O_EXCL clash
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--dry-run", "--format", "json"}) })
-	var m memory.Manifest
-	if code != 0 || json.Unmarshal([]byte(out), &m) != nil || m.Schema != memory.ManifestSchema {
-		t.Errorf("json dry run: code=%d out=%q", code, out[:min(len(out), 200)])
-	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--origin", "nope"}) }); code != 2 || !strings.Contains(stderr, "SLUG=PATH") {
-		t.Errorf("bare --origin: code=%d stderr=%q", code, stderr)
-	}
-	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--format", "json"}) }); code != 1 {
-		t.Errorf("--format json on the default apply: code=%d, want 1", code)
-	}
-	stale := filepath.Join(t.TempDir(), "stale.json")
-	if err := os.WriteFile(stale, []byte(`{"schema":1,"configDir":"/elsewhere","items":[]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", stale}) }); code != 2 || !strings.Contains(stderr, "does not match this box") {
-		t.Errorf("stale manifest: code=%d stderr=%q", code, stderr)
-	}
-	if code, _, _ := captureOutput(t, func() int { return cmdMemoryMigrate([]string{"--manifest", "/nope"}) }); code != 1 {
-		t.Errorf("--manifest of a nonexistent manifest: code=%d, want 1", code)
+	if code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"migrate", "--dry-run"}) }); code != 1 || !strings.Contains(stderr, "unknown subcommand") {
+		t.Errorf("memory migrate: code=%d stderr=%q, want exit 1 unknown subcommand", code, stderr)
 	}
 	if err := memory.SetMaintenance("test"); err != nil {
 		t.Fatal(err)
@@ -335,15 +293,6 @@ func TestMemoryArchiveWritesRefusedWhilePaused(t *testing.T) {
 func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	// Cut over to the unified store: memory.ShowBlock only walks memory.StoreDir(), not the legacy
-	// pre-migration layout, so a fresh config dir needs the same marker memory's own cutover(t) writes.
-	if err := os.MkdirAll(memory.MigrateStateDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json"),
-		[]byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -393,13 +342,6 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.MkdirAll(memory.MigrateStateDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memory.MigrateStateDir(), "20260101-000000.journal.json"),
-		[]byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -662,9 +604,9 @@ func decisionLogOverCLI(t *testing.T, path string, n int) {
 func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
+	repo := filepath.Join(t.TempDir(), "repo")
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
 	}
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
@@ -734,7 +676,7 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 			t.Errorf("memoryPage missing public verb %q", v)
 		}
 	}
-	privateVerbs := []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "archive", "migrate", "alias"}
+	privateVerbs := []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "archive", "alias"}
 	for _, v := range privateVerbs {
 		if helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage lists private verb %q as if public", v)

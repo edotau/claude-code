@@ -276,7 +276,7 @@ claude-code memory recall [--repo R|--all] <terms>    # BM25 search; public verb
 claude-code memory init|review|promote|remember|update|dream   # public verbs
 claude-code memory path|index|show <id>|digest|timeline|fmt|watch   # private plumbing
 claude-code memory archive [--split N --apply|--dupes]  # keep MEMORY.md small
-claude-code memory migrate|alias                     # one-time cutover; fold a second checkout
+claude-code memory alias                             # fold a second checkout
 ```
 
 `claude-code memory init` enriches a bank; `claude-code memory update` saves manually.

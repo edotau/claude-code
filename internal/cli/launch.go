@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/history"
@@ -364,12 +363,6 @@ func cmdInstall(args []string) int {
 	}
 	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
 		return fail("install: %v", err)
-	}
-	if err := configure.MigrateWebSearchArgs(*dry, os.Stdout); err != nil {
-		return fail("install: web-search MCP migrate: %v", err)
-	}
-	if err := configure.MigrateVendorOverlay(*dry, os.Stdout); err != nil {
-		return fail("install: vendor overlay migrate: %v", err)
 	}
 	return 0
 }

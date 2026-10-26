@@ -26,15 +26,6 @@ func TestStoreGitProbesBounded(t *testing.T) {
 	gitTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { gitTimeout = oldTimeout })
 
-	t.Run("in work tree", func(t *testing.T) {
-		started := time.Now()
-		if inWorkTree(t.TempDir()) {
-			t.Error("timed-out worktree probe returned true")
-		}
-		if elapsed := time.Since(started); elapsed >= time.Second {
-			t.Errorf("worktree probe took %v with timeout %v", elapsed, gitTimeout)
-		}
-	})
 	t.Run("git toplevel", func(t *testing.T) {
 		started := time.Now()
 		if got := GitToplevel(t.TempDir()); got != "" {

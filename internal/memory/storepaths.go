@@ -37,12 +37,6 @@ func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
 // KnowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule (plan C.2, post-T10).
 func KnowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
 
-// ReceiptsDir holds applied-batch receipts, tracked in memory Git as the authority for cursor recovery.
-func ReceiptsDir() string { return filepath.Join(StoreDir(), "receipts") }
-
-// MigrateStateDir holds migration manifests and journals; never inside the store.
-func MigrateStateDir() string { return filepath.Join(StateDir(), "migrate") }
-
 // JournalDir holds pending commit-transaction journals; state only, never committed.
 func JournalDir() string { return filepath.Join(StateDir(), "journal") }
 

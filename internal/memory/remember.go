@@ -46,8 +46,8 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if writeErr != nil {
 		return "", writeErr
 	}
-	// Stamp the id directly: SettleBank only runs assignIDs on the post-cutover unified-store path,
-	// and a fresh/legacy bank must still get an id back to round-trip through `memory recall`.
+	// Stamp the id directly: SettleBank only runs assignIDs on the unified-store path,
+	// and a fresh bank must still get an id back to round-trip through `memory recall`.
 	if _, err := assignIDs(dir, now); err != nil {
 		return "", err
 	}

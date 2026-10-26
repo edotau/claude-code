@@ -13,8 +13,8 @@ import (
 )
 
 func TestRankFilesMatchesOracle(t *testing.T) {
-	root := migrateConfig1(t)
-	cutover(t)
+	root := isolatedConfig1(t)
+	initStore(t)
 	local, err := EnsureRepoDir(root)
 	if err != nil {
 		t.Fatal(err)
@@ -302,10 +302,9 @@ func oracleSearchSources(root string) []oracleSearchSource {
 			out = append(out, oracleSearchSource{bank: "native", files: topics, data: data, native: true})
 		}
 	}
-	if CutOver() { // tracked long-term knowledge: cross-repo top plus this repo's subdir
-		if files := knowledgeFiles(root); len(files) > 0 {
-			out = append(out, oracleSearchSource{bank: "knowledge", files: files, knowledge: true})
-		}
+	// tracked long-term knowledge: cross-repo top plus this repo's subdir
+	if files := knowledgeFiles(root); len(files) > 0 {
+		out = append(out, oracleSearchSource{bank: "knowledge", files: files, knowledge: true})
 	}
 	return out
 }
@@ -373,8 +372,8 @@ func oracleTopicContents(dir string) ([]string, map[string][]byte) {
 // TestCorpusFilesIncludesGlobalNativeTopic: post-cutover, a native topic file living in HomeBankDir() is
 // part of a repo's native corpus (bank "native"), not silently dropped by scanning the wrong dir.
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
-	root := migrateConfig1(t)
-	cutover(t)
+	root := isolatedConfig1(t)
+	initStore(t)
 	if _, err := EnsureRepoDir(root); err != nil {
 		t.Fatal(err)
 	}

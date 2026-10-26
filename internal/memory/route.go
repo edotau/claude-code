@@ -7,9 +7,6 @@ import (
 
 // RoutedRepos are the repo stores a query names explicitly (key or origin basename as a whole word); no IDF guessing.
 func RoutedRepos(query string) []RepoEntry {
-	if !CutOver() {
-		return nil
-	}
 	entries, err := RepoDirs()
 	if err != nil {
 		return nil

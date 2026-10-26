@@ -1,76 +1,21 @@
 package memory
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"sync"
 	"time"
 )
 
 // Guard is the readiness verdict every hook/worker consults before initializing, spawning, stamping or writing.
 type Guard struct {
-	Notice   string
-	Paused   bool // no write, spawn, stamp or scaffold until the notice's condition clears
-	Migrated bool // a migration completed: the store is the home; paused until the cutover points the resolvers at it
+	Notice string
+	Paused bool // no write, spawn, stamp or scaffold until the notice's condition clears
 }
 
 // ErrMemoryPaused wraps every refusal from CheckWritable; errors.Is lets callers stay quiet instead of failing loud.
 var ErrMemoryPaused = errors.New("memory writes paused")
 
-// journalComplete is the phase a migration journal reaches only when its apply finished.
-const journalComplete = "complete"
-
-type guardJournal struct {
-	Phase    string `json:"phase"`
-	Manifest string `json:"manifest"`
-}
-
-type guardJournalEntry struct {
-	info    os.FileInfo
-	journal guardJournal
-}
-
-// Cache decoded fields, not directory membership or readiness; migration writes must be visible immediately.
-var guardJournalCache = struct {
-	sync.Mutex
-	entries map[string]guardJournalEntry
-}{entries: make(map[string]guardJournalEntry)}
-
-func readGuardJournal(path string) (guardJournal, error) {
-	guardJournalCache.Lock()
-	defer guardJournalCache.Unlock()
-
-	key, keyErr := filepath.Abs(path)
-	info, statErr := os.Stat(path)
-	if keyErr == nil && statErr == nil {
-		if cached, ok := guardJournalCache.entries[key]; ok &&
-			os.SameFile(info, cached.info) &&
-			info.Size() == cached.info.Size() &&
-			info.ModTime().Equal(cached.info.ModTime()) &&
-			info.Mode() == cached.info.Mode() {
-			return cached.journal, nil
-		}
-	}
-	delete(guardJournalCache.entries, key)
-	var journal guardJournal
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return journal, err
-	}
-	if err := json.Unmarshal(data, &journal); err != nil {
-		return journal, err
-	}
-	if keyErr == nil && statErr == nil {
-		guardJournalCache.entries[key] = guardJournalEntry{info: info, journal: journal}
-	}
-	return journal, nil
-}
-
-// StartupGuard pauses writes during maintenance, an unfinished migration or a missing migrated store; a pure read.
+// StartupGuard pauses writes during maintenance; a pure read.
 func StartupGuard() Guard {
 	if reason, ok := InMaintenance(); ok {
 		if reason == "" {
@@ -78,26 +23,7 @@ func StartupGuard() Guard {
 		}
 		return Guard{Paused: true, Notice: "memory maintenance in progress (" + reason + "): memory scaffolding and harvests are paused until it completes; see " + MaintenancePath()}
 	}
-	path, manifest, incomplete, migrated := scanJournals()
-	if incomplete {
-		return Guard{Paused: true, Notice: "memory migration incomplete (" + filepath.Base(path) + "): finish it with `claude-code memory migrate --manifest " +
-			manifest + "`; memory writes are paused"}
-	}
-	// After a completed import every resolver points into the store, so writes resume — unless the store vanished.
-	if migrated && !StoreRepo().Exists() {
-		return Guard{Paused: true, Migrated: true, Notice: "memory migration complete (" + filepath.Base(path) + ") but the store " +
-			StoreDir() + " has no git repo; restore it before memory writes resume"}
-	}
-	return Guard{Migrated: migrated}
-}
-
-// checkLegacyWritable refuses a legacy-tree write while a live store exists with no completed journal (not a fresh box).
-func checkLegacyWritable() error {
-	if CutOver() || !StoreRepo().Exists() {
-		return nil
-	}
-	return fmt.Errorf("%w: memory store %s exists but %s holds no completed migration journal; %s is not recreated"+
-		" — restore the journals or re-run `claude-code memory migrate`", ErrMemoryPaused, StoreDir(), MigrateStateDir(), LegacyGlobalDir())
+	return Guard{}
 }
 
 // CheckWritable is the one mutation gate: nil when the store accepts writes, else ErrMemoryPaused with the notice.
@@ -119,23 +45,4 @@ func WithWritableBankLock(wait time.Duration, fn func() error) error {
 		}
 		return fn()
 	})
-}
-
-// scanJournals walks MigrateStateDir()/*.journal.json by name; the first not provably complete (or unreadable)
-// returns incomplete, else path is the newest complete journal and migrated says one exists.
-func scanJournals() (path, manifest string, incomplete, migrated bool) {
-	matches, _ := filepath.Glob(filepath.Join(MigrateStateDir(), "*.journal.json"))
-	sort.Strings(matches)
-	for _, p := range matches {
-		j, err := readGuardJournal(p)
-		if err == nil && j.Phase == journalComplete {
-			path, migrated = p, true
-			continue
-		}
-		if j.Manifest == "" {
-			j.Manifest = "<manifest path from " + p + ">"
-		}
-		return p, j.Manifest, true, migrated
-	}
-	return path, "", false, migrated
 }

@@ -71,7 +71,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	t.Setenv(memory.HarvestChildEnv, "")
 	cwd := t.TempDir()
 	for name, body := range map[string]string{
-		"activeContext.md": "# Active\n\n- alpha bravo charlie delta already in context\n",
+		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
 		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {

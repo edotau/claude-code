@@ -85,60 +85,11 @@ func TestEnsureLinkStates(t *testing.T) {
 	}
 }
 
-// TestEnsureNativeLinksNoopBeforeCutover: EnsureNativeLinks is a no-op (nil, nil) before the migration lands.
-func TestEnsureNativeLinksNoopBeforeCutover(t *testing.T) {
-	migrateConfig1(t)
-	out, err := EnsureNativeLinks()
-	if err != nil || out != nil {
-		t.Fatalf("before cutover: out=%v err=%v", out, err)
-	}
-}
-
-// TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases: after cutover every known project's native
-// memory dir is a symlink into its store — $HOME into HomeBankDir(), a repo and its alias both into the
-// same repo store dir.
-func TestEnsureNativeLinksAfterCutoverCoversHomeAndRepoAliases(t *testing.T) {
-	_, home := migrateConfig(t)
-	cutover(t)
-
-	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
-	dir, err := EnsureRepoDir(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	alias := gitRepo(t, canonTemp(t, t.TempDir()), "alias-of-proj")
-	if err := AddOriginAlias(dir, alias); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := EnsureNativeLinks()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out) != 3 {
-		t.Fatalf("results = %+v, want 3 (home, repo, alias)", out)
-	}
-	assertLinkedTo(t, projectsMemory(ProjectSlug(home)), HomeBankDir())
-	assertLinkedTo(t, projectsMemory(ProjectSlug(repo)), dir)
-	assertLinkedTo(t, projectsMemory(ProjectSlug(alias)), dir)
-
-	// idempotent re-run: every result is already "ok"
-	out2, err := EnsureNativeLinks()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range out2 {
-		if r.Action != "ok" {
-			t.Errorf("re-run result = %+v, want ok", r)
-		}
-	}
-}
-
 // TestLinkNativeForUsesMainCheckoutAndTypedPath: a worktree or a subdir resolves to the main checkout's
 // link; a non-git cwd gets its own typed path pointed at the global tier.
 func TestLinkNativeForUsesMainCheckoutAndTypedPath(t *testing.T) {
-	migrateConfig(t)
-	cutover(t)
+	isolatedConfig(t)
+	initStore(t)
 
 	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
 	sub := filepath.Join(repo, "a", "b")
@@ -184,15 +135,15 @@ func TestLinkNativeForUsesMainCheckoutAndTypedPath(t *testing.T) {
 
 // TestLinkNativeForNoopBeforeCutover: LinkNativeFor reports ok=false before the migration lands.
 func TestLinkNativeForNoopBeforeCutover(t *testing.T) {
-	migrateConfig1(t)
+	isolatedConfig1(t)
 	if _, ok := LinkNativeFor(t.TempDir()); ok {
 		t.Error("LinkNativeFor before cutover must report ok=false")
 	}
 }
 
-// migrateConfig1 isolates CLAUDE_CONFIG_DIR and HOME like migrateConfig but returns only cfg, for
+// isolatedConfig1 isolates CLAUDE_CONFIG_DIR and HOME like isolatedConfig but returns only cfg, for
 // tests that never need the home path itself.
-func migrateConfig1(t *testing.T) string {
-	cfg, _ := migrateConfig(t)
+func isolatedConfig1(t *testing.T) string {
+	cfg, _ := isolatedConfig(t)
 	return cfg
 }

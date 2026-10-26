@@ -57,7 +57,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Render settings + vendor configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--vendors]` | hard rule 4; `README.md` → Setup |
 | Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
 | See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider> [--dry-run]` (alias: `use`; relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault list`) |
+| Switch the session provider | `claude-code switch <provider> [--dry-run]` (relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault list`) |
 | Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
 | List what a provider serves | `claude-code models --live [--provider <p>]` | — |
 | Set a credential | `claude-code vault set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `vault list\|get\|delete\|import\|export`, sources in `configure provider --list` | `README.md` → Credentials |
