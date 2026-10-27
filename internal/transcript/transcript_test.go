@@ -49,6 +49,31 @@ func TestWindow(t *testing.T) {
 	}
 }
 
+// A Databricks pin "databricks-<id>[1m]" must cover the bare id the transcript records.
+func TestWindowDatabricksPrefixedPin(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-5-5[1m]")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
+	if got := Window("claude-opus-5-5", 182_796); got != 1_000_000 {
+		t.Errorf("Window(claude-opus-5-5)=%d want 1000000", got)
+	}
+	if got := Window("claude-haiku-5-5", 10); got != 200_000 {
+		t.Errorf("Window(claude-haiku-5-5)=%d want 200000 (unpinned model)", got)
+	}
+}
+
+// A pin on another vendor's "vendor-<id>[1m]" must NOT hand the bare id a 1M window (only "databricks-" is stripped).
+func TestWindowNonDatabricksPrefixedPinNotMatched(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "vendor-gpt-5[1m]")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
+	if got := Window("gpt-5", 10); got == 1_000_000 {
+		t.Errorf("Window(gpt-5)=%d: a vendor-gpt-5[1m] pin must not match bare gpt-5", got)
+	}
+	t.Setenv("ANTHROPIC_MODEL", "databricks-gpt-5[1m]")
+	if got := Window("gpt-5", 10); got != 1_000_000 {
+		t.Errorf("databricks- pin must still match: %d", got)
+	}
+}
+
 func appendTranscript(t *testing.T, path, chunk string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)

@@ -61,10 +61,10 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | Opus 5 [1m] · openrouter · router:18765 · ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
-		"powerline": "tester:~/proj |  Opus 5 [1m]  openrouter  router:18765  42%  ~1.2M tok  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( openrouter ) ( router:18765 ) ( 42% ) ( ~1.2M tok ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  openrouter  ·  router:18765  ·  42%  ·  ~1.2M tok  ·  12m  ·   main  +10 -3",
+		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · router:18765 · ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
+		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  router:18765  42%  ~1.2M tok  12m   main  +10 -3",
+		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( router:18765 ) ( 42% ) ( ~1.2M tok ) ( 12m ) (  main ) +10 -3",
+		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  router:18765  ·  42%  ·  ~1.2M tok  ·  12m  ·   main  +10 -3",
 	}
 	for style, want := range cases {
 		cfg := embeddedConfig()
@@ -134,7 +134,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
+	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | openrouter · …" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -325,7 +325,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " Opus 5  ·  anthropic  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic  ·  Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -339,7 +339,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( Opus 5 ) ( anthropic ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( anthropic ) ( Opus 5 ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -373,7 +373,7 @@ func TestProviderLabelEnvTable(t *testing.T) {
 		"my-app-staging":      "my-app·staging",
 		"anthropic":           "anthropic",
 		"subscription":        "anthropic",
-		"github-copilot":      "github-copilot",
+		"github-copilot":      "github·copilot",
 		"openai":              "openai",
 		"databricks-prodx":    "databricks-prodx",
 		"databricks":          "databricks",
@@ -384,7 +384,7 @@ func TestProviderLabelEnvTable(t *testing.T) {
 	}
 }
 
-// A databricks preset row renders "databricks·<id>" whatever its id; a non-preset row keeps the env-suffix rule.
+// A databricks preset row renders "databricks·<id>" whatever its id.
 func TestProviderLabelDatabricksPreset(t *testing.T) {
 	prev := registry
 	t.Cleanup(func() { registry = prev })
@@ -392,13 +392,13 @@ func TestProviderLabelDatabricksPreset(t *testing.T) {
 		return &providers.Registry{Providers: map[string]*providers.Provider{
 			"databricks-lab": {Name: "databricks-lab", Preset: providers.PresetDatabricks},
 			"mylab":          {Name: "mylab", Preset: providers.PresetDatabricks},
-			"databricks-foo": {Name: "databricks-foo"},
+			"databricks-foo": {Name: "databricks-foo", Preset: providers.PresetDatabricks},
 		}}
 	}
 	for name, want := range map[string]string{
 		"databricks-lab": "databricks·lab",
 		"mylab":          "databricks·mylab",
-		"databricks-foo": "databricks-foo",
+		"databricks-foo": "databricks·foo",
 	} {
 		if got := providerLabel(name); got != want {
 			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)

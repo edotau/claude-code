@@ -97,7 +97,10 @@ func Window(model string, used int) int {
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
 		v := os.Getenv(k)
-		if base := models.Strip1M(v); model != "" && (base == model || strings.HasSuffix(base, ":"+model)) {
+		// Databricks pins "databricks-<id>" but the transcript records the bare id, hence the prefix strip.
+		base := models.Strip1M(v)
+		if model != "" && (base == model || strings.HasSuffix(base, ":"+model) ||
+			strings.TrimPrefix(base, models.DatabricksPrefix) == model) {
 			return models.ContextWindow(v)
 		}
 	}

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // PresetDatabricks derives every route, the auth commands and the launch env from one host + one CLI profile.
@@ -23,9 +25,6 @@ var DatabricksEnvs = []string{"dev", "qa", "prod"}
 
 // BetaOffKey is the launch env key that disables Claude Code's experimental betas.
 const BetaOffKey = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"
-
-// databricksModelPrefix turns a canonical id into a serving-endpoint id (see Provider.WireModel).
-const databricksModelPrefix = "databricks-"
 
 // databricksModels are the canonical ids a databricks preset seeds into empty slots.
 var databricksModels = map[string]string{
@@ -120,7 +119,7 @@ func expandServing(p *Provider, host string) {
 		}
 	}
 	if p.ModelPrefix == "" {
-		p.ModelPrefix = databricksModelPrefix
+		p.ModelPrefix = models.DatabricksPrefix
 	}
 }
 
