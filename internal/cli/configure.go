@@ -12,12 +12,15 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
 )
 
 // configurePage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
 var configurePage = helptext.Page{
-	Usage: "claude-code configure [<page>] [flags]\nclaude-code configure --reset|--restore [flags]",
+	Usage: "claude-code configure [<page>] [flags]\n" +
+		"claude-code configure --reset|--restore [flags]\n" +
+		"claude-code configure provider --all [<profile>] [--check]",
 	About: "Guided setup for the model backend, tier pins and each agent CLI; bare walks every page in order. " +
 		"--reset re-renders settings.json and the vendor configs from the templates (settings.local.json is " +
 		"never touched); with --check it reports drift and exits 1.",
@@ -65,6 +68,7 @@ func cmdConfigure(args []string) int {
 	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
 	vendors := fs.Bool("vendors", false, "with --reset: render vendor configs even off the default ~/.claude")
 	list := fs.Bool("list", false, "with provider: list providers and credential state")
+	all := fs.Bool("all", false, "with provider: check every provider's sign-in and log in where needed")
 	format := outfmt.Flag(fs)
 	var drop, keep keyList
 	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
@@ -81,7 +85,27 @@ func cmdConfigure(args []string) int {
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
 	}
-	if *list || *format != outfmt.Text {
+	if *all && section != "provider" {
+		return fail("configure: --all needs the provider page")
+	}
+	profile := ""
+	if *all && (*list || *provider != "") {
+		return fail("configure: --all cannot be combined with --list or --provider")
+	}
+	if *all && len(pos) > 1 {
+		return fail("configure: --all takes at most one <profile> (got %d)", len(pos))
+	}
+	if *all && len(pos) > 0 {
+		profile = pos[0]
+		reg, err := providers.Load()
+		if err != nil {
+			return fail("configure: load providers: %v", err)
+		}
+		if reg.Providers[profile] == nil {
+			return fail("configure: unknown provider %s (see configure provider --list)", profile)
+		}
+	}
+	if *list || *format != outfmt.Text && !*all {
 		if section != "provider" {
 			return fail("configure: --list needs the provider page")
 		}
@@ -98,7 +122,8 @@ func cmdConfigure(args []string) int {
 		return fail("configure: --out and --vendors need --reset")
 	}
 	return configure.Run(configure.Options{
-		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
+		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
+		JSON: *format == outfmt.JSON, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
 	}, section)
 }
 

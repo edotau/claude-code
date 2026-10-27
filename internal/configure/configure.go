@@ -43,6 +43,9 @@ type Options struct {
 	Vendor      string    // --agent: scope keys/agents to one agent CLI
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
+	All         bool      // --all (provider page): check every provider's sign-in and log in where needed
+	Profile     string    // --all [<profile>]: check only this registry row
+	JSON        bool      // --format json (provider --all): emit the row verdicts as JSON
 	Drop        []string  // --drop: top-level settings.json keys to remove on every render
 	Keep        []string  // --keep: keys to stop dropping
 	Interactive bool      // stdin+stderr are both a terminal; the caller decides this
@@ -142,7 +145,9 @@ func Run(o Options, section string) int {
 	}
 	allOK := true
 	for _, s := range want {
-		d.header(s)
+		if !o.JSON {
+			d.header(s)
+		}
 		var ok bool
 		switch s {
 		case "provider":
@@ -227,6 +232,9 @@ func currentProvider(reg *providers.Registry) string {
 }
 
 func runProvider(d *dialog) bool {
+	if d.o.All {
+		return runProviderAll(d)
+	}
 	reg := d.reg
 	names := reg.Names()
 	cur := currentProvider(reg)

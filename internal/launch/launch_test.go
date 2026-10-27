@@ -307,3 +307,19 @@ func TestHelperBinPrefersInstalled(t *testing.T) {
 		t.Errorf("installed binary must win: %q", got)
 	}
 }
+
+// Every launch, routed or direct, exports HARNESS_PROVIDER so the session's statusline stays on its own provider.
+func TestLaunchExportsHarnessProvider(t *testing.T) {
+	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
+		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}`)
+	t.Setenv("TEST_GW_KEY", "secret-value")
+	for _, name := range []string{"gw", "ollama"} { // direct, routed
+		p, err := Claude(context.Background(), Options{Provider: name}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := p.Set[providers.PinProvider]; got != name {
+			t.Errorf("%s: %s = %q, want %q", name, providers.PinProvider, got, name)
+		}
+	}
+}
