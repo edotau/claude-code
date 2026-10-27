@@ -8,8 +8,8 @@
   "userColor": "ansi",
   "velocityMode": "code",
   "order": [
-    "model",
     "provider",
+    "model",
     "router",
     "context",
     "limits",
@@ -53,8 +53,8 @@
     "gutter": 3,
     "columns": [
       "workspace",
-      "model",
       "provider",
+      "model",
       "branch",
       "context"
     ],

@@ -28,8 +28,8 @@ func TestProviderGroupByPresetAuthAndHost(t *testing.T) {
 		{row("https://notopenai.com/v1"), "opensource"}, // suffix match needs a dot boundary
 	}
 	for _, c := range cases {
-		if got := providerGroup(c.p); got != c.want {
-			t.Errorf("providerGroup(%s %s) = %q, want %q", c.p.BaseURL, c.p.Preset, got, c.want)
+		if got := providers.Group(c.p); got != c.want {
+			t.Errorf("providers.Group(%s %s) = %q, want %q", c.p.BaseURL, c.p.Preset, got, c.want)
 		}
 	}
 }

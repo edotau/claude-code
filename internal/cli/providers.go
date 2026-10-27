@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -77,7 +76,7 @@ func printProviderTable(reg *providers.Registry) {
 		if cred, _ := credSource(p); cred == "missing" {
 			continue
 		}
-		g := providerGroup(p)
+		g := providers.Group(p)
 		modes[g] = appendUnique(modes[g], providerMode(p))
 		if p.Auth.AuthType == providers.AuthOAuthM2M {
 			continue // a service principal mints u2m logins from a cold start; it is a mode, not a profile
@@ -150,7 +149,7 @@ func familyProfiles(reg *providers.Registry, names []string) string {
 
 // sortProfiles keeps Databricks rows in env order (dev, qa, prod); other groups stay alphabetical.
 func sortProfiles(group string, names []string) []string {
-	if group == groupDatabricks {
+	if group == providers.GroupDatabricks {
 		slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
 	}
 	return names
@@ -163,36 +162,8 @@ func appendUnique(xs []string, x string) []string {
 	return append(xs, x)
 }
 
-const groupDatabricks = "databricks"
-
 // providerGroups is the family order `configure provider --list` prints; opensource takes every other host.
-var providerGroups = []string{"anthropic", "openai", "github", "google", groupDatabricks, "opensource"}
-
-// providerGroup files p under a family: Databricks by preset or sealed auth, the rest by its route's host.
-func providerGroup(p *providers.Provider) string {
-	if p.Preset == providers.PresetDatabricks || p.Auth.AuthType != "" {
-		return groupDatabricks
-	}
-	host := ""
-	for _, d := range p.Dialects() {
-		if r, ok := p.Route(d); ok {
-			if u, err := url.Parse(r); err == nil {
-				host = u.Hostname()
-			}
-			break
-		}
-	}
-	for _, m := range []struct{ suffix, group string }{
-		{"anthropic.com", "anthropic"}, {"openai.com", "openai"}, {"chatgpt.com", "openai"},
-		{"githubcopilot.com", "github"}, {"github.com", "github"}, {"googleapis.com", "google"},
-		{"databricks.com", groupDatabricks},
-	} {
-		if host == m.suffix || strings.HasSuffix(host, "."+m.suffix) {
-			return m.group
-		}
-	}
-	return "opensource"
-}
+var providerGroups = []string{"anthropic", "openai", "github", "google", providers.GroupDatabricks, "opensource"}
 
 // envSortKey orders Databricks rows bare env first (dev, qa, prod), then each prefix's -dev, -qa, -prod.
 func envSortKey(name string) string {
@@ -245,7 +216,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		}
 		e := providerListEntry{DescribeProvider: dp}
 		p := reg.Providers[dp.Name]
-		e.Group = providerGroup(p)
+		e.Group = providers.Group(p)
 		e.Source, e.Note = credSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)

@@ -3,6 +3,7 @@
 package statusline
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -193,7 +194,7 @@ func collect(in Input, cfg Config) values {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
-		v.provider = providerLabel(provider)
+		v.provider = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
@@ -253,15 +254,34 @@ func sessionProvider() (name string, routed bool) {
 // envSuffixRE splits "<family>-<env>[-anything]" where env names a deployment tier.
 var envSuffixRE = regexp.MustCompile(`^(.+?)-(dev|qa|test|stage|staging|prod)(-.*)?$`)
 
-// providerLabel renders a databricks preset row as "databricks·<id>" and "<family>-<env>" as "<family>·<env>".
+// modelFamily guesses the family from a model id when no provider resolves (databricks-claude-… / claude-…).
+func modelFamily(id string) string {
+	switch id = models.Strip1M(strings.TrimSpace(id)); {
+	case strings.HasPrefix(id, models.DatabricksPrefix):
+		return "databricks"
+	case strings.HasPrefix(id, "claude-"):
+		return "anthropic"
+	}
+	return ""
+}
+
+// providerLabel renders "<family>·<profile>" (family via providers.Group), the family alone for first-party anthropic.
 func providerLabel(name string) string {
-	if name == "subscription" || name == "anthropic" { // first-party; the tok:/usage segments tell the auth apart
+	if name == "subscription" || name == "anthropic" { // first-party: no registry load per render
 		return "anthropic"
 	}
 	if reg := registry(); reg != nil {
-		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
-			return "databricks·" + strings.TrimPrefix(name, "databricks-")
+		if p := reg.Providers[name]; p != nil {
+			fam := providers.Group(p)
+			profile := strings.TrimPrefix(name, fam+"-")
+			if fam == "anthropic" && (name == "subscription" || name == "anthropic") || profile == fam {
+				return fam
+			}
+			return fam + "·" + profile
 		}
+	}
+	if name == "subscription" {
+		return "anthropic"
 	}
 	if m := envSuffixRE.FindStringSubmatch(name); m != nil {
 		return m[1] + "·" + m[2]

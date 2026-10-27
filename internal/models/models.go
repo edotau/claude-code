@@ -33,6 +33,8 @@ func NextSlot(slot string) string {
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000
+	// DatabricksPrefix turns a canonical id into a Databricks serving-endpoint id.
+	DatabricksPrefix = "databricks-"
 	thinkingStd      = "31999"
 	thinkingHigh     = "64000"
 )
