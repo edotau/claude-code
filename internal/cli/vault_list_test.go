@@ -116,7 +116,7 @@ func TestVaultProvidersGroupsPresetRows(t *testing.T) {
 	t.Cleanup(func() { vaultCredOK = old })
 	raw := `{"providers":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}`
 	got := strings.Join(strings.Fields(vaultProvidersText(json.RawMessage(raw), 200)), " ")
-	if !strings.Contains(got, "databricks preset dev✓ qa✓ prod✗") {
-		t.Errorf("preset rows not grouped in env order with marks:\n%s", got)
+	if !strings.Contains(got, "databricks preset ✗prod ✓dev ✓qa") {
+		t.Errorf("preset rows not grouped failures-first, then env order, with leading marks:\n%s", got)
 	}
 }

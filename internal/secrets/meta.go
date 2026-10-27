@@ -72,8 +72,11 @@ func CachedProbe(m Meta, ttl time.Duration, now time.Time) (status string, age t
 
 // MetaPrefix retains a vendor prefix only when it covers at most a third of the secret.
 func MetaPrefix(v string) string {
-	if p := keyPrefix(v); len(p) <= len(v)/3 {
+	if p := keyPrefix(v); p != "" && len(p) <= len(v)/3 {
 		return p
+	}
+	if len(v) >= redactMin { // no vendor scheme: the same first chars Redact shows, never over a third
+		return v[:min(redactShow, len(v)/3)]
 	}
 	return ""
 }

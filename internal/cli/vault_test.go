@@ -510,7 +510,7 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	}
 	for _, row := range []string{
 		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
-		"custom m1", "openai (removed)",
+		"custom m1", "openai (remove…", // KIND is capped at 8 runes
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), row) {
 			t.Errorf("missing provider table row %q", row)
@@ -565,7 +565,7 @@ func TestVaultListTextTruncatesToWidth(t *testing.T) {
 	}
 	found := false
 	for line := range strings.SplitSeq(stdout, "\n") {
-		if strings.Contains(line, "LONG_ENV_NAME_FOR_WIDTH_TEST") && strings.HasSuffix(line, "…") {
+		if strings.Contains(line, "LONG_ENV_NAM…_WIDTH_TEST") && strings.HasSuffix(line, "…") {
 			found = true
 		}
 	}

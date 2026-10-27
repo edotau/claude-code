@@ -263,3 +263,19 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 		t.Fatalf("MetaPrefix dropped a genuine vendor prefix: %q", p)
 	}
 }
+
+func TestMetaPrefixNoSchemeShowsFirstFive(t *testing.T) {
+	for _, tc := range []struct{ v, want string }{
+		{"abcdefghijklmnopqrstuvwxyz", "abcde"}, // plain long value: 5 chars
+		{"abcdefghijkl", "abcd"},                // 12 chars: a third is 4, under the 5 cap
+		{"abcdefghijk", ""},                     // under redactMin: nothing kept
+		{"short", ""},
+	} {
+		if got := MetaPrefix(tc.v); got != tc.want {
+			t.Errorf("MetaPrefix(%q) = %q, want %q", tc.v, got, tc.want)
+		}
+		if got := MetaPrefix(tc.v); len(got) > len(tc.v)/3 {
+			t.Errorf("MetaPrefix(%q) = %q is over a third of the value", tc.v, got)
+		}
+	}
+}
