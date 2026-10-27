@@ -246,25 +246,31 @@ func hint(p *Provider) string {
 
 // ClaudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
 func ClaudeLoginStatus() (loggedIn bool, plan string) {
+	loggedIn, plan, _ = ClaudeLoginProbe()
+	return loggedIn, plan
+}
+
+// ClaudeLoginProbe is ClaudeLoginStatus with the probe error: err != nil means unknown, not logged out.
+func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 	bin, err := paths.VendorBin("claude")
 	if err != nil {
-		return false, ""
+		return false, "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "auth", "status").Output()
-	if err != nil {
-		return false, ""
-	}
+	out, runErr := exec.CommandContext(ctx, bin, "auth", "status").Output()
 	var st struct {
 		LoggedIn         bool   `json:"loggedIn"`
 		SubscriptionType string `json:"subscriptionType"`
 	}
-	if json.Unmarshal(out, &st) != nil {
-		return false, ""
+	if jerr := json.Unmarshal(out, &st); jerr != nil { // logged-out may exit nonzero but still print JSON
+		if runErr != nil {
+			return false, "", runErr
+		}
+		return false, "", jerr
 	}
 	if st.SubscriptionType != "" {
 		plan = " (" + st.SubscriptionType + ")"
 	}
-	return st.LoggedIn, plan
+	return st.LoggedIn, plan, nil
 }

@@ -9,13 +9,32 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// Seams the fake sign-in drives: the login and the credential check (the u2m sign-in's two calls).
+var (
+	testLoginRow  func(context.Context, string, io.Writer) error
+	testCredCheck = providers.Credential
+)
+
+type fakeSignin struct{ p *providers.Provider }
+
+func (f fakeSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
+	_, err := testCredCheck(ctx, f.p)
+	return providers.Verdict(err), ""
+}
+
+func (f fakeSignin) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
+	return testLoginRow(ctx, f.p.Name, out)
+}
 
 type loginHarness struct {
 	calls  *atomic.Int32 // loginRow invocations
@@ -37,11 +56,14 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 	}))
 	t.Cleanup(srv.Close)
 	h.server = srv.URL
-	oldRow, oldTTY, oldIn, oldOut := loginRow, canPrompt, loginIn, loginOut
-	t.Cleanup(func() { loginRow, canPrompt, loginIn, loginOut = oldRow, oldTTY, oldIn, oldOut })
+	oldRow, oldTTY, oldIn, oldOut, oldFor, oldCheck := testLoginRow, canPrompt, loginIn, loginOut, signinFor, testCredCheck
+	t.Cleanup(func() {
+		testLoginRow, canPrompt, loginIn, loginOut, signinFor, testCredCheck = oldRow, oldTTY, oldIn, oldOut, oldFor, oldCheck
+	})
+	signinFor = func(p *providers.Provider) signin.Signin { return fakeSignin{p} }
 	canPrompt = func() bool { return tty }
 	loginIn, loginOut = strings.NewReader(input), h.out
-	loginRow = func(_ context.Context, name string, _ io.Writer) error {
+	testLoginRow = func(_ context.Context, name string, _ io.Writer) error {
 		h.calls.Add(1)
 		if loginErr != nil {
 			return loginErr
@@ -111,17 +133,11 @@ func TestOfferLoginDecliningWarns(t *testing.T) {
 	}
 }
 
-func TestOfferLoginIgnoresNonU2MAndDedupes(t *testing.T) {
+func TestOfferLoginSkipsNilAndDedupes(t *testing.T) {
 	h := loginSetup(t, true, "y\n", errors.New("x"))
-	pat := u2mRow("lp-pat", h.server)
-	pat.Auth.AuthType = providers.AuthPAT
 	var plan Plan
-	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{pat, nil}, &plan)
-	if h.calls.Load() != 0 || h.out.Len() != 0 {
-		t.Fatalf("non-u2m prompted: login=%d out=%q", h.calls.Load(), h.out.String())
-	}
 	dup := u2mRow("lp-dup", h.server)
-	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{dup, dup}, &plan)
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{nil, dup, dup}, &plan)
 	if h.calls.Load() != 1 {
 		t.Errorf("duplicate provider logged in %d times, want 1", h.calls.Load())
 	}
@@ -141,9 +157,9 @@ func TestOfferLoginSharesOneReaderAcrossProviders(t *testing.T) {
 func TestOfferLoginSlowTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 	h := loginSetup(t, true, "y\n", nil)
 	release := make(chan struct{})
-	oldCheck, oldTimeout := credentialCheck, credCheckTimeout
-	t.Cleanup(func() { close(release); credentialCheck, credCheckTimeout = oldCheck, oldTimeout })
-	credentialCheck = func(context.Context, *providers.Provider) (string, error) {
+	oldCheck, oldTimeout := testCredCheck, credCheckTimeout
+	t.Cleanup(func() { close(release); testCredCheck, credCheckTimeout = oldCheck, oldTimeout })
+	testCredCheck = func(context.Context, *providers.Provider) (string, error) {
 		<-release
 		return "", providers.ErrNeedsLogin
 	}
@@ -201,9 +217,9 @@ func TestOfferLoginHungPostLoginCheckWarns(t *testing.T) {
 	h := loginSetup(t, true, "y\n", nil)
 	release := make(chan struct{})
 	var calls atomic.Int32
-	oldCheck, oldTimeout := credentialCheck, credCheckTimeout
-	t.Cleanup(func() { close(release); credentialCheck, credCheckTimeout = oldCheck, oldTimeout })
-	credentialCheck = func(context.Context, *providers.Provider) (string, error) {
+	oldCheck, oldTimeout := testCredCheck, credCheckTimeout
+	t.Cleanup(func() { close(release); testCredCheck, credCheckTimeout = oldCheck, oldTimeout })
+	testCredCheck = func(context.Context, *providers.Provider) (string, error) {
 		if calls.Add(1) == 1 {
 			return "", providers.ErrNeedsLogin
 		}
@@ -219,5 +235,156 @@ func TestOfferLoginHungPostLoginCheckWarns(t *testing.T) {
 	}
 	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "timed out") {
 		t.Fatalf("logins=%d warnings=%q, want one login and one timeout warning", h.calls.Load(), plan.Warnings)
+	}
+}
+
+// verdictSignin drives offerLogin with a fixed verdict for any kind (not only u2m).
+type verdictSignin struct {
+	v      providers.AuthVerdict
+	logins *atomic.Int32
+}
+
+func (s verdictSignin) Check(context.Context) (providers.AuthVerdict, string) { return s.v, "" }
+func (s verdictSignin) Login(context.Context, io.Reader, io.Writer) error {
+	s.logins.Add(1)
+	return nil
+}
+
+func TestOfferLoginUsesSigninForAllKinds(t *testing.T) {
+	kinds := map[string]providers.Auth{
+		"subscription": {Type: providers.AuthPassthrough},
+		"codex":        {Type: providers.AuthPassthrough, Login: "codex"},
+		"pat":          {Type: providers.AuthBearer, AuthType: providers.AuthPAT},
+		"env-key":      {Type: providers.AuthBearer, Env: "X_KEY"},
+		"u2m":          {Type: providers.AuthBearer, AuthType: providers.AuthU2M},
+	}
+	for kind, auth := range kinds {
+		for v, wantLogin := range map[providers.AuthVerdict]bool{
+			providers.VerdictNeedsLogin: true, providers.VerdictRejected: true,
+			providers.VerdictTransient: false, providers.VerdictOK: false,
+		} {
+			t.Run(kind+"/"+string(v), func(t *testing.T) {
+				h := loginSetup(t, true, "y\n", nil)
+				var n atomic.Int32
+				signinFor = func(*providers.Provider) signin.Signin { return verdictSignin{v: v, logins: &n} }
+				var plan Plan
+				offerLogin(context.Background(), Options{}, nil, []*providers.Provider{{Name: "r-" + kind, Auth: auth}}, &plan)
+				if kind == "subscription" { // Claude Code shows its own login screen
+					wantLogin = false
+				}
+				if (n.Load() == 1) != wantLogin || n.Load() > 1 {
+					t.Fatalf("logins=%d want login=%v (out %q)", n.Load(), wantLogin, h.out.String())
+				}
+			})
+		}
+	}
+}
+
+// A passthrough row with no Auth.Login (the default subscription) is never checked: Claude Code has its own login.
+func TestOfferLoginSubscriptionRunsNoCheck(t *testing.T) {
+	for name, tc := range map[string]struct {
+		auth      providers.Auth
+		wantCheck bool
+	}{
+		"subscription": {providers.Auth{Type: providers.AuthPassthrough}, false},
+		"codex":        {providers.Auth{Type: providers.AuthPassthrough, Login: "codex"}, true},
+		"pat":          {providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			loginSetup(t, true, "y\n", nil)
+			var checks atomic.Int32
+			signinFor = func(*providers.Provider) signin.Signin { return countSignin{&checks} }
+			offerLogin(context.Background(), Options{}, nil, []*providers.Provider{{Name: "r-" + name, Auth: tc.auth}}, &Plan{})
+			if (checks.Load() > 0) != tc.wantCheck {
+				t.Fatalf("checks=%d, want check=%v", checks.Load(), tc.wantCheck)
+			}
+		})
+	}
+}
+
+type countSignin struct{ n *atomic.Int32 }
+
+func (c countSignin) Check(context.Context) (providers.AuthVerdict, string) {
+	c.n.Add(1)
+	return providers.VerdictOK, ""
+}
+func (countSignin) Login(context.Context, io.Reader, io.Writer) error { return nil }
+
+func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
+	loginSetup(t, true, "n\n", nil)
+	signinFor = func(*providers.Provider) signin.Signin {
+		return verdictSignin{v: providers.VerdictNeedsLogin, logins: &atomic.Int32{}}
+	}
+	var plan Plan
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{{Name: "qa-row", Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}}}, &plan)
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "configure provider --all qa-row") {
+		t.Fatalf("warnings = %v", plan.Warnings)
+	}
+}
+
+// barrierSignin's first Check blocks until every sibling's first Check has started (or 3s pass): only concurrent
+// checks reach the barrier together. Later Checks (the post-login recheck) return ok.
+type barrierSignin struct {
+	name    string
+	arrived *atomic.Int32
+	want    int32
+	met     *atomic.Int32
+	first   *atomic.Bool
+	order   *[]string
+	mu      *sync.Mutex
+}
+
+func (b barrierSignin) Check(context.Context) (providers.AuthVerdict, string) {
+	if !b.first.CompareAndSwap(false, true) {
+		return providers.VerdictOK, ""
+	}
+	b.arrived.Add(1)
+	deadline := time.Now().Add(3 * time.Second)
+	for b.arrived.Load() < b.want && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if b.arrived.Load() >= b.want {
+		b.met.Add(1)
+	}
+	return providers.VerdictNeedsLogin, ""
+}
+
+func (b barrierSignin) Login(context.Context, io.Reader, io.Writer) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	*b.order = append(*b.order, b.name)
+	return nil
+}
+
+func TestOfferLoginChecksConcurrentlyPromptsInOrder(t *testing.T) {
+	h := loginSetup(t, true, "y\ny\ny\n", nil)
+	names := []string{"c-a", "c-b", "c-c"}
+	var arrived atomic.Int32
+	var met atomic.Int32
+	var mu sync.Mutex
+	var order []string
+	stubs := map[string]barrierSignin{}
+	for _, n := range names {
+		stubs[n] = barrierSignin{n, &arrived, int32(len(names)), &met, &atomic.Bool{}, &order, &mu}
+	}
+	signinFor = func(p *providers.Provider) signin.Signin { return stubs[p.Name] }
+	var ps []*providers.Provider
+	for _, n := range names {
+		ps = append(ps, &providers.Provider{Name: n, Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}})
+	}
+	ps = append(ps, ps[0], nil) // duplicate and nil are skipped
+	var plan Plan
+	offerLogin(context.Background(), Options{}, nil, ps, &plan)
+	if met.Load() != int32(len(names)) {
+		t.Fatalf("checks did not run concurrently: only %d of %d saw their siblings running", met.Load(), len(names))
+	}
+	if strings.Join(order, ",") != "c-a,c-b,c-c" {
+		t.Errorf("logins ran in order %v, want original order", order)
+	}
+	if got := strings.Count(h.out.String(), "Log in now?"); got != 3 {
+		t.Errorf("prompts = %d, want 3 (dedupe): %q", got, h.out.String())
+	}
+	if a, b := strings.Index(h.out.String(), "c-a:"), strings.Index(h.out.String(), "c-b:"); a > b {
+		t.Errorf("prompts out of order: %q", h.out.String())
 	}
 }

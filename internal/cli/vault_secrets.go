@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // vaultSetSecret stores one NAME whose value comes from a hidden prompt or stdin.
@@ -28,10 +28,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if value == "" {
 		return fail("vault set: empty value")
 	}
-	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(value) {
-		return fail("vault set: %s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
-	}
-	if err := tailscale.ValidCredential(name, value); err != nil {
+	if err := signin.ValidateSecret(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
 	if dryRun {

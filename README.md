@@ -104,6 +104,8 @@ replaces the built-in; `null` removes it).
 
 ```bash
 claude-code configure provider --list [name]        # providers, credential state, fallback ladder
+claude-code configure provider --all [<profile>]    # check every sign-in (or one); offers login on a terminal
+                                                    # --check exits 1 if any not ok
 claude-code switch gateway                          # pin the session provider
 claude-code models --pin haiku=openai:gpt-5-nano    # pin a slot; provider:model crosses providers
 claude-code models --unpin | --live --provider p    # clear pins | list what upstream serves

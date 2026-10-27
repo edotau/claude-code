@@ -65,7 +65,7 @@ install: compile mdsmith  ## Build + install + lint/vuln tools (DEV_TOOLS=0: ski
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
 		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION); fi
-	@$(BIN) restart || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
+	@$(BIN) network restart || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
 
 .PHONY: clean
 clean:  ## Remove bin/claude-code
