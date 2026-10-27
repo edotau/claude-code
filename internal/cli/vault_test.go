@@ -487,7 +487,7 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
 	}
-	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"} {
+	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
 		if !strings.Contains(stdout, head+"\n") {
 			t.Errorf("stdout missing heading %q; stdout = %q", head, stdout)
 		}
@@ -505,8 +505,8 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
-	if !strings.Contains(stdout, "VENDORS\n  (none)\n") {
-		t.Errorf("stdout = %q, want VENDORS rendered as (none) for an empty overlay", stdout)
+	if strings.Contains(stdout, "VENDORS") {
+		t.Errorf("stdout = %q, want the empty VENDORS overlay hidden from a bare list", stdout)
 	}
 	for _, row := range []string{
 		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
@@ -525,20 +525,26 @@ func vaultTextHasRow(stdout, key, value string) bool {
 	return re.MatchString(stdout)
 }
 
-// Empty sections render (none), including absent overlay documents.
+// A bare list hides empty sections; named sections still render (none), including absent overlay documents.
 func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	useVaultTest(t)
 	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
+	if code != 0 || stdout != "(vault is empty)\n" {
+		t.Fatalf("bare vault list = %d %q (stderr %q), want 0 \"(vault is empty)\"", code, stdout, stderr)
+	}
+	named := append([]string{"list"}, vaultSections...)
+	code, stdout, stderr = captureOutput(t, func() int { return cmdVault(append(named[:len(named)-1], "--format", "text")) })
 	if code != 0 {
-		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault list <sections> = %d, stderr = %q", code, stderr)
 	}
 	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS"} {
 		if !strings.Contains(stdout, head+"\n  (none)\n") {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}
 	}
-	if !strings.Contains(stdout, "VAULT\n  key_command  (none)\n") {
-		t.Errorf("stdout = %q, want VAULT's key_command row to read (none)", stdout)
+	code, stdout, _ = captureOutput(t, func() int { return cmdVault([]string{"list", "vault", "--format", "text"}) })
+	if code != 0 || stdout != "VAULT\n  (none)\n" {
+		t.Errorf("vault list vault = %d %q, want VAULT rendered as (none) when key_command is unset", code, stdout)
 	}
 }
 

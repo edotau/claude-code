@@ -38,13 +38,26 @@ func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, widt
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
 	var b strings.Builder
-	for i, s := range sel {
-		if i > 0 {
+	for _, s := range sel {
+		out := render[s]()
+		if len(sel) == len(vaultSections) && emptySection(out) { // bare/all hides empty sections; named ones say (none)
+			continue
+		}
+		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(render[s]())
+		b.WriteString(out)
+	}
+	if b.Len() == 0 {
+		return "(vault is empty)\n"
 	}
 	return b.String()
+}
+
+// emptySection reports a rendered section that is only its heading plus "(none)".
+func emptySection(out string) bool {
+	_, body, _ := strings.Cut(out, "\n")
+	return body == "  (none)\n"
 }
 
 // vaultSecretRows is one name/masked row per stored secret; nothing is decrypted.
@@ -66,9 +79,12 @@ func vaultMapRows(m map[string]string) [][2]string {
 	return rows
 }
 
-// vaultVaultRows is the single vault.key_command row.
+// vaultVaultRows is the vault.key_command row; none when unset (the OS keyring or HARNESS_VAULT_KEY supplies the key).
 func vaultVaultRows(keyCommand string) [][2]string {
-	return [][2]string{{"key_command", cmp.Or(keyCommand, "(none)")}}
+	if keyCommand == "" {
+		return nil
+	}
+	return [][2]string{{"key_command", keyCommand}}
 }
 
 // vaultFlattenSection flattens an overlay to dotted-path rows.

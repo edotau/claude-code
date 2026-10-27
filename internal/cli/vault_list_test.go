@@ -55,7 +55,7 @@ func TestVaultListSections(t *testing.T) {
 					headings = append(headings, line)
 				}
 			}
-			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"}) {
+			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) { // empty VENDORS hidden
 				t.Errorf("section order = %v", headings)
 			}
 			if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
