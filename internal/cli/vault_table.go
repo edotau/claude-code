@@ -28,7 +28,7 @@ func vaultTableWidth() int {
 // renderVaultText lays out each selected section, uppercase heading + aligned rows, in vaultSections order.
 func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, width int) string {
 	render := map[string]func() string{
-		"secrets":   func() string { return vaultSection("SECRETS", vaultSecretRows(stored), width) },
+		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
@@ -60,11 +60,16 @@ func emptySection(out string) bool {
 	return body == "  (none)\n"
 }
 
-// vaultSecretRows is one name/masked row per stored secret; nothing is decrypted.
+// vaultSecretRows is one name/"<prefix>***  N chars" row per secret; preview and right-aligned length are columns.
 func vaultSecretRows(stored []secrets.Stored) [][2]string {
+	prefixW, lenW := 0, 0
+	for _, s := range stored {
+		prefixW = max(prefixW, len(s.Prefix)+3)
+		lenW = max(lenW, len(strconv.Itoa(s.Len)))
+	}
 	rows := make([][2]string, len(stored))
 	for i, s := range stored {
-		rows[i] = [2]string{s.Name, s.Masked()}
+		rows[i] = [2]string{s.Name, fmt.Sprintf("%-*s  %*d chars", prefixW, s.Prefix+"***", lenW, s.Len)}
 	}
 	return rows
 }
@@ -143,6 +148,27 @@ func flattenVaultValue(prefix string, v any, nullLabel string, out *[]vaultKV) {
 
 // vaultSection renders one heading plus its aligned, width-truncated rows (or "(none)" when empty).
 func vaultSection(heading string, rows [][2]string, width int) string {
+	return vaultSectionMax(heading, rows, width, kvKeyMax, kvValueMax)
+}
+
+// Key/value sections (PINS, ENV, ROUTING, SETTINGS, VENDORS, VAULT) clip a longer key or value with "…".
+const (
+	kvKeyMax   = 24
+	kvValueMax = 48
+)
+
+// vaultSectionMax is vaultSection with explicit key/value caps (0 = no cap); SECRETS lays out its own columns.
+func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax int) string {
+	rows = slices.Clone(rows)
+	for i, r := range rows {
+		if keyMax > 0 {
+			r[0] = vaultTruncateMiddle(r[0], keyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
+		}
+		if valueMax > 0 {
+			r[1] = vaultTruncate(r[1], valueMax)
+		}
+		rows[i] = r
+	}
 	var b strings.Builder
 	b.WriteString(heading)
 	b.WriteByte('\n')
@@ -152,7 +178,7 @@ func vaultSection(heading string, rows [][2]string, width int) string {
 	}
 	keyW := 0
 	for _, r := range rows {
-		if n := len(r[0]); n > keyW {
+		if n := utf8.RuneCountInString(r[0]); n > keyW {
 			keyW = n
 		}
 	}
@@ -162,6 +188,16 @@ func vaultSection(heading string, rows [][2]string, width int) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// vaultTruncateMiddle clips s to width runes keeping both ends, so names that share a long prefix stay distinct.
+func vaultTruncateMiddle(s string, width int) string {
+	r := []rune(s)
+	if width <= 2 || len(r) <= width {
+		return vaultTruncate(s, width)
+	}
+	tail := (width - 1) / 2
+	return string(r[:width-1-tail]) + "…" + string(r[len(r)-tail:])
 }
 
 // vaultTruncate clips a plain (unpainted) line to width runes, ending in "…".
@@ -211,7 +247,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 			rows = append(rows, []string{preset, "preset", presetEnvs(presets[preset]), "", "", "", "", ""})
 		}
 		head := []string{"NAME", "KIND", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
-		blocks = append(blocks, vaultTable(head, rows, width))
+		blocks = append(blocks, vaultTable(head, providerColMax, rows, width))
 	}
 	if len(reg.AgentPlans) > 0 {
 		var rows [][]string
@@ -220,7 +256,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 				rows = append(rows, []string{agent, p.Tier, p.ID})
 			}
 		}
-		blocks = append(blocks, "  PLANS\n"+vaultTable([]string{"AGENT", "TIER", "ID"}, rows, width))
+		blocks = append(blocks, "  PLANS\n"+vaultTable([]string{"AGENT", "TIER", "ID"}, planColMax, rows, width))
 	}
 	var lines [][2]string
 	if reg.Default != "" {
@@ -257,17 +293,31 @@ var vaultCredOK = func(name string) bool {
 
 // presetEnvs lists a preset's env rows in DatabricksEnvs order, each marked ✓ (credential resolves) or ✗.
 func presetEnvs(names []string) string {
-	slices.SortFunc(names, func(a, b string) int {
+	ok := map[string]bool{}
+	for _, n := range names {
+		ok[n] = vaultCredOK(n)
+	}
+	slices.SortFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
+		if ok[a] != ok[b] {
+			return cmp.Compare(boolRank(ok[a]), boolRank(ok[b]))
+		}
 		return cmp.Compare(envRank(a), envRank(b))
 	})
 	parts := make([]string, len(names))
 	for i, n := range names {
-		parts[i] = n + "✗"
-		if vaultCredOK(n) {
-			parts[i] = n + "✓"
+		parts[i] = "✗" + n // the mark leads so a clipped cell keeps it
+		if ok[n] {
+			parts[i] = "✓" + n
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // envRank orders dev/qa/prod first, in that order; other names after.
@@ -321,8 +371,24 @@ func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(reg.Routing)
 }
 
+// Per-column max widths for the PROVIDERS and PLANS tables; a longer cell is clipped with "…" (0 = no cap).
+var (
+	providerColMax = []int{16, 8, 20, 14, 14, 16, 16, 18}
+	planColMax     = []int{14, 20, 24}
+)
+
 // vaultTable renders a header plus rows as two-space-indented, column-aligned, width-truncated lines.
-func vaultTable(head []string, rows [][]string, width int) string {
+func vaultTable(head []string, colMax []int, rows [][]string, width int) string {
+	rows = slices.Clone(rows)
+	for i, r := range rows {
+		r = slices.Clone(r)
+		for c := range r {
+			if c < len(colMax) && colMax[c] > 0 {
+				r[c] = vaultTruncate(r[c], colMax[c])
+			}
+		}
+		rows[i] = r
+	}
 	ws := make([]int, len(head))
 	for _, r := range append([][]string{head}, rows...) {
 		for i, c := range r {
