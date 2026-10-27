@@ -54,15 +54,16 @@ function config() {
   return vscode.workspace.getConfiguration('claudeCodeAgents');
 }
 
-function runBinary(binary, argv, cwd) {
+function runBinary(binary, argv, cwd, input) {
   return new Promise((resolve, reject) => {
-    execFile(binary, argv.slice(1), { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile(binary, argv.slice(1), { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ENOENT') return reject(new Error(`binary not found: ${binary}`));
         return reject(new Error(stderr && stderr.trim() ? stderr.trim() : err.message));
       }
       resolve(stdout);
     });
+    if (input !== undefined) child.stdin.end(input);
   });
 }
 
@@ -339,6 +340,7 @@ class TasksViewProvider {
     this.worktrees = []; // `claude-code worktree list --format json` for the first workspace folder
     this.worktreesAt = 0;
     this.exec = (binary, argv, cwd) => runBinary(binary, [binary, ...argv], cwd); // seam for tests
+    this.storeSecret = (binary, name, value) => runBinary(binary, [binary, 'vault', 'set', name], undefined, value); // seam for tests
     this.viewModes = (context && context.workspaceState.get('tasks.viewModes')) || {}; // source → list|board
     this.mergeMethods = {}; // repo label → {merge, squash, rebase}
     this.assignable = {}; // repo label → logins
@@ -1271,6 +1273,9 @@ class TasksViewProvider {
     const terminal = () => dashboardTerminal();
     switch (msg.type) {
       case 'refresh':
+        // Why: re-read JIRA_TOKEN/BITBUCKET_TOKEN from the vault so a token set in a terminal applies without a reload.
+        this.tokenPromise = null;
+        this.jiraTokenPromise = null;
         return Promise.all([this.load({ force: true }), this.loadBranch()]);
       case 'source':
         if (!cfg.visible.includes(msg.source)) return;
@@ -1493,12 +1498,25 @@ class TasksViewProvider {
         return;
       }
       case 'signIn': {
-        const t = terminal();
-        t.sendText(msg.source === 'bitbucket' ? `${cfg.binary} vault set BITBUCKET_TOKEN` : msg.source === 'jira' ? `${cfg.binary} vault set JIRA_TOKEN` : 'gh auth login');
-        t.show();
+        if (msg.source !== 'bitbucket' && msg.source !== 'jira') {
+          const t = terminal();
+          t.sendText('gh auth login');
+          t.show();
+          return;
+        }
+        // Password box, not the shared terminal: a pending hidden prompt there swallowed the next command as the secret.
+        const name = msg.source === 'jira' ? 'JIRA_TOKEN' : 'BITBUCKET_TOKEN';
+        const value = ((await vscode.window.showInputBox({ prompt: `Paste ${name} (stored in the claude-code vault)`, password: true, ignoreFocusOut: true })) || '').trim();
+        if (!value) return;
+        try {
+          await this.storeSecret(cfg.binary, name, value);
+        } catch (err) {
+          vscode.window.showErrorMessage(`Could not store ${name}: ${err.message}`);
+          return;
+        }
         this.tokenPromise = null;
         this.jiraTokenPromise = null;
-        return;
+        return this.load({ force: true });
       }
       case 'doctor':
         this.cache.invalidate();
