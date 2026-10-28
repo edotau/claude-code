@@ -105,8 +105,10 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 	}
 	res := Result{Tier: tier, Want: want, Weights: t.Weights}
 	pins := providers.AgentPins()
+	reg, _ := providers.Load()
+	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	gate := func(runner string) ([]Candidate, bool) {
-		return t.gateCandidate(ctx, tier, runner, pins, st, o, now, configured, &res)
+		return t.gateCandidate(ctx, pg, tier, runner, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)

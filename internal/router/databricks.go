@@ -26,17 +26,40 @@ func DatabricksResponses(reg *providers.Registry) (profile, model string, ok boo
 	return "", "", false
 }
 
+// pickGate is the per-Pick state shared by the gates: the registry, loaded once, and copilot accounts already held.
+type pickGate struct {
+	reg  *providers.Registry
+	held map[string]bool
+}
+
+// codexHop is the model and effort codex's Databricks hops run for tier: codex's own pick respelled for the
+// profile when it serves Responses, else the profile's first Responses model.
+func (t *Table) codexHop(reg *providers.Registry, tier string) (profile, model, effort string, ok bool) {
+	profile, first, ok := DatabricksResponses(reg)
+	if !ok {
+		return "", "", "", false
+	}
+	cell, _ := t.Cell("codex", tier)
+	if pin, _ := providers.CodexModel(); pin != "" {
+		cell.Model = pin
+	}
+	if wire := reg.Providers[profile].WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(reg.Providers[profile], wire) {
+		return profile, wire, cell.Effort, true
+	}
+	return profile, first, cell.Effort, true
+}
+
 // gateDatabricksCodex is codex's Databricks candidate at tier: the same configured/auth/exhausted gates as any
 // runner, on account databricks·<profile>. ok is false (no Skip) when Databricks is off or serves no usable model.
 func (t *Table) gateDatabricksCodex(
-	st State, now time.Time, configured func(runner string, c Cell) error, res *Result,
+	pg *pickGate, tier string, st State, now time.Time, configured func(runner string, c Cell) error, res *Result,
 ) (Candidate, bool) {
-	reg, _ := providers.Load()
-	profile, model, ok := DatabricksResponses(reg)
+	reg := pg.reg
+	profile, model, effort, ok := t.codexHop(reg, tier)
 	if !ok {
 		return Candidate{}, false
 	}
-	c := Cell{Model: model, Account: ProviderAccount(profile)}
+	c := Cell{Model: model, Effort: effort, Account: ProviderAccount(profile)}
 	name := "codex·" + c.Account
 	if err := configured("codex", c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
@@ -60,7 +83,7 @@ func (t *Table) gateDatabricksCodex(
 
 // gateCandidate gates one runner (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.
 func (t *Table) gateCandidate(
-	ctx context.Context, tier, runner string, pins map[string]providers.AgentPinSpec, st State, o Opts, now time.Time,
+	ctx context.Context, pg *pickGate, tier, runner string, pins map[string]providers.AgentPinSpec, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
 	spec := pins[runner]
@@ -70,21 +93,24 @@ func (t *Table) gateCandidate(
 	}
 	var group []Candidate
 	if runner != "claude" && spec.Profile != "" {
-		group, _ = t.gatePinned(ctx, tier, runner, spec.Profile, spec, st, o, now, configured, res)
+		group, _ = t.gatePinned(ctx, pg.reg, tier, runner, spec.Profile, spec, st, o, now, configured, res)
 	} else {
 		group, _ = t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
 	}
 	if runner == "copilot" {
-		group = append(group, t.gateSessionCopilot(ctx, tier, "", spec, group, st, o, now, configured, res)...)
+		group = append(group, t.gateSessionCopilot(ctx, pg, tier, "", "", spec, group, st, o, now, configured, res)...)
 	}
 	if runner == "codex" && spec.Profile == "" {
-		if d, ok := t.gateDatabricksCodex(st, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
+		if d, ok := t.gateDatabricksCodex(pg, tier, st, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
 			group = append(group, d)
 		}
 		if res.Want == "codex" {
-			reg, _ := providers.Load()
-			if _, model, ok := DatabricksResponses(reg); ok {
-				group = append(group, t.gateSessionCopilot(ctx, tier, model, pins["copilot"], nil, st, o, now, configured, res)...)
+			if _, model, effort, ok := t.codexHop(pg.reg, tier); ok {
+				hop := t.gateSessionCopilot(ctx, pg, tier, model, effort, pins["copilot"], nil, st, o, now, configured, res)
+				for _, c := range hop {
+					pg.held[c.Account] = true
+				}
+				group = append(group, hop...)
 			}
 		}
 	}
@@ -93,13 +119,13 @@ func (t *Table) gateCandidate(
 
 // gateSessionCopilot checks copilot on the session's Databricks profile.
 func (t *Table) gateSessionCopilot(
-	ctx context.Context, tier, model string, spec providers.AgentPinSpec, own []Candidate, st State, o Opts, now time.Time,
+	ctx context.Context, pg *pickGate, tier, model, effort string, spec providers.AgentPinSpec, own []Candidate, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) []Candidate {
 	if spec.Off {
 		return nil
 	}
-	reg, _ := providers.Load()
+	reg := pg.reg
 	if reg == nil {
 		return nil
 	}
@@ -115,7 +141,7 @@ func (t *Table) gateSessionCopilot(
 		return nil
 	}
 	account := ProviderAccount(profile)
-	if hasProfileAccount(own, account) {
+	if hasProfileAccount(own, account) || (own == nil && model == "" && pg.held[account]) {
 		return nil
 	}
 	if own == nil {
@@ -132,7 +158,7 @@ func (t *Table) gateSessionCopilot(
 			}
 		}
 	}
-	group, _ := t.gateProfile(ctx, tier, "copilot", profile, model, st, o, now, configured, res)
+	group, _ := t.gateProfile(ctx, reg, tier, "copilot", profile, model, effort, st, o, now, configured, res)
 	return group
 }
 

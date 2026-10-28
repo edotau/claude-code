@@ -83,6 +83,9 @@ func TestSessionProfileAgents(t *testing.T) {
 		}
 		assertProfile(t, r.Candidates[1], "codex", providers.FirstResponsesModel(p))
 		assertProfile(t, r.Candidates[2], "copilot", r.Candidates[1].Model)
+		if n := len(models(r, "copilot", dbx)); n != 1 {
+			t.Errorf("copilot rows on the session account = %d, want 1: %+v", n, r.Candidates)
+		}
 		seen := map[string]bool{}
 		for _, c := range models(r, "copilot", dbx) {
 			if seen[c.Model] {
@@ -159,6 +162,36 @@ func TestSessionProfileAgents(t *testing.T) {
 		only.Fallback = FallbackNone
 		if r := pickAgent("copilot", st, only); len(r.Candidates) != 1 || r.Candidates[0].Cell != cell {
 			t.Errorf("copilot profile model = %+v, want %+v", r, cell)
+		}
+	})
+	t.Run("codex hop model", func(t *testing.T) {
+		own, _ := tb.Cell("codex", "sonnet")
+		own.Effort = "high"
+		saved := tb.Rows["codex"]["sonnet"]
+		t.Cleanup(func() {
+			tb.Rows["codex"]["sonnet"] = saved
+			if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: gpt, Label: "GPT", Responses: true}}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		tb.Rows["codex"]["sonnet"] = own
+		menu := []providers.OpencodeModel{{ID: gpt, Label: "GPT", Responses: true}, {ID: own.Model, Label: "Own", Responses: true}}
+		if err := providers.SetOpencodeMenu(menu); err != nil {
+			t.Fatal(err)
+		}
+		r := pickAgent("codex", st, opts)
+		hops := 0
+		for _, c := range r.Candidates {
+			if c.Account != dbx || c.Agent == "claude" {
+				continue
+			}
+			hops++
+			if c.Model != p.WireModel(own.Model) || c.Effort != "high" {
+				t.Errorf("hop = %+v, want model %s effort high", c, p.WireModel(own.Model))
+			}
+		}
+		if hops != 2 {
+			t.Errorf("hops = %d, want 2: %+v", hops, r.Candidates)
 		}
 	})
 }

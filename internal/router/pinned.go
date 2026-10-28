@@ -12,18 +12,18 @@ import (
 
 // gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
 func (t *Table) gatePinned(
-	ctx context.Context, tier, runner, pin string, spec providers.AgentPinSpec, st State, o Opts, now time.Time,
+	ctx context.Context, reg *providers.Registry, tier, runner, pin string, spec providers.AgentPinSpec, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
 	if runner == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		return t.gateOpencodeCandidate(ctx, tier, pin, st, o, now, configured, res)
 	}
-	return t.gateProfile(ctx, tier, runner, pin, spec.Model, st, o, now, configured, res)
+	return t.gateProfile(ctx, reg, tier, runner, pin, spec.Model, "", st, o, now, configured, res)
 }
 
 // gateProfile applies the configured and auth checks for an agent on a profile.
 func (t *Table) gateProfile(
-	ctx context.Context, tier, runner, pin, model string, st State, o Opts, now time.Time,
+	ctx context.Context, reg *providers.Registry, tier, runner, pin, model, effort string, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
 	cell, ok := t.Cell(runner, tier)
@@ -31,7 +31,6 @@ func (t *Table) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
 		return nil, false
 	}
-	reg, _ := providers.Load()
 	var p *providers.Provider
 	if reg != nil {
 		p = reg.Providers[pin]
@@ -44,7 +43,7 @@ func (t *Table) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
 		return nil, false
 	}
-	c := Cell{Model: pinnedModel(runner, tier, cell, p, model), Effort: cell.Effort, Account: ProviderAccount(pin), Price: cell.Price}
+	c := Cell{Model: pinnedModel(runner, tier, cell, p, model), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	if err := configured(runner, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
 		return nil, false
