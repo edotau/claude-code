@@ -23,7 +23,7 @@
     {"id": "gpt-5", "name": "GPT-5", "thinking": true},
     {"id": "gpt-5-mini", "name": "GPT-5 Mini"},
     {"id": "gpt-5-nano", "name": "GPT-5 Nano"},
-    {"id": "gpt-oss-120b", "name": "GPT OSS 120B"},
+    {"id": "gpt-oss-120b", "name": "GPT OSS 120B", "chat_only": true},
     {"id": "gemini-4-argon", "name": "Gemini 4 Argon", "thinking": true},
     {"id": "gemini-3-8-flash", "name": "Gemini 3.8 Flash", "version": "3-8", "thinking": true},
     {"id": "gemini-3-7-flash", "name": "Gemini 3.7 Flash", "version": "3-7", "thinking": true},

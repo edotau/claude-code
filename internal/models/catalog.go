@@ -18,6 +18,7 @@ type Entry struct {
 	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
 	Thinking      bool              `json:"thinking,omitempty"`
 	ResponsesOnly bool              `json:"responses_only,omitempty"`
+	ChatOnly      bool              `json:"chat_only,omitempty"`
 	WireOverride  map[string]string `json:"wire,omitempty"`  // spelling rule -> exact wire id, for exceptions
 	Limits        TokenLimits       `json:"limits,omitzero"` // documented token limits; a zero field is unknown
 }

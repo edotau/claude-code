@@ -51,7 +51,7 @@ func modelRow(model string) (tier, row, exact string) {
 	switch {
 	case !ok:
 		return "", "", ""
-	case !strings.HasPrefix(canonical, "claude-"):
+	case models.FamilyKind(canonical) != models.FamilyClaude:
 		return "", "", canonical
 	}
 	tier = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
@@ -247,7 +247,7 @@ func nonClaudeLegID(exact string, explicitModel bool, pinModel string) string {
 	if exact != "" || explicitModel || pinModel == "" {
 		return exact
 	}
-	if id, _, ok := models.Resolve(pinModel); ok && !strings.HasPrefix(id, "claude-") {
+	if id, _, ok := models.Resolve(pinModel); ok && models.FamilyKind(id) != models.FamilyClaude {
 		return id
 	}
 	return ""

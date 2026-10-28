@@ -142,6 +142,68 @@ func FamilyOf(id string) string {
 	return f
 }
 
+// Family is a model's vendor family, decided once here for every "is Claude / GPT / Gemini" check.
+type Family string
+
+const (
+	FamilyClaude Family = "claude"
+	FamilyGPT    Family = "gpt"
+	FamilyGemini Family = "gemini"
+	FamilyOther  Family = "other"
+)
+
+// legacyClaudeRE matches Claude ids the catalog and ParseClaudeID do not list (claude-3-7-sonnet, us.anthropic.claude-...).
+var legacyClaudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-`)
+
+// openAIReasoningRE: OpenAI reasoning models (o-series, gpt-5 and newer) reject max_tokens, temperature and top_p.
+var openAIReasoningRE = regexp.MustCompile(`^(?:o\d|gpt-(?:[5-9]|[1-9]\d))(?:\D|$)`)
+
+// normID is the catalog id of s when it resolves, else s lowered, [1m]-stripped and without vendor or wire prefix.
+func normID(s string) string {
+	if canonical, _, ok := Resolve(s); ok {
+		return canonical
+	}
+	s = Strip1M(strings.ToLower(strings.TrimSpace(s)))
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		s = after
+	}
+	for _, p := range wirePrefixes {
+		if rest, ok := strings.CutPrefix(s, p); ok {
+			return rest
+		}
+	}
+	return s
+}
+
+// FamilyKind classifies id by vendor family through the catalog (any spelling), falling back to the name for unlisted ids.
+func FamilyKind(id string) Family {
+	n := normID(id)
+	switch {
+	case legacyClaudeRE.MatchString(n):
+		return FamilyClaude
+	case strings.HasPrefix(n, "gpt-") || openAIReasoningRE.MatchString(n):
+		return FamilyGPT
+	case strings.HasPrefix(n, "gemini-"):
+		return FamilyGemini
+	}
+	return FamilyOther
+}
+
+// IsOpenAIReasoning reports an OpenAI reasoning model (o-series, gpt-5 and newer) under any spelling or vendor prefix.
+func IsOpenAIReasoning(id string) bool { return openAIReasoningRE.MatchString(normID(id)) }
+
+// ResponsesOnly reports a catalog model served on the Responses API only; false for an unlisted id.
+func ResponsesOnly(id string) bool {
+	canonical, _, ok := Resolve(id)
+	return ok && load().byID[canonical].ResponsesOnly
+}
+
+// ChatOnly reports a catalog model the Responses API does not serve (open-weight gpt-oss); false for an unlisted id.
+func ChatOnly(id string) bool {
+	canonical, _, ok := Resolve(id)
+	return ok && load().byID[canonical].ChatOnly
+}
+
 // Use-case labels, keyed to Anthropic's own tier wording on the Claude model comparison page.
 const (
 	UseFrontier  = "Frontier reasoning" // demanding reasoning and long-horizon agentic work

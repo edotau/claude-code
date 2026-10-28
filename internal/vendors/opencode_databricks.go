@@ -52,7 +52,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		switch {
 		case m.Responses:
 			resp[wire] = entry
-		case claudeBase != "" && models.FamilyOf(m.ID) != "":
+		case claudeBase != "" && models.FamilyKind(m.ID) == models.FamilyClaude:
 			claude[wire] = claudeEntry(entry)
 		default:
 			chat[wire] = entry
@@ -71,9 +71,9 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		defID += "-claude"
 	case chat[model] == nil:
 		if !allowed[model] {
-			return nil, nil, fmt.Errorf("opencode: model %q is not on the %s menu; see `claude-code opencode models --live` or `claude-code opencode models add`", model, p.Name)
+			return nil, nil, fmt.Errorf("opencode: model %q is not on the %s menu; see `claude-code opencode catalog list --live` or `claude-code opencode catalog add`", model, p.Name)
 		}
-		if claudeBase != "" && models.FamilyOf(model) != "" { // a tier slot off the curated menu
+		if claudeBase != "" && models.FamilyKind(model) == models.FamilyClaude { // a tier slot off the curated menu
 			claude[model], defID = claudeEntry(map[string]any{"name": model}), defID+"-claude"
 		} else {
 			chat[model] = map[string]any{"name": model}

@@ -454,9 +454,10 @@ func ownedID(p *providers.Provider) (string, error) {
 	return "harness-" + p.Name, nil
 }
 
-// codexResponsesModel swaps a non-GPT model (the row's opus slot) for the menu's first Responses model on Databricks.
+// codexResponsesModel swaps a model Responses cannot serve (the row's opus slot, gpt-oss) for the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
-	if p.Preset != providers.PresetDatabricks || strings.Contains(model, "gpt-") {
+	gpt := models.FamilyKind(model) == models.FamilyGPT && !models.ChatOnly(model)
+	if p.Preset != providers.PresetDatabricks || gpt || providers.ServesResponses(p, model) {
 		return model
 	}
 	return cmp.Or(providers.FirstResponsesModel(p), model)
