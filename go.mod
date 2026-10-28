@@ -3,11 +3,11 @@ module github.com/edotau/claude-code
 go 1.27.3
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.82.0
-	github.com/github/copilot-sdk/go v1.0.22
+	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/github/copilot-sdk/go v1.0.26
 	github.com/jeduden/mdsmith v0.57.0
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
