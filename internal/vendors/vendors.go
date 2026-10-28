@@ -28,38 +28,27 @@ import (
 	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
-// Spec describes one vendor CLI.
-type Spec struct {
-	Name     string   // codex | gemini | opencode | copilot
-	Binary   string   // executable name on PATH
-	Dialect  string   // preferred provider route (providers.Dialect*)
-	Dialects []string // every route the CLI can speak, preferred first
-}
+// Spec is an agent's row (providers.AgentSpec): CLI binary, wires, router paths and pin keys.
+type Spec = providers.AgentSpec
 
-var specs = []Spec{
-	{Name: "codex", Binary: "codex", Dialect: providers.ProtocolResponses, Dialects: []string{providers.ProtocolResponses}},
-	{Name: "gemini", Binary: "agy", Dialect: providers.ProtocolGemini, Dialects: []string{providers.ProtocolGemini}},
-	{Name: "opencode", Binary: "opencode", Dialect: providers.ProtocolAnthropic, Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI}},
-	{Name: "copilot", Binary: "copilot", Dialect: providers.ProtocolAnthropic, Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}},
-}
+// AgentSpec is Spec under the standard name.
+type AgentSpec = providers.AgentSpec
 
-// Names lists the vendors in roster order.
+// Names lists the third-party agents in roster order.
 func Names() []string {
-	out := make([]string, len(specs))
-	for i, s := range specs {
-		out[i] = s.Name
+	var out []string
+	for _, s := range providers.AgentSpecs() {
+		if s.Binary != "" {
+			out = append(out, s.Name)
+		}
 	}
 	return out
 }
 
-// Lookup returns the vendor spec by name.
+// Lookup returns the row of a third-party agent by name (claude has none).
 func Lookup(name string) (Spec, bool) {
-	for _, s := range specs {
-		if s.Name == name {
-			return s, true
-		}
-	}
-	return Spec{}, false
+	s, ok := providers.LookupAgentSpec(name)
+	return s, ok && s.Binary != ""
 }
 
 // Headless is the non-interactive form of a run; zero Tools means tools are disabled where the CLI allows it.
@@ -212,10 +201,8 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			if own := codexOwnModel(); own != "" {
 				model = own
 			}
-			if pin, _ := providers.CodexModel(); pin != "" { // CODEX_MODEL pin beats both
-				model = pin
-			}
-			return providers.Target{Provider: p, Model: model}, "chatgpt (codex login)", true
+			t, _ := ResolveAgentModel(ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: model}}) // pin beats both
+			return t, "chatgpt (codex login)", true
 		}
 	case "copilot":
 		// copilot's own chain (DescribeRoute): its GitHub login, then BYOK with an anthropic or gemini key.
@@ -226,11 +213,9 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 		}
 	case "gemini":
 		if p, ok := loginProvider(reg, "google", "gemini"); ok && GeminiLoginPresent() {
-			model := p.Models[models.Opus]
-			if pin, _ := providers.GeminiModel(); pin != "" { // GEMINI_MODEL pin beats the registry's bare slot id
-				model = pin
-			}
-			return providers.Target{Provider: p, Model: model}, "gemini (Google login via agy)", true
+			// the GEMINI_MODEL pin beats the registry's bare slot id
+			t, _ := ResolveAgentModel(ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+			return t, "gemini (Google login via agy)", true
 		}
 	case "opencode":
 		// opencode's own chain (DescribeRoute): its own GitHub Copilot login, then an anthropic or gemini key.
@@ -357,8 +342,8 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	if p.Auth.Login != "" {
 		return login(name, p, models.Strip1M(t.Model), h)
 	}
-	if name == "gemini" {
-		return nil, nil, fmt.Errorf("gemini: agy has no custom base URL; it runs only on its Google sign-in, not provider %s", p.Name)
+	if len(spec.Dialects) == 0 {
+		return nil, nil, fmt.Errorf("%s: %s has no custom base URL; it runs only on its Google sign-in, not provider %s", name, spec.Binary, p.Name)
 	}
 	dialect, base := "", ""
 	for _, d := range spec.Dialects {
@@ -380,7 +365,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	routed := false
 	if p.Auth.Method() != providers.AuthNone && !isDirect(ctx) {
 		// Keyed provider: the vendor gets the router base + router secret; the real credential stays in the router.
-		if p, base, cred, err = routerRoute(ctx, name, p, dialect); err != nil {
+		if p, base, cred, err = routerRoute(ctx, spec, p, dialect); err != nil {
 			return nil, nil, err
 		}
 		routed = true
@@ -422,25 +407,18 @@ func WithDirect(ctx context.Context) context.Context {
 func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
 // routerRoute ensures the router daemon and returns a copy of p routed through it with the router secret as key.
-func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+func routerRoute(ctx context.Context, spec Spec, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, err := ensureRouter(ctx)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router: %w", vendor, err)
+		return nil, "", "", fmt.Errorf("%s: router: %w", spec.Name, err)
 	}
 	secret, err := routerSecret()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router secret: %w", vendor, err)
+		return nil, "", "", fmt.Errorf("%s: router secret: %w", spec.Name, err)
 	}
-	sess := proxy.SessionBase(rb, p.Name)
-	base := sess
-	switch {
-	case vendor == "codex": // codex appends /responses to base_url
-		base = sess + "/" + providers.ProtocolResponses
-	case dialect == providers.ProtocolOpenAI, dialect == providers.ProtocolGemini:
-		base = sess + "/" + dialect
-	}
+	base := proxy.SessionBase(rb, p.Name) + spec.RouterSuffix[dialect]
 	rp := *p
-	rp.Headers = map[string]string{proxy.AgentHeader: vendor} // the router adds the provider's own headers upstream
+	rp.Headers = map[string]string{proxy.AgentHeader: spec.Name} // the router adds the provider's own headers upstream
 	return &rp, base, secret, nil
 }
 

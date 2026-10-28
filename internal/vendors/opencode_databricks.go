@@ -19,8 +19,10 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		claudeBase = r + "/v1"
 	}
 	if routed { // base is the session base plus the dialect suffix routerRoute added
-		sess := strings.TrimSuffix(base, "/"+dialect)
-		chatBase, respBase, claudeBase = sess+"/"+providers.ProtocolOpenAI, sess+"/"+providers.ProtocolResponses, sess+"/v1"
+		spec, _ := Lookup("opencode")
+		sfx := spec.RouterSuffix
+		sess := strings.TrimSuffix(base, sfx[dialect])
+		chatBase, respBase, claudeBase = sess+sfx[providers.ProtocolOpenAI], sess+sfx[providers.ProtocolResponses], sess+sfx[providers.ProtocolAnthropic]+"/v1"
 	}
 	if chatBase == "" || respBase == "" {
 		return nil, nil, fmt.Errorf("opencode: provider %s lacks an openai or responses route", p.Name)

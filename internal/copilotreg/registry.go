@@ -43,11 +43,11 @@ type Registry struct {
 // Ref is the CLI's selection string for m.
 func (m Model) Ref() string { return m.Provider + "/" + m.ID }
 
-// wireRoute is the router route and registry shape of one wire.
-var wireRoute = map[string]struct{ suffix, typ, wireAPI string }{
-	providers.ProtocolAnthropic: {"", "anthropic", ""},
-	providers.ProtocolOpenAI:    {"/openai", "openai", "completions"},
-	providers.ProtocolResponses: {"/responses", "openai", "responses"},
+// wireRoute is the registry shape of one wire; its router path is copilot's AgentSpec.RouterSuffix.
+var wireRoute = map[string]struct{ typ, wireAPI string }{
+	providers.ProtocolAnthropic: {"anthropic", ""},
+	providers.ProtocolOpenAI:    {"openai", "completions"},
+	providers.ProtocolResponses: {"openai", "responses"},
 }
 
 // Build maps profile p's endpoints to registry data against routerBase (the router root, no /p/<profile>).
@@ -82,7 +82,8 @@ func Build(profile string, p *providers.Provider, eps []Endpoint, routerBase str
 
 func newProvider(name, wire, base string, p *providers.Provider) Provider {
 	rt := wireRoute[wire]
-	return Provider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + rt.suffix,
+	spec, _ := providers.LookupAgentSpec("copilot")
+	return Provider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.RouterSuffix[wire],
 		Bearer: wire != providers.ProtocolAnthropic, Headers: p.Headers}
 }
 

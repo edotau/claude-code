@@ -63,10 +63,12 @@ func (t *Table) gateProfile(
 	return []Candidate{cand}, true
 }
 
-// pinnedModel: model pin, else the cell on its own account, else (codex) a Responses model, else the slot.
+// pinnedModel: model pin if p serves it, else the own-account cell, else (codex) a Responses model, else the slot.
 func pinnedModel(runner, tier string, cell Cell, p *providers.Provider, modelPin string) string {
 	if modelPin != "" {
-		return p.WireModel(modelPin)
+		if m := vendors.SpellPin(p, modelPin); m != "" {
+			return m
+		}
 	}
 	if ProviderAccount(p.Name) == cell.Account {
 		return cell.Model

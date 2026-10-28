@@ -40,10 +40,10 @@ func (t *Table) codexHop(reg *providers.Registry, tier string) (profile, model, 
 		return "", "", "", false
 	}
 	cell, _ := t.Cell("codex", tier)
-	if pin, _ := providers.CodexModel(); pin != "" {
-		cell.Model = pin
-	}
-	if wire := reg.Providers[profile].WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(reg.Providers[profile], wire) {
+	p := reg.Providers[profile]
+	pick, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Target: providers.Target{Provider: p, Model: cell.Model}})
+	cell.Model = pick.Model
+	if wire := p.WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(p, wire) {
 		return profile, wire, cell.Effort, true
 	}
 	return profile, first, cell.Effort, true
