@@ -181,8 +181,8 @@ fmt:  ## gofmt -w every Go file
 	$(GO) fmt $(PKGS) >/dev/null
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
-# One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one. deep is opt-in (not in LINT_WHAT).
-LINT_WHAT := go shell yaml help settings docs
+# One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
+LINT_WHAT := go shell yaml help settings docs deep
 
 .PHONY: lint
 lint: $(addprefix lint-,$(LINT_WHAT))  ## Lint and auto-fix everything (CHECK=1: report only)
@@ -209,8 +209,9 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
 			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
-	deep) golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... ;; \
-	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT) deep)"; exit 1 ;; \
+	deep) if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)deep skipped: golangci-lint not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
+		golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... ;; \
+	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 
 .PHONY: mdsmith
