@@ -58,7 +58,7 @@ func (t *Table) gateDatabricksCodex(
 	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: billing, Profile: profile}, true
 }
 
-// gateCandidate gates one runner (off, pinned or unpinned); an unpinned codex also offers its Databricks candidate right after the ChatGPT one.
+// gateCandidate gates one runner (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.
 func (t *Table) gateCandidate(
 	ctx context.Context, tier, runner string, pins map[string]providers.AgentPinSpec, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
@@ -68,15 +68,79 @@ func (t *Table) gateCandidate(
 		res.Skipped = append(res.Skipped, Skip{runner, GateOff, "deactivated (" + strings.ToUpper(runner) + "_ACTIVE=off)"})
 		return nil, false
 	}
+	var group []Candidate
 	if runner != "claude" && spec.Profile != "" {
-		return t.gatePinned(ctx, tier, runner, spec.Profile, spec, st, o, now, configured, res)
+		group, _ = t.gatePinned(ctx, tier, runner, spec.Profile, spec, st, o, now, configured, res)
+	} else {
+		group, _ = t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
 	}
-	group, ok := t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
-	if runner != "codex" {
-		return group, ok
+	if runner == "copilot" {
+		group = append(group, t.gateSessionCopilot(ctx, tier, "", spec, group, st, o, now, configured, res)...)
 	}
-	if d, dok := t.gateDatabricksCodex(st, now, configured, res); dok {
-		return append(group, d), true
+	if runner == "codex" && spec.Profile == "" {
+		if d, ok := t.gateDatabricksCodex(st, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
+			group = append(group, d)
+		}
+		if res.Want == "codex" {
+			reg, _ := providers.Load()
+			if _, model, ok := DatabricksResponses(reg); ok {
+				group = append(group, t.gateSessionCopilot(ctx, tier, model, pins["copilot"], nil, st, o, now, configured, res)...)
+			}
+		}
 	}
-	return group, ok
+	return group, len(group) > 0
+}
+
+// gateSessionCopilot checks copilot on the session's Databricks profile.
+func (t *Table) gateSessionCopilot(
+	ctx context.Context, tier, model string, spec providers.AgentPinSpec, own []Candidate, st State, o Opts, now time.Time,
+	configured func(runner string, c Cell) error, res *Result,
+) []Candidate {
+	if spec.Off {
+		return nil
+	}
+	reg, _ := providers.Load()
+	if reg == nil {
+		return nil
+	}
+	if spec.Profile != "" {
+		p := reg.Providers[spec.Profile]
+		if p == nil || p.Provider != "github" {
+			return nil
+		}
+	}
+	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+	p := reg.Providers[profile]
+	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe("copilot", p) || !providers.CredentialPresent(p) {
+		return nil
+	}
+	account := ProviderAccount(profile)
+	if hasProfileAccount(own, account) {
+		return nil
+	}
+	if own == nil {
+		if cell, ok := t.Cell("copilot", tier); ok {
+			if spec.Profile != "" {
+				cell.Account = ProviderAccount(spec.Profile)
+			} else if o.Account != nil {
+				if a, _ := o.Account("copilot", cell); a != "" {
+					cell.Account = a
+				}
+			}
+			if cell.Account == account {
+				return nil
+			}
+		}
+	}
+	group, _ := t.gateProfile(ctx, tier, "copilot", profile, model, st, o, now, configured, res)
+	return group
+}
+
+func hasProfileAccount(group []Candidate, account string) bool {
+	for _, c := range group {
+		if c.Account == account {
+			return true
+		}
+	}
+	return false
 }

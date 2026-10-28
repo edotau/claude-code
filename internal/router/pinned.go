@@ -18,6 +18,14 @@ func (t *Table) gatePinned(
 	if runner == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		return t.gateOpencodeCandidate(ctx, tier, pin, st, o, now, configured, res)
 	}
+	return t.gateProfile(ctx, tier, runner, pin, spec.Model, st, o, now, configured, res)
+}
+
+// gateProfile applies the configured and auth checks for an agent on a profile.
+func (t *Table) gateProfile(
+	ctx context.Context, tier, runner, pin, model string, st State, o Opts, now time.Time,
+	configured func(runner string, c Cell) error, res *Result,
+) ([]Candidate, bool) {
 	cell, ok := t.Cell(runner, tier)
 	if !ok {
 		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
@@ -36,7 +44,7 @@ func (t *Table) gatePinned(
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
 		return nil, false
 	}
-	c := Cell{Model: pinnedModel(runner, tier, cell, p, spec.Model), Effort: cell.Effort, Account: ProviderAccount(pin), Price: cell.Price}
+	c := Cell{Model: pinnedModel(runner, tier, cell, p, model), Effort: cell.Effort, Account: ProviderAccount(pin), Price: cell.Price}
 	if err := configured(runner, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
 		return nil, false
