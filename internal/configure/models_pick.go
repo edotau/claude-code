@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendoragent"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -130,45 +131,53 @@ func copilotModelDesc(m copilotsdk.Model, cur string) string {
 	return desc
 }
 
+// copilotSourceFn is the injectable seam over vendoragent.CopilotModelSource; tests fake the Databricks rows.
+var copilotSourceFn = vendoragent.CopilotModelSource
+
 // pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
-// current model, defaulting to "default"/"auto" = pin unset), then the SDK catalog (the account
-// copilot runs as), falling back to opencode's github-copilot catalog when the SDK call fails. It
-// writes only the COPILOT_MODEL pin — never github-copilot's models table, which opencode's
-// fallback ladder also reads. Picking Effort/Context re-shows this same picker with the cursor
-// back on that row; picking a model saves it and returns.
+// current model, defaulting to "default"/"auto" = pin unset), then the model list — a Databricks
+// session profile's serving endpoints, else the SDK catalog (the account copilot runs as), falling
+// back to opencode's github-copilot catalog when the SDK call fails. It writes only the COPILOT_MODEL
+// pin — never github-copilot's models table, which opencode's fallback ladder also reads. Picking
+// Effort/Context re-shows this same picker with the cursor back on that row; picking a model saves it.
 func pickCopilotModel(d *dialog) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cat, serr := copilotSourceFn(ctx, d.reg, "") // once: Effort/Context re-show the picker without refetching
+	cancel()
+	if serr != nil {
+		d.printf("copilot: model source unavailable (%v); using the GitHub catalog\n", serr)
+	}
 	start := 0
 	for {
 		cur, _ := providers.CopilotModel(d.reg)
-		list, err := copilotCatalog(d)
-		if err != nil {
-			d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
-			pickCopilotModelFallback(d, cur)
-			return
-		}
-		var rows [][2]string
-		var extraRuns []func() bool
-		for _, r := range []*billingRow{copilotEffortRow(d, cur), copilotContextRow(d, cur)} {
-			if r == nil {
-				continue
+		title, ids := "copilot — model (SDK catalog)", []string(nil)
+		var list []copilotsdk.Model
+		if !cat.Databricks {
+			var err error
+			if list, err = copilotCatalog(d); err != nil {
+				d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
+				pickCopilotModelFallback(d, cur)
+				return
 			}
-			rows = append(rows, [2]string{r.label, r.desc})
-			extraRuns = append(extraRuns, r.run)
 		}
+		rows, extraRuns := copilotExtraRows(d, cur)
 		nExtra := len(extraRuns)
-		var ids []string
-		for _, m := range list {
-			if !m.Enabled {
-				continue
+		if cat.Databricks {
+			title = "copilot — model (" + cat.Source + ")"
+			ids, rows = appendDatabricksCopilotRows(cat, cur, rows)
+		} else {
+			for _, m := range list {
+				if m.Enabled {
+					ids = append(ids, m.ID)
+					rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
+				}
 			}
-			ids = append(ids, m.ID)
-			rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
 		}
 		if len(ids) == 0 {
-			d.printf("copilot: SDK catalog returned no enabled models\n")
+			d.printf("copilot: %s lists no usable models\n", cmp.Or(cat.Source, "SDK catalog"))
 			return
 		}
-		j, err := pick(d, "copilot — model (SDK catalog)", rows, start)
+		j, err := pick(d, title, rows, start)
 		if err != nil || j < 0 {
 			return
 		}
@@ -178,10 +187,50 @@ func pickCopilotModel(d *dialog) {
 			continue
 		}
 		id := ids[j-nExtra]
+		if cat.Databricks {
+			saveAgentModel(d, "copilot", providers.PinCopilotModel, copilotCanonicalID(id))
+			return
+		}
 		saveAgentModel(d, "copilot", providers.PinCopilotModel, id)
 		clearIneligibleCopilotPins(d, id)
 		return
 	}
+}
+
+// copilotExtraRows are the Effort and Context rows shown above the model list, with their run funcs.
+func copilotExtraRows(d *dialog, cur string) (rows [][2]string, runs []func() bool) {
+	for _, r := range []*billingRow{copilotEffortRow(d, cur), copilotContextRow(d, cur)} {
+		if r != nil {
+			rows = append(rows, [2]string{r.label, r.desc})
+			runs = append(runs, r.run)
+		}
+	}
+	return rows, runs
+}
+
+// appendDatabricksCopilotRows adds one row per serving endpoint: "tested" when on the curated menu, plus current.
+func appendDatabricksCopilotRows(cat vendoragent.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
+	var ids []string
+	for _, r := range cat.Rows {
+		var marks []string
+		if r.Tested {
+			marks = append(marks, "tested")
+		}
+		if cur != "" && copilotCanonicalID(cur) == copilotCanonicalID(r.ID) {
+			marks = append(marks, "current")
+		}
+		ids = append(ids, r.ID)
+		rows = append(rows, [2]string{r.ID, strings.Join(marks, " · ")})
+	}
+	return ids, rows
+}
+
+// copilotCanonicalID is id's catalog-canonical form, else id with a leading "databricks-" trimmed.
+func copilotCanonicalID(id string) string {
+	if c, _, ok := models.Resolve(id); ok {
+		return c
+	}
+	return strings.TrimPrefix(id, models.DatabricksPrefix)
 }
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
