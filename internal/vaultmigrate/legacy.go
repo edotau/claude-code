@@ -99,8 +99,11 @@ func (d *legacyDoc) addEntry(key string, entry json.RawMessage, builtin *provide
 		d.rows = append(d.rows, docRow{provider: prov, name: name, raw: raw})
 		return err
 	}
-	for _, name := range providers.ObjectKeys(entry) {
-		row := fields[name]
+	for _, old := range providers.ObjectKeys(entry) {
+		row, name := fields[old], retire(old)
+		if name != old {
+			d.changed = true
+		}
 		if bytes.Equal(bytes.TrimSpace(row), []byte("null")) {
 			d.rows = append(d.rows, docRow{provider: key, name: name})
 			continue

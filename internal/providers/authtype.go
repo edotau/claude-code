@@ -88,10 +88,13 @@ func readOAuth(p *Provider) (oauthValue, error) {
 	if err != nil {
 		return ov, err
 	}
-	if found && json.Unmarshal([]byte(strings.TrimSpace(raw)), &ov) == nil {
-		return ov, nil
+	if !found {
+		return oauthValue{}, nil
 	}
-	return oauthValue{}, nil
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &ov); err != nil {
+		return oauthValue{}, fmt.Errorf("providers: sealed oauth value %q is not valid JSON: %w", AuthSecretName(p), err)
+	}
+	return ov, nil
 }
 
 // writeOAuth seals ov as the one JSON value under p's oauth secret name.

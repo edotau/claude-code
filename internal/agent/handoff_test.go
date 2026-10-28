@@ -403,3 +403,19 @@ func TestCopilotHandoffsNeverOverwrite(t *testing.T) {
 		t.Errorf("temp files left behind: %v", left)
 	}
 }
+
+// A typed [1m] id is stripped before it is respelled for the fallback provider: no upstream accepts the marker.
+func TestVendorTargetNoteFallbackStripsOneM(t *testing.T) {
+	ghLogin(t, "alice", 99)
+	t.Setenv("DEV_TEST_KEY", "k")
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
+	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Model: "claude-sonnet-5-5[1m]"}, "copilot")
+	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" {
+		t.Fatalf("target = %+v err=%v, want the dev fallback", tg, err)
+	}
+	if strings.Contains(tg.Model, "[1m]") {
+		t.Errorf("model %q still carries [1m]", tg.Model)
+	}
+}

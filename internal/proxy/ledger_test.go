@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,5 +116,42 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 				t.Errorf("ledger = %+v, want session %q agent %q", got, tc.session, tc.agent)
 			}
 		})
+	}
+}
+
+// The 401 hint names the real helper flag (token --proxy; --router was removed).
+func TestUnauthorizedHintNamesTokenProxy(t *testing.T) {
+	srv := setup(t, `{"default":"prod","providers":{}}`)
+	resp := post(t, srv.URL+"/v1/messages", `{}`, map[string]string{"X-Api-Key": "wrong"})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", resp.StatusCode)
+	}
+	if b := body(t, resp); !strings.Contains(b, "token --proxy") || strings.Contains(b, "--router") {
+		t.Errorf("401 body = %s, want token --proxy", b)
+	}
+}
+
+// A direct (non-Databricks) row's ledger entry carries its provider, never an empty one.
+func TestLedgerDirectProviderNamed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":4,"output_tokens":1}}`)
+	})
+	t.Setenv("DIRECT_TEST_KEY", "k")
+	row := fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"DIRECT_TEST_KEY"},`+
+		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
+	srv := setup(t, `{"default":"direct","providers":{"anthropic":{"direct":`+row+`}}}`)
+	if resp := post(t, srv.URL+"/p/direct/v1/messages", `{"model":"m-haiku"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
+	}
+	var got []usageledger.Entry
+	for i := 0; i < 100 && len(got) == 0; i++ {
+		if got, _ = usageledger.Read(); len(got) == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if len(got) != 1 || got[0].Provider != "anthropic" || got[0].Profile != "direct" {
+		t.Errorf("ledger = %+v, want provider anthropic profile direct", got)
 	}
 }

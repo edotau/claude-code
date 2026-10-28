@@ -82,6 +82,17 @@ func retire(name string) string {
 	return name
 }
 
+// oldSecretPrefixes are the pre-rename secret prefixes of a profile: its own name, then each retired name it replaced.
+func oldSecretPrefixes(profile string) []string {
+	out := []string{oldSecretPrefix(profile)}
+	for old, to := range retiredProfiles {
+		if to == profile {
+			out = append(out, oldSecretPrefix(old))
+		}
+	}
+	return out
+}
+
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
 // oldSecretPrefix is the pre-rename PROVIDER_<ID> secret prefix of a profile.

@@ -104,7 +104,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if !r.authorized(req) {
-		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code token --router)")
+		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code token --proxy)")
 		return
 	}
 	// Past auth, Authorization survives only as the client's own credential (secret sent in ClientHeader).
