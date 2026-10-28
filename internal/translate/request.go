@@ -81,6 +81,16 @@ type chatToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
 	Function chatFunction `json:"function"`
+	// ThoughtSignature satisfies Gemini's per-call validation on replayed tool calls.
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
+}
+
+// SkipThoughtSignature is Gemini's documented validator bypass for tool calls replayed without their signature.
+const SkipThoughtSignature = "skip_thought_signature_validator"
+
+// IsGeminiModel reports whether a wire model is a Gemini model (case-insensitive).
+func IsGeminiModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "gemini")
 }
 
 type chatFunction struct {
@@ -118,7 +128,10 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		req.User = in.Metadata.UserID
 	}
 	if in.Stream {
-		req.Stream, req.StreamOptions = true, &streamOptions{IncludeUsage: true}
+		req.Stream = true
+		if !IsGeminiModel(wireModel) { // Gemini rejects stream_options but still reports usage
+			req.StreamOptions = &streamOptions{IncludeUsage: true}
+		}
 	}
 
 	sys, err := parseBlocks(in.System)
@@ -134,7 +147,7 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 			return nil, false, fmt.Errorf("translate: messages[%d]: %w", i, err)
 		}
 		if m.Role == "assistant" {
-			req.Messages = appendAssistant(req.Messages, blocks)
+			req.Messages = appendAssistant(req.Messages, blocks, wireModel)
 		} else {
 			req.Messages = appendUser(req.Messages, blocks)
 		}
@@ -217,7 +230,7 @@ func appendUser(msgs []chatMessage, blocks []block) []chatMessage {
 	return append(msgs, chatMessage{Role: "user", Content: parts})
 }
 
-func appendAssistant(msgs []chatMessage, blocks []block) []chatMessage {
+func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []chatMessage {
 	var calls []chatToolCall
 	for _, b := range blocks {
 		if b.Type != "tool_use" {
@@ -228,7 +241,11 @@ func appendAssistant(msgs []chatMessage, blocks []block) []chatMessage {
 		if len(b.Input) > 0 && string(b.Input) != "null" && json.Compact(&buf, b.Input) == nil {
 			args = buf.String()
 		}
-		calls = append(calls, chatToolCall{ID: b.ID, Type: "function", Function: chatFunction{Name: b.Name, Arguments: args}})
+		call := chatToolCall{ID: b.ID, Type: "function", Function: chatFunction{Name: b.Name, Arguments: args}}
+		if IsGeminiModel(wireModel) {
+			call.ThoughtSignature = SkipThoughtSignature
+		}
+		calls = append(calls, call)
 	}
 	text := joinText(blocks, "\n\n")
 	if text == "" && len(calls) == 0 {
