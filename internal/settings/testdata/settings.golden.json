@@ -64,18 +64,6 @@
     "command": "$HOME/.claude/bin/claude-code theme statusline",
     "padding": 0
   },
-  "enabledPlugins": {
-    "databricks@claude-plugins-official": false,
-    "gopls-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official"
-      }
-    }
-  },
   "hooks": {
     "PostToolUse": [
       {
