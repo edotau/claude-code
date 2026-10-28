@@ -12,9 +12,10 @@ import (
 // opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
 // (openai-compatible), a Responses provider (<id>-gpt, GPT-6 rejects chat tool calls) and a native Anthropic one (<id>-claude).
 func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, []string, error) { // env already holds the key
-	chatBase, respBase := p.Routes[providers.ProtocolOpenAI], p.Routes[providers.ProtocolResponses]
+	chatBase, _ := p.Route(providers.ProtocolOpenAI) // Route resolves relative routes and the preset's Protocol/BaseURL
+	respBase, _ := p.Route(providers.ProtocolResponses)
 	claudeBase := ""
-	if r := p.Routes[providers.ProtocolAnthropic]; r != "" {
+	if r, ok := p.Route(providers.ProtocolAnthropic); ok {
 		claudeBase = r + "/v1"
 	}
 	if routed { // base is the session base plus the dialect suffix routerRoute added

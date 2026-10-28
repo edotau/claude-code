@@ -161,6 +161,20 @@ func TestOpencodeDatabricksDirectClaudeRoute(t *testing.T) {
 	}
 }
 
+// The preset's anthropic BaseURL (no explicit route) and relative routes still resolve to absolute bases.
+func TestOpencodeDatabricksPresetAndRelativeRoutes(t *testing.T) {
+	p := dbxRow("qa", "databricks-")
+	p.Protocol, p.BaseURL = providers.ProtocolAnthropic, "https://h.example.com/serving-endpoints/anthropic"
+	p.Routes[providers.ProtocolOpenAI] = "openai"
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, "https://h.example.com/serving-endpoints/anthropic/openai", "databricks-claude-opus-5-5", false)
+	if got := c.Provider["harness-qa-claude"].Options.BaseURL; got != "https://h.example.com/serving-endpoints/anthropic/v1" {
+		t.Errorf("preset claude base = %q", got)
+	}
+	if got := c.Provider["harness-qa"].Options.BaseURL; got != "https://h.example.com/serving-endpoints/anthropic/openai" {
+		t.Errorf("relative chat base = %q", got)
+	}
+}
+
 func TestOpencodeDatabricksUnknownModel(t *testing.T) {
 	vaulttest.Use(t)
 	p := dbxRow("qa", "databricks-")
