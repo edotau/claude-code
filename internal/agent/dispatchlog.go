@@ -34,11 +34,12 @@ type Record struct {
 	Duration       string    `json:"duration,omitempty"`
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string    `json:"fallback_reason,omitempty"`
-	RanAs          string    `json:"ran_as,omitempty"` // the runner that answered, when a fallback leg did
-	Repo           string    `json:"repo,omitempty"`   // main checkout root the job belongs to
-	PID            int       `json:"pid,omitempty"`    // pid of the detached `claude-code ask --job` child
-	Log            string    `json:"log,omitempty"`    // absolute path of the job's combined stdout+stderr log
-	Owner          int       `json:"owner,omitempty"`  // launching Claude Code session pid (inflight.SessionOwner)
+	RanAs          string    `json:"ran_as,omitempty"`   // the runner that answered, when a fallback leg did
+	Repo           string    `json:"repo,omitempty"`     // main checkout root the job belongs to
+	PID            int       `json:"pid,omitempty"`      // pid of the detached `claude-code ask --job` child
+	Log            string    `json:"log,omitempty"`      // absolute path of the job's combined stdout+stderr log
+	Progress       string    `json:"progress,omitempty"` // multi-part review job: "part 2/3"
+	Owner          int       `json:"owner,omitempty"`    // launching Claude Code session pid (inflight.SessionOwner)
 }
 
 // Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.

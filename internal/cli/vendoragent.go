@@ -188,7 +188,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 		return 0
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Preview)
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, statusDetail(r))
 	}
 	return 0
 }
@@ -348,6 +348,9 @@ func cmdVendorReview(vendor string, args []string) int {
 		return fail("%s review: %v", vendor, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
+	if parts := reviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
+		return runSplitReview(vendor, args, parts, scope, *adversarial, *background, focus, *rubric)
+	}
 	askArgs, cleanup, err := vendoragent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
 		return fail("%s review: %v", vendor, err)
@@ -459,4 +462,16 @@ func vendorLaunchFlags(vendor string) *flag.FlagSet {
 func vendorBinary(vendor string) string {
 	spec, _ := vendors.Lookup(vendor)
 	return spec.Binary
+}
+
+// statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
+func statusDetail(r vendoragent.Row) string {
+	d := r.Preview
+	if r.Progress != "" {
+		d = "[" + r.Progress + "] " + d
+	}
+	if r.Error != "" {
+		d += " -- " + agent.Preview(r.Error, 300)
+	}
+	return d
 }
