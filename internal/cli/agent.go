@@ -47,9 +47,9 @@ func cmdAsk(args []string) int {
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	noTools := fs.Bool("no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
-	noPersist := fs.Bool("no-persist", false, "claude only: do not save the session for later resume")
-	safeMode := fs.Bool("safe-mode", false, "claude only: skip hooks, plugins, customizations")
-	debugFile := fs.String("debug-file", "", "claude only: write Claude's debug log to this path")
+	noPersist := fs.Bool("no-persist", false, "claude, codex: do not save the session for later resume")
+	safeMode := fs.Bool("safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
+	debugFile := fs.String("debug-file", "", "claude, gemini: write the agent's debug log to this path")
 	var attach attachFlag
 	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	var keepEnv keepEnvFlag
