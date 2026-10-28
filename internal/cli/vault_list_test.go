@@ -51,17 +51,17 @@ func TestVaultListSections(t *testing.T) {
 			}
 			var headings []string
 			for line := range strings.SplitSeq(bare, "\n") {
-				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"}, line) {
+				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"}, line) {
 					headings = append(headings, line)
 				}
 			}
-			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) { // empty VENDORS hidden
+			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) { // empty AGENTS hidden
 				t.Errorf("section order = %v", headings)
 			}
 			if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
 				t.Error("filtered sections must retain canonical order")
 			}
-			for _, head := range []string{"ENV", "PROVIDERS", "VENDORS", "SETTINGS", "VAULT"} {
+			for _, head := range []string{"ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"} {
 				if strings.Contains(filtered, "\n"+head+"\n") {
 					t.Errorf("filtered text includes %s", head)
 				}
@@ -84,11 +84,11 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 		"providers":{"fake":{"kind":"openai","auth":{"type":"none"},"models":{"sonnet":"fake-sonnet"}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]},
 		"routing":{"opencode":{"ladder":["one","two"]}}}`)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"opencode":{
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{
 		"_comment":"omit-this-comment","launch":{"env":{"FAKE_ENV":"enabled"},"args":["--fake"]},
 		"future":{"enabled":true}}}}`)
 	code, stdout, _ := captureOutput(t, func() int {
-		return cmdVault([]string{"list", "providers", "routing", "vendors", "--format", "text"})
+		return cmdVault([]string{"list", "providers", "routing", "agents", "--format", "text"})
 	})
 	if code != 0 {
 		t.Fatalf("list tables exit %d", code)
@@ -96,9 +96,9 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	normalized := strings.Join(strings.Fields(stdout), " ")
 	for _, want := range []string{
 		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK", "fake openai none fake-sonnet",
-		"PLANS", "AGENT TIER ID", "copilot standard fake-plan",
+		"PLANS", "AGENT MODEL ID", "copilot standard fake-plan",
 		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
-		"VENDORS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
+		"AGENTS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
 	} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("missing table content %q", want)

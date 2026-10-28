@@ -1,12 +1,14 @@
 package providers
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -66,39 +68,82 @@ func Load() (*Registry, error) {
 	return Parse(defaultsJSON, doc)
 }
 
+// ParseOverlay merges the embedded defaults with overlay (nil = the defaults alone) without reading the vault.
+func ParseOverlay(overlay []byte) (*Registry, error) { return Parse(defaultsJSON, overlay) }
+
 // Validate checks an overlay merged with the embedded defaults.
 func Validate(overlay []byte) error {
 	_, err := Parse(defaultsJSON, overlay)
 	return err
 }
 
+// regFile is a registry document: Registry's scalar fields plus the raw providers value (nested or flat).
+type regFile struct {
+	Registry
+	Providers json.RawMessage `json:"providers"`
+}
+
+// decodeRegistry reads one registry document; a profile set to null maps to a nil *Provider (a removal).
+func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
+	var f regFile
+	if err := json.Unmarshal(doc, &f); err != nil {
+		return nil, err
+	}
+	rows, err := decodeRows(f.Providers, known)
+	if err != nil {
+		return nil, err
+	}
+	reg := f.Registry
+	reg.Providers = map[string]*Provider{}
+	for n, r := range rows {
+		if r.raw == nil {
+			reg.Providers[n] = nil
+			continue
+		}
+		p := &Provider{}
+		if err := json.Unmarshal(r.raw, p); err != nil {
+			return nil, fmt.Errorf("%s: %w", n, err)
+		}
+		p.Provider = r.provider
+		reg.Providers[n] = p
+	}
+	return &reg, nil
+}
+
 // Parse merges base with an optional overlay document; it always returns a non-nil Registry (even one
 // Validate rejects), so a caller that discards the error (routetable's "a broken registry still routes
 // on the embedded table" resilience) still has a usable reg to fall back from.
 func Parse(base, overlay []byte) (*Registry, error) {
-	var reg Registry
-	if err := json.Unmarshal(base, &reg); err != nil {
-		return nil, fmt.Errorf("providers defaults: %w", err)
+	reg, err := decodeRegistry(base, nil)
+	if err != nil {
+		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
+	}
+	known := map[string]string{}
+	for n, p := range reg.Providers {
+		known[n] = p.Provider
 	}
 	legacyErr := checkLegacyRoutingKeys(overlay)
 	if len(overlay) > 0 {
-		var o Registry
-		if err := json.Unmarshal(overlay, &o); err != nil {
-			return &reg, fmt.Errorf("vault overlay/providers: %w", err)
+		o, err := decodeRegistry(overlay, known)
+		if err != nil {
+			return reg, fmt.Errorf("vault overlay/providers: %w", err)
 		}
-		applyOverlay(&reg, &o)
+		if err := applyOverlay(reg, o); err != nil {
+			legacyErr = cmp.Or(legacyErr, fmt.Errorf("vault overlay/providers: %w", err))
+		}
 	}
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
+	reg.order = declaredOrder(reg, base, overlay)
 	// Load-only: derived preset fields are never written back to the overlay.
-	expandPresets(&reg)
-	decorateModels(&reg)
-	reg.Routing.Opencode.Ladder = NormalizeOpencodeLadder(&reg) // legacy provider-name ladder entries, before Validate
+	expandPresets(reg)
+	decorateModels(reg)
+	reg.Routing.Opencode.Ladder = NormalizeOpencodeLadder(reg) // legacy provider-name ladder entries, before Validate
 	if legacyErr != nil {
-		return &reg, legacyErr
+		return reg, legacyErr
 	}
-	return &reg, reg.Validate()
+	return reg, reg.Validate()
 }
 
 // legacyRoutingKeys maps a retired top-level overlay key to the routing path it moved under; Parse rejects
@@ -128,7 +173,7 @@ func checkLegacyRoutingKeys(overlay []byte) error {
 }
 
 // applyOverlay merges overlay fields o into base, cell by cell for routes and whole-value for scalars.
-func applyOverlay(base, o *Registry) {
+func applyOverlay(base, o *Registry) error {
 	if o.Default != "" {
 		base.Default = o.Default
 	}
@@ -145,22 +190,24 @@ func applyOverlay(base, o *Registry) {
 		base.AgentPlanFormat = o.AgentPlanFormat
 	}
 	applyRoutingOverlay(&base.Routing, &o.Routing)
-	if o.Profiles.Active != "" {
-		base.Profiles.Active = o.Profiles.Active
-	}
-	if o.Profiles.Sets != nil {
-		base.Profiles.Sets = o.Profiles.Sets
-	}
 	if base.Providers == nil {
 		base.Providers = map[string]*Provider{}
 	}
-	for n, p := range o.Providers {
+	var errs []error
+	for _, n := range slices.Sorted(maps.Keys(o.Providers)) {
+		p := o.Providers[n]
 		if p == nil { // "name": null removes a built-in
 			delete(base.Providers, n)
 			continue
 		}
+		if prev, ok := base.Providers[n]; ok && prev.Provider != p.Provider {
+			errs = append(errs, fmt.Errorf("profile %q is defined under both %s and %s; profile names are unique across providers",
+				n, prev.Provider, p.Provider))
+			continue
+		}
 		base.Providers[n] = p
 	}
+	return errors.Join(errs...)
 }
 
 // applyRoutingOverlay merges o into base: cells cell by cell (matching how routetable.LoadFrom applies

@@ -1,72 +1,136 @@
 {
-  "default": "subscription",
+  "default": "max",
   "fallback": [],
   "routing": {
-    "weights": {"price": 0.5, "headroom": 0.5},
+    "weights": {
+      "price": 0.5,
+      "headroom": 0.5
+    },
     "subagents": true,
     "opencode": {
-      "ladder": ["opencode-go", "github-copilot", "openai"],
+      "ladder": [
+        "opencode-go",
+        "github-copilot",
+        "openai"
+      ],
       "workRepoMarkers": [],
-      "freeTiers": ["sonnet", "haiku"],
+      "freeTiers": [
+        "sonnet",
+        "haiku"
+      ],
       "freeFirstOutput": "90s"
     }
   },
   "providers": {
     "anthropic": {
-      "kind": "anthropic",
-      "base_url": "https://api.anthropic.com",
-      "auth": {"type": "x-api-key", "env": "ANTHROPIC_API_KEY"},
-      "models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"},
-      "one_m": true
+      "max": {
+        "kind": "anthropic",
+        "base_url": "https://api.anthropic.com",
+        "auth": {
+          "type": "cli"
+        },
+        "models": {
+          "opus": "claude-opus-5-5",
+          "sonnet": "claude-sonnet-5-5",
+          "haiku": "claude-haiku-5-5",
+          "fable": "claude-fable-5-1"
+        }
+      },
+      "anthropic": {
+        "kind": "anthropic",
+        "base_url": "https://api.anthropic.com",
+        "auth": {
+          "type": "key",
+          "env": "ANTHROPIC_API_KEY"
+        },
+        "models": {
+          "opus": "claude-opus-5-5",
+          "sonnet": "claude-sonnet-5-5",
+          "haiku": "claude-haiku-5-5",
+          "fable": "claude-fable-5-1"
+        }
+      }
     },
-    "subscription": {
-      "kind": "anthropic",
-      "base_url": "https://api.anthropic.com",
-      "auth": {"type": "passthrough"},
-      "models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"},
-      "one_m": true
+    "github": {
+      "personal": {
+        "kind": "openai",
+        "base_url": "https://api.githubcopilot.com",
+        "auth": {
+          "type": "cli",
+          "login": "copilot"
+        },
+        "models": {
+          "opus": "auto",
+          "sonnet": "auto",
+          "haiku": "auto"
+        },
+        "opencode_fallback": "claude-opus-5.5",
+        "opencode_variant": "medium",
+        "opencodeID": "github-copilot"
+      }
     },
     "openai": {
-      "kind": "openai",
-      "base_url": "https://api.openai.com/v1",
-      "routes": {"responses": "https://api.openai.com/v1"},
-      "auth": {"type": "bearer", "env": "OPENAI_API_KEY"},
-      "models": {"opus": "gpt-5", "sonnet": "gpt-5-mini", "haiku": "gpt-5-nano"}
+      "chatgpt": {
+        "kind": "responses",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+        "auth": {
+          "type": "cli",
+          "login": "codex"
+        },
+        "models": {
+          "opus": "gpt-6.1-sol",
+          "sonnet": "gpt-6.1-sol",
+          "haiku": "gpt-6-luna"
+        },
+        "opencodeID": "openai"
+      },
+      "openai": {
+        "kind": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "routes": {
+          "responses": "https://api.openai.com/v1"
+        },
+        "auth": {
+          "type": "key",
+          "env": "OPENAI_API_KEY"
+        },
+        "models": {
+          "opus": "gpt-5",
+          "sonnet": "gpt-5-mini",
+          "haiku": "gpt-5-nano"
+        }
+      }
     },
-    "chatgpt": {
-      "kind": "responses",
-      "base_url": "https://chatgpt.com/backend-api/codex",
-      "auth": {"type": "passthrough", "login": "codex"},
-      "models": {"opus": "gpt-6.1-sol", "sonnet": "gpt-6.1-sol", "haiku": "gpt-6-luna"},
-      "opencodeID": "openai"
-    },
-    "github-copilot": {
-      "kind": "openai",
-      "base_url": "https://api.githubcopilot.com",
-      "auth": {"type": "passthrough", "login": "copilot"},
-      "models": {"opus": "auto", "sonnet": "auto", "haiku": "auto"},
-      "opencode_fallback": "claude-opus-5.5",
-      "opencode_variant": "medium",
-      "opencodeID": "github-copilot"
-    },
-    "gemini": {
-      "kind": "openai",
-      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-      "auth": {"type": "passthrough", "login": "gemini"},
-      "models": {"opus": "gemini-4-argon", "sonnet": "gemini-3.8-flash", "haiku": "gemini-3.5-flash-lite"}
+    "google": {
+      "antigravity": {
+        "kind": "openai",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "auth": {
+          "type": "cli",
+          "login": "gemini"
+        },
+        "models": {
+          "opus": "gemini-4-argon",
+          "sonnet": "gemini-3.8-flash",
+          "haiku": "gemini-3.5-flash-lite"
+        }
+      }
     },
     "nvidia": {
-      "kind": "openai",
-      "base_url": "https://integrate.api.nvidia.com/v1",
-      "auth": {"type": "bearer", "env": "NVIDIA_API_KEY"},
-      "models": {"opus": "z-ai/glm-5.3", "sonnet": "z-ai/glm-5.3", "haiku": "z-ai/glm-5.3"},
-      "opencodeID": "nvidia"
-    },
-    "ollama": {
-      "kind": "openai",
-      "base_url": "http://127.0.0.1:11434/v1",
-      "auth": {"type": "none"},
-      "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}
+      "nvidia": {
+        "kind": "openai",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "auth": {
+          "type": "key",
+          "env": "NVIDIA_API_KEY"
+        },
+        "models": {
+          "opus": "z-ai/glm-5.3",
+          "sonnet": "z-ai/glm-5.3",
+          "haiku": "z-ai/glm-5.3"
+        },
+        "opencodeID": "nvidia"
+      }
     }
   }
 }

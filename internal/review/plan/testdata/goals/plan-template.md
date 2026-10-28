@@ -14,14 +14,14 @@ Parse phases as complete steps.
 2. Preserve section bodies.
 **Verify:**
 - `go test ./internal/paths` exits 0.
-**Runner / parallel:** runner: codex; independent.
+**Runner / parallel:** agent: codex; independent.
 
 ### Phase 2 — Improve output
 
 **Files:** `output.go`
 **Change:** Update rendering.
 **Verify:** should work
-**Runner / parallel:** runner: codex; depends on Phase 1.
+**Runner / parallel:** agent: codex; depends on Phase 1.
 
 ### Phase 3 — Run final regression
 
@@ -29,7 +29,7 @@ Parse phases as complete steps.
 **Change:** Exercise rendering.
 **Verify:**
 - `go test ./internal/review/plan` exits 0.
-**Runner / parallel:** runner: codex; depends on Phase 2.
+**Runner / parallel:** agent: codex; depends on Phase 2.
 
 ## Tasks
 

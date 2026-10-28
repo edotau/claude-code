@@ -76,7 +76,7 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 	err := providers.SetProviderFields("ocfake", map[string]any{"preset": "databricks", "host": srv.URL,
-		"auth": map[string]any{"authType": "pat"}})
+		"auth": map[string]any{"type":"pat"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ type ocCheckRow struct {
 
 func ocCheckJSON(t *testing.T, args ...string) (int, []ocCheckRow, string, string) {
 	t.Helper()
-	code, stdout, stderr := ocMenu(t, append([]string{"check", "--provider", "ocfake", "--format", "json"}, args...)...)
+	code, stdout, stderr := ocMenu(t, append([]string{"check", "--profile", "ocfake", "--format", "json"}, args...)...)
 	var rows []ocCheckRow
 	if code == 0 {
 		if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
@@ -243,7 +243,7 @@ func TestOpencodeCheckTextOutput(t *testing.T) {
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "glm-5-2", Label: "G"}, {ID: "boom-1", Label: "B"}}); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := ocMenu(t, "check", "--provider", "ocfake")
+	code, stdout, stderr := ocMenu(t, "check", "--profile", "ocfake")
 	if code != 0 {
 		t.Fatalf("%d %s", code, stderr)
 	}
@@ -265,7 +265,7 @@ func TestOpencodeCheckFlagErrors(t *testing.T) {
 	if code, _, _ := ocMenu(t, "check", "--format", "xml"); code != 1 {
 		t.Errorf("bad format code = %d, want 1", code)
 	}
-	if code, _, stderr := ocMenu(t, "check", "--provider", "no-such-provider"); code != 1 || stderr == "" {
+	if code, _, stderr := ocMenu(t, "check", "--profile", "no-such-provider"); code != 1 || stderr == "" {
 		t.Errorf("unknown provider: code=%d stderr=%q", code, stderr)
 	}
 }
@@ -278,7 +278,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	listJSON := func() map[string]string {
-		code, stdout, stderr := ocMenu(t, "list", "--live", "--provider", "ocfake", "--format", "json")
+		code, stdout, stderr := ocMenu(t, "list", "--live", "--profile", "ocfake", "--format", "json")
 		if code != 0 {
 			t.Fatalf("%d %s", code, stderr)
 		}
@@ -299,7 +299,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 			t.Errorf("no cache: %s check = %q, want -", id, c)
 		}
 	}
-	_, text, _ := ocMenu(t, "list", "--live", "--provider", "ocfake")
+	_, text, _ := ocMenu(t, "list", "--live", "--profile", "ocfake")
 	if !strings.Contains(text, "CHECK") {
 		t.Errorf("no CHECK header:\n%s", text)
 	}

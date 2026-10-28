@@ -40,7 +40,7 @@ bank/native entry ──promote --to home──▶ home bank (~/.claude/memory/h
                                                   │ 3+ memory entries AND
                                                   │ hard prohibition
                                                   ▼
-                                          CLAUDE.md "Known Gotchas"   ← always-on tier
+                                          CLAUDE.md "Hard rules"       ← always-on tier
                                           (memory dream only, gated; no direct --to claude-md)
 ```
 

@@ -59,7 +59,7 @@ func herd(p *Provider, n int) ([]string, []error) {
 
 func TestCommandCredentialSingleFlightValue(t *testing.T) {
 	cmd, counter := countingCmd(t, "sf", "0.5", "echo shared-token")
-	p := freshProvider(t, &Provider{Name: "sf-value", Auth: Auth{Type: AuthBearer, Command: cmd}})
+	p := freshProvider(t, &Provider{Name: "sf-value", Auth: Auth{Type: AuthKey, Command: cmd}})
 	vals, errs := herd(p, 20)
 	for i := range vals {
 		if errs[i] != nil || vals[i] != "shared-token" {
@@ -73,7 +73,7 @@ func TestCommandCredentialSingleFlightValue(t *testing.T) {
 
 func TestCommandCredentialSingleFlightSharesError(t *testing.T) {
 	cmd, counter := countingCmd(t, "sfe", "0.5", "exit 3")
-	p := freshProvider(t, &Provider{Name: "sf-err", Auth: Auth{Type: AuthBearer, Command: cmd}})
+	p := freshProvider(t, &Provider{Name: "sf-err", Auth: Auth{Type: AuthKey, Command: cmd}})
 	_, errs := herd(p, 20)
 	for i, err := range errs {
 		if err == nil || !strings.Contains(err.Error(), "auth command failed") {
@@ -93,7 +93,7 @@ func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 	forced := counter + ".forced"
 	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
 	p := freshProvider(t, &Provider{Name: "sf-refresh",
-		Auth: Auth{Type: AuthBearer, Command: cmd, RefreshCommand: refresh}})
+		Auth: Auth{Type: AuthKey, Command: cmd, RefreshCommand: refresh}})
 	done := make(chan struct{})
 	go func() { _, _ = Credential(context.Background(), p); close(done) }()
 	deadline := time.Now().Add(5 * time.Second)
@@ -115,14 +115,14 @@ func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 
 func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cases := []struct{ name, typ, wantHdr, wantVal string }{
-		{"apikey", AuthAPIKey, "X-Api-Key", "minted"},
-		{"bearer", AuthBearer, "Authorization", "Bearer minted"},
-		{"none", AuthNone, "", ""},
+	cases := []struct{ name, typ, header, wantHdr, wantVal string }{
+		{"apikey", AuthKey, HeaderXAPIKey, "X-Api-Key", "minted"},
+		{"bearer", AuthKey, HeaderBearer, "Authorization", "Bearer minted"},
+		{"none", AuthNone, "", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p := &Provider{Name: "az-" + c.name, Auth: Auth{Type: c.typ, Command: "echo minted"}}
+			p := &Provider{Name: "az-" + c.name, Auth: Auth{Type: c.typ, Header: c.header, Command: "echo minted"}}
 			cmdCache.Delete(p.Name)
 			h := http.Header{}
 			h.Set("Authorization", "Bearer client")
@@ -146,7 +146,7 @@ func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 
 func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 	cmd, counter := countingCmd(t, "lc", "0.6", "echo survived-token")
-	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthBearer, Command: cmd}})
+	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _, _ = Credential(lctx, p) }() // leader

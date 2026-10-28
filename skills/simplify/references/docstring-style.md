@@ -15,10 +15,9 @@ applies to docstrings too). This file is the how-to:
 
 ## When to relax
 
-This is judgment, not a checker — there is deliberately no linter script. A genuinely
-complex public API (a library entry point, a function with subtle invariants or units)
-may need a fuller docstring with Args/Returns/Raises. The rule targets the common case:
-internal functions whose six-line docstring says less than their name already does.
+This is judgment, not a checker — there is deliberately no linter script. Even a complex public API
+(a library entry point, subtle invariants or units) gets one line (≤120 chars); detail belongs in the repo's docs.
+The rule targets the common case: internal functions whose six-line docstring says less than their name already does.
 
 ## Before / after
 

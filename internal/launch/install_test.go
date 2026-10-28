@@ -277,8 +277,8 @@ func compactStepPrefix(t *testing.T, line string) string {
 		return "settings (windows)"
 	case strings.HasPrefix(line, "install"):
 		return "install"
-	case strings.HasPrefix(line, "vendors"):
-		return "vendors"
+	case strings.HasPrefix(line, "links"):
+		return "links"
 	case strings.HasPrefix(line, "settings"):
 		return "settings"
 	case strings.HasPrefix(line, "agents"):
@@ -377,7 +377,7 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 	for _, l := range splitNonEmpty(out.String()) {
 		got = append(got, compactStepPrefix(t, l))
 	}
-	want := []string{"install", "vendors", "settings"}
+	want := []string{"install", "links", "settings"}
 	if wantWindows {
 		want = append(want, "settings (windows)")
 	}

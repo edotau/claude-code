@@ -19,7 +19,7 @@ func seedCLIProfileRow(t *testing.T) {
 		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"cliProfile": "dev",
 		"auth": map[string]any{
-			"type": "bearer", "command": "databricks auth token -p dev -o json | jq -r .access_token",
+			"type":"key", "command": "databricks auth token -p dev -o json | jq -r .access_token",
 			"refreshCommand": "my-custom-refresh",
 		},
 	})
@@ -61,12 +61,12 @@ func TestVaultLoginAuthTypeDryRun(t *testing.T) {
 	called := false
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { called = true; return 0, nil })
 	code, stdout, stderr := captureOutput(t, func() int {
-		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m", "--dry-run"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "oauth", "--dry-run"})
 	})
 	if code != 0 || called {
 		t.Fatalf("exit %d called=%v stderr %q", code, called, stderr)
 	}
-	for _, want := range []string{`"authType": "u2m"`, "would log in to https://example.cloud.databricks.com", "kept custom auth.refreshCommand"} {
+	for _, want := range []string{`"type": "oauth"`, "would log in to https://example.cloud.databricks.com", "kept custom auth.refreshCommand"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -80,17 +80,17 @@ func TestVaultLoginAuthTypeWrites(t *testing.T) {
 	seedCLIProfileRow(t)
 	sawU2M := false
 	fakeLogin(t, func(p *providers.Provider) (time.Duration, error) {
-		sawU2M = p.Auth.AuthType == providers.AuthU2M
+		sawU2M = p.Auth.Type == providers.AuthOAuth
 		return 30 * time.Minute, nil
 	})
 	code, stdout, stderr := captureOutput(t, func() int {
-		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "oauth"})
 	})
 	if code != 0 || !sawU2M || !strings.Contains(stdout, "logged in · token expires in 30m") {
 		t.Fatalf("exit %d u2m=%v stdout %q stderr %q", code, sawU2M, stdout, stderr)
 	}
 	doc := overlayDoc(t)
-	if !strings.Contains(doc, `"authType":"u2m"`) && !strings.Contains(doc, `"authType": "u2m"`) {
+	if !strings.Contains(doc, `"type":"oauth"`) && !strings.Contains(doc, `"type": "oauth"`) {
 		t.Errorf("authType not written: %s", doc)
 	}
 	if strings.Contains(doc, "databricks auth token -p dev -o json") || !strings.Contains(doc, "my-custom-refresh") {
@@ -102,7 +102,7 @@ func TestVaultLoginAuthTypeFailurePrintsRollback(t *testing.T) {
 	seedCLIProfileRow(t)
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return 0, context.DeadlineExceeded })
 	code, _, stderr := captureOutput(t, func() int {
-		return login([]string{"--profile", "dbx-dev", "--auth-type", "u2m"})
+		return login([]string{"--profile", "dbx-dev", "--auth-type", "oauth"})
 	})
 	if code == 0 || !strings.Contains(stderr, "providers.prev") {
 		t.Errorf("exit %d stderr %q", code, stderr)

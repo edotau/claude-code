@@ -48,8 +48,8 @@ var geminiBridgePage = helptext.Page{
 func cmdGeminiBridge(args []string) int {
 	fs := helptext.NewFlagSet("gemini bridge", geminiBridgePage)
 	task := fs.String("task", "", "explicit task text (else trailing args)")
-	model := fs.String("model", "", "slot name, model id, or provider:model")
-	provider := fs.String("provider", "", "API-key provider instead of agy's Google sign-in")
+	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
+	provider := fs.String("profile", "", "API-key profile instead of agy's Google sign-in")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh")
 	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
 	files := fs.String("files", "", "comma-separated file globs to ingest")

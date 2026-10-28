@@ -97,3 +97,20 @@ func TestScrubVendorHonoursKeep(t *testing.T) {
 		t.Errorf("kept = %q dropped = %q, want HARNESS_VAULT_KEY kept via --keep-env", kept, dropped)
 	}
 }
+
+// Stale session marker and vault-only pins are dropped; vendor-read *_MODEL names pass through.
+func TestScrubPinNames(t *testing.T) {
+	drop := []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL",
+		"CLAUDE_FABLE_MODEL", "COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE"}
+	keep := []string{"COPILOT_MODEL", "GEMINI_MODEL", "CODEX_MODEL", "OPENCODE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CONFIG_DIR"}
+	var environ []string
+	for _, k := range append(slices.Clone(drop), keep...) {
+		environ = append(environ, k+"=x")
+	}
+	for name, fn := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubVendor": ScrubVendor} {
+		kept, dropped := fn(environ, nil)
+		if !slices.Equal(slices.Sorted(slices.Values(dropped)), slices.Sorted(slices.Values(drop))) || len(kept) != len(keep) {
+			t.Errorf("%s: dropped = %q kept = %q", name, dropped, kept)
+		}
+	}
+}

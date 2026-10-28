@@ -97,3 +97,21 @@ func TestRunningSegmentFiltersByOwner(t *testing.T) {
 		t.Errorf("a foreign-owner or ownerless leg was counted: %q", got)
 	}
 }
+
+// total gains a trailing "+" only while one of this session's dispatch legs runs.
+func TestTotalSegmentPlusWhileLegRuns(t *testing.T) {
+	hermetic(t)
+	var in Input
+	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":812}}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if got := totalSegment(in); got != "total:812" {
+		t.Fatalf("idle = %q, want total:812", got)
+	}
+	writeRunningDispatch(t, "20261024T000002.000-codex", os.Getpid(), inflight.SessionOwner())
+	// runningCounts caches for runningTTL, so drop the stamp the idle call wrote.
+	_ = os.Remove(stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath))
+	if got := totalSegment(in); got != "total:812+" {
+		t.Errorf("running = %q, want total:812+", got)
+	}
+}

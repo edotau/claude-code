@@ -26,29 +26,24 @@ func profileFixture(t *testing.T, active string) {
 	}
 }
 
+// applyProfileRow fills an unset --profile from the agent's <AGENT>_PROFILE pin; a flag wins.
 func TestApplyProfileRow(t *testing.T) {
-	cases := []struct {
-		name                          string
-		active, agent                 string
-		prov, model, eff              string
-		wantProv, wantModel, wantEffo string
-	}{
-		{"no profile", "", "codex", "", "", "", "", "", ""},
-		{"row fills all", "work", "codex", "", "", "", "acme", "acme-large", "high"},
-		{"no row for agent", "work", "api", "", "", "", "", "", ""},
-		{"explicit provider wins, row model skipped", "work", "codex", "openai", "", "", "openai", "", "high"},
-		{"explicit model wins", "work", "codex", "", "mine", "", "acme", "mine", "high"},
-		{"provider:model form left alone", "work", "codex", "", "openai:gpt-5", "", "", "openai:gpt-5", "high"},
-		{"explicit effort wins", "work", "codex", "", "", "low", "acme", "acme-large", "low"},
-		{"provider equal to account takes row model", "work", "codex", "acme", "", "", "acme", "acme-large", "high"},
+	profileFixture(t, "")
+	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, agent, flag, want string }{
+		{"pin fills", "codex", "", "acme"},
+		{"flag wins", "codex", "openai", "openai"},
+		{"no pin for agent", "gemini", "", ""},
+		{"agent without a pin key", "claude", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			profileFixture(t, c.active)
-			p, m, e := c.prov, c.model, c.eff
+			p, m, e := c.flag, "", ""
 			applyProfileRow(c.agent, &p, &m, &e)
-			if p != c.wantProv || m != c.wantModel || e != c.wantEffo {
-				t.Fatalf("got (%q,%q,%q), want (%q,%q,%q)", p, m, e, c.wantProv, c.wantModel, c.wantEffo)
+			if p != c.want || m != "" || e != "" {
+				t.Fatalf("got (%q,%q,%q), want profile %q", p, m, e, c.want)
 			}
 		})
 	}
@@ -57,47 +52,19 @@ func TestApplyProfileRow(t *testing.T) {
 func TestResolveAskChainHubNativeFallback(t *testing.T) {
 	profileFixture(t, "")
 	// acme has no opencodeID: the native runner runs alone, never the hub leg.
-	r, chain, err := resolveAskChain("opencode", "acme", "", "p", agent.FallbackVendors, false, "")
+	r, chain, err := resolveAskChain("opencode", "acme", "", "p", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain(acme) = %v", err)
 	}
-	if len(chain.Legs) != 1 || chain.Legs[0].Runner != r {
+	if len(chain.Legs) != 1 || chain.Legs[0].Agent != r {
 		t.Fatalf("acme: want the native runner alone, got %+v", chain.Legs)
 	}
 	// chatgpt has opencodeID: it still goes through the hub leg.
-	r, chain, err = resolveAskChain("opencode", "chatgpt", "", "p", agent.FallbackVendors, false, "")
+	r, chain, err = resolveAskChain("opencode", "chatgpt", "", "p", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain(chatgpt) = %v", err)
 	}
-	if len(chain.Legs) != 1 || chain.Legs[0].Runner == r {
+	if len(chain.Legs) != 1 || chain.Legs[0].Agent == r {
 		t.Fatalf("chatgpt: want the hub leg, got the native runner")
-	}
-}
-
-const useAcctOverlay = `{"providers":{
-"dbx-dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev"},
-"dbx-prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod"}},
-"profiles":{"active":"","sets":{"DEFAULT":{"session":{"account":"dbx-dev"}}}}}`
-
-func TestProfileUseAccount(t *testing.T) {
-	profileFixture(t, "")
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", useAcctOverlay) }); err != nil {
-		t.Fatal(err)
-	}
-	if code := profileUse([]string{"--account", "dbx-prod", "--dry-run", "DEFAULT"}); code != 0 {
-		t.Fatalf("dry-run exit %d", code)
-	}
-	if reg, _ := providers.Load(); reg.Profiles.Active != "" {
-		t.Fatalf("dry-run activated %q", reg.Profiles.Active)
-	}
-	if code := profileUse([]string{"--account", "dbx-prod", "DEFAULT"}); code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	reg, _ := providers.Load()
-	if reg.Profiles.Active != "DEFAULT" || reg.Profiles.Sets["DEFAULT"]["session"].Account != "dbx-prod" {
-		t.Fatalf("profiles = %+v", reg.Profiles)
-	}
-	if code := profileUse([]string{"--account", "nope", "DEFAULT"}); code == 0 {
-		t.Fatal("unknown account accepted")
 	}
 }

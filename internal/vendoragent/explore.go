@@ -1,6 +1,6 @@
 package vendoragent
 
-// explorePromptBase is the read-only Explore brief shared by every vendor; web is appended when enabled.
+// explorePromptBase is the read-only Explore brief shared by every agent; web is appended when enabled.
 const explorePromptBase = `Read-only: never modify, create or delete a file.
 Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.
 Cite file:line for every claim about the code.`
@@ -26,10 +26,10 @@ func ExplorePrompt(question string, web bool) string {
 	return p + explorePromptTail + question
 }
 
-// ExploreArgs builds the `ask` argv for an explore run: --tools only when the vendor needs it to read.
-func ExploreArgs(vendor, cwd, question string, web, background bool) []string {
-	args := []string{"--agent", vendor, "--workdir", cwd}
-	if a, ok := Lookup(vendor); ok && a.ReadNeedsTools {
+// ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
+func ExploreArgs(agentName, cwd, question string, web, background bool) []string {
+	args := []string{"--agent", agentName, "--workdir", cwd}
+	if a, ok := Lookup(agentName); ok && a.ReadNeedsTools {
 		args = append(args, "--tools")
 	}
 	if background {

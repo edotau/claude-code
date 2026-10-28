@@ -14,30 +14,30 @@ type Check struct {
 	Name, State, Detail string // State: ok | fail | warn
 }
 
-// Report is the full setup result for one vendor.
+// Report is the full setup result for one agent.
 type Report struct {
-	Vendor string
+	Agent  string
 	Checks []Check
 	OK     bool // binary ok && login ok
 }
 
-// Setup runs the binary, login, route and projection checks for a vendor. Text rendering is the caller's job.
+// Setup runs the binary, login, route and projection checks for an agent. Text rendering is the caller's job.
 func Setup(name string) Report {
 	a, ok := Lookup(name)
 	if !ok {
-		return Report{Vendor: name, Checks: []Check{{Name: "vendor", State: "fail", Detail: errUnknownVendor(name).Error()}}}
+		return Report{Agent: name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(name).Error()}}}
 	}
 	binCheck := binaryCheck(a)
 	loginCheck := loginCheck(a)
 	rep := Report{
-		Vendor: name,
+		Agent:  name,
 		Checks: []Check{binCheck, loginCheck, routeCheck(name), projectionCheck(name)},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
 	return rep
 }
 
-// binaryCheck looks up the vendor executable via paths.VendorBin.
+// binaryCheck looks up the agent executable via paths.VendorBin.
 func binaryCheck(a Adapter) Check {
 	p, err := paths.VendorBin(a.Name)
 	if err != nil {
@@ -46,10 +46,10 @@ func binaryCheck(a Adapter) Check {
 	return Check{Name: "binary", State: "ok", Detail: p}
 }
 
-// loginCheck runs the adapter's own-login probe.
+// loginCheck runs the adapter's own CLI login probe.
 func loginCheck(a Adapter) Check {
 	if a.Login == nil || !a.Login() {
-		return Check{Name: "login", State: "fail", Detail: "no " + a.Name + " login found (claude-code vault set / vendor's own login)"}
+		return Check{Name: "login", State: "fail", Detail: "no " + a.Name + " login found (claude-code vault set / agent's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: a.Name + " login present"}
 }
@@ -63,7 +63,7 @@ func routeCheck(name string) Check {
 	return Check{Name: "route", State: "ok", Detail: detail}
 }
 
-// projectionCheck reports whether state/projections/<vendor>/agents has any rendered agents.
+// projectionCheck reports whether state/projections/<agent>/agents has any rendered agents.
 func projectionCheck(name string) Check {
 	dir := crossgen.ProjectionDir(paths.ConfigDir(), name)
 	entries, err := os.ReadDir(dir)

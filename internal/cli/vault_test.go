@@ -33,7 +33,6 @@ func TestCmdVault(t *testing.T) {
 		{"edit extra arg", []string{"edit", "x"}, 2},
 		{"list", []string{"list"}, 0},
 		{"show removed", []string{"show"}, 2},
-		{"migrate is unknown", []string{"migrate"}, 2},
 		{"finalize is unknown", []string{"finalize"}, 2},
 		{"rollback is unknown", []string{"rollback"}, 2},
 		{"rotate-secret extra arg", []string{"rotate-secret", "x"}, 2},
@@ -69,7 +68,7 @@ func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
 
 func TestVaultVerbsAndMenu(t *testing.T) {
 	useVaultTest(t)
-	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
+	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret", "migrate"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}
@@ -470,7 +469,7 @@ func seedVaultListFixture(t *testing.T) {
 	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keepvalue")
 	vaulttest.Put(t, vault.Overlay, "providers",
 		`{"default":"anthropic","fallback":["one","two"],"providers":{"openai":null,"custom":{"models":{"opus":"m1"}}}}`)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{}`)
+	vaulttest.Put(t, vault.Overlay, "agents", `{}`)
 	vaulttest.Put(t, vault.Overlay, "settings", `{"env":{"FOO":"bar"},"flag":true}`)
 	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
 	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-secret-leak-me-not")
@@ -505,8 +504,8 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
-	if strings.Contains(stdout, "VENDORS") {
-		t.Errorf("stdout = %q, want the empty VENDORS overlay hidden from a bare list", stdout)
+	if strings.Contains(stdout, "AGENTS") {
+		t.Errorf("stdout = %q, want the empty AGENTS overlay hidden from a bare list", stdout)
 	}
 	for _, row := range []string{
 		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
@@ -537,7 +536,7 @@ func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault list <sections> = %d, stderr = %q", code, stderr)
 	}
-	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "VENDORS", "SETTINGS"} {
+	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "AGENTS", "SETTINGS"} {
 		if !strings.Contains(stdout, head+"\n  (none)\n") {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}

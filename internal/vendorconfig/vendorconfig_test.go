@@ -13,11 +13,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// writeOverlay isolates CLAUDE_CONFIG_DIR and seeds vault overlay/vendors.
+// writeOverlay isolates CLAUDE_CONFIG_DIR and seeds vault overlay/agents.
 func writeOverlay(t *testing.T, body string) {
 	t.Helper()
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "vendors", body)
+	vaulttest.Put(t, vault.Overlay, "agents", body)
 }
 
 func TestOverlayDocAbsent(t *testing.T) {
@@ -34,7 +34,7 @@ func TestOverlayDocAbsent(t *testing.T) {
 
 // TestLoadMergesOverlayVendorWhole: an overlay vendor entry replaces the built-in whole (no field-level merge).
 func TestLoadMergesOverlayVendorWhole(t *testing.T) {
-	writeOverlay(t, `{"vendors":{"opencode":{"mcp":{"allow":["github"]}}}}`)
+	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["github"]}}}}`)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 
 // TestOverlayNullVendorRemovesIt: "name": null in the overlay deletes the built-in vendor, mirroring providers.Parse.
 func TestOverlayNullVendorRemovesIt(t *testing.T) {
-	writeOverlay(t, `{"vendors":{"gemini":null}}`)
+	writeOverlay(t, `{"agents":{"gemini":null}}`)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 // TestOverlayOmittedGuardRulesKeepsDefaults: an overlay that never mentions guardRules at all keeps
 // the built-in defaults, distinguishing "omitted" from "presented empty".
 func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
-	writeOverlay(t, `{"vendors":{}}`)
+	writeOverlay(t, `{"agents":{}}`)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -161,8 +161,8 @@ func TestMalformedOverlayErrors(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s() with malformed overlay = nil error, want error", name)
 			}
-			if !strings.Contains(err.Error(), "vault overlay/vendors") {
-				t.Fatalf("%s() error = %q, want vault overlay/vendors", name, err)
+			if !strings.Contains(err.Error(), "vault overlay/agents") {
+				t.Fatalf("%s() error = %q, want vault overlay/agents", name, err)
 			}
 		})
 	}
@@ -240,5 +240,25 @@ func TestDefaults(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Guard().Deny = %v, want to contain Bash(rm -rf /)", g.Deny)
+	}
+}
+
+// The overlay key is "agents"; a stale "vendors" overlay is ignored.
+func TestOverlayReadsAgentsNotVendors(t *testing.T) {
+	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["only-agents"]}}}}`)
+	if doc, err := OverlayDoc(); err != nil || !strings.Contains(string(doc), "only-agents") {
+		t.Fatalf("OverlayDoc = %q, %v", doc, err)
+	}
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"gemini":null}}`)
+	if _, err := OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stale vendors overlay read: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Vendors["gemini"]; !ok {
+		t.Error("stale vendors overlay removed gemini")
 	}
 }

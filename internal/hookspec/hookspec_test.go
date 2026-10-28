@@ -29,15 +29,15 @@ func TestIsHarness(t *testing.T) {
 		want    bool
 	}{
 		{HookBin + " hook x", true},
-		{"HARNESS_HOOK_VENDOR=codex " + HookBin + " hook x", true},
-		{"HARNESS_HOOK_VENDOR=vendor_2 " + HookBin + " hook x", true},
+		{"HARNESS_HOOK_AGENT=codex " + HookBin + " hook x", true},
+		{"HARNESS_HOOK_AGENT=vendor_2 " + HookBin + " hook x", true},
 		{"FOO=1 " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_VENDOR=codex orca hook", false},
+		{"HARNESS_HOOK_AGENT=codex orca hook", false},
 		{HookBin + "-other hook x", false},
-		{"HARNESS_HOOK_VENDOR=codex " + HookBin + "-other hook x", false},
-		{"HARNESS_HOOK_VENDOR= " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_VENDOR=codex; " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_VENDOR=codex FOO=1 " + HookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex " + HookBin + "-other hook x", false},
+		{"HARNESS_HOOK_AGENT= " + HookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex; " + HookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex FOO=1 " + HookBin + " hook x", false},
 	} {
 		t.Run(tt.command, func(t *testing.T) {
 			if got := IsHarness(tt.command); got != tt.want {
@@ -63,7 +63,7 @@ func TestCodexJSONVendorMarker(t *testing.T) {
 		for _, group := range groups {
 			for _, hook := range group.Hooks {
 				count++
-				if !strings.HasPrefix(hook.Command, "HARNESS_HOOK_VENDOR=codex $HOME/.claude/bin/claude-code hook ") {
+				if !strings.HasPrefix(hook.Command, "HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook ") {
 					t.Errorf("Codex command missing vendor marker: %q", hook.Command)
 				}
 				if !IsHarness(hook.Command) {

@@ -10,7 +10,7 @@ import (
 
 // TestMain drops the session's provider/model pins: a test must never resolve the developer's live provider.
 func TestMain(m *testing.M) {
-	for _, k := range []string{providers.PinProvider, providers.PinModel} {
+	for _, k := range []string{providers.PinProfile, providers.PinModel} {
 		_ = os.Unsetenv(k)
 	}
 	for _, slot := range models.Slots {

@@ -182,7 +182,7 @@ func ReviewPrompt(adversarial bool, focus string) string {
 // ReviewArgs builds the `ask` argv for a review: the diff lands in state/harness/dispatch/review-*.diff attached
 // via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
 // `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
-func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
+func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
 	dir := agent.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, nil, err
@@ -200,7 +200,7 @@ func ReviewArgs(vendor string, s Scope, diff []byte, adversarial, background boo
 		_ = os.Remove(f.Name()) // best-effort cleanup; the close error is already being returned
 		return nil, nil, err
 	}
-	args := []string{"--agent", vendor, "--fallback", agent.FallbackVendors, "--attach", f.Name()}
+	args := []string{"--agent", agentName, "--fallback", agent.FallbackAgents, "--attach", f.Name()}
 	if background {
 		args = append(args, "--background")
 	}

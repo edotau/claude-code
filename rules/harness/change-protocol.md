@@ -32,13 +32,13 @@ made directly in `settings.json` that is silently erased on the next `make insta
 
    In a linked worktree, follow CLAUDE.md hard rule 4: cwd does not isolate writes.
    `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"` renders that
-   checkout's settings only. With a non-default config dir, `configure --reset` skips vendor configs
-   (including `--check`/`--dry-run`) unless `--vendors` is explicit; that flag still targets
-   live vendor homes. Do not add it to a worktree-only verification.
+   checkout's settings only. With a non-default config dir, `configure --reset` skips agent configs
+   (including `--check`/`--dry-run`) unless `--agents` is explicit; that flag still targets
+   live agent homes. Do not add it to a worktree-only verification.
 
 2. **Agent or command renamed/moved?** Agents are flat at `agents/<name>.md` with `name:`
-   equal to the file stem — a mismatch silently breaks memory resolution. Commands keep their
-   `namespace/command.md` path; a rename breaks every `/namespace:command` reference to it in
+   equal to the file stem — a mismatch silently breaks memory resolution. Commands are flat at
+   `commands/<command>.md`; a rename breaks every `/<command>` reference to it in
    other commands/agents/rules — grep for the old path and update every caller in the same
    commit.
 
@@ -47,7 +47,7 @@ made directly in `settings.json` that is silently erased on the next `make insta
    (`rules/README.md`). Moving a rule breaks any hard-coded cross-reference to its old path —
    grep and fix those in the same commit.
 
-4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate vendor
+4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate agent
    projections with `claude-code agents sync` (for example, `~/.codex/AGENTS.md` and
    `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md`; local renders are under `state/projections/`).
 
@@ -70,7 +70,7 @@ claude-code doctor
 claude-code agents sync --check
 
 # Files generated from a template/skeleton: no unfilled placeholder tokens leaked through
-grep -nE '<(runner|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <generated files>
+grep -nE '<(agent|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <generated files>
 ```
 
 ## Related

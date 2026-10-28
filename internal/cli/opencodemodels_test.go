@@ -29,7 +29,7 @@ func ocMenuEnv(t *testing.T) {
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 	err := providers.SetProviderFields("ocfake", map[string]any{"preset": "databricks", "host": srv.URL,
-		"auth": map[string]any{"authType": "pat"}})
+		"auth": map[string]any{"type":"pat"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +50,13 @@ func menuIDs() []string {
 
 func TestOpencodeMenuAddRefusesUnservedAndForce(t *testing.T) {
 	ocMenuEnv(t)
-	if code, _, stderr := ocMenu(t, "add", "--provider", "ocfake", "bogus-model"); code == 0 || !strings.Contains(stderr, "not served") {
+	if code, _, stderr := ocMenu(t, "add", "--profile", "ocfake", "bogus-model"); code == 0 || !strings.Contains(stderr, "not served") {
 		t.Fatalf("bogus add: code=%d stderr=%q", code, stderr)
 	}
 	if providers.OpencodeMenuFromVault() {
 		t.Fatal("a refused add must not write the vault")
 	}
-	if code, _, stderr := ocMenu(t, "add", "--provider", "ocfake", "databricks-glm-5-2"); code != 0 {
+	if code, _, stderr := ocMenu(t, "add", "--profile", "ocfake", "databricks-glm-5-2"); code != 0 {
 		t.Fatalf("served add: %d %s", code, stderr)
 	}
 	menu := providers.OpencodeMenu()
@@ -64,7 +64,7 @@ func TestOpencodeMenuAddRefusesUnservedAndForce(t *testing.T) {
 	if last.ID != "glm-5-2" || last.Label != "GLM 5.2" || last.Responses || len(menu) != len(providers.DatabricksOpencodeMenu)+1 {
 		t.Errorf("menu tail = %+v (len %d)", last, len(menu))
 	}
-	if code, _, _ := ocMenu(t, "add", "--provider", "ocfake", "--force", "bogus-model=Bogus"); code != 0 {
+	if code, _, _ := ocMenu(t, "add", "--profile", "ocfake", "--force", "bogus-model=Bogus"); code != 0 {
 		t.Fatal("--force must bypass the workspace check")
 	}
 	menu = providers.OpencodeMenu()
@@ -75,7 +75,7 @@ func TestOpencodeMenuAddRefusesUnservedAndForce(t *testing.T) {
 
 func TestOpencodeMenuAddGPTDefaultsResponses(t *testing.T) {
 	ocMenuEnv(t)
-	if code, _, stderr := ocMenu(t, "add", "--provider", "ocfake", "gpt-5-5"); code != 0 {
+	if code, _, stderr := ocMenu(t, "add", "--profile", "ocfake", "gpt-5-5"); code != 0 {
 		t.Fatalf("%d %s", code, stderr)
 	}
 	menu := providers.OpencodeMenu()
@@ -150,7 +150,7 @@ func TestOpencodeMenuListLive(t *testing.T) {
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2"}, {ID: "ghost", Label: "Ghost"}}); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := ocMenu(t, "list", "--live", "--provider", "ocfake", "--format", "json")
+	code, stdout, stderr := ocMenu(t, "list", "--live", "--profile", "ocfake", "--format", "json")
 	if code != 0 {
 		t.Fatalf("%d %s", code, stderr)
 	}
@@ -164,7 +164,7 @@ func TestOpencodeMenuListLive(t *testing.T) {
 	if strings.Contains(stdout+stderr, "dapi-oc-secret") {
 		t.Error("token leaked")
 	}
-	_, text, _ := ocMenu(t, "list", "--live", "--provider", "ocfake")
+	_, text, _ := ocMenu(t, "list", "--live", "--profile", "ocfake")
 	if !strings.Contains(text, "served") || !strings.Contains(text, "missing") {
 		t.Errorf("text list:\n%s", text)
 	}

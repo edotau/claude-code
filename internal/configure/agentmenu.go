@@ -119,9 +119,27 @@ func keyVerified(p *providers.Provider) bool {
 }
 
 // keyPresent reports whether provider name has a stored key.
-func keyPresent(reg *providers.Registry, name string) (*providers.Provider, bool) {
-	p, ok := reg.Providers[name]
-	return p, ok && providers.CredentialPresent(p)
+func keyPresent(reg *providers.Registry, provider string) (*providers.Provider, bool) {
+	p := profileBy(reg, provider, providers.AuthKey)
+	return p, p != nil && providers.CredentialPresent(p)
+}
+
+// profileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
+func profileBy(reg *providers.Registry, provider, method string) *providers.Provider {
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; p.Auth.Method() == method {
+			return p
+		}
+	}
+	return nil
+}
+
+// profileName is p's name, "" for nil.
+func profileName(p *providers.Provider) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name
 }
 
 // signIn runs a vendor's own sign-in CLI after the [y/N] confirm and reports the outcome.
@@ -153,7 +171,7 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 		return agentState{modeSubscription, tier, true}
 	}
 	// BYOK fallback (vendors.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
-	if p, ok := keyPresent(d.reg, anthropicRow); ok {
+	if p, ok := keyPresent(d.reg, anthropicProvider); ok {
 		return agentState{mode: modeAPIKey, verified: keyVerified(p)}
 	}
 	return agentState{mode: modeNone}
@@ -233,7 +251,7 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == vendors.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	pinned := providers.Pin(providers.PinGitHubUser)
+	pinned := providers.Pin(providers.PinCopilotProfile)
 	rows := []billingRow{
 		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -322,7 +340,7 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 		return nil
 	}
 	cur := providers.Pin(providers.PinCopilotContext)
-	desc := "context window tier on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
+	desc := "context window on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", providers.PinCopilotContext, copilotContextChoices, cur)
 	}}
@@ -414,7 +432,7 @@ func copilotKeyRow(d *dialog) billingRow {
 }
 
 // pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
-// only the name, COPILOT_GITHUB_USER — launches fetch the token with `gh auth token --user`.
+// only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
 func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
 	gh := vendors.GHAccounts()
 	if !isStdinTTY() || d.o.In != os.Stdin {
@@ -457,9 +475,9 @@ func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
 	}
 }
 
-// pinGitHubUser writes (or clears, user "") COPILOT_GITHUB_USER in the vault pins.
+// pinGitHubUser writes (or clears, user "") COPILOT_PROFILE in the vault pins.
 func pinGitHubUser(d *dialog, user string) bool {
-	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: user}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: user}); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false
 	}

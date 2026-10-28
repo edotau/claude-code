@@ -8,13 +8,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 var restartPage = helptext.Page{
 	Usage: "claude-code network restart [--dry-run] [--format text|json]",
 	About: "Restart each running harness daemon on the installed binary. Stopped\n" +
-		"daemons are skipped. Covers the router; the memory idle watcher is\n" +
+		"daemons are skipped. Covers the proxy; the memory idle watcher is\n" +
 		"per-session and exits by itself, so it is not restarted.",
 }
 
@@ -54,9 +54,9 @@ func cmdRestart(args []string) int {
 }
 
 func restartRouter(ctx context.Context, dry bool) restartRow {
-	row := restartRow{Daemon: "router"}
+	row := restartRow{Daemon: "proxy"}
 	if dry {
-		st, ok := router.Running(ctx)
+		st, ok := proxy.Running(ctx)
 		if !ok {
 			row.Status, row.Note = "skipped", "not running"
 			return row
@@ -64,7 +64,7 @@ func restartRouter(ctx context.Context, dry bool) restartRow {
 		row.Status, row.OldPID = "would restart", st.PID
 		return row
 	}
-	old, cur, restarted, err := router.Restart(ctx)
+	old, cur, restarted, err := proxy.Restart(ctx)
 	switch {
 	case err != nil:
 		row.Status, row.OldPID, row.Note = "failed", old.PID, err.Error()

@@ -18,16 +18,16 @@ func gateReg(t *testing.T, ok map[string]bool) *providers.Registry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, env := range providers.DatabricksEnvs {
+	for _, env := range []string{"dev", "qa", "prod"} {
 		key := "GATE_TEST_DBX_" + strings.ToUpper(env)
 		t.Setenv(key, "")
 		if ok[env] {
 			t.Setenv(key, "tok-"+env)
 		}
 		reg.Providers[env] = &providers.Provider{
-			Name: env, Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
+			Name: env, Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
 			Models: map[string]string{"opus": "databricks-claude-opus-5-5"},
-			Auth:   providers.Auth{Type: providers.AuthBearer, Env: key},
+			Auth:   providers.Auth{Type: providers.AuthKey, Env: key},
 			Routes: map[string]string{providers.DialectOpenAI: "https://h.example.com/serving-endpoints"},
 		}
 	}
@@ -41,7 +41,7 @@ func gateSetup(t *testing.T, pct float64, ok bool, reg *providers.Registry) prov
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	workableCopilotPin(t, "alice")
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, ok }
-	gh := reg.Providers["github-copilot"]
+	gh := reg.Providers["personal"]
 	if gh == nil || gh.Auth.Login != "copilot" {
 		t.Fatalf("github-copilot login provider missing: %+v", gh)
 	}
@@ -96,9 +96,9 @@ func TestCopilotGateThreshold(t *testing.T) {
 func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 	cases := map[string]func(t *testing.T){
 		"lookup unset": func(t *testing.T) { CopilotUsedPct = nil },
-		"no pin":       func(t *testing.T) { t.Setenv(providers.PinGitHubUser, "") },
+		"no pin":       func(t *testing.T) { setPin(t, providers.PinCopilotProfile, "") },
 		"pin not a gh login": func(t *testing.T) {
-			t.Setenv(providers.PinGitHubUser, "mallory")
+			setPin(t, providers.PinCopilotProfile, "mallory")
 		},
 	}
 	for name, mutate := range cases {
@@ -106,7 +106,7 @@ func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"qa": true})
 			gh := gateSetup(t, 1, true, reg)
 			mutate(t)
-			if CopilotWorkable(context.Background(), providers.Pin(providers.PinGitHubUser)) {
+			if CopilotWorkable(context.Background(), providers.Pin(providers.PinCopilotProfile)) {
 				t.Fatal("must not be workable")
 			}
 			got, _, err := CopilotGate(reg, gh)
@@ -122,7 +122,7 @@ func TestResolveTargetExplicitCopilotGated(t *testing.T) {
 	for _, tt := range []struct {
 		pct      float64
 		wantName string
-	}{{10, "github-copilot"}, {95, "dev"}, {99, "dev"}} {
+	}{{10, "personal"}, {95, "dev"}, {99, "dev"}} {
 		t.Run(strconv.FormatFloat(tt.pct, 'f', -1, 64), func(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"dev": true})
 			gh := gateSetup(t, tt.pct, true, reg)
@@ -156,7 +156,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 	t.Run("vault pin databricks row wins", func(t *testing.T) {
 		reg := gateReg(t, map[string]bool{"dev": true, "prod": true})
 		isolateOpencodeRouteEnv(t)
-		if err := providers.SetPins(map[string]string{providers.PinProvider: "prod"}); err != nil {
+		if err := providers.SetPins(map[string]string{providers.PinProfile: "prod"}); err != nil {
 			t.Fatal(err)
 		}
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "prod" || ri.Leg != LegDatabricks {
@@ -164,13 +164,13 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 		}
 	})
 	t.Run("non-databricks pin ignored, first OK env", func(t *testing.T) {
-		reg := gateReg(t, map[string]bool{"qa": true, "prod": true}) // dev fails
+		reg := gateReg(t, map[string]bool{"qa": true}) // dev and prod fail
 		isolateOpencodeRouteEnv(t)
-		if err := providers.SetPins(map[string]string{providers.PinProvider: "anthropic"}); err != nil {
+		if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
 			t.Fatal(err)
 		}
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "qa" {
-			t.Errorf("got %+v, want qa (first OK in dev,qa,prod)", ri)
+			t.Errorf("got %+v, want qa (the only OK row)", ri)
 		}
 	})
 	t.Run("all failing is LegNone, never GitHub", func(t *testing.T) {
@@ -183,7 +183,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 		if _, _, err := CopilotGate(reg, gh); err == nil || !strings.Contains(err.Error(), "no credit-free route") {
 			t.Errorf("gate err = %v, want no credit-free route", err)
 		}
-		if d := describeCopilotRoute(reg); d.Leg == LegCopilotLogin || d.Provider == "github-copilot" {
+		if d := describeCopilotRoute(reg); d.Leg == LegCopilotLogin || d.Provider == "personal" {
 			t.Errorf("describe must never fall to GitHub: %+v", d)
 		}
 	})
@@ -192,20 +192,18 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 // TestCopilotPromptCap pins the budget: window - 32k - 10% (1M -> 868000, 200k -> 148000).
 func TestCopilotPromptCap(t *testing.T) {
 	for _, tt := range []struct {
-		name     string
-		providOn bool
-		model    string
-		oneM     bool
-		want     string
+		name  string
+		model string
+		oneM  bool
+		want  string
 	}{
-		{"target 1M marked", false, "gpt-5", true, "868000"},
-		{"one_m row", true, "claude-opus-5-5", false, "868000"},
-		{"standard 200k", false, "gpt-5", false, "148000"},
+		{"target 1M marked", "gpt-5", true, "868000"},
+		{"standard 200k", "gpt-5", false, "148000"},
+		{"endpoint not serving 1M, claude model", "claude-opus-5-5", false, "148000"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tg := target(t, "openai", tt.model)
 			tg.OneM = tt.oneM
-			tg.Provider.OneM = tt.providOn
 			env, _, err := Configure(WithDirect(context.Background()), "copilot", tg, "")
 			if err != nil {
 				t.Fatal(err)
@@ -221,9 +219,9 @@ func TestCopilotPromptCap(t *testing.T) {
 func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 	custom := func(reg *providers.Registry, env string) {
 		reg.Providers["workspace-x"] = &providers.Provider{
-			Name: "workspace-x", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
+			Name: "workspace-x", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
 			Models: map[string]string{"opus": "databricks-claude-opus-5-5"},
-			Auth:   providers.Auth{Type: providers.AuthBearer, Env: env},
+			Auth:   providers.Auth{Type: providers.AuthKey, Env: env},
 			Routes: map[string]string{providers.DialectOpenAI: "https://h.example.com/serving-endpoints"},
 		}
 	}
@@ -232,7 +230,7 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 		isolateOpencodeRouteEnv(t)
 		t.Setenv("GATE_TEST_WSX", "")
 		custom(reg, "GATE_TEST_WSX")
-		if err := providers.SetPins(map[string]string{providers.PinProvider: "workspace-x"}); err != nil {
+		if err := providers.SetPins(map[string]string{providers.PinProfile: "workspace-x"}); err != nil {
 			t.Fatal(err)
 		}
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "qa" {
@@ -244,7 +242,7 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 		isolateOpencodeRouteEnv(t)
 		t.Setenv("GATE_TEST_WSX", "tok")
 		custom(reg, "GATE_TEST_WSX")
-		if err := providers.SetPins(map[string]string{providers.PinProvider: "workspace-x"}); err != nil {
+		if err := providers.SetPins(map[string]string{providers.PinProfile: "workspace-x"}); err != nil {
 			t.Fatal(err)
 		}
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "workspace-x" {

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
@@ -55,14 +55,15 @@ func hiddenPrompt(name string) (string, error) {
 
 // For returns the sign-in for p's kind.
 func For(p *providers.Provider) Signin {
+	m := p.Auth.Method()
 	switch {
-	case p.Auth.Type == providers.AuthNone:
+	case m == providers.AuthNone:
 		return none{p}
-	case p.Auth.Type == providers.AuthPassthrough && p.Auth.Login == "":
+	case m == providers.AuthCLI && p.Auth.Login == "":
 		return claude{}
-	case p.Auth.Type == providers.AuthPassthrough || p.Auth.Login != "":
+	case m == providers.AuthCLI || p.Auth.Login != "":
 		return vendor{p.Auth.Login}
-	case p.Auth.AuthType == providers.AuthU2M || (p.Preset == providers.PresetDatabricks && p.Auth.AuthType == ""):
+	case m == providers.AuthOAuth || (p.Preset == providers.PresetDatabricks && m == ""):
 		return u2m{p}
 	}
 	return secret{p}
@@ -70,10 +71,15 @@ func For(p *providers.Provider) Signin {
 
 // ValidateSecret rejects a value that cannot be the named credential (shared with `vault set`).
 func ValidateSecret(name, value string) error {
-	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(value) {
+	if isGitHubToken(name) && !vendors.ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return tailscale.ValidCredential(name, value)
+}
+
+// isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
+func isGitHubToken(name string) bool {
+	return name == vendors.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
 }
 
 type u2m struct{ p *providers.Provider }
@@ -88,7 +94,7 @@ func (s u2m) Check(ctx context.Context) (providers.AuthVerdict, string) {
 		}
 		return v, ""
 	case providers.VerdictTransient:
-		if s.p.Auth.AuthType == "" && s.p.CLIProfile != "" { // the CLI mint cannot tell offline from expired
+		if !s.p.Auth.Sealed() && s.p.CLIProfile != "" { // the CLI mint cannot tell offline from expired
 			return v, fmt.Sprintf("%v; if the CLI login expired: databricks auth login -p %s", err, s.p.CLIProfile)
 		}
 		return v, err.Error()
@@ -97,7 +103,7 @@ func (s u2m) Check(ctx context.Context) (providers.AuthVerdict, string) {
 }
 
 func (s u2m) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
-	if s.p.Auth.AuthType == "" { // cliProfile row: LoginRow would switch it to u2m in the vault
+	if !s.p.Auth.Sealed() { // cliProfile row: LoginRow would switch it to u2m in the vault
 		return fmt.Errorf("%s uses the databricks CLI profile; run `databricks auth login -p %s`", s.p.Name, s.p.CLIProfile)
 	}
 	return loginRow(ctx, s.p.Name, out)
@@ -107,7 +113,7 @@ func (s u2m) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
 type secret struct{ p *providers.Provider }
 
 func (s secret) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	if s.p.Auth.AuthType != "" {
+	if s.p.Auth.Sealed() {
 		if _, err := providers.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
 			return providers.VerdictTransient, "vault: " + err.Error()
 		}
@@ -123,7 +129,7 @@ func (s secret) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if v == providers.VerdictTransient {
 		return v, err.Error()
 	}
-	if v == providers.VerdictOK && s.p.Auth.AuthType == "" {
+	if v == providers.VerdictOK && !s.p.Auth.Sealed() {
 		return v, "key present, not validated"
 	}
 	return v, ""
@@ -157,7 +163,7 @@ func (s secret) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 	if err := storeSecret(name, v); err != nil {
 		return err
 	}
-	_ = route.ClearProviderAuth(s.p.Name) // best-effort: the TTL backstops a missed clear
+	_ = router.ClearProviderAuth(s.p.Name) // best-effort: the TTL backstops a missed clear
 	return nil
 }
 

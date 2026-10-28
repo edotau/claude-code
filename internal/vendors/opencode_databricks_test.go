@@ -12,8 +12,9 @@ import (
 type ocProv struct {
 	NPM     string `json:"npm"`
 	Options struct {
-		BaseURL string `json:"baseURL"`
-		APIKey  string `json:"apiKey"`
+		BaseURL string            `json:"baseURL"`
+		APIKey  string            `json:"apiKey"`
+		Headers map[string]string `json:"headers"`
 	} `json:"options"`
 	Models map[string]struct {
 		Name string `json:"name"`

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.
 func quotaDoctorRows(now time.Time) []Check {
-	st := route.LoadState()
+	st := router.LoadState()
 	keys := make([]string, 0, len(st))
 	for k := range st {
 		keys = append(keys, k)
@@ -21,7 +21,7 @@ func quotaDoctorRows(now time.Time) []Check {
 	for _, k := range keys {
 		e := st[k]
 		s := e.Status(now)
-		if s != route.StateExhausted && s != route.StateLow {
+		if s != router.StateExhausted && s != router.StateLow {
 			continue
 		}
 		d := fmt.Sprintf("%s at %.0f%%", s, e.UsedPct)
@@ -38,10 +38,10 @@ func quotaDoctorRows(now time.Time) []Check {
 // quotaFix is the manual remedy; the router itself never changes accounts.
 func quotaFix(key string) string {
 	switch {
-	case strings.HasPrefix(key, "copilot:"):
+	case strings.HasPrefix(key, "github·"):
 		return "routed around; `claude-code configure github` is the only way to change the Copilot account"
-	case strings.HasPrefix(key, "opencode:"):
+	case strings.HasPrefix(key, "opencode·"):
 		return "routed around; `opencode auth login` changes opencode's login"
 	}
-	return "routed around until the reset; `claude-code gateway route` shows the pick"
+	return "routed around until the reset; `claude-code gateway router` shows the pick"
 }

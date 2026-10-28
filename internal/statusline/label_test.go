@@ -16,7 +16,7 @@ func labelRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Providers["databricks-qa"] = &providers.Provider{Name: "databricks-qa", Preset: providers.PresetDatabricks}
+	reg.Providers["qa"] = &providers.Provider{Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }
@@ -26,17 +26,16 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	for name, want := range map[string]string{
-		"subscription":   "anthropic",
-		"anthropic":      "anthropic",
-		"databricks-qa":  "databricks·qa",
-		"chatgpt":        "openai·chatgpt",
-		"github-copilot": "github·copilot",
-		"gemini":         "google·gemini",
-		"nvidia":         "opensource·nvidia",
-		"ollama":         "opensource·ollama",
-		"openai":         "openai",
-		"corp-prod":      "corp·prod", // unknown row: <family>-<env> fallback
-		"mystery":        "mystery",   // unknown row, no env suffix
+		"max":         "anthropic·max",
+		"anthropic":   "anthropic",
+		"qa":          "databricks·qa",
+		"chatgpt":     "openai·chatgpt",
+		"personal":    "github·personal",
+		"antigravity": "google·antigravity",
+		"nvidia":      "nvidia",
+		"openai":      "openai",
+		"corp-prod":   "corp-prod", // unknown row: unchanged
+		"mystery":     "mystery",   // unknown row, no env suffix
 	} {
 		if got := providerLabel(name); got != want {
 			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
@@ -69,13 +68,13 @@ func renderPayload(t *testing.T, model string) string {
 func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
-	vaulttest.Put(t, vault.Pins, providers.PinProvider, "ollama")
-	t.Setenv("HARNESS_PROVIDER", "databricks-qa")
-	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "ollama") {
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "antigravity")
+	t.Setenv(providers.EnvSessionProfile, "qa")
+	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "antigravity") {
 		t.Errorf("env session label: %q", got)
 	}
-	vaulttest.Put(t, vault.Pins, providers.PinProvider, "gemini") // the other session switches again
-	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "gemini") {
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "openai") // the other session switches again
+	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "openai") {
 		t.Errorf("label moved with the pin: %q", got)
 	}
 }
@@ -83,7 +82,7 @@ func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 func TestLabelProviderBeforeModel(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
-	t.Setenv("HARNESS_PROVIDER", "databricks-qa")
+	t.Setenv(providers.EnvSessionProfile, "qa")
 	got := renderPayload(t, "claude-opus-5")
 	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "Opus 5")
 	if p < 0 || m < 0 || p > m {
@@ -91,21 +90,20 @@ func TestLabelProviderBeforeModel(t *testing.T) {
 	}
 }
 
-// L10: only subscription/anthropic collapse to bare "anthropic"; other anthropic-family rows keep their profile.
+// L10: only the profile named for its provider collapses to bare "anthropic"; other anthropic-family rows keep their profile.
 func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
 	hermetic(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", BaseURL: "https://api.anthropic.com", Kind: providers.DialectAnthropic}
-	reg.Providers["acme"] = &providers.Provider{Name: "acme", BaseURL: "https://gw.anthropic.com", Kind: providers.DialectAnthropic}
+	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", Provider: "anthropic", BaseURL: "https://api.anthropic.com", Kind: providers.DialectAnthropic}
+	reg.Providers["acme"] = &providers.Provider{Name: "acme", Provider: "anthropic", BaseURL: "https://gw.anthropic.com", Kind: providers.DialectAnthropic}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }
 	for name, want := range map[string]string{
-		"subscription": "anthropic", "anthropic": "anthropic",
-		"anthropic-work": "anthropic·work", "acme": "anthropic·acme",
+		"anthropic": "anthropic", "anthropic-work": "anthropic·anthropic-work", "acme": "anthropic·acme",
 	} {
 		if got := providerLabel(name); got != want {
 			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)

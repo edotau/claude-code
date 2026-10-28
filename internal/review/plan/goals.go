@@ -90,7 +90,7 @@ var (
 	findingsRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
 	})
-	codeTaskRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\brunner:|\.go\b`) })
+	codeTaskRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bagent:|\.go\b`) })
 )
 
 // runnerNames head runner alternatives like `(codex/copilot)`, which are not package paths.

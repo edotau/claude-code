@@ -5,16 +5,6 @@ import (
 	"testing"
 )
 
-func TestRetiredAuthTypesRejected(t *testing.T) {
-	for _, old := range []string{"databricks-cli", "m2m", "cli-profile", "external-browser", "SAML"} {
-		errs := strings.Join(validateAuthType("x", kindRow(old, "", AuthBearer)), ";")
-		want := `authType "` + old + `" not supported (supported: u2m, oauth-m2m, pat)`
-		if !strings.Contains(errs, want) {
-			t.Errorf("%s: errs %q, want %q", old, errs, want)
-		}
-	}
-}
-
 func TestAccountAndWorkspaceIDValidation(t *testing.T) {
 	cases := []struct{ acct, ws, want string }{
 		{"", "", ""},
@@ -24,7 +14,7 @@ func TestAccountAndWorkspaceIDValidation(t *testing.T) {
 		{"", "12ab", "auth.workspaceId"},
 	}
 	for _, c := range cases {
-		p := kindRow("", "", AuthBearer)
+		p := kindRow("", "", AuthKey)
 		p.Auth.AccountID, p.Auth.WorkspaceID = c.acct, c.ws
 		errs := strings.Join(validateAuthType("x", p), ";")
 		if c.want == "" && errs != "" || c.want != "" && !strings.Contains(errs, c.want) {
@@ -43,12 +33,12 @@ func TestValidIDShape(t *testing.T) {
 
 func TestClientIDInjectionRejected(t *testing.T) {
 	for _, id := range []string{"a\nb", "a\rb", "a[b", "a=b"} {
-		p := kindRow(AuthOAuthM2M, id, AuthBearer)
+		p := kindRow(AuthM2M, id, AuthKey)
 		if errs := strings.Join(validateAuthType("x", p), ";"); !strings.Contains(errs, "auth.clientId must not contain") {
 			t.Errorf("clientId %q: errs %q", id, errs)
 		}
 	}
-	if errs := validateAuthType("x", kindRow(AuthOAuthM2M, "sp-client", AuthBearer)); len(errs) != 0 {
+	if errs := validateAuthType("x", kindRow(AuthM2M, "sp-client", AuthKey)); len(errs) != 0 {
 		t.Errorf("clean clientId rejected: %v", errs)
 	}
 }

@@ -14,7 +14,7 @@ func wireProvider(t *testing.T, opts string) *Provider {
 }
 
 func TestWireGatewayDerivation(t *testing.T) {
-	p := wireProvider(t, `, "options": {"wire": "gateway"}`)
+	p := wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
 	if p.BaseURL != wireHost+"/ai-gateway/anthropic" {
 		t.Errorf("BaseURL = %q", p.BaseURL)
 	}
@@ -64,7 +64,7 @@ func TestWireUnknownRejected(t *testing.T) {
 
 func TestWireModelPrefixThenDots(t *testing.T) {
 	serving := wireProvider(t, ``)
-	gateway := wireProvider(t, `, "options": {"wire": "gateway"}`)
+	gateway := wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
 	cases := []struct {
 		p        *Provider
 		in, want string
@@ -91,7 +91,7 @@ func TestWireModelsStored(t *testing.T) {
 
 func TestWireNonPresetUntouched(t *testing.T) {
 	p := Provider{ModelPrefix: "x."}
-	if got := p.WireModel("gpt-5.5"); got != "x.gpt-5.5" {
+	if got := p.WireModel("gpt-5.5"); got != "gpt-5.5" {
 		t.Errorf("non-preset WireModel = %q", got)
 	}
 }

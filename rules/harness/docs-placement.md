@@ -15,7 +15,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 
 | Artifact | Path | Producer |
 | --- | --- | --- |
-| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-template` gates the native undated draft's first Write; `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
+| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `docs-placement` gates the native undated draft's first Write (the plan-template check); `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
 | Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` (home bank for cross-repo, the repo's own bank for one repo) | hand-curated, reviewed |
@@ -36,9 +36,9 @@ filed with the approval date.
 - **Root anchors** — `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `LICENSE.md`,
   `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. A repo's own
   `AGENTS.md`/`GEMINI.md` belong at its root (Codex/Gemini/Copilot read them there). The harness itself keeps
-  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into each vendor's global file —
+  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into each agent's global file —
   `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md` (local copies in
-  `state/projections/<vendor>/`) — plus
+  `state/projections/<agent>/`) — plus
   `agents/*.md` into `~/.codex/agents/*.toml`, `~/.copilot/agents/*.md`, `~/.gemini/agents/*.md`,
   `~/.config/opencode/agents/*.md`, and symlinks `skills/<name>/` into `~/.agents/skills` (never copies).
   Nothing lands at this repo's root: Claude Code would load a root `AGENTS.md`/`GEMINI.md` as a second CLAUDE.md.
@@ -49,7 +49,7 @@ filed with the approval date.
   exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
   is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
 - **State, not docs** — the memory store (its own local git repo, `knowledge/` included), `state/projections/`
-  (per-vendor agent renders from `agents sync`; `clean --target projections` sweeps them) and the rest of
+  (per-agent renders from `agents sync`; `clean --target projections` sweeps them) and the rest of
   `state/harness/`. This repo's `docs/` holds only `images/` and `templates/` (the embedded-template reference,
   `docs/templates/README.md`).
 

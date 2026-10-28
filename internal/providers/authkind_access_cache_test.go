@@ -22,24 +22,35 @@ func u2mMint(t *testing.T, name string) (*Provider, *atomic.Int32, string) {
 		hits.Add(1)
 		return 200, map[string]any{"access_token": minted, "expires_in": 3600}
 	})
-	p := mintRow(t, name, AuthU2M, "", srv.URL)
-	if err := SealSecret(AuthSecretName(p), "refresh-1"); err != nil {
-		t.Fatal(err)
-	}
+	p := mintRow(t, name, AuthOAuth, "", srv.URL)
+	putOAuth(t, p, oauthValue{Refresh: "refresh-1"})
 	return p, &hits, minted
 }
 
 func sealedAccessValue(p *Provider) string {
-	v, _, _ := EffectiveSecret(AccessCacheName(p.Name))
-	return v
+	ov, _ := readOAuth(p)
+	return ov.Access
+}
+
+// putOAuth seals ov as p's one oauth value; putAccess sets only its access token, keeping the refresh.
+func putOAuth(t *testing.T, p *Provider, ov oauthValue) {
+	t.Helper()
+	if err := writeOAuth(p, ov); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func putAccess(t *testing.T, p *Provider, tok string) {
+	t.Helper()
+	ov, _ := readOAuth(p)
+	ov.Access = tok
+	putOAuth(t, p, ov)
 }
 
 func TestU2MSealedAccessHitMakesNoNetworkCall(t *testing.T) {
 	p, hits, _ := u2mMint(t, "ac-hit")
 	cached := jwtExpIn(time.Hour, "https://x")
-	if err := SealSecret(AccessCacheName(p.Name), cached); err != nil {
-		t.Fatal(err)
-	}
+	putAccess(t, p, cached)
 	cmdCache.Delete(p.Name)
 	got, err := Credential(context.Background(), p)
 	if err != nil || got != cached {
@@ -54,9 +65,7 @@ func TestU2MExpiredOrNearExpiryCacheReMintsAndReSeals(t *testing.T) {
 	for name, d := range map[string]time.Duration{"expired": -time.Hour, "near-expiry": expiryMargin / 2} {
 		t.Run(name, func(t *testing.T) {
 			p, hits, minted := u2mMint(t, "ac-stale-"+name)
-			if err := SealSecret(AccessCacheName(p.Name), jwtExpIn(d, "https://x")); err != nil {
-				t.Fatal(err)
-			}
+			putAccess(t, p, jwtExpIn(d, "https://x"))
 			cmdCache.Delete(p.Name)
 			got, err := Credential(context.Background(), p)
 			if err != nil || got != minted {
@@ -74,9 +83,7 @@ func TestU2MExpiredOrNearExpiryCacheReMintsAndReSeals(t *testing.T) {
 
 func TestU2MForceBypassesSealedAccess(t *testing.T) {
 	p, hits, minted := u2mMint(t, "ac-force")
-	if err := SealSecret(AccessCacheName(p.Name), jwtExpIn(time.Hour, "https://old")); err != nil {
-		t.Fatal(err)
-	}
+	putAccess(t, p, jwtExpIn(time.Hour, "https://old"))
 	cmdCache.Delete(p.Name)
 	got, err := Refresh(context.Background(), p)
 	if err != nil || got != minted || hits.Load() != 1 {
@@ -91,7 +98,7 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 		return 200, map[string]any{"access_token": jwtExpIn(time.Hour, "https://x"), "expires_in": 3600}
 	})
-	p := mintRow(t, "ac-m2m", AuthOAuthM2M, "sp-client", srv.URL)
+	p := mintRow(t, "ac-m2m", AuthM2M, "sp-client", srv.URL)
 	if err := SealSecret(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +109,7 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	if v := sealedAccessValue(p); v != "" {
-		t.Errorf("m2m wrote %s = %q", AccessCacheName(p.Name), v)
+		t.Errorf("m2m wrote %s = %q", AuthSecretName(p), v)
 	}
 }
 
@@ -111,7 +118,7 @@ func TestU2MSealFailureStillReturnsMintedToken(t *testing.T) {
 	prev := sealer
 	t.Cleanup(func() { sealer = prev })
 	RegisterSealer(func(name, value string) error {
-		if name == AccessCacheName(p.Name) {
+		if name == AuthSecretName(p) {
 			return context.DeadlineExceeded
 		}
 		return prev(name, value)
@@ -128,7 +135,7 @@ func TestU2MSealFailureStillReturnsMintedToken(t *testing.T) {
 func TestLoginU2MSealsAccessToken(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "ac-login", AuthU2M, "", srv.URL)
+	p := mintRow(t, "ac-login", AuthOAuth, "", srv.URL)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -153,5 +160,17 @@ func TestLoginU2MSealsAccessToken(t *testing.T) {
 	}
 	if v := sealedAccessValue(p); v != "login-access" {
 		t.Errorf("sealed access = %q, want login-access", v)
+	}
+}
+
+// sealFor seals secret the way p's method stores it: u2m as the refresh of the oauth value, the rest under their name.
+func sealFor(t *testing.T, p *Provider, secret string) {
+	t.Helper()
+	if p.Auth.Type == AuthOAuth {
+		putOAuth(t, p, oauthValue{Refresh: secret})
+		return
+	}
+	if err := SealSecret(AuthSecretName(p), secret); err != nil {
+		t.Fatal(err)
 	}
 }

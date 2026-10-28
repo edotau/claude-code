@@ -33,6 +33,7 @@ func NextSlot(slot string) string {
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000
+	// Deprecated: removed in Phase 4 (use Wire("databricks-serving", id)).
 	// DatabricksPrefix turns a canonical id into a Databricks serving-endpoint id.
 	DatabricksPrefix = "databricks-"
 	thinkingStd      = "31999"
@@ -40,9 +41,9 @@ const (
 )
 
 // Tolerates vendor prefixes like "anthropic/", "us.anthropic." (Bedrock) or "databricks-" (serving) before "claude-".
-var claudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?`)
+var claudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?(?:-(\d{8}))?`)
 
-// ParseClaudeID extracts (family, major, minor); a >2-digit trailing group is a date stamp, not a minor.
+// ParseClaudeID extracts (family, major, minor) from dashed or dotted ids; a >2-digit trailing group is a date stamp, not a minor.
 func ParseClaudeID(id string) (family string, major, minor int, ok bool) {
 	m := claudeRE.FindStringSubmatch(Strip1M(id))
 	if m == nil {
@@ -59,17 +60,6 @@ func atLeast(major, minor, wantMajor, wantMinor int) bool {
 	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }
 
-// MaybeAdd1M appends Claude Code's [1m] marker for opus/sonnet >= 4.6; the client swaps it for the 1M beta header.
-func MaybeAdd1M(id string) string {
-	if strings.HasSuffix(id, "[1m]") {
-		return id
-	}
-	if f, maj, min, ok := ParseClaudeID(id); ok && (f == Opus || f == Sonnet) && atLeast(maj, min, 4, 6) {
-		return id + "[1m]"
-	}
-	return id
-}
-
 // Strip1M removes the client-only [1m] marker; no upstream accepts it on the wire.
 func Strip1M(id string) string { return strings.TrimSuffix(id, "[1m]") }
 
@@ -83,6 +73,7 @@ func hasFamilyDash(s string) bool {
 	return i > 0 && isFamily(s[:i])
 }
 
+// Deprecated: removed in Phase 4 (use Resolve).
 // Canonical reduces a typed model id to the plain Claude id and reports a trailing [1m]; non-Claude ids pass through.
 func Canonical(id string) (base string, oneM bool) {
 	id = strings.TrimSpace(id)
@@ -110,9 +101,12 @@ func Canonical(id string) (base string, oneM bool) {
 	return id, oneM
 }
 
-// ContextWindow is 1M for [1m]-marked ids, else 200K.
+// ContextWindow is 1M for a catalog Claude model or a [1m]-marked id, else 200K.
 func ContextWindow(id string) int {
 	if strings.HasSuffix(id, "[1m]") {
+		return ContextWindow1M
+	}
+	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" && inCatalog(canonical) {
 		return ContextWindow1M
 	}
 	return ContextWindowStd
@@ -223,3 +217,5 @@ func containsAny(s string, subs ...string) bool {
 	}
 	return false
 }
+
+func inCatalog(canonical string) bool { _, ok := Lookup(canonical); return ok }

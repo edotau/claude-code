@@ -34,17 +34,3 @@ func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 		t.Errorf("benign DATA_PATH was redacted:\n%s", out)
 	}
 }
-
-func TestSessionSelectionKeepsRowAccountOnPrefixedModel(t *testing.T) {
-	profileFixtureLaunch(t, "w", `{"account":"gw","models":{"sonnet":"m-son"}}`)
-	_, sel, applied, err := sessionSelection(Options{Model: "plain:other"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sel.Provider == nil || sel.Provider.Name != "gw" || applied != "w" {
-		t.Fatalf("provider %v applied %q, want gw / w", sel.Provider, applied)
-	}
-	if got := sel.Slots["sonnet"].Model; got != "m-son" {
-		t.Errorf("sonnet slot = %q, want m-son", got)
-	}
-}

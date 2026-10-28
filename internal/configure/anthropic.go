@@ -11,9 +11,9 @@ import (
 // The anthropic picker row stands for both first-party billing modes: the subscription OAuth login
 // (passthrough provider) and a pay-per-token API key (the anthropic provider).
 const (
-	anthropicRow     = "anthropic"
-	subscriptionName = "subscription"
-	anthropicKeyEnv  = "ANTHROPIC_API_KEY"
+	anthropicRow      = "anthropic"
+	anthropicProvider = "anthropic"
+	anthropicKeyEnv   = "ANTHROPIC_API_KEY"
 )
 
 // firstParty memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
@@ -35,7 +35,7 @@ func (f *firstParty) login() (loggedIn bool, plan string) {
 
 func (f *firstParty) key() bool {
 	if !f.keyDone {
-		if p := f.reg.Providers[anthropicRow]; p != nil {
+		if p := profileBy(f.reg, anthropicProvider, providers.AuthKey); p != nil {
 			f.keyOK = providers.CredentialPresent(p)
 		}
 		f.keyDone = true
@@ -65,16 +65,16 @@ func claudeMenu(d *dialog) agentMenu {
 					return false
 				}
 			}
-			return keepOrPin(d, cur, subscriptionName)
+			return keepOrPin(d, cur, profileName(profileBy(d.reg, anthropicProvider, providers.AuthCLI)))
 		}},
 		{"API key", "pay per token · paste to set or rotate · no RC " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code vault set " + anthropicKeyEnv,
-				provider: fp.reg.Providers[anthropicRow]}
+				provider: profileBy(fp.reg, anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {
-				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(cur))
+				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(d.reg, cur))
 				return false
 			}
-			return keepOrPin(d, cur, anthropicRow)
+			return keepOrPin(d, cur, profileName(profileBy(d.reg, anthropicProvider, providers.AuthKey)))
 		}},
 		{"Login", "claude auth login · browser sign-in, refreshes the session", "", func() bool {
 			return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
@@ -88,18 +88,22 @@ func claudeMenu(d *dialog) agentMenu {
 
 // claudeState is the pinned backend's mode and check; a non-anthropic pin shows by name.
 func claudeState(d *dialog, fp *firstParty, cur, tier string) agentState {
-	switch cur {
-	case subscriptionName:
+	p, err := d.reg.Get(cur)
+	if err != nil {
+		return agentState{mode: billingLabel(d.reg, cur), verified: false}
+	}
+	switch {
+	case p.Provider == anthropicProvider && p.Auth.Method() == providers.AuthCLI:
 		ok, _ := fp.login()
 		return agentState{modeSubscription, tier, ok}
-	case anthropicRow:
-		return agentState{mode: modeAPIKey, verified: fp.key() && keyVerified(d.reg.Providers[anthropicRow])}
-	case "chatgpt":
-		return agentState{mode: billingLabel(cur), verified: vendors.CodexChatGPTLoginPresent()}
-	case "github-copilot":
-		return agentState{mode: billingLabel(cur), verified: vendors.CopilotLoginPresent()}
+	case p.Provider == anthropicProvider:
+		return agentState{mode: modeAPIKey, verified: fp.key() && keyVerified(p)}
+	case p.Auth.Login == "codex":
+		return agentState{mode: billingLabel(d.reg, cur), verified: vendors.CodexChatGPTLoginPresent()}
+	case p.Auth.Login == "copilot":
+		return agentState{mode: billingLabel(d.reg, cur), verified: vendors.CopilotLoginPresent()}
 	}
-	return agentState{mode: billingLabel(cur), verified: keyVerified(d.reg.Providers[cur])}
+	return agentState{mode: billingLabel(d.reg, cur), verified: keyVerified(p)}
 }
 
 // keepOrPin pins name unless it is already the session provider.
@@ -125,11 +129,11 @@ func switchConfirmed(d *dialog, cur, name string) bool {
 }
 
 // billingLabel names cur as the picker shows it.
-func billingLabel(cur string) string {
-	switch cur {
-	case subscriptionName:
-		return "subscription"
-	case anthropicRow:
+func billingLabel(reg *providers.Registry, cur string) string {
+	if p, err := reg.Get(cur); err == nil && p.Provider == anthropicProvider {
+		if p.Auth.Method() == providers.AuthCLI {
+			return "subscription"
+		}
 		return "API key"
 	}
 	return cur + " (not anthropic)"

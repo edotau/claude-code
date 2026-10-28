@@ -44,11 +44,11 @@ orchestration layer — leaves are terminal and never fan out further.
 | Design/plan | `Plan` agent (`agents/Plan.md`) — `problem-solving` Steps 0-3 (classify, define done, gather evidence, decide) feed its template; trivial/single-file work skips the plan, say so and implement directly |
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
 | Security deep-dive | `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection yourself |
-| Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; full final pass → `codex` (`claude-code codex ask --tools`, briefed with that file) |
-| New test coverage | `copilot` TEST mode, dispatched in the SAME message as you, after the live check |
+| Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
+| New test coverage | `copilot` TEST mode (`rules/standards/quality.md` → every code dispatch carries a test agent) |
 | One leaf task | `code-worker` |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
-| A whole pipeline — implement+verify, audit a range, loop a gate, a vendor leg as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
+| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look
 for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a
@@ -70,8 +70,7 @@ For system architecture choices, use `skills/architecture-design/SKILL.md`.
 
 Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the minimal code that
 satisfies the requirement — no speculative flexibility, no error handling for impossible states.
-Add/update tests for new/changed behavior (NEW coverage is `copilot`'s job, dispatched in the same
-message, written after the live check).
+Add/update tests for new/changed behavior (NEW coverage is `copilot`'s job: `rules/standards/quality.md`).
 
 **Tests travel with the code that necessitates them — never a trailing "test migration" phase.** A
 change that renames a symbol, moves a module, or alters a signature MUST update every test it breaks
@@ -108,7 +107,7 @@ Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are
 `skills/subagent-workflows/SKILL.md` (pick the shape),
 `skills/subagent-workflows/references/lane-orchestrator.md` (handed a lane plan). Saved Workflows
 (`code-engineer`, `code-analyzer`, `green-keeper-loop`) run only when the user asks. Concurrency
-tiers and effort/model escalation: `rules/workflow/agents.md`.
+caps and effort/model escalation: `rules/workflow/agents.md`.
 
 ## Report contract
 
@@ -123,13 +122,11 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 ## Don't
 
 - **Security deep-dive** → `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection.
-- **Full verification gate loop** (format → lint → test → security) → `codex` (`claude-code codex ask
-  --tools` + `skills/problem-solving/references/verify.md`); `Workflow green-keeper-loop` only when the user
-  asks for it.
-- **New test coverage** → `copilot` (TEST mode), dispatched alongside the implementer, written after
-  the live check.
-- **Full build + full test suite + security scan** → the codex final gate run (`claude-code codex ask
-  --tools`), run once as the final pass.
+- **Full verification gate loop** (format → lint → test → security) → `skills/problem-solving/references/verify.md`;
+  `Workflow green-keeper-loop` only when the user asks for it.
+- **New test coverage** → `copilot` (TEST mode): `rules/standards/quality.md`.
+- **Full build + full test suite + security scan** → the main thread, once, with the owner's approval — never a
+  subagent.
 - **Trivial task** → skip the plan, implement directly.
 - **Can't assess codebase** → escalate to the human with what you need.
 - **Contradictory requirements** → flag the conflict, propose a resolution.

@@ -52,7 +52,7 @@ Workflow, `pipeline` gives the same ordering for free.
 
 One test agent minimum; scale with the implementation fan-out (roughly one per
 distinct suite or module under change). Test agents are lean leaves — `copilot`, or
-`code-worker` for a scoped suite — so they sit outside the ≤8 deep-context tier.
+`code-worker` for a scoped suite — and they count toward the 24-agent cap (`rules/workflow/agents.md`).
 
 ### Not satisfied by
 

@@ -36,7 +36,7 @@ func (v AuthVerdict) Condemns() bool { return v == VerdictNeedsLogin || v == Ver
 
 // IsInvalidTokenResponse reports the AI Gateway's 400 "Invalid Token" on a Databricks row (a ≤256-byte body peek).
 func IsInvalidTokenResponse(p *Provider, status int, body []byte) bool {
-	if p == nil || (p.Preset != PresetDatabricks && !sealedAuth(p.Auth.AuthType)) {
+	if p == nil || (p.Preset != PresetDatabricks && !sealedAuth(p.Auth.Type)) {
 		return false
 	}
 	return status == http.StatusBadRequest && bytes.Contains(body, []byte(`"Invalid Token"`))

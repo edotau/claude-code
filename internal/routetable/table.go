@@ -1,4 +1,4 @@
-// Package routetable is the embedded runner × tier routing grid (table.json, vault-overridable): the Table,
+// Package routetable is the embedded Claude-row × runner routing grid (table.json, vault-overridable): the Table,
 // Cell and Price types and Load. It sits below internal/route (which scores and picks a runner) and
 // internal/vendors (which renders the opencode overlay from a cell's model), so neither of those two needs to
 // import the other through this data.
@@ -46,14 +46,18 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// Table is the loaded routing table: Rows[runner][tier] and each account key's billing type.
+// Table is the loaded routing table: Rows[runner][tier] for the current row of each alias, ByModel[claudeID][runner]
+// for every row, and each account key's billing type.
 type Table struct {
-	Billing map[string]string          `json:"billing"`
-	Weights map[string]float64         `json:"weights"`
-	Rows    map[string]map[string]Cell `json:"rows"`
+	Billing map[string]string  `json:"billing"`
+	Weights map[string]float64 `json:"weights"`
+	// Rows is the tier view (opus/sonnet/haiku) of the rows the aliases currently point at.
+	Rows map[string]map[string]Cell `json:"-"`
+	// ByModel holds every row, keyed by canonical Claude id, then runner.
+	ByModel map[string]map[string]Cell `json:"-"`
 	// OpencodeSub are opencode's own sub-candidates, keyed by sub id (opencode-go, github-copilot, openai,
 	// nvidia, zen-free) then tier; a missing tier (zen-free has no "opus") means that id never serves it.
-	OpencodeSub map[string]map[string]Cell `json:"opencode_sub,omitempty"`
+	OpencodeSub map[string]map[string]Cell `json:"-"`
 	// OpencodeLadder is the sub-pick's paid-backend order (set from the registry in LoadFrom, not JSON):
 	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
 	OpencodeLadder []string `json:"-"`
@@ -65,8 +69,33 @@ type Table struct {
 	OpencodeRowOverridden map[string]bool `json:"-"`
 }
 
+// fileTable is table.json's shape: rows keyed by canonical Claude id, then runner.
+type fileTable struct {
+	Billing     map[string]string          `json:"billing"`
+	Weights     map[string]float64         `json:"weights"`
+	Rows        map[string]map[string]Cell `json:"rows"`
+	OpencodeSub map[string]map[string]Cell `json:"opencode_sub"`
+}
+
+// rowTier is the tier name of a Claude row id when an alias currently points at it, else "".
+func rowTier(claudeID string) string {
+	if a := models.AliasOf(claudeID); slices.Contains(Tiers, a) {
+		return a
+	}
+	return ""
+}
+
+// rowKey resolves an overlay or lookup key (tier, alias, canonical id or any Claude spelling) to a row id.
+func rowKey(key string) string {
+	id, _, ok := models.Resolve(key)
+	if !ok {
+		return ""
+	}
+	return id
+}
+
 // CopilotUnpinned is the copilot account key when no gh user is pinned; route's account gate drops it.
-const CopilotUnpinned = "copilot:unpinned"
+const CopilotUnpinned = "github·unpinned"
 
 // Load parses the embedded table, applies the registry's route overlay cell by cell and resolves account keys.
 func Load() (*Table, error) {
@@ -77,59 +106,78 @@ func Load() (*Table, error) {
 // LoadFrom loads the table against an explicit registry and Copilot gh user; Load() is the normal entry
 // point, this is for tests and callers that already hold a registry.
 func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
-	var t Table
-	if err := json.Unmarshal(tableJSON, &t); err != nil {
+	var f fileTable
+	if err := json.Unmarshal(tableJSON, &f); err != nil {
 		return nil, fmt.Errorf("routetable: table.json: %w", err)
 	}
+	t := Table{Billing: f.Billing, Weights: f.Weights, ByModel: f.Rows, OpencodeRowOverridden: map[string]bool{}}
 	copilotKey := CopilotUnpinned
 	if ghUser != "" {
-		copilotKey = "copilot:" + ghUser
+		copilotKey = "github·" + ghUser
 	}
-	t.Billing[copilotKey] = t.Billing["copilot"]
+	t.Billing[copilotKey] = t.Billing["github·copilot"]
 	if reg != nil {
-		t.OpencodeRowOverridden = map[string]bool{}
-		for runner, tiers := range reg.Routing.Cells {
-			for tier, o := range tiers {
-				if err := t.applyRouteOverlayCell(runner, tier, o); err != nil {
+		for runner, rows := range reg.Routing.Cells {
+			for key, o := range rows {
+				id, err := t.applyRouteOverlayCell(runner, key, o)
+				if err != nil {
 					return nil, err
 				}
-				if runner == "opencode" {
+				if tier := rowTier(id); runner == "opencode" && tier != "" {
 					t.OpencodeRowOverridden[tier] = true
 				}
 			}
 		}
-	}
-	if reg != nil && len(reg.Routing.Weights) > 0 {
-		t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
-	}
-	if reg != nil {
+		if len(reg.Routing.Weights) > 0 {
+			t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
+		}
 		t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
 		t.OpencodeRouting = reg.Routing.Opencode
 	}
 	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
 		return nil, fmt.Errorf("routetable: %w", err)
 	}
-	for _, tier := range Tiers {
-		c := t.Rows["copilot"][tier]
+	t.Rows = map[string]map[string]Cell{}
+	for id, byRunner := range t.ByModel {
+		c := byRunner["copilot"]
 		c.Account = copilotKey
-		t.Rows["copilot"][tier] = c
+		byRunner["copilot"] = c
+		if tier := rowTier(id); tier != "" {
+			for runner, cell := range byRunner {
+				if t.Rows[runner] == nil {
+					t.Rows[runner] = map[string]Cell{}
+				}
+				t.Rows[runner][tier] = cell
+			}
+		}
+	}
+	t.OpencodeSub = map[string]map[string]Cell{}
+	for sub, rows := range f.OpencodeSub {
+		t.OpencodeSub[sub] = map[string]Cell{}
+		for id, cell := range rows {
+			if tier := rowTier(id); tier != "" {
+				t.OpencodeSub[sub][tier] = cell
+			}
+		}
 	}
 	return &t, nil
 }
 
-// applyRouteOverlayCell merges one overlay cell (o) into t.Rows[runner][tier], resolving the opencode
-// override account when the model prefix moves the cell off its table-defined backend.
-func (t *Table) applyRouteOverlayCell(runner, tier string, o providers.RouteCell) error {
-	c, ok := t.Rows[runner][tier]
+// applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][runner] and returns the row id. key is a
+// canonical Claude id or alias.
+// It resolves the opencode override account when the model prefix moves the cell off its table-defined backend.
+func (t *Table) applyRouteOverlayCell(runner, key string, o providers.RouteCell) (string, error) {
+	id := rowKey(key)
+	c, ok := t.ByModel[id][runner]
 	if !ok {
-		return fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, tier)
+		return "", fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, key)
 	}
 	if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
-		key, err := opencodeOverrideAccount(prefixOf(o.Model))
+		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
 		if err != nil {
-			return fmt.Errorf("routetable: overlay %s/%s: %w", runner, tier, err)
+			return "", fmt.Errorf("routetable: overlay %s/%s: %w", runner, key, err)
 		}
-		c.Account = key
+		c.Account = acct
 	}
 	if o.Model != "" {
 		c.Model = o.Model
@@ -139,20 +187,20 @@ func (t *Table) applyRouteOverlayCell(runner, tier string, o providers.RouteCell
 	}
 	if o.Account != "" {
 		if _, ok := t.Billing[o.Account]; !ok {
-			return fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry", runner, tier, o.Account)
+			return "", fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry", runner, key, o.Account)
 		}
 		c.Account = o.Account
 	}
-	t.Rows[runner][tier] = c
-	return nil
+	t.ByModel[id][runner] = c
+	return id, nil
 }
 
-// CopilotUser is the pinned gh user Copilot bills (COPILOT_GITHUB_USER); the router never picks another account.
+// CopilotUser is the pinned copilot account name Copilot bills (github·<name>): the pinned github profile;
+// the router never picks another account.
 func CopilotUser() string {
-	if u := providers.Pin(providers.PinGitHubUser); u != "" {
-		return u
-	}
-	return ""
+	reg, _ := providers.Load()
+	_, profile := providers.CopilotLogin(reg)
+	return profile
 }
 
 // prefixOf returns the provider prefix of a "prefix/model" id ("" when model carries no prefix).
@@ -165,24 +213,37 @@ func prefixOf(model string) string {
 }
 
 // opencodeOverrideAccount derives the billing account for an opencode cell whose override model prefix moves
-// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode:go. github-copilot
-// bills opencode:github-copilot, not the copilot row's pinned-gh-user key — opencode authenticates with its
+// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode·go. github-copilot
+// bills opencode·github-copilot, not the copilot row's pinned-gh-user key — opencode authenticates with its
 // own stored GitHub Copilot login (vendors.OpencodeLogins), which may be a different GitHub user than the
 // one Copilot's own row bills, so quota tracking must not conflate the two accounts. Any other prefix is
-// rejected outright, since the cell would keep charging quota to opencode:go for a model that account never serves.
+// rejected outright, since the cell would keep charging quota to opencode·go for a model that account never serves.
 func opencodeOverrideAccount(prefix string) (string, error) {
 	switch prefix {
 	case "opencode-go", "opencode":
-		return "opencode:go", nil
+		return "opencode·go", nil
 	case "github-copilot":
-		return "opencode:github-copilot", nil
+		return "opencode·github-copilot", nil
 	case "openai":
-		return "opencode:openai", nil
+		return "opencode·openai", nil
 	case "nvidia":
-		return "opencode:nvidia", nil
+		return "opencode·nvidia", nil
 	default:
 		return "", fmt.Errorf("model prefix %q has no known billing account; set account_key explicitly", prefix)
 	}
+}
+
+// Row returns every runner's cell for a Claude row, named by alias (opus), short form (opus-5-5), canonical id or
+// any wire spelling; ok is false when no row matches.
+func (t *Table) Row(key string) (map[string]Cell, bool) {
+	r, ok := t.ByModel[rowKey(key)]
+	return r, ok
+}
+
+// CellFor returns the runner's cell of the Claude row named by key (alias or canonical id).
+func (t *Table) CellFor(runner, key string) (Cell, bool) {
+	c, ok := t.ByModel[rowKey(key)][runner]
+	return c, ok
 }
 
 // Cell returns the runner's row at tier; ok is false for an unknown runner or tier.

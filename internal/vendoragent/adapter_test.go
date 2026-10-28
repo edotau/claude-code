@@ -27,9 +27,9 @@ func TestLookupKnownVendors(t *testing.T) {
 		wantModelsArgv     []string
 		wantReadNeedsTools bool
 	}{
-		{"codex", "abc123", "codex resume abc123", "chatgpt", nil, false},
+		{"codex", "abc123", "codex resume abc123", "openai", nil, false},
 		{"gemini", "abc123", "agy --conversation abc123", "", []string{"models"}, true},
-		{"copilot", "abc123", "copilot --resume abc123", "github-copilot", nil, true},
+		{"copilot", "abc123", "copilot --resume abc123", "github", nil, true},
 		{"opencode", "abc123", "opencode run --session abc123", "", []string{"models"}, true},
 	}
 	for _, c := range cases {

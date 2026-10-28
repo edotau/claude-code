@@ -31,7 +31,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 		t.Fatal("claude must be a registered hidden command")
 	}
 	code, stdout, stderr := captureOutput(t, func() int {
-		return Run([]string{"claude-code", "claude", "--provider", "subscription", "--print-env"})
+		return Run([]string{"claude-code", "claude", "--profile", "subscription", "--print-env"})
 	})
 	if code != 0 || stderr != "" {
 		t.Fatalf("claude --print-env exit = %d, stderr = %q", code, stderr)
@@ -52,7 +52,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 
 // Every group is present, every group is present, and every alias resolves.
 func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
-	want := map[string]bool{groupAnthropic: false, groupVendors: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
+	want := map[string]bool{groupAnthropic: false, groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	for _, c := range commands() {
 		if strings.TrimSpace(c.summary) == "" {
 			t.Errorf("%s: empty summary", c.name)

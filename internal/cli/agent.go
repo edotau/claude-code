@@ -23,35 +23,36 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
 var askPage = helptext.Page{
 	Usage: "claude-code ask [flags] <task | ->",
-	About: "Run one task headlessly on an agent runner and stream its answer; a vendor that " +
+	About: "Run one task headlessly on an agent and stream its answer; an agent that " +
 		"fails falls back per --fallback. With no task, or \"-\", the task is read from stdin.",
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
 func cmdAsk(args []string) int {
 	fs := helptext.NewFlagSet("ask", askPage)
-	name := fs.String("agent", "claude", "runner: claude|api|codex|gemini|opencode|copilot")
-	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (vendors, then claude)|vendors|none")
+	name := fs.String("agent", "claude", "agent: claude|codex|gemini|opencode|copilot")
+	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
-	provider := fs.String("provider", "", "provider or hub start (default: pin, then registry)")
-	model := fs.String("model", "", "slot name, model id, or provider:model")
+	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
+	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
 	workdir := fs.String("workdir", "", "working directory for the agent")
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
+	noTools := fs.Bool("no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	var attach attachFlag
 	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	var keepEnv keepEnvFlag
 	fs.Var(&keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
-	direct := fs.Bool("direct", false, "vendor runners: hand the CLI the provider route, skip the router")
-	autonomous := fs.Bool("autonomous", false, "drive the leg without stopping to ask, per runner")
+	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
+	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
@@ -69,12 +70,15 @@ func cmdAsk(args []string) int {
 	if *background && *job != "" {
 		return fail("ask: --background and --job are mutually exclusive")
 	}
+	if *tools && *noTools {
+		return fail("ask: --tools and --no-tools are mutually exclusive")
+	}
 	if *showLog {
 		return printDispatchLog(*format)
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
-		session: session, tools: tools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
+		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct}
 	jobRec, rc, done := loadAskJob(*job, state, &prompt)
 	if done {
@@ -113,10 +117,10 @@ func cmdAsk(args []string) int {
 		*timeout = 45 * time.Minute
 	}
 	if *enableMemory && *name != "copilot" {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s runner (copilot only)\n", *name)
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
 	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
-		WorkDir: *workdir, SessionID: *session, Tools: *tools, Timeout: *timeout,
+		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct}
 	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
@@ -163,7 +167,7 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 	res, err := agent.RunWithFallback(runCtx, chain, req, stream, notify)
 	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
 	if jobRec != nil && res.Answer != "" && format != "json" {
-		fmt.Print(res.Answer) // `<vendor> result` reads the log; ▸ lines are capped, so the answer goes in whole
+		fmt.Print(res.Answer) // `<agent> result` reads the log; ▸ lines are capped, so the answer goes in whole
 	}
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
@@ -178,7 +182,7 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
 type askState struct {
 	name, provider, model, effort, workdir, session, rubric *string
-	tools, autonomous, enableMemory, direct                 *bool
+	tools, noTools, autonomous, enableMemory, direct        *bool
 	timeout                                                 *time.Duration
 	attach                                                  *attachFlag
 	keepEnv                                                 *keepEnvFlag
@@ -189,7 +193,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-	*s.keepEnv, *s.direct = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct
+	*s.keepEnv, *s.direct, *s.noTools = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
@@ -316,22 +320,16 @@ func resolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-// applyProfileRow fills the unset provider/model/effort from the active profile's row for the agent; explicit
-// flags win, and with no active profile (or no row) nothing changes.
-func applyProfileRow(name string, provider, model, effort *string) {
-	reg, err := providers.Load()
-	if err != nil {
-		return
+// applyProfileRow fills an unset --profile from the agent's <AGENT>_PROFILE pin; explicit flags win, and with no pin
+// nothing changes.
+func applyProfileRow(name string, profile, _, _ *string) {
+	if pin := agentProfilePins[name]; *profile == "" && pin != "" {
+		*profile = providers.Pin(pin)
 	}
-	b := reg.ResolveAgent(providers.AgentRequest{Agent: name, Provider: *provider, Model: *model, Effort: *effort})
-	if *provider != "" || !strings.Contains(*model, ":") {
-		*provider = b.Provider // a provider:model flag stays unsplit for the explicit-backend path
-	}
-	*model, *effort = b.Model, b.Effort
 }
 
-// resolveAskChain looks up the named runner and routes it: an explicit backend (--provider, provider:model) or the
-// api runner runs alone; otherwise the tier comes from --model, else the task classifier, and route picks the legs.
+// resolveAskChain looks up the named agent and routes it: an explicit backend (--profile) runs alone; otherwise the
+// model alias comes from --model, else the task classifier, and the router picks the agents.
 // workDir is the request's own --workdir ("" means the process cwd), so the opencode free-Zen gate checks the
 // repo the leg will actually run in, not the harness's own cwd.
 func resolveAskChain(name, provider, model, prompt, fallback string, native bool, workDir string) (agent.Runner, agent.Chain, error) {
@@ -339,7 +337,7 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 	if err != nil {
 		return nil, agent.Chain{}, err
 	}
-	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) || name == "api" {
+	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) {
 		req := agent.Request{Provider: provider, Model: model}
 		if provider == "" || native || !agent.IsHubAgent(name) {
 			return r, agent.ExplicitChain(r, req), nil
@@ -357,16 +355,8 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 		}
 		return r, agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), nil
 	}
-	tb, err := route.Load()
-	if err != nil {
-		return nil, agent.Chain{}, err
-	}
-	tier := tb.TierOf(model)
-	if tier == "" {
-		tier = hooks.RuleClassifier{}.Tier(prompt)
-	}
-	chain, _, err := agent.RouteChain(context.Background(), name, tier, fallback, model != "", native,
-		route.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return route.IsWorkRepo(workDir) }})
+	chain, _, err := agent.RouteChainFor(context.Background(), name, model, hooks.RuleClassifier{}.Tier(prompt), fallback, native,
+		router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo(workDir) }})
 	return r, chain, err
 }
 
@@ -424,10 +414,10 @@ func reportAskResult(format string, res agent.Result, err error) {
 // agentsPage is `agents -h`; bare `agents` lists the runners.
 var agentsPage = helptext.Page{
 	Usage: "claude-code agents [<command>] [flags]",
-	About: "With no command, list each agent runner, whether it is available and which " +
-		"request fields (model, provider, effort, …) it honors.",
+	About: "With no command, list each agent, whether it is available and which " +
+		"request fields (model, profile, effort, …) it honors.",
 	Commands: [][2]string{
-		{"sync", "project agents/ + CLAUDE.md into every vendor home; link skills"},
+		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"reap", "mark dead running dispatches as error; drop stale markers"},
 	},
@@ -437,8 +427,8 @@ var agentsPage = helptext.Page{
 // agentsSyncPage is `agents sync -h`.
 var agentsSyncPage = helptext.Page{
 	Usage: "claude-code agents sync [flags]",
-	About: "Render agents/ into state/projections/<vendor>/agents plus each vendor's instruction " +
-		"file, install them into the vendor homes, and link skills/ into ~/.agents/skills.",
+	About: "Render agents/ into state/projections/<agent>/agents plus each agent's instruction " +
+		"file, install them into the agent homes, and link skills/ into ~/.agents/skills.",
 }
 
 // agentsReapPage is `agents reap -h`.
@@ -450,7 +440,7 @@ var agentsReapPage = helptext.Page{
 
 func cmdAgents(args []string) int {
 	if len(args) == 0 {
-		return listRunners()
+		return listAgents()
 	}
 	switch args[0] {
 	case "sync":
@@ -482,11 +472,11 @@ func cmdAgentsReap(args []string) int {
 	return agenttree.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
-// cmdAgentsSync renders agents/ into state/projections/<vendor>/agents plus each vendor's global instruction file, installs the
-// copies into the vendor homes, and links skills/ into ~/.agents/skills; --vendor narrows the run to one target.
+// cmdAgentsSync renders agents/ into state/projections/<agent>/agents plus each agent's global instruction file, installs the
+// copies into the agent homes, and links skills/ into ~/.agents/skills; --agent narrows the run to one target.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
-	vendor := fs.String("vendor", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
+	vendor := fs.String("agent", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
@@ -500,31 +490,10 @@ func cmdAgentsSync(args []string) int {
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
-// onPassthroughProvider reports whether reg's default target forwards the caller's own auth (a
-// Claude subscription), the case api.go delegates to claude instead of calling a vendor API.
-func onPassthroughProvider(reg *providers.Registry) bool {
-	sel, err := providers.Select(reg, "")
-	return err == nil && sel.Provider != nil && sel.Provider.Auth.Type == providers.AuthPassthrough
-}
-
-func listRunners() int {
-	// Loaded once and reused below: apiRunner.Available() would otherwise reopen the vault a second
-	// time in the same iteration just to re-derive the same passthrough fact for the reason text.
-	reg, regErr := providers.Load()
+func listAgents() int {
 	for _, r := range agent.Runners() {
 		mark, reason := "✓", ""
-		if r.Name() == "api" {
-			switch {
-			case regErr != nil:
-				mark, reason = "✗", regErr.Error()
-			case onPassthroughProvider(reg):
-				if claude, err := agent.Lookup("claude"); err != nil || claude.Available() != nil {
-					mark, reason = "✗", "runs via claude on passthrough providers, but claude is unavailable"
-				} else {
-					reason = "runs via claude on passthrough providers (no key to call the vendor directly)"
-				}
-			}
-		} else if err := r.Available(); err != nil {
+		if err := r.Available(); err != nil {
 			mark, reason = "✗", err.Error()
 		}
 		c := r.Caps()
@@ -532,7 +501,7 @@ func listRunners() int {
 		for _, f := range []struct {
 			ok   bool
 			name string
-		}{{c.Model, "model"}, {c.Provider, "provider"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"}} {
+		}{{c.Model, "model"}, {c.Provider, "profile"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"}} {
 			if f.ok {
 				caps = append(caps, f.name)
 			}

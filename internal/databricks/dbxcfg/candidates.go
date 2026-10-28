@@ -8,8 +8,12 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// CLIAuthU2M is the .databrickscfg auth_type for a browser (U2M) login; rows call it providers.AuthU2M.
-const CLIAuthU2M = "databricks-cli"
+// The .databrickscfg auth_type spellings; rows call them providers.AuthOAuth, AuthM2M and AuthPAT.
+const (
+	CLIAuthU2M = "databricks-cli"
+	CLIAuthM2M = "oauth-m2m"
+	CLIAuthPAT = "pat"
+)
 
 // Candidate is one importable profile: identifying fields and secret PRESENCE only, structurally no secret.
 type Candidate struct {
@@ -20,7 +24,7 @@ type Candidate struct {
 	AccountID   string // account_id, an identifier
 	WorkspaceID string // workspace_id, an identifier
 	HasSecret   bool   // a client_secret or PAT exists in the source file
-	Auth        string // row authType (u2m|oauth-m2m|pat), "" when Skip is set
+	Auth        string // row auth.type (oauth|m2m|pat), "" when Skip is set
 	Skip        string // why the profile cannot become a row
 }
 
@@ -54,9 +58,9 @@ func classify(p profile) Candidate {
 	if auth == "" {
 		switch {
 		case p.clientID != "" && p.clientSecret != "":
-			auth = providers.AuthOAuthM2M
+			auth = CLIAuthM2M
 		case p.token != "":
-			auth = providers.AuthPAT
+			auth = CLIAuthPAT
 		default:
 			auth = CLIAuthU2M
 		}
@@ -65,15 +69,17 @@ func classify(p profile) Candidate {
 	case !ok:
 		c.Skip = "no usable https host"
 	case auth == CLIAuthU2M:
-		c.Auth = providers.AuthU2M
-	case auth == providers.AuthOAuthM2M && p.clientID == "":
+		c.Auth = providers.AuthOAuth
+	case auth == CLIAuthM2M && p.clientID == "":
 		c.Skip = "oauth-m2m profile without client_id"
-	case auth == providers.AuthOAuthM2M, auth == providers.AuthPAT:
-		c.Auth = auth
+	case auth == CLIAuthM2M:
+		c.Auth = providers.AuthM2M
+	case auth == CLIAuthPAT:
+		c.Auth = providers.AuthPAT
 	default:
 		c.Skip = fmt.Sprintf("unsupported auth_type %q", p.authType)
 	}
-	if c.Auth != providers.AuthOAuthM2M && c.Auth != providers.AuthPAT {
+	if c.Auth != providers.AuthM2M && c.Auth != providers.AuthPAT {
 		c.HasSecret = false // only these two seal a secret from the file
 	}
 	return c

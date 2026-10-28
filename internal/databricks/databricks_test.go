@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // call is one recorded spawn of the child.
@@ -99,9 +102,25 @@ func drain(r *os.File) <-chan string {
 	return ch
 }
 
-// TestPlanTable pins the default model, env selection, passthrough order and --env forms.
+// threeProfiles defines three opaque Databricks profiles so the plan tests never read the real vault.
+const threeProfiles = `{"providers":{"aa":{"preset":"databricks",` + dbxHost + `},"bb":{"preset":"databricks",` +
+	dbxHost + `},"cc":{"preset":"databricks",` + dbxHost + `}}}`
+
+// opusDefault is the default model for the seeded rows: the opus alias at 1M, as the row spells it.
+func opusDefault(t *testing.T, name string) string {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil || reg.Providers[name] == nil {
+		t.Fatalf("profile %q: %v", name, err)
+	}
+	return reg.Providers[name].WireModel(aliasID(models.Opus))
+}
+
+// TestPlanTable pins the default model, profile selection, passthrough order and --profile forms.
 func TestPlanTable(t *testing.T) {
-	seedOverlay(t, "") // the real vault's migrated dev/qa/prod rows would rename the provider
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "")
+	def := opusDefault(t, "bb")
 	tests := []struct {
 		name     string
 		args     []string
@@ -109,16 +128,14 @@ func TestPlanTable(t *testing.T) {
 		wantMod  string
 		wantRest []string
 	}{
-		{"defaults", nil, "databricks-qa", "databricks-claude-opus-5-5[1m]", nil},
-		{"model only", []string{"sonnet"}, "databricks-qa", "sonnet", nil},
-		{"--env dev", []string{"--env", "dev"}, "databricks-dev", "databricks-claude-opus-5-5[1m]", nil},
-		{"--env prod after flags", []string{"-p", "hi", "--env", "prod"}, "databricks-prod", "databricks-claude-opus-5-5[1m]", []string{"-p", "hi"}},
-		{"--env= form", []string{"--env=dev"}, "databricks-dev", "databricks-claude-opus-5-5[1m]", nil},
-		{"model + --env=prod", []string{"haiku", "--env=prod"}, "databricks-prod", "haiku", nil},
-		{"rest order kept", []string{"--env", "prod", "ask", "hello world"}, "databricks-prod", "databricks-claude-opus-5-5[1m]", []string{"ask", "hello world"}},
-		{"model + env + mixed", []string{"sonnet", "--env=qa", "-p", "test", "ask"}, "databricks-qa", "sonnet", []string{"-p", "test", "ask"}},
-		{"flags-first keeps default model", []string{"-p", "hi"}, "databricks-qa", "databricks-claude-opus-5-5[1m]", []string{"-p", "hi"}},
-		{"only MODEL is taken", []string{"sonnet", "haiku"}, "databricks-qa", "sonnet", []string{"haiku"}},
+		{"model only", []string{"sonnet"}, "", "sonnet", nil},
+		{"--profile bb", []string{"--profile", "bb"}, "bb", def, nil},
+		{"--profile after flags", []string{"-p", "hi", "--profile", "cc"}, "cc", def, []string{"-p", "hi"}},
+		{"--profile= form", []string{"--profile=bb"}, "bb", def, nil},
+		{"model + --profile=cc", []string{"haiku", "--profile=cc"}, "cc", "haiku", nil},
+		{"rest order kept", []string{"--profile", "cc", "ask", "hello world"}, "cc", def, []string{"ask", "hello world"}},
+		{"flags-first keeps default model", []string{"-p", "hi", "--profile=bb"}, "bb", def, []string{"-p", "hi"}},
+		{"only MODEL is taken", []string{"sonnet", "haiku", "--profile=bb"}, "bb", "sonnet", []string{"haiku"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -126,8 +143,12 @@ func TestPlanTable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
-			if p.Provider != tt.wantProv || p.Model != tt.wantMod {
-				t.Errorf("got provider %q model %q, want %q %q", p.Provider, p.Model, tt.wantProv, tt.wantMod)
+			want := tt.wantProv
+			if want == "" {
+				want = providers.DatabricksProfiles(mustLoad(t))[0]
+			}
+			if p.Provider != want || p.Model != tt.wantMod && tt.wantProv != "" || p.Model == "" {
+				t.Errorf("got profile %q model %q, want %q %q", p.Provider, p.Model, want, tt.wantMod)
 			}
 			if !slices.Equal(p.Rest, tt.wantRest) {
 				t.Errorf("rest = %q, want %q", p.Rest, tt.wantRest)
@@ -136,59 +157,60 @@ func TestPlanTable(t *testing.T) {
 	}
 }
 
-// allEnvTwins defines a preset plus an -oai twin for each env, so the plan tests never read the real vault.
-const allEnvTwins = `{"providers":{` +
-	`"databricks-dev":{"preset":"databricks",` + dbxHost + `},"databricks-dev-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}},` +
-	`"databricks-qa":{"preset":"databricks",` + dbxHost + `},"databricks-qa-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}},` +
-	`"databricks-prod":{"preset":"databricks",` + dbxHost + `},"databricks-prod-oai":{"kind":"openai","base_url":"https://adb-1.azuredatabricks.net/serving-endpoints","auth":{"type":"none"}}}}`
-
-// TestPlanRouting pins which model ids take the Anthropic passthrough versus the -oai router.
-func TestPlanRouting(t *testing.T) {
-	seedOverlay(t, allEnvTwins)
-	passthrough := []string{"opus", "sonnet", "haiku", "databricks-claude-3-5-sonnet", "databricks-claude-opus-5-5[1m]"}
-	router := []string{"databricks-kimi-k3", "glm-4", "gpt-4", "gemini-2.0"}
-	for _, m := range passthrough {
-		t.Run("passthrough "+m, func(t *testing.T) {
-			p, err := plan([]string{m, "--env", "dev"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if p.Provider != "databricks-dev" {
-				t.Errorf("provider = %q, want databricks-dev", p.Provider)
-			}
-		})
+func mustLoad(t *testing.T) *providers.Registry {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, m := range router {
-		t.Run("router "+m, func(t *testing.T) {
-			p, err := plan([]string{m, "--env", "prod"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if p.Provider != "databricks-prod-oai" {
-				t.Errorf("provider = %q, want databricks-prod-oai", p.Provider)
-			}
-		})
+	return reg
+}
+
+// TestResolveProfileOrder pins explicit, then session, then the CLAUDE_PROFILE pin, then the first Databricks profile.
+func TestResolveProfileOrder(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	reg := mustLoad(t)
+	first := providers.DatabricksProfiles(reg)[0]
+	t.Setenv(providers.EnvSessionProfile, "")
+	if got := resolveProfile(reg, "zz"); got != "zz" {
+		t.Errorf("explicit = %q, want zz", got)
+	}
+	if got := resolveProfile(reg, ""); got != first {
+		t.Errorf("no pin = %q, want the first profile %q", got, first)
+	}
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "cc"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveProfile(reg, ""); got != "cc" {
+		t.Errorf("pinned = %q, want cc", got)
+	}
+	t.Setenv(providers.EnvSessionProfile, "bb")
+	if got := resolveProfile(reg, ""); got != "bb" {
+		t.Errorf("session = %q, want bb", got)
+	}
+	t.Setenv(providers.EnvSessionProfile, "not-databricks") // shadows the pin of the same name
+	if got := resolveProfile(reg, ""); got != first {
+		t.Errorf("non-Databricks session = %q, want the first profile %q", got, first)
 	}
 }
 
 // TestPlanCheckAndBig pins the leading check token and the --1m flag, which is consumed on every path.
 func TestPlanCheckAndBig(t *testing.T) {
-	seedOverlay(t, allEnvTwins)
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "bb")
 	tests := []struct {
 		name      string
 		args      []string
 		wantCheck bool
 		wantBig   bool
 		wantProv  string
-		wantMod   string
 		wantRest  []string
 	}{
-		{"check alone", []string{"check"}, true, false, "databricks-qa", "databricks-claude-opus-5-5[1m]", nil},
-		{"check --1m", []string{"check", "--1m"}, true, true, "databricks-qa", "databricks-claude-opus-5-5[1m]", nil},
-		{"check model env --1m", []string{"check", "haiku", "--env", "dev", "--1m"}, true, true, "databricks-dev", "haiku", nil},
-		{"check router model", []string{"check", "gpt-4"}, true, false, "databricks-qa-oai", "gpt-4", nil},
-		{"--1m without check is consumed", []string{"sonnet", "--1m", "-p", "x"}, false, true, "databricks-qa", "sonnet", []string{"-p", "x"}},
-		{"check not first is a rest arg", []string{"sonnet", "check"}, false, false, "databricks-qa", "sonnet", []string{"check"}},
+		{"check alone", []string{"check"}, true, false, "bb", nil},
+		{"check --1m", []string{"check", "--1m"}, true, true, "bb", nil},
+		{"check model profile --1m", []string{"check", "haiku", "--profile", "cc", "--1m"}, true, true, "cc", nil},
+		{"--1m without check is consumed", []string{"sonnet", "--1m", "-p", "x"}, false, true, "bb", []string{"-p", "x"}},
+		{"check not first is a rest arg", []string{"sonnet", "check"}, false, false, "bb", []string{"check"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -196,11 +218,8 @@ func TestPlanCheckAndBig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
-			if p.Check != tt.wantCheck || p.Big != tt.wantBig {
-				t.Errorf("check=%v big=%v, want check=%v big=%v", p.Check, p.Big, tt.wantCheck, tt.wantBig)
-			}
-			if p.Provider != tt.wantProv || p.Model != tt.wantMod {
-				t.Errorf("got provider %q model %q, want %q %q", p.Provider, p.Model, tt.wantProv, tt.wantMod)
+			if p.Check != tt.wantCheck || p.Big != tt.wantBig || p.Provider != tt.wantProv {
+				t.Errorf("check=%v big=%v profile=%q, want %v %v %q", p.Check, p.Big, p.Provider, tt.wantCheck, tt.wantBig, tt.wantProv)
 			}
 			if !slices.Equal(p.Rest, tt.wantRest) {
 				t.Errorf("rest = %q, want %q", p.Rest, tt.wantRest)
@@ -209,21 +228,29 @@ func TestPlanCheckAndBig(t *testing.T) {
 	}
 }
 
-// TestPlanEnvErrors pins the env validation, including --env with no value.
-func TestPlanEnvErrors(t *testing.T) {
+// TestPlanProfileErrors pins that a name outside the Databricks profiles is refused, including no value.
+func TestPlanProfileErrors(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "")
 	tests := map[string][]string{
-		"--env staging":          {"--env", "staging"},
-		"--env= staging":         {"--env=staging"},
-		"--env with no value":    {"--env"},
-		"--env= (empty)":         {"--env="},
-		"--env eats a flag":      {"--env", "--1m"},
-		"--env after model, bad": {"sonnet", "--env", "stage"},
+		"unknown":              {"--profile", "staging"},
+		"= unknown":            {"--profile=staging"},
+		"no value":             {"--profile"},
+		"= (empty)":            {"--profile="},
+		"eats a flag":          {"--profile", "--1m"},
+		"after model, unknown": {"sonnet", "--profile", "stage"},
 	}
 	for name, args := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := plan(args)
-			if err == nil || !strings.Contains(err.Error(), "must be dev, qa or prod") {
-				t.Fatalf("plan(%q) error = %v, want env error", args, err)
+			p, err := plan(args)
+			if name == "no value" || name == "= (empty)" {
+				if err != nil { // an empty name falls back to the default profile
+					t.Fatalf("plan(%q) error = %v", args, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "not a Databricks profile") {
+				t.Fatalf("plan(%q) = %+v, %v; want a profile error", args, p, err)
 			}
 		})
 	}
@@ -249,7 +276,8 @@ func TestRunHelpOnlyFirstOrAfterCheck(t *testing.T) {
 
 // TestRunLaterHelpPassesThrough pins that -h after a model reaches claude, as the shell wrapper does.
 func TestRunLaterHelpPassesThrough(t *testing.T) {
-	tests := [][]string{{"sonnet", "-p", "-h"}, {"--env", "dev", "-h"}}
+	seedOverlay(t, threeProfiles)
+	tests := [][]string{{"sonnet", "-p", "-h"}, {"--profile", "bb", "-h"}}
 	for _, args := range tests {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeChild{}
@@ -264,28 +292,29 @@ func TestRunLaterHelpPassesThrough(t *testing.T) {
 	}
 }
 
-// TestRunEnvErrorExit2 pins exit 2 and no child start for a bad env.
-func TestRunEnvErrorExit2(t *testing.T) {
+// TestRunProfileErrorExit2 pins exit 2 and no child start for an unknown profile.
+func TestRunProfileErrorExit2(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	f := &fakeChild{}
 	useFake(t, f)
-	code, _, stderr := runCaptured(t, func() int { return Run([]string{"--env", "staging"}) })
+	code, _, stderr := runCaptured(t, func() int { return Run([]string{"--profile", "staging"}) })
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}
-	if !strings.Contains(stderr, "must be dev, qa or prod") {
-		t.Errorf("stderr = %q, want env error", stderr)
+	if !strings.Contains(stderr, "not a Databricks profile") {
+		t.Errorf("stderr = %q, want profile error", stderr)
 	}
 	if len(f.calls) != 0 {
-		t.Errorf("bad env launched the child")
+		t.Errorf("bad profile launched the child")
 	}
 }
 
 // TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch and the experimental-beta opt-out.
 func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
-	seedOverlay(t, "") // a real preset row carries the beta key, which suppresses the injected opt-out
+	seedOverlay(t, threeProfiles) // a bare preset row carries the beta key; the opt-out is injected only without it
 	f := &fakeChild{}
 	useFake(t, f)
-	if code := Run([]string{"sonnet", "--env", "prod", "-p", "hi"}); code != 0 {
+	if code := Run([]string{"sonnet", "--profile", "cc", "-p", "hi"}); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	if len(f.calls) != 1 {
@@ -299,7 +328,7 @@ func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 	if c.bin != self {
 		t.Errorf("bin = %q, want this binary %q", c.bin, self)
 	}
-	want := []string{"--provider", "databricks-prod", "--model", "sonnet", "-p", "hi"}
+	want := []string{"--profile", "cc", "--model", "sonnet", "-p", "hi"}
 	if !slices.Equal(c.argv, want) {
 		t.Errorf("argv = %q, want %q", c.argv, want)
 	}
@@ -442,17 +471,6 @@ func TestNeedleProbeShape(t *testing.T) {
 	}
 }
 
-func TestIsClaudeModel(t *testing.T) {
-	for m, want := range map[string]bool{
-		"opus": true, "databricks-claude-opus-5-5": true, "claude-opus-5-5": true, "claude-opus-5-5[1m]": true,
-		"gpt-5.5": false, "databricks-gpt-5-5": false, "my-opus": false, "": false,
-	} {
-		if got := isClaudeModel(m); got != want {
-			t.Errorf("isClaudeModel(%q) = %v, want %v", m, got, want)
-		}
-	}
-}
-
 // TestParseUsage pins the usage parse: cache fields are summed, and non-JSON or empty output yields zero tokens.
 func TestParseUsage(t *testing.T) {
 	tests := []struct {
@@ -526,5 +544,22 @@ func TestCheckNeedleTokenGate(t *testing.T) {
 				t.Errorf("exit %d, stdout %q; wantPass=%v", code, stdout, tt.wantPass)
 			}
 		})
+	}
+}
+
+// A removed flag exits 2 with its hint before any subverb, probe or child launch.
+func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
+	for _, args := range [][]string{
+		{"--env", "qa"}, {"check", "--env", "qa"}, {"check", "--provider=x"}, {"--tier", "opus"}, {"--router"},
+	} {
+		f := &fakeChild{smoke: "OK\n"}
+		useFake(t, f)
+		code, stdout, stderr := runCaptured(t, func() int { return Run(args) })
+		if code != 2 || !strings.Contains(stderr, "--") || strings.Contains(stdout, "PASS") {
+			t.Errorf("Run(%q) = %d, stdout %q, stderr %q; want exit 2 with a hint", args, code, stdout, stderr)
+		}
+		if len(f.calls) != 0 {
+			t.Errorf("Run(%q) launched the child: %v", args, f.calls)
+		}
 	}
 }

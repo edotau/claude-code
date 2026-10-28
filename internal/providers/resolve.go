@@ -14,13 +14,10 @@ type Target struct {
 	OneM     bool   // the user typed [1m]; ClientModel keeps it as typed
 }
 
-// ClientModel is t's id on its own provider: [1m]-marked as typed, or where the provider serves 1M.
+// ClientModel is t's id on its own provider: [1m]-marked only as the user typed it.
 func (t Target) ClientModel() string {
 	if t.OneM {
-		return t.Model + "[1m]"
-	}
-	if t.Provider != nil && t.Provider.OneM {
-		return models.MaybeAdd1M(t.Model)
+		return t.Model + oneMMarker
 	}
 	return t.Model
 }
@@ -35,7 +32,7 @@ type Selection struct {
 }
 
 // ParseTarget splits "provider:model" when the prefix names a registered provider; otherwise the
-// whole string is a model on def (ollama tags like "qwen3:30b" keep their colon).
+// whole string is a model on def (local tags like "qwen3:30b" keep their colon).
 func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	spec = strings.TrimSpace(spec)
 	if name, model, ok := strings.Cut(spec, ":"); ok {
@@ -48,8 +45,8 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
 }
 
-// Select resolves the session: provider = flag → HARNESS_PROVIDER pin → registry default; each slot =
-// HARNESS_<SLOT>_MODEL → HARNESS_MODEL → the provider's model table.
+// Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each slot =
+// CLAUDE_<TIER>_MODEL → CLAUDE_MODEL → the profile's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
 	pin, err := pinLookup()
 	if err != nil {
@@ -57,7 +54,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	}
 	name := providerFlag
 	if name == "" {
-		name = pin(PinProvider)
+		name = pin(PinProfile)
 	}
 	if name == "" {
 		name = reg.Default
@@ -95,10 +92,7 @@ func (s Selection) ClientModel(slot string) string {
 		return ""
 	}
 	if t.Provider != s.Provider {
-		if t.OneM {
-			return t.Spec() + "[1m]"
-		}
-		return t.Spec()
+		return t.Provider.Name + ":" + t.ClientModel()
 	}
 	return t.ClientModel()
 }
@@ -115,7 +109,7 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 		}
 	}
 	// A login session stays direct even with a fallback ladder: a loopback ANTHROPIC_BASE_URL disables Remote Control.
-	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthPassthrough
+	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthCLI
 }
 
 // PrefersOpenAI reports whether model must use p's OpenAI route even though p has an Anthropic one:

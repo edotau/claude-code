@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // stubRefresh swaps routeRefresh for fn (restoring the prior value) and returns a call counter.
@@ -19,11 +19,11 @@ func stubRefresh(t *testing.T, fn func(key string) bool) *int {
 }
 
 func TestCopilotUsedPct(t *testing.T) {
-	const key = "copilot:alice"
+	const key = "github·alice"
 	now := time.Now()
 	fresh := func(t *testing.T, pct float64, age time.Duration) {
 		t.Helper()
-		if err := route.Record(key, pct, "month", now.Add(24*time.Hour), now.Add(-age)); err != nil {
+		if err := router.Record(key, pct, "month", now.Add(24*time.Hour), now.Add(-age)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -40,18 +40,18 @@ func TestCopilotUsedPct(t *testing.T) {
 	t.Run("active exhausted mark counts as 100", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		fresh(t, 10, time.Minute)
-		if err := route.MarkExhausted(key, now.Add(time.Hour), now, "402"); err != nil {
+		if err := router.MarkExhausted(key, now.Add(time.Hour), now, "402"); err != nil {
 			t.Fatal(err)
 		}
 		calls := stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != route.ExhaustedPct || *calls != 0 {
+		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct || *calls != 0 {
 			t.Errorf("got (%v, %v), refreshes %d; want (100, true), 0", pct, ok, *calls)
 		}
 	})
 
 	t.Run("expired exhausted mark is ignored", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		if err := route.MarkExhausted(key, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
+		if err := router.MarkExhausted(key, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
 			t.Fatal(err)
 		}
 		fresh(t, 7, time.Minute)
@@ -63,12 +63,12 @@ func TestCopilotUsedPct(t *testing.T) {
 
 	t.Run("stale entry refreshes then reloads the new value", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 10, route.StaleAfter+time.Minute)
+		fresh(t, 10, router.StaleAfter+time.Minute)
 		calls := stubRefresh(t, func(k string) bool {
 			if k != key {
 				t.Errorf("refresh key = %q, want %q", k, key)
 			}
-			return route.Record(key, 61, "month", now.Add(24*time.Hour), time.Now()) == nil
+			return router.Record(key, 61, "month", now.Add(24*time.Hour), time.Now()) == nil
 		})
 		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
 			t.Errorf("got (%v, %v), refreshes %d; want (61, true), 1", pct, ok, *calls)
@@ -77,7 +77,7 @@ func TestCopilotUsedPct(t *testing.T) {
 
 	t.Run("stale entry whose refresh fails is unverified", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 10, route.StaleAfter+time.Minute)
+		fresh(t, 10, router.StaleAfter+time.Minute)
 		stubRefresh(t, func(string) bool { return false })
 		if pct, ok := copilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
 			t.Errorf("got (%v, %v), want (0, false)", pct, ok)

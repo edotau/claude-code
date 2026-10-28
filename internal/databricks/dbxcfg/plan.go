@@ -3,6 +3,7 @@ package dbxcfg
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -43,9 +44,9 @@ func Plan(cands []Candidate, existing map[string]json.RawMessage, o Options) []R
 		case exists && !o.Replace:
 			r.Action, r.Reason = "skip", "row exists (use --replace)"
 		case exists && ek == "":
-			r.Action, r.Reason = "skip", "existing row has no authType; switch it with `claude-code databricks login --profile "+r.ID+" --auth-type u2m`"
+			r.Action, r.Reason = "skip", "existing row has no sealed auth.type; switch it with `claude-code databricks login --profile "+r.ID+" --auth-type oauth`"
 		case exists && ek != "" && ek != c.Auth:
-			r.Action, r.Reason = "skip", "existing auth.authType "+ek+" is never changed"
+			r.Action, r.Reason = "skip", "existing auth.type "+ek+" is never changed"
 		case collides(names, r):
 			n := SecretNameOf(r)
 			r.Action, r.Reason = "skip", "secret name "+n+" is shared with row "+names[n]+"; use --rename"
@@ -64,13 +65,18 @@ func Plan(cands []Candidate, existing map[string]json.RawMessage, o Options) []R
 }
 
 // SecretNameOf is the vault name of a planned row's sealed credential, derived by providers.
-func SecretNameOf(r Row) string { return providers.SecretNameFor(r.ID, r.Auth) }
+func SecretNameOf(r Row) string { return secretName(r.ID, r.Auth) }
+
+// secretName is the vault name of a databricks profile's sealed secret for an auth type.
+func secretName(id, authType string) string {
+	return providers.SecretName(providers.GroupDatabricks, id, authType)
+}
 
 // sealedNames maps each existing row's derived sealed-secret name to its id.
 func sealedNames(existing map[string]json.RawMessage) map[string]string {
 	out := map[string]string{}
 	for id, raw := range existing {
-		if n := providers.SecretNameFor(id, existingAuthType(raw)); n != "" {
+		if n := secretName(id, existingAuthType(raw)); n != "" {
 			out[n] = id
 		}
 	}
@@ -84,20 +90,24 @@ func collides(names map[string]string, r Row) bool {
 	return n != "" && ok && o != r.ID
 }
 
+// existingAuthType is an existing row's sealed auth.type (oauth, m2m, pat); "" for any other row.
 func existingAuthType(raw json.RawMessage) string {
 	var p struct {
 		Auth struct {
-			AuthType string `json:"authType"`
+			Type string `json:"type"`
 		} `json:"auth"`
 	}
 	_ = json.Unmarshal(raw, &p)
-	return p.Auth.AuthType
+	if !slices.Contains([]string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT}, p.Auth.Type) {
+		return ""
+	}
+	return p.Auth.Type
 }
 
 // RowJSON renders the vault row for a planned candidate.
 func RowJSON(r Row) (json.RawMessage, error) {
-	auth := map[string]any{"authType": r.Auth}
-	if r.Auth == providers.AuthOAuthM2M {
+	auth := map[string]any{"type": r.Auth}
+	if r.Auth == providers.AuthM2M {
 		auth["clientId"] = r.ClientID
 	}
 	if r.AccountID != "" {
@@ -112,6 +122,7 @@ func RowJSON(r Row) (json.RawMessage, error) {
 // Apply writes the add/replace rows into the overlay doc's providers map.
 func Apply(top map[string]json.RawMessage, rows []Row) error {
 	provs := Existing(top)
+	keys := providers.ObjectKeys(top["providers"])
 	for _, r := range rows {
 		if r.Action == "skip" {
 			continue
@@ -120,9 +131,12 @@ func Apply(top map[string]json.RawMessage, rows []Row) error {
 		if err != nil {
 			return err
 		}
+		if _, ok := provs[r.ID]; !ok {
+			keys = append(keys, r.ID)
+		}
 		provs[r.ID] = raw
 	}
-	b, err := json.Marshal(provs)
+	b, err := providers.MarshalOrdered(keys, provs)
 	if err != nil {
 		return fmt.Errorf("providers overlay: %w", err)
 	}

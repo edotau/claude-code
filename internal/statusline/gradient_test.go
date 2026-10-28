@@ -31,13 +31,13 @@ func TestGradientCells(t *testing.T) {
 	}{
 		{
 			name:  "ordered segments and separator tones",
-			order: []string{"path", "provider", "model", "context", "tokens", "session"},
+			order: []string{"path", "provider", "model", "context", "total", "session"},
 			path:  true,
 			want: []run{
 				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
 				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
 				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
-				{" ", "g"}, {"|", "sep"}, {" ~1.2M tok", "g"}, {" | ", "sep"}, {"feature…", "g"},
+				{" ", "g"}, {"|", "sep"}, {" total:1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
 			},
 		},
 		{

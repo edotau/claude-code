@@ -8,7 +8,7 @@ import (
 const dbxHost = "https://example.cloud.databricks.com"
 
 func patRow(host string) string {
-	return `{"preset":"databricks","host":"` + host + `","auth":{"authType":"pat"}}`
+	return `{"preset":"databricks","host":"` + host + `","auth":{"type":"pat"}}`
 }
 
 func TestValidateRejectsCollidingSealedSecretNames(t *testing.T) {
@@ -28,13 +28,13 @@ func TestValidateAcceptsDistinctSealedSecretNames(t *testing.T) {
 
 func m2mBaseRow(base string) string {
 	return `{"kind":"anthropic","base_url":"` + base + `/serving-endpoints/anthropic",` +
-		`"auth":{"type":"bearer","authType":"oauth-m2m","clientId":"sp-client"}}`
+		`"auth":{"type":"m2m","clientId":"sp-client"}}`
 }
 
 func TestValidateRejectsPlainHTTPSealedHost(t *testing.T) {
 	for _, doc := range []string{
 		`{"providers":{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}}`,
-		`{"providers":{"pat-http":{"preset":"databricks","host":"http://example.cloud.databricks.com","auth":{"authType":"pat"}}}}`,
+		`{"providers":{"pat-http":{"preset":"databricks","host":"http://example.cloud.databricks.com","auth":{"type":"pat"}}}}`,
 	} {
 		if err := Validate([]byte(doc)); err == nil {
 			t.Errorf("Validate accepted plain http: %s", doc)
@@ -53,7 +53,7 @@ func TestValidateAcceptsHTTPSAndLoopbackHTTPSealedHost(t *testing.T) {
 
 func TestAuthHostRejectsPlainHTTPNonLoopback(t *testing.T) {
 	p := &Provider{Name: "x", BaseURL: "http://example.cloud.databricks.com/serving-endpoints/anthropic",
-		Auth: Auth{Type: AuthBearer, AuthType: AuthOAuthM2M, ClientID: "c"}}
+		Auth: Auth{Type: AuthM2M, ClientID: "c"}}
 	if h := AuthHost(p); h != "" {
 		t.Errorf("AuthHost = %q, want empty for plain http non-loopback", h)
 	}

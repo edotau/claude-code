@@ -59,10 +59,17 @@ const (
 	SrcStoredToken = CopilotTokenEnv + " (stored)"
 )
 
-// copilotAuthSource (no network): the pinned gh user (COPILOT_GITHUB_USER), a stored token, gh's active account, then
+// CopilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
+func CopilotPinLogin() string {
+	reg, _ := providers.Load()
+	login, _ := providers.CopilotLogin(reg)
+	return login
+}
+
+// copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
-	if pin := providers.Pin(providers.PinGitHubUser); pin != "" {
+	if pin := CopilotPinLogin(); pin != "" { // a pinned profile with no login falls through to gh's active account
 		if slices.Contains(GHAccounts(), pin) {
 			return CopilotAuth{Account: pin, Source: srcPinned}, true
 		}
@@ -104,10 +111,10 @@ func CopilotLaunchToken() (string, error) {
 	return tok, nil
 }
 
-// CopilotPinError is non-nil when COPILOT_GITHUB_USER is pinned but that user is not a gh login: the harness
+// CopilotPinError is non-nil when the copilot profile's GitHub login is pinned but that user is not a gh login: the harness
 // fails rather than run copilot on a stored token or another account.
 func CopilotPinError() error {
-	pin := providers.Pin(providers.PinGitHubUser)
+	pin := CopilotPinLogin()
 	if pin == "" || slices.Contains(GHAccounts(), pin) {
 		return nil
 	}

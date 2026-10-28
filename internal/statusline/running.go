@@ -20,8 +20,13 @@ const runningTTL = 3 * time.Second
 // runningSegment is "N ◉": N = the main thread + this session's live subagent markers + this
 // session's live dispatch legs. Always shown while the "agents" segment is enabled.
 func runningSegment(in Input) string {
+	agents, legs := runningCounts(in)
+	return fmt.Sprintf("%d ◉", 1+agents+legs)
+}
+
+// runningCounts is the live subagent markers and live dispatch legs, cached for runningTTL.
+func runningCounts(in Input) (agents, legs int) {
 	stamp := stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath)
-	var agents, legs int
 	if f := freshStamp(stamp, runningTTL, 2); f != nil {
 		agents, _ = strconv.Atoi(f[0])
 		legs, _ = strconv.Atoi(f[1])
@@ -30,7 +35,7 @@ func runningSegment(in Input) string {
 		legs = liveDispatches()
 		writeTimedStamp(stamp, strconv.Itoa(agents), strconv.Itoa(legs))
 	}
-	return fmt.Sprintf("%d ◉", 1+agents+legs)
+	return agents, legs
 }
 
 // liveDispatches counts this session's dispatch records whose job is alive; it mirrors agent.Record.Alive

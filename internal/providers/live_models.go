@@ -28,7 +28,7 @@ type ModelInfo struct {
 // capability flags; every other provider keeps the plain /models GET, which has no such fields. reg is
 // accepted for callers that already have it in hand; this lister itself does not need it.
 func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, error) {
-	if p.Name == githubCopilotProviderName {
+	if p.provider() == "github" {
 		return liveCopilotModelInfos(ctx)
 	}
 	entries, err := liveModelEntries(ctx, p)
@@ -48,9 +48,6 @@ func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, e
 func endpointCapabilities(e liveModelEntry) string {
 	return strings.Join(slices.DeleteFunc([]string{e.task, e.ready}, func(s string) bool { return s == "" }), " · ")
 }
-
-// githubCopilotProviderName mirrors the cli package's constant; duplicated here to avoid an import cycle.
-const githubCopilotProviderName = "github-copilot"
 
 // CopilotTokenFn resolves the launch-account token (vendors.CopilotToken) for copilot catalog calls.
 // providers cannot import internal/vendors directly (vendors already imports providers); vendors sets

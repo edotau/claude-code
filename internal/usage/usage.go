@@ -39,8 +39,8 @@ func resolveBilling() *billing {
 	if err != nil || sel.Provider == nil {
 		return nil
 	}
-	mode := "subscription" // passthrough (vendor login) and none bill by plan; a static key bills per token
-	if t := sel.Provider.Auth.Type; t == providers.AuthAPIKey || t == providers.AuthBearer {
+	mode := "subscription" // cli (vendor login) and none bill by plan; a static key bills per token
+	if sel.Provider.APIKeyAuth() {
 		mode = "api"
 	}
 	return &billing{Mode: mode, Provider: sel.Provider.Name}

@@ -13,7 +13,7 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	const secret = "dapi-list-secret-value-123456"
 	err := providers.SetProviderFields("dbx-host", map[string]any{
 		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
-		"auth": map[string]any{"type": "bearer", "authType": "pat", "accountId": "1234abcd-0000", "workspaceId": "42"},
+		"auth": map[string]any{"type":"pat", "accountId": "1234abcd-0000", "workspaceId": "42"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestUnsupportedAuthTypeWriteRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	err := providers.SetProviderFields("dbx-bad", map[string]any{
 		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic",
-		"auth": map[string]any{"type": "bearer", "authType": "external-browser"},
+		"auth": map[string]any{"type":"key", "authType": "external-browser"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not supported (supported: u2m, oauth-m2m, pat)") {
 		t.Fatalf("write err = %v", err)

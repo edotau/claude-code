@@ -1,12 +1,11 @@
 package cli
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/statusline"
 )
 
@@ -33,19 +32,19 @@ func buildSpecTree() map[string]*compNode {
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
 	valuedFlag := func(name string, values func() []string) flagInfo { return flagInfo{name: name, values: values} }
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
-	// gateway route's flags, which bare `gateway` also takes.
+	// gateway router's flags, which bare `gateway` also takes.
 	gatewayRouteFlags := func() []flagInfo {
-		return []flagInfo{valuedFlag("tier", func() []string { return route.Tiers }),
-			valuedFlag("agent", func() []string { return route.Runners }),
+		return []flagInfo{valuedFlag("model", func() []string { return router.Tiers }),
+			valuedFlag("agent", func() []string { return router.Runners }),
 			flag("task"), valuedFlag("fallback", func() []string { return agent.FallbackModes }), formatFlag()}
 	}
 	vaultSections := func() []string {
-		return []string{"secrets", "pins", "env", "providers", "vendors", "settings", "vault", "all"}
+		return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
 	}
 
 	askFlags := []flagInfo{
-		valuedFlag("agent", agentNames), valuedFlag("provider", providerNames), flag("model"),
-		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("native"),
+		valuedFlag("agent", agentNames), valuedFlag("profile", providerNames), flag("model"),
+		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
@@ -53,7 +52,7 @@ func buildSpecTree() map[string]*compNode {
 	}
 
 	tree := map[string]*compNode{
-		"resolve":  {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("router")}},
+		"resolve":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("proxy")}},
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
@@ -69,8 +68,8 @@ func buildSpecTree() map[string]*compNode {
 					flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
 			}},
 		"configure": {args: []func() []string{configureSections, providerNames}, flags: []flagInfo{
-			valuedFlag("provider", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
-			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("vendors"), boolFlag("list"), formatFlag()}},
+			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
+			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
 			"restart": {flags: []flagInfo{boolFlag("dry-run"), formatFlag()}},
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
@@ -87,10 +86,10 @@ func buildSpecTree() map[string]*compNode {
 			"vscode": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"), boolFlag("no-tailscale"),
 				boolFlag("funnel"), flag("folder"), formatFlag()}},
 		}},
-		"models": {flags: []flagInfo{valuedFlag("provider", providerNames), boolFlag("unpin"), boolFlag("live"),
+		"models": {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
 		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
-			"route": {flags: gatewayRouteFlags()},
+			"router": {flags: gatewayRouteFlags()},
 			"proxy": {flags: []flagInfo{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
 				flag("port"), formatFlag()}},
 		}},
@@ -109,17 +108,17 @@ func buildSpecTree() map[string]*compNode {
 			"export":        {args: []func() []string{secretNames}, flags: []flagInfo{flag("out")}},
 			"edit":          {},
 			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
+			"migrate":       {flags: []flagInfo{boolFlag("apply"), formatFlag()}},
 		}},
 		"databricks": {sub: map[string]*compNode{
-			"check": {flags: []flagInfo{boolFlag("all"), flag("env"), boolFlag("1m"), flag("model")}},
+			"check": {flags: []flagInfo{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},
 			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run")}},
-			"import": {flags: []flagInfo{flag("file"), flag("profile"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
+			"mint":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("dry-run"), boolFlag("copy")}},
+			"import": {flags: []flagInfo{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
 				boolFlag("seal-secrets"), boolFlag("apply")}},
 			"export": {flags: []flagInfo{boolFlag("pick"), flag("rename"), flag("out"), boolFlag("merge"), boolFlag("force")}},
 			"config": {args: []func() []string{func() []string { return []string{"claude", "codex"} }}, flags: dbxCfgFlags(true)},
 			"rescue": {flags: append(dbxCfgFlags(false), boolFlag("print"))},
-			"agents": {args: []func() []string{func() []string { return []string{"on", "off", "status"} }},
-				flags: []flagInfo{flag("env")}},
 		}},
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},
@@ -127,7 +126,7 @@ func buildSpecTree() map[string]*compNode {
 			"diff":     {},
 		}},
 		"agents": {sub: map[string]*compNode{
-			"sync": {flags: []flagInfo{valuedFlag("vendor", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
+			"sync": {flags: []flagInfo{valuedFlag("agent", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("running"), boolFlag("all"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
@@ -137,7 +136,7 @@ func buildSpecTree() map[string]*compNode {
 			"nuke":      {flags: []flagInfo{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 			"workspace": {args: []func() []string{setupWorkspaceSubwords}, flags: []flagInfo{flag("with"), boolFlag("dry-run")}},
 		}}}},
-		"dispatch": {flags: []flagInfo{valuedFlag("host", dispatchHostNames), flag("dir"), valuedFlag("agent", dispatchAgentNames),
+		"remote": {flags: []flagInfo{valuedFlag("host", dispatchHostNames), flag("dir"), valuedFlag("agent", dispatchAgentNames),
 			flag("name"), boolFlag("dry-run"), boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
 		"worktree": {sub: map[string]*compNode{
 			"list":   {flags: []flagInfo{formatFlag()}},
@@ -177,14 +176,14 @@ func buildSpecTree() map[string]*compNode {
 	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
 		tree[v] = &compNode{}
 	}
-	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"), boolFlag("router"),
+	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
 		boolFlag("print-env"), flag("keep-env")}}
-	// Vendor agents: ask/resume/review/transfer/status/result/cancel/setup/models, same shape per vendor.
+	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/models, same shape per agent.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
 		tree[v] = &compNode{sub: vendorSubNodes(askFlags)}
 	}
 	geminiSub := vendorSubNodes(askFlags)
-	geminiSub["bridge"] = &compNode{flags: []flagInfo{flag("task"), flag("model"), valuedFlag("provider", providerNames), flag("effort"),
+	geminiSub["bridge"] = &compNode{flags: []flagInfo{flag("task"), flag("model"), valuedFlag("profile", providerNames), flag("effort"),
 		flag("dirs"), flag("files"), flag("format"), flag("max-files"), flag("max-file-bytes"),
 		flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}}
 	tree["gemini"] = &compNode{sub: geminiSub}
@@ -201,7 +200,7 @@ func buildSpecTree() map[string]*compNode {
 
 // dbxCfgFlags are the flags `databricks config` (withOut) and `databricks rescue` share.
 func dbxCfgFlags(withOut bool) []flagInfo {
-	fs := []flagInfo{{name: "env"}, {name: "provider", values: providerNames}, {name: "host"}, {name: "wire"},
+	fs := []flagInfo{{name: "profile", values: providerNames}, {name: "host"}, {name: "wire"},
 		{name: "model"}, {name: "auth"}, {name: "set"}, {name: "unset"}}
 	if withOut {
 		fs = append(fs, flagInfo{name: "out"}, flagInfo{name: "force", isBool: true})
@@ -209,8 +208,8 @@ func dbxCfgFlags(withOut bool) []flagInfo {
 	return fs
 }
 
-// vendorSubNodes is the one builder for every vendor agent's completion subtree (codex, copilot,
-// opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/models, same shape per vendor.
+// vendorSubNodes is the one builder for every agent verb's completion subtree (codex, copilot,
+// opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/models, same shape per agent.
 func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 	flag := func(name string) flagInfo { return flagInfo{name: name} }
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
@@ -226,7 +225,7 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"tail":     {flags: []flagInfo{boolFlag("f")}},
 		"result":   {flags: []flagInfo{formatFlag()}},
 		"cancel":   {},
-		"env":      {args: []func() []string{func() []string { return providers.DatabricksEnvs }}},
+		"env":      {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("clear")}},
 		"setup":    {flags: []flagInfo{formatFlag()}},
 		"models":   {},
 	}

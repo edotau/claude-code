@@ -8,23 +8,6 @@ import (
 	"testing"
 )
 
-func TestEnvOrDefault(t *testing.T) {
-	cases := []struct{ env, provider, want string }{
-		{"", "", "qa"},
-		{"", "databricks-dev", "dev"},
-		{"", "databricks-prod-oai", "prod"},
-		{"", "databricks-staging", "qa"},
-		{"", "openai", "qa"},
-		{"prod", "databricks-dev", "prod"},
-	}
-	for _, c := range cases {
-		t.Setenv("HARNESS_PROVIDER", c.provider)
-		if got := envOrDefault(c.env); got != c.want {
-			t.Errorf("env=%q HARNESS_PROVIDER=%q: got %q, want %q", c.env, c.provider, got, c.want)
-		}
-	}
-}
-
 // rescueScratch runs rescue with a recording spawn; it returns the scratch path and whether it existed mid-run.
 func rescueScratch(t *testing.T, spawnErr error) (path string, existedDuring bool, code int) {
 	t.Helper()

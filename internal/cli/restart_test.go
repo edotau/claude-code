@@ -59,7 +59,7 @@ func TestRestartStoppedRouterIsSkipped(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%v: exit = %d, want 0 (a stopped daemon is not a failure)", args, code)
 		}
-		if row := decodeRestart(t, out); row.Daemon != "router" || row.Status != "skipped" || row.OldPID != 0 || row.NewPID != 0 {
+		if row := decodeRestart(t, out); row.Daemon != "proxy" || row.Status != "skipped" || row.OldPID != 0 || row.NewPID != 0 {
 			t.Errorf("%v: row = %+v", args, row)
 		}
 		if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); err == nil {

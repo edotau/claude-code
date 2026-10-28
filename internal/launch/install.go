@@ -84,7 +84,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	for _, q := range quotaDoctorRows(time.Now()) {
 		check(true, false, q.Name, q.Detail)
 	}
-	check(true, false, "router", routerStatus())
+	check(true, false, "proxy", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
@@ -109,7 +109,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	return checks, ok
 }
 
-// RouteDetail returns the "<vendor> route" detail string DoctorChecks would emit for vendor, without
+// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for agent, without
 // running the rest of the doctor sweep; ok is false for an unknown vendor or a registry load error.
 func RouteDetail(vendor string) (detail string, ok bool) {
 	switch vendor {
@@ -139,12 +139,12 @@ func RouteDetail(vendor string) (detail string, ok bool) {
 func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p
-	label := p.Auth.Type
+	label := p.Auth.Method()
 	if p.Auth.Env != "" {
 		label += " " + p.Auth.Env
 	}
 	if session {
-		label += " (session provider)"
+		label += " (session profile)"
 	}
 	present := providers.CredentialPresent(p)
 	if present {
@@ -319,17 +319,17 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (home dir: %v)", opencodeLogin, copilotCLILogin, err)
 	}
 	file := filepath.Join(home, ".config", "opencode", "opencode.json")
-	if target.Provider.Name != "github-copilot" {
+	if target.Provider.Provider != "github" {
 		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}
 	mainID, smallID, ok := vendors.OpencodeCopilotModelIDs(reg)
 	if !ok {
-		return fmt.Sprintf("provider=github-copilot file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", file, opencodeLogin, copilotCLILogin)
+		return fmt.Sprintf("provider=%s file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}
 	// opus/sonnet/haiku here are github-copilot's own table (configure github), separate from COPILOT_MODEL.
-	opusID := reg.Providers["github-copilot"].Models[models.Opus]
-	return fmt.Sprintf("provider=github-copilot model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
-		mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
+	opusID := target.Provider.Models[models.Opus]
+	return fmt.Sprintf("provider=%s model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
+		target.Provider.Name, mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
 }
 
 // opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault

@@ -9,9 +9,9 @@ others, or the agents need the same evolving context. Dispatch, shared-tree and 
 and may not edit existing ones; the manager makes the one integration edit afterwards.
 
 ```text
-LANE 1  -> internal/router/tokencache.go   (new, owned)
-LANE 2  -> internal/router/authretry.go    (new, owned)
-MANAGER -> internal/router/router.go       (integration, one writer, after both report)
+LANE 1  -> internal/proxy/tokencache.go   (new, owned)
+LANE 2  -> internal/proxy/authretry.go    (new, owned)
+MANAGER -> internal/proxy/proxy.go       (integration, one writer, after both report)
 ```
 
 Ask each lane to report the exact API surface it produced, so integration needs no re-reading.
@@ -26,12 +26,12 @@ Ask each lane to report the exact API surface it produced, so integration needs 
 ## Example brief
 
 ```text
-Agent(subagent_type="code-worker", description="Token cache for the router", prompt="""
-Own ONLY: internal/router/tokencache.go (new). Do NOT edit router.go — other agents are in this package.
+Agent(subagent_type="code-worker", description="Token cache for the proxy", prompt="""
+Own ONLY: internal/proxy/tokencache.go (new). Do NOT edit proxy.go — other agents are in this package.
 Objective: in-memory, provider-keyed credential cache with single-flight and a refresher.
 Constraints: keyed by provider name, never process-global; providers/creds.go's TTL stays authoritative;
   never log a credential. Tests belong to copilot: list the behaviors that need coverage.
-Verify: gofmt -l <files> && go build ./... && go vet ./internal/router
+Verify: gofmt -l <files> && go build ./... && go vet ./internal/proxy
 Shared tree: per ../SKILL.md → Shared tree.
 Return: files, exact API surface to wire, verification output, risks.
 """)

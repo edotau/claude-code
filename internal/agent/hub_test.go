@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -40,7 +40,7 @@ func hubRegistry() *providers.Registry {
 func TestHubLegForOpencodeDefault(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	reg := hubRegistry()
-	tb, err := route.Load()
+	tb, err := router.Load()
 	if err != nil {
 		t.Fatal(err)
 	}

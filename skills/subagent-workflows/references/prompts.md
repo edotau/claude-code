@@ -23,7 +23,7 @@ Before a behavior change write TASK: code does X; check expects Y; spec says Z (
 After a defect fix write ISSUE: searched P, found N.
 
 Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)
-Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; Ran on: <runner (model) · fallback none|who>; files
+Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; Ran on: <agent (model) · fallback none|who>; files
 changed; verification output; the TASK/ISSUE facts as plain sentences; concerns.
 ```
 
@@ -65,7 +65,7 @@ Return:
 - One report block per applied change, in the skill's [File]/[Lines]/[Type]/[Scope]/[Impact]/[Description] format
 - Flagged-not-cut items, each with the assumption you could not finish
 - Behavior gate output, before and after
-- Ran on: <runner (model) · fallback none|who>
+- Ran on: <agent (model) · fallback none|who>
 - Status: DONE (applied N, flagged M — N may be 0) | BLOCKED (gate red before you started)
 ```
 

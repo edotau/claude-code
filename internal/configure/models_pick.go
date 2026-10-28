@@ -186,9 +186,9 @@ func pickCopilotModel(d *dialog) {
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
 func pickCopilotModelFallback(d *dialog, cur string) {
-	p, ok := d.reg.Providers["github-copilot"]
-	if !ok {
-		d.printf("copilot: no github-copilot provider registered\n")
+	p := profileBy(d.reg, "github", providers.AuthCLI)
+	if p == nil {
+		d.printf("copilot: no github provider registered\n")
 		return
 	}
 	ids := modelChoices(p, false)
@@ -228,7 +228,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, s := range slots {
 			rows[i] = [2]string{s, padTo(tierUse[s], 42) + currentModel(d, p, claude, s)}
 		}
-		idx, err := pick(d, name+" — model per tier ("+p.Name+")", rows)
+		idx, err := pick(d, name+" — model per alias ("+p.Name+")", rows)
 		if err != nil || idx < 0 {
 			return
 		}
@@ -242,7 +242,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, id := range ids {
 			choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 		}
-		j, err := pick(d, name+" — "+slots[idx]+" model", choice)
+		j, err := pick(d, name+" — "+slots[idx]+" model alias", choice)
 		if err != nil || j < 0 {
 			continue
 		}

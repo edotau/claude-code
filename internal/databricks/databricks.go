@@ -3,6 +3,7 @@ package databricks
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +16,12 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/removedflags"
 )
 
 const (
-	defaultModel = "databricks-claude-opus-5-5[1m]"
-	defaultEnv   = "qa"
 	smokePrompt  = "Reply with exactly: OK"
 	needlePrompt = "What is the secret word at the very end of this input? Reply with the word only."
 	needleWord   = "ZEBRAFINCH"
@@ -31,12 +32,13 @@ const (
 	betaOff      = betaKey + "=1"
 )
 
-// Plan is one parsed invocation: the provider and model the child launches with, plus pass-through args.
+// Plan is one parsed invocation: the profile (Provider) and model the child launches with, plus pass-through args.
 type Plan struct {
 	Check    bool
 	Big      bool
 	Provider string
 	Model    string
+	Asked    bool // the user named a model; otherwise launch leaves the choice to /model and the slots
 	NoBeta   bool // the provider's own Env carries the beta opt-out, so the verb does not inject it
 	Rest     []string
 }
@@ -72,13 +74,17 @@ var spawn = func(bin string, argv, env []string, stdin io.Reader, stdout, stderr
 
 // Run is the `claude-code databricks` verb; args follow the verb name and it returns the exit code.
 func Run(args []string) int {
+	if err := removedflags.Hint(args); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
+		return 2
+	}
 	// Help only as the first arg (or right after check); a later -h belongs to claude, as in the shell wrapper.
 	head := args
 	if len(head) > 0 && head[0] == "check" {
 		head = head[1:]
 	}
 	if len(head) > 0 && helptext.WantsHelp(head[:1]) {
-		usage()
+		usage(len(args) > len(head))
 		return 0
 	}
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
@@ -110,69 +116,79 @@ func Run(args []string) int {
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
-	"agents": agents, "config": config, "rescue": rescue, "login": login, "mint": mint, "import": importCfg, "export": export,
+	"config": config, "rescue": rescue, "login": login, "mint": mint, "import": importCfg, "export": export,
 }
 
-// rowName is the provider row for env: the migrated <env> preset row, else the legacy databricks-<env>.
-func rowName(reg *providers.Registry, env string) string {
-	if reg != nil {
-		if p := reg.Providers[env]; p != nil && p.Preset == providers.PresetDatabricks {
-			return env
-		}
-	}
-	return "databricks-" + env
-}
-
-// plan parses args: optional leading check, optional MODEL, --env, --1m; everything else passes through.
+// plan parses args: optional leading check, optional MODEL, --profile, --1m; everything else passes through.
 func plan(args []string) (Plan, error) {
-	p := Plan{Model: defaultModel}
+	var p Plan
 	if len(args) > 0 && args[0] == "check" {
 		p.Check = true
 		args = args[1:]
 	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		p.Model = args[0]
+		p.Model, p.Asked = args[0], true
 		args = args[1:]
 	}
-	env := defaultEnv
+	name := ""
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
-		case arg == "--env":
-			env = ""
+		case arg == "--profile":
+			name = ""
 			if i+1 < len(args) {
-				env = args[i+1]
+				name = args[i+1]
 				i++
 			}
-		case strings.HasPrefix(arg, "--env="):
-			env = strings.TrimPrefix(arg, "--env=")
+		case strings.HasPrefix(arg, "--profile="):
+			name = strings.TrimPrefix(arg, "--profile=")
 		case arg == "--1m":
 			p.Big = true
 		default:
 			p.Rest = append(p.Rest, arg)
 		}
 	}
-	if !slices.Contains(providers.DatabricksEnvs, env) {
-		return Plan{}, fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
+	reg, _ := providers.Load() // a load error leaves reg nil: the name is taken as given and the beta opt-out injected
+	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
+		return Plan{}, errors.New("no Databricks profile; add one with `databricks import` or pass --profile")
 	}
-	reg, _ := providers.Load() // a load error leaves reg nil: no twin is found and the beta opt-out is injected
-	p.Provider = rowName(reg, env)
-	if !isClaudeModel(p.Model) && hasProvider(reg, p.Provider+"-oai") {
-		p.Provider += "-oai"
+	if reg != nil && !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
+		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
+	}
+	if p.Model == "" {
+		p.Model = defaultModel(reg, p.Provider)
 	}
 	p.NoBeta = providerHasBetaOff(reg, p.Provider)
 	return p, nil
 }
 
-// hasProvider reports whether reg defines the named provider.
-func hasProvider(reg *providers.Registry, name string) bool {
-	if reg == nil {
-		return false
+// defaultModel is the opus alias, at 1M where the endpoint serves it, spelled the way the profile's row serves it.
+func defaultModel(reg *providers.Registry, profile string) string {
+	id := aliasID(models.Opus)
+	if reg != nil && reg.Providers[profile] != nil {
+		pr := reg.Providers[profile]
+		return pr.WireModel(id)
 	}
-	_, ok := reg.Providers[name]
-	return ok
+	return id
 }
 
-// providerHasBetaOff reports whether the provider's Env already sets the experimental-beta opt-out.
+// resolveProfile is name, else the session profile, else the vault CLAUDE_PROFILE pin, each only when it is
+// a Databricks profile, else the first Databricks profile; "" when there is none.
+func resolveProfile(reg *providers.Registry, name string) string {
+	if name != "" || reg == nil {
+		return name
+	}
+	profs := providers.DatabricksProfiles(reg)
+	// The session profile shadows the vault pin, even when it is not a Databricks profile.
+	if c := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)); slices.Contains(profs, c) {
+		return c
+	}
+	if len(profs) > 0 {
+		return profs[0]
+	}
+	return ""
+}
+
+// providerHasBetaOff reports whether the profile's row Env already sets the experimental-beta opt-out.
 func providerHasBetaOff(reg *providers.Registry, name string) bool {
 	if reg == nil {
 		return false
@@ -185,103 +201,6 @@ func providerHasBetaOff(reg *providers.Registry, name string) bool {
 	return ok
 }
 
-// agents is `databricks agents on|off|status`: aliases for the profile verbs, run through this binary.
-func agents(args []string) int {
-	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
-		usage()
-		return 0
-	}
-	var argv []string
-	switch args[0] {
-	case "on":
-		env, err := agentsEnv(args[1:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
-			return 2
-		}
-		reg, _ := providers.Load()
-		argv = agentsUse(reg, env)
-	case "off":
-		argv = []string{"profile", "off"}
-	case "status":
-		argv = []string{"profile", "show"}
-	default:
-		fmt.Fprintf(os.Stderr, "claude-code databricks: agents wants on, off or status (got %q)\n", args[0])
-		return 2
-	}
-	self, err := os.Executable()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "claude-code databricks: cannot locate the binary: %v\n", err)
-		return 2
-	}
-	code, err := spawn(self, argv, os.Environ(), os.Stdin, os.Stdout, os.Stderr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "claude-code databricks: exec failed: %v\n", err)
-		return 2
-	}
-	return code
-}
-
-// agentsUse is the `profile use` argv for `agents on`: a legacy databricks-<env> set, else DEFAULT repointed to <env>.
-func agentsUse(reg *providers.Registry, env string) []string {
-	if reg != nil {
-		if _, ok := reg.Profiles.Sets["databricks-"+env]; ok {
-			return []string{"profile", "use", "databricks-" + env}
-		}
-	}
-	return []string{"profile", "use", "--account", env, "DEFAULT"}
-}
-
-// agentsEnv picks the env: --env, else the one in HARNESS_PROVIDER (<env> or databricks-<env>[-oai]), else the default.
-func agentsEnv(args []string) (string, error) {
-	env := ""
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--env" && i+1 < len(args):
-			env = args[i+1]
-			i++
-		case strings.HasPrefix(a, "--env="):
-			env = strings.TrimPrefix(a, "--env=")
-		default:
-			return "", fmt.Errorf("unexpected argument %q", a)
-		}
-	}
-	env = envOrDefault(env)
-	if !slices.Contains(providers.DatabricksEnvs, env) {
-		return "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
-	}
-	return env, nil
-}
-
-// envOrDefault is env, else HARNESS_PROVIDER's env (the only var read; <env> or databricks-<env>), else qa.
-func envOrDefault(env string) string {
-	if env == "" {
-		env = envFromProvider(os.Getenv("HARNESS_PROVIDER"))
-	}
-	if env == "" {
-		env = defaultEnv
-	}
-	return env
-}
-
-// envFromProvider returns <env> from <env> or the legacy databricks-<env>[-oai], else "".
-func envFromProvider(name string) string {
-	env := name
-	if rest, ok := strings.CutPrefix(name, "databricks-"); ok {
-		env = strings.TrimSuffix(rest, "-oai")
-	}
-	if !slices.Contains(providers.DatabricksEnvs, env) {
-		return ""
-	}
-	return env
-}
-
-// isClaudeModel reports whether model takes the Anthropic passthrough (else it goes via the router).
-func isClaudeModel(model string) bool {
-	return slices.Contains([]string{"opus", "sonnet", "haiku"}, model) || strings.HasPrefix(model, "databricks-claude-") ||
-		strings.HasPrefix(model, "claude-")
-}
-
 // childEnv is the parent environment plus the beta opt-out, unless the provider's own Env already carries it.
 func childEnv(p Plan) []string {
 	if p.NoBeta {
@@ -290,9 +209,13 @@ func childEnv(p Plan) []string {
 	return append(os.Environ(), betaOff)
 }
 
-// launch execs this binary as `--provider P --model M rest...` with the parent's stdio.
+// launch execs this binary as `--profile P --model M rest...` with the parent's stdio.
 func launch(self string, p Plan) int {
-	argv := append([]string{"--provider", p.Provider, "--model", p.Model}, p.Rest...)
+	argv := []string{"--profile", p.Provider}
+	if p.Asked {
+		argv = append(argv, "--model", p.Model)
+	}
+	argv = append(argv, p.Rest...)
 	code, err := spawn(self, argv, childEnv(p), os.Stdin, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: exec failed: %v\n", err)
@@ -304,7 +227,7 @@ func launch(self string, p Plan) int {
 // capture runs one prompt through the provider and returns combined stdout+stderr (a start error is appended).
 func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...string) string {
 	var buf bytes.Buffer
-	argv := append([]string{"--provider", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
+	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
 	if _, err := spawn(self, argv, childEnv(p), stdin, &buf, &buf); err != nil {
 		fmt.Fprint(&buf, err)
 	}
@@ -384,28 +307,36 @@ func tail(s string, n int) string {
 // page is the `-h` text; its FLAGS rows come from the FlagSet built in usage.
 var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
-	About: "Launch Claude Code on Databricks model serving. MODEL defaults to databricks-claude-opus-5-5[1m]. " +
-		"opus, sonnet, haiku and databricks-claude-* use the Anthropic passthrough (row <env>, or a legacy " +
-		"databricks-<env>); other endpoints go through the router (a databricks-<env>-oai twin, else the row's " +
-		"openai route). check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
+	About: "Launch Claude Code on a Databricks profile. MODEL defaults to the opus alias at 1M context. " +
+		"check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
 	Commands: [][2]string{
-		{"check", "--all: one tiny call per env x wire (serving/gateway)"},
-		{"login", "browser sign-in for a u2m row; seals the refresh token"},
+		{"check", "--all: one tiny call per profile x wire (serving/ai-gateway)"},
+		{"login", "browser sign-in for an oauth profile"},
 		{"mint", "fresh token, never printed; --copy to clipboard"},
-		{"import", "create rows from ~/.databrickscfg (dry-run unless --apply)"},
-		{"export", "write u2m/m2m/pat rows as .databrickscfg sections, no secrets"},
+		{"import", "import a .databrickscfg (dry-run unless --apply)"},
+		{"export", "export profiles as .databrickscfg, no secrets"},
 		{"config", "<target>: render a claude or codex config (never a token)"},
 		{"rescue", "break-glass: run claude on a scratch settings file"},
-		{"agents", "on|off|status: profile use DEFAULT / profile off / show"},
 	},
 	Hint: "claude-code databricks <command> -h lists that command's flags.\n" +
 		"claude-code databricks " + helptext.DocsFlag + " prints the databricks CLI's own help.",
 }
 
+// checkPage is `databricks check -h`.
+var checkPage = helptext.Page{
+	Usage: "claude-code databricks check [MODEL] [--all] [--1m] [--profile NAME]",
+	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile x wire " +
+		"(serving/ai-gateway); --1m adds a ~1.2 MB needle-at-the-end probe.",
+}
+
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.
-func usage() {
-	fs := helptext.NewFlagSet("claude-code databricks", page)
-	fs.String("env", defaultEnv, "Databricks workspace: dev, qa or prod")
+func usage(check bool) {
+	pg := page
+	if check {
+		pg = checkPage
+	}
+	fs := helptext.NewFlagSet("claude-code databricks", pg)
+	fs.String("profile", "", "Databricks profile (default: session, pinned, else the first)")
 	fs.Bool("1m", false, "with check: also run the 1M-context probe")
 	fs.Usage()
 }

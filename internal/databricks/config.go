@@ -2,9 +2,9 @@ package databricks
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/envscrub"
 	"io"
 	"net/url"
 	"os"
@@ -26,9 +26,9 @@ func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 // cfgFlags are the flags `config` and `rescue` share.
 type cfgFlags struct {
-	env, provider, host, wire, auth, out, model string
-	force                                       bool
-	set, unset                                  multi
+	profile, host, wire, auth, out, model string
+	force                                 bool
+	set, unset                            multi
 }
 
 var configPage = helptext.Page{
@@ -45,10 +45,9 @@ var rescuePage = helptext.Page{
 }
 
 func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
-	fs.StringVar(&f.env, "env", "", "workspace: dev, qa or prod (default: HARNESS_PROVIDER's, else qa)")
-	fs.StringVar(&f.provider, "provider", "", "registry provider to take the host from")
+	fs.StringVar(&f.profile, "profile", "", "Databricks profile (default: session, pinned, else the first)")
 	fs.StringVar(&f.host, "host", "", "https://host override, skips the vault")
-	fs.StringVar(&f.wire, "wire", "", "gateway or serving (default: the row's, else serving)")
+	fs.StringVar(&f.wire, "wire", "", "ai-gateway or serving (default: the row's, else serving)")
 	fs.StringVar(&f.model, "model", "", "model override, canonical or wire id")
 	fs.StringVar(&f.auth, "auth", authDef, "harness (token helper) or cli (databricks CLI)")
 	fs.Var(&f.set, "set", "K=V env key to add or change (repeatable)")
@@ -62,24 +61,17 @@ func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 // resolve returns the expanded provider row and its https host: --host builds a preset row in memory,
 // else the registry row (re-expanded from its host when --wire differs from the row's).
 func resolve(f cfgFlags) (*providers.Provider, string, error) {
-	name := f.provider
+	reg, lerr := providers.Load() // nil reg: --host alone still renders, under the generic name
+	name := resolveProfile(reg, f.profile)
 	if name == "" {
-		env := envOrDefault(f.env)
-		if !slices.Contains(providers.DatabricksEnvs, env) {
-			return nil, "", fmt.Errorf("--env must be dev, qa or prod (got %q)", env)
-		}
-		reg, _ := providers.Load() // nil reg: the legacy name, then the --host / registry checks below decide
-		name = rowName(reg, env)
-	} else if f.env != "" {
-		return nil, "", errors.New("use --env or --provider, not both")
+		name = providers.GroupDatabricks
 	}
-	if f.wire != "" && f.wire != providers.WireServing && f.wire != providers.WireGateway {
-		return nil, "", fmt.Errorf("--wire must be gateway or serving (got %q)", f.wire)
+	if f.wire != "" && f.wire != providers.WireServing && f.wire != providers.WireAIGateway {
+		return nil, "", fmt.Errorf("--wire must be ai-gateway or serving (got %q)", f.wire)
 	}
 	host := strings.TrimRight(f.host, "/")
 	var row *providers.Provider
 	if host == "" {
-		reg, lerr := providers.Load()
 		if reg == nil {
 			return nil, "", fmt.Errorf("cannot read the registry (%v); pass --host URL", lerr)
 		}
@@ -104,8 +96,8 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 
 // synth expands a bare databricks preset row for host and wire through the registry's own loader.
 func synth(name, host, wire string) (*providers.Provider, string, error) {
-	doc, err := json.Marshal(map[string]any{"providers": map[string]any{name: map[string]any{
-		"preset": providers.PresetDatabricks, "host": host, "options": map[string]string{"wire": wire}}}})
+	doc, err := json.Marshal(map[string]any{"providers": map[string]any{providers.GroupDatabricks: map[string]any{name: map[string]any{
+		"preset": providers.PresetDatabricks, "host": host, "options": map[string]string{"wire": wire}}}}})
 	if err != nil {
 		return nil, "", err
 	}
@@ -187,8 +179,9 @@ var (
 	scrubNames    = []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 )
 
-// scrubbed drops every inherited var matching scrubPrefixes or scrubNames.
+// scrubbed drops envscrub.Deny plus every inherited var matching scrubPrefixes or scrubNames.
 func scrubbed(environ []string) []string {
+	environ, _ = envscrub.Scrub(environ, nil)
 	var out []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // TestRecordQuotas: each account keeps its tightest window; a 100% Copilot seat is exhausted until its reset day.
@@ -21,14 +21,14 @@ func TestRecordQuotas(t *testing.T) {
 	if n := recordQuotas(qs, now); n != 2 {
 		t.Fatalf("recorded %d accounts, want 2", n)
 	}
-	st := route.LoadState()
-	if e := st["claude:max"]; e.UsedPct != 92 || e.Window != "weekly" || e.Status(now) != route.StateLow {
-		t.Errorf("claude:max = %+v, want the weekly 92%% window, low", e)
+	st := router.LoadState()
+	if e := st["anthropic·max"]; e.UsedPct != 92 || e.Window != "weekly" || e.Status(now) != router.StateLow {
+		t.Errorf("anthropic·max = %+v, want the weekly 92%% window, low", e)
 	}
-	if e := st["copilot:work-user"]; e.Status(now) != route.StateExhausted || e.Until(now).Day() != 1 {
+	if e := st["github·work-user"]; e.Status(now) != router.StateExhausted || e.Until(now).Day() != 1 {
 		t.Errorf("copilot = %+v, want exhausted until the 1st", e)
 	}
-	if _, ok := st["codex:chatgpt"]; ok {
+	if _, ok := st["openai·chatgpt"]; ok {
 		t.Error("a failure row must not record")
 	}
 }

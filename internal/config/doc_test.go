@@ -57,14 +57,14 @@ func seedTestDoc(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "old-model")
 	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keep")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"anthropic"}`)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{}`)
+	vaulttest.Put(t, vault.Overlay, "agents", `{}`)
 	vaulttest.Put(t, vault.Overlay, "providers.prev", `{"sentinel":1}`)
 	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
 	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-0123456789abcdef")
 }
 
 func TestExportEmpty(t *testing.T) {
-	const want = "{\n  \"pins\": {},\n  \"env\": {},\n  \"providers\": null,\n  \"vendors\": null,\n  \"settings\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
+	const want = "{\n  \"pins\": {},\n  \"env\": {},\n  \"providers\": null,\n  \"agents\": null,\n  \"settings\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
 	for _, created := range []bool{false, true} {
 		name := "missing"
 		if created {
@@ -136,8 +136,8 @@ func TestImportValidation(t *testing.T) {
 		{name: "providers", edit: func(d *Doc) {
 			d.Providers = json.RawMessage(`{"providers":{"x":{"base_url":"nope"}}}`)
 		}},
-		{name: "vendors", edit: func(d *Doc) {
-			d.Vendors = json.RawMessage(`{"vendors":{"codex":{"launch":{"args":42}}}}`)
+		{name: "agents", edit: func(d *Doc) {
+			d.Vendors = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
 		}},
 		{name: "key command not array", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
 		{name: "key command empty array", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
@@ -185,7 +185,7 @@ func TestImportWrites(t *testing.T) {
 		{"add env", func(d *Doc) { d.Env["NEW_ENV"] = "new" }, vault.Env, "NEW_ENV", "new"},
 		{"set providers", func(d *Doc) { d.Providers = json.RawMessage(`{"default":"openai"}`) },
 			vault.Overlay, "providers", "{\n  \"default\": \"openai\"\n}\n"},
-		{"remove vendors", func(d *Doc) { d.Vendors = json.RawMessage("null") }, vault.Overlay, "vendors", ""},
+		{"remove agents", func(d *Doc) { d.Vendors = json.RawMessage("null") }, vault.Overlay, "agents", ""},
 		{"key command", func(d *Doc) { d.Vault.KeyCommand = `["pass","show","y"]` },
 			vault.Meta, "key_command", `["pass","show","y"]`},
 	}
@@ -314,10 +314,10 @@ func TestImportAudit(t *testing.T) {
 		name, key, value, resource string
 		action                     audit.Action
 	}{
-		{"opus", "HARNESS_OPUS_MODEL", "new-model", "HARNESS_OPUS_MODEL", audit.ModelPin},
-		{"sonnet", "HARNESS_SONNET_MODEL", "new-model", "HARNESS_SONNET_MODEL", audit.ModelPin},
-		{"haiku", "HARNESS_HAIKU_MODEL", "new-model", "HARNESS_HAIKU_MODEL", audit.ModelPin},
-		{"provider", "HARNESS_PROVIDER", "openai", "openai", audit.ProviderSwitch},
+		{"opus", "CLAUDE_OPUS_MODEL", "new-model", "CLAUDE_OPUS_MODEL", audit.ModelPin},
+		{"sonnet", "CLAUDE_SONNET_MODEL", "new-model", "CLAUDE_SONNET_MODEL", audit.ModelPin},
+		{"haiku", "CLAUDE_HAIKU_MODEL", "new-model", "CLAUDE_HAIKU_MODEL", audit.ModelPin},
+		{"provider", "CLAUDE_PROFILE", "openai", "openai", audit.ProviderSwitch},
 		{"unchanged", "", "", "", ""},
 	}
 	for _, tt := range tests {

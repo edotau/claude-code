@@ -21,8 +21,9 @@ func doctorScratch(t *testing.T) (xdgData string) {
 	xdgData = filepath.Join(dir, "xdg-data")
 	t.Setenv("XDG_DATA_HOME", xdgData)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
-	for _, k := range []string{"HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL",
-		"HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+	t.Setenv("HOME", dir) // never read the host's ~/.config/opencode or ~/.local/share/opencode
+	for _, k := range []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
+		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
 		"COPILOT_MODEL", "COPILOT_REASONING_EFFORT", "COPILOT_CONTEXT_TIER",
 		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
 		t.Setenv(k, "")
@@ -39,10 +40,18 @@ func workableCopilotPin(t *testing.T, user string) {
 		t.Fatal(err)
 	}
 	t.Setenv("GH_CONFIG_DIR", dir)
-	t.Setenv(providers.PinGitHubUser, user)
+	setPins(t, map[string]string{providers.PinCopilotProfile: user})
 	prev := vendors.CopilotUsedPct
 	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
+}
+
+// setPins seeds vault pins (pins never read the process env).
+func setPins(t *testing.T, kv map[string]string) {
+	t.Helper()
+	if err := providers.SetPins(kv); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func findCheck(checks []Check, name string) *Check {
@@ -71,15 +80,14 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 	}
 }
 
-// With opencode's own github-copilot login present, the doctor row names provider=github-copilot and
+// With opencode's own github-copilot login present, the doctor row names provider=personal and
 // both model/small_model: the registry now pins both slots to concrete ids (no "auto" default to
 // swap for OpencodeFallback any more — that swap path is covered directly in internal/vendors).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
 	// test still proves slot ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
-	t.Setenv("HARNESS_SONNET_MODEL", "gpt-5.3-codex")
-	t.Setenv("HARNESS_HAIKU_MODEL", "gpt-5.4-mini")
+	setPins(t, map[string]string{providers.SlotPin("sonnet"): "gpt-5.3-codex", providers.SlotPin("haiku"): "gpt-5.4-mini"})
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -92,8 +100,8 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	if c == nil {
 		t.Fatal(`no "opencode route" check in DoctorChecks output`)
 	}
-	if !strings.Contains(c.Detail, "provider=github-copilot") {
-		t.Errorf("detail = %q, want provider=github-copilot", c.Detail)
+	if !strings.Contains(c.Detail, "provider=personal") {
+		t.Errorf("detail = %q, want provider=personal", c.Detail)
 	}
 	if !strings.Contains(c.Detail, "opencode_login=true") {
 		t.Errorf("detail = %q, want opencode_login=true", c.Detail)
@@ -129,9 +137,8 @@ func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	doctorScratch(t)
 	workableCopilotPin(t, "alice")
-	t.Setenv("COPILOT_MODEL", "claude-opus-5.5")
-	t.Setenv("COPILOT_REASONING_EFFORT", "high")
-	t.Setenv("COPILOT_CONTEXT_TIER", "long_context")
+	setPins(t, map[string]string{providers.PinCopilotModel: "claude-opus-5.5", providers.PinCopilotEffort: "high",
+		providers.PinCopilotContext: "long_context"})
 	checks, _ := DoctorChecks()
 	c := findCheck(checks, "copilot route")
 	if c == nil {

@@ -23,7 +23,7 @@ that catches how LLM-written code characteristically fails. Read-only: findings 
   checklists `agents/codex.md` runs via `claude-code codex ask`).
 - **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `scripts/code-evaluator.js`).
 - **Vet a task brief before implementation** → `references/task-review.md` (verdict `READY | NEEDS
-  CLARIFICATION`; on another model family via `claude-code codex ask`).
+  CLARIFICATION`; on another agent via `claude-code codex ask`).
 
 ## Audit a transcript
 
@@ -145,7 +145,7 @@ Per mode in this skill:
 | review (this file) | `SHIP \| FIX REQUIRED \| BLOCK` |
 | judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
 | task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
-| vendor diff review (`claude-code <v> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
+| agent diff review (`claude-code <agent> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |
 
 ## Enforcement
 

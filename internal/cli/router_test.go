@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // TestRouterStartHelpDoesNotStart: `gateway proxy -h` printed nothing and spawned the daemon (seen 2026-10-23 when
@@ -18,7 +18,7 @@ func TestRouterStartHelpDoesNotStart(t *testing.T) {
 			t.Errorf("gateway %v: want usage + exit 0, got exit %d stderr %q", args, code, stderr)
 		}
 	}
-	if _, ok := router.Running(context.Background()); ok {
+	if _, ok := proxy.Running(context.Background()); ok {
 		t.Fatal("router was started by a help request")
 	}
 }

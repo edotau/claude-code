@@ -252,7 +252,7 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 
 func TestViewRejectsNewerSchema(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", "3")
+	vaulttest.Put(t, vault.Meta, "schema", "999")
 	err := vault.View(func(tx *vault.Tx) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "newer claude-code") {
 		t.Fatalf("View schema 3 = %v, want error containing newer claude-code", err)

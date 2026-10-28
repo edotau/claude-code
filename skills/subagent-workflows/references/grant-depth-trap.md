@@ -20,10 +20,10 @@ simply invisible — no `git status`/`diff`/`log`/`commit`, and no importable ve
 
 ## Fix
 
-**Scope to the repository root, not a subdirectory.** This is why `claude-code worktree create`
-symlinks the shared `.venv` at the worktree root rather than copying it into a subdir, and why
-a code-worker leaf's file scope should still resolve `git`/imports from a root-level checkout
-even when its *edit* scope is narrow.
+**Scope to the repository root, not a subdirectory.** This is why the shared `.venv` is symlinked at the worktree
+root (by hand: `using-git-worktrees/SKILL.md`; `worktree create` does not do it) rather than copied into a subdir,
+and why a code-worker leaf's file scope should still resolve `git`/imports from a root-level checkout even when its
+*edit* scope is narrow.
 
 ## Diagnosing it quickly
 

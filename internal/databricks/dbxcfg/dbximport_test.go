@@ -60,8 +60,8 @@ func TestCandidates(t *testing.T) {
 		t.Fatalf("DEFAULT/__settings__ leaked: %v", got)
 	}
 	want := map[string][3]string{
-		"alpha": {providers.AuthU2M, "https://alpha.example.cloud.databricks.com", ""},
-		"beta":  {providers.AuthOAuthM2M, "https://beta.example.cloud.databricks.com", ""},
+		"alpha": {providers.AuthOAuth, "https://alpha.example.cloud.databricks.com", ""},
+		"beta":  {providers.AuthM2M, "https://beta.example.cloud.databricks.com", ""},
 		"gamma": {providers.AuthPAT, "https://gamma.example.cloud.databricks.com", ""},
 	}
 	for n, w := range want {
@@ -94,8 +94,8 @@ func TestReadSecrets(t *testing.T) {
 func TestPlan(t *testing.T) {
 	cs, _ := Candidates(writeCfg(t))
 	existing := map[string]json.RawMessage{
-		"alpha": json.RawMessage(`{"auth":{"authType":"u2m"}}`),
-		"beta":  json.RawMessage(`{"auth":{"authType":"pat"}}`),
+		"alpha": json.RawMessage(`{"auth":{"type":"oauth"}}`),
+		"beta":  json.RawMessage(`{"auth":{"type":"pat"}}`),
 	}
 	byID := func(o Options) map[string]Row {
 		m := map[string]Row{}
@@ -117,14 +117,14 @@ func TestPlan(t *testing.T) {
 
 func TestApplyAndSecretName(t *testing.T) {
 	top := map[string]json.RawMessage{"default": json.RawMessage(`"x"`)}
-	rows := []Row{{Candidate: Candidate{Host: "https://h.example.com", Auth: providers.AuthOAuthM2M, ClientID: "c"}, ID: "my-sp", Action: "add"}}
+	rows := []Row{{Candidate: Candidate{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c"}, ID: "my-sp", Action: "add"}}
 	if err := Apply(top, rows); err != nil {
 		t.Fatal(err)
 	}
 	if string(top["default"]) != `"x"` || !strings.Contains(string(top["providers"]), `"clientId":"c"`) {
 		t.Errorf("top = %v", top)
 	}
-	if n := SecretNameOf(rows[0]); n != "PROVIDER_MY_SP_CLIENT_SECRET" {
+	if n := SecretNameOf(rows[0]); n != "DATABRICKS_MY_SP_M2M" {
 		t.Errorf("name %s", n)
 	}
 	if strings.Contains(string(top["providers"]), "secret") && strings.Contains(string(top["providers"]), "shh") {

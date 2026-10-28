@@ -12,7 +12,7 @@ import (
 func selectTestRegistry(t *testing.T) *Registry {
 	t.Helper()
 	reg := load(t)
-	for _, key := range append([]string{PinProvider, PinModel}, slotPinKeys()...) {
+	for _, key := range append([]string{PinProfile, PinModel}, slotPinKeys()...) {
 		t.Setenv(key, "")
 	}
 	return reg
@@ -48,7 +48,7 @@ func writeProviderPins(t *testing.T, pins map[string]string) {
 func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
-		PinProvider:           "gateway",
+		PinProfile:            "gateway",
 		PinModel:              "all-from-vault",
 		SlotPin(models.Opus):  "openai:gpt-5-nano",
 		SlotPin(models.Haiku): "haiku-from-vault",
@@ -76,34 +76,34 @@ func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	}
 }
 
-func TestSelectEnvironmentAndProviderFlagPrecedence(t *testing.T) {
+func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
-		PinProvider:          "gateway",
+		PinProfile:           "gateway",
 		PinModel:             "all-from-vault",
 		SlotPin(models.Opus): "opus-from-vault",
 	})
-	t.Setenv(PinProvider, "  gw  ")
+	t.Setenv(PinProfile, "  gw  ")
 	t.Setenv(PinModel, "  all-from-env  ")
-	t.Setenv(SlotPin(models.Opus), "   ")
+	t.Setenv(SlotPin(models.Opus), "env-opus")
 
 	sel, err := Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sel.Provider.Name != "gw" {
-		t.Fatalf("provider = %q, want trimmed env pin gw", sel.Provider.Name)
+	if sel.Provider.Name != "gateway" {
+		t.Fatalf("provider = %q, want the vault pin gateway (pins are vault-only)", sel.Provider.Name)
 	}
 	if got := sel.Slots[models.Opus]; got.Provider != sel.Provider || got.Model != "opus-from-vault" {
-		t.Errorf("opus = %+v, want vault value after whitespace-only env fallback", got)
+		t.Errorf("opus = %+v, want the vault value, not the env", got)
 	}
-	if got := sel.Slots[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-env" {
-		t.Errorf("sonnet = %+v, want trimmed env all-model pin", got)
+	if got := sel.Slots[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
+		t.Errorf("sonnet = %+v, want the vault all-model pin, not the env", got)
 	}
 
-	t.Setenv(PinProvider, "")
+	t.Setenv(PinProfile, "")
 	writeProviderPins(t, map[string]string{
-		PinProvider:          "gw",
+		PinProfile:           "gw",
 		SlotPin(models.Opus): "opus-from-vault",
 	})
 	flagSel, err := Select(reg, "gateway")
@@ -121,8 +121,8 @@ func TestSelectEnvironmentAndProviderFlagPrecedence(t *testing.T) {
 func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	reg := selectTestRegistry(t)
 	writeProviderPins(t, map[string]string{
-		PinProvider: "gateway",
-		PinModel:    "all-from-vault",
+		PinProfile: "gateway",
+		PinModel:   "all-from-vault",
 	})
 
 	sel, err := Select(reg, "")
@@ -135,7 +135,7 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 		}
 	}
 
-	writeProviderPins(t, map[string]string{PinProvider: "gateway"})
+	writeProviderPins(t, map[string]string{PinProfile: "gateway"})
 	sel, err = Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantFallback := reg.Providers["github-copilot"].Models[models.Opus]
+	wantFallback := reg.Providers["personal"].Models[models.Opus]
 	if got, src := CopilotModel(reg); got != wantFallback || src != "github-copilot default" {
 		t.Errorf("CopilotModel(unset) = (%q, %q), want (%q, github-copilot default)", got, src, wantFallback)
 	}
@@ -256,15 +256,15 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	}
 }
 
-// A process env var for COPILOT_MODEL beats the vault pin, same precedence as every other pin.
-func TestCopilotModelEnvBeatsVaultPin(t *testing.T) {
+// A process env var for COPILOT_MODEL is ignored: pins are vault-only.
+func TestCopilotModelIgnoresEnv(t *testing.T) {
 	reg := load(t)
 	if err := SetPins(map[string]string{PinCopilotModel: "from-vault"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(PinCopilotModel, "from-env")
-	if got, src := CopilotModel(reg); got != "from-env" || src != "pin" {
-		t.Errorf("CopilotModel(env set) = (%q, %q), want (from-env, pin)", got, src)
+	if got, src := CopilotModel(reg); got != "from-vault" || src != "pin" {
+		t.Errorf("CopilotModel(env set) = (%q, %q), want (from-vault, pin): env is not a pin source", got, src)
 	}
 }
 
@@ -286,7 +286,7 @@ func TestCodexModelResolverPinVsDefault(t *testing.T) {
 	}
 }
 
-// CodexEffort resolves CODEX_REASONING_EFFORT the same way, and a process env var beats the vault pin.
+// CodexEffort resolves CODEX_EFFORT the same way; a process env var is not a pin source.
 func TestCodexEffortResolverPinVsDefault(t *testing.T) {
 	load(t)
 	t.Setenv(PinCodexEffort, "")
@@ -303,27 +303,20 @@ func TestCodexEffortResolverPinVsDefault(t *testing.T) {
 		t.Errorf("CodexEffort(pinned) = (%q, %q), want (high, pin)", got, src)
 	}
 	t.Setenv(PinCodexEffort, "low")
-	if got, src := CodexEffort(); got != "low" || src != "pin" {
-		t.Errorf("CodexEffort(env set) = (%q, %q), want (low, pin): env beats the vault pin", got, src)
+	if got, src := CodexEffort(); got != "high" || src != "pin" {
+		t.Errorf("CodexEffort(env set) = (%q, %q), want (high, pin): env is not a pin source", got, src)
 	}
 }
 
-// GeminiModel resolves GEMINI_AGENT_MODEL: the pin if set, else "" (agy's own default decides). The
-// constant is deliberately not "GEMINI_MODEL" — that name is already used by the unrelated
-// gemini-bridge sweep tool (internal/gemini.ModelEnvKeys) — and an env var under that other name must
-// never leak into this resolver.
-func TestGeminiModelResolverPinVsDefaultIgnoresUnrelatedEnvVar(t *testing.T) {
+// GeminiModel resolves GEMINI_MODEL from the vault only: the pin if set, else "" (agy's own default decides).
+func TestGeminiModelResolverPinVsDefaultIgnoresEnv(t *testing.T) {
 	load(t)
-	if PinGeminiModel != "GEMINI_AGENT_MODEL" {
-		t.Fatalf("PinGeminiModel = %q, want GEMINI_AGENT_MODEL (never the bridge tool's GEMINI_MODEL)", PinGeminiModel)
-	}
-	t.Setenv(PinGeminiModel, "")
-	t.Setenv("GEMINI_MODEL", "should-never-be-read")
+	t.Setenv(PinGeminiModel, "env-never-read")
 	if err := SetPins(map[string]string{PinGeminiModel: ""}); err != nil {
 		t.Fatal(err)
 	}
 	if got, src := GeminiModel(); got != "" || src != "default" {
-		t.Errorf("GeminiModel(unset) = (%q, %q), want (\"\", default); GEMINI_MODEL env must not leak in", got, src)
+		t.Errorf("GeminiModel(unset) = (%q, %q), want (\"\", default): env must not leak in", got, src)
 	}
 	if err := SetPins(map[string]string{PinGeminiModel: "gemini-3.8-flash-high"}); err != nil {
 		t.Fatal(err)
@@ -340,7 +333,7 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 	row.Name, row.Preset = "qa", PresetDatabricks
 	reg.Providers["qa"] = &row
 	for _, pin := range []string{"databricks-qa", "databricks-dev-oai"} {
-		writeProviderPins(t, map[string]string{PinProvider: pin})
+		writeProviderPins(t, map[string]string{PinProfile: pin})
 		sel, err := Select(reg, "")
 		if err == nil || !strings.Contains(err.Error(), pin) {
 			t.Errorf("Select with pin %q = %+v, %v; want an unknown-provider error naming the pin", pin, sel.Provider, err)

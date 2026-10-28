@@ -11,30 +11,31 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 const (
-	probeModel   = "claude-haiku-5-5" // canonical id; each wire decorates it
 	probeTimeout = 45 * time.Second
 	budgetDenied = "budget denied"
 )
 
 var checkAllPage = helptext.Page{
 	Usage: "claude-code databricks check --all [flags]",
-	About: "One tiny Anthropic call per env (dev, qa, prod) and wire (serving,\n" +
-		"gateway); prints a status per cell, never a token. Exit 1 when a cell\n" +
-		"fails for any reason other than a budget denial.",
+	About: "One tiny Anthropic call per profile and wire (serving, ai-gateway);\n" +
+		"prints a status per cell, never a token. Exit 1 when a cell fails\n" +
+		"for any reason other than a budget denial.",
 }
 
 // probeClient is the HTTP client for probes, a var so tests point it at httptest.
 var probeClient = &http.Client{Timeout: probeTimeout}
 
-// checkAll is `databricks check --all`: the env x wire matrix.
+// checkAll is `databricks check --all`: the profile x wire matrix (one profile with --profile).
 func checkAll(args []string) int {
 	fs := helptext.NewFlagSet("databricks check --all", checkAllPage)
-	model := fs.String("model", probeModel, "canonical model id to probe")
+	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
+	only := fs.String("profile", "", "probe only this Databricks profile (default: all)")
 	if rest, err := outfmt.Parse(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {
@@ -45,24 +46,27 @@ func checkAll(args []string) int {
 	if err != nil {
 		return fail("check: %v", err)
 	}
-	wires := []string{providers.WireServing, providers.WireGateway}
-	fmt.Printf("%-6s %-16s %-24s %s\n", "ENV", "ROW", "SERVING", "GATEWAY")
+	wires := []string{providers.WireServing, providers.WireAIGateway}
+	names := providers.DatabricksProfiles(reg)
+	if *only != "" {
+		names = []string{*only}
+	}
+	fmt.Printf("%-24s %-24s %s\n", "PROFILE", "SERVING", "AI-GATEWAY")
 	rc := 0
-	for _, env := range providers.DatabricksEnvs {
-		name := rowName(reg, env)
-		cells := checkEnv(reg.Providers[name], name, *model, wires)
+	for _, name := range names {
+		cells := checkProfile(reg.Providers[name], name, *model, wires)
 		for _, c := range cells {
 			if c != "ok" && c != budgetDenied {
 				rc = 1
 			}
 		}
-		fmt.Printf("%-6s %-16s %-24s %s\n", env, name, cells[0], cells[1])
+		fmt.Printf("%-24s %-24s %s\n", name, cells[0], cells[1])
 	}
 	return rc
 }
 
-// checkEnv mints the row's token once and probes every wire with it.
-func checkEnv(row *providers.Provider, name, model string, wires []string) []string {
+// checkProfile mints the row's token once and probes every wire with it.
+func checkProfile(row *providers.Provider, name, model string, wires []string) []string {
 	cells := make([]string, len(wires))
 	fill := func(s string) []string {
 		for i := range cells {

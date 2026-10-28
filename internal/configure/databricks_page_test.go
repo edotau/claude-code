@@ -24,9 +24,9 @@ import (
 const dbxTok = "dapiSECRETTOKEN0123456789"
 
 const dbxDoc = `{"providers":{
-"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"bearer","authType":"u2m"}},
-"qa":{"preset":"databricks","host":"https://adb-2.azuredatabricks.net","cliProfile":"qa","auth":{"type":"bearer","command":"echo x"}},
-"prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"bearer","command":"echo x"}}},
+"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"oauth"}},
+"qa":{"preset":"databricks","host":"https://adb-2.azuredatabricks.net","cliProfile":"qa","auth":{"type":"key","command":"echo x"}},
+"prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"key","command":"echo x"}}},
 "profiles":{"active":"DEFAULT","sets":{"DEFAULT":{
 "session":{"account":"dev"},"codex":{"account":"dev"},"copilot":{"account":"dev"},"opencode":{"account":"dev"}}}}}`
 
@@ -92,7 +92,7 @@ func dbxEnv(t *testing.T) *dialog {
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{providers.PinProvider, providers.PinModel} {
+	for _, k := range []string{providers.PinProfile, providers.PinModel} {
 		t.Setenv(k, "")
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", dbxDoc)
@@ -115,15 +115,6 @@ func dbxExpiry(t *testing.T, env string, exp time.Time) {
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func dbxProfiles(t *testing.T) providers.Profile {
-	t.Helper()
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return reg.Profiles.Sets["DEFAULT"]
 }
 
 func TestDbxDur(t *testing.T) {
@@ -191,7 +182,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 		t.Fatalf("env rows = %v", envRows)
 	}
 	if envRows[1][1] != "command  token expires in 59m" || envRows[0][1] != "u2m  no login" {
-		t.Errorf("env row text = %q / %q", envRows[1][1], envRows[0][1])
+		t.Errorf("env row text = %q / %q", envRows[2][1], envRows[0][1])
 	}
 	if f.titles[1] != "databricks · qa" {
 		t.Errorf("env title = %q", f.titles[1])
@@ -268,7 +259,7 @@ func TestDbxCopyNoClipboardNotesRouter(t *testing.T) {
 	f.picks = []int{3, -1}
 	runDatabricksEnv(d, "qa")
 	out := dbxOut(d)
-	if !strings.Contains(out, "qa: no clipboard here; the agents fetch via the router") {
+	if !strings.Contains(out, "qa: no clipboard here; the agents fetch via the proxy") {
 		t.Errorf("missing router note:\n%s", out)
 	}
 	if len(f.sched) != 0 {
@@ -305,7 +296,7 @@ func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	dbxCopy = clipboard.WriteSecret // real writer, no tool on PATH
 	f.picks = []int{3, -1}
 	runDatabricksEnv(d, "qa")
-	if !strings.Contains(dbxOut(d), "no clipboard here; the agents fetch via the router") {
+	if !strings.Contains(dbxOut(d), "no clipboard here; the agents fetch via the proxy") {
 		t.Errorf("real ErrNoClipboard not mapped:\n%s", dbxOut(d))
 	}
 	sink := filepath.Join(t.TempDir(), "sink")
@@ -324,22 +315,21 @@ func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	}
 }
 
-func TestDbxApplyAllCallsUseAccount(t *testing.T) {
+func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{4, 0, -1} // Apply to agents -> All four
+	f.picks = []int{4, 0, -1} // Apply to agents -> All agents
 	runDatabricksEnv(d, "qa")
-	set := dbxProfiles(t)
 	for _, a := range dbxAgents {
-		if set[a].Account != "qa" {
-			t.Errorf("%s -> %q, want qa (UseAccount moves every preset row)", a, set[a].Account)
+		if got := providers.Pin(a.pin); got != "qa" {
+			t.Errorf("%s pin %s = %q, want qa", a.name, a.pin, got)
 		}
 	}
 	if !d.changed || !strings.Contains(dbxOut(d), "qa") {
 		t.Errorf("changed=%v out=%q", d.changed, dbxOut(d))
 	}
-	if f.rows[1][0][0] != "All four agents" || len(f.rows[1]) != 5 {
+	if f.rows[1][0][0] != "All agents" || len(f.rows[1]) != len(dbxAgents)+1 {
 		t.Errorf("apply rows = %v", f.rows[1])
 	}
 	if f.titles[1] != "apply qa to" {
@@ -347,19 +337,19 @@ func TestDbxApplyAllCallsUseAccount(t *testing.T) {
 	}
 }
 
-func TestDbxApplyPerAgentCallsUseAgentAccount(t *testing.T) {
+func TestDbxApplyPerAgentSetsOnePin(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
 	f.picks = []int{4, 2, -1} // codex is dbxAgents[1] -> picker row 2
 	runDatabricksEnv(d, "qa")
-	set := dbxProfiles(t)
-	if set["codex"].Account != "qa" {
-		t.Errorf("codex = %q", set["codex"].Account)
-	}
-	for _, a := range []string{"session", "copilot", "opencode"} {
-		if set[a].Account != "dev" {
-			t.Errorf("%s = %q, want untouched dev (UseAgentAccount moves one)", a, set[a].Account)
+	for _, a := range dbxAgents {
+		want := ""
+		if a.name == "codex" {
+			want = "qa"
+		}
+		if got := providers.Pin(a.pin); got != want {
+			t.Errorf("%s pin = %q, want %q", a.name, got, want)
 		}
 	}
 }
@@ -372,6 +362,27 @@ func TestDbxApplyAlreadyAppliedAndCancel(t *testing.T) {
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: already applied") {
 		t.Errorf("missing already applied:\n%s", dbxOut(d))
+	}
+}
+
+// TestDbxApplyRowsFitEightyColumns: the rows dbxApply really hands the picker stay single-line at 80 columns.
+func TestDbxApplyRowsFitEightyColumns(t *testing.T) {
+	d := dbxEnv(t)
+	f := &dbxFake{}
+	installDbxFake(t, f)
+	f.picks = []int{4, -1, -1}
+	runDatabricksEnv(d, "qa")
+	if len(f.rows) < 2 || len(f.rows[1]) != len(dbxAgents)+1 {
+		t.Fatalf("apply picker not captured: %v", f.rows)
+	}
+	var labels []string
+	for _, r := range f.rows[1] {
+		labels = append(labels, r[0])
+	}
+	for _, r := range f.rows[1] {
+		if w := rowRenderedWidth(labels, r[1]); w > 80 {
+			t.Errorf("apply row %q = %d cols", r[0], w)
+		}
 	}
 }
 
@@ -388,11 +399,17 @@ func TestDbxReportNoTokenAndShape(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("report lines = %q", lines)
 	}
-	for i, w := range [][]string{{"dev", "u2m", "no login"}, {"qa", "command", "token expires in 59m"}, {"prod", "command", "logged in"}} {
-		got := strings.Join(strings.Fields(lines[i]), " ")
-		if got != strings.Join(w, " ") {
-			t.Errorf("line %d = %q, want %v", i, got, w)
+	want := map[string]string{"dev": "dev u2m no login", "prod": "prod command logged in", "qa": "qa command token expires in 59m"}
+	for _, l := range lines {
+		got := strings.Join(strings.Fields(l), " ")
+		f0 := strings.Fields(l)[0]
+		if got != want[f0] {
+			t.Errorf("line %q = %q, want %q", f0, got, want[f0])
 		}
+		delete(want, f0)
+	}
+	if len(want) != 0 {
+		t.Errorf("profiles missing from report: %v", want)
 	}
 	if len(f.calls) != 0 {
 		t.Errorf("report must not mint/login: %v", f.calls)
@@ -407,7 +424,7 @@ func TestDbxReportEmptyRegistry(t *testing.T) {
 	if !runDatabricks(d) {
 		t.Error("missing logins are not a failed section")
 	}
-	if got := dbxOut(d); strings.Count(got, "no login") != 3 || !strings.Contains(got, "-") {
+	if got := dbxOut(d); got != "" {
 		t.Errorf("report = %q", got)
 	}
 }

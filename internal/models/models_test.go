@@ -6,24 +6,20 @@ func TestParseAndKnobs(t *testing.T) {
 	cases := []struct {
 		id       string
 		family   string
-		oneM     string
 		thinking string
 	}{
-		{"claude-opus-5", "opus", "claude-opus-5[1m]", ""},
-		{"claude-sonnet-4-6", "sonnet", "claude-sonnet-4-6[1m]", "31999"},
-		{"claude-haiku-4-5-20251001", "haiku", "claude-haiku-4-5-20251001", "31999"},
-		{"claude-sonnet-4-20250514", "sonnet", "claude-sonnet-4-20250514", "31999"},
-		{"anthropic/claude-opus-4-8", "opus", "anthropic/claude-opus-4-8[1m]", ""},
-		{"databricks-claude-haiku-5-5", "haiku", "databricks-claude-haiku-5-5", "31999"},
-		{"databricks-claude-sonnet-4-6", "sonnet", "databricks-claude-sonnet-4-6[1m]", "31999"},
-		{"gpt-5", "", "gpt-5", ""},
+		{"claude-opus-5", "opus", ""},
+		{"claude-sonnet-4-6", "sonnet", "31999"},
+		{"claude-haiku-4-5-20251001", "haiku", "31999"},
+		{"claude-sonnet-4-20250514", "sonnet", "31999"},
+		{"anthropic/claude-opus-4-8", "opus", ""},
+		{"databricks-claude-haiku-5-5", "haiku", "31999"},
+		{"databricks-claude-sonnet-4-6", "sonnet", "31999"},
+		{"gpt-5", "", ""},
 	}
 	for _, c := range cases {
 		if got := FamilyOf(c.id); got != c.family {
 			t.Errorf("FamilyOf(%q)=%q want %q", c.id, got, c.family)
-		}
-		if got := MaybeAdd1M(c.id); got != c.oneM {
-			t.Errorf("MaybeAdd1M(%q)=%q want %q", c.id, got, c.oneM)
 		}
 		if got, _ := ThinkingKnobs(c.id); got != c.thinking {
 			t.Errorf("ThinkingKnobs(%q)=%q want %q", c.id, got, c.thinking)

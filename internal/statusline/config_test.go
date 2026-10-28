@@ -9,7 +9,7 @@ import (
 func TestDefaultConfigOrder(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()
-	want := []string{"provider", "model", "router", "context", "limits", "tokens", "duration", "session"}
+	want := []string{"provider", "model", "proxy", "context", "limits", "total", "duration", "session"}
 	if !reflect.DeepEqual(cfg.Order, want) {
 		t.Errorf("Order = %v, want %v", cfg.Order, want)
 	}

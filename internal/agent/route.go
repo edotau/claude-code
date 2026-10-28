@@ -1,26 +1,31 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/routetable"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// Leg is one routed step: the runner plus the cell it runs (model, effort) and the account it bills.
+// Leg is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
 type Leg struct {
-	Runner                  Runner
+	Agent                   Runner
 	Model, Effort           string
 	Account, Billing        string
 	keepCaller, unroutedLeg bool // keepCaller: the wanted leg keeps the caller's own --model
 }
 
-// Chain is a routed dispatch: Want is the runner asked for, Legs run in order, Skipped are gate drops.
+// Chain is a routed dispatch: Want is the agent asked for, Legs run in order, Skipped are gate drops.
 type Chain struct {
 	Want    string
 	Legs    []Leg
@@ -29,22 +34,53 @@ type Chain struct {
 
 // Single is a one-leg chain on r with the caller's request untouched (an explicit backend, or a test).
 func Single(r Runner) Chain {
-	return Chain{Want: r.Name(), Legs: []Leg{{Runner: r, keepCaller: true, unroutedLeg: true}}}
+	return Chain{Want: r.Name(), Legs: []Leg{{Agent: r, keepCaller: true, unroutedLeg: true}}}
 }
 
 // State seams: tests point them away from the real quota.json.
 var (
-	loadState     = route.LoadState
-	markExhausted = route.MarkExhausted
-	markAuth      = route.MarkAuth
+	loadState     = router.LoadState
+	markExhausted = router.MarkExhausted
+	markAuth      = router.MarkAuth
 )
 
-// RouteChain turns a pick at tier into legs; the wanted runner's leg keeps an explicit caller model, every other leg
-// runs its own cell at the same tier. native keeps a wanted opencode leg on opencode's own config instead of the hub.
-func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o route.Opts) (Chain, route.Result, error) {
-	tb, err := route.Load()
+// modelRow resolves a --model (or tier) value to the route-table row it names: the tier the pick runs at and the
+// canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
+func modelRow(model string) (tier, row, exact string) {
+	canonical, _, ok := models.Resolve(model)
+	switch {
+	case !ok:
+		return "", "", ""
+	case !strings.HasPrefix(canonical, "claude-"):
+		return "", "", canonical
+	}
+	tier = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
+	if !slices.Contains(router.Tiers, tier) {
+		tier = ""
+	}
+	return tier, canonical, ""
+}
+
+// RouteChain turns a pick at tier into legs; tier may also be a Claude row (alias, canonical id or any spelling), and
+// then every leg runs that row's cell of its agent. The wanted agent's leg keeps an explicit caller model, every
+// other leg runs its own cell. native keeps a wanted opencode leg on opencode's own config instead of the hub.
+func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
+	t, row, _ := modelRow(tier)
+	return routeChain(ctx, want, cmp.Or(t, tier), row, "", mode, explicitModel, native, o)
+}
+
+// RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell for every agent; a non-Claude
+// id is exact, so only agents with a cell serving it (plus the wanted agent, which keeps the id as typed) get a leg.
+// tierHint is the classifier's tier, used when model is empty or exact.
+func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o router.Opts) (Chain, router.Result, error) {
+	tier, row, exact := modelRow(model)
+	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, mode, strings.TrimSpace(model) != "", native, o)
+}
+
+func routeChain(ctx context.Context, want, tier, row, exact, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
+	tb, err := router.Load()
 	if err != nil {
-		return Chain{}, route.Result{}, err
+		return Chain{}, router.Result{}, err
 	}
 	o.Fallback = mode
 	if o.Account == nil {
@@ -59,45 +95,96 @@ func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, nat
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
-		c.Legs = append(c.Legs, Leg{Runner: vendorRunner{"opencode"}, keepCaller: true, unroutedLeg: true})
+		c.Legs = append(c.Legs, Leg{Agent: vendorRunner{"opencode"}, keepCaller: true, unroutedLeg: true})
 		if mode == FallbackNone {
 			return c, pick, nil
 		}
 	}
 	for _, s := range pick.Skipped {
-		if !nativeLead || s.Runner != "opencode" {
-			c.Skipped = append(c.Skipped, s.Runner+": "+s.Reason)
+		if !nativeLead || s.Agent != "opencode" {
+			c.Skipped = append(c.Skipped, s.Agent+": "+s.Reason)
 		}
 	}
+	current, _ := models.Alias(tier)
 	for _, cand := range pick.Candidates {
-		if nativeLead && cand.Runner == "opencode" {
+		if nativeLead && cand.Agent == "opencode" {
 			continue
 		}
-		leg := Leg{Model: cand.Model, Effort: cand.Effort, Account: cand.Account, Billing: cand.Billing}
-		leg.keepCaller = cand.Runner == want && explicitModel
+		cell := cand.Cell
 		switch {
-		case cand.Runner == "opencode" && (!native || cand.Runner != want):
-			r, model, err := hubLegFor(reg, cand.Model)
+		case exact != "": // a non-Claude id runs only where a cell serves it
+			sc, ok := cellServing(tb, cand.Agent, exact)
+			if !ok && cand.Agent != want {
+				c.Skipped = append(c.Skipped, cand.Agent+": serves no "+exact)
+				continue
+			}
+			if ok {
+				cell.Model, cell.Effort = sc.Model, sc.Effort
+			}
+		case row != "" && row != current && cand.Agent != "opencode": // an older row runs its own cell, not the tier's
+			if rc, ok := tb.ByModel[row][cand.Agent]; ok {
+				cell.Model, cell.Effort = rc.Model, rc.Effort
+			}
+		}
+		leg := Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
+		leg.keepCaller = cand.Agent == want && explicitModel
+		switch {
+		case cand.Agent == "opencode" && (!native || cand.Agent != want):
+			r, model, err := hubLegFor(reg, cell.Model)
 			if err != nil {
 				c.Skipped = append(c.Skipped, "opencode: "+err.Error())
 				continue
 			}
-			leg.Runner, leg.Model = watchFreeLeg(r, cand.Billing), model
+			leg.Agent, leg.Model = watchFreeLeg(r, cand.Billing), model
 		default:
-			r, err := Lookup(cand.Runner)
+			r, err := Lookup(cand.Agent)
 			if err != nil {
 				return Chain{}, pick, err
 			}
-			leg.Runner = r
+			leg.Agent = r
+			if cand.Agent == "claude" {
+				leg.Model = claudeCellModel(cell.Model)
+			}
 		}
 		c.Legs = append(c.Legs, leg)
 	}
 	return c, pick, nil
 }
 
-// watchFreeLeg sets the stall watchdog on r when billing is free; any other runner (or billing) passes through.
+// claudeCellModel is the model a routed claude leg runs: the alias a canonical row id backs, so the session's
+// selection (CLAUDE_<TIER>_MODEL pins, auto-[1m]) resolves it; an older row without an alias stays its canonical id.
+func claudeCellModel(cell string) string {
+	canonical, _, ok := models.Resolve(cell)
+	if !ok {
+		return cell
+	}
+	return cmp.Or(models.AliasOf(canonical), canonical)
+}
+
+// cellServing is agentName's table cell (any row, then opencode's sub-candidates) whose model is exact.
+func cellServing(tb *router.Table, agentName, exact string) (router.Cell, bool) {
+	serves := func(c router.Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
+	for _, row := range slices.Sorted(maps.Keys(tb.ByModel)) {
+		if c, ok := tb.ByModel[row][agentName]; ok && serves(c) {
+			return c, true
+		}
+	}
+	if agentName != "opencode" {
+		return router.Cell{}, false
+	}
+	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {
+		for _, tier := range slices.Sorted(maps.Keys(tb.OpencodeSub[sub])) {
+			if c := tb.OpencodeSub[sub][tier]; serves(c) {
+				return c, true
+			}
+		}
+	}
+	return router.Cell{}, false
+}
+
+// watchFreeLeg sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
 func watchFreeLeg(r Runner, billing string) Runner {
-	if billing != route.BillFree {
+	if billing != router.BillFree {
 		return r
 	}
 	if hl, ok := r.(hubLeg); ok {
@@ -107,35 +194,43 @@ func watchFreeLeg(r Runner, billing string) Runner {
 	return r
 }
 
-// resolveAccount is the account a runner's leg actually bills: "" keeps the table's key (the runner's own login or
-// subscription); a vendor resolving to another provider (an API key, a BYOK route) bills "<runner>:<provider>".
-func resolveAccount(runner string, c route.Cell) (string, string) {
+// profileAccount is a profile's route-state account key: the structured <provider>·<profile> pair.
+func profileAccount(p *providers.Provider) string {
+	if p.Provider == "" {
+		return p.Name
+	}
+	return p.Provider + "·" + p.Name
+}
+
+// resolveAccount is the account an agent's dispatch actually bills: "" keeps the table's key (the agent's own login
+// or subscription); an agent resolving to another profile (an API key, a BYOK route) bills that <provider>·<profile>.
+func resolveAccount(agentName string, c router.Cell) (string, string) {
 	var t providers.Target
-	switch runner {
+	switch agentName {
 	case "opencode":
-		return "", "" // the cell's provider prefix is the account; route.Configured gates its credential
+		return "", "" // the cell's provider prefix is the account; router.Configured gates its credential
 	case "claude":
 		_, ct, err := resolveTarget(Request{Model: c.Model})
-		if err != nil || ct.Provider == nil || ct.Provider.Auth.Type == providers.AuthPassthrough {
+		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
 		}
 		t = ct
 	default:
-		vt, own, _, err := vendorTargetNote(Request{Model: c.Model}, runner)
-		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == runner {
+		vt, own, _, err := vendorTargetNote(Request{Model: c.Model}, agentName)
+		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == agentName {
 			return "", ""
 		}
 		t = vt
 	}
-	return runner + ":" + t.Provider.Name, billingOf(t.Provider)
+	return profileAccount(t.Provider), billingOf(t.Provider)
 }
 
 // billingOf: a harness-held key bills per use, anything else is a plan.
 func billingOf(p *providers.Provider) string {
 	if p.APIKeyAuth() {
-		return route.BillCredits
+		return router.BillCredits
 	}
-	return route.BillSubscription
+	return router.BillSubscription
 }
 
 // ExplicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
@@ -148,19 +243,19 @@ func ExplicitChain(r Runner, req Request) Chain {
 		return c
 	}
 	now := time.Now()
-	if e := loadState()[acct]; e.Status(now) == route.StateExhausted {
-		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + route.ExhaustedReason(acct, e, now)}}
+	if e := loadState()[acct]; e.Status(now) == router.StateExhausted {
+		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + router.ExhaustedReason(acct, e, now)}}
 	}
 	return c
 }
 
-// explicitAccount is "<runner>:<provider>" for the named backend; a hub leg names its own provider.
+// explicitAccount is the <provider>·<profile> key of the named backend; a hub leg names its own profile.
 func explicitAccount(r Runner, req Request) (string, string) {
 	if l, ok := r.(hubLeg); ok {
 		if vendors.OpencodeCredID(l.provider.OpencodeID) == "opencode" {
-			return "opencode:go", route.BillSubscription
+			return "opencode·go", router.BillSubscription
 		}
-		return "opencode:" + l.provider.Name, billingOf(l.provider)
+		return profileAccount(l.provider), billingOf(l.provider)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -170,20 +265,20 @@ func explicitAccount(r Runner, req Request) (string, string) {
 	if name == "" {
 		name, _, _ = strings.Cut(req.Model, ":")
 	}
-	p, ok := reg.Providers[name]
-	if !ok {
+	p, err := reg.Get(name)
+	if err != nil {
 		return "", ""
 	}
-	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned account: route state's copilot:<user>
+	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned profile
 		return copilotLoginAccount(), billingOf(p)
 	}
-	return r.Name() + ":" + p.Name, billingOf(p)
+	return profileAccount(p), billingOf(p)
 }
 
-// copilotLoginAccount is the pinned gh user's route-state key, or "" when no user is pinned.
+// copilotLoginAccount is the pinned copilot profile's route-state key (github·<profile>), or "" when no user is pinned.
 func copilotLoginAccount() string {
-	if u := providers.Pin(providers.PinGitHubUser); u != "" {
-		return "copilot:" + u
+	if u := routetable.CopilotUser(); u != "" {
+		return "github·" + u
 	}
 	return ""
 }
@@ -194,10 +289,21 @@ func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
 	if !ok || reg == nil {
 		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)
 	}
+	var first *providers.Provider
 	for _, name := range reg.Names() {
-		if p := reg.Providers[name]; p.OpencodeID == id {
+		p := reg.Providers[name]
+		if p.OpencodeID != id {
+			continue
+		}
+		if providers.CredentialPresent(p) { // rows can share an opencodeID (chatgpt, openai): the signed-in one serves it
 			return hubLeg{agent: "opencode", provider: p, reg: reg}, model, nil
 		}
+		if first == nil {
+			first = p
+		}
+	}
+	if first != nil {
+		return hubLeg{agent: "opencode", provider: first, reg: reg}, model, nil
 	}
 	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
 	if vendors.OpencodeCredID(id) == "opencode" {
@@ -232,7 +338,7 @@ func noteQuota(leg Leg, err error) {
 		return
 	}
 	now := time.Now()
-	until := route.ResetFor(err.Error(), leg.Billing, loadState()[leg.Account], now)
+	until := router.ResetFor(err.Error(), leg.Billing, loadState()[leg.Account], now)
 	_ = markExhausted(leg.Account, until, now, fallbackReason(err)) // best-effort: the run's own error still reports it
 }
 
@@ -257,7 +363,7 @@ func condemnAuth(e *Error, recoverErr error) {
 	}
 }
 
-// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so route.Pick skips it until a login clears it.
+// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so router.Pick skips it until a login clears it.
 func noteAuth(leg Leg, err error) {
 	var e *Error
 	if leg.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {

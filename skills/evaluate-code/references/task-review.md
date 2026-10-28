@@ -4,7 +4,7 @@ A skeptical staff engineer pass on a task request **before implementation begins
 NOT to implement — it is to **refine the request** so the implementing agent has crystal-clear
 marching orders. Read-only intent: refine and judge, don't implement.
 
-Any reviewer runs this — the main session, a Plan subagent, or a second model family via
+Any reviewer runs this — the main session, a Plan subagent, or a second agent via
 `claude-code codex ask "<this file's checklist + the request>"`. It is the plan-vetting step of
 `rules/workflow/master-workflow.md` Phase 1.
 

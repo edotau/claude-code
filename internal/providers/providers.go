@@ -23,17 +23,13 @@ const (
 	DialectGemini    = "gemini"    // Google-native generateContent
 )
 
-// Auth header styles.
-const (
-	AuthAPIKey      = "x-api-key"   // Anthropic-native key header
-	AuthBearer      = "bearer"      // Authorization: Bearer <cred>
-	AuthNone        = "none"        // local servers (ollama, llama.cpp)
-	AuthPassthrough = "passthrough" // forward the client's own auth (Claude subscription OAuth)
-)
-
 // Provider is one upstream: a direct API or a gateway exposing several dialects under one host.
 type Provider struct {
 	Name string `json:"-"`
+	// Provider is the parent key of the registry row (anthropic, databricks, github, openai, google, nvidia).
+	Provider string `json:"provider,omitempty"`
+	// Login is the account login on the provider (a GitHub user for a github profile); not a secret.
+	Login string `json:"login,omitempty"`
 	// Kind is the dialect BaseURL itself speaks; Routes add further dialects (gateway paths).
 	Kind    string            `json:"kind"`
 	BaseURL string            `json:"base_url"`
@@ -41,8 +37,6 @@ type Provider struct {
 	Auth    Auth              `json:"auth"`
 	Models  map[string]string `json:"models,omitempty"` // slot (opus/sonnet/haiku/fable) → model id
 	Headers map[string]string `json:"headers,omitempty"`
-	// OneM opts the provider's Claude ids into the [1m] marker; only true where the upstream serves 1M context.
-	OneM bool `json:"one_m,omitempty"`
 	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
@@ -59,7 +53,9 @@ type Provider struct {
 	CLIProfile string `json:"cliProfile,omitempty"`
 	// Env is the non-secret launch env for sessions on this provider.
 	Env map[string]string `json:"env,omitempty"`
-	// ModelPrefix decorates canonical model ids to this provider's wire ids (databricks preset: "databricks-").
+	// ModelPrefix is the wire-id prefix a databricks preset derives (databricks- / system.ai.); WireModel does not read it.
+	//
+	// Deprecated: removed in Phase 4 (use Provider.WireModel).
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
 	Options Options `json:"options,omitzero"`
@@ -67,38 +63,14 @@ type Provider struct {
 
 const oneMMarker = "[1m]"
 
-// canonicalFamilies are the first-party id families WireModel decorates.
-var canonicalFamilies = []string{"claude-", "gpt-", "gemini-"}
-
-// WireModel decorates a canonical model id to p's wire id; idempotent, keeps a trailing [1m], leaves qualified ids.
-func (p Provider) WireModel(id string) string {
-	base, oneM := strings.CutSuffix(id, oneMMarker)
-	if base == "" || p.ModelPrefix == "" || strings.HasPrefix(base, p.ModelPrefix) || strings.ContainsAny(base, "/:") {
-		return id
+// UnmarshalJSON decodes a row and resolves a key row's default header from its kind.
+func (p *Provider) UnmarshalJSON(b []byte) error {
+	type plain Provider // no UnmarshalJSON, so the alias cannot recurse
+	if err := json.Unmarshal(b, (*plain)(p)); err != nil {
+		return err
 	}
-	// Only first-party canonical families are decorated; a custom endpoint name stays exactly as written.
-	if !slices.ContainsFunc(canonicalFamilies, func(f string) bool { return strings.HasPrefix(base, f) }) {
-		return id
-	}
-	base = p.ModelPrefix + base
-	base = p.presetWireID(base)
-	if oneM {
-		base += oneMMarker
-	}
-	return base
-}
-
-// CanonicalModel is the inverse of WireModel: it strips p's prefix and keeps a trailing [1m].
-func (p Provider) CanonicalModel(id string) string {
-	if p.ModelPrefix == "" {
-		return id
-	}
-	base, oneM := strings.CutSuffix(id, oneMMarker)
-	base = strings.TrimPrefix(base, p.ModelPrefix)
-	if oneM {
-		base += oneMMarker
-	}
-	return base
+	p.Auth.resolveKeyHeader(p.Kind)
+	return nil
 }
 
 // MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
@@ -115,17 +87,16 @@ func (p Provider) MarshalJSON() ([]byte, error) {
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).
 type Auth struct {
-	Type    string `json:"type"`              // x-api-key | bearer | none | passthrough
+	Type    string `json:"type,omitempty"`    // oauth | m2m | pat | key | cli | none
+	Header  string `json:"header,omitempty"`  // key/oauth/m2m/pat: x-api-key | bearer (key defaults by dialect)
 	Env     string `json:"env,omitempty"`     // env var, also read from the vault
 	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
-	Login   string `json:"login,omitempty"`   // passthrough only: vendor CLI whose own sign-in serves it (codex, copilot)
+	Login   string `json:"login,omitempty"`   // cli only: vendor CLI whose own sign-in serves it (codex, copilot)
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
-	// AuthType picks the mint path (Databricks SDK names): u2m | oauth-m2m | pat; "" keeps env/file/command.
-	AuthType string `json:"authType,omitempty"`
-	ClientID string `json:"clientId,omitempty"` // oauth-m2m service-principal client id (not secret)
+	ClientID       string `json:"clientId,omitempty"` // m2m service-principal client id (not secret)
 	// AccountID and WorkspaceID are non-secret Databricks ids; stored and shown in --list json, no behavior uses them yet.
 	AccountID   string `json:"accountId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
@@ -133,7 +104,7 @@ type Auth struct {
 
 // APIKeyAuth reports whether p bills per token on a harness-held key, not a subscription login (ledger gate).
 func (p Provider) APIKeyAuth() bool {
-	return p.Auth.Type == AuthAPIKey || p.Auth.Type == AuthBearer
+	return p.Auth.HeaderStyle() != ""
 }
 
 // Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
@@ -173,11 +144,25 @@ func (p Provider) Dialects() []string {
 // SlotOf reverse-maps a model id to the slot it occupies in this provider, for cross-provider failover.
 func (p Provider) SlotOf(model string) string {
 	for _, slot := range models.Slots {
-		if id, ok := p.Models[slot]; ok && id == model {
+		if id, ok := p.Models[slot]; ok && SameModel(id, model) {
 			return slot
 		}
 	}
 	return ""
+}
+
+// SameModel reports whether two model ids name the same model: equal as typed, or the same catalog model
+// once [1m] and any wire spelling are resolved.
+func SameModel(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ca, _, okA := models.Resolve(a)
+	cb, _, okB := models.Resolve(b)
+	if okA && okB {
+		return ca == cb
+	}
+	return !okA && !okB && models.Strip1M(a) == models.Strip1M(b)
 }
 
 // Registry is the merged provider table plus the default selection and failover ladder.
@@ -193,9 +178,8 @@ type Registry struct {
 	AgentPlanFormat string `json:"agentPlanFormat,omitempty"`
 	// Routing is the one routing object: weights, cell overrides, subagent offload and opencode's sub-pick
 	// knobs (was top-level route, routeWeights, opencodeLadder — internal/providers/routing.go).
-	Routing Routing `json:"routing,omitzero"`
-	// Profiles is the per-agent account/model/effort table (profiles.go); the zero value changes nothing.
-	Profiles Profiles `json:"profiles,omitzero"`
+	Routing Routing  `json:"routing,omitzero"`
+	order   []string // profile names in declared order (defaults first, then new overlay rows); see ProfilesOf
 }
 
 // RouteCell is one overlay cell for internal/route's table.
@@ -215,17 +199,15 @@ var RouteTiers = []string{models.Opus, models.Sonnet, models.Haiku}
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
 var RouteWeightNames = []string{"price", "headroom"}
 
-// RouteBillingKeys are the routing table's static account_key values (internal/routetable's own Billing
-// map mirrors this list, since routetable can't import providers' validator back); a "copilot:" prefix
-// also passes an overlay cell's account_key, since routetable adds the pinned gh user's key
-// (copilot:<user>, or CopilotUnpinned = "copilot:unpinned") dynamically at load, before any pin is known
-// here.
-var RouteBillingKeys = []string{"claude:max", "codex:chatgpt", "gemini:antigravity", "opencode:go",
-	"opencode:github-copilot", "opencode:openai", "opencode:nvidia", "opencode:zen-free"}
+// RouteBillingKeys are the routing table's static account_key values (`<provider>·<profile>`; internal/routetable's
+// Billing map mirrors them); a "github·" prefix also passes, since routetable adds the pinned gh user's key
+// (github·<user>, or github·unpinned) at load, before any pin is known here.
+var RouteBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
+	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
 
 // RouteOpencodeModelPrefixes are the model prefixes an opencode override cell may carry without an explicit
-// account_key: opencode-go/opencode keep the table's own opencode:go account, github-copilot bills
-// opencode's own Copilot login (opencode:github-copilot), openai/nvidia bill their own opencode logins —
+// account_key: opencode-go/opencode keep the table's own opencode·go account, github-copilot bills
+// opencode's own Copilot login (opencode·github-copilot), openai/nvidia bill their own opencode logins —
 // kept in sync with internal/routetable's opencodeOverrideAccount, which owns the actual account-key mapping.
 var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
@@ -235,9 +217,9 @@ var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-cop
 // internal/routetable's table.json opencode_sub keys (minus zen-free).
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
-// validRouteAccountKey reports whether key is a known static billing key or the "copilot:" dynamic family.
+// validRouteAccountKey reports whether key is a known static billing key or the "github·" dynamic family.
 func validRouteAccountKey(key string) bool {
-	return strings.HasPrefix(key, "copilot:") || slices.Contains(RouteBillingKeys, key)
+	return strings.HasPrefix(key, "github·") || slices.Contains(RouteBillingKeys, key)
 }
 
 // routeModelPrefix returns the provider prefix of a "prefix/model" id ("" when model carries no prefix).
@@ -280,7 +262,7 @@ type Plan struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// Get returns the named provider or an error naming the known ones.
+// Get returns the named profile or an error naming the known ones.
 func (r *Registry) Get(name string) (*Provider, error) {
 	if p, ok := r.Providers[name]; ok {
 		return p, nil
@@ -288,7 +270,26 @@ func (r *Registry) Get(name string) (*Provider, error) {
 	return nil, fmt.Errorf("unknown provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
-// Names lists provider names, sorted.
+// ProfilesOf lists the profile names under one provider in declared order (dev, qa, prod); a row built in Go
+// without a declared position follows, sorted.
+func (r *Registry) ProfilesOf(provider string) []string {
+	var out []string
+	for _, n := range r.order {
+		if p := r.Providers[n]; p != nil && p.Provider == provider {
+			out = append(out, n)
+		}
+	}
+	var rest []string
+	for n, p := range r.Providers {
+		if p != nil && p.Provider == provider && !slices.Contains(r.order, n) {
+			rest = append(rest, n)
+		}
+	}
+	slices.Sort(rest)
+	return append(out, rest...)
+}
+
+// Names lists profile names, sorted.
 func (r *Registry) Names() []string {
 	return slices.Sorted(maps.Keys(r.Providers))
 }
@@ -300,14 +301,33 @@ func (r *Registry) Validate() error {
 	for _, n := range r.Names() {
 		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
+	errs = append(errs, validateOpencodeIDs(r)...)
 	errs = append(errs, validateSecretNames(r)...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
-	errs = append(errs, validateProfiles(r)...)
 	if len(errs) > 0 {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateOpencodeIDs rejects two profiles claiming one opencodeID: the opencode hub picks the owner of an id, so
+// each id has exactly one (chatgpt, not openai, owns "openai" — opencode's own openai login is the ChatGPT plan).
+func validateOpencodeIDs(r *Registry) []string {
+	var errs []string
+	owner := map[string]string{}
+	for _, n := range r.Names() {
+		id := r.Providers[n].OpencodeID
+		if id == "" {
+			continue
+		}
+		if o, ok := owner[id]; ok {
+			errs = append(errs, fmt.Sprintf("%s and %s both claim opencodeID %q; one profile owns it", o, n, id))
+			continue
+		}
+		owner[id] = n
+	}
+	return errs
 }
 
 // validateSecretNames rejects two sealed-authType providers whose derived secret names collide.
@@ -343,12 +363,12 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 		}
 	}
 	switch p.Auth.Type {
-	case AuthAPIKey, AuthBearer, AuthNone, AuthPassthrough:
+	case AuthOAuth, AuthM2M, AuthPAT, AuthKey, AuthCLI, AuthNone:
 	default:
 		errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
 	}
-	if p.Auth.Login != "" && p.Auth.Type != AuthPassthrough {
-		errs = append(errs, n+": auth.login needs auth.type passthrough")
+	if p.Auth.Login != "" && p.Auth.Type != AuthCLI {
+		errs = append(errs, n+": auth.login needs auth.type cli")
 	}
 	errs = append(errs, validateAuthType(n, p)...)
 	errs = append(errs, validatePreset(n, p)...)

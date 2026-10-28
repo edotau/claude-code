@@ -73,8 +73,8 @@ func TestParseAnthropicRefusesConflicts(t *testing.T) {
 	if _, _, err := ParseAnthropicArgs([]string{"--x-api-key=A", "--oauth=B"}); err == nil {
 		t.Error("named --x-api-key with --oauth accepted")
 	}
-	if _, _, err := ParseAnthropicArgs([]string{"--provider", "anthropic"}); err == nil {
-		t.Error("--provider accepted by the anthropic verb")
+	if _, _, err := ParseAnthropicArgs([]string{"--profile", "anthropic"}); err == nil {
+		t.Error("--profile accepted by the anthropic verb")
 	}
 }
 
@@ -97,8 +97,8 @@ func TestAnthropicLoginPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Set["HARNESS_PROVIDER"]; got != "subscription" {
-		t.Errorf("HARNESS_PROVIDER = %q, want subscription", got)
+	if got := p.Set["CLAUDE_PROFILE"]; got != "max" {
+		t.Errorf("CLAUDE_PROFILE = %q, want max", got)
 	}
 	if v, ok := p.Set[oauthKey]; ok && v != "" {
 		t.Errorf("login mode must not set %s", oauthKey)
@@ -153,8 +153,8 @@ func TestAnthropicAPIKeyNamedCarriesKeyDirectlyWithoutMutatingRegistry(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Set["HARNESS_PROVIDER"] != "anthropic" {
-		t.Errorf("HARNESS_PROVIDER = %q", p.Set["HARNESS_PROVIDER"])
+	if p.Set["CLAUDE_PROFILE"] != "anthropic" {
+		t.Errorf("CLAUDE_PROFILE = %q", p.Set["CLAUDE_PROFILE"])
 	}
 	if p.Set["ANTHROPIC_API_KEY"] != fakeToken {
 		t.Error("ANTHROPIC_API_KEY not carried from NAME's value")
@@ -193,8 +193,8 @@ func TestAnthropicAPIKeyDefaultUsesHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Set["HARNESS_PROVIDER"] != "anthropic" {
-		t.Errorf("HARNESS_PROVIDER = %q", p.Set["HARNESS_PROVIDER"])
+	if p.Set["CLAUDE_PROFILE"] != "anthropic" {
+		t.Errorf("CLAUDE_PROFILE = %q", p.Set["CLAUDE_PROFILE"])
 	}
 	if !slices.Contains(p.Argv, "--settings") || len(p.Overlay) == 0 {
 		t.Errorf("bare --x-api-key should use the apiKeyHelper overlay: %q", p.Argv)
@@ -221,7 +221,11 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: %v", model, err)
 		}
-		if got := p.Set["ANTHROPIC_MODEL"]; !strings.Contains(got, tier) {
+		got := p.Set["ANTHROPIC_MODEL"]
+		if model == "" && got != "" {
+			t.Errorf("no --model: ANTHROPIC_MODEL %q, want unset", got)
+		}
+		if model != "" && !strings.Contains(got, tier) {
 			t.Errorf("--model %q: ANTHROPIC_MODEL %q, want family %q", model, got, tier)
 		}
 	}

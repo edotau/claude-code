@@ -31,7 +31,7 @@ func dbxCLIServer(t *testing.T) (*httptest.Server, *[]string) {
 
 func dbxCLIProvider(host string) *providers.Provider {
 	return &providers.Provider{Name: "qa", Preset: providers.PresetDatabricks, Host: host,
-		Auth: providers.Auth{Type: providers.AuthBearer, Env: "DBX_CLI_TOKEN"}}
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "DBX_CLI_TOKEN"}}
 }
 
 func TestListLiveDatabricksText(t *testing.T) {

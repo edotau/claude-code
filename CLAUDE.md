@@ -6,7 +6,7 @@ State the rule, point to the depth: `README.md` (infrastructure), `rules/` (poli
 ## What this repo is
 
 This git repo **is** `~/.claude` (github.com/edotau/claude-code): the `claude-code` Go binary
-(provider registry, loopback model router, Anthropic⇄OpenAI translation, agent runners, hooks,
+(provider registry, loopback model proxy, Anthropic⇄OpenAI translation, agent launchers, hooks,
 status line) plus the agents, commands, rules, skills and workflows every Claude Code session loads.
 Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live the moment they are saved.
 
@@ -53,25 +53,25 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 | To… | Run | Then / depth |
 | --- | --- | --- |
-| Build and install (`claude-code` + vendor links in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Render settings + vendor configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--vendors]` | hard rule 4; `README.md` → Setup |
-| Check binaries, providers, credentials, router | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
+| Build and install (`claude-code` + agent links in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
+| Render settings + agent configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--agents]` | hard rule 4; `README.md` → Setup |
+| Check binaries, providers, credentials, proxy | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
 | See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
-| Switch the session provider | `claude-code switch <provider> [--dry-run]` (relaunch); one launch: `claude-code --provider <p>` | pin lands in the vault (`claude-code vault list`) |
-| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin haiku=openai:gpt-5-nano` (cross-provider slot) · `--pin all=<id>` · `--unpin` | env `HARNESS_<SLOT>_MODEL` beats the vault pin |
-| List what a provider serves | `claude-code models --live [--provider <p>]` | — |
+| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch); one launch: `claude-code --profile <p>` | pin lands in the vault (`claude-code vault list`) |
+| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` | env `CLAUDE_<TIER>_MODEL` beats the vault pin |
+| List what a provider serves | `claude-code models --live [--profile <p>]` | — |
 | Set a credential | `claude-code vault set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `vault list\|get\|delete\|import\|export`, sources in `configure provider --list` | `README.md` → Credentials |
-| Run the model router | `claude-code gateway proxy --start\|--stop\|--status` (`--serve --port N` in the foreground); `claude-code --router` forces it | `README.md` → Routing |
-| Ask another agent (one shot) | `claude-code ask --agent <runner> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists runners | `skills/subagent-workflows/references/cost-routing.md` |
+| Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` (`--serve --port N` in the foreground) | `README.md` → Routing |
+| Ask another agent (one shot) | `claude-code ask --agent <agent> "<task>"` (`--format json` = envelope); `ask --log` lists recent dispatches, `ask --retry <id>` replays one; `claude-code agents` lists the CLI agents | `skills/subagent-workflows/references/cost-routing.md` |
 | Search the public web when native search is unavailable | `claude-code network websearch --query "<query>"` | `skills/web-search/SKILL.md` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"`; `gemini ask "<task>"` drives agy (the Antigravity CLI) | `commands/gemini.md`, `agents/gemini.md` |
-| Launch codex/gemini/opencode/copilot, or drive one by verb | `claude-code codex [--provider <p> --model <m>] [args]` (`--` forces passthrough); `claude-code <v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|models`; `--print-env` shows the wiring | `README.md` → Agents; `agents/<v>.md` |
-| Project agents + this file into every vendor CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--vendor v] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → Root anchors |
+| Launch codex/gemini/opencode/copilot, or drive one by verb | `claude-code codex [--profile <p> --model <m>] [args]` (`--` forces passthrough); `claude-code <v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|models`; `--print-env` shows the wiring | `README.md` → Agents; `agents/<v>.md` |
+| Project agents + this file into every agent CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → What stays out of the three homes |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `merge <name>` · `clean <name>` · `clean-all [--yes]` | `skills/using-git-worktrees/references/merge-and-clean.md` |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `internal/settings/template/` → `claude-code configure --reset --dry-run` (prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code network mcp [--format json]` | `rules/harness/settings-management.md` |
-| Map the whole harness for an agent (verbs, providers, runners, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
+| Map the whole harness for an agent (verbs, providers, agents, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |
 | Recall or save session memory | `claude-code memory recall <terms>` · `memory update` (auto via the Stop/SessionEnd harvest) · `memory init\|review\|promote\|remember\|dream` | `README.md` → Memory bank |
 | Test while developing | `go test ./internal/<pkg>` (one test: `-run '<Name>'`); `make lint` | full `make test` only at wrap-up, user-approved; `git push` runs the same gate via `.githooks/pre-push` (`--no-verify` bypasses) |
@@ -82,7 +82,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Capture a session's corrections into rules | `claude-code memory remember <fact>` then `memory promote <id> --to rules` (routing table: `claude-code memory promote` procedure) | `rules/workflow/memory-consolidation.md` |
 | Audit / recall / remember / promote / save / consolidate memory | `claude-code memory review\|recall\|remember\|promote\|update\|dream` | `agents/opencode.md` |
 | Second-opinion adversarial review on another model | `/codex` · `claude-code codex review [--adversarial] [--base <b>]`; vet a brief: `codex ask` + `task-review.md` | `agents/codex.md` |
-| Route a task to the cheapest capable leg | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `claude-code gemini bridge` / `ask --agent <leg>` | `skills/subagent-workflows/references/cost-routing.md` |
+| Route a task to the cheapest capable agent | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `claude-code gemini bridge` / `ask --agent <agent>` | `skills/subagent-workflows/references/cost-routing.md` |
 | Scan the config surface / MCP for leaked credentials | `claude-code doctor --scan\|--git\|--secrets` · `claude-code network mcp` | `rules/standards/security.md` |
 | Everything else (configure, VS Code, network, theme, history, …) | `claude-code describe` | `README.md` → Command reference |
 
@@ -91,11 +91,11 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 - `cmd/claude-code/` + `internal/` — the binary, stdlib-first; external SDKs boxed one package each.
   `internal/cli` is the verb table only; each verb's engine lives in its own package.
 - `internal/providers/defaults.json` — built-in providers; the vault's provider overlay replaces them by name.
-- `state/vault.db` — the vault: pins, custom env, provider/vendor overlays (`claude-code vault list|edit`) and
+- `state/vault.db` — the vault: pins, custom env, provider/agent overlays (`claude-code vault list|edit`) and
   sealed secrets (`vault set|get`); untracked.
 - `agents/<name>.md` — subagents, flat (the layout VS Code Copilot Chat also reads); `name:` **must equal the file
   stem**.
-- `commands/<namespace>/<command>.md` — slash commands. `workflows/*.js` — Workflow tool scripts.
+- `commands/<command>.md` — slash commands, flat. `workflows/*.js` — Workflow tool scripts.
 - `rules/` — `standards/` (always-on) · `workflow/` · `software/<lang>/`; scoping contract → `rules/README.md`.
 - `skills/<name>/SKILL.md` — on-demand references; untracked skill dirs are the user's own (symlinks into
   `~/.agents`, which Gemini reads natively), leave them.

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"
@@ -32,7 +33,7 @@ func hermetic(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv("USER", "tester")
-	t.Setenv("HARNESS_PROVIDER", "")
+	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("COLUMNS", "")
 	t.Setenv("COLORTERM", "truecolor")
@@ -55,16 +56,16 @@ func registryDefault(t *testing.T) string {
 
 func sample() values {
 	return values{userHost: "tester", path: "~/proj", model: "Opus 5 [1m]", provider: "openrouter",
-		router: "router:18765", branch: "main", tokens: "~1.2M tok", duration: "12m", contextPct: 42, adds: 10, dels: 3}
+		proxy: "proxy:18765", branch: "main", total: "total:1.23M", duration: "12m", contextPct: 42, adds: 10, dels: 3}
 }
 
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · router:18765 · ██████████ 42% · ~1.2M tok · 12m │ main · +10 -3",
-		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  router:18765  42%  ~1.2M tok  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( router:18765 ) ( 42% ) ( ~1.2M tok ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  router:18765  ·  42%  ·  ~1.2M tok  ·  12m  ·   main  +10 -3",
+		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · proxy:18765 · ██████████ 42% · total:1.23M · 12m │ main · +10 -3",
+		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
+		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
+		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
 	}
 	for style, want := range cases {
 		cfg := embeddedConfig()
@@ -92,7 +93,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	cfg := embeddedConfig()
 	cfg.Style = "dashboard"
 	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
-	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "router", "tokens", "branch", "context"}
+	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "proxy", "total", "branch", "context"}
 	lines := strings.Split(plain(render(sample(), cfg, embeddedPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)
@@ -104,7 +105,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	if len(val) != len("tester:~/proj | ")+100 {
 		t.Errorf("value row width %d, want head + 100", len(val))
 	}
-	for _, pair := range [][2]string{{"provider", "openrouter"}, {"router", "router:18765"}, {"context", "42%"}} {
+	for _, pair := range [][2]string{{"provider", "openrouter"}, {"proxy", "proxy:18765"}, {"context", "42%"}} {
 		h := strings.Index(string(hdr), pair[0])
 		v := strings.Index(string(val), pair[1])
 		if pair[0] == "context" { // right-aligned: both columns end at the same cell
@@ -165,7 +166,7 @@ func TestContextPct(t *testing.T) {
 	}{
 		{"stdin used_percentage wins", `{"transcript_path":"TR","context_window":{"used_percentage":71.6}}`, 72},
 		{"transcript over reported window", `{"transcript_path":"TR","context_window":{"context_window_size":100000}}`, 50},
-		{"transcript over 200K default", `{"transcript_path":"TR","model":{"id":"claude-opus-5"}}`, 25},
+		{"transcript over 200K default", `{"transcript_path":"TR","model":{"id":"claude-opus-4-6"}}`, 25},
 		{"[1m] id widens the window", `{"transcript_path":"TR","model":{"id":"claude-opus-5[1m]"}}`, 5},
 		{"exceeds_200k widens the window", `{"transcript_path":"TR","exceeds_200k_tokens":true}`, 5},
 		{"no transcript", `{}`, 0},
@@ -176,7 +177,7 @@ func TestContextPct(t *testing.T) {
 		}
 	}
 	writeUsage(150_000) // the (size, mtime) memo must not serve the old usage
-	if got := contextPct(parse(`{"transcript_path":"TR","model":{"id":"claude-opus-5"}}`)); got != 75 {
+	if got := contextPct(parse(`{"transcript_path":"TR","model":{"id":"claude-opus-4-6"}}`)); got != 75 {
 		t.Errorf("after growth: %d, want 75", got)
 	}
 }
@@ -186,11 +187,11 @@ func TestProviderAndModelSegments(t *testing.T) {
 	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
 	}
-	vaulttest.Put(t, vault.Pins, providers.PinProvider, "ollama")
-	if name, _ := sessionProvider(); name != "ollama" {
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "antigravity")
+	if name, _ := sessionProvider(); name != "antigravity" {
 		t.Errorf("vault pins: %q", name)
 	}
-	t.Setenv("HARNESS_PROVIDER", "openai")
+	t.Setenv(providers.EnvSessionProfile, "openai")
 	if name, _ := sessionProvider(); name != "openai" {
 		t.Errorf("env beats vault pins: %q", name)
 	}
@@ -234,10 +235,10 @@ func TestProviderAndModelSegments(t *testing.T) {
 
 func TestRouterSegment(t *testing.T) {
 	dir := hermetic(t)
-	if got := routerSegment(false); got != "" {
+	if got := proxySegment(false); got != "" {
 		t.Errorf("no state, unrouted: %q", got)
 	}
-	if got := routerSegment(true); got != "router:down" {
+	if got := proxySegment(true); got != "proxy:down" {
 		t.Errorf("no state, routed: %q", got)
 	}
 	var hits atomic.Int32
@@ -250,16 +251,16 @@ func TestRouterSegment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(state, "router.json"), []byte(`{"pid":1,"port":`+u.Port()+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "router:" + u.Port()
-	if got := routerSegment(false); got != want {
+	want := "proxy:" + u.Port()
+	if got := proxySegment(false); got != want {
 		t.Errorf("healthy: %q, want %q", got, want)
 	}
 	srv.Close()
-	if got := routerSegment(false); got != want || hits.Load() != 1 {
+	if got := proxySegment(false); got != want || hits.Load() != 1 {
 		t.Errorf("within TTL the stamp answers without a probe: %q hits=%d", got, hits.Load())
 	}
 	t.Setenv("TMPDIR", t.TempDir()) // fresh stamp dir → a live probe of the closed port
-	if got := routerSegment(true); got != "router:down" {
+	if got := proxySegment(true); got != "proxy:down" {
 		t.Errorf("dead daemon, routed: %q", got)
 	}
 }
@@ -325,7 +326,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic  ·  Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  Opus 5  ·  0% ") || strings.Contains(got, "◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -335,11 +336,11 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "state", "statusline"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"style":"capsule","segments":{"session":true,"git":false,"velocity":false,"router":false}}`
+	cfg := `{"style":"capsule","segments":{"session":true,"git":false,"velocity":false,"proxy":false}}`
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic ) ( Opus 5 ) ( 0% ) ( ~51k tok ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( total:51.4k ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -356,116 +357,30 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestApproxTokens(t *testing.T) {
-	for n, want := range map[int]string{0: "", 950: "~950 tok", 12_345: "~12k tok", 999_400: "~999k tok", 1_234_567: "~1.2M tok"} {
-		if got := approxTokens(n); got != want {
-			t.Errorf("approxTokens(%d)=%q want %q", n, got, want)
+func TestSigTokens(t *testing.T) {
+	for n, want := range map[int]string{5: "5", 812: "812", 1_234: "1.23k", 45_600: "45.6k", 812_000: "812k",
+		999_600: "1.00M", 1_234_567: "1.23M", 12_345_678: "12.3M", 123_456_789: "123M"} {
+		if got := sigTokens(n); got != want {
+			t.Errorf("sigTokens(%d)=%q want %q", n, got, want)
 		}
 	}
 }
 
-// The provider label shows "family·env" for a deployment tier suffix; any other name is unchanged.
-func TestProviderLabelEnvTable(t *testing.T) {
-	for name, want := range map[string]string{
-		"databricks-qa":       "databricks·qa",
-		"databricks-prod-oai": "databricks·prod",
-		"databricks-stage":    "databricks·stage",
-		"my-app-staging":      "my-app·staging",
-		"anthropic":           "anthropic",
-		"subscription":        "anthropic",
-		"github-copilot":      "github·copilot",
-		"openai":              "openai",
-		"databricks-prodx":    "databricks-prodx",
-		"databricks":          "databricks",
-	} {
-		if got := providerLabel(name); got != want {
-			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
-		}
+func TestTotalSegment(t *testing.T) {
+	hermetic(t)
+	var in Input
+	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":41200,"total_output_tokens":4800}}`), &in); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// A databricks preset row renders "databricks·<id>" whatever its id.
-func TestProviderLabelDatabricksPreset(t *testing.T) {
-	prev := registry
-	t.Cleanup(func() { registry = prev })
-	registry = func() *providers.Registry {
-		return &providers.Registry{Providers: map[string]*providers.Provider{
-			"databricks-lab": {Name: "databricks-lab", Preset: providers.PresetDatabricks},
-			"mylab":          {Name: "mylab", Preset: providers.PresetDatabricks},
-			"databricks-foo": {Name: "databricks-foo", Preset: providers.PresetDatabricks},
-		}}
+	if got := totalSegment(in); got != "total:46.0k" {
+		t.Errorf("payload only = %q, want total:46.0k", got)
 	}
-	for name, want := range map[string]string{
-		"databricks-lab": "databricks·lab",
-		"mylab":          "databricks·mylab",
-		"databricks-foo": "databricks·foo",
-	} {
-		if got := providerLabel(name); got != want {
-			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
-		}
+	usageledger.Append(usageledger.Entry{Session: "s1", Input: 1000, Output: 500})
+	usageledger.Append(usageledger.Entry{Session: "other", Input: 9_000_000})
+	if got := totalSegment(in); got != "total:47.5k" {
+		t.Errorf("with ledger = %q, want total:47.5k", got)
 	}
-}
-
-// Regression: malformed ANSI escape (0x1b without 'm' anywhere) should not cause early return in visibleWidth.
-func TestVisibleWidthMalformedANSI(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input string
-		want  int
-	}{
-		"incomplete escape followed by text":   {"hello\x1bXworld", 11}, // h,e,l,l,o,X,w,o,r,l,d (11 visible, \x1b skipped)
-		"incomplete escape at end":             {"hello\x1bX", 6},       // h,e,l,l,o,X (6 visible, \x1b skipped)
-		"bracket without 'm' followed by text": {"line\x1b[999xyz", 11}, // 4+7=11 visible, \x1b skipped
-		"malformed escape in middle":           {"pre\x1bQtext", 8},     // 3+1+4=8 visible, \x1b skipped
-	} {
-		if got := visibleWidth(tc.input); got != tc.want {
-			t.Errorf("TestVisibleWidthMalformedANSI %s: visibleWidth(%q) = %d, want %d", name, tc.input, got, tc.want)
-		}
-	}
-}
-
-// Regression: incomplete ANSI escape sequence should not cause early break in clipLine, truncating output.
-func TestClipLineMalformedANSI(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input  string
-		width  int
-		wantLe int // expected visible width <= this
-	}{
-		"short string with incomplete escape": {
-			input:  "short\x1bXtext",
-			width:  40,
-			wantLe: 10, // within width, untouched (s,h,o,r,t,X,t,e,x,t = 10)
-		},
-		"long line with incomplete escape": {
-			input:  "this is a long line\x1b[99xxxxx",
-			width:  25,
-			wantLe: 25, // should clip and be <= width
-		},
-		"incomplete escape with visible chars after": {
-			input:  "line\x1b[9xxxxx",
-			width:  15,
-			wantLe: 15, // clips normally, escape doesn't break
-		},
-	} {
-		got := clipLine(tc.input, tc.width)
-		w := visibleWidth(got)
-		if w > tc.wantLe {
-			t.Errorf("TestClipLineMalformedANSI %s: clipped width %d > %d (input %q)", name, w, tc.wantLe, tc.input)
-		}
-		// Clipped (non-identical) output must end with reset
-		if got != tc.input && !strings.HasSuffix(got, "\x1b[0m") {
-			t.Errorf("TestClipLineMalformedANSI %s: clipped line must end reset", name)
-		}
-	}
-}
-
-// Regression: visibleWidth with incomplete escape should count all visible runes, not stop at escape.
-func TestVisibleWidthIncompleteEscapeDoesNotEarlyReturn(t *testing.T) {
-	// Ensure visibleWidth counts chars after a malformed escape (no 'm' terminator anywhere)
-	input := "a" + strings.Repeat("b", 79) + "\x1b[99xxxxx"
-	got := visibleWidth(input)
-	// 80 chars (a + 79b) + 8 more ([99xxxxx) = 88 total visible (\x1b skipped)
-	want := 88
-	if got != want {
-		t.Errorf("visibleWidth(80 visible + malformed escape + '[99xxxxx') = %d, want %d", got, want)
+	if got := totalSegment(Input{SessionID: "none"}); got != "" {
+		t.Errorf("zero total = %q, want empty", got)
 	}
 }

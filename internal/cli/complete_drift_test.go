@@ -39,11 +39,11 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	useVaultTest(t)
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
+		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret", "migrate"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
-		"gateway":  {"route", "proxy"},
+		"gateway":  {"router", "proxy"},
 		"agents":   {"sync", "tree", "reap"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
@@ -136,7 +136,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		words []string
 	}{
 		{"switch openrouter ⇥", []string{"switch", "openrouter", ""}},
-		{"agents sync --vendor ⇥", []string{"agents", "sync", "--vendor", ""}},
+		{"agents sync --agent ⇥", []string{"agents", "sync", "--agent", ""}},
 		{"ask --agent codex ⇥", []string{"ask", "--agent", "codex", ""}},
 		{"vault set ⇥", []string{"vault", "set", ""}},
 		{"models --pin ⇥", []string{"models", "--pin", ""}},
@@ -166,7 +166,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 
 	// dispatch --host ⇥ needs a fresh cache — dispatchHostNames() never calls the network itself.
 	writeDispatchCache([]string{"fixture-host"})
-	if got := completionCandidates([]string{"dispatch", "--host", ""}); !slices.Equal(got, []string{"fixture-host"}) {
+	if got := completionCandidates([]string{"remote", "--host", ""}); !slices.Equal(got, []string{"fixture-host"}) {
 		t.Errorf("dispatch --host ⇥ = %v, want [fixture-host]", got)
 	}
 }
@@ -199,7 +199,7 @@ func TestNetworkBareOffersSubverbs(t *testing.T) {
 // TestDispatchStatusFlagThenRemainingFlags: the word after the boolean --status falls back to
 // dispatch's remaining flags, with --status itself dropped.
 func TestDispatchStatusFlagThenRemainingFlags(t *testing.T) {
-	got := completionCandidates([]string{"dispatch", "--status", ""})
+	got := completionCandidates([]string{"remote", "--status", ""})
 	if len(got) == 0 {
 		t.Fatal("dispatch --status ⇥ offered nothing, want the remaining flags")
 	}
@@ -295,9 +295,9 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{
-		"configure": {"reset", "restore", "out", "vendors", "agent", "dry-run", "check", "list", "format"}, // cmdConfigure
-		"doctor":    {"audit", "days", "format"},                                                           // cmdDoctor
-		"models":    {"provider", "unpin", "live", "dry-run", "format", "pin"},                             // cmdModels
+		"configure": {"reset", "restore", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
+		"doctor":    {"audit", "days", "format"},                                                                     // cmdDoctor
+		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                        // cmdModels
 	}
 	for verb, flags := range cases {
 		node := specTree()[verb]
@@ -346,7 +346,7 @@ func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	slices.Sort(got)
 	want := []string{
 		"agent", "attach", "autonomous", "background", "effort", "enable-memory", "fallback", "format",
-		"job", "keep-env", "log", "model", "native", "provider", "retry", "rubric", "session", "timeout",
+		"job", "keep-env", "log", "model", "native", "no-tools", "profile", "retry", "rubric", "session", "timeout",
 		"tools", "workdir",
 	}
 	slices.Sort(want)

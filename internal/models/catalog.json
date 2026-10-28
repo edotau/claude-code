@@ -1,0 +1,46 @@
+{
+  "aliases": {
+    "opus": "claude-opus-5-5",
+    "sonnet": "claude-sonnet-5-5",
+    "haiku": "claude-haiku-5-5",
+    "fable": "claude-fable-5-1"
+  },
+  "spellings": {
+    "anthropic": {},
+    "databricks-serving": {"prefix": "databricks-"},
+    "databricks-ai-gateway": {"prefix": "system.ai."},
+    "dotted": {"dotted": true}
+  },
+  "models": [
+    {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "version": "5-5", "thinking": true},
+    {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "version": "5-5", "thinking": true},
+    {"id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "version": "5-5", "thinking": true},
+    {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "version": "5-1", "thinking": true},
+    {"id": "gpt-6-1-sol", "name": "GPT-6.1 Sol", "version": "6-1", "thinking": true, "responses_only": true},
+    {"id": "gpt-6-astra", "name": "GPT-6 Astra", "thinking": true, "responses_only": true},
+    {"id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": true},
+    {"id": "gpt-5-5", "name": "GPT 5.5", "version": "5-5", "thinking": true, "responses_only": true},
+    {"id": "gpt-5", "name": "GPT-5", "thinking": true},
+    {"id": "gpt-5-mini", "name": "GPT-5 Mini"},
+    {"id": "gpt-5-nano", "name": "GPT-5 Nano"},
+    {"id": "gpt-oss-120b", "name": "GPT OSS 120B"},
+    {"id": "gemini-4-argon", "name": "Gemini 4 Argon", "thinking": true},
+    {"id": "gemini-3-8-flash", "name": "Gemini 3.8 Flash", "version": "3-8", "thinking": true},
+    {"id": "gemini-3-7-flash", "name": "Gemini 3.7 Flash", "version": "3-7", "thinking": true},
+    {"id": "gemini-3-5-flash-lite", "name": "Gemini 3.5 Flash Lite", "version": "3-5"},
+    {"id": "kimi-k3", "name": "Kimi K3"},
+    {"id": "kimi-k3-1-pro", "name": "Kimi K3.1 Pro", "version": "k3-1", "thinking": true},
+    {"id": "glm-5-3", "name": "GLM 5.3", "wire": {"dotted": "glm-5.3"}},
+    {"id": "glm-5-3-flash", "name": "GLM 5.3 Flash"},
+    {"id": "glm-5-3-flash-free", "name": "GLM 5.3 Flash Free", "wire": {"dotted": "glm-5.3-flash-free"}},
+    {"id": "deepseek-v4-1-flash-free", "name": "DeepSeek V4.1 Flash Free", "version": "4-1"},
+    {"id": "deepseek-v4-pro-0813", "name": "DeepSeek V4 Pro 0813"},
+    {"id": "qwen3-8-flash", "name": "Qwen 3.8 Flash", "version": "3-8"},
+    {"id": "qwen3-coder", "name": "Qwen3 Coder"},
+    {"id": "qwen35-122b-a10b", "name": "Qwen 3.5 122B A10B"},
+    {"id": "qwen3-next-80b-a3b-instruct", "name": "Qwen3 Next 80B A3B Instruct"},
+    {"id": "grok-4-7", "name": "Grok 4.7"},
+    {"id": "grok-4-6", "name": "Grok 4.6"},
+    {"id": "llama-4-maverick", "name": "Llama 4 Maverick"}
+  ]
+}

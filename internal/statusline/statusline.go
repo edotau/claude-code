@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,8 +23,9 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/usageledger"
 )
 
 // Input is the subset of Claude Code's statusline payload the renderer reads.
@@ -70,9 +70,9 @@ type values struct {
 	path       string
 	model      string
 	provider   string
-	router     string
+	proxy      string
 	branch     string
-	tokens     string
+	total      string
 	duration   string
 	session    string
 	agents     string
@@ -89,12 +89,12 @@ func (v values) text(key string) string {
 		return v.model
 	case "provider":
 		return v.provider
-	case "router":
-		return v.router
+	case "proxy":
+		return v.proxy
 	case "branch":
 		return v.branch
-	case "tokens":
-		return v.tokens
+	case "total":
+		return v.total
 	case "duration":
 		return v.duration
 	case "session":
@@ -190,7 +190,7 @@ func collect(in Input, cfg Config) values {
 	v := values{userHost: promptUser(), path: collapsePath(shortenDir(root), root, cfg.PathMax)}
 	var provider string
 	var routed bool
-	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("router", true) || cfg.seg("limits", true) {
+	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
@@ -199,8 +199,8 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
 	}
-	if cfg.seg("router", true) {
-		v.router = routerSegment(routed)
+	if cfg.seg("proxy", true) {
+		v.proxy = proxySegment(routed)
 	}
 	if cfg.seg("git", true) && worktree != "" {
 		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
@@ -216,8 +216,8 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)
 	}
-	if cw := in.ContextWindow; cw != nil {
-		v.tokens = approxTokens(cw.TotalInput + cw.TotalOutput)
+	if cfg.seg("total", true) {
+		v.total = totalSegment(in)
 	}
 	v.duration = formatDuration(in.Cost.DurationMS)
 	if id := in.SessionID; id != "" {
@@ -233,8 +233,8 @@ var registry = sync.OnceValue(func() *providers.Registry {
 	return reg
 })
 
-// sessionProvider: a loopback router base /p/<name> (a routed launch), else HARNESS_PROVIDER (env, then
-// pin file), else the registry default.
+// sessionProvider: a loopback proxy base /p/<name> (a routed launch), else the session profile (CLAUDE_PROFILE env, then
+// the vault pin), else the registry default.
 func sessionProvider() (name string, routed bool) {
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
@@ -242,7 +242,7 @@ func sessionProvider() (name string, routed bool) {
 			return name, true
 		}
 	}
-	if p := providers.Pin(providers.PinProvider); p != "" {
+	if p := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)); p != "" {
 		return p, false
 	}
 	if reg := registry(); reg != nil {
@@ -250,9 +250,6 @@ func sessionProvider() (name string, routed bool) {
 	}
 	return "", false
 }
-
-// envSuffixRE splits "<family>-<env>[-anything]" where env names a deployment tier.
-var envSuffixRE = regexp.MustCompile(`^(.+?)-(dev|qa|test|stage|staging|prod)(-.*)?$`)
 
 // modelFamily guesses the family from a model id when no provider resolves (databricks-claude-… / claude-…).
 func modelFamily(id string) string {
@@ -265,26 +262,15 @@ func modelFamily(id string) string {
 	return ""
 }
 
-// providerLabel renders "<family>·<profile>" (family via providers.Group), the family alone for first-party anthropic.
+// providerLabel renders "<provider>·<profile>" from the registry row, the provider alone when the profile bears its name.
 func providerLabel(name string) string {
-	if name == "subscription" || name == "anthropic" { // first-party: no registry load per render
-		return "anthropic"
-	}
 	if reg := registry(); reg != nil {
-		if p := reg.Providers[name]; p != nil {
-			fam := providers.Group(p)
-			profile := strings.TrimPrefix(name, fam+"-")
-			if fam == "anthropic" && (name == "subscription" || name == "anthropic") || profile == fam {
-				return fam
+		if p, err := reg.Get(name); err == nil && p.Provider != "" {
+			if p.Name == p.Provider {
+				return p.Provider
 			}
-			return fam + "·" + profile
+			return p.Provider + "·" + p.Name
 		}
-	}
-	if name == "subscription" {
-		return "anthropic"
-	}
-	if m := envSuffixRE.FindStringSubmatch(name); m != nil {
-		return m[1] + "·" + m[2]
 	}
 	return name
 }
@@ -322,30 +308,30 @@ func tag1M(in Input, name string) string {
 	return name + " [1m]"
 }
 
-// routerTTL caps health probes at one per 5s across renders.
-const routerTTL = 5 * time.Second
+// proxyTTL caps health probes at one per 5s across renders.
+const proxyTTL = 5 * time.Second
 
-// routerSegment shows "router:<port>" while the daemon answers, "router:down" when this session needs it.
-func routerSegment(routed bool) string {
-	st, err := router.ReadState()
-	if err == nil && st.Port > 0 && routerUp(st) {
-		return "router:" + strconv.Itoa(st.Port)
+// proxySegment shows "proxy:<port>" while the daemon answers, "proxy:down" when this session needs it.
+func proxySegment(routed bool) string {
+	st, err := proxy.ReadState()
+	if err == nil && st.Port > 0 && proxyUp(st) {
+		return "proxy:" + strconv.Itoa(st.Port)
 	}
 	if routed {
-		return "router:down"
+		return "proxy:down"
 	}
 	return ""
 }
 
-func routerUp(st router.State) bool {
-	stamp := stampFile("router", paths.StateDir()+"\x00"+strconv.Itoa(st.PID)+"\x00"+strconv.Itoa(st.Port))
-	if f := freshStamp(stamp, routerTTL, 1); f != nil {
+func proxyUp(st proxy.State) bool {
+	stamp := stampFile("proxy", paths.StateDir()+"\x00"+strconv.Itoa(st.PID)+"\x00"+strconv.Itoa(st.Port))
+	if f := freshStamp(stamp, proxyTTL, 1); f != nil {
 		return f[0] == "up"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 	state := "down"
-	if router.Health(ctx, st.Port) == nil {
+	if proxy.Health(ctx, st.Port) == nil {
 		state = "up"
 	}
 	writeTimedStamp(stamp, state)
@@ -472,16 +458,38 @@ func shortenDir(p string) string {
 	return p
 }
 
-// approxTokens renders a session token total as "~12k tok" / "~1.2M tok"; zero hides the segment.
-func approxTokens(n int) string {
-	switch {
-	case n <= 0:
-		return ""
-	case n < 1_000:
-		return fmt.Sprintf("~%d tok", n)
-	case n < 1_000_000:
-		return fmt.Sprintf("~%dk tok", (n+500)/1_000)
-	default:
-		return fmt.Sprintf("~%.1fM tok", float64(n)/1_000_000)
+// totalSegment is "total:<n>": this session's payload tokens plus its finished dispatches', "+" while a leg runs.
+func totalSegment(in Input) string {
+	n := 0
+	if cw := in.ContextWindow; cw != nil {
+		n = cw.TotalInput + cw.TotalOutput
 	}
+	li, lo, _ := usageledger.TotalsBySession(in.SessionID)
+	n += li + lo
+	if n <= 0 {
+		return ""
+	}
+	out := "total:" + sigTokens(n)
+	if _, legs := runningCounts(in); legs > 0 {
+		out += "+"
+	}
+	return out
+}
+
+// sigTokens renders n with 2-3 significant figures: 812, 1.23k, 45.6k, 812k, 1.23M, 12.3M.
+func sigTokens(n int) string {
+	if n < 1_000 {
+		return strconv.Itoa(n)
+	}
+	f, unit := float64(n)/1_000, "k"
+	if f >= 999.5 {
+		f, unit = f/1_000, "M"
+	}
+	switch {
+	case f >= 99.5:
+		return fmt.Sprintf("%.0f%s", f, unit)
+	case f >= 9.995:
+		return fmt.Sprintf("%.1f%s", f, unit)
+	}
+	return fmt.Sprintf("%.2f%s", f, unit)
 }

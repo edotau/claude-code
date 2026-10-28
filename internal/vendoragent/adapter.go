@@ -6,15 +6,15 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// Adapter is the per-vendor data behind the `claude-code <v> status|tail|result|cancel|setup|models` verbs.
+// Adapter is the per-agent data behind the `claude-code <v> status|tail|result|cancel|setup|models` verbs.
 type Adapter struct {
-	Name           string                 // runner name == verb name: codex, gemini, copilot, opencode
-	Binary         string                 // vendor binary on PATH (gemini -> agy)
-	Login          func() bool            // own-login presence
-	ResumeHint     func(id string) string // the vendor's own resume command, for display only
-	ModelsArgv     []string               // vendor args that list models; nil = no vendor catalog verb
-	ModelsProvider string                 // non-empty = list via claude-code models --live --provider <this>, not the vendor
-	ReadNeedsTools bool                   // true when the vendor denies file reads/search too unless --tools is set
+	Name           string                 // agent name == verb name: codex, gemini, copilot, opencode
+	Binary         string                 // agent binary on PATH (gemini -> agy)
+	Login          func() bool            // own CLI login presence
+	ResumeHint     func(id string) string // the agent's own resume command, for display only
+	ModelsArgv     []string               // agent args that list models; nil = no agent catalog verb
+	ModelsProvider string                 // non-empty = list via claude-code models --live on this provider's login profile, not the agent
+	ReadNeedsTools bool                   // true when the agent denies file reads/search too unless --tools is set
 	ExtraUsage     [][2]string            // extra help-page command rows (label, description) beyond the common roster
 }
 
@@ -24,7 +24,7 @@ var adapters = []Adapter{
 		Name:           "codex",
 		Login:          vendors.CodexChatGPTLoginPresent,
 		ResumeHint:     func(id string) string { return "codex resume " + id },
-		ModelsProvider: "chatgpt",
+		ModelsProvider: "openai",
 		ReadNeedsTools: false, // codex exec's --sandbox read-only still reads files without --tools
 	},
 	{
@@ -39,7 +39,7 @@ var adapters = []Adapter{
 		Name:           "copilot",
 		Login:          vendors.CopilotLoginPresent,
 		ResumeHint:     func(id string) string { return "copilot --resume " + id },
-		ModelsProvider: "github-copilot",
+		ModelsProvider: "github",
 		ReadNeedsTools: true, // denyAllTools blocks every tool call, including file reads, unless AllowAllTools
 	},
 	{
@@ -51,7 +51,7 @@ var adapters = []Adapter{
 	},
 }
 
-// Lookup returns the adapter by name, Binary filled from the vendors registry.
+// Lookup returns the adapter by name, Binary filled from the agents registry.
 func Lookup(name string) (Adapter, bool) {
 	for _, a := range adapters {
 		if a.Name != name {
@@ -67,5 +67,5 @@ func Lookup(name string) (Adapter, bool) {
 	return Adapter{}, false
 }
 
-// errUnknownVendor is the shared "no adapter" error, so callers report consistently.
-func errUnknownVendor(name string) error { return fmt.Errorf("unknown vendor %q", name) }
+// errUnknownAgent is the shared "no adapter" error, so callers report consistently.
+func errUnknownAgent(name string) error { return fmt.Errorf("unknown agent %q", name) }

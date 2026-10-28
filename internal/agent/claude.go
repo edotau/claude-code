@@ -18,12 +18,20 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
 
 func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+	if req.NoTools {
+		if req.Tools {
+			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")
+		}
+		if res, done, err := claudeOneShot(ctx, req, stream); done {
+			return res, err
+		}
+	}
 	prompt, err := attachInline(req.Prompt, req.Attach)
 	if err != nil {
 		return Result{}, err
@@ -58,14 +66,14 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	res, perr := parseClaudeStream(stdout, stream, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
-	res.Provider = plan.Set[providers.PinProvider]
+	res.Provider = plan.Set[providers.PinProfile]
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, "claude", errors.Join(werr, perr), tail)
 	}
 	return res, perr
 }
 
-// claudeEvent is the union of stream-json fields the runner reads.
+// claudeEvent is the union of stream-json fields the agent reads.
 // Message is raw: most event types carry it as an object, but error/system/result-type
 // events sometimes carry it as a plain string (e.g. "system","subtype":"permission_denied") —
 // typing it strictly broke decode of the whole stream on one odd event.

@@ -35,7 +35,7 @@ func TestClaudeServingHarness(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.APIKeyHelper != "/bin/cc token --provider databricks-dev" {
+	if d.APIKeyHelper != "/bin/cc token --profile databricks-dev" {
 		t.Errorf("helper %q", d.APIKeyHelper)
 	}
 	if _, ok := d.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
@@ -76,7 +76,7 @@ func TestCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, w := range []string{`base_url = "https://x.example.com/serving-endpoints"`, `model = "databricks-gpt-5-5"`,
-		`command = "/bin/cc"`, `args = ["token", "--provider", "databricks-dev"]`, `model_reasoning_effort = "high"`, "timeout_ms = 5000"} {
+		`command = "/bin/cc"`, `args = ["token", "--profile", "databricks-dev"]`, `model_reasoning_effort = "high"`, "timeout_ms = 5000"} {
 		if !strings.Contains(r.Text, w) {
 			t.Errorf("missing %q in\n%s", w, r.Text)
 		}

@@ -3,6 +3,7 @@ package statusline
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,23 +92,23 @@ func TestLimitsSegmentEmptyWhenNeitherSource(t *testing.T) {
 func TestTokenLeftBoundaries(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	for left, want := range map[time.Duration]string{
-		-time.Second:                    "tok:exp",
-		0:                               "tok:exp",
-		time.Second:                     "tok:<1m",
-		59 * time.Second:                "tok:<1m",
-		time.Minute:                     "tok:1m",
-		42 * time.Minute:                "tok:42m",
-		59*time.Minute + 59*time.Second: "tok:59m",
-		time.Hour:                       "tok:1h00m",
-		65 * time.Minute:                "tok:1h05m",
+		-time.Second:                    "oauth:exp",
+		0:                               "oauth:exp",
+		time.Second:                     "oauth:<1m",
+		59 * time.Second:                "oauth:<1m",
+		time.Minute:                     "oauth:1m",
+		42 * time.Minute:                "oauth:42m",
+		59*time.Minute + 59*time.Second: "oauth:59m",
+		time.Hour:                       "oauth:1h00m",
+		65 * time.Minute:                "oauth:1h05m",
 	} {
-		if got := tokenLeft(now.Add(left), now); got != want {
+		if got := tokenLeft("oauth", now.Add(left), now); got != want {
 			t.Errorf("tokenLeft(+%v) = %q, want %q", left, got, want)
 		}
 	}
 }
 
-// A bearer or x-api-key provider shows its token's time left; a passthrough or unknown provider keeps 5h/7d.
+// An oauth or m2m profile shows "<auth>:<time left>"; key, cli and unknown profiles keep 5h/7d or nothing.
 func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour).Unix()
@@ -117,15 +118,31 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &in); err != nil {
 		t.Fatal(err)
 	}
-	writeTokenExpiry(t, "openai", time.Now().Add(42*time.Minute+30*time.Second))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.Providers["dbx-u2m"] = &providers.Provider{Name: "dbx-u2m", Provider: "databricks",
+		Auth: providers.Auth{Type: providers.AuthOAuth}}
+	reg.Providers["dbx-m2m"] = &providers.Provider{Name: "dbx-m2m", Provider: "databricks",
+		Auth: providers.Auth{Type: providers.AuthM2M}}
+	prev := registry
+	t.Cleanup(func() { registry = prev })
+	registry = func() *providers.Registry { return reg }
+	writeTokenExpiry(t, "dbx-u2m", time.Now().Add(42*time.Minute+30*time.Second))
+	writeTokenExpiry(t, "dbx-m2m", time.Now().Add(65*time.Minute+30*time.Second))
+	writeTokenExpiry(t, "openai", time.Now().Add(42*time.Minute))
 
-	if got := limitsSegment(in, "openai"); got != "tok:42m" {
-		t.Errorf("bearer provider with a record: %q, want tok:42m", got)
+	if got := limitsSegment(in, "dbx-u2m"); got != "oauth:42m" {
+		t.Errorf("oauth profile with a record: %q, want oauth:42m", got)
 	}
-	if got := limitsSegment(in, "anthropic"); got != "" {
-		t.Errorf("x-api-key provider without a record: %q, want empty", got)
+	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05m" {
+		t.Errorf("m2m profile with a record: %q, want m2m:1h05m", got)
 	}
-	if got := limitsSegment(in, "subscription"); got != "5h:23% 7d:41%" {
+	if got := limitsSegment(in, "openai"); got != "5h:23% 7d:41%" {
+		t.Errorf("key profile must not show a countdown: %q", got)
+	}
+	if got := limitsSegment(in, "max"); got != "5h:23% 7d:41%" {
 		t.Errorf("passthrough provider: %q, want 5h/7d", got)
 	}
 	if got := limitsSegment(in, "no-such-provider"); got != "5h:23% 7d:41%" {

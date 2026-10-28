@@ -102,10 +102,10 @@ func TestClaudeCodeRowInSettingsRows(t *testing.T) {
 // TestRunClaudeSettingsHeldEditSavedOnYes: an edit stays held until the page is left; saying yes writes it
 // to the overlay.
 func TestRunClaudeSettingsHeldEditSavedOnYes(t *testing.T) {
-	// alwaysThinkingEnabled's template default is true, so row 2 ("false") is an actual override —
+	// prefersReducedMotion's template default is true, so row 2 ("false") is an actual override —
 	// picking "true" (row 1) would equal the template and reset instead of stage a new value.
 	d, _ := newClaudeSettingsDialog(t, "2\n")
-	idx := fieldIndex(t, "alwaysThinkingEnabled")
+	idx := fieldIndex(t, "prefersReducedMotion")
 	stubSettingsPage(t, idx)
 	origConfirmed := saveConfirmed
 	t.Cleanup(func() { saveConfirmed = origConfirmed })
@@ -117,8 +117,8 @@ func TestRunClaudeSettingsHeldEditSavedOnYes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(ov["alwaysThinkingEnabled"]) != "false" {
-		t.Fatalf("overlay[alwaysThinkingEnabled] = %s, want false", ov["alwaysThinkingEnabled"])
+	if string(ov["prefersReducedMotion"]) != "false" {
+		t.Fatalf("overlay[prefersReducedMotion] = %s, want false", ov["prefersReducedMotion"])
 	}
 	if !d.changed {
 		t.Error("d.changed must be set after a saved edit")
@@ -129,7 +129,7 @@ func TestRunClaudeSettingsHeldEditSavedOnYes(t *testing.T) {
 // reach the overlay.
 func TestRunClaudeSettingsHeldEditDroppedOnNo(t *testing.T) {
 	d, _ := newClaudeSettingsDialog(t, "2\n") // "false": an actual override of the true template default
-	idx := fieldIndex(t, "alwaysThinkingEnabled")
+	idx := fieldIndex(t, "prefersReducedMotion")
 	stubSettingsPage(t, idx)
 	origConfirmed := saveConfirmed
 	t.Cleanup(func() { saveConfirmed = origConfirmed })
@@ -141,8 +141,8 @@ func TestRunClaudeSettingsHeldEditDroppedOnNo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ov["alwaysThinkingEnabled"]; ok {
-		t.Fatalf("overlay = %v, want alwaysThinkingEnabled absent after declining the save", ov)
+	if _, ok := ov["prefersReducedMotion"]; ok {
+		t.Fatalf("overlay = %v, want prefersReducedMotion absent after declining the save", ov)
 	}
 	if d.changed {
 		t.Error("d.changed must stay false when the edit was discarded")
@@ -153,10 +153,10 @@ func TestRunClaudeSettingsHeldEditDroppedOnNo(t *testing.T) {
 // template" picker row and saved, must come back out of the overlay entirely.
 func TestChoosingTemplateValueDeletesOverlayKey(t *testing.T) {
 	d, _ := newClaudeSettingsDialog(t, "")
-	if err := settings.SaveOverlay(map[string]json.RawMessage{"alwaysThinkingEnabled": json.RawMessage("true")}); err != nil {
+	if err := settings.SaveOverlay(map[string]json.RawMessage{"prefersReducedMotion": json.RawMessage("true")}); err != nil {
 		t.Fatal(err)
 	}
-	idx := fieldIndex(t, "alwaysThinkingEnabled")
+	idx := fieldIndex(t, "prefersReducedMotion")
 	stubSettingsPage(t, idx)
 	origConfirmed := saveConfirmed
 	t.Cleanup(func() { saveConfirmed = origConfirmed })
@@ -172,8 +172,8 @@ func TestChoosingTemplateValueDeletesOverlayKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ov["alwaysThinkingEnabled"]; ok {
-		t.Fatalf("overlay = %v, want alwaysThinkingEnabled removed after choosing the template value", ov)
+	if _, ok := ov["prefersReducedMotion"]; ok {
+		t.Fatalf("overlay = %v, want prefersReducedMotion removed after choosing the template value", ov)
 	}
 }
 
@@ -181,10 +181,10 @@ func TestChoosingTemplateValueDeletesOverlayKey(t *testing.T) {
 // the template value (not the explicit "reset to template" row) must have the same effect — no new override.
 func TestPickingValueEqualToTemplateAlsoDeletesOverlayKey(t *testing.T) {
 	d, _ := newClaudeSettingsDialog(t, "")
-	if err := settings.SaveOverlay(map[string]json.RawMessage{"alwaysThinkingEnabled": json.RawMessage("false")}); err != nil {
+	if err := settings.SaveOverlay(map[string]json.RawMessage{"prefersReducedMotion": json.RawMessage("false")}); err != nil {
 		t.Fatal(err)
 	}
-	idx := fieldIndex(t, "alwaysThinkingEnabled")
+	idx := fieldIndex(t, "prefersReducedMotion")
 	stubSettingsPage(t, idx)
 	origConfirmed := saveConfirmed
 	t.Cleanup(func() { saveConfirmed = origConfirmed })
@@ -199,8 +199,8 @@ func TestPickingValueEqualToTemplateAlsoDeletesOverlayKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ov["alwaysThinkingEnabled"]; ok {
-		t.Fatalf("overlay = %v, want alwaysThinkingEnabled removed after picking the template's own value", ov)
+	if _, ok := ov["prefersReducedMotion"]; ok {
+		t.Fatalf("overlay = %v, want prefersReducedMotion removed after picking the template's own value", ov)
 	}
 }
 
@@ -329,8 +329,8 @@ func TestCheckExitsNonzeroOnLiveDiffers(t *testing.T) {
 	if err := json.Unmarshal(tmpl, &m); err != nil {
 		t.Fatal(err)
 	}
-	// alwaysThinkingEnabled's template default is true; flip it live to force a mismatch.
-	m["alwaysThinkingEnabled"] = json.RawMessage("false")
+	// prefersReducedMotion's template default is true; flip it live to force a mismatch.
+	m["prefersReducedMotion"] = json.RawMessage("false")
 	raw, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func TestCheckExitsNonzeroOnLiveDiffers(t *testing.T) {
 		t.Fatalf("rc = %d, want 1 with a live-differs key; output:\n%s", rc, out.String())
 	}
 
-	m["alwaysThinkingEnabled"] = json.RawMessage("true")
+	m["prefersReducedMotion"] = json.RawMessage("true")
 	raw, err = json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)

@@ -20,9 +20,9 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 		return []string{"claude-opus-5.5", "claude-sonnet-5"}
 	}
 
-	gp, ok := reg.Providers["github-copilot"]
+	gp, ok := reg.Providers["personal"]
 	if !ok {
-		t.Skip("no github-copilot provider in the registry")
+		t.Skip("no personal (github) profile in the registry")
 	}
 	wantOpus, wantSonnet := gp.Models["opus"], gp.Models["sonnet"] // must survive untouched
 

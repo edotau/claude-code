@@ -9,8 +9,8 @@ import (
 
 func sampleRows() []ExportRow {
 	return []ExportRow{
-		{ID: "dev", Section: "dev", Host: "https://dev.example.cloud.databricks.com", Auth: providers.AuthU2M},
-		{ID: "svc", Section: "svc", Host: "https://svc.example.cloud.databricks.com", Auth: providers.AuthOAuthM2M, ClientID: "cid-svc"},
+		{ID: "dev", Section: "dev", Host: "https://dev.example.cloud.databricks.com", Auth: providers.AuthOAuth},
+		{ID: "svc", Section: "svc", Host: "https://svc.example.cloud.databricks.com", Auth: providers.AuthM2M, ClientID: "cid-svc"},
 		{ID: "tok", Section: "tok", Host: "https://tok.example.cloud.databricks.com", Auth: providers.AuthPAT},
 	}
 }

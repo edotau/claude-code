@@ -299,10 +299,10 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 		fmt.Fprintf(out, "no per-token calls recorded yet (ledger started %s)\n", when)
 		return
 	}
-	fmt.Fprintf(out, "%-9s %-24s %10s %10s %10s\n", "PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME")
+	fmt.Fprintf(out, "%-22s %-24s %10s %10s %10s\n", "PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME")
 	for _, a := range aggs {
-		fmt.Fprintf(out, "%-9s %-24s %10s %10s %10s\n",
-			a.Provider, a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime))
+		fmt.Fprintf(out, "%-22s %-24s %10s %10s %10s\n",
+			rowLabel(a.Provider, a.Profile), a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime))
 	}
 }
 

@@ -44,7 +44,7 @@ func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 
 func TestConfigGatewayNoteOnStderr(t *testing.T) {
 	_, out, errOut := runCaptured(t, func() int {
-		return config([]string{"claude", "--host", exHost, "--wire", "gateway", "--auth", "cli"})
+		return config([]string{"claude", "--host", exHost, "--wire", "ai-gateway", "--auth", "cli"})
 	})
 	if !strings.Contains(errOut, "budget-denied") || strings.Contains(out, "budget-denied") {
 		t.Errorf("note placement: out=%q err=%q", out, errOut)
@@ -63,8 +63,8 @@ func TestConfigRefusals(t *testing.T) {
 		"bad auth":    {"claude", "--host", exHost, "--auth", "nope"},
 		"non-claude":  {"claude", "--host", exHost, "--auth", "cli", "--model", "gpt-5.5"},
 		"claude->cdx": {"codex", "--host", exHost, "--auth", "cli", "--model", "claude-opus-5-5"},
-		"env+prov":    {"claude", "--env", "dev", "--provider", "x"},
-		"bad env":     {"claude", "--env", "staging", "--host", exHost},
+		"old --env":   {"claude", "--env", "dev", "--host", exHost},
+		"old gateway": {"claude", "--wire", "gateway", "--host", exHost},
 		"http host":   {"claude", "--host", "http://example.com", "--auth", "cli"},
 	}
 	for name, a := range cases {

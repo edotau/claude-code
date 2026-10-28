@@ -20,9 +20,9 @@ import (
 // dispatchPage documents the three modes: start, --list, --attach; each has its own usage line
 // since their flags and positionals are not interchangeable (--attach takes exactly one session).
 var dispatchPage = helptext.Page{
-	Usage: "claude-code dispatch --host <name> [flags] \"<task>\"\n" +
-		"claude-code dispatch --host <name> --list [flags]\n" +
-		"claude-code dispatch --host <name> --attach <session>",
+	Usage: "claude-code remote --host <name> [flags] \"<task>\"\n" +
+		"claude-code remote --host <name> --list [flags]\n" +
+		"claude-code remote --host <name> --attach <session>",
 	About: "Start an agent CLI in a detached tmux session on a tailnet host over ssh, then\n" +
 		"list its cc-* sessions (--list) or attach to one (--attach <session>).",
 }
@@ -37,7 +37,7 @@ var dispatchFlagMode = map[string]string{
 const sshTimeout = 20 * time.Second
 
 func cmdDispatch(args []string) int {
-	fs := helptext.NewFlagSet("dispatch", dispatchPage)
+	fs := helptext.NewFlagSet("remote", dispatchPage)
 	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	dir := fs.String("dir", "", "remote working directory (default ~)")
 	agentName := fs.String("agent", "claude", "agent CLI: "+strings.Join(dispatch.Agents, "|"))
@@ -58,7 +58,7 @@ func cmdDispatch(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if *host == "" {
-		return fail("dispatch: --host is required")
+		return fail("remote: --host is required")
 	}
 	mode := "start"
 	switch {
@@ -74,7 +74,7 @@ func cmdDispatch(args []string) int {
 		}
 	})
 	if wrong != nil {
-		return fail("dispatch: %v", wrong)
+		return fail("remote: %v", wrong)
 	}
 	ctx := context.Background()
 	resolved, err := dispatch.ResolveHost(ctx, *host)
@@ -86,12 +86,12 @@ func cmdDispatch(args []string) int {
 		return dispatchList(ctx, resolved, *format, *status, *interval)
 	case "attach":
 		if len(rest) != 1 {
-			return fail("dispatch --attach: give exactly one session name")
+			return fail("remote --attach: give exactly one session name")
 		}
 		return dispatchAttach(resolved, rest[0])
 	default:
 		if !dispatch.ValidAgent(*agentName) {
-			return fail("dispatch: --agent %q must be one of %s", *agentName, strings.Join(dispatch.Agents, "|"))
+			return fail("remote: --agent %q must be one of %s", *agentName, strings.Join(dispatch.Agents, "|"))
 		}
 		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(rest, " "), *dryRun)
 	}
@@ -99,7 +99,7 @@ func cmdDispatch(args []string) int {
 
 func dispatchStart(ctx context.Context, host, dir, agentName, name, task string, dryRun bool) int {
 	if task == "" {
-		return fail("dispatch: give a task as the final argument")
+		return fail("remote: give a task as the final argument")
 	}
 	remoteCmd, session, err := dispatch.BuildRemoteCommand(dispatch.Opts{Dir: dir, Agent: agentName, Name: name, Task: task})
 	if err != nil {
@@ -121,9 +121,9 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		writeErr = fmt.Errorf("short write to stdout: wrote %d of %d bytes", n, len(out))
 	}
 	if err := errors.Join(err, writeErr); err != nil {
-		return fail("dispatch: %v", err)
+		return fail("remote: %v", err)
 	}
-	fmt.Printf("dispatch: started %s on %s\n", session, host)
+	fmt.Printf("remote: started %s on %s\n", session, host)
 	fmt.Println("attach:", dispatch.AttachCommand(host, session))
 	return 0
 }
@@ -145,12 +145,12 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 	argv := dispatch.ExecArgs(ctx, host, dispatch.ListCommand(), false)
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).Output()
 	if err != nil {
-		return fail("dispatch --list: %v", err)
+		return fail("remote --list: %v", err)
 	}
 	sessions := dispatch.ParseSessions(string(out))
 	if format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, sessions); err != nil {
-			return fail("dispatch --list: %v", err)
+			return fail("remote --list: %v", err)
 		}
 		return 0
 	}
@@ -169,10 +169,10 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 		caps, capErr := dispatch.CapturePanes(sigCtx, host, false, dispatch.ExecRunner)
 		prev = dispatch.Observe(prev, caps, capErr, time.Now())
 		if capErr != nil && len(prev) == 0 {
-			return fail("dispatch --status: %v", capErr)
+			return fail("remote --status: %v", capErr)
 		}
 		if err := printPaneStatus(prev, format); err != nil {
-			return fail("dispatch --status: %v", err)
+			return fail("remote --status: %v", err)
 		}
 		if interval <= 0 {
 			return 0
@@ -198,15 +198,15 @@ func printPaneStatus(statuses []dispatch.PaneStatus, format string) error {
 
 func dispatchAttach(host, session string) int {
 	if !dispatch.ValidName(session) {
-		return fail("dispatch --attach: session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
+		return fail("remote --attach: session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
 	}
 	argv := dispatch.AttachArgs(host, session)
 	bin, err := exec.LookPath(argv[0])
 	if err != nil {
-		return fail("dispatch --attach: %v", err)
+		return fail("remote --attach: %v", err)
 	}
 	if err := proc.Exec(bin, argv[1:], os.Environ()); err != nil {
-		return fail("dispatch --attach: %v", err)
+		return fail("remote --attach: %v", err)
 	}
 	return 0
 }

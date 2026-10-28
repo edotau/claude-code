@@ -16,25 +16,25 @@ import (
 	"github.com/edotau/claude-code/internal/tui"
 )
 
-// configurePage: --provider pins the backend that serves model calls; --agent scopes to one agent CLI's own setup.
+// configurePage: --profile picks the profile that serves model calls; --agent scopes to one agent CLI's own setup.
 var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
 		"claude-code configure --reset|--restore [flags]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
-	About: "Guided setup for the model backend, tier pins and each agent CLI; bare walks every page in order. " +
-		"--reset re-renders settings.json and the vendor configs from the templates (settings.local.json is " +
+	About: "Guided setup for the profile, model pins and each agent CLI; bare walks every page in order. " +
+		"--reset re-renders settings.json and the agent configs from the templates (settings.local.json is " +
 		"never touched); with --check it reports drift and exits 1.",
 	Commands: [][2]string{
-		{"provider", "pick the model backend; --list shows credential state"},
-		{"models", "pin tier models (live catalog: claude-code models --live)"},
+		{"provider", "pick the session profile; --list shows credential state"},
+		{"models", "pin models (live catalog: claude-code models --live)"},
 		{"agents", "set up each agent CLI's routing (--agent for one)"},
-		{"router", "start the model router when a slot crosses providers"},
+		{"proxy", "start the proxy when a model crosses providers"},
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
-		{"remote", "tailscale connectivity and dispatch hosts (read-only)"},
+		{"remote", "tailscale connectivity and remote hosts (read-only)"},
 		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
-		{"databricks", "browser sign-in and token mint per Databricks row"},
+		{"databricks", "browser sign-in and token mint per Databricks profile"},
 		{"doctor", "read-only health checks"},
 	},
 }
@@ -59,16 +59,16 @@ func (k *keyList) Set(v string) error {
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
 	fs := helptext.NewFlagSet("configure", configurePage)
-	provider := fs.String("provider", "", "select the model backend non-interactively")
-	vendor := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
+	provider := fs.String("profile", "", "select the session profile non-interactively")
+	agent := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
 	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
-	reset := fs.Bool("reset", false, "re-render settings.json and the vendor configs from the templates")
-	restore := fs.Bool("restore", false, "put vendor configs back from their timestamped backups")
+	reset := fs.Bool("reset", false, "re-render settings.json and the agent configs from the templates")
+	restore := fs.Bool("restore", false, "put agent configs back from their timestamped backups")
 	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
-	vendors := fs.Bool("vendors", false, "with --reset: render vendor configs even off the default ~/.claude")
-	list := fs.Bool("list", false, "with provider: list providers and credential state")
-	all := fs.Bool("all", false, "with provider: check every provider's sign-in and log in where needed")
+	agents := fs.Bool("agents", false, "with --reset: render agent configs even off the default ~/.claude")
+	list := fs.Bool("list", false, "with provider: list profiles and credential state")
+	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
 	format := outfmt.Flag(fs)
 	var drop, keep keyList
 	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
@@ -90,7 +90,7 @@ func cmdConfigure(args []string) int {
 	}
 	profile := ""
 	if *all && (*list || *provider != "") {
-		return fail("configure: --all cannot be combined with --list or --provider")
+		return fail("configure: --all cannot be combined with --list or --profile")
 	}
 	if *all && len(pos) > 1 {
 		return fail("configure: --all takes at most one <profile> (got %d)", len(pos))
@@ -102,7 +102,7 @@ func cmdConfigure(args []string) int {
 			return fail("configure: load providers: %v", err)
 		}
 		if reg.Providers[profile] == nil {
-			return fail("configure: unknown provider %s (see configure provider --list)", profile)
+			return fail("configure: unknown profile %s (see configure provider --list)", profile)
 		}
 	}
 	if *list || *format != outfmt.Text && !*all {
@@ -116,25 +116,25 @@ func cmdConfigure(args []string) int {
 		return configureProviderList(name, *format)
 	}
 	if *reset || *restore {
-		return configureRender(*reset, *restore, section, *vendor, *out, *check, *dryRun, *vendors)
+		return configureRender(*reset, *restore, section, *agent, *out, *check, *dryRun, *agents)
 	}
-	if *out != "" || *vendors {
-		return fail("configure: --out and --vendors need --reset")
+	if *out != "" || *agents {
+		return fail("configure: --out and --agents need --reset")
 	}
 	return configure.Run(configure.Options{
-		Provider: *provider, Vendor: *vendor, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
+		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
 		JSON: *format == outfmt.JSON, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
 	}, section)
 }
 
 // configureRender runs --reset / --restore; the agent flag is a comma list there.
-func configureRender(reset, restore bool, section, agents, out string, check, dryRun, vendors bool) int {
+func configureRender(reset, restore bool, section, agents, out string, check, dryRun, renderAgents bool) int {
 	switch {
 	case reset && restore:
 		return fail("configure: --reset and --restore are mutually exclusive")
 	case section != "":
 		return fail("configure: --reset/--restore take no page (got %q)", section)
-	case restore && (check || out != "" || vendors):
+	case restore && (check || out != "" || renderAgents):
 		return fail("configure: --restore takes only --agent and --dry-run")
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
@@ -149,14 +149,14 @@ func configureRender(reset, restore bool, section, agents, out string, check, dr
 	if check && dryRun {
 		return fail("configure: --check and --dry-run are mutually exclusive")
 	}
-	return cmdReset(agents, out, check, dryRun, vendors)
+	return cmdReset(agents, out, check, dryRun, renderAgents)
 }
 
 // isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).
 func isTTY(f *os.File) bool { return ansi.IsTerminal(f) }
 
 func init() {
-	// A vendor the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
+	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
 	launch.OfferConfigure = func(vendor string, reason error) bool {
 		if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
 			return false

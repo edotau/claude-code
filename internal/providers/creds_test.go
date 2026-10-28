@@ -78,17 +78,17 @@ func TestCredentialLockedVaultFallsThrough(t *testing.T) {
 	if err := os.WriteFile(file, []byte("  from-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := &Provider{Name: "lk", Auth: Auth{Type: AuthBearer, Env: "LOCKED_KEY", File: file}}
+	p := &Provider{Name: "lk", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", File: file}}
 	if v, err := Credential(ctx, p); err != nil || v != "from-file" {
 		t.Errorf("Credential (locked vault, auth.file) = %q, %v; want from-file", v, err)
 	}
 
-	p = &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthBearer, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
+	p = &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
 	if v, err := Credential(ctx, p); err != nil || v != "minted-locked" {
 		t.Errorf("Credential (locked vault, auth.command) = %q, %v; want minted-locked", v, err)
 	}
 
-	p = &Provider{Name: "lk-none", Auth: Auth{Type: AuthBearer, Env: "LOCKED_KEY"}}
+	p = &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
 	v, err := Credential(ctx, p)
 	if err == nil || v != "" || !strings.Contains(err.Error(), "lk-none: no credential (vault:") {
 		t.Errorf("Credential (locked vault, nothing else) = %q, %v; want a \"no credential (vault: …)\" error", v, err)
@@ -104,7 +104,7 @@ func TestCredentialLockedVaultFallsThrough(t *testing.T) {
 func TestCredentialMissHint(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("MISS_KEY", "")
-	p := &Provider{Name: "miss", Auth: Auth{Type: AuthBearer, Env: "MISS_KEY", File: "/nonexistent/tok"}}
+	p := &Provider{Name: "miss", Auth: Auth{Type: AuthKey, Env: "MISS_KEY", File: "/nonexistent/tok"}}
 	_, err := Credential(context.Background(), p)
 	if err == nil || strings.Contains(err.Error(), "vault:") ||
 		!strings.Contains(err.Error(), "set MISS_KEY with `claude-code vault set`, or /nonexistent/tok") {
@@ -118,30 +118,30 @@ func TestCredentialPresentWithoutDecrypting(t *testing.T) {
 	t.Setenv("PRESENT_KEY", "")
 	t.Setenv("ABSENT_KEY", "")
 
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthBearer, Env: "PRESENT_KEY"}}) {
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "PRESENT_KEY"}}) {
 		t.Error("CredentialPresent must report a sealed vault record without opening it")
 	}
 	file := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(file, []byte("tok\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthBearer, Env: "ABSENT_KEY", File: file}}) {
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: file}}) {
 		t.Error("CredentialPresent must keep auth.file as a source")
 	}
 	blank := filepath.Join(t.TempDir(), "blank")
 	if err := os.WriteFile(blank, []byte("  \n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if CredentialPresent(&Provider{Auth: Auth{Type: AuthBearer, Env: "ABSENT_KEY", File: blank}}) {
+	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: blank}}) {
 		t.Error("CredentialPresent must not count a blank auth.file")
 	}
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthBearer, Env: "ABSENT_KEY", Command: "exit 1"}}) {
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", Command: "exit 1"}}) {
 		t.Error("CredentialPresent must keep auth.command as a source (without running it)")
 	}
-	if CredentialPresent(&Provider{Auth: Auth{Type: AuthBearer, Env: "ABSENT_KEY"}}) {
+	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY"}}) {
 		t.Error("CredentialPresent with nothing configured must be false")
 	}
-	for _, typ := range []string{AuthNone, AuthPassthrough} {
+	for _, typ := range []string{AuthNone, AuthCLI} {
 		if !CredentialPresent(&Provider{Auth: Auth{Type: typ}}) {
 			t.Errorf("CredentialPresent(%s) must be true", typ)
 		}

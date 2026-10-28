@@ -51,7 +51,7 @@ func printRoute(d *dialog, ri vendors.RouteInfo) {
 		status = "ok"
 	}
 	d.printf("%-9s route(%-8s) %-4s provider=%-16s model=%-24s small_model=%-20s %s\n",
-		ri.Vendor, ri.Leg, status, ri.Provider, ri.Model, ri.SmallModel, ri.Reason)
+		ri.Agent, ri.Leg, status, ri.Provider, ri.Model, ri.SmallModel, ri.Reason)
 }
 
 // githubStatusRows prints every github section status line and reports which are OK, for both the
@@ -171,7 +171,7 @@ func pickCopilotModels(d *dialog) {
 	}
 
 	ids := []string{"auto"}
-	rows := [][2]string{{"auto", "router alias — resolve automatically (needs opencode_fallback for opencode)"}}
+	rows := [][2]string{{"auto", "proxy alias — resolve automatically (needs opencode_fallback for opencode)"}}
 	for _, m := range list {
 		ids = append(ids, m.ID)
 		rows = append(rows, [2]string{m.ID, m.Name})
@@ -179,9 +179,9 @@ func pickCopilotModels(d *dialog) {
 
 	picks := map[string]string{}
 	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		idx, err := tui.PickBack("github fallback — "+slot+" slot", rows, 0)
+		idx, err := tui.PickBack("github fallback — "+slot+" model", rows, 0)
 		if err != nil || idx < 0 {
-			d.printf("github fallback: cancelled at the %s slot; nothing written\n", slot)
+			d.printf("github fallback: cancelled at the %s model; nothing written\n", slot)
 			return
 		}
 		picks[slot] = ids[idx]
@@ -225,7 +225,7 @@ func pickCopilotModels(d *dialog) {
 func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
 		if strings.TrimSpace(picks[slot]) == "" {
-			return fmt.Errorf("github-copilot models: %s slot is empty", slot)
+			return fmt.Errorf("github-copilot models: %s model is empty", slot)
 		}
 	}
 	if fallback == "auto" {
@@ -235,10 +235,18 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	if fallback != "" {
 		fields["opencode_fallback"] = fallback
 	}
-	return providers.SetProviderFields("github-copilot", fields)
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	p := profileBy(reg, "github", providers.AuthCLI)
+	if p == nil {
+		return errors.New("github models: no github profile in the registry")
+	}
+	return providers.SetProviderFields(p.Name, fields)
 }
 
-// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_GITHUB_USER), not its stored login.
+// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_PROFILE), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
 	return copilotsdk.CatalogOptions(bin, vendors.CopilotToken())
 }

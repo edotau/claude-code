@@ -29,7 +29,7 @@ func candsOf(t *testing.T, body string) map[string]Candidate {
 func TestParseInlineCommentsStripped(t *testing.T) {
 	m := candsOf(t, "[a]\nhost = https://a.example.cloud.databricks.com # prod ws\nclient_id = cid # id\nclient_secret = s ; sec\n")
 	c := m["a"]
-	if c.Host != "https://a.example.cloud.databricks.com" || c.ClientID != "cid" || c.Auth != providers.AuthOAuthM2M {
+	if c.Host != "https://a.example.cloud.databricks.com" || c.ClientID != "cid" || c.Auth != providers.AuthM2M {
 		t.Errorf("a = %+v", c)
 	}
 }
@@ -80,7 +80,7 @@ func TestExplicitAuthTypeWinsOverInference(t *testing.T) {
 	if m["p"].Auth != providers.AuthPAT {
 		t.Errorf("explicit pat lost to inferred m2m: %+v", m["p"])
 	}
-	if c := m["u"]; c.Auth != providers.AuthU2M || c.HasSecret {
+	if c := m["u"]; c.Auth != providers.AuthOAuth || c.HasSecret {
 		t.Errorf("explicit databricks-cli must map to u2m with no secret: %+v", c)
 	}
 }

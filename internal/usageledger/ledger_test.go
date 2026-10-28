@@ -86,6 +86,19 @@ func TestEntryFieldShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{"ts": true, "provider": true, "model": true, "input": true, "output": true, "cache_read": true}
+	full, _ := json.Marshal(Entry{Ts: time.Now(), Profile: "p", Provider: "openai", Agent: "a", Session: "s", Model: "m"})
+	var fm map[string]json.RawMessage
+	if err := json.Unmarshal(full, &fm); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"profile", "agent", "session"} {
+		if _, ok := fm[k]; !ok {
+			t.Errorf("populated entry missing %q: %s", k, full)
+		}
+		if _, ok := m[k]; ok {
+			t.Errorf("empty %q must be omitted: %s", k, b)
+		}
+	}
 	for k := range m {
 		if !want[k] {
 			t.Errorf("ledger entry has unexpected field %q (secret/content leak risk): %s", k, b)
@@ -108,4 +121,22 @@ func TestAppendBestEffortOnUnwritableDir(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(blocker, "sub"))
 	Append(Entry{Ts: time.Now(), Provider: "openai", Model: "gpt-5", Input: 1})
+}
+
+func TestOldLinesParseAndProfileName(t *testing.T) {
+	dir := withLedgerDir(t)
+	p := Path()
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	_ = os.WriteFile(p, []byte(`{"ts":"2026-10-20T12:00:00Z","provider":"prod","model":"m","input":4,"output":1,"cache_read":0}`+"\n"), 0o600)
+	_ = dir
+	got, err := Read()
+	if err != nil || len(got) != 1 {
+		t.Fatalf("Read = %v, %v", got, err)
+	}
+	if got[0].ProfileName() != "prod" || got[0].Session != "" || got[0].Agent != "" {
+		t.Errorf("old entry = %+v", got[0])
+	}
+	if in, _, _ := TotalsBySession(""); in != 0 {
+		t.Error("empty id must match nothing")
+	}
 }

@@ -61,7 +61,7 @@ asserted ones. `evaluate-code` judges quality; this judges honesty.
    - **Harness markdown at a repo root or in a gitignored `docs/`** — plans, handoffs and reports
      have fixed homes (`rules/harness/docs-placement.md`).
    - **A hook, settings or roster change with no Impact Checklist run** —
-     `rules/harness/change-protocol.md` (template not edited, `make install` not run, vendor
+     `rules/harness/change-protocol.md` (template not edited, `make install` not run, agent
      projections stale).
    - **Unreconciled foreign import** — vendored skill/agent/doc content still addressing its
      source harness: self-declaring headers (`# /some-command Skill`), references to commands or

@@ -14,7 +14,7 @@ func withPressure(t *testing.T, pct float64) {
 	claudePressure = func() (float64, string, bool) { return pct, "5h", true }
 	t.Cleanup(func() { claudePressure = old })
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(providers.PinProvider, "")
+	t.Setenv(providers.PinProfile, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 }
 
@@ -75,7 +75,7 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	if !billsSubscription() {
 		t.Fatal("registry default must count as the subscription")
 	}
-	t.Setenv(providers.PinProvider, "openai")
+	t.Setenv(providers.PinProfile, "openai")
 	if billsSubscription() {
 		t.Fatal("openai (API key) session must not count as the subscription")
 	}
@@ -83,7 +83,7 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	if note, _ := applyPressure(&Input{}, updated, "prompt", "sonnet"); note != "" || updated["model"] != nil {
 		t.Errorf("pressure applied to a non-subscription session: %q %v", note, updated)
 	}
-	t.Setenv(providers.PinProvider, "")
+	t.Setenv(providers.PinProfile, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/openai")
 	if billsSubscription() {
 		t.Error("routed openai session must not count as the subscription")

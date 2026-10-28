@@ -5,6 +5,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // subscriptionSelection loads the real registry and resolves the subscription provider (passthrough,
@@ -13,9 +15,9 @@ import (
 // models.Slots order — deterministically and without hitting the network.
 func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selection) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	reg, err := providers.Load()
 	if err != nil {
@@ -66,7 +68,7 @@ func TestPickModelForSlotPicksFirstPinsIt(t *testing.T) {
 		return 0, nil
 	}
 	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
-	want := reg.Providers["subscription"].Models[slot]
+	want := reg.Providers["max"].Models[slot]
 	if got := providers.Pin(providers.SlotPin(slot)); got != want {
 		t.Errorf("pin(%s) = %q, want %q (rows[0]'s id)", providers.SlotPin(slot), got, want)
 	}

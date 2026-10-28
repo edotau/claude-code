@@ -40,14 +40,14 @@ func seedExportVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code, out, errs := captureOutput(t, func() int {
-		return importCfg([]string{"--file", cfg, "--apply", "--seal-secrets"})
+		return importCfg([]string{"--dbxcfg", cfg, "--apply", "--seal-secrets"})
 	}); code != 0 {
 		t.Fatalf("seed import: %d %s %s", code, out, errs)
 	}
-	if err := providers.SealSecret("PROVIDER_ALICE_REFRESH_TOKEN", "REFRESH-SENTINEL"); err != nil {
+	if err := providers.SealSecret("DATABRICKS_ALICE_OAUTH", `{"refresh":"REFRESH-SENTINEL"}`); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range []string{"PROVIDER_SVC_CLIENT_SECRET", "PROVIDER_TOK_PAT"} {
+	for _, n := range []string{"DATABRICKS_SVC_M2M", "DATABRICKS_TOK_PAT"} {
 		if v, _, err := secrets.Lookup(n); err != nil || v == "" {
 			t.Fatalf("seed: %s not sealed (%v)", n, err)
 		}
@@ -158,7 +158,7 @@ func TestExportImportRoundTripYieldsIdenticalRows(t *testing.T) {
 		t.Fatalf("export: %d %s", code, errs)
 	}
 	useVaultTest(t) // a fresh vault: the rows must come back from the file alone
-	if code, out, errs := captureOutput(t, func() int { return importCfg([]string{"--file", file, "--apply"}) }); code != 0 {
+	if code, out, errs := captureOutput(t, func() int { return importCfg([]string{"--dbxcfg", file, "--apply"}) }); code != 0 {
 		t.Fatalf("import: %d %s %s", code, out, errs)
 	}
 	after := rowsJSON(t)

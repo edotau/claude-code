@@ -49,18 +49,18 @@ type Vendor struct {
 	Launch     Launch     `json:"launch"`
 }
 
-// Config is the merged spec: built-in defaults plus the user's vault overlay/vendors.
+// Config is the merged spec: built-in defaults plus the user's vault overlay/agents.
 type Config struct {
 	GuardRules GuardRules        `json:"guardRules"`
-	Vendors    map[string]Vendor `json:"vendors"`
+	Vendors    map[string]Vendor `json:"agents"`
 }
 
-// OverlayDoc is the user overlay (vault overlay/vendors; an entry replaces the built-in whole); fs.ErrNotExist when absent.
+// OverlayDoc is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
 func OverlayDoc() ([]byte, error) {
 	var doc []byte
 	found := false
 	err := vault.View(func(t *vault.Tx) error {
-		v, ok := t.Get(vault.Overlay, "vendors")
+		v, ok := t.Get(vault.Overlay, "agents")
 		doc, found = []byte(v), ok
 		return nil
 	})
@@ -68,7 +68,7 @@ func OverlayDoc() ([]byte, error) {
 		return nil, err
 	}
 	if !found {
-		return nil, fmt.Errorf("vault overlay/vendors: %w", fs.ErrNotExist)
+		return nil, fmt.Errorf("vault overlay/agents: %w", fs.ErrNotExist)
 	}
 	return doc, nil
 }
@@ -103,10 +103,10 @@ func Parse(base, overlay []byte) (*Config, error) {
 		// Vendors as json.RawMessage so a "name": null entry survives decode to signal removal.
 		var o struct {
 			GuardRules *GuardRules                `json:"guardRules"`
-			Vendors    map[string]json.RawMessage `json:"vendors"`
+			Vendors    map[string]json.RawMessage `json:"agents"`
 		}
 		if err := json.Unmarshal(overlay, &o); err != nil {
-			return nil, fmt.Errorf("vault overlay/vendors: %w", err)
+			return nil, fmt.Errorf("vault overlay/agents: %w", err)
 		}
 		if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
 			cfg.GuardRules = *o.GuardRules
@@ -121,7 +121,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 			}
 			var v Vendor
 			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("vault overlay/vendors: vendors.%s: %w", name, err)
+				return nil, fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 			}
 			cfg.Vendors[name] = v
 		}

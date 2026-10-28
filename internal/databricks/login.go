@@ -14,9 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
-	"github.com/edotau/claude-code/internal/profile"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -31,7 +30,7 @@ func fail(format string, a ...any) int {
 
 var loginPage = helptext.Page{
 	Usage: "claude-code databricks login [--profile <name>] [flags]",
-	About: "Sign in through the browser for a provider row with auth.authType u2m;\n" +
+	About: "Sign in through the browser for a profile with auth type oauth;\n" +
 		"the refresh token is sealed in the vault.",
 }
 
@@ -39,8 +38,8 @@ var loginPage = helptext.Page{
 func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
-	authType := fs.String("auth-type", providers.AuthU2M, "switch the row's auth.authType first (only u2m)")
-	fs.StringVar(authType, "t", providers.AuthU2M, "shorthand for --auth-type")
+	authType := fs.String("auth-type", providers.AuthOAuth, "auth type to switch the profile to first: oauth, m2m or pat")
+	fs.StringVar(authType, "t", providers.AuthOAuth, "shorthand for --auth-type")
 	profileName := profileFlag(fs)
 	names, err := outfmt.Parse(fs, args)
 	if err != nil {
@@ -49,9 +48,14 @@ func login(args []string) int {
 	if len(names) > 0 {
 		return usageProfile("login", names[0])
 	}
-	if *authType != providers.AuthU2M {
+	switch *authType {
+	case providers.AuthOAuth:
+	case providers.AuthM2M, providers.AuthPAT:
 		fail("login: --auth-type %q does not sign in through the browser; "+
-			"oauth-m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", *authType)
+			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", *authType)
+		return 2
+	default:
+		fail("login: --auth-type must be oauth, m2m or pat (got %q)", *authType)
 		return 2
 	}
 	reg, err := providers.Load()
@@ -64,12 +68,12 @@ func login(args []string) int {
 	}
 	explicit := false
 	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
-	if t := p.Auth.AuthType; t != "" && t != providers.AuthU2M && !explicit {
-		return fail("login: %s has auth.authType %q; pass --auth-type u2m to switch it to a browser login", p.Name, t)
+	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
+		return fail("login: %s has auth type %q; pass --auth-type oauth to switch it to a browser login", p.Name, t)
 	}
 	if *dryRun {
-		if p.Auth.AuthType != providers.AuthU2M {
-			if err := switchAuthType(p, providers.AuthU2M, true); err != nil {
+		if p.Auth.Method() != providers.AuthOAuth {
+			if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
 				return fail("login: %v", err)
 			}
 			fmt.Printf("would log in to %s\n", loginHost(p))
@@ -97,12 +101,12 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	switched, was := false, p.Auth.AuthType
-	if was != providers.AuthU2M {
-		if err := switchAuthType(p, providers.AuthU2M, false); err != nil {
+	switched, was := false, p.Auth.Method()
+	if was != providers.AuthOAuth {
+		if err := switchAuthType(p, providers.AuthOAuth, false); err != nil {
 			return err
 		}
-		p.Auth.AuthType = providers.AuthU2M
+		p.Auth.Type = providers.AuthOAuth
 		switched = true
 		defer func() { rollbackHint(p.Name, was, switched) }()
 	}
@@ -111,7 +115,7 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 		return err
 	}
 	switched = false
-	_ = route.ClearProviderAuth(p.Name) // best-effort: the TTL backstops a missed clear
+	_ = router.ClearProviderAuth(p.Name) // best-effort: the TTL backstops a missed clear
 	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return nil
 }
@@ -138,22 +142,22 @@ func rollbackHint(id, was string, switched bool) {
 	if !switched {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "auth.authType of %s is now u2m (was %q); to undo, run `claude-code vault edit` and set "+
-		"providers.%s.auth.authType back, or copy overlay/providers.prev (the previous generation) over overlay/providers\n",
+	fmt.Fprintf(os.Stderr, "auth.type of %s is now oauth (was %q); to undo, run `claude-code vault edit` and set "+
+		"providers.%s.auth.type back, or copy overlay/providers.prev (the previous generation) over overlay/providers\n",
 		id, was, id)
 }
 
-// switchAuthType sets providers.<id>.auth.authType (u2m, pat or oauth-m2m) through the force path and prints the diff.
+// switchAuthType sets providers.<id>.auth.type (oauth, pat or m2m) through the force path and prints the diff.
 func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
 	switch authType {
-	case providers.AuthU2M, providers.AuthPAT:
-	case providers.AuthOAuthM2M:
+	case providers.AuthOAuth, providers.AuthPAT:
+	case providers.AuthM2M:
 		if p.Auth.ClientID == "" {
-			return fmt.Errorf("%s: auth.authType %s needs auth.clientId; set it with `claude-code vault edit` first",
+			return fmt.Errorf("%s: auth type %s needs auth.clientId; set it with `claude-code vault edit` first",
 				p.Name, authType)
 		}
 	default:
-		return fmt.Errorf("unsupported auth.authType %q (want u2m, pat or oauth-m2m)", authType)
+		return fmt.Errorf("unsupported auth type %q (want oauth, pat or m2m)", authType)
 	}
 	var kept []string
 	oldDoc, newDoc, err := providers.UpdateOverlayDocForce(!dryRun, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
@@ -173,7 +177,7 @@ func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
 				return fmt.Errorf("%s: auth: %w", p.Name, err)
 			}
 		}
-		auth["authType"] = json.RawMessage(`"` + authType + `"`)
+		auth["type"] = json.RawMessage(`"` + authType + `"`)
 		kept = dropDerivedCommands(p, auth)
 		b, err := json.Marshal(auth)
 		if err != nil {
@@ -188,7 +192,7 @@ func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	if !profile.PrintDiff(os.Stdout, oldDoc, newDoc) {
+	if !printDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no overlay change")
 	}
 	for _, k := range kept {
@@ -219,25 +223,14 @@ func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage)
 	return kept
 }
 
-// profileFlag registers --profile (and its shorthand -p), the provider row a databricks command acts on.
+// profileFlag registers --profile (and its shorthand -p), the Databricks profile a command acts on.
 func profileFlag(fs *flag.FlagSet) *string {
-	v := fs.String("profile", "", "provider row (default: the pinned Databricks row, else HARNESS_PROVIDER's env, else qa)")
+	v := fs.String("profile", "", "Databricks profile (default: session, pinned, else the first)")
 	fs.StringVar(v, "p", "", "shorthand for --profile")
 	return v
 }
 
-// resolveProfile is name, else the vault default when it is a Databricks row, else envOrDefault's env.
-func resolveProfile(reg *providers.Registry, name string) string {
-	if name != "" {
-		return name
-	}
-	if p := reg.Providers[reg.Default]; p != nil && p.Preset == providers.PresetDatabricks {
-		return reg.Default
-	}
-	return envOrDefault("")
-}
-
-// usageProfile refuses a positional row name: commands take only flags (--profile).
+// usageProfile refuses a positional profile name: commands take only flags (--profile).
 func usageProfile(verb, arg string) int {
 	fmt.Fprintf(os.Stderr, "claude-code databricks %s: unexpected argument %q; pass --profile %s\n", verb, arg, arg)
 	return 2

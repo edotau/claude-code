@@ -32,14 +32,16 @@ func SetCredential(p *Provider, h http.Header, cred string) {
 	h.Del("Authorization")
 	h.Del("X-Api-Key")
 	h.Del("X-Goog-Api-Key")
-	switch p.Auth.Type {
-	case AuthNone:
+	if p.Auth.Type == AuthNone {
 		for k, v := range p.Headers {
 			h.Set(k, v)
 		}
-	case AuthAPIKey:
+		return
+	}
+	switch p.Auth.HeaderStyle() {
+	case HeaderXAPIKey:
 		h.Set("X-Api-Key", cred)
-	case AuthBearer:
+	case HeaderBearer:
 		h.Set("Authorization", "Bearer "+cred)
 	}
 }
@@ -82,7 +84,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if anthropicDialect {
 		req.Header.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
 	}
-	if p.Auth.Type == AuthPassthrough {
+	if p.Auth.Type == AuthCLI {
 		tok := HeadlessOAuthToken()
 		if tok == "" {
 			return nil, ErrPassthrough
@@ -145,7 +147,7 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 // "login" (passthrough: not probeable here), "verified", "rejected" (401/403), "unreachable" (no connection),
 // or "unverified" with the error. Never fatal; callers surface the status next to the credential.
 func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
-	if p.Auth.Type == AuthPassthrough || p.Auth.Login != "" {
+	if p.Auth.Type == AuthCLI || p.Auth.Login != "" {
 		return "login", ""
 	}
 	_, err := LiveModels(ctx, p)

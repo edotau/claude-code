@@ -50,14 +50,14 @@ func TestRTKWrapsEligibleCommand(t *testing.T) {
 func TestRTKSkipsCodex(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
 	payload := rtkBashIn("git log --oneline -20")
-	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCodex {
 		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCodex)
 	}
 	if got, ok := rtkOut(t, payload); ok {
 		t.Fatalf("Codex command rewritten to %q", got)
 	}
-	t.Setenv("HARNESS_HOOK_VENDOR", "")
+	t.Setenv("HARNESS_HOOK_AGENT", "")
 	if got, ok := rtkOut(t, payload); !ok || got != "echo git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
 	}
@@ -65,7 +65,7 @@ func TestRTKSkipsCodex(t *testing.T) {
 
 func TestCodexBashGuardStillBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	t.Setenv(rtkBinaryEnv, "echo")
 	var stdout, stderr strings.Builder
 	rc := BashGuard(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
@@ -79,7 +79,7 @@ func TestCodexBashGuardStillBlocks(t *testing.T) {
 
 func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_HOOK_VENDOR", "codex")
+	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
 	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCopilot {
 		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCopilot)

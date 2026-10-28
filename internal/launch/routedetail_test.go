@@ -1,13 +1,17 @@
 package launch
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
+)
 
 // RouteDetail is the per-vendor shim `vendoragent setup` calls instead of running the whole doctor
 // sweep; its detail string must match the corresponding "<v> route" row in DoctorChecks exactly.
 func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
-	t.Setenv("HARNESS_SONNET_MODEL", "gpt-5.3-codex")
+	setPins(t, map[string]string{providers.SlotPin("sonnet"): "gpt-5.3-codex"})
 
 	checks, _ := DoctorChecks()
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {

@@ -12,7 +12,7 @@ import (
 type ProviderStatus struct {
 	Name   string
 	Type   string
-	Source string // env | vault | auth.file | command | passthrough | none
+	Source string // env | vault | auth.file | command | cli | none
 	Note   string
 }
 
@@ -24,8 +24,8 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		st.Source = "none"
 		st.Note = "no credential needed"
 		return st
-	case providers.AuthPassthrough:
-		st.Source = "passthrough"
+	case providers.AuthCLI:
+		st.Source = "cli"
 		if p.Auth.Login != "" {
 			st.Note = "via `" + p.Auth.Login + "` login"
 		}

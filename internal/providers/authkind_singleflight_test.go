@@ -13,8 +13,8 @@ import (
 
 // sealedKinds are the sealed authTypes whose mint goes through the OIDC token endpoint.
 var sealedKinds = []struct{ kind, clientID, secret string }{
-	{AuthU2M, "", "refresh-1"},
-	{AuthOAuthM2M, "sp-client", "sp-secret-xyz"},
+	{AuthOAuth, "", "refresh-1"},
+	{AuthM2M, "sp-client", "sp-secret-xyz"},
 }
 
 func TestSealedAuthHerdMintsOnce(t *testing.T) {
@@ -27,9 +27,7 @@ func TestSealedAuthHerdMintsOnce(t *testing.T) {
 				return 200, map[string]any{"access_token": "herd-token", "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-herd-"+k.kind, k.kind, k.clientID, srv.URL)
-			if err := SealSecret(AuthSecretName(p), k.secret); err != nil {
-				t.Fatal(err)
-			}
+			sealFor(t, p, k.secret)
 			vals, errs := herd(p, 20)
 			for i := range vals {
 				if errs[i] != nil || vals[i] != "herd-token" {
@@ -56,9 +54,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 				return 200, map[string]any{"access_token": fmt.Sprintf("tok-%d", n), "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-refresh-"+k.kind, k.kind, k.clientID, srv.URL)
-			if err := SealSecret(AuthSecretName(p), k.secret); err != nil {
-				t.Fatal(err)
-			}
+			sealFor(t, p, k.secret)
 			var wg sync.WaitGroup
 			wg.Add(1)
 			go func() { defer wg.Done(); _, _ = Credential(context.Background(), p) }()

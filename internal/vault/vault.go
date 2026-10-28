@@ -31,10 +31,16 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the current on-disk layout; bumped for the HKDF subkey change (Phase 4b). A
-// vault at an older schema with secret records is refused — this build cannot re-seal them; one
-// with zero secrets is upgraded in place by the next Update.
-const schemaVersion = 2
+// schemaVersion is the current on-disk layout (3 = names migrated by `vault migrate`); hkdfSchema is the oldest this
+// build reads (2 = HKDF subkeys). Below hkdfSchema a vault with secret records is refused — this build cannot re-seal
+// them; one with zero secrets is upgraded in place by the next Update. A schema-2 vault stays 2 until migrated.
+const (
+	schemaVersion = 3
+	hkdfSchema    = 2
+)
+
+// SchemaVersion is the layout this build writes.
+const SchemaVersion = schemaVersion
 
 // View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
 // (it opens its own View) from inside another's callback. bbolt is not reentrant across process
@@ -88,7 +94,7 @@ func checkSchema(t *Tx) error {
 	if n > schemaVersion {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
 	}
-	if n < schemaVersion && len(t.Names(Secrets)) > 0 {
+	if n < hkdfSchema && len(t.Names(Secrets)) > 0 {
 		return fmt.Errorf("vault schema %d: written by an older claude-code (pre-HKDF format); "+
 			"this build cannot read its secrets. Move state/vault.db aside and re-enter secrets with "+
 			"claude-code vault set, or run the older binary to export them first", n)
@@ -166,8 +172,8 @@ func Update(fn func(*Tx) error) error {
 		}
 		// checkSchema already refused an older schema with secrets; a secret-free older schema
 		// upgrades in place here, with nothing to re-seal (Phase 4b).
-		if s, _ := t.Get(Meta, "schema"); s != strconv.Itoa(schemaVersion) {
-			if err := t.Put(Meta, "schema", strconv.Itoa(schemaVersion)); err != nil {
+		if n := t.Schema(); n < hkdfSchema {
+			if err := t.SetSchema(schemaVersion); err != nil {
 				return err
 			}
 		}

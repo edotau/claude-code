@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 
 	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -134,17 +134,14 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	}
 }
 
-// gatewayClaudeRE matches a gateway-prefixed Claude id (databricks-claude-sonnet-5-5) ending in major-minor.
-var gatewayClaudeRE = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable)-(\d+)-(\d{1,2})$`)
-
 // wellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
 // its Claude settings (no temperature, reasoning, limits); any other id passes through unchanged.
 func wellKnownModel(id string) string {
-	m := gatewayClaudeRE.FindStringSubmatch(id)
-	if m == nil {
+	canonical, _, ok := models.Resolve(id)
+	if !ok || !strings.HasPrefix(canonical, "claude-") {
 		return id
 	}
-	return "claude-" + m[1] + "-" + m[2] + "." + m[3]
+	return models.Wire("dotted", canonical)
 }
 
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {

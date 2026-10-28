@@ -28,8 +28,8 @@ func TestDescribeCoversVerbsAndHooks(t *testing.T) {
 			t.Errorf("describe lacks verb %q", want)
 		}
 	}
-	if len(d.Hooks) == 0 || len(d.Runners) == 0 || len(d.Providers.List) == 0 {
-		t.Fatalf("empty section: hooks=%d runners=%d providers=%d", len(d.Hooks), len(d.Runners), len(d.Providers.List))
+	if len(d.Hooks) == 0 || len(d.Agents) == 0 || len(d.Providers.List) == 0 {
+		t.Fatalf("empty section: hooks=%d runners=%d providers=%d", len(d.Hooks), len(d.Agents), len(d.Providers.List))
 	}
 	b, err := json.Marshal(d)
 	if err != nil {

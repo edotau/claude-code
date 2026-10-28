@@ -109,7 +109,7 @@ type hubLeg struct {
 	firstOutput time.Duration
 }
 
-// NewHubLeg builds a hub leg Runner for agentName on provider; reg resolves a provider:model override.
+// NewHubLeg builds a hub leg Agent for agentName on provider; reg resolves a provider:model override.
 func NewHubLeg(agentName string, provider *providers.Provider, reg *providers.Registry) Runner {
 	return hubLeg{agent: agentName, provider: provider, reg: reg}
 }

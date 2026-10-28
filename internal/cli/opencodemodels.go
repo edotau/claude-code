@@ -24,7 +24,7 @@ func isOpencodeMenuVerb(vendor string, args []string) bool {
 
 func opencodeMenuPage(verb string) helptext.Page {
 	usage := map[string][2]string{
-		"list": {"list [--live] [--provider P] [--format F]",
+		"list": {"list [--live] [--profile P] [--format F]",
 			"Show the menu opencode offers: id, label, Responses, source."},
 		"add": {"add <id>[=Label] [flags]",
 			"Add or update an entry; refuses ids the workspace does not serve."},
@@ -57,15 +57,15 @@ func cmdOpencodeMenu(args []string) int {
 	switch verb {
 	case "list":
 		fs.BoolVar(&live, "live", false, "mark each entry served or missing on the workspace")
-		fs.StringVar(&provider, "provider", "", "workspace provider (default: opencode's env)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
 	case "check":
 		fs.BoolVar(&all, "all", false, "probe every chat endpoint, not just the menu")
-		fs.StringVar(&provider, "provider", "", "workspace provider (default: opencode's env)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
 		fs.DurationVar(&timeout, "timeout", timeout, "per-request timeout")
 	case "add":
 		fs.BoolVar(&responses, "responses", false, "serve through the Responses API")
 		fs.BoolVar(&force, "force", false, "skip the workspace check")
-		fs.StringVar(&provider, "provider", "", "workspace provider (default: opencode's env)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
 	case "import":
 		fs.BoolVar(&apply, "apply", false, "write the change (default: print the diff)")
 	}
@@ -128,16 +128,15 @@ func opencodeMenuWrite(next []providers.OpencodeModel, msg string, fail func(str
 	return 0
 }
 
-// opencodeProvider resolves the workspace provider: --provider, else the opencode row's account.
+// opencodeProvider resolves the workspace profile: --profile, else the OPENCODE_PROFILE pin.
 func opencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, nil, err
 	}
 	if name == "" {
-		row, _ := reg.AgentRow("opencode")
-		if name = row.Account; name == "" {
-			return nil, nil, fmt.Errorf("no provider on the opencode row; pass --provider")
+		if name = providers.Pin(providers.PinOpencodeProfile); name == "" {
+			return nil, nil, fmt.Errorf("no profile pinned for opencode; pass --profile")
 		}
 	}
 	p, err := reg.Get(name)

@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -35,7 +35,7 @@ var (
 func copilotQuotaHandoff(ctx context.Context, req Request, res Result, partial copilotsdk.Result, cause error,
 	creds []string, rerun func(context.Context, Request, io.Writer) (Result, error), stream io.Writer) (Result, error) {
 	acct := copilotLoginAccount()
-	noteQuota(Leg{Account: acct, Billing: route.BillSubscription}, Classify("copilot", cause, false))
+	noteQuota(Leg{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
 	res.SessionID = cmp.Or(partial.SessionID, res.SessionID)
 	path, doc, werr := writeCopilotHandoff(req, res, partial.Text, acct, cause, creds)
 	if werr != nil {
@@ -48,7 +48,7 @@ func copilotQuotaHandoff(ctx context.Context, req Request, res Result, partial c
 		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; providers: %v — handoff: %s\n", lerr, path)
 		return res, cause
 	}
-	ft, note, ferr := copilotFallback(reg, cmp.Or(strings.TrimPrefix(acct, "copilot:"), "GitHub login")+
+	ft, note, ferr := copilotFallback(reg, cmp.Or(strings.TrimPrefix(acct, "github·"), "GitHub login")+
 		" quota exhausted mid-task")
 	if ferr != nil || ft.Provider == nil || ft.Provider.Auth.Login == "copilot" { // never resume on a GitHub login
 		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; no Databricks fallback — handoff: %s\n", path)

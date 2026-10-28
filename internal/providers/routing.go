@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -126,8 +127,8 @@ func validateRouting(r Routing) []string {
 			continue
 		}
 		for tier, cell := range tiers {
-			if !slices.Contains(RouteTiers, tier) {
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown tier", runner, tier))
+			if !validRouteRow(tier) {
+				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown tier, alias or Claude id", runner, tier))
 			}
 			switch {
 			case cell.Account != "" && !validRouteAccountKey(cell.Account):
@@ -155,6 +156,15 @@ func validateRouting(r Routing) []string {
 		}
 	}
 	return errs
+}
+
+// validRouteRow reports whether key names a routed row: a tier, an alias, or a canonical Claude id of a routed tier.
+func validRouteRow(key string) bool {
+	if slices.Contains(RouteTiers, key) {
+		return true
+	}
+	canonical, _, ok := models.Resolve(key)
+	return ok && slices.Contains(RouteTiers, models.FamilyOf(canonical))
 }
 
 // NormalizeOpencodeLadder maps each routing.opencode.ladder entry that names a registry provider (e.g. a

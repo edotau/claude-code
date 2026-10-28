@@ -33,7 +33,7 @@ func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, widt
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
-		"vendors":   func() string { return vaultVendorsText(doc.Vendors, width) },
+		"agents":    func() string { return vaultVendorsText(doc.Vendors, width) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -151,7 +151,7 @@ func vaultSection(heading string, rows [][2]string, width int) string {
 	return vaultSectionMax(heading, rows, width, kvKeyMax, kvValueMax)
 }
 
-// Key/value sections (PINS, ENV, ROUTING, SETTINGS, VENDORS, VAULT) clip a longer key or value with "…".
+// Key/value sections (PINS, ENV, ROUTING, SETTINGS, AGENTS, VAULT) clip a longer key or value with "…".
 const (
 	kvKeyMax   = 24
 	kvValueMax = 48
@@ -240,7 +240,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 				presets[p.Preset] = append(presets[p.Preset], name)
 				continue
 			}
-			rows = append(rows, []string{name, p.Kind, p.Auth.Type, p.Models["opus"], p.Models["sonnet"],
+			rows = append(rows, []string{name, p.Kind, p.Auth.Method(), p.Models["opus"], p.Models["sonnet"],
 				p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
 		}
 		for _, preset := range slices.Sorted(maps.Keys(presets)) {
@@ -256,7 +256,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 				rows = append(rows, []string{agent, p.Tier, p.ID})
 			}
 		}
-		blocks = append(blocks, "  PLANS\n"+vaultTable([]string{"AGENT", "TIER", "ID"}, planColMax, rows, width))
+		blocks = append(blocks, "  PLANS\n"+vaultTable([]string{"AGENT", "MODEL", "ID"}, planColMax, rows, width))
 	}
 	var lines [][2]string
 	if reg.Default != "" {
@@ -291,7 +291,10 @@ var vaultCredOK = func(name string) bool {
 	return ok && providers.CredentialPresent(p)
 }
 
-// presetEnvs lists a preset's env rows in DatabricksEnvs order, each marked ✓ (credential resolves) or ✗.
+// dbxEnvOrder is the workspace order of a preset's env rows.
+var dbxEnvOrder = []string{"dev", "qa", "prod"}
+
+// presetEnvs lists a preset's env rows in dbxEnvOrder, each marked ✓ (credential resolves) or ✗.
 func presetEnvs(names []string) string {
 	ok := map[string]bool{}
 	for _, n := range names {
@@ -322,10 +325,10 @@ func boolRank(b bool) int {
 
 // envRank orders dev/qa/prod first, in that order; other names after.
 func envRank(name string) int {
-	if i := slices.Index(providers.DatabricksEnvs, name); i >= 0 {
+	if i := slices.Index(dbxEnvOrder, name); i >= 0 {
 		return i
 	}
-	return len(providers.DatabricksEnvs)
+	return len(dbxEnvOrder)
 }
 
 // vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
@@ -413,27 +416,27 @@ func vaultTable(head []string, colMax []int, rows [][]string, width int) string 
 	return b.String()
 }
 
-// vaultVendorsText renders the vendors overlay as one block per vendor; unknown keys fall back to the flatten.
+// vaultVendorsText renders the agents overlay as one block per agent; unknown keys fall back to the flatten.
 func vaultVendorsText(raw json.RawMessage, width int) string {
 	var b strings.Builder
-	b.WriteString("VENDORS\n")
+	b.WriteString("AGENTS\n")
 	var top map[string]any
 	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
 		b.WriteString("  (none)\n")
 		return b.String()
 	}
 	if err := json.Unmarshal(raw, &top); err != nil {
-		return vaultSection("VENDORS", vaultFlattenSection(raw), width)
+		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
 	}
 	var blocks []string
-	vs, _ := top["vendors"].(map[string]any)
+	vs, _ := top["agents"].(map[string]any)
 	for _, name := range slices.Sorted(maps.Keys(vs)) {
 		rows := vaultVendorRows(vs[name])
 		blocks = append(blocks, "  "+name+"\n"+strings.TrimPrefix(vaultIndent(vaultSection("", rows, width-2)), "\n"))
 	}
 	var rest [][2]string
 	for _, k := range slices.Sorted(maps.Keys(top)) {
-		if k == "_comment" || (k == "vendors" && vs != nil) {
+		if k == "_comment" || (k == "agents" && vs != nil) {
 			continue
 		}
 		rest = append(rest, vaultFlattenValue(k, top[k])...)

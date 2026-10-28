@@ -11,10 +11,14 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Entry is one per-token API-key request; never content, keys or headers.
+// Entry is one metered proxy request; never content, keys or headers. Older lines lack the attribution fields
+// and carry the profile name in Provider; ProfileName reads both.
 type Entry struct {
 	Ts        time.Time `json:"ts"`
+	Profile   string    `json:"profile,omitempty"`
 	Provider  string    `json:"provider"`
+	Agent     string    `json:"agent,omitempty"`
+	Session   string    `json:"session,omitempty"`
 	Model     string    `json:"model"`
 	Input     int       `json:"input"`
 	Output    int       `json:"output"`
@@ -65,4 +69,26 @@ func Read() ([]Entry, error) {
 		}
 	}
 	return out, sc.Err()
+}
+
+// ProfileName is the registry row that served the entry; pre-attribution lines stored it in Provider.
+func (e Entry) ProfileName() string {
+	if e.Profile != "" {
+		return e.Profile
+	}
+	return e.Provider
+}
+
+// TotalsBySession sums the tokens of every entry stamped with the parent session id; "" matches nothing.
+func TotalsBySession(id string) (in, out, cacheRead int) {
+	if id == "" {
+		return 0, 0, 0
+	}
+	entries, _ := Read()
+	for _, e := range entries {
+		if e.Session == id {
+			in, out, cacheRead = in+e.Input, out+e.Output, cacheRead+e.CacheRead
+		}
+	}
+	return in, out, cacheRead
 }

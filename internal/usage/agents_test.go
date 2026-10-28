@@ -258,7 +258,7 @@ func TestCopilotUsageParsesFixture(t *testing.T) {
 	if got.Tokens != 1701190 {
 		t.Errorf("tokens = %d, want 1701190 (input+output+cache_read+cache_write)", got.Tokens)
 	}
-	if len(got.Models) != 1 || got.Models[0].Provider != "github·copilot" || got.Models[0].Model != "claude-opus-5.5" {
+	if len(got.Models) != 1 || got.Models[0].Provider != "github" || got.Models[0].Profile != "copilot" || got.Models[0].Model != "claude-opus-5.5" {
 		t.Errorf("models = %+v", got.Models)
 	}
 	if got.Note != "" {
@@ -429,8 +429,8 @@ func TestCopilotUsageLabelsBYOKRows(t *testing.T) {
 		t.Fatalf("models = %+v", got.Models)
 	}
 	for _, m := range got.Models {
-		if m.Provider != want[m.Model] {
-			t.Errorf("%s labelled %q, want %q", m.Model, m.Provider, want[m.Model])
+		if rowLabel(m.Provider, m.Profile) != want[m.Model] {
+			t.Errorf("%s labelled %q, want %q", m.Model, rowLabel(m.Provider, m.Profile), want[m.Model])
 		}
 	}
 }

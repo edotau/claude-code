@@ -84,7 +84,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 	home := scratch(t)
 	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"],"ask":["Bash(git reset --hard:*)"]}}`
-	vaulttest.Put(t, vault.Overlay, "vendors", overlay)
+	vaulttest.Put(t, vault.Overlay, "agents", overlay)
 
 	var out bytes.Buffer
 	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {

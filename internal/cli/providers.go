@@ -15,13 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vendors"
 )
-
-// githubCopilotProvider is the registry name ListModels and pin validation key off.
-const githubCopilotProvider = "github-copilot"
 
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
 func configureProviderList(name, format string) int {
@@ -44,7 +41,7 @@ func configureProviderList(name, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("provider  %s\nkind      %s\nauth      %s", p.Name, p.Kind, p.Auth.Type)
+	fmt.Printf("profile   %s\nkind      %s\nauth      %s", p.Name, p.Kind, p.Auth.Method())
 	if p.Auth.Env != "" {
 		fmt.Printf(" (%s)", p.Auth.Env)
 	}
@@ -66,8 +63,8 @@ func configureProviderList(name, format string) int {
 	return 0
 }
 
-// printProviderTable prints one row per provider family, then one per agent CLI: the profiles whose credential
-// resolves now (m2m service principals excluded) and the auth modes they use.
+// printProviderTable prints one row per provider, then one per agent CLI: the profiles whose credential
+// resolves now (m2m service principals excluded) and the auth methods they use.
 func printProviderTable(reg *providers.Registry) {
 	groups := map[string][]string{}
 	modes := map[string][]string{}
@@ -76,15 +73,15 @@ func printProviderTable(reg *providers.Registry) {
 		if cred, _ := credSource(p); cred == "missing" {
 			continue
 		}
-		g := providers.Group(p)
+		g := p.Provider
 		modes[g] = appendUnique(modes[g], providerMode(p))
-		if p.Auth.AuthType == providers.AuthOAuthM2M {
-			continue // a service principal mints u2m logins from a cold start; it is a mode, not a profile
+		if p.Auth.Method() == providers.AuthM2M {
+			continue // a service principal mints oauth logins from a cold start; it is an auth, not a profile
 		}
 		groups[g] = append(groups[g], n)
 	}
 	var rows [][3]string
-	var ready []*providers.Provider // family order, so the agent rows read like the provider rows
+	var ready []*providers.Provider // provider order, so the agent rows read like the provider rows
 	for _, g := range providerGroups {
 		if len(groups[g]) > 0 {
 			names := sortProfiles(g, groups[g])
@@ -110,7 +107,7 @@ func printProviderTable(reg *providers.Registry) {
 	for _, r := range rows {
 		w0, w1 = max(w0, len(r[0])), max(w1, len(r[1]))
 	}
-	fmt.Printf("%-*s  %-*s  %s\n", w0, "PROVIDERS", w1, "PROFILES", "MODE")
+	fmt.Printf("%-*s  %-*s  %s\n", w0, "PROVIDERS", w1, "PROFILES", "AUTH")
 	for _, r := range rows {
 		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", w0, r[0], w1, r[1], r[2]), " "))
 	}
@@ -120,19 +117,18 @@ func printProviderTable(reg *providers.Registry) {
 	}
 }
 
-// providerMode is how p authenticates: web (browser u2m), oauth (m2m), login (a CLI's own), api-key, or "-".
+// providerMode is how p authenticates: oauth, m2m, pat, key, cli (a CLI's own login), or "-".
 func providerMode(p *providers.Provider) string {
-	switch {
-	case p.Auth.AuthType == providers.AuthU2M, p.Preset == providers.PresetDatabricks && p.Auth.AuthType == "":
-		return "web"
-	case p.Auth.AuthType == providers.AuthOAuthM2M:
-		return "oauth"
-	case p.Auth.Login != "", p.Auth.Type == providers.AuthPassthrough:
-		return "login"
-	case p.Auth.Type == providers.AuthNone:
+	switch m := p.Auth.Method(); {
+	case p.Preset == providers.PresetDatabricks && m == providers.AuthKey:
+		return providers.AuthOAuth
+	case p.Auth.Login != "":
+		return providers.AuthCLI
+	case m == providers.AuthNone || m == "":
 		return "-"
+	default:
+		return m
 	}
-	return "api-key"
 }
 
 // familyProfiles joins names, marking the session default with *.
@@ -162,8 +158,8 @@ func appendUnique(xs []string, x string) []string {
 	return append(xs, x)
 }
 
-// providerGroups is the family order `configure provider --list` prints; opensource takes every other host.
-var providerGroups = []string{"anthropic", "openai", "github", "google", providers.GroupDatabricks, "opensource"}
+// providerGroups is the family order `configure provider --list` prints; local takes every other host.
+var providerGroups = []string{"anthropic", "openai", "github", "google", providers.GroupDatabricks, "nvidia", "local"}
 
 // envSortKey orders Databricks rows bare env first (dev, qa, prod), then each prefix's -dev, -qa, -prod.
 func envSortKey(name string) string {
@@ -178,10 +174,10 @@ func envSortKey(name string) string {
 	return "2 " + name
 }
 
-// credSource names where p's credential resolves from (vault|env|command|auth.file|passthrough|none|missing).
+// credSource names where p's credential resolves from (vault|env|command|auth.file|cli|none|missing).
 func credSource(p *providers.Provider) (source, note string) {
 	st := secrets.Resolve(p)
-	if st.Source == "none" && p.Auth.Type != providers.AuthNone {
+	if st.Source == "none" && p.Auth.Method() != providers.AuthNone {
 		return "missing", st.Note
 	}
 	return st.Source, st.Note
@@ -190,7 +186,7 @@ func credSource(p *providers.Provider) (source, note string) {
 // providerListEntry is the describe provider view plus where its credential resolves from.
 type providerListEntry struct {
 	DescribeProvider
-	Group       string `json:"group"` // the family `--list` files it under (anthropic, openai, ... opensource)
+	Group       string `json:"group"` // the family `--list` files it under (anthropic, openai, ... local)
 	Source      string `json:"source"`
 	Note        string `json:"note"`
 	Host        string `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
@@ -216,7 +212,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		}
 		e := providerListEntry{DescribeProvider: dp}
 		p := reg.Providers[dp.Name]
-		e.Group = providers.Group(p)
+		e.Group = p.Provider
 		e.Source, e.Note = credSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
@@ -236,21 +232,21 @@ func providerListJSON(reg *providers.Registry, name string) int {
 
 var modelsPage = helptext.Page{
 	Usage: "claude-code models [flags]",
-	About: "Shows which model each tier slot (opus, sonnet, haiku, fable) resolves to on\n" +
-		"the session provider. --pin and --unpin write the vault pins; --live lists the\n" +
-		"provider's catalog.",
-	Hint: "A HARNESS_<SLOT>_MODEL env var beats the vault pin.",
+	About: "Shows which model each alias (opus, sonnet, haiku, fable) resolves to on\n" +
+		"the session profile. --pin and --unpin write the vault pins; --live lists the\n" +
+		"profile's catalog.",
+	Hint: "A CLAUDE_<ALIAS>_MODEL vault pin beats the profile's own model.",
 }
 
 func cmdModels(args []string) int {
 	fs := helptext.NewFlagSet("models", modelsPage)
-	provider := fs.String("provider", "", "provider to resolve (default: pin, then registry default)")
+	provider := fs.String("profile", "", "profile to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
-	live := fs.Bool("live", false, "list the models the provider serves (GET /models)")
+	live := fs.Bool("live", false, "list the models the profile serves (GET /models)")
 	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the vault pins change, write nothing")
 	format := outfmt.Flag(fs)
 	var pins []string
-	fs.Func("pin", "slot=[provider:]model, or all=[provider:]model (repeatable)", func(v string) error {
+	fs.Func("pin", "alias=model, or all=model (repeatable)", func(v string) error {
 		pins = append(pins, v)
 		return nil
 	})
@@ -294,12 +290,12 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	for _, p := range pins {
 		slot, spec, ok := strings.Cut(p, "=")
 		if !ok {
-			return fail("--pin wants slot=model, got %q", p), true
+			return fail("--pin wants alias=model, got %q", p), true
 		}
 		key := providers.PinModel
 		if slot != "all" {
 			if !slices.Contains(models.Slots, slot) {
-				return fail("unknown slot %q (opus|sonnet|haiku|fable|all)", slot), true
+				return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", slot), true
 			}
 			key = providers.SlotPin(slot)
 		}
@@ -321,10 +317,8 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	return 0, false
 }
 
-// qualifyPinSpec stores a cross-provider "provider:model" pin when --provider names a provider other
-// than the session's own, so the pin later resolves against the provider it was validated for, not
-// whichever provider the session happens to be on (the bug: a bare model id pinned under --provider
-// X but resolved under the session provider instead). Already-qualified specs pass through unchanged.
+// qualifyPinSpec stores a cross-profile "profile:model" pin when --profile names a profile other than the
+// session's own, so the pin later resolves against the profile it was validated for. Qualified specs pass through.
 func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
 	if providerFlag == "" {
 		return spec
@@ -334,7 +328,7 @@ func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
 			return spec
 		}
 	}
-	session := cmp.Or(providers.Pin(providers.PinProvider), reg.Default)
+	session := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile), reg.Default)
 	if providerFlag == session {
 		return spec
 	}
@@ -346,18 +340,18 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 		return listLive(reg, sel.Provider, format)
 	}
 	if format == "json" {
-		slots := map[string]string{}
+		byAlias := map[string]string{}
 		for _, s := range models.Slots {
 			if t, ok := sel.Slots[s]; ok {
-				slots[s] = t.Spec()
+				byAlias[s] = t.Spec()
 			}
 		}
-		if err := outfmt.Write(os.Stdout, map[string]any{"provider": sel.Provider.Name, "router": sel.NeedsRouter(reg), "slots": slots}); err != nil {
+		if err := outfmt.Write(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": byAlias}); err != nil {
 			return fail("models: %v", err)
 		}
 		return 0
 	}
-	fmt.Printf("provider  %s   router:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
+	fmt.Printf("profile  %s   proxy:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
 	for _, s := range models.Slots {
 		if t, ok := sel.Slots[s]; ok {
 			fmt.Printf("  %-7s %-40s → %s\n", s, sel.ClientModel(s), t.Spec())
@@ -372,7 +366,11 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 func validateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
 	fallback := providerFlag
 	if fallback == "" {
-		fallback = providers.Pin(providers.PinProvider)
+		fallback = cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+	}
+	reg, rerr := providers.Load()
+	if rerr != nil {
+		return "", nil
 	}
 	var ids []string
 	var fetched bool
@@ -385,7 +383,8 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 		if !hasProvider || model == "" {
 			name, model = fallback, spec
 		}
-		if name != githubCopilotProvider {
+		gh, gerr := reg.Get(name)
+		if gerr != nil || gh.Provider != "github" {
 			continue
 		}
 		if !fetched {
@@ -399,7 +398,7 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 			if near := nearMatches(model, ids); len(near) > 0 {
 				return "", fmt.Errorf("%q is not a github-copilot model; did you mean: %s?", model, strings.Join(near, ", "))
 			}
-			return "", fmt.Errorf("%q is not a github-copilot model (run `claude-code models --live --provider github-copilot` to see the catalog)", model)
+			return "", fmt.Errorf("%q is not a github-copilot model (run `claude-code models --live --profile %s` to see the catalog)", model, gh.Name)
 		}
 	}
 	return "", nil
@@ -447,7 +446,7 @@ type liveModel struct {
 
 // listLive prints the provider's live model catalog via providers.ListModels (github-copilot's own SDK,
 // every other provider's plain /models GET). A catalog that can't be fetched live falls back to a known,
-// offline list for the two providers that have one (subscription's registry models, chatgpt's codex cache).
+// offline list for the two profiles that have one (max's registry models, chatgpt's codex cache).
 func listLive(reg *providers.Registry, p *providers.Provider, format string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -509,10 +508,10 @@ func printModelTable(infos []providers.ModelInfo) {
 }
 
 var switchPage = helptext.Page{
-	Usage: "claude-code switch <provider> [flags]",
-	About: "Pins the session provider in the vault; relaunch to apply. One launch only:\n" +
-		"claude-code --provider <p>.",
-	Hint: "claude-code configure provider --list shows each provider's credential state.",
+	Usage: "claude-code switch <profile> [flags]",
+	About: "Pins the session profile in the vault; relaunch to apply. One launch only:\n" +
+		"claude-code --profile <p>.",
+	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
 
 func cmdSwitch(args []string) int {
@@ -533,12 +532,12 @@ func cmdSwitch(args []string) int {
 		return fail("%v", err)
 	}
 	if dryRun {
-		return printPinDiff(map[string]string{providers.PinProvider: args[0]})
+		return printPinDiff(map[string]string{providers.PinProfile: args[0]})
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProvider: args[0]}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: args[0]}); err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("provider pinned: %s (relaunch to apply)\n", args[0])
+	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
 	return 0
 }
 
@@ -551,20 +550,20 @@ func switchUsage() {
 
 var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
-	About: "Resolves and prints the session provider's credential: the apiKeyHelper\n" +
-		"Claude Code calls. --router prints the loopback router's client secret instead.",
+	About: "Resolves and prints the session profile's credential: the apiKeyHelper\n" +
+		"Claude Code calls. --proxy prints the loopback proxy's client secret instead.",
 }
 
-// cmdToken is the apiKeyHelper: --router prints the loopback router's client secret instead.
+// cmdToken is the apiKeyHelper: --proxy prints the loopback proxy's client secret instead.
 func cmdToken(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
-	provider := fs.String("provider", "", "provider name")
-	viaRouter := fs.Bool("router", false, "print the loopback router client secret")
+	profile := fs.String("profile", "", "profile name")
+	viaRouter := fs.Bool("proxy", false, "print the loopback proxy client secret")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if *viaRouter {
-		s, err := router.ClientSecret()
+		s, err := proxy.ClientSecret()
 		if err != nil {
 			return fail("%v", err)
 		}
@@ -575,7 +574,7 @@ func cmdToken(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	sel, err := providers.Select(reg, *provider)
+	sel, err := providers.Select(reg, *profile)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -605,7 +604,7 @@ func printPinDiff(kv map[string]string) int {
 	return 0
 }
 
-// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_GITHUB_USER), not its stored login.
+// copilotCatalogOptions lists models as the profile copilot runs as (COPILOT_PROFILE), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
 	return copilotsdk.CatalogOptions(bin, vendors.CopilotToken())
 }

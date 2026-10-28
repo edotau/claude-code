@@ -14,7 +14,7 @@ type ExportRow struct {
 	ID          string // vault provider id
 	Section     string // section name (ID unless renamed)
 	Host        string
-	Auth        string // row authType: u2m | oauth-m2m | pat
+	Auth        string // row auth.type: oauth | m2m | pat
 	ClientID    string
 	AccountID   string
 	WorkspaceID string
@@ -32,8 +32,8 @@ func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 		if p == nil || p.Preset != providers.PresetDatabricks {
 			continue
 		}
-		if p.Auth.AuthType == "" {
-			skipped = append(skipped, n+": no authType (delegates to the CLI's own profile); not exported")
+		if m := p.Auth.Method(); m != providers.AuthOAuth && m != providers.AuthM2M && m != providers.AuthPAT {
+			skipped = append(skipped, n+": no oauth/m2m/pat auth (delegates to the CLI's own profile); not exported")
 			continue
 		}
 		host := providers.AuthHost(p)
@@ -41,7 +41,7 @@ func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 			skipped = append(skipped, n+": no https host; not exported")
 			continue
 		}
-		rows = append(rows, ExportRow{ID: n, Section: n, Host: host, Auth: p.Auth.AuthType, ClientID: p.Auth.ClientID,
+		rows = append(rows, ExportRow{ID: n, Section: n, Host: host, Auth: p.Auth.Type, ClientID: p.Auth.ClientID,
 			AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID})
 	}
 	return rows, skipped
@@ -76,12 +76,12 @@ func sectionText(r ExportRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[%s]\nhost = %s\n", r.Section, r.Host)
 	switch r.Auth {
-	case providers.AuthU2M:
+	case providers.AuthOAuth:
 		b.WriteString("auth_type = " + CLIAuthU2M + "\n")
-	case providers.AuthOAuthM2M:
-		fmt.Fprintf(&b, "client_id = %s\nauth_type = %s\n", r.ClientID, providers.AuthOAuthM2M)
+	case providers.AuthM2M:
+		fmt.Fprintf(&b, "client_id = %s\nauth_type = %s\n", r.ClientID, CLIAuthM2M)
 	case providers.AuthPAT:
-		b.WriteString("auth_type = " + providers.AuthPAT + "\n")
+		b.WriteString("auth_type = " + CLIAuthPAT + "\n")
 	}
 	if r.AccountID != "" {
 		fmt.Fprintf(&b, "account_id = %s\n", r.AccountID)
@@ -104,12 +104,12 @@ func Render(rows []ExportRow) string {
 // Hint is the use-time line for a row: how the CLI gets the credential the file deliberately lacks.
 func Hint(r ExportRow) string {
 	switch r.Auth {
-	case providers.AuthOAuthM2M:
+	case providers.AuthM2M:
 		return fmt.Sprintf("[%s] DATABRICKS_CLIENT_SECRET=$(claude-code vault get %s) databricks -p %s ...",
-			r.Section, providers.SecretNameFor(r.ID, r.Auth), r.Section)
+			r.Section, secretName(r.ID, r.Auth), r.Section)
 	case providers.AuthPAT:
 		return fmt.Sprintf("[%s] DATABRICKS_TOKEN=$(claude-code vault get %s) databricks -p %s ...",
-			r.Section, providers.SecretNameFor(r.ID, r.Auth), r.Section)
+			r.Section, secretName(r.ID, r.Auth), r.Section)
 	}
 	return fmt.Sprintf("[%s] databricks auth login -p %s (the CLI keeps its own login)", r.Section, r.Section)
 }

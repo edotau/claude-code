@@ -24,7 +24,7 @@ var vendorSubverbs = map[string]bool{
 	"review": true, "transfer": true, "explore": true, "env": true,
 }
 
-// vendorAbout expands each vendor's one-line menu summary for its help page.
+// vendorAbout expands each agent's one-line menu summary for its help page.
 var vendorAbout = map[string]string{
 	"copilot": "GitHub's Copilot CLI, billed to your Copilot plan. Bare launches it with args " +
 		"forwarded; the commands below run it headless, in the background or as a reviewer.",
@@ -36,7 +36,7 @@ var vendorAbout = map[string]string{
 		"with args forwarded; the commands below run it headless.",
 }
 
-// vendorPage is the help page for one vendor verb: the shared command roster plus the adapter's extra rows.
+// vendorPage is the help page for one agent verb: the shared command roster plus the adapter's extra rows.
 func vendorPage(vendor string) helptext.Page {
 	rows := [][2]string{
 		{"ask", "one-shot run (= ask --agent " + vendor + ")"},
@@ -49,8 +49,8 @@ func vendorPage(vendor string) helptext.Page {
 		{"result", "a finished job's answer + session"},
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
-		{"models", "the vendor's own model catalog"},
-		{"env", "show or move only " + vendor + "'s account: dev, qa, prod"},
+		{"models", "the agent's own model catalog"},
+		{"env", "show or set " + vendor + "'s profile pin"},
 	}
 	if vendor == "opencode" {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "models" })][1] =
@@ -81,7 +81,7 @@ var vendorSubPages = map[string][2]string{
 	"models":   {"models", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
-	"env":      {"env [dev|qa|prod]", "Show %s's account, or move only %[1]s to another env of its preset."},
+	"env":      {"env [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
 	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
 }
 
@@ -93,11 +93,6 @@ func vendorSubPage(vendor, verb string) helptext.Page {
 		about = fmt.Sprintf(about, vendor)
 	}
 	page := helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
-	if verb == "env" {
-		for _, env := range providers.DatabricksEnvs {
-			page.Commands = append(page.Commands, [2]string{env, "move " + vendor + " to the " + env + " workspace"})
-		}
-	}
 	return page
 }
 
@@ -115,7 +110,7 @@ func newVendorFlags(vendor, verb string) *flag.FlagSet {
 	return helptext.NewFlagSet(vendor+" "+verb, vendorSubPage(vendor, verb))
 }
 
-// cmdVendorSub dispatches a vendor's background-job and setup subverbs (resume/status/result/cancel/setup/models).
+// cmdVendorSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/models).
 func cmdVendorSub(vendor string, args []string) int {
 	switch args[0] {
 	case "resume":
@@ -145,11 +140,7 @@ func cmdVendorSub(vendor string, args []string) int {
 	case "transfer":
 		return cmdVendorTransfer(vendor, args[1:])
 	case "env":
-		if slices.Contains(args[1:], "-h") || slices.Contains(args[1:], "--help") { // `env prod -h` too
-			vendorSubPage(vendor, "env").Fprint(os.Stderr)
-			return 0
-		}
-		return cmdVendorEnv(vendor, args[1:])
+		return cmdAgentEnv(vendor, args[1:])
 	}
 	return fail("%s: unknown subcommand %q", vendor, args[0])
 }
@@ -325,7 +316,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 		}
 	} else {
 		for _, c := range rep.Checks {
-			fmt.Printf("%s  %s  %s  %s\n", rep.Vendor, c.Name, c.State, c.Detail)
+			fmt.Printf("%s  %s  %s  %s\n", rep.Agent, c.Name, c.State, c.Detail)
 		}
 	}
 	if !rep.OK {
@@ -425,15 +416,24 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	return code
 }
 
-// cmdVendorModels is `claude-code <v> models`: the vendor's own catalog, or a note that it has none.
+// cmdVendorModels is `claude-code <v> models`: the agent's own catalog, or a note that it has none.
 func cmdVendorModels(vendor string) int {
 	a, ok := vendoragent.Lookup(vendor)
 	if !ok {
-		return fail("unknown vendor %q", vendor)
+		return fail("unknown agent %q", vendor)
 	}
 	switch {
 	case a.ModelsProvider != "":
-		return cmdModels([]string{"--live", "--provider", a.ModelsProvider})
+		reg, err := providers.Load()
+		if err != nil {
+			return fail("%v", err)
+		}
+		for _, n := range reg.ProfilesOf(a.ModelsProvider) {
+			if reg.Providers[n].Auth.Login == vendor {
+				return cmdModels([]string{"--live", "--profile", n})
+			}
+		}
+		return fail("%s: no %s profile with a %s login", vendor, a.ModelsProvider, vendor)
 	case len(a.ModelsArgv) > 0:
 		return launchVendor(vendor, a.ModelsArgv)
 	default:
@@ -445,9 +445,9 @@ func cmdVendorModels(vendor string) int {
 // vendorLaunchFlags lists the harness flags a bare launch consumes (launch.ParseArgs) for the help page.
 func vendorLaunchFlags(vendor string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
-	fs.String("model", "", "model for this launch, [provider:]id")
-	fs.String("provider", "", "provider row for this launch")
-	fs.Bool("direct", false, "skip the router; hand the CLI the provider route")
+	fs.String("model", "", "alias, version or wire id for this launch")
+	fs.String("profile", "", "profile for this launch")
+	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
 	if vendor == "codex" {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
@@ -455,7 +455,7 @@ func vendorLaunchFlags(vendor string) *flag.FlagSet {
 	return fs
 }
 
-// vendorBinary is the wrapped CLI a vendor verb drives (gemini → agy).
+// vendorBinary is the wrapped CLI an agent verb drives (gemini → agy).
 func vendorBinary(vendor string) string {
 	spec, _ := vendors.Lookup(vendor)
 	return spec.Binary

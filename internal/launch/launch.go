@@ -21,7 +21,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/removedflags"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -30,29 +31,29 @@ import (
 
 // Options are the harness flags consumed before passthrough.
 type Options struct {
-	Provider string
-	Model    string // [provider:]model for the opus slot, this launch only
+	Provider string // the profile name from --profile (field name kept until the agent lane moves off it)
+	Model    string // alias, canonical version or wire id, this launch only
 	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
-	Router   bool
 	PrintEnv bool
-	Direct   bool     // vendors only: skip the router, hand the CLI the provider route
+	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
-	// ModelSlot is the slot --model fills ("" = opus); only the anthropic verb sets it.
-	ModelSlot string
 }
 
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
-func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
+func ParseArgs(args []string, claude bool) (Options, []string, error) {
 	var o Options
 	var rest []string
+	if err := removedflags.Hint(args); err != nil {
+		return o, nil, err
+	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, val, hasVal := strings.Cut(a, "=")
 		switch {
 		case a == "--":
 			return o, append(rest, args[i+1:]...), nil
-		case name == "--provider" || name == "--model":
+		case name == "--profile" || name == "--model":
 			if !hasVal {
 				if i+1 >= len(args) {
 					return o, nil, fmt.Errorf("%s needs a value", name)
@@ -60,18 +61,16 @@ func ParseArgs(args []string, allowRouter bool) (Options, []string, error) {
 				i++
 				val = args[i]
 			}
-			if name == "--provider" {
+			if name == "--profile" {
 				o.Provider = val
 			} else {
 				o.Model = val
 			}
-		case a == "--router" && allowRouter:
-			o.Router = true
-		case a == "--direct" && !allowRouter:
+		case a == "--direct" && !claude:
 			o.Direct = true
 		case a == "--print-env":
 			o.PrintEnv = true
-		case (name == "-f" || name == "--file") && !allowRouter:
+		case (name == "-f" || name == "--file") && !claude:
 			if !hasVal {
 				if i+1 >= len(args) {
 					return o, nil, fmt.Errorf("%s needs a value", name)
@@ -107,12 +106,11 @@ type Plan struct {
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
-	Profile     string // active profile whose session row applied ("" = none)
 }
 
 // Seams for tests.
 var (
-	ensureRouter = router.Ensure
+	ensureRouter = proxy.Ensure
 	findClaude   = ClaudeBinary
 	lookPath     = paths.VendorBin
 	selfBinary   = SelfBinary
@@ -124,52 +122,88 @@ var wipeKeys = []string{
 	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
 	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "ANTHROPIC_CUSTOM_HEADERS",
-	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
+	"CLAUDE_CODE_DISABLE_1M_CONTEXT", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
 	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+	providers.EnvSessionProfile, providers.PinModel,
+	providers.SlotPin(models.Opus), providers.SlotPin(models.Sonnet), providers.SlotPin(models.Haiku), providers.SlotPin(models.Fable),
 }
 
-// oauthKey survives the wipe only for passthrough (subscription) providers.
+// oauthKey survives the wipe only for cli-auth (subscription login) profiles.
 const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 
-// selection loads the registry and applies the per-launch provider/model flags.
+// selection loads the registry and applies the per-launch profile/model flags.
 func selection(o Options) (*providers.Registry, providers.Selection, error) {
-	reg, sel, _, err := sessionSelection(o, false)
+	return sessionSelection(o, false)
+}
+
+// sessionSelection loads the registry and applies --profile/--model > pins > defaults; session marks a Claude launch.
+func sessionSelection(o Options, session bool) (*providers.Registry, providers.Selection, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, providers.Selection{}, err
+	}
+	sel, err := providers.Select(reg, o.Provider)
+	if o.Model != "" && sel.Provider != nil {
+		applyModel(&sel, o.Model, session, o.Tier)
+		err = nil
+	}
 	return reg, sel, err
 }
 
-// sessionSelection is selection plus, when session is set, the active profile's session row:
-// --provider/--model > row > pins > defaults. The returned name is the profile that applied ("" = none).
-func sessionSelection(o Options, session bool) (*providers.Registry, providers.Selection, string, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, providers.Selection{}, "", err
+// MainTier is the tier whose model is the launch's main model: the family --model names, else the verb's tier, else opus.
+func MainTier(o Options) string {
+	if t, _, _ := parseModelFlag(o.Model); t != "" {
+		return t
 	}
-	var applied string
-	var slots map[string]string
+	return cmp.Or(o.Tier, models.Opus)
+}
+
+// parseModelFlag reads --model: tier is the Claude family it names ("" for a non-Claude wire id), canonical its
+// catalog id ("" when unknown), alias is true when the input was a bare tier alias (opus), which floats.
+func parseModelFlag(s string) (tier, canonical string, alias bool) {
+	s = strings.TrimSpace(s)
+	name := strings.ToLower(models.Strip1M(s))
+	if c, ok := models.Alias(name); ok && slices.Contains(models.Slots, name) {
+		return name, c, !strings.HasSuffix(s, "[1m]")
+	}
+	canonical, _, ok := models.Resolve(s)
+	if !ok {
+		return "", "", false
+	}
+	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.Slots, f) {
+		return f, canonical, false
+	}
+	return "", canonical, false
+}
+
+// applyModel applies --model to sel. A bare alias keeps the tier's own resolution (so a CLAUDE_<TIER>_MODEL pin
+// wins) and, off a Claude session, copies it into the opus slot the agent reads; a version or wire id fills the
+// main tier's slot on the profile with the profile's own spelling.
+func applyModel(sel *providers.Selection, model string, session bool, verbTier string) {
+	tier, canonical, alias := parseModelFlag(model)
+	dst := models.Opus
 	if session {
-		bd := reg.ResolveAgent(providers.AgentRequest{Agent: "session", Provider: o.Provider, Model: o.Model})
-		applied, slots, o.Provider = bd.Profile, bd.Slots, bd.Provider
+		dst = MainTier(Options{Model: model, Tier: verbTier})
 	}
-	sel, err := providers.Select(reg, o.Provider)
-	if applied != "" && sel.Provider != nil {
-		for slot, spec := range slots {
-			sel.Slots[slot] = providers.ParseTarget(reg, spec, sel.Provider)
+	if alias {
+		if t, ok := sel.Slots[tier]; ok && dst != tier {
+			sel.Slots[dst] = t
 		}
-		if _, ok := sel.Slots[models.Opus]; ok {
-			err = nil
-		}
+		return
 	}
-	if o.Model != "" && sel.Provider != nil {
-		sel.Slots[cmp.Or(o.ModelSlot, models.Opus)] = providers.ParseTarget(reg, o.Model, sel.Provider)
-		err = nil
+	wire := strings.TrimSpace(model)
+	oneM := strings.HasSuffix(wire, "[1m]")
+	wire = models.Strip1M(wire)
+	if canonical != "" {
+		wire = sel.Provider.WireModel(canonical)
 	}
-	return reg, sel, applied, err
+	sel.Slots[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
 }
 
 // Claude resolves a Claude Code launch.
 func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
-	reg, sel, profile, err := sessionSelection(o, true)
+	reg, sel, err := sessionSelection(o, true)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -182,11 +216,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 		return Plan{}, err
 	}
 	p := sel.Provider
-	passthrough := p.Auth.Type == providers.AuthPassthrough
+	passthrough := p.Auth.Method() == providers.AuthCLI
 	if p.Auth.Login != "" {
-		return Plan{}, fmt.Errorf("provider %s is the %s sign-in and cannot back Claude Code; use claude-code run %s --provider %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+		return Plan{}, fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
-	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...), Profile: profile}
+	plan := Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
@@ -194,14 +228,11 @@ func Claude(ctx context.Context, o Options, args []string) (Plan, error) {
 		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
 	}
 	setModelSlotEnv(&plan, sel)
-	main := models.Opus
-	if o.Tier != "" {
-		main = o.Tier
-	}
-	if err := setMainModel(&plan, sel, p, main); err != nil {
+	if err := setMainModel(&plan, sel, p, MainTier(o), o.Model != "" || providers.Pin(providers.PinModel) != ""); err != nil {
 		return Plan{}, err
 	}
-	plan.Set[providers.PinProvider] = p.Name
+	set1MOff(&plan, sel, p)
+	plan.Set[providers.EnvSessionProfile] = p.Name
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
 	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
@@ -231,13 +262,29 @@ func setModelSlotEnv(plan *Plan, sel providers.Selection) {
 	}
 }
 
-// setMainModel resolves the main-loop model for tier and sets ANTHROPIC_MODEL + thinking knobs.
-func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, tier string) error {
+// set1MOff turns 1M off when the session endpoint lacks it: Claude Code assumes 1M for recognised ids. An explicit
+// [1m] typed on a slot keeps it on. DISABLE_1M_CONTEXT over AUTO_COMPACT_WINDOW: it also drops the 1M /model entries.
+func set1MOff(plan *Plan, sel providers.Selection, p *providers.Provider) {
+	if p.Serves1M() {
+		return
+	}
+	for _, t := range sel.Slots {
+		if t.OneM {
+			return
+		}
+	}
+	plan.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
+}
+
+// setMainModel sets the thinking knobs from tier's model, and ANTHROPIC_MODEL only when the user asked for one.
+func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, tier string, asked bool) error {
 	opus := sel.ClientModel(tier)
 	if opus == "" {
-		return fmt.Errorf("provider %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, tier, tier)
+		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, tier, tier)
 	}
-	plan.Set["ANTHROPIC_MODEL"] = opus
+	if asked {
+		plan.Set["ANTHROPIC_MODEL"] = opus
+	}
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
 		plan.Set["MAX_THINKING_TOKENS"] = maxTok
 		if disable != "" {
@@ -259,28 +306,30 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
-	helper := shellQuote(helperBin(self)) + " token --provider " + shellQuote(p.Name)
-	if o.Router || sel.NeedsRouter(reg) {
+	helper := shellQuote(helperBin(self)) + " token --profile " + shellQuote(p.Name)
+	if sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
-			if t.Provider.Auth.Type == providers.AuthPassthrough && !passthrough {
-				return "", fmt.Errorf("slot on %s: subscription (passthrough) auth needs a passthrough session provider — claude-code switch %s, or pick an API-key provider", t.Provider.Name, t.Provider.Name)
+			if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
+				return "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
 			}
 		}
 		base, err := ensureRouter(ctx)
 		if err != nil {
-			return "", fmt.Errorf("router: %w", err)
+			return "", fmt.Errorf("proxy: %w", err)
 		}
-		plan.Set["ANTHROPIC_BASE_URL"] = router.SessionBase(base, p.Name)
+		plan.Set["ANTHROPIC_BASE_URL"] = proxy.SessionBase(base, p.Name)
+		hdrs := []string{proxy.AgentHeader + ": claude"} // the ledger's agent column; Claude Code adds the session id itself
 		if passthrough {
 			// The login stays in Authorization, so the router secret rides in its own header.
-			secret, err := router.ClientSecret()
+			secret, err := proxy.ClientSecret()
 			if err != nil {
-				return "", fmt.Errorf("router secret: %w", err)
+				return "", fmt.Errorf("proxy secret: %w", err)
 			}
-			plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = router.ClientHeader + ": " + secret
+			hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
 		}
-		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-router.json")
-		return shellQuote(helperBin(self)) + " token --router", nil
+		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
+		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json")
+		return shellQuote(helperBin(self)) + " token --proxy", nil
 	}
 	if route, ok := p.Route(providers.DialectAnthropic); ok && route != "https://api.anthropic.com" {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
@@ -356,27 +405,13 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	return plan, err
 }
 
-// vendorProfile applies the active profile's row for the vendor to o (flags win) and names the profile.
-func vendorProfile(name string, o Options) (Options, string) {
-	reg, err := providers.Load()
-	if err != nil {
-		return o, ""
-	}
-	b := reg.ResolveAgent(providers.AgentRequest{Agent: name, Provider: o.Provider, Model: o.Model})
-	if b.Profile == "" {
-		return o, ""
-	}
-	o.Provider, o.Model = b.Provider, b.Model
-	return o, b.Profile
-}
-
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	if o.Direct {
 		ctx = vendors.WithDirect(ctx)
 	}
 	spec, ok := vendors.Lookup(name)
 	if !ok {
-		return Plan{}, fmt.Errorf("unknown vendor %q (codex|gemini|opencode|copilot)", name)
+		return Plan{}, fmt.Errorf("unknown agent %q (codex|gemini|opencode|copilot)", name)
 	}
 	if authVendorArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
@@ -391,12 +426,11 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 		}
 		args = append(overrides, args...) // after the harness prefix, so the file's keys win
 	}
-	o, profile := vendorProfile(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
 		return Plan{}, err
 	}
-	// Only --provider is explicit: the session pin (env or file) is Claude Code's default, not a per-vendor choice.
+	// Only --profile is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
@@ -438,7 +472,8 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...), Profile: profile}, nil
+	set := envMap(env)
+	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
 }
 
 func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
@@ -618,9 +653,6 @@ func (p Plan) Print(w io.Writer) {
 		default:
 			fmt.Fprintf(w, "custom   %s (vault env)\n", k)
 		}
-	}
-	if p.Profile != "" {
-		fmt.Fprintf(w, "profile  %s (session row applied)\n", p.Profile)
 	}
 	if len(p.Overlay) > 0 {
 		fmt.Fprintf(w, "overlay  %s\n%s\n", p.OverlayPath, p.Overlay)
