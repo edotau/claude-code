@@ -162,7 +162,7 @@ func toRow(r agent.Record) Row {
 	if status == "running" && !Alive(r) {
 		status = "lost"
 	}
-	elapsed := r.Duration
+	elapsed := r.Elapsed()
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}

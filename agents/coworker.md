@@ -33,7 +33,7 @@ verification of every answer; the other agent owns nothing.
 The contract each agent shares (`agents/<agent>.md` → Verbs): `claude-code <agent> ask
 [--tools] [--workdir <dir>] [--background]` for a task, `review [--adversarial]` for a diff, `gemini
 explore` for a code + web brief, `status|result|tail [-f]|cancel <job>` for a background dispatch. Prefer
-`--format json` (the envelope carries `answer`, `model`, `fallback`).
+`--format json` (the envelope carries `answer`, `status`, `model`, `fallback`).
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
 
 ## Hands off to

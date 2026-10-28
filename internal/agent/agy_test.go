@@ -150,3 +150,13 @@ func TestParseAgyStream_TruncatedNoResult(t *testing.T) {
 		t.Errorf("res.Answer = %q, streamed %q, want %q (the pre-truncation delta)", res.Answer, out.String(), "pong")
 	}
 }
+
+func TestAgyArgvDebugFile(t *testing.T) {
+	if slices.Contains(agyArgv(AgyRequest{Model: "m"}), "--log-file") {
+		t.Fatal("--log-file without DebugFile")
+	}
+	argv := agyArgv(AgyRequest{Model: "m", DebugFile: "/tmp/l"})
+	if i := slices.Index(argv, "--log-file"); i < 0 || argv[i+1] != "/tmp/l" {
+		t.Fatalf("argv = %v", argv)
+	}
+}

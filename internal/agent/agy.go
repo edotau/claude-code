@@ -18,6 +18,7 @@ import (
 type AgyRequest struct {
 	Prompt, Model, Effort, Cwd, SessionID string
 	Tools, Autonomous                     bool
+	DebugFile                             string // --log-file
 	Env, KeepEnv                          []string
 }
 
@@ -45,6 +46,9 @@ func agyArgv(r AgyRequest) []string {
 	}
 	if r.Autonomous {
 		argv = append(argv, "--mode", "auto")
+	}
+	if r.DebugFile != "" {
+		argv = append(argv, "--log-file", r.DebugFile)
 	}
 	return append(argv, "-p=")
 }
@@ -106,8 +110,9 @@ type agyEvent struct {
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
 // An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
 // onMeaningful is unused here (agy carries no stall watchdog); it only matches runEventStream's parse type.
-func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (Result, error) {
-	var res Result
+func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+	ts := transportTracker{start: clock()}
+	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
 	var answer, pending strings.Builder
 	flush := func() {
@@ -126,6 +131,7 @@ func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...event
 			lg.emit("error", "decode agy stream-json: "+err.Error())
 			return res, fmt.Errorf("decode agy stream-json: %w", err)
 		}
+		ts.event(clock())
 		switch ev.Event {
 		case "init":
 			res.SessionID = ev.ConvID

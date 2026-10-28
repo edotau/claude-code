@@ -528,3 +528,32 @@ func TestAttachInlineRejectsBinaryKeepsText(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestRunStatusAndAttempts(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	fastDefaultBackoff(t)
+	dl := context.DeadlineExceeded
+	cases := []struct {
+		name     string
+		write    string
+		errs     []error
+		status   string
+		attempts int
+	}{
+		{"ok", "", []error{nil}, StatusOK, 1},
+		{"retried transient then ok", "", []error{errors.New("HTTP 503 overloaded"), nil}, StatusOK, 2},
+		{"quota", "", []error{&Error{Kind: KindQuota, Err: errors.New("plan exhausted")}}, StatusQuota, 1},
+		{"partial", "half", []error{errors.New("boom")}, StatusPartial, 1},
+		{"stalled", "", []error{dl, dl, dl}, StatusStalled, 3},
+		{"error", "", []error{errors.New("bad request")}, StatusError, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fakeRunner{write: c.write, errs: c.errs}
+			res, _ := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, nil)
+			if res.Status != c.status || res.Transport == nil || res.Transport.Attempts != c.attempts {
+				t.Fatalf("status=%q transport=%+v, want %q attempts=%d", res.Status, res.Transport, c.status, c.attempts)
+			}
+		})
+	}
+}
