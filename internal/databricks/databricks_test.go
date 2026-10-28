@@ -309,9 +309,9 @@ func TestRunProfileErrorExit2(t *testing.T) {
 	}
 }
 
-// TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch and the experimental-beta opt-out.
+// TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch; the beta opt-out is covered in dialect_test.go.
 func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
-	seedOverlay(t, threeProfiles) // a bare preset row carries the beta key; the opt-out is injected only without it
+	seedOverlay(t, threeProfiles)
 	f := &fakeChild{}
 	useFake(t, f)
 	if code := Run([]string{"sonnet", "--profile", "cc", "-p", "hi"}); code != 0 {
@@ -336,9 +336,6 @@ func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 		if slices.Contains(c.argv, shell) || strings.HasSuffix(c.bin, shell) {
 			t.Errorf("launch looks shell-wrapped via %q", shell)
 		}
-	}
-	if !slices.Contains(c.env, betaOff) {
-		t.Errorf("env lacks %s", betaOff)
 	}
 }
 
