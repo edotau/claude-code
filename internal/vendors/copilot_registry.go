@@ -28,6 +28,13 @@ var (
 // copilotGOOS is the OS the registry guard checks; a seam for tests.
 var copilotGOOS = runtime.GOOS
 
+// WithCopilotOS sets the OS the registry guard sees and returns the restore; tests elsewhere pin linux with it.
+func WithCopilotOS(goos string) (restore func()) {
+	old := copilotGOOS
+	copilotGOOS = goos
+	return func() { copilotGOOS = old }
+}
+
 // errCopilotRegistryDarwin refuses the registry on macOS, where copilot's Keychain login is not hidden by the home.
 var errCopilotRegistryDarwin = errors.New(
 	"copilot: the Databricks model registry is not supported on macOS yet (copilot reads its GitHub login from the " +

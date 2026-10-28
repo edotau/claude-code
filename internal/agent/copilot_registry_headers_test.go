@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/vendors"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/copilotreg"
@@ -11,6 +12,7 @@ import (
 
 // Regression: upstream provider headers (credentials) must not reach the router-bound SDK providers.
 func TestPrepareCopilotRegistryDropsUpstreamHeaders(t *testing.T) {
+	t.Cleanup(vendors.WithCopilotOS("linux")) // the macOS refusal has its own test
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	oldD, oldE, oldM := copilotDiscover, copilotEnsureRouter, copilotMintToken
