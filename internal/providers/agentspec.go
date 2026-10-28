@@ -1,6 +1,10 @@
 package providers
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/edotau/claude-code/internal/copilotsdk"
+)
 
 // AgentSpec is one agent's row: the CLI, the wires it speaks, its router path per wire and its vault pin keys.
 type AgentSpec struct {
@@ -12,6 +16,10 @@ type AgentSpec struct {
 	RouterSuffix map[string]string
 	// ProfilePin, ModelPin and ActivePin are the agent's vault pin keys; ModelPin is "" when it has no model pin.
 	ProfilePin, ModelPin, ActivePin string
+	// MinVersion and MaxVersion bound the CLI versions the harness is known to work with; "" = no bound.
+	// MaxVersion may end in ".x" ("1.x" = any 1.y.z). Each bound carries its one-line reason.
+	MinVersion, MinReason string
+	MaxVersion, MaxReason string
 }
 
 // agentSpecs is the one table of per-agent facts, in roster order (claude first, then the third-party CLIs).
@@ -28,12 +36,14 @@ var agentSpecs = []AgentSpec{
 		RouterSuffix: map[string]string{ProtocolAnthropic: "", ProtocolGemini: "/" + ProtocolGemini,
 			ProtocolOpenAI: "/" + ProtocolOpenAI, ProtocolResponses: "/" + ProtocolResponses},
 		ProfilePin: PinOpencodeProfile, ActivePin: PinOpencodeActive,
+		MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route", // keep in step with tools.opencodeMaxMajor
 	},
 	{
 		Name: "copilot", Binary: "copilot", Dialects: []string{ProtocolAnthropic, ProtocolOpenAI},
 		RouterSuffix: map[string]string{ProtocolAnthropic: "", ProtocolOpenAI: "/" + ProtocolOpenAI,
 			ProtocolResponses: "/" + ProtocolResponses},
 		ProfilePin: PinCopilotProfile, ModelPin: PinCopilotModel, ActivePin: PinCopilotActive,
+		MinVersion: copilotsdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 	},
 }
 

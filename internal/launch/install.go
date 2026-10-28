@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,6 +81,10 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
+	}
+	for _, spec := range providers.AgentSpecs() {
+		pass, detail := agentVersionDetail(spec)
+		check(pass, false, "agent version "+spec.Name, detail)
 	}
 	for _, q := range quotaDoctorRows(time.Now()) {
 		check(true, false, q.Name, q.Detail)
@@ -482,6 +487,21 @@ func toolDoctorOK(s tools.Status) bool {
 	}
 	_, err := paths.VendorBin(bin)
 	return err == nil
+}
+
+// agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> below|above <bound>: <reason>, or not installed.
+func agentVersionDetail(spec providers.AgentSpec) (pass bool, detail string) {
+	v, err := tools.AgentVersion(spec.Name)
+	switch {
+	case errors.Is(err, tools.ErrAgentNotInstalled):
+		return true, "not installed"
+	case err != nil:
+		return true, "version unknown (" + err.Error() + ")"
+	}
+	if p := tools.VersionProblem(spec, v); p != "" {
+		return false, "warn " + v + " " + p
+	}
+	return true, "ok " + v
 }
 
 // toolDoctorDetail renders one tool's doctor line: a vendor's bin/ entry, else path + version, then extra PATH copies.

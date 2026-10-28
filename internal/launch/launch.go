@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/removedflags"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
 	"github.com/edotau/claude-code/internal/vendorsettings"
 )
@@ -401,8 +402,19 @@ func headless(args []string) bool {
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	plan, err := vendorPlan(ctx, name, o, args)
 	plan.Keep, plan.Vendor = o.KeepEnv, true
+	if err == nil && !o.PrintEnv && !authVendorArgs(args) && interactiveVendorArgs(args) && agentVersionTTY() {
+		if line := tools.VersionWarning(name, plan.Binary); line != "" {
+			fmt.Fprintln(versionWarnOut, line)
+		}
+	}
 	return plan, err
 }
+
+// agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
+var (
+	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
+	versionWarnOut  io.Writer = os.Stderr
+)
 
 // withFlagModel re-adds the --model ParseArgs consumed, so the registry selects flag > pin > default.
 func withFlagModel(args []string, model string) []string {
