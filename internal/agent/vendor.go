@@ -42,23 +42,36 @@ func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 
 // vendorTargetNote is vendorTarget without printing: the router resolves every candidate's backend through it.
 func vendorTargetNote(req Request, name string) (t providers.Target, own bool, note string, err error) {
+	t, own, note, applied, err := vendorTargetBase(req, name)
+	if err != nil {
+		return t, own, note, err
+	}
+	t, modelNote := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: name, Flag: req.Model, Target: t, Applied: applied})
+	if modelNote != "" {
+		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
+	}
+	return t, own, note, nil
+}
+
+// vendorTargetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
+func vendorTargetBase(req Request, name string) (t providers.Target, own bool, note string, applied bool, err error) {
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
 			from := t.Provider
 			t, note, err = vendors.CopilotGate(reg, t)
 			if err == nil && t.Provider != from && req.Provider != "" && req.Provider == providers.Pin(providers.PinCopilotProfile) {
-				return t, false, note, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
+				return t, false, note, true, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
 			}
 			if tier := resumeSlot(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
 				t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
 			}
 		}
-		return t, false, note, err
+		return t, false, note, true, err
 	}
 	sel, err := providers.Select(reg, registeredSession(reg))
 	if err != nil {
-		return t, false, "", err
+		return t, false, "", true, err
 	}
 	ft, note, err := vendors.ResolveTarget(reg, name, sel, false)
 	own = errors.Is(err, vendors.ErrOwnLogin)
@@ -66,22 +79,9 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 		err = nil
 	}
 	if err != nil || (!own && ft.Provider == t.Provider) {
-		return t, false, note, err // no fallback: the caller's slot or model id stands
+		return t, false, note, true, err // no fallback: the caller's slot or model id stands
 	}
-	switch {
-	case req.Model == "":
-	case slices.Contains(models.Slots, req.Model):
-		if ft.Provider != nil && ft.Provider.Models[req.Model] != "" {
-			m := ft.Provider.Models[req.Model]
-			ft.Model = m
-		}
-	default:
-		ft.Model = req.Model
-		if ft.Provider != nil { // a typed id is respelled the way the fallback provider serves it, never copied
-			ft.Model = ft.Provider.WireModel(models.Strip1M(req.Model))
-		}
-	}
-	return ft, own, note, nil
+	return ft, own, note, false, nil
 }
 
 // namesProvider is true for the provider:model form, where the prefix is a registered provider.
@@ -152,10 +152,12 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	}
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
-		model := t.Model
-		if req.Model == "" || model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-			model = cmp.Or(providers.Pin(providers.PinGeminiModel), AgyDefaultModel)
+		def := t
+		if req.Model == "" || def.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+			def.Model = AgyDefaultModel
 		}
+		gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: def, Applied: true})
+		model := gt.Model
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
 			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,

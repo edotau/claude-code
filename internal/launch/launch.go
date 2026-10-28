@@ -427,12 +427,10 @@ func withCodexFile(name, file string, args []string) ([]string, error) {
 	return append(overrides, args...), nil
 }
 
-// flagModelTarget lets an explicit --model win over the model a fallback reset on the target.
-func flagModelTarget(t providers.Target, sel providers.Selection, flagModel string) providers.Target {
-	if flagModel != "" && t.Provider != nil && t.Provider != sel.Slots[models.Opus].Provider {
-		t.Model = fallbackModel(t.Provider, flagModel)
-	}
-	return t
+// agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
+func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
+	applied := t.Provider == nil || t.Provider == sel.Slots[models.Opus].Provider
+	return vendors.ResolveAgentModel(vendors.ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
 }
 
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
@@ -450,7 +448,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if err != nil {
 		return Plan{}, err
 	}
-	flagModel := o.Model // only the flag, not a pin, is re-applied after a fallback
+	flagModel := o.Model // the flag alone; the agent's model pin is applied after the target resolves
 	o = withAgentPins(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
@@ -460,7 +458,10 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
 	if err == nil {
-		target = flagModelTarget(target, sel, flagModel)
+		var modelNote string
+		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
+			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
+		}
 	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
@@ -508,38 +509,19 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
 }
 
-// withAgentPins fills what the flags left empty from the agent's vault pins: --profile/--model > pin > default.
+// withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
+// The model pin is applied after the target resolves (agentModelTarget).
 func withAgentPins(name string, o Options) Options {
 	pin, ok := providers.AgentPins()[name]
 	if !ok || pin.Off {
 		return o
 	}
-	pinned := false
-	var prov *providers.Provider
 	if o.Provider == "" && pin.Profile != "" {
 		if reg, err := providers.Load(); err == nil && providers.ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
-			o.Provider, prov, pinned = pin.Profile, reg.Providers[pin.Profile], true
-		}
-	}
-	switch {
-	case o.Model != "" || pin.Model == "":
-	case name == "copilot":
-		o.Model = pin.Model
-	case pinned: // a pinned profile skips the fallback that applies the model pin, so apply it here
-		// a Databricks wire id would leak onto a non-Databricks route; skip it there
-		if prov.Preset == providers.PresetDatabricks || !strings.HasPrefix(pin.Model, models.DatabricksPrefix) {
-			o.Model = pin.Model
+			o.Provider = pin.Profile
 		}
 	}
 	return o
-}
-
-// fallbackModel spells the flag's model the way the fallback provider serves it (a tier slot maps through the provider).
-func fallbackModel(p *providers.Provider, model string) string {
-	if m := p.Models[model]; m != "" && slices.Contains(models.Slots, model) {
-		return m
-	}
-	return p.WireModel(models.Strip1M(model))
 }
 
 // copilotRegistryPlan is the interactive Databricks copilot launch on a native model registry. It fails closed:

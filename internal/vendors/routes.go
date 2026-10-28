@@ -63,11 +63,8 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 	if pin := providers.Pin(providers.PinCopilotProfile); reg != nil && databricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
 		p := reg.Providers[pin]
-		model := p.Models[models.Opus]
-		if m := providers.Pin(providers.PinCopilotModel); m != "" {
-			model = p.WireModel(models.Strip1M(m))
-		}
-		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: model,
+		t, _ := ResolveAgentModel(ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
 	detail, workable := copilotHeadroom(context.Background(), CopilotPinLogin())

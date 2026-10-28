@@ -133,7 +133,7 @@ func ConfigureCopilotRegistry(
 	rp := *p
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	r := copilotreg.Build(p.Name, &rp, eps, rb)
-	ref, err := r.Select(copilotreg.Choice{Requested: requested, Pin: providers.Pin(providers.PinCopilotModel)})
+	ref, err := r.Select(CopilotChoice(requested))
 	if err != nil {
 		return out, fmt.Errorf("copilot: %w", err)
 	}

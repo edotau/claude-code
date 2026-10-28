@@ -59,21 +59,18 @@ func TestGeminiExplicitModelBeatsPinOnFallback(t *testing.T) {
 	}
 }
 
-// Flags beat the agent's vault pins; a pin fills what the flags left empty; AGENT_ACTIVE=off ignores the pins.
+// Flags beat the agent's profile pin; a pin fills what the flag left empty; AGENT_ACTIVE=off ignores it.
 func TestWithAgentPinsPrecedence(t *testing.T) {
 	vaulttest.Use(t)
-	pins := map[string]string{providers.PinCopilotProfile: "max", providers.PinCopilotModel: "kimi-k3", providers.PinCodexModel: "gpt-x"}
+	pins := map[string]string{providers.PinCopilotProfile: "max", providers.PinCopilotModel: "kimi-k3"}
 	if err := providers.SetPins(pins); err != nil {
 		t.Fatal(err)
 	}
-	if got := withAgentPins("copilot", Options{}); got.Provider != "max" || got.Model != "kimi-k3" {
-		t.Errorf("pins only = %+v, want max / kimi-k3", got)
+	if got := withAgentPins("copilot", Options{}); got.Provider != "max" || got.Model != "" {
+		t.Errorf("pins only = %+v, want max and no model (the model pin applies after the target resolves)", got)
 	}
 	if got := withAgentPins("copilot", Options{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
 		t.Errorf("flags = %+v, want flags to beat the pins", got)
-	}
-	if got := withAgentPins("codex", Options{}); got.Model != "" {
-		t.Errorf("codex model pin leaked into Options.Model: %+v", got)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinCopilotActive: "off"}); err != nil {
 		t.Fatal(err)
@@ -86,54 +83,30 @@ func TestWithAgentPinsPrecedence(t *testing.T) {
 const pinDbxRow = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com",` +
 	`"auth":{"type":"pat"}}}}}`
 
-// A pinned profile carries the agent's model pin into Options.Model (the pin-driven route skips the fallback that applied it).
-func TestWithAgentPinsModelFollowsPinnedProfile(t *testing.T) {
-	vaulttest.Use(t)
-	if err := providers.SetPins(map[string]string{
-		providers.PinGeminiProfile: "antigravity", providers.PinGeminiModel: "gemini-x",
-		providers.PinCodexProfile: "chatgpt", providers.PinCodexModel: "gpt-y",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := withAgentPins("gemini", Options{}); got.Provider != "antigravity" || got.Model != "gemini-x" {
-		t.Errorf("gemini = %+v, want antigravity / gemini-x", got)
-	}
-	if got := withAgentPins("codex", Options{}); got.Provider != "chatgpt" || got.Model != "gpt-y" {
-		t.Errorf("codex = %+v, want chatgpt / gpt-y", got)
-	}
-	if got := withAgentPins("codex", Options{Model: "flag-m"}); got.Provider != "chatgpt" || got.Model != "flag-m" {
-		t.Errorf("explicit --model = %+v, want flag-m to beat the pin", got)
-	}
-}
-
-// A model pin with no profile pin is not copied into Options.Model for codex/gemini (their fallback applies it).
-func TestWithAgentPinsModelPinAloneNotCopied(t *testing.T) {
-	vaulttest.Use(t)
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-x", providers.PinCodexModel: "gpt-y"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"gemini", "codex"} {
-		if got := withAgentPins(name, Options{}); got.Model != "" || got.Provider != "" {
-			t.Errorf("%s = %+v, want nothing copied without a profile pin", name, got)
-		}
-	}
-}
-
-// A databricks-prefixed model pin is dropped on a non-Databricks pinned profile and kept on a Databricks one.
-func TestWithAgentPinsDatabricksModelOnlyOnDatabricksProfile(t *testing.T) {
+// A model pin follows the pinned profile into the target; the flag beats it; a Databricks id is dropped off Databricks.
+func TestAgentModelTargetPin(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", pinDbxRow)
 	const m = "databricks-gpt-6-1-sol"
-	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "chatgpt", providers.PinCodexModel: m}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "dev", providers.PinCodexModel: m}); err != nil {
 		t.Fatal(err)
 	}
-	if got := withAgentPins("codex", Options{}); got.Provider != "chatgpt" || got.Model != "" {
-		t.Errorf("chatgpt = %+v, want the databricks id skipped", got)
+	if got := withAgentPins("codex", Options{}); got.Provider != "dev" || got.Model != "" {
+		t.Fatalf("codex = %+v, want the profile only", got)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "dev"}); err != nil {
+	reg, err := providers.Load()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := withAgentPins("codex", Options{}); got.Provider != "dev" || got.Model != m {
-		t.Errorf("dev = %+v, want %s kept", got, m)
+	dev := providers.Target{Provider: reg.Providers["dev"], Model: "base"}
+	if got, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Target: dev}); got.Model != m {
+		t.Errorf("dev = %q, want %s kept", got.Model, m)
+	}
+	if got, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Flag: "flag-m", Target: dev}); got.Model == m {
+		t.Errorf("explicit --model lost to the pin: %q", got.Model)
+	}
+	off := providers.Target{Provider: &providers.Provider{Name: "chatgpt"}, Model: "base"}
+	if got, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Target: off}); got.Model != "base" {
+		t.Errorf("chatgpt = %q, want the databricks id skipped", got.Model)
 	}
 }
