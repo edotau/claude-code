@@ -122,12 +122,17 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	}
 	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
 	model := get("COPILOT_MODEL")
+	modelID := wellKnownModel(model)
+	if id := get("COPILOT_PROVIDER_MODEL_ID"); id != "" {
+		modelID = id
+	}
 	return &copilot.ProviderConfig{
 		Type:            get("COPILOT_PROVIDER_TYPE"),
+		WireAPI:         get("COPILOT_PROVIDER_WIRE_API"),
 		BaseURL:         base,
 		APIKey:          get("COPILOT_PROVIDER_API_KEY"),
 		BearerToken:     get("COPILOT_PROVIDER_BEARER_TOKEN"),
-		ModelID:         wellKnownModel(model),
+		ModelID:         modelID,
 		WireModel:       model,
 		MaxPromptTokens: atoi("COPILOT_PROVIDER_MAX_PROMPT_TOKENS"),
 		MaxOutputTokens: atoi("COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"),

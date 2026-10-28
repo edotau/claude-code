@@ -100,3 +100,17 @@ func TestTargetClientModel(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTargetAliasOnDatabricksRow(t *testing.T) {
+	dev := &Provider{Name: "dev", Preset: PresetDatabricks}
+	reg := &Registry{Providers: map[string]*Provider{"dev": dev}}
+	for spec, want := range map[string]string{
+		"dev:opus":                       "databricks-claude-opus-5-5",
+		"dev:databricks-gpt-6-1-sol":     "databricks-gpt-6-1-sol",
+		"dev:databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
+	} {
+		if got := ParseTarget(reg, spec, dev); got.Provider != dev || got.Model != want {
+			t.Errorf("ParseTarget(%q) = %s/%q; want dev/%q", spec, got.Provider.Name, got.Model, want)
+		}
+	}
+}

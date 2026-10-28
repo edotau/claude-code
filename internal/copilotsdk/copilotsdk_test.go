@@ -68,6 +68,17 @@ func TestProviderFromEnvWellKnownModelID(t *testing.T) {
 	}
 }
 
+// An explicit MODEL_ID and WIRE_API from the launcher win over the well-known mapping.
+func TestProviderFromEnvResponsesWire(t *testing.T) {
+	p := providerFromEnv([]string{
+		"COPILOT_PROVIDER_BASE_URL=http://r/p/dev/responses", "COPILOT_PROVIDER_WIRE_API=responses",
+		"COPILOT_PROVIDER_MODEL_ID=x", "COPILOT_MODEL=databricks-gpt-6-1-sol",
+	})
+	if p == nil || p.WireAPI != "responses" || p.ModelID != "x" {
+		t.Fatalf("provider = %+v, want WireAPI responses and ModelID x", p)
+	}
+}
+
 // ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
 func TestListModelsMapsFields(t *testing.T) {
 	mult := 2.5
