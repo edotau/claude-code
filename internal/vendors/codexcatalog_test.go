@@ -40,15 +40,15 @@ func TestCodexCatalogArgsDatabricks(t *testing.T) {
 	}
 	write(filepath.Join(paths.BinDir(), "codex"), `#!/bin/sh
 set -eu
-[ "$PWD" = "$CODEX_HOME" ] || exit 90
+[ "$(pwd -P)" = "$(cd "$CODEX_HOME" && pwd -P)" ] || exit 90 # macOS: TempDir is /var → /private/var
 [ -z "$(cat)" ] || exit 91
 case "$*" in
   --version)
-    printf 'version|%s|%s\n' "$CODEX_HOME" "$PWD" >> "$CLAUDE_CONFIG_DIR/calls"
+    printf 'version|%s|%s\n' "$(cd "$CODEX_HOME" && pwd -P)" "$(pwd -P)" >> "$CLAUDE_CONFIG_DIR/calls"
     printf 'codex-test 1.0\n'
     ;;
   'debug models --bundled')
-    printf 'bundled|%s|%s\n' "$CODEX_HOME" "$PWD" >> "$CLAUDE_CONFIG_DIR/calls"
+    printf 'bundled|%s|%s\n' "$(cd "$CODEX_HOME" && pwd -P)" "$(pwd -P)" >> "$CLAUDE_CONFIG_DIR/calls"
     cat <<'JSON'
 {"models":[
   {"slug":"gpt-6.1-sol","display_name":"native sol","visibility":"hide","supported_in_api":false,"priority":77,
@@ -62,7 +62,7 @@ JSON
     [ "$#" = 4 ] && [ "$1" = '-c' ] && [ "$3" = debug ] && [ "$4" = models ] || exit 92
     [ "$2" = "model_catalog_json=\"$CODEX_HOME/catalog.json\"" ] || exit 93
     [ -s "$CODEX_HOME/catalog.json" ] || exit 94
-    printf 'validation|%s|%s\n' "$CODEX_HOME" "$PWD" >> "$CLAUDE_CONFIG_DIR/calls"
+    printf 'validation|%s|%s\n' "$(cd "$CODEX_HOME" && pwd -P)" "$(pwd -P)" >> "$CLAUDE_CONFIG_DIR/calls"
     [ ! -f "$CLAUDE_CONFIG_DIR/reject" ] || exit 1
     ;;
 esac
