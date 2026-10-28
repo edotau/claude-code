@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeMenuVerbs are the `opencode models` subverbs this file owns; bare `models` stays the CLI's own catalog.
+// opencodeMenuVerbs are the `opencode catalog` subverbs this file owns; bare `catalog` stays the CLI's own catalog.
 var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check"}
 
 func isOpencodeMenuVerb(vendor string, args []string) bool {
@@ -37,14 +37,14 @@ func opencodeMenuPage(verb string) helptext.Page {
 		"check": {"check [--all | <id>...] [flags]",
 			"Probe endpoints with one tiny request: status, latency, tool calls."},
 	}[verb]
-	return helptext.Page{Usage: "claude-code opencode models " + usage[0], About: usage[1]}
+	return helptext.Page{Usage: "claude-code opencode catalog " + usage[0], About: usage[1]}
 }
 
 func opencodeMenuFlags(verb string) *flag.FlagSet {
-	return helptext.NewFlagSet("opencode models "+verb, opencodeMenuPage(verb))
+	return helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
 }
 
-// cmdOpencodeMenu is `claude-code opencode models list|add|remove|import|reset`.
+// cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check` (alias models).
 func cmdOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
 	fs := opencodeMenuFlags(verb)
@@ -80,10 +80,10 @@ func cmdOpencodeMenu(args []string) int {
 	}
 	if verb == "list" || verb == "check" {
 		if err := outfmt.Check(*format); err != nil {
-			return fail("opencode models "+verb+": %v", err)
+			return fail("opencode catalog "+verb+": %v", err)
 		}
 	}
-	fail := func(f string, a ...any) int { return fail("opencode models "+verb+": "+f, a...) }
+	fail := func(f string, a ...any) int { return fail("opencode catalog "+verb+": "+f, a...) }
 	switch verb {
 	case "list":
 		return opencodeMenuList(live, provider, *format, fail)
@@ -94,14 +94,14 @@ func cmdOpencodeMenu(args []string) int {
 		return opencodeMenuCheck(pos, all, provider, timeout, *format, fail)
 	case "add":
 		if len(pos) != 1 {
-			return fail("usage: claude-code opencode models add <id>[=Label]")
+			return fail("usage: claude-code opencode catalog add <id>[=Label]")
 		}
 		set := false
 		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "responses" })
 		return opencodeMenuAdd(pos[0], responses, set, force, provider, fail)
 	case "remove":
 		if len(pos) != 1 {
-			return fail("usage: claude-code opencode models remove <id>")
+			return fail("usage: claude-code opencode catalog remove <id>")
 		}
 		next, ok := providers.MenuRemove(providers.OpencodeMenu(), pos[0])
 		if !ok {
@@ -110,7 +110,7 @@ func cmdOpencodeMenu(args []string) int {
 		return opencodeMenuWrite(next, "removed "+providers.MenuID(pos[0]), fail)
 	case "import":
 		if len(pos) != 1 {
-			return fail("usage: claude-code opencode models import <file> [--apply]")
+			return fail("usage: claude-code opencode catalog import <file> [--apply]")
 		}
 		return opencodeMenuImport(pos[0], apply, fail)
 	}
@@ -126,7 +126,7 @@ func opencodeMenuWrite(next []providers.OpencodeModel, msg string, fail func(str
 	if err := providers.SetOpencodeMenu(next); err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("opencode models: %s; relaunch `claude-code opencode` to apply\n", msg)
+	fmt.Printf("opencode catalog: %s; relaunch `claude-code opencode` to apply\n", msg)
 	return 0
 }
 
@@ -275,11 +275,11 @@ func opencodeMenuImport(file string, apply bool, fail func(string, ...any) int) 
 		fmt.Println(line)
 	}
 	if len(changes) == 0 {
-		fmt.Println("opencode models: no change")
+		fmt.Println("opencode catalog: no change")
 		return 0
 	}
 	if !apply {
-		fmt.Printf("opencode models: dry run, %d change(s); pass --apply to write\n", len(changes))
+		fmt.Printf("opencode catalog: dry run, %d change(s); pass --apply to write\n", len(changes))
 		return 0
 	}
 	return opencodeMenuWrite(next, fmt.Sprintf("imported %d model(s)", len(next)), fail)
@@ -352,7 +352,7 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 	}
 	providers.SortCheckResults(results)
 	if err := providers.SaveCheckCache(providers.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
-		fmt.Fprintf(os.Stderr, "opencode models check: cache not written: %v\n", err)
+		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", err)
 	}
 	if format == outfmt.JSON {
 		_ = outfmt.Write(os.Stdout, results)

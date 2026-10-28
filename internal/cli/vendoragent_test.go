@@ -71,12 +71,17 @@ func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
 	}
 }
 
-// TestVendorVerbRoutesModelsToCmdVendorModels: `models` reaches cmdVendorModels (its own "unknown
-// vendor %q" wording), not launchVendor.
-func TestVendorVerbRoutesModelsToCmdVendorModels(t *testing.T) {
-	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"models"}) })
-	if !strings.Contains(stderr, "unknown agent \""+notAVendor+"\"") {
-		t.Errorf("vendorVerb(models) stderr = %q, want cmdVendorModels's unknown-vendor message", stderr)
+// Both spellings reach cmdVendorModels, not launchVendor, and use canonical diagnostics/help.
+func TestVendorVerbRoutesCatalogAndModelsToCmdVendorModels(t *testing.T) {
+	for _, sub := range []string{"catalog", "models"} {
+		code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{sub, "unexpected"}) })
+		if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
+			t.Errorf("vendorVerb(%s): code=%d stderr=%q", sub, code, stderr)
+		}
+		code, _, stderr = captureOutput(t, func() int { return vendorVerb("codex", []string{sub, "--help"}) })
+		if code != 0 || !strings.HasPrefix(stderr, "usage: claude-code codex catalog") {
+			t.Errorf("vendorVerb(%s --help): code=%d stderr=%q", sub, code, stderr)
+		}
 	}
 }
 
@@ -108,6 +113,11 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 		if !strings.HasPrefix(stderr, "usage: claude-code codex") {
 			t.Errorf("vendorVerb(codex, %q) stderr missing usage header: %q", flagArg, stderr)
 		}
+		for _, want := range []string{"  catalog", "models is a compatibility alias for catalog", "select the model for this launch"} {
+			if !strings.Contains(stderr, want) {
+				t.Errorf("vendorVerb(codex, %q) help missing %q: %s", flagArg, want, stderr)
+			}
+		}
 	}
 }
 
@@ -116,7 +126,7 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 // a later addition (e.g. explore) doesn't need a second hand-copied list kept in lockstep with
 // TestSpecTreeSubwordsMatchDispatch's own derivation off the same map.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "models", "review", "transfer"} {
+	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "models", "review", "transfer"} {
 		if !vendorSubverbs[w] {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
