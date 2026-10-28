@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -73,22 +74,10 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if *want != "" && !slices.Contains(router.Runners, *want) {
 		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.Runners, "|"))
 	}
-	tb, err := router.Load()
+	res, err := previewRoute(*model, *task, *want, *fallback)
 	if err != nil {
 		return fail(name+": %v", err)
 	}
-	t := tb.TierOf(*model)
-	if t == "" && *model != "" {
-		return fail(name+": --model %q names no alias or version the table routes", *model)
-	}
-	if t == "" && *task != "" {
-		t = hooks.RuleClassifier{}.Tier(*task)
-	}
-	if t == "" {
-		t = router.Tiers[1]
-	}
-	res := tb.Pick(context.Background(), t, *want, router.LoadState(),
-		router.Opts{Fallback: *fallback, Refresh: routeRefresh, Account: agent.ResolveAccount})
 	src := routeSources{Weights: routeWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	rj := newRouteJSON(res, src)
@@ -116,6 +105,52 @@ func gatewayRoute(args []string, withProxy bool) int {
 		printProxyState(ps)
 	}
 	return 0
+}
+
+// previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
+// a leg dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
+func previewRoute(model, task, want, fallback string) (router.Result, error) {
+	tb, err := router.Load()
+	if err != nil {
+		return router.Result{}, err
+	}
+	id, _, ok := models.Resolve(model)
+	if exact := ok && !strings.HasPrefix(id, "claude-"); model != "" && !exact && tb.TierOf(model) == "" {
+		return router.Result{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
+	}
+	hint := tb.TierOf(model)
+	if hint == "" && task != "" {
+		hint = hooks.RuleClassifier{}.Tier(task)
+	}
+	if hint == "" {
+		hint = router.Tiers[1]
+	}
+	chain, pick, err := agent.RouteChainFor(context.Background(), want, model, hint, fallback, false,
+		router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+	if err != nil {
+		return router.Result{}, err
+	}
+	res := pick
+	res.Candidates = nil
+	legs := chain.Legs
+	for _, c := range pick.Candidates {
+		if len(legs) == 0 || legs[0].Agent.Name() != c.Agent || legs[0].Account != c.Account {
+			continue
+		}
+		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
+			c.Model, c.Effort = legs[0].Model, legs[0].Effort
+		}
+		res.Candidates, legs = append(res.Candidates, c), legs[1:]
+	}
+	res.Skipped = slices.Clone(pick.Skipped)
+	for _, s := range chain.Skipped {
+		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
+			continue
+		}
+		who, why, _ := strings.Cut(s, ": ")
+		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
+	}
+	return res, nil
 }
 
 // routeSources names where each routing knob printed by `gateway router` came from.

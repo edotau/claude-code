@@ -45,6 +45,7 @@ type Result struct {
 	Agent          string        `json:"agent"`
 	Provider       string        `json:"provider,omitempty"`
 	Model          string        `json:"model,omitempty"`
+	Invoked        string        `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
 	SessionID      string        `json:"session_id,omitempty"`
 	Answer         string        `json:"answer"`
 	Usage          Usage         `json:"usage"`
@@ -384,7 +385,9 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
 			}
 		}
-		res, err = Run(ctx, leg.Agent, legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want), stream, notify)
+		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
+		res, err = Run(ctx, leg.Agent, lreq, stream, notify)
+		res.Invoked = lreq.Model
 		noteQuota(leg, err)
 		noteAuth(leg, err)
 		noteStall(leg, err)

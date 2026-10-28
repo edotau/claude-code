@@ -205,8 +205,8 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
 	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
 	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == ""
-	if leg.keepCaller && rc.callerModel != "" {
-		leg.Model = rc.callerModel // the leg records the model it runs
+	if leg.keepCaller && rc.exact != "" {
+		leg.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
 	if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
 		leg.Model = cand.Profile + ":" + cell.Model
