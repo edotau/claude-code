@@ -18,8 +18,8 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// AgentMaxInflight is the machine-wide cap on concurrent Agent dispatches (owner raised 8 → 12 for wide fan-outs).
-const AgentMaxInflight = 12
+// AgentMaxInflight is the machine-wide cap on concurrent Agent dispatches (owner: 24 = 12 lanes × implementer + test).
+const AgentMaxInflight = 24
 
 // inflightTTL is the backstop for a marker whose owner cannot be probed (or parsed): a dispatch that
 // never reported stops counting after this long. Where the probe works, a dead owner retires it at once.
