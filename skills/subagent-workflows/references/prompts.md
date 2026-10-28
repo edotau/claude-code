@@ -27,6 +27,21 @@ Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; Ran on: <age
 changed; verification output; the TASK/ISSUE facts as plain sentences; concerns.
 ```
 
+## Researcher
+
+```markdown
+Objective: answer <question> for <caller requirement>.
+Context: <facts already established, links supplied>. Do not re-derive them.
+Sources: <primary sources to prefer>. Budget: <requests or minutes>; stop at it and return what you have.
+Tools: <exact tool names and auth state>. On an auth failure or denial, stop that operation and report the tool and
+the redacted error — no retry unchanged, no other tool or shell to get around it.
+Links: fetch the ones supplied; after a 404, find the real link by search or site navigation, never guess a path.
+
+Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 0-2)
+Return: each requirement → its evidence (URL or file:line, quoted where load-bearing) or the gap; unresolved items;
+Ran on: <agent (model) · fallback none|who>. Edit nothing.
+```
+
 ## Spec Reviewer
 
 After implementation, before simplify and quality review.

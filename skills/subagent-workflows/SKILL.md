@@ -61,6 +61,7 @@ Status below.
 - `Ran on:` agent (model) · job · session · fallback <none|who> — a stand-in is reported, never hidden.
 - Files changed, and the API surface the integrator wires.
 - Verification: each command, its exit code, the load-bearing output.
+- Coverage: each `Acceptance:` item → the evidence that settles it (file:line, command output, URL), or the gap left.
 - `TASK:`/`ISSUE:`/`PENDING:` facts as plain sentences (`../problem-solving/references/notes.md`); surprises;
   anything found outside `Owns:`.
 - Test agent: tests planned but not written. Optional: [proposed memory updates](references/memory-updates.md).
@@ -81,8 +82,25 @@ Status below.
 |---|---|
 | `DONE` | Spec review |
 | `DONE_WITH_CONCERNS` | Resolve correctness or scope concerns first |
-| `NEEDS_CONTEXT` | Add the context, re-dispatch |
+| `NEEDS_CONTEXT` | Add the context and resume the same agent ([Return to owner](#return-to-owner)) |
 | `BLOCKED` | Change something — clarify, split, raise capability, or revisit the plan; never resend unchanged |
+
+## Delegation gate
+
+Decide ownership before gathering evidence. Work that needs investigation, a change, or verification beyond what is
+already in context and one bounded lookup goes to an owner; do not investigate in the manager to decide whether to
+delegate — knowing the file names is not having the evidence. Finish inline only when the evidence is already in hand.
+One connected outcome gets one owner even without a parallel branch; add owners only for independent deliverables or
+a required independent check, never to split by file, question, or language alone. While an owner works, do only
+distinct work — never repeat its searches.
+
+## Return to owner
+
+A gap, a missing `Acceptance:` item, or a correction goes back to the same agent (`SendMessage` resumes it with its
+context): name the gap, the evidence wanted, and the stop condition; batch independent questions. It amends; it does
+not restart the investigation, and no reviewer is added for it. Wait on completion notifications — elapsed time alone
+is not a stall, and status polling is not progress. Re-dispatch fresh only when the owner is gone; then hand over its
+established evidence.
 
 ## Rules
 
