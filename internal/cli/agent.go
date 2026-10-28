@@ -47,6 +47,9 @@ func cmdAsk(args []string) int {
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	noTools := fs.Bool("no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
+	noPersist := fs.Bool("no-persist", false, "claude only: do not save the session for later resume")
+	safeMode := fs.Bool("safe-mode", false, "claude only: skip hooks, plugins, customizations")
+	debugFile := fs.String("debug-file", "", "claude only: write Claude's debug log to this path")
 	var attach attachFlag
 	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	var keepEnv keepEnvFlag
@@ -79,7 +82,8 @@ func cmdAsk(args []string) int {
 	prompt := strings.Join(fs.Args(), " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
-		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct}
+		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
+		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile}
 	jobRec, rc, done := loadAskJob(*job, state, &prompt)
 	if done {
 		return rc
@@ -118,9 +122,15 @@ func cmdAsk(args []string) int {
 	if *enableMemory && *name != "copilot" {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
 	}
+	if *debugFile != "" { // --workdir moves the child's cwd, so pin the path now
+		if abs, err := filepath.Abs(*debugFile); err == nil {
+			*debugFile = abs
+		}
+	}
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
-		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct}
+		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
+		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile}
 	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
@@ -182,6 +192,8 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 type askState struct {
 	name, provider, model, effort, workdir, session, rubric *string
 	tools, noTools, autonomous, enableMemory, direct        *bool
+	noPersist, safeMode                                     *bool
+	debugFile                                               *string
 	timeout                                                 *time.Duration
 	attach                                                  *attachFlag
 	keepEnv                                                 *keepEnvFlag
@@ -193,6 +205,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
 	*s.keepEnv, *s.direct, *s.noTools = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools
+	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.

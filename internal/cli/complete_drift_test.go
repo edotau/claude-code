@@ -345,8 +345,8 @@ func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	}
 	slices.Sort(got)
 	want := []string{
-		"agent", "attach", "autonomous", "background", "effort", "enable-memory", "fallback", "format",
-		"job", "keep-env", "log", "model", "native", "no-tools", "profile", "retry", "rubric", "session", "timeout",
+		"agent", "attach", "autonomous", "background", "debug-file", "effort", "enable-memory", "fallback", "format",
+		"job", "keep-env", "log", "model", "native", "no-persist", "no-tools", "profile", "retry", "rubric", "safe-mode", "session", "timeout",
 		"tools", "workdir",
 	}
 	slices.Sort(want)

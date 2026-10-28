@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // permissionDeniedEvent is sampled from the real claude CLI binary (2.1.304, strings -a dump of the
@@ -34,5 +36,45 @@ func TestParseClaudeStreamErrorEventText(t *testing.T) {
 	_, err := parseClaudeStream(strings.NewReader(stream), &strings.Builder{})
 	if err == nil || !strings.Contains(err.Error(), "fatal: connection reset") {
 		t.Fatalf("err = %v, want the error event's message text", err)
+	}
+}
+
+// TestParseClaudeStreamTransport: stream_event timing and api_retry counts land in Transport; answer text is unchanged.
+func TestParseClaudeStreamTransport(t *testing.T) {
+	stream := `{"type":"stream_event","event":{"type":"message_start"}}` + "\n" +
+		`{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":529,"error":"overloaded"}` + "\n" +
+		`{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":1200,"error_status":null,"error":"timeout"}` + "\n" +
+		`{"type":"stream_event","event":{"type":"content_block_delta"}}` + "\n" +
+		`{"type":"assistant","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}` + "\n" +
+		`{"type":"result","subtype":"success","result":"hi"}` + "\n"
+	base := time.Unix(1000, 0)
+	ticks := []time.Duration{0, 150 * time.Millisecond, 950 * time.Millisecond} // start, event 1, event 2
+	i := 0
+	old := clock
+	clock = func() time.Time { d := ticks[i]; i++; return base.Add(d) }
+	defer func() { clock = old }()
+	var out strings.Builder
+	var lines []string
+	res, err := parseClaudeStream(strings.NewReader(stream), &out, func(k, x string) { lines = append(lines, k+": "+x) })
+	if err != nil || res.Answer != "hi" || out.String() != "hi" {
+		t.Fatalf("res=%+v out=%q err=%v", res, out.String(), err)
+	}
+	tr := res.Transport
+	if tr == nil || tr.Retries != 2 || !slices.Equal(tr.RetryStatuses, []int{529, 0}) || tr.FirstEventMs != 150 || tr.MaxGapMs != 800 {
+		t.Fatalf("transport = %+v", tr)
+	}
+	if len(lines) < 1 || lines[0] != "retry: attempt 1/10 status=529 retry_in=500ms" {
+		t.Fatalf("log lines = %v", lines)
+	}
+}
+
+func TestApplyCapsDropsIsolation(t *testing.T) {
+	req := Request{NoPersist: true, SafeMode: true, DebugFile: "/x"}
+	if got, d := applyCaps(Caps{}, req); got.NoPersist || got.SafeMode || got.DebugFile != "" ||
+		!slices.Equal(d, []string{"--no-persist", "--safe-mode", "--debug-file=/x"}) {
+		t.Fatalf("got %+v dropped %v", got, d)
+	}
+	if got, d := applyCaps(Caps{Isolation: true}, req); !got.NoPersist || !got.SafeMode || got.DebugFile != "/x" || d != nil {
+		t.Fatalf("isolation caps must keep all three: %+v %v", got, d)
 	}
 }
