@@ -113,12 +113,12 @@ func hasMarkerSuffix(names []string, suffix string) bool {
 	return false
 }
 
-// The cap is a constant, always on: the deep-context tier in rules/workflow/agents.md is 8, and the
+// The cap is a constant, always on (12, owner's fan-out cap in rules/workflow/agents.md), and the
 // gate is the only machine enforcement of it. Under the cap every dispatch proceeds; the next blocks.
 func TestAgentInflightBlocksPastCapAndRetires(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if AgentMaxInflight != 8 {
-		t.Fatalf("AgentMaxInflight = %d, want the ≤8 first-party tier", AgentMaxInflight)
+	if AgentMaxInflight != 12 {
+		t.Fatalf("AgentMaxInflight = %d, want the owner's cap of 12", AgentMaxInflight)
 	}
 	for i := range AgentMaxInflight {
 		id := strconv.Itoa(i)
@@ -130,7 +130,7 @@ func TestAgentInflightBlocksPastCapAndRetires(t *testing.T) {
 	if code := AgentInflight("pre", strings.NewReader(inflightPayload), &stderr); code != ExitBlock {
 		t.Fatalf("dispatch %d at the cap must block", AgentMaxInflight+1)
 	}
-	if !strings.Contains(stderr.String(), "in flight") || !strings.Contains(stderr.String(), "cap 8") {
+	if !strings.Contains(stderr.String(), "in flight") || !strings.Contains(stderr.String(), fmt.Sprintf("cap %d", AgentMaxInflight)) {
 		t.Errorf("block message must name the cap: %s", stderr.String())
 	}
 	// A completion retires one marker → the next dispatch fits again. PostToolUse tags dispatch "0" to
@@ -626,7 +626,7 @@ func TestAgentInflightEnforcesCapUnderLockContention(t *testing.T) {
 	if code != ExitBlock {
 		t.Fatalf("a dispatch racing a held lock must still be blocked past the cap, got code %d", code)
 	}
-	if !strings.Contains(stderr.String(), "cap 8") {
+	if !strings.Contains(stderr.String(), fmt.Sprintf("cap %d", AgentMaxInflight)) {
 		t.Errorf("block message must name the cap: %s", stderr.String())
 	}
 	if names := markerNames(t); len(names) != AgentMaxInflight {
