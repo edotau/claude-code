@@ -89,9 +89,6 @@ func Health(ctx context.Context, port int) error {
 	return nil
 }
 
-// ClientSecret returns the per-install secret clients must present (created 0600 on first use).
-func ClientSecret() (string, error) { return paths.ClientSecret(secretFile()) }
-
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).
 func Ensure(ctx context.Context) (string, error) {
 	if st, ok := Running(ctx); ok {

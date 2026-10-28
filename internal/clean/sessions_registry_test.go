@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/copilotreg"
 )
 
 // seedRegistryEntry lays down a sessions/<pid>.json + sessions/<pid>.<hex>.key pair (or any name,
@@ -171,5 +175,31 @@ func TestSessionsRegressionTranscriptStillRemovedAlongsideRegistry(t *testing.T)
 	}
 	if !exists(t, jsonPath) || !exists(t, keyPath) {
 		t.Error("alive pid's registry entry was removed alongside the transcript")
+	}
+}
+
+func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux runtime dir")
+	}
+	base := "/run/user/" + strconv.Itoa(os.Getuid())
+	if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
+		t.Skip("no tmpfs /run/user/<uid>")
+	}
+	t.Setenv("XDG_RUNTIME_DIR", base)
+	live, err := copilotreg.WriteRegistry(os.Getpid(), []byte("{}"))
+	if err != nil {
+		t.Skipf("runtime dir unusable here: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(live) })
+	dead := copilotreg.RegistryFile(filepath.Dir(live), 1<<22+12346)
+	write(t, dead, "{}")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--target", "copilot-registry"}, &out, &errw); code != 0 {
+		t.Fatalf("Run = %d: %s", code, errw.String())
+	}
+	if exists(t, dead) || !exists(t, live) {
+		t.Fatalf("dead kept=%v live kept=%v\n%s", exists(t, dead), exists(t, live), out.String())
 	}
 }

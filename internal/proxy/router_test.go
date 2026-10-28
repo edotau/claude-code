@@ -505,7 +505,7 @@ func TestIdleBodyCutsWedgedStream(t *testing.T) {
 }
 
 func TestServeCanceledContextDoesNotPublishState(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -518,7 +518,7 @@ func TestServeCanceledContextDoesNotPublishState(t *testing.T) {
 }
 
 func TestServeStateAndEnsure(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, 0) }()
@@ -539,9 +539,9 @@ func TestServeStateAndEnsure(t *testing.T) {
 	}
 	s1, _ := ClientSecret()
 	s2, _ := ClientSecret()
-	fi, err := os.Stat(secretFile())
-	if err != nil || s1 == "" || s1 != s2 || len(s1) != 64 || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("secret %q/%q mode %v err %v", s1, s2, fi.Mode(), err)
+	_, err = os.Stat(secretFile())
+	if !os.IsNotExist(err) || s1 == "" || s1 != s2 || len(s1) != 64 {
+		t.Fatalf("secret %q/%q (vault-sealed, no file) stat err %v", s1, s2, err)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -939,7 +939,7 @@ func TestChatPathPromptTooLong(t *testing.T) {
 
 // Regression: a side proxy (--serve --port N) must neither overwrite nor delete a live daemon's router.json.
 func TestServeSideProxyKeepsDaemonState(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	daemon := State{PID: os.Getppid(), Port: 1, Started: time.Now().UTC()} // a live pid on another port
 	data, _ := json.Marshal(daemon)
 	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -50,7 +51,7 @@ func TestCopilotModelsServingRows(t *testing.T) {
 		t.Fatalf("rows = %+v, want [databricks-claude-sonnet gpt-x]", got.Rows)
 	}
 	menu := []providers.OpencodeModel{{ID: "claude-sonnet"}}
-	rows := ServingChatRows([]providers.ModelInfo{
+	rows := copilotreg.ServingChatRows([]providers.ModelInfo{
 		{ID: "databricks-claude-sonnet", Task: "llm/v1/chat", Ready: "READY"},
 		{ID: "gpt-x", Task: "llm/v1/chat", Ready: "READY"},
 	}, menu)

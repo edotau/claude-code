@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendoragent"
 )
@@ -17,7 +18,7 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	cat := vendoragent.CopilotCatalog{
 		Databricks: true,
 		Source:     "dev serving endpoints",
-		Rows: []vendoragent.CopilotModel{
+		Rows: []copilotreg.Endpoint{
 			{ID: "databricks-kimi-k3", Tested: true},
 			{ID: "databricks-gpt-6-1-sol"},
 		},
