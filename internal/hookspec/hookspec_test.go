@@ -31,6 +31,7 @@ func TestIsHarness(t *testing.T) {
 		{HookBin + " hook x", true},
 		{"HARNESS_HOOK_AGENT=codex " + HookBin + " hook x", true},
 		{"HARNESS_HOOK_AGENT=vendor_2 " + HookBin + " hook x", true},
+		{"HARNESS_HOOK_VENDOR=codex " + HookBin + " hook x", true}, // the pre-rename marker
 		{"FOO=1 " + HookBin + " hook x", false},
 		{"HARNESS_HOOK_AGENT=codex orca hook", false},
 		{HookBin + "-other hook x", false},
