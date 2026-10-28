@@ -115,6 +115,35 @@ func CopilotPinError() error {
 		"(no other account is used)", pin)
 }
 
+// CopilotUsedPct is copilot:<user>'s used credit share from route state; set by cli (usage and route import vendors).
+var CopilotUsedPct func(ctx context.Context, user string) (pct float64, ok bool)
+
+// copilotWorkablePct is the used credit share at which a copilot GitHub-login leg is no longer started.
+const copilotWorkablePct = 95.0
+
+// CopilotWorkable reports whether user is a gh login whose credits are verified under copilotWorkablePct.
+func CopilotWorkable(ctx context.Context, user string) bool {
+	_, ok := copilotHeadroom(ctx, user)
+	return ok
+}
+
+// copilotHeadroom is CopilotWorkable plus the notice detail naming the account and its verified share.
+func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) {
+	switch {
+	case user == "":
+		return "no pinned GitHub account", false
+	case !slices.Contains(GHAccounts(), user):
+		return user + " not logged in to gh", false
+	case CopilotUsedPct == nil:
+		return user + " unverified", false
+	}
+	pct, ok := CopilotUsedPct(ctx, user)
+	if !ok {
+		return user + " unverified", false
+	}
+	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
+}
+
 // ResolveCopilotAuth is copilotAuthSource plus a GitHub /user lookup (3 s) naming a token's account.
 func ResolveCopilotAuth() (CopilotAuth, bool) {
 	a, ok := copilotAuthSource()

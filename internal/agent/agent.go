@@ -50,6 +50,7 @@ type Result struct {
 	Dropped        []string      `json:"dropped,omitempty"`
 	Fallback       string        `json:"fallback,omitempty"`        // set to the original runner's name when it ran instead
 	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original runner was unavailable
+	Handoff        string        `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 }
 
 // Caps declares which Request fields a runner honors; Prompt, Timeout and Attach are always honored
@@ -169,6 +170,10 @@ func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, providers.Target{}, err
+	}
+	// "<profile>:<tier>" resolves like --provider <profile> --model <tier>
+	if name, slot, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.Slots, slot) && reg.Providers[name] != nil {
+		req.Provider, req.Model = name, slot
 	}
 	sel, err := providers.Select(reg, req.Provider)
 	if sel.Provider == nil || (err != nil && req.Model == "") {
@@ -321,6 +326,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	var res Result
 	var err error
 	var prev Runner
+	var handoff string // a copilot quota hand-off survives the legs that run after it
 	for i, leg := range c.Legs {
 		if i > 0 {
 			if !legUnavailable(prev, res, err) {
@@ -335,6 +341,12 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		noteQuota(leg, err)
 		noteAuth(leg, err)
 		noteStall(leg, err)
+		if res.Handoff != "" && res.Handoff != handoff {
+			if doc, rerr := os.ReadFile(res.Handoff); rerr == nil { // later legs pick up the progress, not the bare task
+				req.Prompt = handoffPrompt(string(doc))
+			}
+		}
+		handoff = cmp.Or(res.Handoff, handoff)
 		prev = leg.Runner
 		if i == 0 && ExplicitBackend(req) {
 			break
@@ -343,6 +355,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	if len(reasons) > 0 || c.Legs[0].Runner.Name() != c.Want {
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
+	res.Handoff = handoff
 	return res, err
 }
 

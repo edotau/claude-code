@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // BankStat is one bank's roll-up: file count, total lines, newest mtime, per-file cap offenders.
@@ -68,7 +69,8 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 }
 
 // credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
-var credentialPattern = regexp.MustCompile(`sk-[A-Za-z0-9]{10,}|ghp_[A-Za-z0-9]{10,}|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)
+var credentialPattern = regexp.MustCompile(
+	`sk-[A-Za-z0-9]{10,}|` + shapes.GitHubPattern(10) + `|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)
 
 // Doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.

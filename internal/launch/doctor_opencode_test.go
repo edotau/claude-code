@@ -1,10 +1,14 @@
 package launch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // doctorScratch isolates CLAUDE_CONFIG_DIR, every credential, and opencode's own auth.json/opencode.jsonc
@@ -24,6 +28,21 @@ func doctorScratch(t *testing.T) (xdgData string) {
 		t.Setenv(k, "")
 	}
 	return xdgData
+}
+
+// workableCopilotPin pins user as a gh login (a scratch hosts.yml) with 10% of its Copilot credits used.
+func workableCopilotPin(t *testing.T, user string) {
+	t.Helper()
+	dir := t.TempDir()
+	hosts := "github.com:\n    user: " + user + "\n    users:\n        " + user + ":\n            oauth_token: tok\n"
+	if err := os.WriteFile(filepath.Join(dir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_CONFIG_DIR", dir)
+	t.Setenv(providers.PinGitHubUser, user)
+	prev := vendors.CopilotUsedPct
+	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
+	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
 }
 
 func findCheck(checks []Check, name string) *Check {
@@ -91,7 +110,7 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 // effort/context pins: unpinned, source is the github-copilot default and both pins read "default".
 func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 	doctorScratch(t)
-	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
+	workableCopilotPin(t, "alice")
 	checks, _ := DoctorChecks()
 	c := findCheck(checks, "copilot route")
 	if c == nil {
@@ -109,7 +128,7 @@ func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 // and the pinned values, not the github-copilot provider default.
 func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	doctorScratch(t)
-	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
+	workableCopilotPin(t, "alice")
 	t.Setenv("COPILOT_MODEL", "claude-opus-5.5")
 	t.Setenv("COPILOT_REASONING_EFFORT", "high")
 	t.Setenv("COPILOT_CONTEXT_TIER", "long_context")

@@ -35,7 +35,7 @@ features or fixes product bugs.
 - The EXISTING tests a change breaks or makes stale, AND the NEW coverage written after the live
   check (`claude-code copilot ask --tools --workdir <repo>`).
 - Merge + conventional commit after gates are green (LAST-MILE).
-- Diff review on the Copilot family when asked (`claude-code copilot review [--adversarial]`).
+- Diff review on the Copilot CLI when asked (`claude-code copilot review [--adversarial]`).
 - Continuing a Copilot session (`copilot resume <id>`).
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` tier in
   `skills/subagent-workflows/references/cost-routing.md`.
@@ -47,6 +47,10 @@ Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`
 - `resume <id> <task>` equals `ask --session`.
 - Resume the underlying CLI session directly with `copilot --resume <id>` (the native flag, not a
   `resume` subcommand).
+- Legs follow the session's `<provider>·<profile>` (BYOK, no Copilot credits); the GitHub login only with credits
+  < 95%, else the Databricks profile (+ a `copilot: … using databricks profile <p>` notice) — `cost-routing.md` →
+  Fallback.
+  Headless quota → handoff file + one Databricks resume, else `KindQuota` with `handoff` in the JSON envelope.
 
 ## Hands off to
 
@@ -130,7 +134,8 @@ A few test edits you may make yourself (say so in `Ran on:`). A large batch — 
    (model `auto`; add `--model <id>` from `claude-code models --live --provider github-copilot` only when a
    batch needs a stronger model).
 3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
-4. Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+4. Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md →
+   Fallback).
    If `ask` fails or its edits don't hold up, make them yourself and say why.
 
 ### LAST-MILE

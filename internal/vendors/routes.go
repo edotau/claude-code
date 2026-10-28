@@ -1,6 +1,8 @@
 package vendors
 
 import (
+	"context"
+
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -12,6 +14,7 @@ const (
 	LegCopilotLogin  = "copilot-login"
 	LegOwnLogin      = "own-login"
 	LegByokAnthropic = "byok-anthropic"
+	LegDatabricks    = "databricks"
 	LegNone          = "none"
 )
 
@@ -55,15 +58,19 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 	return RouteInfo{Vendor: "opencode", Leg: LegNone, Reason: "no route for opencode: " + ConfigureHint("opencode")}
 }
 
-// describeCopilotRoute: 1) copilot's own GitHub login; 2) BYOK with the registry anthropic provider's
-// key; 3) none.
+// describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
+// registry anthropic provider's key; 4) none.
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
-	if a, ok := copilotAuthSource(); ok {
+	detail, workable := copilotHeadroom(context.Background(), providers.Pin(providers.PinGitHubUser))
+	if a, ok := copilotAuthSource(); ok && workable {
 		if p, ok := loginProvider(reg, "github-copilot", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)
 			return RouteInfo{Vendor: "copilot", Leg: LegCopilotLogin, Provider: p.Name, Model: model,
 				Reason: "github-copilot (" + a.Label() + ")", OK: true}
 		}
+	}
+	if ri := copilotDatabricksFallback(reg, detail); ri.OK {
+		return ri
 	}
 	if p, ok := reg.Providers["anthropic"]; ok && providers.CredentialPresent(p) {
 		return RouteInfo{Vendor: "copilot", Leg: LegByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],

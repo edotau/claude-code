@@ -120,6 +120,10 @@ the provider's `models`. Process env beats vault pins.
 `state/vault.db` holds pins, custom launch env, provider/vendor overlays and `key_command` as one JSON document, plus
 sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it.
 
+`vault list` hides empty sections (`--format json` keeps all), shows secrets as `<prefix>***  N chars`, caps column
+widths
+and marks failing entries with ✗ first.
+
 ```jsonc
 {
   "pins": {"HARNESS_PROVIDER": "anthropic", "HARNESS_HAIKU_MODEL": "openai:gpt-5-nano"},
@@ -157,11 +161,16 @@ claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 Databricks: only `u2m` and `pat` credentials are stored, sealed in the vault, plus the u2m access token cached as
 `PROVIDER_<ID>_ACCESS_TOKEN`. `oauth-m2m` tokens are minted per use and never stored; the SP client secret stays sealed.
 
-`claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and expiry,
+`claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and
+expiry,
 never the token. `--copy` puts it on the clipboard and clears it after 30s; on WSL the copy stays out of Win+V history.
 
 `claude-code configure` → databricks: Login / Paste PAT / Mint now / Copy token / Apply to agents.
 `configure databricks --check` gives the same information without the TUI.
+
+`claude-code databricks check --1m [--env qa]` passes only when the endpoint reports real `input_tokens` > 200k,
+printing
+`1m PASS (input_tokens=N)`. It writes no config: `one_m` on a Databricks profile stays a manual vault setting.
 
 Clipboard gaps: macOS clipboard managers and Universal Clipboard can keep a copy; a killed clear process leaves the
 token; headless Linux has no clipboard.
@@ -182,7 +191,9 @@ Otherwise it goes through the **loopback router** (`127.0.0.1:18765`, started on
 3. passes `anthropic` routes through; translates Messages ⇄ chat-completions for `openai` routes (streaming, tools);
 4. refreshes the credential and replays once on 401/403;
 5. fails over along `fallback` on 429/5xx/connect error before the first byte;
-6. on a hard-quota 429 demotes opus → sonnet → haiku and skips the dead model for 30 minutes.
+6. on a hard-quota 429 demotes opus → sonnet → haiku and skips the dead model for 30 minutes;
+7. an upstream 400 `prompt is too long` is not retried or failed over: it returns a clean `invalid_request_error` with
+   the limit text.
 
 Provider hostnames resolving into the local network are refused (a literal IP or `localhost` in `base_url` is allowed).
 The router disables Remote Control, so a subscription session stays direct under a `fallback` ladder; a
@@ -231,9 +242,14 @@ claude-code opencode --provider ollama --model qwen3-coder   # interactive; -- f
 claude-code codex review --adversarial --base main     # per-vendor verbs; claude-code codex -h lists them
 claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
 claude-code agents sync [--dry-run|--check]            # project agents/ + CLAUDE.md into every vendor
-claude-code usage --days 7                             # subagent token usage
+claude-code usage --days 7                             # subagent token usage; copilot on BYOK = databricks/<model>
 ```
 
+- Copilot legs follow the session's profile through the router (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no Copilot
+  credits); `--model <profile>:<tier>` picks a tier on another profile. The GitHub login is used only when the
+  `COPILOT_GITHUB_USER` pin has credits verified < 95%; else it falls back to the Databricks profile (never the other
+  GitHub account) and prints `copilot: <user> N% of credits used — using databricks profile <p>`. Usage rows read
+  `databricks/<model>` (BYOK, no credits) vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
 - Without `--tools`, runners are read-only. Gemini runs only on `agy` and its Google sign-in.
 - `gemini bridge` inlines tracked files only and always skips `.env*`, `state/`, keys.
 - `agents sync` renders under `state/projections/<vendor>/`, installs into `~/.codex`, `~/.copilot`, `~/.gemini`,
@@ -307,7 +323,8 @@ claude-code theme [--preview] | apply     # statusline palette; whole look acros
 
 ## Status line
 
-`claude-code theme statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows model, provider, router,
+`claude-code theme statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows
+`<provider>·<profile> · <model>` (provider before model), router,
 context %, tokens, duration and git state, plus the 5h/weekly rate limits (`5h:N% 7d:N%`);
 `segments.agents` adds `N ◉` agents running (main thread + subagents + this session's dispatch legs), and
 `gradientEase` (<1) reaches the ramp's end sooner.

@@ -38,7 +38,14 @@ func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 func vendorTargetNote(req Request, name string) (t providers.Target, own bool, note string, err error) {
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
-		return t, false, "", err
+		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
+			from := t.Provider
+			t, note, err = vendors.CopilotGate(reg, t)
+			if tier := resumeSlot(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
+				t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
+			}
+		}
+		return t, false, note, err
 	}
 	sel, err := providers.Select(reg, "")
 	if err != nil {
@@ -197,7 +204,8 @@ func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (s
 
 // emptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
 func emptyAnswer(name string) error {
-	return &Error{Kind: KindFatal, Agent: name, Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
+	return &Error{Kind: KindFatal, Agent: name,
+		Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
 }
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
@@ -425,10 +433,14 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
-	out, err := copilotsdk.Ask(ctx, opts, copilotPrompt)
+	out, err := copilotAsk(ctx, opts, copilotPrompt)
 	lg := eventLogFor(ctx)
 	if err != nil {
 		lg.emit("error", err.Error())
+		if (own || t.Provider.Auth.Login == "copilot") && Classify("copilot", err, false).Kind == KindQuota {
+			creds := credentialValues(env, opts.GitHubToken)
+			return copilotQuotaHandoff(ctx, req, res, out, err, creds, copilotRunner{}.Run, stream)
+		}
 		return res, err
 	}
 	lg.emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
@@ -436,6 +448,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		res.Model = out.Model
 	}
 	res.SessionID, res.Answer = out.SessionID, out.Text
+	if strings.TrimSpace(out.Text) == "" {
+		return res, emptyAnswer("copilot")
+	}
 	if _, err := io.WriteString(stream, out.Text); err != nil {
 		return res, err
 	}
@@ -449,3 +464,6 @@ func directCtx(ctx context.Context, req Request) context.Context {
 	}
 	return ctx
 }
+
+// copilotAsk is the SDK call, a var so tests reach the runner's result handling without a copilot binary.
+var copilotAsk = copilotsdk.Ask

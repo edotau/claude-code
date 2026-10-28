@@ -2,6 +2,7 @@ package databricks
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"slices"
@@ -34,11 +35,17 @@ func (f *fakeChild) spawn(bin string, argv, env []string, stdin io.Reader, stdou
 	prompt := argValue(argv, "-p")
 	if prompt == needlePrompt {
 		f.body, _ = io.ReadAll(stdin)
-		_, _ = io.WriteString(stdout, f.needle)
+		_, _ = io.WriteString(stdout, needleJSON(f.needle))
 		return f.code, nil
 	}
 	_, _ = io.WriteString(stdout, f.smoke)
 	return f.code, nil
+}
+
+// needleJSON wraps a reply in claude's --output-format json shape with 300K input tokens.
+func needleJSON(reply string) string {
+	b, _ := json.Marshal(map[string]any{"result": reply, "usage": map[string]int{"input_tokens": 300000}})
+	return string(b) + "\n"
 }
 
 // useFake swaps the spawn seam for f and restores the real one at cleanup.
@@ -374,8 +381,8 @@ func TestCheckNeedleVerdict(t *testing.T) {
 			useFake(t, &fakeChild{smoke: "OK\n", needle: tt.out})
 			code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
 			if tt.wantOK {
-				if code != 0 || !strings.Contains(stdout, "PASS 1m") {
-					t.Errorf("exit %d, stdout %q; want PASS 1m and exit 0", code, stdout)
+				if code != 0 || !strings.Contains(stdout, "1m PASS") {
+					t.Errorf("exit %d, stdout %q; want 1m PASS and exit 0", code, stdout)
 				}
 				return
 			}
@@ -394,7 +401,7 @@ func TestCheckFailingSmokeStillRunsProbe(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit = %d, want 1", code)
 	}
-	if !strings.Contains(stdout, "FAIL smoke") || !strings.Contains(stdout, "PASS 1m") {
+	if !strings.Contains(stdout, "FAIL smoke") || !strings.Contains(stdout, "1m PASS") {
 		t.Errorf("stdout = %q, want FAIL smoke then PASS 1m", stdout)
 	}
 	if len(f.calls) != 2 {
@@ -443,5 +450,81 @@ func TestIsClaudeModel(t *testing.T) {
 		if got := isClaudeModel(m); got != want {
 			t.Errorf("isClaudeModel(%q) = %v, want %v", m, got, want)
 		}
+	}
+}
+
+// TestParseUsage pins the usage parse: cache fields are summed, and non-JSON or empty output yields zero tokens.
+func TestParseUsage(t *testing.T) {
+	tests := []struct {
+		name       string
+		out        string
+		wantText   string
+		wantTokens int
+	}{
+		{"sums cache fields", `{"result":"ZEBRAFINCH","usage":{"input_tokens":1,"cache_creation_input_tokens":20,"cache_read_input_tokens":300}}`, "ZEBRAFINCH", 321},
+		{"last JSON line wins", "noise\n{\"result\":\"a\",\"usage\":{\"input_tokens\":5}}\n", "a", 5},
+		{"non-JSON", "ZEBRAFINCH\n", "ZEBRAFINCH\n", 0},
+		{"empty", "", "", 0},
+		{"no usage", `{"result":"x"}`, "x", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, tokens := parseUsage(tt.out)
+			if text != tt.wantText || tokens != tt.wantTokens {
+				t.Errorf("parseUsage = (%q, %d), want (%q, %d)", text, tokens, tt.wantText, tt.wantTokens)
+			}
+		})
+	}
+}
+
+// rawNeedleChild answers the needle prompt with a verbatim stdout, so tests control the usage block.
+type rawNeedleChild struct{ out string }
+
+func (f rawNeedleChild) spawn(_ string, argv, _ []string, stdin io.Reader, stdout, _ io.Writer) (int, error) {
+	if argValue(argv, "-p") == needlePrompt {
+		_, _ = io.Copy(io.Discard, stdin)
+		_, _ = io.WriteString(stdout, f.out)
+		return 0, nil
+	}
+	_, _ = io.WriteString(stdout, "OK\n")
+	return 0, nil
+}
+
+// TestCheckNeedleTokenGate pins that PASS needs input tokens strictly above 200000, plus the needle in the reply.
+func TestCheckNeedleTokenGate(t *testing.T) {
+	js := func(reply string, in, create, read int) string {
+		b, _ := json.Marshal(map[string]any{"result": reply, "usage": map[string]int{
+			"input_tokens": in, "cache_creation_input_tokens": create, "cache_read_input_tokens": read}})
+		return string(b) + "\n"
+	}
+	tests := []struct {
+		name     string
+		out      string
+		wantPass bool
+		wantMsg  string
+	}{
+		{"above", js("ZEBRAFINCH", 200001, 0, 0), true, "1m PASS"},
+		{"exactly 200000", js("ZEBRAFINCH", 200000, 0, 0), false, "input_tokens=200000"},
+		{"below", js("ZEBRAFINCH", 1000, 0, 0), false, "input_tokens=1000"},
+		{"cache summed over", js("ZEBRAFINCH", 1, 150000, 60000), true, "input_tokens=210001"},
+		{"cache summed at limit", js("ZEBRAFINCH", 0, 100000, 100000), false, "input_tokens=200000"},
+		{"needle missing, tokens ok", js("no idea", 300000, 0, 0), false, "needle not found"},
+		{"plain text word, no usage", "ZEBRAFINCH\n", false, "input_tokens=0"},
+		{"garbage", "{not json", false, "FAIL 1m"},
+		{"empty", "", false, "needle not found"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := spawn
+			spawn = rawNeedleChild{tt.out}.spawn
+			t.Cleanup(func() { spawn = old })
+			code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
+			if !strings.Contains(stdout, tt.wantMsg) {
+				t.Errorf("stdout %q missing %q", stdout, tt.wantMsg)
+			}
+			if tt.wantPass != (code == 0) || tt.wantPass == strings.Contains(stdout, "FAIL 1m") {
+				t.Errorf("exit %d, stdout %q; wantPass=%v", code, stdout, tt.wantPass)
+			}
+		})
 	}
 }

@@ -3,6 +3,8 @@ package shapes
 
 import (
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -24,7 +26,7 @@ func Looks(val string) bool {
 		return false
 	case strings.Contains(val, "PLACEHOLDER") || strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx"):
 		return false
-	case strings.HasPrefix(val, "ghp_") || strings.HasPrefix(val, "github_pat_") || strings.HasPrefix(val, "gho_"):
+	case HasGitHubPrefix(val):
 		return true
 	case matchSlack(val):
 		return true
@@ -39,6 +41,23 @@ func Looks(val string) bool {
 	default:
 		return false
 	}
+}
+
+// GitHubPrefixes are every GitHub token family: OAuth, PAT, user-to-server, server-to-server, refresh, fine-grained.
+var GitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"}
+
+// HasGitHubPrefix reports a value starting with any GitHub token prefix.
+func HasGitHubPrefix(v string) bool {
+	return slices.ContainsFunc(GitHubPrefixes, func(p string) bool { return strings.HasPrefix(v, p) })
+}
+
+// GitHubPattern is a regex alternation matching any GitHub token with at least minLen body characters.
+func GitHubPattern(minLen int) string {
+	alts := make([]string, len(GitHubPrefixes))
+	for i, p := range GitHubPrefixes {
+		alts[i] = regexp.QuoteMeta(p) + "[A-Za-z0-9_]{" + strconv.Itoa(minLen) + ",}"
+	}
+	return "(?:" + strings.Join(alts, "|") + ")"
 }
 
 // matchSlack matches a Slack bot/user token (xoxb-/xoxp-).

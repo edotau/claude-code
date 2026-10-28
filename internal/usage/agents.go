@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -494,6 +496,18 @@ type copilotModelRow struct {
 	Model  string `json:"model"`
 	Turns  int    `json:"turns"`
 	Tokens int    `json:"tokens"`
+	NoCost int    `json:"no_cost"`
+}
+
+// copilotProvider labels a row: all-NULL-cost databricks- models are BYOK, other costed rows are GitHub-billed.
+func copilotProvider(r copilotModelRow) string {
+	switch {
+	case r.NoCost == r.Turns && strings.HasPrefix(r.Model, models.DatabricksPrefix):
+		return providers.GroupDatabricks
+	case r.NoCost == 0:
+		return "github·copilot"
+	}
+	return "github-copilot"
 }
 
 // copilotTokenSum is the shared input+output+cache-read+cache-write expression, no cost column exists.
@@ -520,7 +534,7 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		COALESCE(SUM(input_tokens),0) AS input, COALESCE(SUM(output_tokens),0) AS output,
 		COALESCE(SUM(cache_read_tokens),0) AS cache_read, COALESCE(SUM(cache_write_tokens),0) AS cache_write
 		FROM assistant_usage_events WHERE %s;`, copilotTokenSum, where)
-	modelsQ := fmt.Sprintf(`SELECT model, COUNT(*) AS turns, %s AS tokens
+	modelsQ := fmt.Sprintf(`SELECT model, COUNT(*) AS turns, %s AS tokens, SUM(total_nano_aiu IS NULL) AS no_cost
 		FROM assistant_usage_events WHERE %s GROUP BY model;`, copilotTokenSum, where)
 	dailyQ := fmt.Sprintf(`SELECT date(created_at,'localtime') AS date, %s AS tokens, COUNT(*) AS turns
 		FROM assistant_usage_events WHERE %s GROUP BY date;`, copilotTokenSum, where)
@@ -540,17 +554,17 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 	var rows []copilotModelRow
 	_ = json.Unmarshal(modelsOut, &rows)
-	models := make([]agentModel, 0, len(rows))
+	byModel := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
-		models = append(models, agentModel{Provider: "github-copilot", Model: r.Model, Turns: r.Turns, Tokens: r.Tokens})
+		byModel = append(byModel, agentModel{Provider: copilotProvider(r), Model: r.Model, Turns: r.Turns, Tokens: r.Tokens})
 	}
-	sortModelsByTokens(models)
+	sortModelsByTokens(byModel)
 
 	daily := fetchDailyBuckets(ctx, dbPath, dailyQ, copilotSqliteCmd)
 
 	t := totals[0]
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
-	return agentUsage{Agent: "copilot", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, Models: models,
+	return agentUsage{Agent: "copilot", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, Models: byModel,
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
 }
 

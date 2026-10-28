@@ -872,3 +872,66 @@ func TestDatabricksGatewayWireReachesUpstream(t *testing.T) {
 		t.Errorf("authorization = %q", a)
 	}
 }
+
+// A 400 "prompt is too long" is not retried and is rewritten to invalid_request_error quoting only the limit text.
+func TestFailoverPromptTooLong(t *testing.T) {
+	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1"}}
+	body := `{"message":"prompt is too long: 1177204 tokens > 1000000 maximum","secret":"leak-me"}`
+	resp := &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+	moveOn, _ := newRouter("s").failover(resp, providers.Target{Provider: p, Model: "m1"}, false)
+	if moveOn {
+		t.Fatal("prompt-too-long must not fail over")
+	}
+	got, _ := io.ReadAll(resp.Body)
+	var e struct {
+		Error struct{ Type, Message string }
+	}
+	_ = json.Unmarshal(got, &e)
+	if e.Error.Type != "invalid_request_error" || e.Error.Message != "prompt is too long: 1177204 tokens > 1000000 maximum" ||
+		strings.Contains(string(got), "leak-me") {
+		t.Errorf("body = %s", got)
+	}
+}
+
+// TestFailoverPromptTooLongNotOtherStatus pins that only a 400 is classified, and 400s without the text pass through.
+func TestFailoverPromptTooLongNotOtherStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"500 with text":    {500, `{"message":"prompt is too long"}`},
+		"400 other reason": {400, `{"message":"bad field"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.body))}
+			if tooLong(resp) {
+				t.Fatal("must not classify")
+			}
+			got, _ := io.ReadAll(resp.Body)
+			if string(got) != tc.body {
+				t.Errorf("body altered: %s", got)
+			}
+		})
+	}
+}
+
+// TestChatPathPromptTooLong pins that the chat-translate path returns the classified limit text, not a retry or the raw body.
+func TestChatPathPromptTooLong(t *testing.T) {
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		io.WriteString(w, `{"error":{"message":"prompt is too long: 1177204 tokens > 1000000 maximum","secret":"leak-me"}}`)
+	})
+	t.Setenv("OA_KEY", "oa")
+	srv := setup(t, `{"default":"oa","providers":{"oa":{"kind":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"bearer","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}`)
+	resp := post(t, srv.URL+"/p/oa/v1/messages", `{"model":"gpt-x","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	var e struct {
+		Error struct{ Type, Message string }
+	}
+	_ = json.Unmarshal(b, &e)
+	if resp.StatusCode != 400 || e.Error.Type != "invalid_request_error" ||
+		e.Error.Message != "prompt is too long: 1177204 tokens > 1000000 maximum" || strings.Contains(string(b), "leak-me") {
+		t.Fatalf("status %d body %s", resp.StatusCode, b)
+	}
+}
