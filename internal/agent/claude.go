@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
@@ -19,7 +20,7 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, Isolation: true}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
@@ -37,7 +38,16 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	args := []string{"--print", "--output-format", "stream-json", "--verbose"}
+	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
+	if req.NoPersist {
+		args = append(args, "--no-session-persistence")
+	}
+	if req.SafeMode {
+		args = append(args, "--safe-mode")
+	}
+	if req.DebugFile != "" {
+		args = append(args, "--debug-file", req.DebugFile)
+	}
 	if req.Effort != "" {
 		args = append(args, "--effort", req.Effort)
 	}
@@ -86,6 +96,10 @@ type claudeEvent struct {
 	ParentToolUseID string          `json:"parent_tool_use_id"`
 	Message         json.RawMessage `json:"message"`
 	IsError         bool            `json:"is_error"`
+	Attempt         int             `json:"attempt"`
+	MaxRetries      int             `json:"max_retries"`
+	RetryDelayMs    int             `json:"retry_delay_ms"`
+	ErrorStatus     *int            `json:"error_status"`
 	Result          string          `json:"result"`
 	Usage           struct {
 		InputTokens              int `json:"input_tokens"`
@@ -128,10 +142,11 @@ func (ev claudeEvent) text() string {
 // parseClaudeStream streams top-level assistant text to w and returns the result event's envelope.
 // A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
 // An optional eventLog gets one formatted line per assistant text, tool call, result and error.
-func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, error) {
-	var res Result
+func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (res Result, _ error) {
 	lg := pickLog(logs)
 	sawResult, wrote := false, false
+	ts := transportTracker{start: clock()}
+	defer func() { res.Transport = ts.result() }()
 	dec := json.NewDecoder(r)
 	for {
 		var ev claudeEvent
@@ -144,7 +159,14 @@ func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, erro
 			res.SessionID = ev.SessionID
 		}
 		switch ev.Type {
+		case "stream_event":
+			ts.event(clock())
 		case "system":
+			if ev.Subtype == "api_retry" {
+				ts.retry(ev.ErrorStatus)
+				lg.emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
+					ev.Attempt, ev.MaxRetries, ts.lastStatus(), ev.RetryDelayMs))
+			}
 			if ev.Model != "" {
 				res.Model = ev.Model
 			}
@@ -180,6 +202,46 @@ func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (Result, erro
 		return res, errors.New("claude: stream ended without a result event")
 	}
 	return res, nil
+}
+
+// clock is the time seam for stream timing.
+var clock = time.Now
+
+// transportTracker accumulates Transport stats while a claude stream is parsed.
+type transportTracker struct {
+	start, last time.Time
+	statuses    []int
+	events      int
+	first, gap  time.Duration
+}
+
+func (t *transportTracker) event(now time.Time) {
+	if t.events == 0 {
+		t.first = now.Sub(t.start)
+	} else if g := now.Sub(t.last); g > t.gap {
+		t.gap = g
+	}
+	t.events++
+	t.last = now
+}
+
+func (t *transportTracker) retry(status *int) {
+	s := 0
+	if status != nil {
+		s = *status
+	}
+	t.statuses = append(t.statuses, s)
+}
+
+func (t *transportTracker) lastStatus() int { return t.statuses[len(t.statuses)-1] }
+
+// result is nil when the stream showed neither a stream_event nor a retry.
+func (t *transportTracker) result() *Transport {
+	if t.events == 0 && len(t.statuses) == 0 {
+		return nil
+	}
+	return &Transport{Retries: len(t.statuses), RetryStatuses: t.statuses,
+		FirstEventMs: t.first.Milliseconds(), MaxGapMs: t.gap.Milliseconds()}
 }
 
 func logClaudeAssistant(lg eventLog, msg claudeMessage) {
