@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/databricks/sdkport"
 )
 
 // mintErr mints p against an OIDC stub answering status/body and returns the error Credential surfaces.
@@ -24,6 +26,8 @@ func mintErr(t *testing.T, kind string, status int, body map[string]any) error {
 }
 
 func TestVerdictFromRealMintErrors(t *testing.T) {
+	defer func(d time.Duration) { sdkport.RetryBackoff = d }(sdkport.RetryBackoff)
+	sdkport.RetryBackoff = time.Millisecond
 	cases := []struct {
 		name   string
 		kind   string
