@@ -56,7 +56,7 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 		}
 		return t, false, note, err
 	}
-	sel, err := providers.Select(reg, "")
+	sel, err := providers.Select(reg, registeredSession(reg))
 	if err != nil {
 		return t, false, "", err
 	}

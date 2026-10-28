@@ -264,19 +264,48 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 	case "opencode":
 		return "", "" // the cell's provider prefix is the account; router.Configured gates its credential
 	case "claude":
-		_, ct, err := resolveTarget(Request{Model: c.Model})
+		_, ct, err := resolveTarget(Request{Provider: providers.SessionProfile(), Model: c.Model})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
 		}
 		t = ct
 	default:
-		vt, own, _, err := vendorTargetNote(Request{Model: c.Model}, agentName)
+		if ownLoginAccount(agentName, c.Account) {
+			return "", "" // the agent's own login cell keeps its account; a session profile never replaces it
+		}
+		vt, own, _, err := vendorTargetNote(Request{Provider: sessionProvider(agentName), Model: c.Model}, agentName)
 		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == agentName {
 			return "", ""
 		}
 		t = vt
 	}
 	return profileAccount(t.Provider), billingOf(t.Provider)
+}
+
+// sessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
+func sessionProvider(agentName string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || vendors.CanServe(agentName, p)) {
+		return p.Name
+	}
+	return ""
+}
+
+// ownLoginAccount is true when account is the <provider>·<profile> of a profile the agent's own CLI login backs.
+func ownLoginAccount(agentName, account string) bool {
+	_, profile, ok := strings.Cut(account, "·")
+	if !ok {
+		return false
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	p := reg.Providers[profile]
+	return p != nil && p.Auth.Login == agentName && profileAccount(p) == account
 }
 
 // billingOf: a harness-held key bills per use, anything else is a plan.
