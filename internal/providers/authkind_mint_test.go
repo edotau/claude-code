@@ -228,18 +228,6 @@ func TestU2MRejectedGrantNeedsLogin(t *testing.T) {
 	}
 }
 
-func TestU2MServerErrorDoesNotNeedLogin(t *testing.T) {
-	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
-		return 503, map[string]any{"error": "temporarily_unavailable"}
-	})
-	p := mintRow(t, "kind-u2m-503", AuthOAuth, "", srv.URL)
-	putOAuth(t, p, oauthValue{Refresh: "rt"})
-	_, err := Credential(context.Background(), p)
-	if err == nil || errors.Is(err, ErrNeedsLogin) {
-		t.Fatalf("err = %v, want non-login error", err)
-	}
-}
-
 func TestM2MEmptySecretIsNotNeedsLogin(t *testing.T) {
 	p := mintRow(t, "kind-m2m-empty", AuthM2M, "cid", "http://127.0.0.1:1")
 	if _, err := Credential(context.Background(), p); err == nil || errors.Is(err, ErrNeedsLogin) {

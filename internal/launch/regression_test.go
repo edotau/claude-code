@@ -48,35 +48,7 @@ func TestScienceArgsRejects65535Port(t *testing.T) {
 	}
 }
 
-// TestScienceDefaultsFileSucceedsWhenCacheDirWorks verifies scienceDefaultsFile succeeds with working cache.
-// Regression: when UserHomeDir fails, the code should still handle the fallback to cache dir correctly.
-func TestScienceDefaultsFileSucceedsWhenCacheDirWorks(t *testing.T) {
-	// This test verifies the function doesn't crash when UserHomeDir might fail
-	// It should use UserCacheDir as fallback. Even if this test passes before the fix,
-	// after the fix it will explicitly handle the UserHomeDir error.
-	path, err := scienceDefaultsFile()
-	// Either returns a path (success) or error (graceful failure), never a wrong path
-	if path != "" && path[0] != '/' && path[0] != '~' {
-		// Valid relative or absolute path (not starting with just "/")
-		return
-	}
-	if err == nil && path != "" {
-		// Path should be valid
-		if path[0] != '/' && path[0] != '~' {
-			t.Logf("scienceDefaultsFile returned: %q, error: %v", path, err)
-		}
-		return
-	}
-	if err != nil {
-		// Error is acceptable (e.g., cache dir lookup failed)
-		t.Logf("scienceDefaultsFile gracefully returned error: %v", err)
-		return
-	}
-}
-
-// TestUserBinDirNotEmpty verifies userBinDir returns a meaningful path.
-// Regression: when UserHomeDir fails, filepath.Join("", ".local", "bin") returns "/.local/bin" (wrong).
-// After fix: should handle error or use a sensible fallback.
+// TestUserBinDirNotEmpty verifies userBinDir returns a meaningful path, not "/.local/bin" when home is missing.
 func TestUserBinDirNotEmpty(t *testing.T) {
 	got := userBinDir()
 	if got == "" {
@@ -88,43 +60,6 @@ func TestUserBinDirNotEmpty(t *testing.T) {
 		t.Errorf("userBinDir returned %q (indicates UserHomeDir error was ignored)", got)
 	}
 	t.Logf("userBinDir = %q (regression check: should be valid path after fix)", got)
-}
-
-// TestScienceDefaultsFileHandlesHomeDirError verifies scienceDefaultsFile checks UserHomeDir error.
-// Regression: line 45 did `home, _ := os.UserHomeDir()`, ignoring error from UserHomeDir.
-func TestScienceDefaultsFileHandlesHomeDirError(t *testing.T) {
-	// Call the function normally to verify it runs without panic
-	path, err := scienceDefaultsFile()
-	// After the fix, it should either succeed or return a graceful error
-	// The key is that it doesn't try to use an empty home string
-	if err != nil {
-		t.Logf("scienceDefaultsFile gracefully returned error: %v", err)
-	}
-	if path != "" {
-		// If it returned a path, it should be in the cache dir (fallback when home check fails)
-		// or a valid home-based path
-		t.Logf("scienceDefaultsFile returned path: %q", path)
-	}
-}
-
-// TestOpencodeRouteDetailHandlesUserHomeDirError verifies opencodeRouteDetail checks UserHomeDir error.
-// Regression: line 314 did `home, _ := os.UserHomeDir()`, ignoring error.
-func TestOpencodeRouteDetailHandlesUserHomeDirError(t *testing.T) {
-	// This is an indirect test: we test that the doctor checks work without panicking
-	checks, _ := DoctorChecks()
-	found := false
-	for _, c := range checks {
-		if c.Name == "opencode route" {
-			found = true
-			// After the fix, the check should provide a sensible detail message
-			// even if UserHomeDir fails (though on this system it won't fail)
-			t.Logf("opencode route check: %v", c.Detail)
-			break
-		}
-	}
-	if !found {
-		t.Logf("opencode route check not found in doctor checks (provider may not be configured)")
-	}
 }
 
 // TestConfigureRoutingRespectsRouteNotFound verifies code checks Route's ok return value.
