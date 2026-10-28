@@ -99,7 +99,7 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 	if err != nil {
 		var failure *fallbackError
 		if errors.As(err, &failure) && failure.auth {
-			writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; run `claude-code databricks login --profile %s`", p.Name, p.Name))
+			writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
 			return
 		}
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
