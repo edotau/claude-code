@@ -165,6 +165,10 @@ merge rule, the verify gate and conflict handling); never `stash`/`checkout`/`re
 other's helpers and only the merged diff shows it. A leaf gets
 `skills/subagent-workflows/references/prompts.md#simplifier`.
 
+**Test hygiene** (same pass, before any new test is written): check whether the tests already repaired or in
+place cover the change; if they do, add nothing. Delete dead code and stale tests the change left behind (fixtures
+for states the code can no longer produce), and consolidate near-duplicate tests into one. Net test count may fall.
+
 ---
 
 ## Phase 8: Verify
