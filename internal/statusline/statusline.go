@@ -300,9 +300,9 @@ func modelSegment(in Input, session string) string {
 
 // tag1M marks a 1M session whose display name lacks Claude Code's "(1M context)" (custom ids, e.g. Databricks).
 func tag1M(in Input, name string) string {
-	oneM := strings.HasSuffix(strings.TrimSpace(in.Model.ID), "[1m]") ||
+	oneM := models.Has1M(strings.TrimSpace(in.Model.ID)) ||
 		(in.ContextWindow != nil && in.ContextWindow.Size >= models.ContextWindow1M)
-	if !oneM || strings.HasSuffix(name, "[1m]") {
+	if !oneM || models.Has1M(name) {
 		return name
 	}
 	return name + " [1m]"

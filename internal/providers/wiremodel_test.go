@@ -50,21 +50,6 @@ func TestWireModelTable(t *testing.T) {
 	}
 }
 
-func TestCanonicalModelRoundTrip(t *testing.T) {
-	db := dbxProvider(t)
-	for _, id := range []string{"claude-opus-5-5", "claude-opus-5-5[1m]", "gpt-5-5", "claude-haiku-5-5"} {
-		if got := db.CanonicalModel(db.WireModel(id)); got != id {
-			t.Errorf("round trip %q -> %q", id, got)
-		}
-	}
-	if got := db.CanonicalModel("databricks-claude-opus-5-5[1m]"); got != "claude-opus-5-5[1m]" {
-		t.Errorf("CanonicalModel 1m = %q", got)
-	}
-	if got := (Provider{}).CanonicalModel("x-y"); got != "x-y" {
-		t.Errorf("no-prefix CanonicalModel = %q", got)
-	}
-}
-
 func TestLoadDecoratesPresetModels(t *testing.T) {
 	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
 	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}}`)

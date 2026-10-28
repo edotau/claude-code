@@ -37,24 +37,6 @@ func (t *Tx) SealSecret(k *Key, name, value string, from Record) error {
 	return t.PutRecord(name, from)
 }
 
-// RenameSecret moves name's value to newName inside t, re-sealed under newName (the name is bound into the AEAD AAD).
-func (t *Tx) RenameSecret(k *Key, name, newName string) error {
-	v, rec, ok, err := t.OpenSecret(k, name)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("vault: secret %q not found", name)
-	}
-	if err := t.SealSecret(k, newName, v, rec); err != nil {
-		return err
-	}
-	if name == newName {
-		return nil
-	}
-	return t.Put(Secrets, name, "")
-}
-
 // BackupPath is the vault's backup copy for time at.
 func BackupPath(at time.Time) string { return Path() + ".bak-" + at.UTC().Format("20060102T150405Z") }
 

@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// ownProfile is the profile a run on the agent's own stored login bills: the registry row naming that login, else the agent.
+// ownProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
 func ownProfile(name string) string {
 	if reg, err := providers.Load(); err == nil {
 		for _, n := range reg.Names() {
@@ -31,10 +31,7 @@ func ownProfile(name string) string {
 	return name
 }
 
-// vendorTarget mirrors the shim (launch.Vendor): the session target when it can serve the agent, else the
-// agent's own login or first keyed provider. Only --provider (or a provider:model) is the caller's provider
-// choice; a slot name or model id is re-applied to the fallback provider. own is true when the agent runs
-// on its own stored login and no harness route is injected.
+// vendorTarget mirrors launch.Vendor: the session target if it serves the agent, else its own login or a keyed one.
 func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
@@ -99,9 +96,7 @@ type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
 
-// Caps follow each CLI's verified headless flags. Autonomous is true for all three: opencode (--auto) and
-// gemini (--mode auto) map natively, and codex is already autonomous by construction with --tools on, so
-// neither is a generic drop — Run prints codex's own one-line note instead.
+// Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
 func (v vendorRunner) Caps() Caps {
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true}
 }
@@ -196,10 +191,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	return res, childErr(ctx, v.name, err, tail)
 }
 
-// attachPrompt folds --attach into the prompt for an agent with no file-list argv: codex (prompt rides
-// stdin, so the content must ride along inline) and gemini (agy has no -f flag, but resolves @path live
-// only when tools are on; agy's own no-tools preamble bars it from reading @path, so inline it instead).
-// opencode gets its own -f argv instead (vendors.opencodeRun), so its prompt is untouched here.
+// attachPrompt folds --attach into the prompt for agents with no file-list argv (codex, gemini).
 func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (string, error) {
 	switch v.name {
 	case "codex":
@@ -231,11 +223,7 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 	return res, err
 }
 
-// runEventStream runs cmd to completion, decoding its stdout via parse while streaming text live;
-// shared by vendorRunner.runStream (opencode) and RunAgy (agy's own exec, no vendors.Configure argv).
-// onMeaningful, when non-nil, is passed through to parse, which calls it once on the stream's first
-// meaningful model event (never on raw bytes, so bookkeeping-only events can't disarm it) — the free-leg
-// stall watchdog's cue.
+// runEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
 func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, stream io.Writer,
 	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
@@ -282,9 +270,7 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
-// isMeaningfulOpenCodeEvent reports whether ev is real model output, not stream bookkeeping (step_start)
-// or an empty placeholder part. text/reasoning need non-empty trimmed Part.Text; tool needs a non-empty
-// Part.Tool name or Part.State.Status; any type counts if it carries output tokens (step_finish).
+// isMeaningfulOpenCodeEvent reports whether ev is real model output, not bookkeeping (step_start) or an empty part.
 func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	switch ev.Type {
 	case "text", "reasoning":
@@ -299,9 +285,7 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	return ev.Part.Tokens.Output > 0
 }
 
-// parseOpenCodeStream streams the root session's text parts (opencode filters subagents); error events go to stdout.
-// An optional eventLog gets one line per text part, step_finish usage and error. onMeaningful, when non-nil,
-// fires once on the stream's first meaningful event (isMeaningfulOpenCodeEvent) — never on step_start alone.
+// parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
 func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (Result, error) {
 	var res Result
 	lg := pickLog(logs)

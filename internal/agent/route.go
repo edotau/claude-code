@@ -61,17 +61,13 @@ func modelRow(model string) (tier, row, exact string) {
 	return tier, canonical, ""
 }
 
-// RouteChain turns a pick at tier into legs; tier may also be a Claude row (alias, canonical id or any spelling), and
-// then every leg runs that row's cell of its agent. The wanted agent's leg keeps an explicit caller model, every
-// other leg runs its own cell. native keeps a wanted opencode leg on opencode's own config instead of the hub.
+// RouteChain turns a pick at tier (or a Claude row) into legs; each leg runs that row's cell of its agent.
 func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
 	t, row, _ := modelRow(tier)
 	return routeChain(ctx, want, cmp.Or(t, tier), row, "", mode, explicitModel, native, o)
 }
 
-// RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell for every agent; a non-Claude
-// id is exact, so only agents with a cell serving it (plus the wanted agent, which keeps the id as typed) get a leg.
-// tierHint is the classifier's tier, used when model is empty or exact.
+// RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o router.Opts) (Chain, router.Result, error) {
 	tier, row, exact := modelRow(model)
 	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, mode, strings.TrimSpace(model) != "", native, o)

@@ -53,9 +53,7 @@ type Provider struct {
 	CLIProfile string `json:"cliProfile,omitempty"`
 	// Env is the non-secret launch env for sessions on this provider.
 	Env map[string]string `json:"env,omitempty"`
-	// ModelPrefix is the wire-id prefix a databricks preset derives (databricks- / system.ai.); WireModel does not read it.
-	//
-	// Deprecated: removed in Phase 4 (use Provider.WireModel).
+	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it (deprecated: Phase 4).
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
 	Options Options `json:"options,omitzero"`
@@ -199,22 +197,14 @@ var RouteTiers = []string{models.Opus, models.Sonnet, models.Haiku}
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
 var RouteWeightNames = []string{"price", "headroom"}
 
-// RouteBillingKeys are the routing table's static account_key values (`<provider>·<profile>`; internal/routetable's
-// Billing map mirrors them); a "github·" prefix also passes, since routetable adds the pinned gh user's key
-// (github·<user>, or github·unpinned) at load, before any pin is known here.
+// RouteBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
 var RouteBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
 	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
 
-// RouteOpencodeModelPrefixes are the model prefixes an opencode override cell may carry without an explicit
-// account_key: opencode-go/opencode keep the table's own opencode·go account, github-copilot bills
-// opencode's own Copilot login (opencode·github-copilot), openai/nvidia bill their own opencode logins —
-// kept in sync with internal/routetable's opencodeOverrideAccount, which owns the actual account-key mapping.
+// RouteOpencodeModelPrefixes are the prefixes an opencode override cell may carry (see routetable).
 var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
-// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name: opencode's own plan (opencode-go) has
-// no registry provider, every other id matches some provider's opencodeID (github-copilot, openai, nvidia).
-// zen-free is not here — it always runs first and is never ladder-ordered. Kept in sync with
-// internal/routetable's table.json opencode_sub keys (minus zen-free).
+// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name; kept in sync with routetable's opencode_sub keys.
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
 // validRouteAccountKey reports whether key is a known static billing key or the "github·" dynamic family.

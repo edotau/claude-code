@@ -245,7 +245,7 @@ func sealedAccess(p *Provider) (string, bool) {
 	return v, true
 }
 
-// sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only and never fails the mint.
+// sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only.
 func sealAccess(p *Provider, tok string) {
 	ov, _ := readOAuth(p)
 	ov.Access = tok

@@ -1,7 +1,4 @@
-// Package routetable is the embedded Claude-row × runner routing grid (table.json, vault-overridable): the Table,
-// Cell and Price types and Load. It sits below internal/route (which scores and picks a runner) and
-// internal/vendors (which renders the opencode overlay from a cell's model), so neither of those two needs to
-// import the other through this data.
+// Package routetable is the embedded Claude-row × runner routing grid (table.json, vault-overridable).
 package routetable
 
 import (
@@ -100,7 +97,7 @@ const CopilotUnpinned = "github·unpinned"
 // Load parses the embedded table, applies the registry's route overlay cell by cell and resolves account keys.
 func Load() (*Table, error) {
 	reg, _ := providers.Load() // a broken registry still routes on the embedded table
-	return LoadFrom(reg, CopilotUser())
+	return LoadFrom(reg, copilotUserFrom(reg))
 }
 
 // LoadFrom loads the table against an explicit registry and Copilot gh user; Load() is the normal entry
@@ -163,9 +160,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	return &t, nil
 }
 
-// applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][runner] and returns the row id. key is a
-// canonical Claude id or alias.
-// It resolves the opencode override account when the model prefix moves the cell off its table-defined backend.
+// applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][runner] and returns the row id.
 func (t *Table) applyRouteOverlayCell(runner, key string, o providers.RouteCell) (string, error) {
 	id := rowKey(key)
 	c, ok := t.ByModel[id][runner]
@@ -199,6 +194,10 @@ func (t *Table) applyRouteOverlayCell(runner, key string, o providers.RouteCell)
 // the router never picks another account.
 func CopilotUser() string {
 	reg, _ := providers.Load()
+	return copilotUserFrom(reg)
+}
+
+func copilotUserFrom(reg *providers.Registry) string {
 	_, profile := providers.CopilotLogin(reg)
 	return profile
 }
@@ -212,12 +211,7 @@ func prefixOf(model string) string {
 	return prefix
 }
 
-// opencodeOverrideAccount derives the billing account for an opencode cell whose override model prefix moves
-// it off the table's own opencode-go backend: opencode-go/opencode still bill opencode·go. github-copilot
-// bills opencode·github-copilot, not the copilot row's pinned-gh-user key — opencode authenticates with its
-// own stored GitHub Copilot login (vendors.OpencodeLogins), which may be a different GitHub user than the
-// one Copilot's own row bills, so quota tracking must not conflate the two accounts. Any other prefix is
-// rejected outright, since the cell would keep charging quota to opencode·go for a model that account never serves.
+// opencodeOverrideAccount is the billing account for an opencode cell whose model prefix leaves opencode-go.
 func opencodeOverrideAccount(prefix string) (string, error) {
 	switch prefix {
 	case "opencode-go", "opencode":
@@ -238,12 +232,6 @@ func opencodeOverrideAccount(prefix string) (string, error) {
 func (t *Table) Row(key string) (map[string]Cell, bool) {
 	r, ok := t.ByModel[rowKey(key)]
 	return r, ok
-}
-
-// CellFor returns the runner's cell of the Claude row named by key (alias or canonical id).
-func (t *Table) CellFor(runner, key string) (Cell, bool) {
-	c, ok := t.ByModel[rowKey(key)][runner]
-	return c, ok
 }
 
 // Cell returns the runner's row at tier; ok is false for an unknown runner or tier.

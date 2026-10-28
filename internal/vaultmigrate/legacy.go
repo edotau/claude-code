@@ -1,7 +1,7 @@
 package vaultmigrate
 
 import (
-	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -74,7 +74,7 @@ func readOverlay(raw string) (*legacyDoc, error) {
 }
 
 func (d *legacyDoc) addEntry(key string, entry json.RawMessage, builtin *providers.Registry) error {
-	if bytes.Equal(bytes.TrimSpace(entry), []byte("null")) {
+	if providers.IsNull(entry) {
 		if slices.Contains(providers.ProviderKeys, key) {
 			d.rows = append(d.rows, docRow{provider: key})
 			return nil
@@ -104,7 +104,7 @@ func (d *legacyDoc) addEntry(key string, entry json.RawMessage, builtin *provide
 		if name != old {
 			d.changed = true
 		}
-		if bytes.Equal(bytes.TrimSpace(row), []byte("null")) {
+		if providers.IsNull(row) {
 			d.rows = append(d.rows, docRow{provider: key, name: name})
 			continue
 		}
@@ -145,7 +145,7 @@ func hostProvider(fields map[string]json.RawMessage) string {
 	}
 	raw := row.BaseURL
 	for _, d := range slices.Sorted(maps.Keys(row.Routes)) {
-		raw = cmpOr(raw, row.Routes[d])
+		raw = cmp.Or(raw, row.Routes[d])
 	}
 	if u, err := url.Parse(raw); err == nil {
 		for _, m := range hostProviders {
@@ -155,13 +155,6 @@ func hostProvider(fields map[string]json.RawMessage) string {
 		}
 	}
 	return "local"
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // convertRow rewrites one profile row's old fields; it returns raw untouched when nothing in it is old.
@@ -242,7 +235,7 @@ func (d *legacyDoc) render() (string, error) {
 		cells := map[string]map[string]json.RawMessage{}
 		removed := map[string]bool{}
 		for _, r := range d.rows {
-			prov := cmpOr(r.provider, "local")
+			prov := cmp.Or(r.provider, "local")
 			if cells[prov] == nil {
 				provs = append(provs, prov)
 				cells[prov] = map[string]json.RawMessage{}
@@ -254,7 +247,7 @@ func (d *legacyDoc) render() (string, error) {
 				if _, dup := cells[prov][r.name]; !dup {
 					names[prov] = append(names[prov], r.name)
 				}
-				cells[prov][r.name] = cmpRaw(r.raw)
+				cells[prov][r.name] = providers.RawOrNull(r.raw)
 			}
 		}
 		outer := map[string]json.RawMessage{}
@@ -280,11 +273,4 @@ func (d *legacyDoc) render() (string, error) {
 		return "", err
 	}
 	return string(nd) + "\n", nil
-}
-
-func cmpRaw(raw json.RawMessage) json.RawMessage {
-	if raw == nil {
-		return json.RawMessage("null")
-	}
-	return raw
 }

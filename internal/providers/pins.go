@@ -40,8 +40,6 @@ const (
 	// PinGeminiModel is agy's own model (its `models` catalog, effort baked into the id); unset falls
 	// back to agent.AgyDefaultModel.
 	PinGeminiModel = "GEMINI_MODEL"
-	// PinOpencodeModel is opencode's own model; unset follows opencode's own default.
-	PinOpencodeModel = "OPENCODE_MODEL"
 )
 
 // isSlotPin reports whether key is CLAUDE_<TIER>_MODEL for a known tier.
