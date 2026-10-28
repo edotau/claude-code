@@ -58,7 +58,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Check binaries, providers, credentials, proxy | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
 | See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch); one launch: `claude-code --profile <p>` | pin lands in the vault (`claude-code vault list`) |
-| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` | env `CLAUDE_<TIER>_MODEL` beats the vault pin |
+| Pin models (`--dry-run` previews any pin change) | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` | pins are vault-only (`CLAUDE_<TIER>_MODEL`); `--model` beats them |
 | List what a provider serves | `claude-code models --live [--profile <p>]` | — |
 | Set a credential | `claude-code vault set [NAME]` (sealed in the vault; bare on a terminal = guided dialog), or `auth.command`; also `vault list\|get\|delete\|import\|export`, sources in `configure provider --list` | `README.md` → Credentials |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` (`--serve --port N` in the foreground) | `README.md` → Routing |
