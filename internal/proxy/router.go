@@ -654,6 +654,9 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte, hdr func(http.Header)) (*http.Response, error) {
 	ctx := in.Context()
 	do := func(credential string) (*http.Response, error) {
+		if n, ok := ctx.Value(attemptsKey{}).(*int); ok {
+			*n++
+		}
 		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
