@@ -226,51 +226,64 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 		b.WriteByte('\n')
 		return b.String()
 	}
-	var nested map[string]json.RawMessage
 	var top struct {
 		Providers map[string]json.RawMessage `json:"providers"`
 	}
 	_ = json.Unmarshal(raw, &top)
-	nested = top.Providers
+	nested := top.Providers
 	var blocks []string
-	if len(nested) > 0 {
-		var rows [][]string
-		presets := map[string][]string{} // preset → its env rows, shown as one row
-		presetOwner := map[string]string{}
-		for _, prov := range slices.Sorted(maps.Keys(nested)) {
-			if providers.IsNull(nested[prov]) { // "provider": null removes its built-ins
-				rows = append(rows, []string{prov, prov, "(removed)", "", "", "", "", ""})
-				continue
-			}
-			var profiles map[string]*providers.Provider
-			if err := json.Unmarshal(nested[prov], &profiles); err != nil {
-				rows = append(rows, []string{prov, prov, "error: " + err.Error(), "", "", "", "", ""})
-				continue
-			}
-			for _, name := range slices.Sorted(maps.Keys(profiles)) {
-				p := profiles[name]
-				if p == nil { // "name": null removes a built-in
-					rows = append(rows, []string{name, prov, "(removed)", "", "", "", "", ""})
-					continue
-				}
-				if p.Preset != "" {
-					presets[p.Preset] = append(presets[p.Preset], name)
-					presetOwner[p.Preset] = prov
-					continue
-				}
+	if rows := vaultProviderRows(nested); len(rows) > 0 {
+		head := []string{"NAME", "PROVIDER", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
+		head, cols, rows := vaultDropEmptyCols(head, providerColMax, rows)
+		blocks = append(blocks, vaultTable(head, cols, rows, width))
+	}
+	if lines := vaultProviderLines(reg); len(lines) > 0 {
+		blocks = append(blocks, strings.TrimPrefix(vaultSection("", lines, width), "\n"))
+	}
+	if len(blocks) == 0 {
+		b.WriteString("  (none)\n")
+	}
+	b.WriteString(strings.Join(blocks, "\n"))
+	return b.String()
+}
+
+// vaultProviderRows is the overlay's provider table rows: profiles, then presets as one row each, shown rows only.
+func vaultProviderRows(nested map[string]json.RawMessage) [][]string {
+	var rows [][]string
+	presets := map[string][]string{} // preset → its env rows, shown as one row
+	presetOwner := map[string]string{}
+	for _, prov := range slices.Sorted(maps.Keys(nested)) {
+		if providers.IsNull(nested[prov]) { // "provider": null removes its built-ins
+			rows = append(rows, []string{prov, prov, "(removed)", "", "", "", "", ""})
+			continue
+		}
+		var profiles map[string]*providers.Provider
+		if err := json.Unmarshal(nested[prov], &profiles); err != nil {
+			rows = append(rows, []string{prov, prov, "error: " + err.Error(), "", "", "", "", ""})
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(profiles)) {
+			p := profiles[name]
+			switch {
+			case p == nil: // "name": null removes a built-in
+				rows = append(rows, []string{name, prov, "(removed)", "", "", "", "", ""})
+			case p.Preset != "":
+				presets[p.Preset] = append(presets[p.Preset], name)
+				presetOwner[p.Preset] = prov
+			default:
 				rows = append(rows, []string{name, prov, p.Auth.Method(), p.Models["opus"], p.Models["sonnet"],
 					p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
 			}
 		}
-		for _, preset := range slices.Sorted(maps.Keys(presets)) {
-			rows = append(rows, []string{preset, presetOwner[preset], presetEnvs(presets[preset]), "", "", "", "", ""})
-		}
-		head := []string{"NAME", "PROVIDER", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
-		if rows = vaultShownRows(rows); len(rows) > 0 {
-			head, cols, rows := vaultDropEmptyCols(head, providerColMax, rows)
-			blocks = append(blocks, vaultTable(head, cols, rows, width))
-		}
 	}
+	for _, preset := range slices.Sorted(maps.Keys(presets)) {
+		rows = append(rows, []string{preset, presetOwner[preset], presetEnvs(presets[preset]), "", "", "", "", ""})
+	}
+	return vaultShownRows(rows)
+}
+
+// vaultProviderLines is the overlay's one-line settings (default, fallback, plugins, plan format) that are set.
+func vaultProviderLines(reg providers.Registry) [][2]string {
 	var lines [][2]string
 	if reg.Default != "" {
 		lines = append(lines, [2]string{"default", reg.Default})
@@ -284,14 +297,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	if reg.AgentPlanFormat != "" {
 		lines = append(lines, [2]string{"agent plan format", reg.AgentPlanFormat})
 	}
-	if len(lines) > 0 {
-		blocks = append(blocks, strings.TrimPrefix(vaultSection("", lines, width), "\n"))
-	}
-	if len(blocks) == 0 {
-		b.WriteString("  (none)\n")
-	}
-	b.WriteString(strings.Join(blocks, "\n"))
-	return b.String()
+	return lines
 }
 
 // vaultShownRows drops rows with no field past NAME/PROVIDER, and all rows when only removal markers remain.

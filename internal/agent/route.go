@@ -103,80 +103,120 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	}
 	current, _ := models.Alias(tier)
 	pins := providers.AgentPins()
-	legID := nonClaudeLegID(exact, explicitModel, pins[want].Model)
+	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
+		current: current, legID: nonClaudeLegID(exact, explicitModel, pins[want].Model),
+		explicitModel: explicitModel, native: native}
 	for _, cand := range pick.Candidates {
 		if nativeLead && cand.Agent == "opencode" {
 			continue
 		}
-		cell := cand.Cell
-		pinned := cand.Profile != "" && pins[cand.Agent].Profile == cand.Profile
-		switch {
-		case cand.Agent == "claude" && legID != "": // Claude's tier for a non-Claude leg: the lowest tier whose cell serves it
-			if t := lowestTierServing(tb, want, legID); t != "" {
-				if rc, ok := tb.Rows["claude"][t]; ok {
-					cell.Model, cell.Effort = rc.Model, rc.Effort
-				}
-			}
-		case pinned && cand.Agent == want && explicitModel && row == "" && cmp.Or(exact, callerModel) != "":
-			cell.Model = cmp.Or(exact, callerModel) // the caller's model, respelled for the pinned profile
-			if reg != nil && reg.Providers[cand.Profile] != nil {
-				cell.Model = reg.Providers[cand.Profile].WireModel(cell.Model)
-			}
-		case exact != "" && cand.Profile != "" && cand.Agent != "opencode": // a Databricks leg serves only its own cell's model
-			if id, _, ok := models.Resolve(cell.Model); !ok || id != exact {
-				c.Skipped = append(c.Skipped, cand.Agent+": serves no "+exact)
-				continue
-			}
-		case exact != "": // a non-Claude id runs only where a cell serves it
-			sc, ok := cellServing(tb, cand.Agent, exact)
-			if !ok && cand.Agent != want {
-				c.Skipped = append(c.Skipped, cand.Agent+": serves no "+exact)
-				continue
-			}
-			if ok {
-				cell.Model, cell.Effort = sc.Model, sc.Effort
-			}
-		case row != "" && row != current && cand.Agent != "opencode" && cand.Profile == "": // an older row runs its own cell
-			if rc, ok := tb.ByModel[row][cand.Agent]; ok {
-				cell.Model, cell.Effort = rc.Model, rc.Effort
-			}
+		cell, skip := rc.candidateCell(cand)
+		if skip != "" {
+			c.Skipped = append(c.Skipped, skip)
+			continue
 		}
-		leg := Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-		leg.keepCaller = cand.Agent == want && explicitModel && cand.Profile == ""
-		if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
-			leg.Model = cand.Profile + ":" + cell.Model
+		leg, skip, err := rc.buildLeg(cand, cell)
+		if err != nil {
+			return Chain{}, pick, err
 		}
-		switch {
-		case cand.Agent == "opencode" && cand.Profile != "" && reg != nil && reg.Providers[cand.Profile] != nil &&
-			(!native || cand.Agent != want): // a pinned registry row runs the hub leg on that profile, bare model
-			_, bare, ok := strings.Cut(cell.Model, "/")
-			if !ok {
-				bare = cell.Model
-			}
-			leg.Agent, leg.Model = watchFreeLeg(NewHubLeg("opencode", reg.Providers[cand.Profile], reg), cand.Billing), bare
-		case cand.Agent == "opencode" && (!native || cand.Agent != want):
-			r, model, err := hubLegFor(reg, cell.Model)
-			if err != nil {
-				c.Skipped = append(c.Skipped, "opencode: "+err.Error())
-				continue
-			}
-			leg.Agent, leg.Model = watchFreeLeg(r, cand.Billing), model
-		default:
-			r, err := Lookup(cand.Agent)
-			if err != nil {
-				return Chain{}, pick, err
-			}
-			leg.Agent = r
-			if cand.Agent == "claude" {
-				leg.Model = claudeCellModel(cell.Model)
-				if cand.Profile != "" { // keep the <profile>: spelling so the leg resolves on that profile
-					leg.Model = cand.Profile + ":" + leg.Model
-				}
-			}
+		if skip != "" {
+			c.Skipped = append(c.Skipped, skip)
+			continue
 		}
 		c.Legs = append(c.Legs, leg)
 	}
 	return c, pick, nil
+}
+
+// routeCtx is the per-pick state routeChain's candidate helpers share.
+type routeCtx struct {
+	tb                            *router.Table
+	reg                           *providers.Registry
+	pins                          map[string]providers.AgentPinSpec
+	want, row, exact, callerModel string
+	current, legID                string
+	explicitModel, native         bool
+}
+
+// candidateCell is the cell cand runs, adjusted for the pick's row or exact model; skip is non-empty when cand serves none.
+func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
+	cell = cand.Cell
+	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
+	switch {
+	case cand.Agent == "claude" && rc.legID != "": // Claude's tier for a non-Claude leg: the lowest tier whose cell serves it
+		rc.claudeTierCell(&cell)
+	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
+		cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
+		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
+			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
+		}
+	case rc.exact != "" && cand.Profile != "" && cand.Agent != "opencode": // a Databricks leg serves only its own cell's model
+		if id, _, ok := models.Resolve(cell.Model); !ok || id != rc.exact {
+			return cell, cand.Agent + ": serves no " + rc.exact
+		}
+	case rc.exact != "": // a non-Claude id runs only where a cell serves it
+		sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
+		if !ok && cand.Agent != rc.want {
+			return cell, cand.Agent + ": serves no " + rc.exact
+		}
+		if ok {
+			cell.Model, cell.Effort = sc.Model, sc.Effort
+		}
+	case rc.row != "" && rc.row != rc.current && cand.Agent != "opencode" && cand.Profile == "": // an older row runs its own cell
+		if oc, ok := rc.tb.ByModel[rc.row][cand.Agent]; ok {
+			cell.Model, cell.Effort = oc.Model, oc.Effort
+		}
+	}
+	return cell, ""
+}
+
+// claudeTierCell points cell at claude's lowest tier serving the non-Claude leg model.
+func (rc routeCtx) claudeTierCell(cell *router.Cell) {
+	t := lowestTierServing(rc.tb, rc.want, rc.legID)
+	if t == "" {
+		return
+	}
+	if tc, ok := rc.tb.Rows["claude"][t]; ok {
+		cell.Model, cell.Effort = tc.Model, tc.Effort
+	}
+}
+
+// buildLeg turns cand's cell into a leg; skip is non-empty when the leg cannot run, err when its agent is unknown.
+func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
+	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
+	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == ""
+	if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
+		leg.Model = cand.Profile + ":" + cell.Model
+	}
+	hubOpencode := cand.Agent == "opencode" && (!rc.native || cand.Agent != rc.want)
+	switch {
+	case hubOpencode && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
+		// a pinned registry row runs the hub leg on that profile, bare model
+		_, bare, ok := strings.Cut(cell.Model, "/")
+		if !ok {
+			bare = cell.Model
+		}
+		leg.Agent, leg.Model = watchFreeLeg(NewHubLeg("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
+	case hubOpencode:
+		r, model, err := hubLegFor(rc.reg, cell.Model)
+		if err != nil {
+			return leg, "opencode: " + err.Error(), nil
+		}
+		leg.Agent, leg.Model = watchFreeLeg(r, cand.Billing), model
+	default:
+		r, err := Lookup(cand.Agent)
+		if err != nil {
+			return leg, "", err
+		}
+		leg.Agent = r
+		if cand.Agent == "claude" {
+			leg.Model = claudeCellModel(cell.Model)
+			if cand.Profile != "" { // keep the <profile>: spelling so the leg resolves on that profile
+				leg.Model = cand.Profile + ":" + leg.Model
+			}
+		}
+	}
+	return leg, "", nil
 }
 
 // nonClaudeLegID is the canonical non-Claude model the leg runs: the exact --model, else the wanted agent's model pin.
