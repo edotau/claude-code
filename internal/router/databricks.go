@@ -19,10 +19,8 @@ func DatabricksResponses(reg *providers.Registry) (profile, model string, ok boo
 	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe("codex", p) || !providers.CredentialPresent(p) {
 		return "", "", false
 	}
-	for _, m := range providers.OpencodeMenu() {
-		if m.Responses {
-			return profile, p.WireModel(m.ID), true
-		}
+	if model = providers.FirstResponsesModel(p); model != "" {
+		return profile, model, true
 	}
 	return "", "", false
 }
