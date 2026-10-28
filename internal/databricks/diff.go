@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -43,61 +45,72 @@ func maskPair(o, n any, secret bool, key string) (any, any) {
 	om, ook := o.(map[string]any)
 	nm, nok := n.(map[string]any)
 	if ook || nok {
-		oo, nn := map[string]any{}, map[string]any{}
-		for k, v := range om {
-			oo[k] = v
-		}
-		for k, v := range nm {
-			nn[k] = v
-		}
-		for k := range oo {
-			ov, nv := oo[k], any(nil)
-			if v, ok := nn[k]; ok {
-				nv = v
-			}
-			ov, nv = maskPair(ov, nv, secret || strings.EqualFold(k, "headers"), k)
-			oo[k] = ov
-			if _, ok := nn[k]; ok {
-				nn[k] = nv
-			}
-		}
-		for k := range nn {
-			if _, ok := oo[k]; ok {
-				continue
-			}
-			_, nv := maskPair(nil, nn[k], secret || strings.EqualFold(k, "headers"), k)
-			nn[k] = nv
-		}
-		if !ook {
-			return o, nn
-		}
-		if !nok {
-			return oo, n
-		}
-		return oo, nn
+		return maskMaps(o, n, om, nm, ook, nok, secret)
 	}
 	oa, ook := o.([]any)
 	na, nok := n.([]any)
 	if ook || nok {
-		oo, nn := make([]any, len(oa)), make([]any, len(na))
-		for i := range max(len(oa), len(na)) {
-			var ov, nv any
-			if i < len(oa) {
-				ov = oa[i]
-			}
-			if i < len(na) {
-				nv = na[i]
-			}
-			ov, nv = maskPair(ov, nv, secret, key)
-			if i < len(oa) {
-				oo[i] = ov
-			}
-			if i < len(na) {
-				nn[i] = nv
-			}
-		}
-		return oo, nn
+		return maskSlices(oa, na, secret, key)
 	}
+	return maskLeaf(o, n, secret, key)
+}
+
+// maskMaps masks two objects key by key; a side that is not an object is returned as it came.
+func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool) (any, any) {
+	oo, nn := map[string]any{}, map[string]any{}
+	maps.Copy(oo, om)
+	maps.Copy(nn, nm)
+	for k := range oo {
+		ov, nv := oo[k], any(nil)
+		if v, ok := nn[k]; ok {
+			nv = v
+		}
+		ov, nv = maskPair(ov, nv, secret || strings.EqualFold(k, "headers"), k)
+		oo[k] = ov
+		if _, ok := nn[k]; ok {
+			nn[k] = nv
+		}
+	}
+	for k := range nn {
+		if _, ok := oo[k]; ok {
+			continue
+		}
+		_, nv := maskPair(nil, nn[k], secret || strings.EqualFold(k, "headers"), k)
+		nn[k] = nv
+	}
+	if !ook {
+		return o, nn
+	}
+	if !nok {
+		return oo, n
+	}
+	return oo, nn
+}
+
+// maskSlices masks two arrays element by element.
+func maskSlices(oa, na []any, secret bool, key string) (any, any) {
+	oo, nn := make([]any, len(oa)), make([]any, len(na))
+	for i := range max(len(oa), len(na)) {
+		var ov, nv any
+		if i < len(oa) {
+			ov = oa[i]
+		}
+		if i < len(na) {
+			nv = na[i]
+		}
+		ov, nv = maskPair(ov, nv, secret, key)
+		if i < len(oa) {
+			oo[i] = ov
+		}
+		if i < len(na) {
+			nn[i] = nv
+		}
+	}
+	return oo, nn
+}
+
+// maskLeaf masks a string pair under a credential key and marks a differing new value changed.
+func maskLeaf(o, n any, secret bool, key string) (any, any) {
 	if !secret && !credLeaf(key) {
 		return o, n
 	}
@@ -165,8 +178,8 @@ func diffLines(a, b []string) []edit {
 	for i := range lcs {
 		lcs[i] = make([]int, len(b)+1)
 	}
-	for i := len(a) - 1; i >= 0; i-- {
-		for j := len(b) - 1; j >= 0; j-- {
+	for i := range slices.Backward(a) {
+		for j := range slices.Backward(b) {
 			if a[i] == b[j] {
 				lcs[i][j] = lcs[i+1][j+1] + 1
 			} else {

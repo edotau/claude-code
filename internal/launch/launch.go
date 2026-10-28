@@ -40,6 +40,17 @@ type Options struct {
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
 }
 
+// flagValue is the value of the flag at args[i]: val when inline (--flag=val), else the next arg and its index.
+func flagValue(args []string, i int, name, val string, hasVal bool) (string, int, error) {
+	if hasVal {
+		return val, i, nil
+	}
+	if i+1 >= len(args) {
+		return "", i, fmt.Errorf("%s needs a value", name)
+	}
+	return args[i+1], i + 1, nil
+}
+
 // ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
 func ParseArgs(args []string, claude bool) (Options, []string, error) {
 	var o Options
@@ -54,12 +65,9 @@ func ParseArgs(args []string, claude bool) (Options, []string, error) {
 		case a == "--":
 			return o, append(rest, args[i+1:]...), nil
 		case name == "--profile" || name == "--model":
-			if !hasVal {
-				if i+1 >= len(args) {
-					return o, nil, fmt.Errorf("%s needs a value", name)
-				}
-				i++
-				val = args[i]
+			var err error
+			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
+				return o, nil, err
 			}
 			if name == "--profile" {
 				o.Provider = val
@@ -71,21 +79,15 @@ func ParseArgs(args []string, claude bool) (Options, []string, error) {
 		case a == "--print-env":
 			o.PrintEnv = true
 		case (name == "-f" || name == "--file") && !claude:
-			if !hasVal {
-				if i+1 >= len(args) {
-					return o, nil, fmt.Errorf("%s needs a value", name)
-				}
-				i++
-				val = args[i]
+			var err error
+			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
+				return o, nil, err
 			}
 			o.File = val
 		case name == "--keep-env":
-			if !hasVal {
-				if i+1 >= len(args) {
-					return o, nil, fmt.Errorf("%s needs a value", name)
-				}
-				i++
-				val = args[i]
+			var err error
+			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
+				return o, nil, err
 			}
 			o.KeepEnv = append(o.KeepEnv, strings.Split(val, ",")...)
 		default:

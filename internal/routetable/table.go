@@ -113,51 +113,73 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 		copilotKey = "github·" + ghUser
 	}
 	t.Billing[copilotKey] = t.Billing["github·copilot"]
-	if reg != nil {
-		for runner, rows := range reg.Routing.Cells {
-			for key, o := range rows {
-				id, err := t.applyRouteOverlayCell(runner, key, o)
-				if err != nil {
-					return nil, err
-				}
-				if tier := rowTier(id); runner == "opencode" && tier != "" {
-					t.OpencodeRowOverridden[tier] = true
-				}
-			}
-		}
-		if len(reg.Routing.Weights) > 0 {
-			t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
-		}
-		t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
-		t.OpencodeRouting = reg.Routing.Opencode
+	if err := t.applyRegistry(reg); err != nil {
+		return nil, err
 	}
 	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
 		return nil, fmt.Errorf("routetable: %w", err)
 	}
+	t.indexRows(copilotKey)
+	t.OpencodeSub = opencodeSubTiers(f.OpencodeSub)
+	return &t, nil
+}
+
+// applyRegistry applies the registry's route overlay, weights and opencode ladder; a nil registry changes nothing.
+func (t *Table) applyRegistry(reg *providers.Registry) error {
+	if reg == nil {
+		return nil
+	}
+	for runner, rows := range reg.Routing.Cells {
+		for key, o := range rows {
+			id, err := t.applyRouteOverlayCell(runner, key, o)
+			if err != nil {
+				return err
+			}
+			if tier := rowTier(id); runner == "opencode" && tier != "" {
+				t.OpencodeRowOverridden[tier] = true
+			}
+		}
+	}
+	if len(reg.Routing.Weights) > 0 {
+		t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
+	}
+	t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
+	t.OpencodeRouting = reg.Routing.Opencode
+	return nil
+}
+
+// indexRows stamps copilot's account key on every row and builds the per-tier Rows view.
+func (t *Table) indexRows(copilotKey string) {
 	t.Rows = map[string]map[string]Cell{}
 	for id, byRunner := range t.ByModel {
 		c := byRunner["copilot"]
 		c.Account = copilotKey
 		byRunner["copilot"] = c
-		if tier := rowTier(id); tier != "" {
-			for runner, cell := range byRunner {
-				if t.Rows[runner] == nil {
-					t.Rows[runner] = map[string]Cell{}
-				}
-				t.Rows[runner][tier] = cell
+		tier := rowTier(id)
+		if tier == "" {
+			continue
+		}
+		for runner, cell := range byRunner {
+			if t.Rows[runner] == nil {
+				t.Rows[runner] = map[string]Cell{}
 			}
+			t.Rows[runner][tier] = cell
 		}
 	}
-	t.OpencodeSub = map[string]map[string]Cell{}
-	for sub, rows := range f.OpencodeSub {
-		t.OpencodeSub[sub] = map[string]Cell{}
+}
+
+// opencodeSubTiers re-keys each opencode sub-candidate's rows by tier.
+func opencodeSubTiers(subs map[string]map[string]Cell) map[string]map[string]Cell {
+	out := map[string]map[string]Cell{}
+	for sub, rows := range subs {
+		out[sub] = map[string]Cell{}
 		for id, cell := range rows {
 			if tier := rowTier(id); tier != "" {
-				t.OpencodeSub[sub][tier] = cell
+				out[sub][tier] = cell
 			}
 		}
 	}
-	return &t, nil
+	return out
 }
 
 // applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][runner] and returns the row id.
