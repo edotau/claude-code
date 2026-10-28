@@ -5,10 +5,12 @@ one Go binary, `claude-code`, plus the agents, commands, rules, skills and Workf
 
 What it adds to a stock install:
 
-- **Provider registry** — Anthropic, Claude/ChatGPT/Copilot subscriptions, OpenAI, Gemini, Nvidia, Ollama or any
-  gateway; tier slots (opus/sonnet/haiku/fable) map to model ids per provider.
-- **Loopback router** — OpenAI-dialect translation, per-tier provider mixing, failover on 429/5xx.
-- **Agent runners** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`ask`), interactive CLIs (`run`).
+- **Provider registry** — Anthropic (Claude login or API key), Databricks, OpenAI (ChatGPT login or API key),
+  GitHub Copilot, Google (Antigravity), NVIDIA or any custom endpoint; tiers (opus/sonnet/haiku/fable) map to model
+  ids per profile.
+- **Loopback proxy** — OpenAI-dialect translation, per-tier provider mixing, failover on 429/5xx.
+- **Agents** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`ask`), or their interactive CLIs
+  (`claude-code <agent>`).
 - **Hooks, memory, status line** — a Bash safety gate, a per-repo memory bank, format-on-stop, context checkpoint.
 
 Every verb takes `--help`; `claude-code describe` maps the whole harness.
@@ -18,22 +20,22 @@ Every verb takes `--help`; `claude-code describe` maps the whole harness.
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link vendor CLIs into bin/, render settings.json, add linters (DEV_TOOLS=0 skips)
-claude-code doctor            # check binaries, providers, credentials, router
+make install                  # build, link agent CLIs into bin/, render settings.json, add linters (DEV_TOOLS=0 skips)
+claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
   (`CHECK=1` runs `configure --check` instead; `TAILSCALE=1` adds tailscale).
 - `claude-code install --dry-run` previews; foreign hooks in `settings.json` are kept, with a timestamped backup.
-- A missing vendor CLI is reported, never downloaded; `install --tools=<name>` installs it.
-- `bin/<vendor>` is the real, unrouted CLI. Routed launches go through `claude-code <vendor>`.
+- A missing agent CLI is reported, never downloaded; `install --tools=<name>` installs it.
+- `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
 ![claude-code help menu](docs/images/cli-menu.svg)
 
 ```bash
 claude-code opus        # Claude Code with opus as the main model (also sonnet | haiku | fable)
-claude-code codex       # a vendor CLI through the registry (also gemini | opencode | copilot)
-claude-code ollama      # Claude Code on that registered provider
+claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
+claude-code qa          # Claude Code on that registry profile
 claude-code --resume    # a leading flag passes to claude, on the session provider
 ```
 
@@ -41,27 +43,27 @@ claude-code --resume    # a leading flag passes to claude, on the session provid
 
 ```bash
 claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
-claude-code configure models          # one section (provider|models|agents|router|github|remote|browser|claude|doctor)
+claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|claude|routing|databricks|doctor)
 claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
 claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --reset [--out f|--check|--dry-run]   # render settings + vendor configs
-claude-code configure --restore [--agent a,b]       # restore vendor configs from backup
+claude-code configure --reset [--out f|--check|--dry-run]   # render settings + agent CLI configs
+claude-code configure --restore [--agent a,b]       # restore agent CLI configs from backup
 claude-code theme vscode [--check|--dry-run]             # merge VS Code settings + keybindings
 ```
 
-- `configure` reuses what already exists (env, vault, vendor logins) and prompts only for what is missing.
+- `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
 - **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
-- Vendor configs are merged, never replaced: `~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
+- Agent CLI configs are merged, never replaced: `~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
   Codex/Copilot hooks. Keys are referenced by env var, exported only by a routed launch. opencode's own
   `~/.config/opencode/` is never written (its model/MCP/theme come from a tracked overlay, `OPENCODE_CONFIG` /
   `OPENCODE_TUI_CONFIG`, injected at launch — `internal/vendors/template/`).
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
-  timestamped backups; `configure --restore` steps a vendor file back one version at a time.
+  timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
 - From a worktree, render only that checkout:
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"`
-  (vendor homes are skipped unless `--vendors`).
+  (agent CLI homes are skipped unless `--vendors`).
 
 ### Setup modes: adopt, nuke, workspace
 
@@ -75,18 +77,20 @@ claude-code install --setup workspace init|link|status                # scope a 
 ## Providers
 
 Built-ins live in `internal/providers/defaults.json`. `claude-code vault edit` overlays them **by name** (an entry
-replaces the built-in; `null` removes it).
+replaces the built-in; `null` removes it). Each entry is a **profile** (an account on a provider: `qa`,
+`subscription`, `chatgpt`); today's flags and pins still call it a provider (`--provider qa`, `HARNESS_PROVIDER`), see
+[Naming](#naming).
 
 ```jsonc
 "providers": {
-  "default": "gateway",
-  "fallback": ["gateway", "anthropic"],         // 429/5xx ladder (implies the router)
+  "default": "example",
+  "fallback": ["example", "anthropic"],         // 429/5xx ladder (implies the proxy)
   "providers": {
-    "gateway": {
+    "example": {
       "kind": "anthropic",                       // dialect base_url speaks
       "base_url": "https://llm.example.com",
-      "routes": {"openai": "/v1"},               // extra dialects on the same gateway
-      "auth": {"type": "bearer", "env": "GATEWAY_API_KEY"},
+      "routes": {"openai": "/v1"},               // extra dialects on the same endpoint
+      "auth": {"type": "bearer", "env": "EXAMPLE_API_KEY"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "gpt-5-nano"},
       "one_m": true                              // adds [1m] to Claude ids
     },
@@ -98,37 +102,37 @@ replaces the built-in; `null` removes it).
 | Field | Meaning |
 | --- | --- |
 | `kind` | `anthropic` · `openai` · `responses` · `gemini` |
-| `auth.type` | `x-api-key` · `bearer` · `none` · `passthrough` (subscription OAuth; `auth.login` names the vendor CLI) |
-| `models` | slot → model id |
+| `auth.type` | `x-api-key` · `bearer` · `none` · `passthrough` (subscription OAuth; `auth.login` names the agent CLI) |
+| `models` | tier → model id |
 | `headers` | sent on every upstream request |
 
 ```bash
 claude-code configure provider --list [name]        # providers, credential state, fallback ladder
 claude-code configure provider --all [<profile>]    # check every sign-in (or one); offers login on a terminal
                                                     # --check exits 1 if any not ok
-claude-code switch gateway                          # pin the session provider
-claude-code models --pin haiku=openai:gpt-5-nano    # pin a slot; provider:model crosses providers
+claude-code switch example                          # pin the session profile
+claude-code models --pin haiku=openai:gpt-5-nano    # pin a tier; provider:model crosses providers
 claude-code models --unpin | --live --provider p    # clear pins | list what upstream serves
-claude-code --provider gateway --model claude-sonnet-5   # this launch only
+claude-code --provider example --model claude-sonnet-5   # this launch only
 ```
 
-Precedence: `--provider` → `HARNESS_PROVIDER` → registry `default`. Slot: `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` →
-the provider's `models`. Process env beats vault pins.
+Precedence: `--provider` → `HARNESS_PROVIDER` → registry `default`. Tier: `HARNESS_<SLOT>_MODEL` → `HARNESS_MODEL` →
+the profile's `models`. Process env beats vault pins.
 
 ### Vault: `claude-code vault list|edit`
 
-`state/vault.db` holds pins, custom launch env, provider/vendor overlays and `key_command` as one JSON document, plus
-sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it.
+`state/vault.db` holds pins, custom launch env, provider/agent overlays (`providers`, `vendors`) and `key_command` as
+one JSON document, plus sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear
+in it.
 
 `vault list` hides empty sections (`--format json` keeps all), shows secrets as `<prefix>***  N chars`, caps column
-widths
-and marks failing entries with ✗ first.
+widths and marks failing entries with ✗ first.
 
 ```jsonc
 {
   "pins": {"HARNESS_PROVIDER": "anthropic", "HARNESS_HAIKU_MODEL": "openai:gpt-5-nano"},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
-  "providers": {"default": "gateway"},
+  "providers": {"default": "example"},
   "vendors": {"vendors": {"codex": {"permission": {"approvalPolicy": "on-failure"}}}},
   "vault": {"key_command": ""}
 }
@@ -144,7 +148,7 @@ First non-empty source wins:
 4. **`auth.command`** — prints the credential; cached `auth.ttl` seconds (default 300), re-run on 401
 
 ```json
-"auth": {"type": "bearer", "command": "op read op://Private/gateway/credential", "ttl": 3600}
+"auth": {"type": "bearer", "command": "op read op://Private/example/credential", "ttl": 3600}
 ```
 
 `claude-code token --provider <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
@@ -158,19 +162,19 @@ claude-code configure provider --list  # credential sources; never prints values
 claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 ```
 
-Databricks: only `u2m` and `pat` credentials are stored, sealed in the vault, plus the u2m access token cached as
-`PROVIDER_<ID>_ACCESS_TOKEN`. `oauth-m2m` tokens are minted per use and never stored; the SP client secret stays sealed.
+Databricks: the u2m refresh token (`PROVIDER_<ID>_REFRESH_TOKEN`) and `pat` credentials are sealed in the vault, plus
+the u2m access token cached as `PROVIDER_<ID>_ACCESS_TOKEN`. `oauth-m2m` tokens are minted per use and never stored;
+the SP client secret stays sealed (`PROVIDER_<ID>_CLIENT_SECRET`). Planned renames: [Naming](#naming).
 
 `claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s] [--dry-run]` prints the auth type, length and
-expiry,
-never the token. `--copy` puts it on the clipboard and clears it after 30s; on WSL the copy stays out of Win+V history.
+expiry, never the token. `--copy` puts it on the clipboard and clears it after 30s; on WSL the copy stays out of Win+V
+history.
 
 `claude-code configure` → databricks: Login / Paste PAT / Mint now / Copy token / Apply to agents.
 `configure databricks --check` gives the same information without the TUI.
 
 `claude-code databricks check --1m [--env qa]` passes only when the endpoint reports real `input_tokens` > 200k,
-printing
-`1m PASS (input_tokens=N)`. It writes no config: `one_m` on a Databricks profile stays a manual vault setting.
+printing `1m PASS (input_tokens=N)`. It writes no config: `one_m` on a Databricks profile stays a manual vault setting.
 
 Clipboard gaps: macOS clipboard managers and Universal Clipboard can keep a copy; a killed clear process leaves the
 token; headless Linux has no clipboard.
@@ -179,12 +183,82 @@ token; headless Linux has no clipboard.
 
 32 random bytes, resolved in order: `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a JSON
 argv run without a shell). No key file is written. Headless boxes set `HARNESS_VAULT_KEY` or `key_command`.
-`HARNESS_VAULT_KEY` is scrubbed from vendor CLI children. `vault rotate-secret` re-seals and keeps old keys.
+`HARNESS_VAULT_KEY` is scrubbed from agent CLI children. `vault rotate-secret` re-seals and keeps old keys.
+
+## Naming
+
+> **Planned (plan 3 Phase 6).** This is the agreed standard; the code still uses the "Today" names below until that
+> rename lands in one breaking pass.
+
+| Term | Means | Values |
+| --- | --- | --- |
+| agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
+| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` `nvidia` |
+| profile | an account on a provider; carries billing | unique across all providers, `[a-z0-9-]`, opaque to code |
+| auth | how a profile proves who it is | `oauth` `m2m` `pat` `key` `cli` `none` |
+| model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
+| proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway router` |
+
+`oauth` = a user login whose token the harness holds; `m2m` = a service-principal secret; `pat` = personal access
+token; `key` = API key; `cli` = the agent's own CLI verified the user (an optional headless token may be sealed);
+`none` = no credential. Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier
+(→ model alias), leg (→ dispatch), family (→ provider). `gateway` names the verb namespace only; the Databricks wire
+is `ai-gateway`.
+
+| Surface | Form | Example |
+| --- | --- | --- |
+| Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
+| Flags | `--profile <profile>` · `--model <tier\|version\|wire id>` | `--profile dev --model opus` |
+| Pins (vault only) | `<AGENT>_<FIELD>` | `CLAUDE_PROFILE`, `CLAUDE_OPUS_MODEL`, `COPILOT_PROFILE`, `GEMINI_MODEL` |
+| Registry | profiles nested under their provider | `providers: {databricks: {qa: {…}}, anthropic: {max: {…}}}` |
+| Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
+| Route account key | `<provider>·<profile>` | `anthropic·max` |
+| Header | optional `auth.header` (`x-api-key` \| `bearer`); defaults from the kind | — |
+
+Rules: one vault entry per profile (an `oauth` entry seals `{refresh, access}` together); pins are read from the vault,
+never from inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`, `COPILOT_*`) is never renamed, only
+exported at launch; model ids are built per provider from the canonical form (`opus-5-5` → `claude-opus-5-5`,
+`databricks-claude-opus-5-5`, `system.ai.claude-opus-5-5`, `claude-opus-5.5`); code never parses a profile name, so
+renaming one moves its row and re-seals its vault entry, nothing else.
+
+| Provider | Profile | Auth | Vault entry |
+| --- | --- | --- | --- |
+| anthropic | `max` · `anthropic` | `cli` · `key` | `ANTHROPIC_MAX_OAUTH` (optional; exports `CLAUDE_CODE_OAUTH_TOKEN`) · `ANTHROPIC_KEY` |
+| databricks | `dev`, `qa`, `prod` · service principals (named later) | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
+| github | `personal`, `work` (login is a row field) | `oauth` | `GITHUB_PERSONAL_OAUTH` (exports `COPILOT_GITHUB_TOKEN`) |
+| openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
+| google | `antigravity` | `cli` | none |
+| nvidia | `nvidia` | `key` | `NVIDIA_KEY` |
+
+opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
+
+Status line: a minted-token countdown reads `<auth>:42m` (`oauth:42m`); the token count reads `total:1.23M` (main
+session plus every finished dispatch, 2-3 significant figures, a trailing `+` while dispatches still run).
+
+| Today | Standard |
+| --- | --- |
+| `--provider qa`, `HARNESS_PROVIDER` | `--profile qa`, `CLAUDE_PROFILE` |
+| `--model dev:opus` | `--profile dev --model opus` |
+| `databricks … --env qa` · `databricks import --file … --profile …` | `--profile qa` · `--dbxcfg <path>` (section flag removed) |
+| `claude-code --router`, `token --router` · `gateway route --tier` | removed · `token --proxy` · `gateway router --model` |
+| `profile use\|save\|off\|migrate` (per-agent sets) | removed; per-agent pins `<AGENT>_PROFILE`, `<AGENT>_MODEL`, `<AGENT>_EFFORT` |
+| `ask --agent api` | a claude mode |
+| `HARNESS_MODEL`, `HARNESS_<SLOT>_MODEL` | `CLAUDE_MODEL`, `CLAUDE_<TIER>_MODEL` |
+| `COPILOT_GITHUB_USER`, `GEMINI_AGENT_MODEL`, `COPILOT_CONTEXT_TIER` | `COPILOT_PROFILE`, `GEMINI_MODEL`, `COPILOT_CONTEXT` |
+| `CODEX_/COPILOT_REASONING_EFFORT` · `HARNESS_CODEX_API_KEY`, `HARNESS_OPENCODE_API_KEY` | `CODEX_/COPILOT_EFFORT` · vendor names only |
+| profiles `subscription`, `github-copilot`, `gemini` | `max`, `personal`, `antigravity` |
+| `auth.type` `passthrough` / `x-api-key` / `bearer` · `auth.authType` `u2m` / `oauth-m2m` / `pat` | `auth.type` `cli` / `key` + `auth.header` · `oauth` / `m2m` / `pat` |
+| `options.wire` `gateway` | `ai-gateway` |
+| `PROVIDER_PROD_ACCESS_TOKEN` + `PROVIDER_PROD_REFRESH_TOKEN` · `PROVIDER_<PROFILE>_CLIENT_SECRET` | `DATABRICKS_PROD_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `COPILOT_GITHUB_TOKEN` (vault) | `ANTHROPIC_MAX_OAUTH`, `ANTHROPIC_KEY`, `GITHUB_PERSONAL_OAUTH` |
+| route keys `claude:max`, `copilot:edotau`, `codex:chatgpt` | `anthropic·max`, `github·personal`, `openai·chatgpt` |
+| `providers.Group()` host inference, `"opensource"` | the registry's provider key |
+| `tok:42m` countdown · `~46k tok` count (off by default) · segment `router` | `oauth:42m` · `total:46.0k` · `proxy` |
 
 ## Routing
 
-`claude` launches **direct** when the provider speaks `anthropic`, every slot stays on it, and no `fallback` is set.
-Otherwise it goes through the **loopback router** (`127.0.0.1:18765`, started on demand), which:
+`claude` launches **direct** when the provider speaks `anthropic`, every tier stays on it, and no `fallback` is set.
+Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, started on demand), which:
 
 1. requires a per-install client secret and a loopback `Host`;
 2. resolves `model` (`id` or `provider:model`) and strips `[1m]`;
@@ -196,13 +270,14 @@ Otherwise it goes through the **loopback router** (`127.0.0.1:18765`, started on
    the limit text.
 
 Provider hostnames resolving into the local network are refused (a literal IP or `localhost` in `base_url` is allowed).
-The router disables Remote Control, so a subscription session stays direct under a `fallback` ladder; a
-cross-provider slot or `--router` still routes it.
+The proxy disables Remote Control, so a subscription session stays direct under a `fallback` ladder; a
+cross-provider tier or `--router` still sends it through the proxy.
 
 ```bash
-claude-code gateway proxy --start|--stop|--status
-claude-code gateway proxy --serve --port 18765   # foreground
-claude-code --router                    # force the router for one launch
+claude-code gateway proxy [--start|--stop|--status]   # bare = --status
+claude-code gateway proxy --serve --port 18765        # foreground
+claude-code gateway route [--tier T] [--task "<text>"]   # agent + model pick (becomes `gateway router --model`)
+claude-code --router                                  # force the proxy for one launch (planned removal)
 ```
 
 ## Tailscale
@@ -222,7 +297,7 @@ claude-code network tailscale [--machines|--connect|--key [--save]|--exit-node o
 
 ```bash
 claude-code worktree list|create <name>|clean <name>|clean-all   # ~/worktrees/<repo>/*; never forces a removal
-claude-code agents tree [--watch]          # sessions → subagents → workflows, with vendor legs and fallbacks
+claude-code agents tree [--watch]          # sessions → subagents → workflows, with agent dispatches and fallbacks
 claude-code agents tree --running          # only what runs now, machine-wide: sessions, subagents, dispatch jobs
 claude-code agents reap [--dry-run]        # mark lost dispatch jobs `error`, drop dead agent-inflight markers
 claude-code network view <agentId> [--follow]  # one agent's snapshot or live events
@@ -235,24 +310,24 @@ claude-code network websearch --query q           # Tavily one-shot (bare = stdi
 ## Agents
 
 ```bash
-claude-code agents                                     # runners and availability
+claude-code agents                                     # agents and availability
 claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
 claude-code opencode --provider ollama --model qwen3-coder   # interactive; -- forces passthrough
-claude-code codex review --adversarial --base main     # per-vendor verbs; claude-code codex -h lists them
+claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
-claude-code agents sync [--dry-run|--check]            # project agents/ + CLAUDE.md into every vendor
+claude-code agents sync [--dry-run|--check]            # project agents/ + CLAUDE.md into every agent CLI
 claude-code usage --days 7                             # subagent token usage; copilot on BYOK = databricks/<model>
 ```
 
-- Copilot legs follow the session's profile through the router (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no Copilot
-  credits); `--model <profile>:<tier>` picks a tier on another profile. The GitHub login is used only when the
+- Copilot dispatches follow the session's profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
+  Copilot credits); `--model <profile>:<tier>` picks a tier on another profile. The GitHub login is used only when the
   `COPILOT_GITHUB_USER` pin has credits verified < 95%; else it falls back to the Databricks profile (never the other
   GitHub account) and prints `copilot: <user> N% of credits used — using databricks profile <p>`. Usage rows read
   `databricks/<model>` (BYOK, no credits) vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
-- Without `--tools`, runners are read-only. Gemini runs only on `agy` and its Google sign-in.
+- Without `--tools`, agents are read-only. Gemini runs only on `agy` and its Google sign-in.
 - `gemini bridge` inlines tracked files only and always skips `.env*`, `state/`, keys.
-- `agents sync` renders under `state/projections/<vendor>/`, installs into `~/.codex`, `~/.copilot`, `~/.gemini`,
+- `agents sync` renders under `state/projections/<agent>/`, installs into `~/.codex`, `~/.copilot`, `~/.gemini`,
   `~/.config/opencode`, and links `skills/` into `~/.agents/skills`. No AGENTS.md lives at this root (Claude Code would
   load it as a second CLAUDE.md).
 - In-session fan-out: `agents/` subagents and `workflows/` scripts — see `rules/workflow/master-workflow.md`.
@@ -324,10 +399,11 @@ claude-code theme [--preview] | apply     # statusline palette; whole look acros
 ## Status line
 
 `claude-code theme statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows
-`<provider>·<profile> · <model>` (provider before model), router,
-context %, tokens, duration and git state, plus the 5h/weekly rate limits (`5h:N% 7d:N%`);
-`segments.agents` adds `N ◉` agents running (main thread + subagents + this session's dispatch legs), and
-`gradientEase` (<1) reaches the ramp's end sooner.
+`<provider>·<profile> · <model>` (provider before model), context % and git state, plus either the 5h/weekly rate
+limits (`5h:N% 7d:N%`) or, on a profile whose token the harness mints, its time left (`tok:42m`). Off by default and
+enabled under `segments`: `router` (proxy state), `tokens` (`~46k tok`, this session's count), `duration`, `session`,
+and `agents` (`N ◉` agents running: main thread + subagents + this session's dispatches). `gradientEase` (<1) reaches
+the ramp's end sooner.
 Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout
@@ -338,7 +414,7 @@ internal/            cli (verb table) · providers · router · translate · lau
 agents/ commands/ rules/ skills/ workflows/   loaded by Claude Code
 state/vault.db       pins, env, overlays, sealed secrets (untracked)
 memory/              the memory store (its own local git repo)
-.memory-cache/       harness backups (*.bak-*), shadow config history, vendor caches (untracked)
+.memory-cache/       harness backups (*.bak-*), shadow config history, agent CLI caches (untracked)
 plans/               implementation plans (untracked)
 docs/templates/      index of every embedded (`//go:embed`) template, with rendered examples
 ```
@@ -353,13 +429,13 @@ Rows `CLAUDE.md` points here for.
 | Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
 | Sync VS Code settings | `claude-code theme vscode [--check\|--dry-run]` |
 | Bash tab completion | `claude-code completion --install` |
-| Add a gateway provider | `claude-code vault edit` → `providers.providers` |
+| Add a custom endpoint | `claude-code vault edit` → `providers.providers` |
 | Edit pins, env, overlays | `claude-code vault list\|edit\|rotate-secret` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
-| Project agents into vendors | `claude-code agents sync [--vendor v] [--dry-run\|--check]` |
+| Project agents into every agent CLI | `claude-code agents sync [--vendor v] [--dry-run\|--check]` |
 | Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |
 | Watch agents from a phone | `claude-code network page [--addr ip:port]` |
-| Subagent status and legs | `claude-code agents tree [--watch\|--running]` · `agents reap` · `claude-code network view <id>` |
+| Subagent status and dispatches | `claude-code agents tree [--watch\|--running]` · `agents reap` · `claude-code network view <id>` |
 | Browsers Claude in Chrome can drive | `claude-code network browser` · `network browser --setup --browser <b>` |
 | Audit what acted | `claude-code doctor --audit` |
 | Config history | `claude-code history snapshot\|log\|diff` · memory: `git -C ~/.claude/memory log` |
