@@ -400,7 +400,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	default:
 		// The same resolver as the Claude launch decides [1m]; it reads a prefixed wire id (databricks-claude-…) itself.
 		client := providers.Target{Provider: t.Provider, Model: t.Model, OneM: t.OneM}.ClientModel()
-		return copilot(p, dialect, base, model, providers.ContextWindow(t.Provider, client), cred, h)
+		return copilot(p, dialect, base, model, providers.ContextWindow(t.Provider, client), cred, routed, h)
 	}
 }
 
@@ -886,13 +886,36 @@ func copilotPinArgv() []string {
 	return argv
 }
 
+// copilotNonClaude: passthrough wire (openai|responses) + canonical id for a non-Claude model on a routed Databricks row.
+func copilotNonClaude(p *providers.Provider, dialect, model string, routed bool) (wire, modelID string) {
+	if !routed || p.Preset != providers.PresetDatabricks || dialect != providers.ProtocolAnthropic {
+		return "", ""
+	}
+	canonical, _, ok := models.Resolve(model)
+	if !ok {
+		canonical = strings.TrimPrefix(model, models.DatabricksPrefix)
+	}
+	if strings.HasPrefix(canonical, "claude-") {
+		return "", ""
+	}
+	e, _ := models.Lookup(canonical)
+	if e.ResponsesOnly || providers.ServesResponses(p, model) {
+		return providers.ProtocolResponses, canonical
+	}
+	return providers.ProtocolOpenAI, canonical
+}
+
 // copilot wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
 func copilot(
-	p *providers.Provider, dialect, base, model string, window int, cred string, h *Headless,
+	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *Headless,
 ) ([]string, []string, error) {
 	typ := "openai"
 	if dialect == providers.ProtocolAnthropic {
 		typ = "anthropic"
+	}
+	wire, modelID := copilotNonClaude(p, dialect, model, routed)
+	if wire != "" { // non-Claude on a routed Databricks row: the router's verbatim openai|responses passthrough
+		typ, base = "openai", base+"/"+wire
 	}
 	env := []string{
 		"COPILOT_PROVIDER_BASE_URL=" + base,
@@ -902,6 +925,12 @@ func copilot(
 		"COPILOT_OFFLINE=true",
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
 		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
+	}
+	if wire == providers.ProtocolResponses {
+		env = append(env, "COPILOT_PROVIDER_WIRE_API=responses")
+	}
+	if modelID != "" {
+		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
 	if w := window; w > copilotMaxOutputTokens {
