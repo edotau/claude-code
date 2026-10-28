@@ -133,14 +133,14 @@ func plan(args []string) (Plan, error) {
 	name := ""
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
-		case arg == "--profile":
+		case arg == "--profile", p.Check && arg == "-p": // -p is claude's --print on the launch verb
 			name = ""
 			if i+1 < len(args) {
 				name = args[i+1]
 				i++
 			}
-		case strings.HasPrefix(arg, "--profile="):
-			name = strings.TrimPrefix(arg, "--profile=")
+		case strings.HasPrefix(arg, "--profile="), p.Check && strings.HasPrefix(arg, "-p="):
+			name = arg[strings.Index(arg, "=")+1:]
 		case arg == "--1m":
 			p.Big = true
 		default:
