@@ -35,8 +35,7 @@ const marker1M = "[1m]"
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000
-	// Deprecated: removed in Phase 4 (use Wire("databricks-serving", id)).
-	// DatabricksPrefix turns a canonical id into a Databricks serving-endpoint id.
+	// DatabricksPrefix is the serving-endpoint prefix; build full ids with Wire("databricks-serving", id).
 	DatabricksPrefix = "databricks-"
 	thinkingStd      = "31999"
 	thinkingHigh     = "64000"
@@ -78,7 +77,6 @@ func hasFamilyDash(s string) bool {
 	return i > 0 && isFamily(s[:i])
 }
 
-// Deprecated: removed in Phase 4 (use Resolve).
 // Canonical reduces a typed model id to the plain Claude id and reports a trailing [1m]; non-Claude ids pass through.
 func Canonical(id string) (base string, oneM bool) {
 	id = strings.TrimSpace(id)
