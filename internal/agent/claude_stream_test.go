@@ -74,7 +74,7 @@ func TestApplyCapsDropsIsolation(t *testing.T) {
 		!slices.Equal(d, []string{"--no-persist", "--safe-mode", "--debug-file=/x"}) {
 		t.Fatalf("got %+v dropped %v", got, d)
 	}
-	if got, d := applyCaps(Caps{Isolation: true}, req); !got.NoPersist || !got.SafeMode || got.DebugFile != "/x" || d != nil {
+	if got, d := applyCaps(Caps{NoPersist: true, SafeMode: true, DebugFile: true}, req); !got.NoPersist || !got.SafeMode || got.DebugFile != "/x" || d != nil {
 		t.Fatalf("isolation caps must keep all three: %+v %v", got, d)
 	}
 }

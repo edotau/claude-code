@@ -20,7 +20,7 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, Isolation: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, NoPersist: true, SafeMode: true, DebugFile: true}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
