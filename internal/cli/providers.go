@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vendoragent"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -374,6 +375,7 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 	}
 	var ids []string
 	var fetched bool
+	served := map[string][]string{}
 	for _, p := range pins {
 		_, spec, ok := strings.Cut(p, "=")
 		if !ok {
@@ -382,6 +384,12 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 		name, model, hasProvider := strings.Cut(spec, ":")
 		if !hasProvider || model == "" {
 			name, model = fallback, spec
+		}
+		if dp := reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
+			if w, derr := validateDatabricksCopilotPin(reg, name, model, served); w != "" || derr != nil {
+				return w, derr
+			}
+			continue
 		}
 		gh, gerr := reg.Get(name)
 		if gerr != nil || gh.Provider != "github" {
@@ -402,6 +410,41 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 		}
 	}
 	return "", nil
+}
+
+// validateDatabricksCopilotPin checks model against name's serving endpoints; served caches each profile's ids.
+func validateDatabricksCopilotPin(
+	reg *providers.Registry, name, model string, served map[string][]string,
+) (string, error) {
+	ids, ok := served[name]
+	if !ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		cat, err := vendoragent.CopilotModelSource(ctx, reg, name)
+		cancel()
+		if err != nil {
+			return fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), nil
+		}
+		for _, r := range cat.Rows {
+			ids = append(ids, r.ID)
+		}
+		served[name] = ids
+	}
+	want := []string{model, models.DatabricksPrefix + model}
+	if c, _, ok := models.Resolve(model); ok {
+		want = append(want, c)
+	}
+	for _, id := range ids {
+		c, _, _ := models.Resolve(id)
+		if slices.Contains(want, id) || (c != "" && slices.Contains(want, c)) {
+			return "", nil
+		}
+	}
+	hint := fmt.Sprintf("run `claude-code models --live --profile %s` to see the endpoints", name)
+	if near := nearMatches(model, ids); len(near) > 0 {
+		return "", fmt.Errorf("%q is not a %s serving endpoint; did you mean: %s? (%s)",
+			model, name, strings.Join(near, ", "), hint)
+	}
+	return "", fmt.Errorf("%q is not a %s serving endpoint (%s)", model, name, hint)
 }
 
 // nearMatches is a cheap substring match, not full edit distance: enough to catch a typo'd suffix/prefix.
