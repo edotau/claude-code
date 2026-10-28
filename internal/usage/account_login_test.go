@@ -15,7 +15,7 @@ func personalVault(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"kind":"openai",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"edotau",`+
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}}}}}`)
 }

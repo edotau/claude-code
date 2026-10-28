@@ -46,7 +46,7 @@ type DescribeProviders struct {
 
 type DescribeProvider struct {
 	Name       string            `json:"name"`
-	Kind       string            `json:"kind"`
+	Protocol   string            `json:"protocol"`
 	Dialects   []string          `json:"dialects"`
 	Auth       string            `json:"auth"`
 	Login      string            `json:"login,omitempty"`
@@ -120,7 +120,7 @@ func describe(reg *providers.Registry) (Describe, error) {
 	for _, n := range reg.Names() {
 		p := reg.Providers[n]
 		d.Providers.List = append(d.Providers.List, DescribeProvider{
-			Name: n, Kind: p.Kind, Dialects: p.Dialects(), Auth: p.Auth.Method(), Login: p.Auth.Login,
+			Name: n, Protocol: p.Protocol, Dialects: p.Dialects(), Auth: p.Auth.Method(), Login: p.Auth.Login,
 			Credential: providers.CredentialPresent(p), Models: p.Models,
 		})
 	}

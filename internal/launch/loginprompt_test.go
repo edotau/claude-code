@@ -74,7 +74,7 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 }
 
 func u2mRow(name, url string) *providers.Provider {
-	return &providers.Provider{Name: name, Provider: "databricks", Kind: providers.DialectAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
+	return &providers.Provider{Name: name, Provider: "databricks", Protocol: providers.ProtocolAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
 		Auth: providers.Auth{Type: providers.AuthOAuth, TTL: 1800}}
 }
 

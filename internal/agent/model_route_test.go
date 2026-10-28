@@ -39,7 +39,7 @@ func TestClaudeCellModelIsTheAlias(t *testing.T) {
 // A canonical Claude id takes the session's alias selection, so a CLAUDE_<TIER>_MODEL pin wins over the typed id.
 func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
 	if err := providers.SetPins(map[string]string{providers.SlotPin("sonnet"): "claude-sonnet-5"}); err != nil {
 		t.Fatal(err)

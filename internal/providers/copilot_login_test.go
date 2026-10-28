@@ -7,7 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const ghRow = `"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 
 // copilotLoginReg is a hermetic vault with github profiles personal (login=edotau) and bare (no login).

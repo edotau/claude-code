@@ -131,15 +131,15 @@ func TestOpencodeRouteDetailHandlesUserHomeDirError(t *testing.T) {
 // Regression: line 275 checks `route != "https://api.anthropic.com"` without checking ok,
 // so "" != "https://api.anthropic.com" is true, incorrectly setting ANTHROPIC_BASE_URL="".
 func TestConfigureRoutingRespectsRouteNotFound(t *testing.T) {
-	// Test the exact scenario: provider with no DialectAnthropic route should not set URL.
+	// Test the exact scenario: provider with no ProtocolAnthropic route should not set URL.
 	p := &providers.Provider{
-		Name:    "test-provider",
-		Kind:    "custom-dialect",
-		BaseURL: "https://custom.example.com",
+		Name:     "test-provider",
+		Protocol: "custom-dialect",
+		BaseURL:  "https://custom.example.com",
 	}
-	route, ok := p.Route(providers.DialectAnthropic)
+	route, ok := p.Route(providers.ProtocolAnthropic)
 	if ok {
-		t.Fatalf("Route(DialectAnthropic) should return false for provider with no anthropic route")
+		t.Fatalf("Route(ProtocolAnthropic) should return false for provider with no anthropic route")
 	}
 	if route != "" {
 		t.Fatalf("Route returned non-empty %q when not found", route)

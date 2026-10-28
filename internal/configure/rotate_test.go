@@ -28,7 +28,7 @@ func fakeKeyedProvider(t *testing.T, envVar, want string) *providers.Provider {
 	}))
 	t.Cleanup(srv.Close)
 	return &providers.Provider{
-		Name: "fake", Kind: providers.DialectAnthropic, BaseURL: srv.URL,
+		Name: "fake", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL,
 		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: envVar},
 	}
 }

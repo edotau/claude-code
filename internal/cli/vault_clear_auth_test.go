@@ -14,10 +14,10 @@ import (
 func TestClearProviderAuthMatchesSealedSecretAndEnv(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{
-		"clr-env":{"kind":"anthropic","base_url":"https://e.example","auth":{"type":"key","header":"x-api-key","env":"CLR_ENV_KEY"},"models":{"opus":"m"}},
-		"clr-other":{"kind":"anthropic","base_url":"https://o.example","auth":{"type":"key","header":"x-api-key","env":"CLR_OTHER_KEY"},"models":{"opus":"m"}}},
+		"clr-env":{"protocol":"anthropic","base_url":"https://e.example","auth":{"type":"key","header":"x-api-key","env":"CLR_ENV_KEY"},"models":{"opus":"m"}},
+		"clr-other":{"protocol":"anthropic","base_url":"https://o.example","auth":{"type":"key","header":"x-api-key","env":"CLR_OTHER_KEY"},"models":{"opus":"m"}}},
 		"databricks":{
-		"clr-pat":{"kind":"anthropic","base_url":"https://p.example","auth":{"type":"pat"},"models":{"opus":"m"}}}}}`)
+		"clr-pat":{"protocol":"anthropic","base_url":"https://p.example","auth":{"type":"pat"},"models":{"opus":"m"}}}}}`)
 	for _, a := range []string{router.ProviderAccount("clr-env"), "github·clr-env", router.ProviderAccount("clr-pat"), router.ProviderAccount("clr-other")} {
 		if err := router.MarkAuth(a, "r"); err != nil {
 			t.Fatal(err)

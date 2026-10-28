@@ -18,8 +18,8 @@ const overlay = `{
   "default": "gw",
   "fallback": ["anthropic"],
   "providers": {"anthropic": {
-    "gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
-    "gw": {"kind": "anthropic", "base_url": "https://gw.example.com",
+    "gateway":{"protocol":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
+    "gw": {"protocol": "anthropic", "base_url": "https://gw.example.com",
       "routes": {"openai": "/v1", "responses": "https://other.example.com/r/"},
       "auth": {"type":"key", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5"}}},
@@ -66,21 +66,21 @@ func TestOverlayAndRoutes(t *testing.T) {
 	}
 	gw, _ := reg.Get("gw")
 	for d, want := range map[string]string{
-		DialectAnthropic: "https://gw.example.com",
-		DialectOpenAI:    "https://gw.example.com/v1",
-		DialectResponses: "https://other.example.com/r",
+		ProtocolAnthropic: "https://gw.example.com",
+		ProtocolOpenAI:    "https://gw.example.com/v1",
+		ProtocolResponses: "https://other.example.com/r",
 	} {
 		if got, ok := gw.Route(d); !ok || got != want {
 			t.Errorf("Route(%s)=%q,%v want %q", d, got, ok, want)
 		}
 	}
-	if _, ok := gw.Route(DialectGemini); ok {
+	if _, ok := gw.Route(ProtocolGemini); ok {
 		t.Error("gemini route should be absent")
 	}
 	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).Validate(); err == nil {
 		t.Error("dangling default must fail validation")
 	}
-	keyedLogin := &Provider{Kind: DialectOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Login: "codex"}}
+	keyedLogin := &Provider{Protocol: ProtocolOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Login: "codex"}}
 	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).Validate(); err == nil {
 		t.Error("auth.login without passthrough must fail validation")
 	}
@@ -89,7 +89,7 @@ func TestOverlayAndRoutes(t *testing.T) {
 // opencode_fallback exists to substitute for a catalog "auto" id opencode can't resolve itself; letting
 // opencode_fallback itself be "auto" would recreate the exact value it's supposed to replace.
 func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
-	bad := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
+	bad := &Provider{Protocol: ProtocolAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
 	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).Validate()
 	if err == nil {
 		t.Fatal("opencode_fallback: \"auto\" must fail validation")
@@ -97,7 +97,7 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 	if !strings.Contains(err.Error(), "opencode_fallback cannot itself be") {
 		t.Errorf("error = %q, want it to name the opencode_fallback=auto rule", err)
 	}
-	good := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
+	good := &Provider{Protocol: ProtocolAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
 	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).Validate(); err != nil {
 		t.Errorf("a real opencode_fallback id must pass validation, got %v", err)
 	}
@@ -107,8 +107,8 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(PinProfile, "")
-	base := []byte(`{"providers": {"anthropic": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
-		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}}},
+	base := []byte(`{"providers": {"anthropic": {"a": {"protocol": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
+		"b": {"protocol": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}}},
 		"routing": {"opencode": {"ladder": ["opencode-go"]}}, "opencodePlugins": ["old-plugin"]}`)
 	overlay := []byte(`{"routing": {"opencode": {"ladder": ["openai", "opencode-go"]}}, "opencodePlugins": ["new-plugin"]}`)
 	reg, err := Parse(base, overlay)
@@ -131,8 +131,8 @@ func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing
 	vaulttest.UseKeyring(t)
 	t.Setenv(PinProfile, "")
 	base := []byte(`{"providers": {
-		"openai": {"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"}},
-		"github": {"personal": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}}
+		"openai": {"chatgpt": {"protocol": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"}},
+		"github": {"personal": {"protocol": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}}
 	}, "routing": {"opencode": {"ladder": ["opencode-go"]}}}`)
 	overlay := []byte(`{"routing": {"opencode": {"ladder": ["chatgpt", "personal", "chatgpt"]}}}`)
 	reg, err := Parse(base, overlay)
@@ -208,8 +208,8 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 // A passthrough (login) session never routes on the fallback ladder alone: the router's base URL disables Remote Control.
 func TestNeedsRouterPassthroughFallback(t *testing.T) {
 	reg := &Registry{Fallback: []string{"gw"}, Providers: map[string]*Provider{
-		"sub": {Name: "sub", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthCLI}, Models: map[string]string{"opus": "o"}},
-		"key": {Name: "key", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "K"}, Models: map[string]string{"opus": "o"}},
+		"sub": {Name: "sub", Protocol: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthCLI}, Models: map[string]string{"opus": "o"}},
+		"key": {Name: "key", Protocol: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "K"}, Models: map[string]string{"opus": "o"}},
 	}}
 	for name, want := range map[string]bool{"sub": false, "key": true} {
 		p := reg.Providers[name]
@@ -269,7 +269,7 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 // A Provider marshals its Headers redacted at the type; an inline gateway token never reaches a dump.
 func TestProviderMarshalRedactsHeaders(t *testing.T) {
 	tok := "sk" + "-abcdefghijklmnopqrstuvwxyz0123"
-	p := Provider{Kind: DialectOpenAI, BaseURL: "https://gw", Headers: map[string]string{"X-Key": tok, "X-Plain": "v"}}
+	p := Provider{Protocol: ProtocolOpenAI, BaseURL: "https://gw", Headers: map[string]string{"X-Key": tok, "X-Plain": "v"}}
 	b, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)

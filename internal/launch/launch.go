@@ -329,7 +329,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json")
 		return shellQuote(helperBin(self)) + " token --proxy", nil
 	}
-	if route, ok := p.Route(providers.DialectAnthropic); ok && route != "https://api.anthropic.com" {
+	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != "https://api.anthropic.com" {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
 	}
 	if h := customHeaders(p.Headers); h != "" {

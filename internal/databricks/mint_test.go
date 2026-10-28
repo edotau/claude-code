@@ -27,7 +27,7 @@ func mintRow(t *testing.T, status int) *httptest.Server {
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	t.Cleanup(srv.Close)
-	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":%q,`+
+	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":%q,`+
 		`"auth":{"type":"key","command":"printf %s"}}}}}`, srv.URL, mintToken))
 	return srv
 }
@@ -99,7 +99,7 @@ func TestMintVerbErrorPathsHideToken(t *testing.T) {
 		noToken(t, "stdout", stdout)
 		noToken(t, "stderr", stderr)
 	}
-	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","command":"echo `+mintToken+`; exit 3"}}}}}`)
 	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code == 0 {
@@ -219,7 +219,7 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 	if overlayDoc(t) != before {
 		t.Error("failed switch wrote the overlay")
 	}
-	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","command":"true","type":"m2m","clientId":"cid"}}}}}`)
 	reg, err := providers.Load()
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 // OpencodeID (so HubStart must reject it).
 func hubRegistry() *providers.Registry {
 	mk := func(id string) *providers.Provider {
-		return &providers.Provider{Kind: providers.DialectOpenAI, BaseURL: "https://x",
+		return &providers.Provider{Protocol: providers.ProtocolOpenAI, BaseURL: "https://x",
 			Models: map[string]string{models.Opus: id + "-opus", models.Sonnet: id + "-sonnet"}, OpencodeID: id}
 	}
 	reg := &providers.Registry{
@@ -27,7 +27,7 @@ func hubRegistry() *providers.Registry {
 			"chatgpt":        mk("openai"),
 			"github-copilot": mk("github-copilot"),
 			"gemini":         mk("google"),
-			"nvidia":         {Kind: providers.DialectOpenAI, BaseURL: "https://nvidia", Models: map[string]string{models.Opus: "nv-opus"}}, // no OpencodeID
+			"nvidia":         {Protocol: providers.ProtocolOpenAI, BaseURL: "https://nvidia", Models: map[string]string{models.Opus: "nv-opus"}}, // no OpencodeID
 		},
 	}
 	for n, p := range reg.Providers {

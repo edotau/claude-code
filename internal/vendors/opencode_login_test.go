@@ -34,7 +34,7 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 // pinCopilotLogin overlays the built-in github·personal profile with login and pins COPILOT_PROFILE=personal.
 func pinCopilotLogin(t *testing.T, login string) {
 	t.Helper()
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"kind":"openai",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"`+login+`",`+
 		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"},"opencode_fallback":"claude-opus-5.5",`+
 		`"opencode_variant":"medium","opencodeID":"github-copilot"}}}}`)
@@ -298,7 +298,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
 		t.Setenv(k, "")
 	}
-	overlay := `{"providers":{"github":{"personal":{"kind":"openai","base_url":"https://api.githubcopilot.com",` +
+	overlay := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
 		`"auth":{"type":"cli","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
 		`"opencode_fallback":"mai-code-1.1-flash"}}}}`

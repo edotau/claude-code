@@ -45,7 +45,7 @@ func dbxRow(name, prefix string) *providers.Provider {
 	host := "https://h.example.com"
 	return &providers.Provider{
 		Name: name, Preset: providers.PresetDatabricks, ModelPrefix: prefix,
-		Routes: map[string]string{providers.DialectOpenAI: host + "/serving-endpoints", providers.DialectResponses: host + "/serving-endpoints"},
+		Routes: map[string]string{providers.ProtocolOpenAI: host + "/serving-endpoints", providers.ProtocolResponses: host + "/serving-endpoints"},
 	}
 }
 
@@ -87,7 +87,7 @@ func checkDbxMenu(t *testing.T, c ocCfg, row, prefix string) {
 
 func TestOpencodeDatabricksServing(t *testing.T) {
 	p := dbxRow("qa", "databricks-")
-	c := renderOpencode(t, p, providers.DialectOpenAI, p.Routes[providers.DialectOpenAI], "databricks-claude-opus-5-5", false)
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-claude-opus-5-5", false)
 	checkDbxMenu(t, c, "qa", "databricks-")
 	if _, ok := c.Provider["harness-qa"].Models["databricks-kimi-k3"]; !ok {
 		t.Error("non-claude model databricks-kimi-k3 not prefixed into the chat provider")
@@ -99,7 +99,7 @@ func TestOpencodeDatabricksServing(t *testing.T) {
 		t.Errorf("direct responses base = %q", got)
 	}
 	// a Responses-set target defaults into the -gpt provider
-	g := renderOpencode(t, p, providers.DialectOpenAI, p.Routes[providers.DialectOpenAI], "databricks-gpt-6-astra", false)
+	g := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-gpt-6-astra", false)
 	if g.Model != "harness-qa-gpt/databricks-gpt-6-astra" {
 		t.Errorf("gpt default model = %q", g.Model)
 	}
@@ -107,7 +107,7 @@ func TestOpencodeDatabricksServing(t *testing.T) {
 
 func TestOpencodeDatabricksRoutedBases(t *testing.T) {
 	p := dbxRow("qa", "databricks-")
-	c := renderOpencode(t, p, providers.DialectOpenAI, testRouterBase+"/p/qa/openai", "databricks-claude-opus-5-5", true)
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, testRouterBase+"/p/qa/openai", "databricks-claude-opus-5-5", true)
 	checkDbxMenu(t, c, "qa", "databricks-")
 	if got := c.Provider["harness-qa-gpt"].Options.BaseURL; got != testRouterBase+"/p/qa/responses" {
 		t.Errorf("responses base = %q", got)
@@ -119,7 +119,7 @@ func TestOpencodeDatabricksRoutedBases(t *testing.T) {
 
 func TestOpencodeDatabricksGatewayWire(t *testing.T) {
 	p := dbxRow("dev", "system.ai.")
-	c := renderOpencode(t, p, providers.DialectOpenAI, p.Routes[providers.DialectOpenAI], "system.ai.claude-opus-5-5", false)
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "system.ai.claude-opus-5-5", false)
 	checkDbxMenu(t, c, "dev", "system.ai.")
 	if _, ok := c.Provider["harness-dev"].Models["system.ai.kimi-k3"]; !ok {
 		t.Error("system.ai.kimi-k3 missing")
@@ -152,7 +152,7 @@ func TestOpencodeRenderUsesOverlayMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := dbxRow("qa", "databricks-")
-	env, _, err := opencode(p, providers.DialectOpenAI, p.Routes[providers.DialectOpenAI], "databricks-glm-5-2", "tok", false, nil)
+	env, _, err := opencode(p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-glm-5-2", "tok", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

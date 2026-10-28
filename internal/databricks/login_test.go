@@ -11,7 +11,7 @@ func seedU2MRow(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	err := providers.SetProviderFields("dbx-u2m", map[string]any{
-		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"auth": map[string]any{"type": "oauth"},
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func TestVaultLoginRejectsOtherKinds(t *testing.T) {
 func TestVaultLoginRefusesRowWithAnotherAuthType(t *testing.T) {
 	useVaultTest(t)
 	err := providers.SetProviderFields("dbx-pat", map[string]any{
-		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"auth": map[string]any{"type": "pat"},
 	})
 	if err != nil {

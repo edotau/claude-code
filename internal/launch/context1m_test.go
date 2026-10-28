@@ -15,7 +15,7 @@ func TestClaude1MByEndpoint(t *testing.T) {
 		"gwm": {"preset": "databricks", "host": "https://h.cloud.databricks.com", "auth": {"type":"key", "env": "TEST_GW_KEY"},
 			"options": {"wire": "ai-gateway"}, "models": {"opus": "claude-opus-5-5[1m]"}}},
 		"openai": {
-		"oll": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+		"oll": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 			"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "k")
 	for _, tc := range []struct {

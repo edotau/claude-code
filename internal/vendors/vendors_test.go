@@ -522,7 +522,7 @@ func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 func TestGeminiGateway(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GW_KEY", secret)
-	p := &providers.Provider{Name: "gw", Kind: providers.DialectGemini, BaseURL: "https://gw.example/gemini",
+	p := &providers.Provider{Name: "gw", Protocol: providers.ProtocolGemini, BaseURL: "https://gw.example/gemini",
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
 	_, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
 	if err == nil || !strings.Contains(err.Error(), "no custom base URL") {
@@ -1081,6 +1081,6 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 // writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
 func writeGatewayOverlay(t *testing.T) {
 	t.Helper()
-	body := `{"providers":{"anthropic":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","header":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}}`
+	body := `{"providers":{"anthropic":{"gateway":{"protocol":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","header":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

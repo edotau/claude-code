@@ -23,16 +23,16 @@ func TestProviderTableSummary(t *testing.T) {
 	t.Setenv("SUMMARY_MISSING_KEY", "")
 	t.Setenv("SUMMARY_SP_SECRET", "x")
 	dbx := func(name string, auth providers.Auth) *providers.Provider {
-		return &providers.Provider{Name: name, Provider: providers.GroupDatabricks, Kind: providers.DialectAnthropic, Preset: providers.PresetDatabricks,
+		return &providers.Provider{Name: name, Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic, Preset: providers.PresetDatabricks,
 			BaseURL: "https://dbc-1.cloud.databricks.com/serving-endpoints/anthropic",
-			Routes:  map[string]string{providers.DialectResponses: "https://dbc-1.cloud.databricks.com/serving-endpoints"},
+			Routes:  map[string]string{providers.ProtocolResponses: "https://dbc-1.cloud.databricks.com/serving-endpoints"},
 			Auth:    auth}
 	}
 	reg := &providers.Registry{Default: "dev", Providers: map[string]*providers.Provider{
 		"prod":    dbx("prod", providers.Auth{Type: providers.AuthKey, Command: "printf t"}),
 		"dev":     dbx("dev", providers.Auth{Type: providers.AuthKey, Command: "printf t"}),
 		"sp-user": dbx("sp-user", providers.Auth{Type: providers.AuthM2M, Env: "SUMMARY_SP_SECRET"}),
-		"openai": {Name: "openai", Provider: "openai", Kind: providers.DialectOpenAI, BaseURL: "https://api.openai.com/v1",
+		"openai": {Name: "openai", Provider: "openai", Protocol: providers.ProtocolOpenAI, BaseURL: "https://api.openai.com/v1",
 			Auth: providers.Auth{Type: providers.AuthKey, Env: "SUMMARY_MISSING_KEY"}},
 	}}
 	_, out, _ := captureOutput(t, func() int { printProviderTable(reg); return 0 })

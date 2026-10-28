@@ -12,7 +12,7 @@ func kindRow(kind, clientID, _ string) *Provider {
 	if kind == "" {
 		kind = AuthKey
 	}
-	return &Provider{Name: "dbx-test", Provider: GroupDatabricks, Kind: DialectAnthropic, BaseURL: "https://example.cloud.databricks.com/serving-endpoints/anthropic",
+	return &Provider{Name: "dbx-test", Provider: GroupDatabricks, Protocol: ProtocolAnthropic, BaseURL: "https://example.cloud.databricks.com/serving-endpoints/anthropic",
 		Auth: Auth{Type: kind, ClientID: clientID}}
 }
 

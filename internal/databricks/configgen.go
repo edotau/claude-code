@@ -176,7 +176,7 @@ func renderClaude(o Options) (Result, error) {
 		delete(env, k)
 	}
 	p := o.P
-	base, ok := p.Route(providers.DialectAnthropic)
+	base, ok := p.Route(providers.ProtocolAnthropic)
 	if !ok {
 		return Result{}, fmt.Errorf("provider %q has no Anthropic route", p.Name)
 	}
@@ -262,7 +262,7 @@ func renderCodex(o Options) (Result, error) {
 		return Result{}, err
 	}
 	p := o.P
-	base, ok := p.Route(providers.DialectResponses)
+	base, ok := p.Route(providers.ProtocolResponses)
 	if !ok {
 		return Result{}, fmt.Errorf("provider %q has no Responses route", p.Name)
 	}

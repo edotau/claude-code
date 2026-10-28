@@ -24,7 +24,7 @@
   "providers": {
     "anthropic": {
       "max": {
-        "kind": "anthropic",
+        "protocol": "anthropic",
         "base_url": "https://api.anthropic.com",
         "auth": {
           "type": "cli"
@@ -37,7 +37,7 @@
         }
       },
       "anthropic": {
-        "kind": "anthropic",
+        "protocol": "anthropic",
         "base_url": "https://api.anthropic.com",
         "auth": {
           "type": "key",
@@ -53,7 +53,7 @@
     },
     "github": {
       "personal": {
-        "kind": "openai",
+        "protocol": "openai",
         "base_url": "https://api.githubcopilot.com",
         "auth": {
           "type": "cli",
@@ -71,7 +71,7 @@
     },
     "openai": {
       "chatgpt": {
-        "kind": "responses",
+        "protocol": "responses",
         "base_url": "https://chatgpt.com/backend-api/codex",
         "auth": {
           "type": "cli",
@@ -85,7 +85,7 @@
         "opencodeID": "openai"
       },
       "openai": {
-        "kind": "openai",
+        "protocol": "openai",
         "base_url": "https://api.openai.com/v1",
         "routes": {
           "responses": "https://api.openai.com/v1"
@@ -103,7 +103,7 @@
     },
     "google": {
       "antigravity": {
-        "kind": "openai",
+        "protocol": "openai",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "auth": {
           "type": "cli",
@@ -118,7 +118,7 @@
     },
     "nvidia": {
       "nvidia": {
-        "kind": "openai",
+        "protocol": "openai",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "auth": {
           "type": "key",

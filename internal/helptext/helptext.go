@@ -196,7 +196,7 @@ func isRow(l string) bool {
 	return m[3] != "" || strings.HasPrefix(m[2], "-")
 }
 
-// isTableHead: an indented column-header line, two or more all-caps columns (PROVIDER  KIND  AUTH).
+// isTableHead: an indented column-header line, two or more all-caps columns (PROVIDER  PROTOCOL  AUTH).
 func isTableHead(l string) bool {
 	m := row.FindStringSubmatch(l)
 	if m == nil || m[3] == "" || len(m[1]) > 4 {

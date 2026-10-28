@@ -62,7 +62,7 @@ func TestLoadDecoratesPresetModels(t *testing.T) {
 			t.Errorf("Models[%s] = %q, want %q", k, m[k], v)
 		}
 	}
-	plain := mustParse(t, `{"providers":{"openai":{"p":{"kind":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
+	plain := mustParse(t, `{"providers":{"openai":{"p":{"protocol":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
 	if got := plain.Providers["p"].Models["opus"]; got != "gpt-5.5" {
 		t.Errorf("plain provider model = %q", got)
 	}
