@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/vendors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 // An explicit --model (consumed by ParseArgs, so absent from args) selects the registry model over the default.
 func TestCopilotRegistryExplicitModelWins(t *testing.T) {
+	t.Cleanup(vendors.WithCopilotOS("linux")) // the macOS refusal has its own test
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		eps := []map[string]any{}
 		for _, n := range []string{"databricks-claude-sonnet-5-5", "databricks-claude-opus-5-5"} {
