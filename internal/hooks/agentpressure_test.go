@@ -30,7 +30,7 @@ func TestPressureDownshiftsUnsetModel(t *testing.T) {
 	if doc.HSO.UpdatedInput["model"] != "haiku" || doc.HSO.UpdatedInput["subagent_type"] != "general-purpose" {
 		t.Fatalf("95%% must downshift sonnet→haiku and keep the agent type: %+v", doc.HSO.UpdatedInput)
 	}
-	if !strings.Contains(doc.HSO.AdditionalContext, "5h window at 95%") || !strings.Contains(doc.HSO.AdditionalContext, "--agent codex --model gpt-6.1-sol") {
+	if !strings.Contains(doc.HSO.AdditionalContext, "5h window at 95%") || !strings.Contains(doc.HSO.AdditionalContext, "--agent codex --model sonnet") {
 		t.Errorf("context = %q, want the window, the percentage and the route pick", doc.HSO.AdditionalContext)
 	}
 }
