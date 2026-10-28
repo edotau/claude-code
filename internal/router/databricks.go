@@ -96,6 +96,11 @@ func (t *Table) gateCandidate(
 		group, _ = t.gatePinned(ctx, pg.reg, tier, runner, spec.Profile, spec, st, o, now, configured, res)
 	} else {
 		group, _ = t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
+		if runner == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
+			for i := range group {
+				group[i].Model = spec.Model
+			}
+		}
 	}
 	if runner == "copilot" {
 		group = append(group, t.gateSessionCopilot(ctx, pg, tier, "", "", spec, group, st, o, now, configured, res)...)
