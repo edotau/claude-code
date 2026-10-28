@@ -151,9 +151,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
 		}
 	case rc.exact != "" && cand.Profile != "" && cand.Agent != "opencode": // a Databricks leg serves only its own cell's model
-		if id, _, ok := models.Resolve(cell.Model); !ok || id != rc.exact {
-			return cell, cand.Agent + ": serves no " + rc.exact
-		}
+		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
 		sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
 		if !ok && cand.Agent != rc.want {
@@ -166,6 +164,28 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		if oc, ok := rc.tb.ByModel[rc.row][cand.Agent]; ok {
 			cell.Model, cell.Effort = oc.Model, oc.Effort
 		}
+	}
+	return cell, ""
+}
+
+// profileCell validates a profile-backed candidate against the exact model: codex needs a Responses route for it,
+// any other agent a cell that already serves it; the accepted cell runs the model as the profile spells it.
+func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
+	who := cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + ")"
+	var p *providers.Provider
+	if rc.reg != nil {
+		p = rc.reg.Providers[cand.Profile]
+	}
+	if cand.Agent == "codex" && p != nil {
+		wire := p.WireModel(rc.exact)
+		if !providers.ServesResponses(p, wire) {
+			return cell, who + ": serves no " + rc.exact + " over Responses"
+		}
+		cell.Model = wire
+		return cell, ""
+	}
+	if id, _, ok := models.Resolve(cell.Model); !ok || id != rc.exact {
+		return cell, who + ": serves no " + rc.exact
 	}
 	return cell, ""
 }
@@ -185,6 +205,9 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
 	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
 	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == ""
+	if leg.keepCaller && rc.callerModel != "" {
+		leg.Model = rc.callerModel // the leg records the model it runs
+	}
 	if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
 		leg.Model = cand.Profile + ":" + cell.Model
 	}
