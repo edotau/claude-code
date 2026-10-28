@@ -161,20 +161,22 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
 	pin := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
-	usable := func(p *providers.Provider) bool {
-		if p == nil || p.Preset != providers.PresetDatabricks {
-			return false
-		}
-		_, err := providers.Credential(context.Background(), p)
-		return providers.Verdict(err) == providers.VerdictOK
-	}
 	for _, name := range append([]string{pin}, orderedDatabricks(reg)...) {
-		if p := reg.Providers[name]; usable(p) {
+		if p := reg.Providers[name]; databricksUsable(p) {
 			return pick(p)
 		}
 	}
 	return RouteInfo{Agent: "copilot", Leg: LegNone,
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
+}
+
+// databricksUsable is true for a Databricks row whose credential resolves.
+func databricksUsable(p *providers.Provider) bool {
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return false
+	}
+	_, err := providers.Credential(context.Background(), p)
+	return providers.Verdict(err) == providers.VerdictOK
 }
 
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
@@ -595,11 +597,15 @@ func codexChatGPTLogin() error {
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
 func codexHeadless(argv []string, h *Headless) []string {
+	var effort string
+	if h != nil {
+		effort = h.Effort
+	}
+	if effort = cmp.Or(effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
+		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
+	}
 	if h == nil {
 		return argv
-	}
-	if effort := cmp.Or(h.Effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
 	}
 	sandbox := "read-only"
 	if h.Tools {
@@ -726,62 +732,6 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		return env, append(append(argv, "--"), h.Prompt), nil
 	}
 	return env, append(argv, positional(h.Prompt)...), nil
-}
-
-// opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
-// (openai-compatible) and a Responses provider (<id>-gpt, @ai-sdk/openai), since GPT-6 rejects chat tool calls.
-func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, []string, error) { // env already holds the key
-	chatBase, respBase := p.Routes[providers.ProtocolOpenAI], p.Routes[providers.ProtocolResponses]
-	if routed { // base is the session base plus the dialect suffix routerRoute added
-		sess := strings.TrimSuffix(base, "/"+dialect)
-		chatBase, respBase = sess+"/"+providers.ProtocolOpenAI, sess+"/"+providers.ProtocolResponses
-	}
-	if chatBase == "" || respBase == "" {
-		return nil, nil, fmt.Errorf("opencode: provider %s lacks an openai or responses route", p.Name)
-	}
-	headers := map[string]any{}
-	for k, v := range p.Headers {
-		headers[k] = v
-	}
-	opts := func(b string) map[string]any {
-		o := map[string]any{"baseURL": b}
-		if cred != "" {
-			o["apiKey"] = "{env:" + OpenCodeKeyEnv + "}"
-		}
-		if len(headers) > 0 {
-			o["headers"] = headers
-		}
-		return o
-	}
-	chat, resp := map[string]any{}, map[string]any{}
-	defID := id
-	for _, m := range providers.OpencodeMenu() {
-		wire := menuWire(p, m.ID) // the catalog spells the id the way this row serves it
-		entry := map[string]any{"name": m.Label + " · " + p.Name}
-		if m.Responses {
-			resp[wire] = entry
-		} else {
-			chat[wire] = entry
-		}
-	}
-	if _, ok := resp[model]; ok {
-		defID += "-gpt"
-	} else if _, ok := chat[model]; !ok {
-		chat[model] = map[string]any{"name": model}
-	}
-	cfg := map[string]any{
-		"$schema": "https://opencode.ai/config.json",
-		"model":   defID + "/" + model,
-		"provider": map[string]any{
-			id:          map[string]any{"npm": "@ai-sdk/openai-compatible", "name": p.Name + " (claude-code)", "options": opts(chatBase), "models": chat},
-			id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": p.Name + " GPT (claude-code)", "options": opts(respBase), "models": resp},
-		},
-	}
-	body, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	return append(env, "OPENCODE_CONFIG_CONTENT="+string(body)), nil, nil
 }
 
 // opencodeModels is the model menu: the requested model, plus every tier slot for an interactive launch.

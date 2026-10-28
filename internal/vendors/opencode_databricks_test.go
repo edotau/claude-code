@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -17,7 +18,11 @@ type ocProv struct {
 		Headers map[string]string `json:"headers"`
 	} `json:"options"`
 	Models map[string]struct {
-		Name string `json:"name"`
+		Name    string `json:"name"`
+		Limit   any    `json:"limit"`
+		Options struct {
+			ToolStreaming *bool `json:"toolStreaming"`
+		} `json:"options"`
 	} `json:"models"`
 }
 
@@ -58,25 +63,38 @@ func checkDbxMenu(t *testing.T, c ocCfg, row, prefix string) {
 	if gpt.Options.APIKey != "{env:"+OpenCodeKeyEnv+"}" || chat.Options.APIKey != gpt.Options.APIKey {
 		t.Errorf("apiKey refs = %q / %q", chat.Options.APIKey, gpt.Options.APIKey)
 	}
-	total := len(chat.Models) + len(gpt.Models)
+	claude, hasClaude := c.Provider["harness-"+row+"-claude"]
+	total := len(chat.Models) + len(gpt.Models) + len(claude.Models)
 	if total != len(providers.DatabricksOpencodeMenu) || len(gpt.Models) != 3 {
-		t.Errorf("models chat=%d gpt=%d, menu=%d", len(chat.Models), len(gpt.Models), len(providers.DatabricksOpencodeMenu))
+		t.Errorf("models chat=%d gpt=%d claude=%d, menu=%d", len(chat.Models), len(gpt.Models), len(claude.Models), len(providers.DatabricksOpencodeMenu))
+	}
+	if hasClaude && (claude.NPM != "@ai-sdk/anthropic" || claude.Options.APIKey != gpt.Options.APIKey) {
+		t.Errorf("claude provider npm=%q apiKey=%q", claude.NPM, claude.Options.APIKey)
 	}
 	for _, m := range providers.DatabricksOpencodeMenu {
 		set := chat
-		if m.Responses {
+		switch {
+		case m.Responses:
 			set = gpt
+		case hasClaude && models.FamilyOf(m.ID) != "":
+			set = claude
 		}
 		e, ok := set.Models[prefix+m.ID]
 		if !ok {
 			t.Errorf("missing %q (responses=%v)", prefix+m.ID, m.Responses)
 			continue
 		}
+		if (set.NPM == "@ai-sdk/anthropic") != (e.Options.ToolStreaming != nil && !*e.Options.ToolStreaming) || (e.Options.ToolStreaming != nil && set.NPM != "@ai-sdk/anthropic") {
+			t.Errorf("%s toolStreaming=%v on %s", m.ID, e.Options.ToolStreaming, set.NPM)
+		}
+		if e.Limit != nil {
+			t.Errorf("%s carries a limit: %v", m.ID, e.Limit)
+		}
 		if !strings.HasSuffix(e.Name, " · "+row) || !strings.HasPrefix(e.Name, m.Label) {
 			t.Errorf("%s name = %q", m.ID, e.Name)
 		}
 	}
-	for _, set := range []ocProv{chat, gpt} {
+	for _, set := range []ocProv{chat, gpt, claude} {
 		for id := range set.Models {
 			if !strings.HasPrefix(id, prefix) {
 				t.Errorf("id %q lacks prefix %q", id, prefix)
@@ -115,6 +133,13 @@ func TestOpencodeDatabricksRoutedBases(t *testing.T) {
 	if got := c.Provider["harness-qa"].Options.BaseURL; got != testRouterBase+"/p/qa/openai" {
 		t.Errorf("chat base = %q", got)
 	}
+	cl := c.Provider["harness-qa-claude"]
+	if cl.Options.BaseURL != testRouterBase+"/p/qa/v1" || c.Model != "harness-qa-claude/databricks-claude-opus-5-5" {
+		t.Errorf("claude base = %q model = %q", cl.Options.BaseURL, c.Model)
+	}
+	if _, ok := cl.Models["databricks-claude-opus-5-5"]; !ok || len(c.Provider["harness-qa"].Models)+len(cl.Models)+len(c.Provider["harness-qa-gpt"].Models) != len(providers.DatabricksOpencodeMenu) {
+		t.Errorf("claude models = %v", cl.Models)
+	}
 }
 
 func TestOpencodeDatabricksGatewayWire(t *testing.T) {
@@ -123,6 +148,50 @@ func TestOpencodeDatabricksGatewayWire(t *testing.T) {
 	checkDbxMenu(t, c, "dev", "system.ai.")
 	if _, ok := c.Provider["harness-dev"].Models["system.ai.kimi-k3"]; !ok {
 		t.Error("system.ai.kimi-k3 missing")
+	}
+}
+
+func TestOpencodeDatabricksDirectClaudeRoute(t *testing.T) {
+	p := dbxRow("qa", "databricks-")
+	p.Routes[providers.ProtocolAnthropic] = "https://h.example.com/serving-endpoints/anthropic"
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-claude-opus-5-5", false)
+	checkDbxMenu(t, c, "qa", "databricks-")
+	if got := c.Provider["harness-qa-claude"].Options.BaseURL; got != "https://h.example.com/serving-endpoints/anthropic/v1" {
+		t.Errorf("direct claude base = %q", got)
+	}
+}
+
+// The preset's anthropic BaseURL (no explicit route) and relative routes still resolve to absolute bases.
+func TestOpencodeDatabricksPresetAndRelativeRoutes(t *testing.T) {
+	p := dbxRow("qa", "databricks-")
+	p.Protocol, p.BaseURL = providers.ProtocolAnthropic, "https://h.example.com/serving-endpoints/anthropic"
+	p.Routes[providers.ProtocolOpenAI] = "openai"
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, "https://h.example.com/serving-endpoints/anthropic/openai", "databricks-claude-opus-5-5", false)
+	if got := c.Provider["harness-qa-claude"].Options.BaseURL; got != "https://h.example.com/serving-endpoints/anthropic/v1" {
+		t.Errorf("preset claude base = %q", got)
+	}
+	if got := c.Provider["harness-qa"].Options.BaseURL; got != "https://h.example.com/serving-endpoints/anthropic/openai" {
+		t.Errorf("relative chat base = %q", got)
+	}
+}
+
+func TestOpencodeDatabricksUnknownModel(t *testing.T) {
+	vaulttest.Use(t)
+	p := dbxRow("qa", "databricks-")
+	base := p.Routes[providers.ProtocolOpenAI]
+	_, _, err := opencode(p, providers.ProtocolOpenAI, base, "databricks-not-a-model", "tok", false, nil)
+	if err == nil || !strings.Contains(err.Error(), "databricks-not-a-model") || !strings.Contains(err.Error(), "models --live") {
+		t.Fatalf("unknown model err = %v", err)
+	}
+	p.Models = map[string]string{models.Slots[0]: "databricks-slot-only"}
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, base, "databricks-slot-only", false)
+	if _, ok := c.Provider["harness-qa"].Models["databricks-slot-only"]; !ok || c.Model != "harness-qa/databricks-slot-only" {
+		t.Errorf("slot model not accepted: %q", c.Model)
+	}
+	p.Models = map[string]string{models.Slots[0]: "databricks-claude-opus-9-9"}
+	cc := renderOpencode(t, p, providers.ProtocolOpenAI, testRouterBase+"/p/qa/openai", "databricks-claude-opus-9-9", true)
+	if e, ok := cc.Provider["harness-qa-claude"].Models["databricks-claude-opus-9-9"]; !ok || e.Options.ToolStreaming == nil || cc.Model != "harness-qa-claude/databricks-claude-opus-9-9" {
+		t.Errorf("claude slot model: %q %v", cc.Model, cc.Provider["harness-qa-claude"].Models)
 	}
 }
 

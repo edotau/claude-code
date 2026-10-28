@@ -424,13 +424,18 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 		}
 		args = append(overrides, args...) // after the harness prefix, so the file's keys win
 	}
+	flagModel := o.Model // only the flag, not a pin, is re-applied after a fallback
+	o = withAgentPins(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
 		return Plan{}, err
 	}
-	// Only --profile is explicit: the session pin is Claude Code's default, not a per-agent choice.
+	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
+	if err == nil && flagModel != "" && target.Provider != nil && target.Provider != sel.Slots[models.Opus].Provider {
+		target.Model = fallbackModel(target.Provider, flagModel) // the fallback reset the model; the explicit flag wins
+	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
 	if errors.Is(err, vendors.ErrOwnLogin) {
@@ -472,6 +477,40 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	}
 	set := envMap(env)
 	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
+}
+
+// withAgentPins fills what the flags left empty from the agent's vault pins: --profile/--model > pin > default.
+func withAgentPins(name string, o Options) Options {
+	pin, ok := providers.AgentPins()[name]
+	if !ok || pin.Off {
+		return o
+	}
+	pinned := false
+	var prov *providers.Provider
+	if o.Provider == "" && pin.Profile != "" {
+		if reg, err := providers.Load(); err == nil && providers.ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
+			o.Provider, prov, pinned = pin.Profile, reg.Providers[pin.Profile], true
+		}
+	}
+	switch {
+	case o.Model != "" || pin.Model == "":
+	case name == "copilot":
+		o.Model = pin.Model
+	case pinned: // a pinned profile skips the fallback that applies the model pin, so apply it here
+		// a Databricks wire id would leak onto a non-Databricks route; skip it there
+		if prov.Preset == providers.PresetDatabricks || !strings.HasPrefix(pin.Model, models.DatabricksPrefix) {
+			o.Model = pin.Model
+		}
+	}
+	return o
+}
+
+// fallbackModel spells the flag's model the way the fallback provider serves it (a tier slot maps through the provider).
+func fallbackModel(p *providers.Provider, model string) string {
+	if m := p.Models[model]; m != "" && slices.Contains(models.Slots, model) {
+		return m
+	}
+	return p.WireModel(models.Strip1M(model))
 }
 
 func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
