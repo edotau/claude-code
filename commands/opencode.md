@@ -1,8 +1,8 @@
 ---
 description: >-
   OpenCode via `claude-code opencode <verb>`: a bare task runs `claude-code ask --agent opencode --tools`
-  (routed); `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|models|env` pass straight through.
-argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|models|env] [args…] | <task>"
+  (routed); `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|env` pass straight through.
+argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|env] [args…] | <task>"
 allowed-tools: Bash
 ---
 
@@ -13,7 +13,8 @@ Launcher only. Modes, verbs and the report contract live in `agents/opencode.md`
 
 Parse the first token of `$ARGUMENTS`:
 
-- `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|models` — run `claude-code opencode <verb> <rest>`
+- `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog` — run
+  `claude-code opencode <verb> <rest>`
   straight through.
 - `profile [<profile>|--clear]` — run `claude-code opencode profile <rest>`: bare shows opencode's profile
   pin and on/off state; a profile pins opencode there (relaunch to apply).

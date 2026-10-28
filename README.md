@@ -258,6 +258,13 @@ Provider hostnames resolving into the local network are refused (a literal IP or
 The proxy disables Remote Control, so a subscription session stays direct under a `fallback` ladder; a
 cross-provider model alias still sends it through the proxy.
 
+- The client secret is sealed in the vault (`CLAUDE_CODE_ROUTER_SECRET`); the first run imports and deletes a legacy
+  `state/router.secret`. `claude-code resolve --proxy` prints it.
+- Upstream requests carry `User-Agent: claude-code/<version> <agent>`. `HARNESS_REQUEST_TAGS` (a single-line JSON
+  object of strings, ≤ 4 KiB) goes out as `Databricks-Ai-Gateway-Request-Tags` on AI Gateway rows only.
+- A 401 names the remedy for the row's auth type: `databricks login`, its `auth.command`, `vault set <env>`, or
+  `configure provider --list <name>`.
+
 ```bash
 claude-code gateway proxy [--start|--stop|--status]   # bare = --status
 claude-code gateway proxy --serve --port 18765        # foreground
@@ -308,9 +315,14 @@ claude-code usage --days 7                             # subagent token usage; c
 
 - `catalog` lists an agent's model catalog; `--model` selects the model for this launch. The agent subcommand
   `models` remains a compatibility alias for `catalog`; top-level `claude-code models` is unchanged.
+- `ask --format json` prints one envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`,
+  `usage`, `duration_ms`, `fallback*`, `handoff` and `transport` (attempts, retries, first-event and max-gap ms).
+  Claude-only isolation flags: `--no-persist`, `--safe-mode`, `--debug-file <path>`.
+- `opencode` on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses) and `<row>-claude`
+  (native Anthropic); a `--model` not on the row's menu is refused.
 - Copilot dispatches follow the session's profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
   Copilot credits); `--model <profile>:<tier>` picks a model alias on another profile. The GitHub login is used only
-  when the `COPILOT_GITHUB_USER` pin has credits verified < 95%; else it falls back to the Databricks profile (never
+  when the `COPILOT_PROFILE` pin has credits verified < 95%; else it falls back to the Databricks profile (never
   the other GitHub account) and prints `copilot: <user> N% of credits used — using databricks profile <p>`. Usage rows
   read `databricks/<model>` (BYOK, no credits) vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
 - Interactive `copilot` on a Databricks profile has native `/model` across the profile's served models: a per-launch
@@ -346,6 +358,9 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | `session-harvest[-end]` / `pre-compact` | Stop / SessionEnd / PreCompact | Saves the session into the memory bank |
 | `access-trace` | PostToolUse Read | Logs bank reads for `memory review` |
 | `worktree-create` / `-remove` | Worktree* | Under `~/worktrees/<repo>/`; refuses dirty removals |
+
+Hook commands rendered into `~/.codex` carry a `HARNESS_HOOK_AGENT=codex` prefix; any `HARNESS_HOOK_*` prefix counts as
+harness-owned on re-render.
 
 ## Memory bank
 
